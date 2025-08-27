@@ -15,6 +15,8 @@ from pydantic import BaseModel
 from .core.config import Config
 from .core.client import QdrantWorkspaceClient
 from .utils.config_validator import ConfigValidator
+from .tools.search import search_workspace, search_collection_by_metadata
+from .tools.documents import add_document, update_document, delete_document, get_document
 
 # Initialize FastMCP application
 app = FastMCP("workspace-qdrant-mcp")
@@ -47,6 +49,86 @@ async def list_workspace_collections() -> list[str]:
         return []
     
     return await workspace_client.list_collections()
+
+
+@app.tool()
+async def search_workspace_tool(
+    query: str,
+    collections: list[str] = None,
+    mode: str = "hybrid",
+    limit: int = 10,
+    score_threshold: float = 0.7
+) -> dict:
+    """Search across workspace collections with hybrid search."""
+    if not workspace_client:
+        return {"error": "Workspace client not initialized"}
+    
+    return await search_workspace(
+        workspace_client,
+        query,
+        collections,
+        mode,
+        limit,
+        score_threshold
+    )
+
+
+@app.tool()
+async def add_document_tool(
+    content: str,
+    collection: str,
+    metadata: dict = None,
+    document_id: str = None,
+    chunk_text: bool = True
+) -> dict:
+    """Add document to specified collection."""
+    if not workspace_client:
+        return {"error": "Workspace client not initialized"}
+    
+    return await add_document(
+        workspace_client,
+        content,
+        collection,
+        metadata,
+        document_id,
+        chunk_text
+    )
+
+
+@app.tool()
+async def get_document_tool(
+    document_id: str,
+    collection: str,
+    include_vectors: bool = False
+) -> dict:
+    """Retrieve a document from collection."""
+    if not workspace_client:
+        return {"error": "Workspace client not initialized"}
+    
+    return await get_document(
+        workspace_client,
+        document_id,
+        collection,
+        include_vectors
+    )
+
+
+@app.tool()
+async def search_by_metadata_tool(
+    collection: str,
+    metadata_filter: dict,
+    limit: int = 10
+) -> dict:
+    """Search collection by metadata filter."""
+    if not workspace_client:
+        return {"error": "Workspace client not initialized"}
+    
+    return await search_collection_by_metadata(
+        workspace_client,
+        collection,
+        metadata_filter,
+        limit
+    )
 
 
 async def initialize_workspace() -> None:
