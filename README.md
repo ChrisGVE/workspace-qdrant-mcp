@@ -1,0 +1,1 @@
+# workspace-qdrant-mcp
