@@ -74,7 +74,7 @@
           "id": "7",
           "title": "Implement hybrid search with RRF fusion",
           "description": "Implement hybrid search combining dense and sparse vectors with Reciprocal Rank Fusion",
-          "status": "pending",
+          "status": "done",
           "priority": "medium",
           "details": "- Implement RRF (Reciprocal Rank Fusion) algorithm\n- Combine dense and sparse search results\n- Add scoring and ranking logic\n- Performance test and optimization", 
           "dependencies": ["6"],

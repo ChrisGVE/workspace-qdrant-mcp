@@ -190,6 +190,25 @@ BATCH_SIZE=50
 - qdrant-client (vector database client)
 - GitPython (git repository analysis)
 
+### Global Installation via uv tool
+
+**Critical Requirement**: The workspace-qdrant-mcp must be installable as a global `uv tool`:
+
+```bash
+# Install globally via uv
+uv tool install workspace-qdrant-mcp
+
+# Run from any directory
+workspace-qdrant-mcp
+```
+
+**Implementation Requirements**:
+- Proper `pyproject.toml` with `[project.scripts]` entry point
+- Console script that starts the FastMCP server
+- Global CLI availability after installation
+- Respect current working directory for project detection
+- Support for global and per-project configuration
+
 ### Performance Targets
 - Collection detection: < 1 second for typical projects
 - Embedding generation: > 100 docs/second on CPU
