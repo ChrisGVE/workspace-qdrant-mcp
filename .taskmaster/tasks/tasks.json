@@ -54,7 +54,7 @@
           "id": "5",
           "title": "Basic search and document management tools",
           "description": "Implement the core MCP tools for searching and document management", 
-          "status": "pending",
+          "status": "done",
           "priority": "high",
           "details": "- Implement search_workspace tool\n- Implement add_document tool\n- Implement list_workspace_collections tool\n- Add basic error handling and validation",
           "dependencies": ["2", "3", "4"],
