@@ -13,6 +13,7 @@ from qdrant_client.http.exceptions import ResponseHandlingException
 
 from ..core.client import QdrantWorkspaceClient
 from ..core.sparse_vectors import create_named_sparse_vector
+from ..core.hybrid_search import HybridSearchEngine
 
 logger = logging.getLogger(__name__)
 
@@ -111,12 +112,40 @@ async def _search_collection(
     limit: int,
     score_threshold: float
 ) -> List[Dict]:
-    """Search a single collection."""
-    
-    search_results = []
+    """Search a single collection with hybrid search support."""
     
     try:
-        if mode == "dense" or (mode == "hybrid" and "dense" in embeddings):
+        if mode == "hybrid" and "dense" in embeddings and "sparse" in embeddings:
+            # Use hybrid search engine for RRF fusion
+            hybrid_engine = HybridSearchEngine(qdrant_client)
+            
+            result = await hybrid_engine.hybrid_search(
+                collection_name=collection_name,
+                query_embeddings=embeddings,
+                limit=limit,
+                score_threshold=score_threshold
+            )
+            
+            if "error" in result:
+                logger.error("Hybrid search failed: %s", result["error"])
+                return []
+            
+            # Convert hybrid results to expected format
+            search_results = []
+            for r in result.get("results", []):
+                search_results.append({
+                    "id": r["id"],
+                    "score": r.get("rrf_score", r.get("score", 0.0)),
+                    "payload": r["payload"],
+                    "search_type": "hybrid"
+                })
+            
+            return search_results
+        
+        # Single mode searches (dense or sparse)
+        search_results = []
+        
+        if mode == "dense" and "dense" in embeddings:
             # Dense vector search
             dense_results = qdrant_client.search(
                 collection_name=collection_name,
@@ -134,7 +163,7 @@ async def _search_collection(
                     "search_type": "dense"
                 })
         
-        if mode == "sparse" or (mode == "hybrid" and "sparse" in embeddings):
+        elif mode == "sparse" and "sparse" in embeddings:
             # Sparse vector search using enhanced BM25
             sparse_vector = create_named_sparse_vector(
                 indices=embeddings["sparse"]["indices"],
@@ -157,12 +186,6 @@ async def _search_collection(
                     "payload": result.payload,
                     "search_type": "sparse"
                 })
-        
-        # For hybrid mode, we would normally apply RRF fusion here
-        # For now, just return combined results sorted by score
-        if mode == "hybrid":
-            # Simple score-based combination (RRF will be implemented in Task 7)
-            search_results.sort(key=lambda x: x["score"], reverse=True)
         
         return search_results[:limit]
         

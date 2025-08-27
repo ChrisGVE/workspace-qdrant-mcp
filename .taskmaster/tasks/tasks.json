@@ -84,7 +84,7 @@
           "id": "8",
           "title": "Add scratchbook-specific functionality",
           "description": "Implement scratchbook collections with specialized functionality for notes and ideas",
-          "status": "pending",
+          "status": "done",
           "priority": "medium",
           "details": "- Implement update_scratchbook tool\n- Add note ID generation and management\n- Implement note versioning/updating\n- Add scratchbook-specific search capabilities",
           "dependencies": ["3", "5"],
