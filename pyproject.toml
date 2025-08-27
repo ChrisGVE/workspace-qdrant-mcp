@@ -1,0 +1,65 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "workspace-qdrant-mcp"
+version = "0.1.0"
+description = "Project-scoped Qdrant MCP server with scratchbook functionality"
+authors = [
+    {name = "Chris", email = "chris@example.com"}
+]
+readme = "README.md"
+license = {text = "MIT"}
+requires-python = ">=3.9"
+dependencies = [
+    "fastmcp>=0.3.0",
+    "qdrant-client>=1.7.0",
+    "fastembed>=0.2.0",
+    "GitPython>=3.1.0",
+    "pydantic>=2.0.0",
+    "pydantic-settings>=2.0.0",
+    "python-dotenv>=1.0.0",
+    "typer>=0.9.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=7.0.0",
+    "pytest-asyncio>=0.21.0",
+    "black>=23.0.0",
+    "ruff>=0.1.0",
+    "mypy>=1.0.0",
+]
+
+[project.scripts]
+workspace-qdrant-mcp = "workspace_qdrant_mcp.server:main"
+
+[project.urls]
+Homepage = "https://github.com/chris/workspace-qdrant-mcp"
+Repository = "https://github.com/chris/workspace-qdrant-mcp"
+
+[tool.hatch.version]
+path = "src/workspace_qdrant_mcp/__init__.py"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/workspace_qdrant_mcp"]
+
+[tool.black]
+line-length = 88
+target-version = ["py39"]
+
+[tool.ruff]
+target-version = "py39"
+line-length = 88
+select = ["E", "F", "W", "B", "I", "N", "UP", "S", "C90", "PL"]
+
+[tool.mypy]
+python_version = "3.9"
+strict = true
+warn_return_any = true
+warn_unused_configs = true
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["tests"]
