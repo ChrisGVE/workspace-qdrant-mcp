@@ -13,6 +13,7 @@ from qdrant_client.http import models
 
 from .config import Config
 from .collections import WorkspaceCollectionManager
+from .embeddings import EmbeddingService
 from ..utils.project_detection import ProjectDetector
 
 logger = logging.getLogger(__name__)
@@ -29,6 +30,7 @@ class QdrantWorkspaceClient:
         self.config = config
         self.client: Optional[QdrantClient] = None
         self.collection_manager: Optional[WorkspaceCollectionManager] = None
+        self.embedding_service = EmbeddingService(config)
         self.project_detector = ProjectDetector(github_user=self.config.workspace.github_user)
         self.project_info: Optional[Dict] = None
         self.initialized = False
@@ -57,6 +59,10 @@ class QdrantWorkspaceClient:
             
             # Initialize collection manager
             self.collection_manager = WorkspaceCollectionManager(self.client, self.config)
+            
+            # Initialize embedding service
+            await self.embedding_service.initialize()
+            logger.info("Embedding service initialized")
             
             # Initialize workspace collections with detected project info
             await self.collection_manager.initialize_workspace_collections(
@@ -92,6 +98,7 @@ class QdrantWorkspaceClient:
                 "current_project": self.project_info["main_project"] if self.project_info else None,
                 "project_info": self.project_info,
                 "collection_info": collection_info,
+                "embedding_info": self.embedding_service.get_model_info(),
                 "config": {
                     "embedding_model": self.config.embedding.model,
                     "sparse_vectors_enabled": self.config.embedding.enable_sparse_vectors,
@@ -124,8 +131,14 @@ class QdrantWorkspaceClient:
         self.project_info = self.project_detector.get_project_info()
         return self.project_info
     
+    def get_embedding_service(self) -> EmbeddingService:
+        """Get the embedding service instance."""
+        return self.embedding_service
+    
     async def close(self) -> None:
         """Clean up client connections."""
+        if self.embedding_service:
+            await self.embedding_service.close()
         if self.client:
             self.client.close()
             self.client = None
