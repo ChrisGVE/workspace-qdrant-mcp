@@ -14,7 +14,7 @@
           "id": "1",
           "title": "Set up Python project structure with FastMCP",
           "description": "Initialize the Python project structure with FastMCP framework, including dependencies, package structure, and basic configuration files",
-          "status": "pending",
+          "status": "done",
           "priority": "high",
           "details": "- Create pyproject.toml with FastMCP dependencies\n- Set up src/workspace_qdrant_mcp package structure\n- Add basic configuration handling\n- Create initial server.py with FastMCP setup",
           "dependencies": [],
