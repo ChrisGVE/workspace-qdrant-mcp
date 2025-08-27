@@ -289,7 +289,7 @@ async def initialize_workspace() -> None:
     await workspace_client.initialize()
 
 
-def main(
+def run_server(
     host: str = typer.Option("127.0.0.1", help="Host to bind to"),
     port: int = typer.Option(8000, help="Port to bind to"),
     config_file: Optional[str] = typer.Option(None, help="Path to configuration file"),
@@ -307,5 +307,10 @@ def main(
     app.run(host=host, port=port)
 
 
+def main() -> None:
+    """Console script entry point for uv tool installation."""
+    typer.run(run_server)
+
+
 if __name__ == "__main__":
-    typer.run(main)
+    main()
