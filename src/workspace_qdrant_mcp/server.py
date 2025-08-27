@@ -5,6 +5,7 @@ Provides project-scoped Qdrant collections with scratchbook functionality.
 """
 
 import asyncio
+import logging
 import os
 from typing import Optional
 
@@ -19,6 +20,9 @@ from .tools.search import search_workspace, search_collection_by_metadata
 from .core.hybrid_search import HybridSearchEngine
 from .tools.documents import add_document, update_document, delete_document, get_document
 from .tools.scratchbook import update_scratchbook, ScratchbookManager
+
+# Initialize logging
+logger = logging.getLogger(__name__)
 
 # Initialize FastMCP application
 app = FastMCP("workspace-qdrant-mcp")
