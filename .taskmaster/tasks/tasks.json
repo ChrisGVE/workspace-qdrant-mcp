@@ -1,0 +1,157 @@
+{
+  "version": "1.0.0",
+  "project": "workspace-qdrant-mcp",
+  "createdAt": "2025-08-27T22:15:00Z",
+  "tags": {
+    "master": {
+      "metadata": {
+        "name": "master", 
+        "description": "Main development track",
+        "createdAt": "2025-08-27T22:15:00Z"
+      },
+      "tasks": [
+        {
+          "id": "1",
+          "title": "Set up Python project structure with FastMCP",
+          "description": "Initialize the Python project structure with FastMCP framework, including dependencies, package structure, and basic configuration files",
+          "status": "pending",
+          "priority": "high",
+          "details": "- Create pyproject.toml with FastMCP dependencies\n- Set up src/workspace_qdrant_mcp package structure\n- Add basic configuration handling\n- Create initial server.py with FastMCP setup",
+          "dependencies": [],
+          "createdAt": "2025-08-27T22:15:00Z"
+        },
+        {
+          "id": "2", 
+          "title": "Port TypeScript collection management to Python",
+          "description": "Port the collection management functionality from claude-qdrant-mcp TypeScript implementation to Python",
+          "status": "pending",
+          "priority": "high",
+          "details": "- Analyze original TypeScript collection management code\n- Port to Python using qdrant-client\n- Implement collection creation and management\n- Add proper error handling and validation",
+          "dependencies": ["1"],
+          "createdAt": "2025-08-27T22:15:00Z"
+        },
+        {
+          "id": "3",
+          "title": "Implement project detection logic", 
+          "description": "Implement the Git-based project detection and naming logic with GitHub user awareness",
+          "status": "pending",
+          "priority": "high", 
+          "details": "- Implement get_project_name() function\n- Add Git repository analysis using GitPython\n- Implement remote URL parsing for GitHub user detection\n- Add submodule detection and filtering",
+          "dependencies": ["1"],
+          "createdAt": "2025-08-27T22:15:00Z"
+        },
+        {
+          "id": "4",
+          "title": "Integrate FastEmbed for embedding generation",
+          "description": "Integrate FastEmbed with all-MiniLM-L6-v2 model for document embeddings",
+          "status": "pending", 
+          "priority": "high",
+          "details": "- Install and configure FastEmbed\n- Set up all-MiniLM-L6-v2 model\n- Implement embedding generation pipeline\n- Add batch processing for efficiency",
+          "dependencies": ["1"],
+          "createdAt": "2025-08-27T22:15:00Z"
+        },
+        {
+          "id": "5",
+          "title": "Basic search and document management tools",
+          "description": "Implement the core MCP tools for searching and document management", 
+          "status": "pending",
+          "priority": "high",
+          "details": "- Implement search_workspace tool\n- Implement add_document tool\n- Implement list_workspace_collections tool\n- Add basic error handling and validation",
+          "dependencies": ["2", "3", "4"],
+          "createdAt": "2025-08-27T22:15:00Z"
+        },
+        {
+          "id": "6",
+          "title": "Add BM25 sparse vector support",
+          "description": "Implement BM25 sparse vectors for hybrid search capabilities",
+          "status": "pending",
+          "priority": "medium", 
+          "details": "- Research BM25 implementation options\n- Integrate sparse vector generation\n- Modify collection schema for named vectors\n- Test sparse vector storage and retrieval",
+          "dependencies": ["4", "5"],
+          "createdAt": "2025-08-27T22:15:00Z"
+        },
+        {
+          "id": "7",
+          "title": "Implement hybrid search with RRF fusion",
+          "description": "Implement hybrid search combining dense and sparse vectors with Reciprocal Rank Fusion",
+          "status": "pending",
+          "priority": "medium",
+          "details": "- Implement RRF (Reciprocal Rank Fusion) algorithm\n- Combine dense and sparse search results\n- Add scoring and ranking logic\n- Performance test and optimization", 
+          "dependencies": ["6"],
+          "createdAt": "2025-08-27T22:15:00Z"
+        },
+        {
+          "id": "8",
+          "title": "Add scratchbook-specific functionality",
+          "description": "Implement scratchbook collections with specialized functionality for notes and ideas",
+          "status": "pending",
+          "priority": "medium",
+          "details": "- Implement update_scratchbook tool\n- Add note ID generation and management\n- Implement note versioning/updating\n- Add scratchbook-specific search capabilities",
+          "dependencies": ["3", "5"],
+          "createdAt": "2025-08-27T22:15:00Z"
+        },
+        {
+          "id": "9", 
+          "title": "GitHub user-aware submodule detection",
+          "description": "Enhance submodule detection to filter by GitHub user ownership",
+          "status": "pending",
+          "priority": "medium",
+          "details": "- Implement submodule enumeration\n- Add GitHub URL parsing and user extraction\n- Filter submodules by user ownership\n- Apply project naming logic to submodules",
+          "dependencies": ["3"],
+          "createdAt": "2025-08-27T22:15:00Z"
+        },
+        {
+          "id": "10",
+          "title": "Configuration management and validation", 
+          "description": "Implement comprehensive configuration management with environment variable support",
+          "status": "pending",
+          "priority": "medium",
+          "details": "- Create configuration schema and validation\n- Implement environment variable loading\n- Add configuration file support\n- Add startup configuration validation",
+          "dependencies": ["1"],
+          "createdAt": "2025-08-27T22:15:00Z"
+        },
+        {
+          "id": "11",
+          "title": "Test integration with existing Qdrant instance",
+          "description": "Test the implementation against real Qdrant instances and validate functionality", 
+          "status": "pending",
+          "priority": "medium",
+          "details": "- Set up test Qdrant instance\n- Test collection creation and management\n- Validate embedding storage and retrieval\n- Test all MCP tools end-to-end",
+          "dependencies": ["7", "8", "9", "10"],
+          "createdAt": "2025-08-27T22:15:00Z"
+        },
+        {
+          "id": "12",
+          "title": "Validate against memexd daemon compatibility",
+          "description": "Ensure compatibility with memexd daemon and verify no collection conflicts",
+          "status": "pending", 
+          "priority": "high",
+          "details": "- Review memexd collection naming conventions\n- Validate no conflicts with -code collections\n- Test coexistence with memexd\n- Document integration patterns",
+          "dependencies": ["11"],
+          "createdAt": "2025-08-27T22:15:00Z"
+        },
+        {
+          "id": "13",
+          "title": "Performance optimization and tuning",
+          "description": "Optimize performance to meet the specified targets",
+          "status": "pending",
+          "priority": "medium", 
+          "details": "- Profile embedding generation performance\n- Optimize batch processing\n- Tune memory usage\n- Optimize search latency",
+          "dependencies": ["11"], 
+          "createdAt": "2025-08-27T22:15:00Z"
+        },
+        {
+          "id": "14",
+          "title": "Documentation and usage examples",
+          "description": "Create comprehensive documentation and usage examples",
+          "status": "pending",
+          "priority": "low",
+          "details": "- Write API documentation for MCP tools\n- Create configuration guide\n- Add usage examples and tutorials\n- Document integration with broader ecosystem",
+          "dependencies": ["12", "13"],
+          "createdAt": "2025-08-27T22:15:00Z"
+        }
+      ]
+    }
+  },
+  "currentTag": "master"
+}
