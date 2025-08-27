@@ -251,7 +251,7 @@ class ConfigValidator:
             typer.echo(typer.style("\n✅ Configuration is valid!", fg=typer.colors.GREEN, bold=True))
 
 
-def validate_config_cli(
+def validate_config_cmd(
     verbose: bool = typer.Option(False, "--verbose", "-v", help="Show detailed output"),
     config_file: Optional[str] = typer.Option(None, "--config", help="Path to config file"),
     setup_guide: bool = typer.Option(False, "--guide", help="Show setup guide"),
@@ -295,5 +295,10 @@ def validate_config_cli(
         sys.exit(1)
 
 
+def validate_config_cli() -> None:
+    """Console script entry point for uv tool installation."""
+    typer.run(validate_config_cmd)
+
+
 if __name__ == "__main__":
-    typer.run(validate_config_cli)
+    validate_config_cli()
