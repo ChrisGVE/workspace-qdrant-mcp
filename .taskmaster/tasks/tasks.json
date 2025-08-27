@@ -44,7 +44,7 @@
           "id": "4",
           "title": "Integrate FastEmbed for embedding generation",
           "description": "Integrate FastEmbed with all-MiniLM-L6-v2 model for document embeddings",
-          "status": "pending", 
+          "status": "done", 
           "priority": "high",
           "details": "- Install and configure FastEmbed\n- Set up all-MiniLM-L6-v2 model\n- Implement embedding generation pipeline\n- Add batch processing for efficiency",
           "dependencies": ["1"],
