@@ -12,6 +12,7 @@ from qdrant_client import QdrantClient
 from qdrant_client.http import models
 
 from .config import Config
+from .collections import WorkspaceCollectionManager
 
 logger = logging.getLogger(__name__)
 
@@ -26,6 +27,7 @@ class QdrantWorkspaceClient:
     def __init__(self, config: Config):
         self.config = config
         self.client: Optional[QdrantClient] = None
+        self.collection_manager: Optional[WorkspaceCollectionManager] = None
         self.initialized = False
         
     async def initialize(self) -> None:
@@ -44,8 +46,15 @@ class QdrantWorkspaceClient:
             
             logger.info("Connected to Qdrant at %s", self.config.qdrant.url)
             
-            # TODO: Initialize collections for current project
-            # This will be implemented in Task 2 and Task 3
+            # Initialize collection manager
+            self.collection_manager = WorkspaceCollectionManager(self.client, self.config)
+            
+            # Initialize workspace collections
+            # Note: Project detection will be added in Task 3
+            await self.collection_manager.initialize_workspace_collections(
+                project_name="default",  # Placeholder until Task 3 is complete
+                subprojects=[]
+            )
             
             self.initialized = True
             
@@ -64,12 +73,16 @@ class QdrantWorkspaceClient:
                 None, self.client.get_collections
             )
             
+            workspace_collections = await self.collection_manager.list_workspace_collections()
+            collection_info = await self.collection_manager.get_collection_info()
+            
             return {
                 "connected": True,
                 "qdrant_url": self.config.qdrant.url,
                 "collections_count": len(info.collections),
-                "workspace_collections": [],  # TODO: Implement in Task 2
-                "current_project": None,      # TODO: Implement in Task 3
+                "workspace_collections": workspace_collections,
+                "current_project": "default",  # TODO: Implement in Task 3
+                "collection_info": collection_info,
                 "config": {
                     "embedding_model": self.config.embedding.model,
                     "sparse_vectors_enabled": self.config.embedding.enable_sparse_vectors,
@@ -87,13 +100,7 @@ class QdrantWorkspaceClient:
             return []
             
         try:
-            collections = await asyncio.get_event_loop().run_in_executor(
-                None, self.client.get_collections
-            )
-            
-            # TODO: Filter to workspace-scoped collections only
-            # This will be implemented in Task 2 and Task 3
-            return [c.name for c in collections.collections]
+            return await self.collection_manager.list_workspace_collections()
             
         except Exception as e:
             logger.error("Failed to list collections: %s", e)
