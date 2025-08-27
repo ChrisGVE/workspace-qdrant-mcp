@@ -16,6 +16,7 @@ from .core.config import Config
 from .core.client import QdrantWorkspaceClient
 from .utils.config_validator import ConfigValidator
 from .tools.search import search_workspace, search_collection_by_metadata
+from .core.hybrid_search import HybridSearchEngine
 from .tools.documents import add_document, update_document, delete_document, get_document
 from .tools.scratchbook import update_scratchbook, ScratchbookManager
 
@@ -209,6 +210,49 @@ async def delete_scratchbook_note_tool(
     
     manager = ScratchbookManager(workspace_client)
     return await manager.delete_note(note_id, project_name)
+
+
+@app.tool()
+async def hybrid_search_advanced_tool(
+    query: str,
+    collection: str,
+    fusion_method: str = "rrf",
+    dense_weight: float = 1.0,
+    sparse_weight: float = 1.0,
+    limit: int = 10,
+    score_threshold: float = 0.0
+) -> dict:
+    """Advanced hybrid search with configurable fusion methods."""
+    if not workspace_client:
+        return {"error": "Workspace client not initialized"}
+    
+    try:
+        # Validate collection exists
+        available_collections = await workspace_client.list_collections()
+        if collection not in available_collections:
+            return {"error": f"Collection '{collection}' not found"}
+        
+        # Generate embeddings
+        embedding_service = workspace_client.get_embedding_service()
+        embeddings = await embedding_service.generate_embeddings(query, include_sparse=True)
+        
+        # Perform hybrid search
+        hybrid_engine = HybridSearchEngine(workspace_client.client)
+        result = await hybrid_engine.hybrid_search(
+            collection_name=collection,
+            query_embeddings=embeddings,
+            limit=limit,
+            score_threshold=score_threshold,
+            dense_weight=dense_weight,
+            sparse_weight=sparse_weight,
+            fusion_method=fusion_method
+        )
+        
+        return result
+        
+    except Exception as e:
+        logger.error("Advanced hybrid search failed: %s", e)
+        return {"error": f"Advanced hybrid search failed: {e}"}
 
 
 async def initialize_workspace() -> None:
