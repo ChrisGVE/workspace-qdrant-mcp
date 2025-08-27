@@ -13,6 +13,7 @@ from fastembed import TextEmbedding
 from fastembed.sparse import SparseTextEmbedding
 
 from .config import Config
+from .sparse_vectors import BM25SparseEncoder
 
 logger = logging.getLogger(__name__)
 
@@ -28,6 +29,7 @@ class EmbeddingService:
         self.config = config
         self.dense_model: Optional[TextEmbedding] = None
         self.sparse_model: Optional[SparseTextEmbedding] = None
+        self.bm25_encoder: Optional[BM25SparseEncoder] = None
         self.initialized = False
         
     async def initialize(self) -> None:
@@ -48,11 +50,9 @@ class EmbeddingService:
             
             # Initialize sparse embedding model if enabled
             if self.config.embedding.enable_sparse_vectors:
-                logger.info("Initializing sparse embedding model")
-                self.sparse_model = await asyncio.get_event_loop().run_in_executor(
-                    None,
-                    lambda: SparseTextEmbedding(model_name="Qdrant/bm25")
-                )
+                logger.info("Initializing enhanced BM25 sparse encoder")
+                self.bm25_encoder = BM25SparseEncoder(use_fastembed=True)
+                await self.bm25_encoder.initialize()
                 
             self.initialized = True
             logger.info("Embedding models initialized successfully")
@@ -96,7 +96,7 @@ class EmbeddingService:
             result["dense"] = dense_embeddings[0] if single_text else dense_embeddings
             
             # Generate sparse embeddings if requested
-            if include_sparse and self.sparse_model:
+            if include_sparse and self.bm25_encoder:
                 sparse_embeddings = await self._generate_sparse_embeddings(texts)
                 result["sparse"] = sparse_embeddings[0] if single_text else sparse_embeddings
                 
@@ -120,24 +120,13 @@ class EmbeddingService:
             raise
     
     async def _generate_sparse_embeddings(self, texts: List[str]) -> List[Dict]:
-        """Generate sparse embeddings using BM25."""
+        """Generate sparse embeddings using enhanced BM25."""
         try:
-            embeddings = await asyncio.get_event_loop().run_in_executor(
-                None,
-                lambda: list(self.sparse_model.embed(texts))
-            )
-            
-            # Convert to Qdrant-compatible sparse vector format
-            sparse_vectors = []
-            for embedding in embeddings:
-                indices = embedding.indices.tolist()
-                values = embedding.values.tolist()
-                sparse_vectors.append({
-                    "indices": indices,
-                    "values": values
-                })
-                
-            return sparse_vectors
+            if len(texts) == 1:
+                sparse_vector = await self.bm25_encoder.encode_single(texts[0])
+                return [sparse_vector]
+            else:
+                return await self.bm25_encoder.encode_batch(texts)
             
         except Exception as e:
             logger.error("Failed to generate sparse embeddings: %s", e)
@@ -245,6 +234,10 @@ class EmbeddingService:
     
     def get_model_info(self) -> Dict:
         """Get information about loaded models."""
+        sparse_info = {}
+        if self.bm25_encoder:
+            sparse_info = self.bm25_encoder.get_model_info()
+        
         return {
             "dense_model": {
                 "name": self.config.embedding.model,
@@ -252,9 +245,10 @@ class EmbeddingService:
                 "dimensions": 384 if "all-MiniLM-L6-v2" in self.config.embedding.model else "unknown"
             },
             "sparse_model": {
-                "name": "Qdrant/bm25" if self.config.embedding.enable_sparse_vectors else None,
-                "loaded": self.sparse_model is not None,
-                "enabled": self.config.embedding.enable_sparse_vectors
+                "name": "Enhanced BM25" if self.config.embedding.enable_sparse_vectors else None,
+                "loaded": self.bm25_encoder is not None,
+                "enabled": self.config.embedding.enable_sparse_vectors,
+                **sparse_info
             },
             "config": {
                 "chunk_size": self.config.embedding.chunk_size,
@@ -269,4 +263,5 @@ class EmbeddingService:
         # FastEmbed models don't need explicit cleanup
         self.dense_model = None
         self.sparse_model = None
+        self.bm25_encoder = None
         self.initialized = False

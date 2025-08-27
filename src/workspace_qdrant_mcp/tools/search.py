@@ -12,6 +12,7 @@ from qdrant_client.http import models
 from qdrant_client.http.exceptions import ResponseHandlingException
 
 from ..core.client import QdrantWorkspaceClient
+from ..core.sparse_vectors import create_named_sparse_vector
 
 logger = logging.getLogger(__name__)
 
@@ -134,16 +135,16 @@ async def _search_collection(
                 })
         
         if mode == "sparse" or (mode == "hybrid" and "sparse" in embeddings):
-            # Sparse vector search
+            # Sparse vector search using enhanced BM25
+            sparse_vector = create_named_sparse_vector(
+                indices=embeddings["sparse"]["indices"],
+                values=embeddings["sparse"]["values"],
+                name="sparse"
+            )
+            
             sparse_results = qdrant_client.search(
                 collection_name=collection_name,
-                query_vector=models.NamedSparseVector(
-                    name="sparse",
-                    vector=models.SparseVector(
-                        indices=embeddings["sparse"]["indices"],
-                        values=embeddings["sparse"]["values"]
-                    )
-                ),
+                query_vector=sparse_vector,
                 limit=limit,
                 score_threshold=score_threshold,
                 with_payload=True

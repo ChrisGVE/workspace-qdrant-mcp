@@ -13,6 +13,7 @@ from qdrant_client.http import models
 from qdrant_client.http.exceptions import ResponseHandlingException
 
 from ..core.client import QdrantWorkspaceClient
+from ..core.sparse_vectors import create_qdrant_sparse_vector
 
 logger = logging.getLogger(__name__)
 
@@ -138,7 +139,7 @@ async def _add_single_document(
         # Prepare vectors
         vectors = {"dense": embeddings["dense"]}
         if "sparse" in embeddings:
-            vectors["sparse"] = models.SparseVector(
+            vectors["sparse"] = create_qdrant_sparse_vector(
                 indices=embeddings["sparse"]["indices"],
                 values=embeddings["sparse"]["values"]
             )
@@ -232,7 +233,7 @@ async def update_document(
                     # Update vectors
                     vectors = {"dense": embeddings["dense"]}
                     if "sparse" in embeddings:
-                        vectors["sparse"] = models.SparseVector(
+                        vectors["sparse"] = create_qdrant_sparse_vector(
                             indices=embeddings["sparse"]["indices"],
                             values=embeddings["sparse"]["values"]
                         )

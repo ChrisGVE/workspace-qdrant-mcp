@@ -94,7 +94,7 @@
           "id": "9", 
           "title": "GitHub user-aware submodule detection",
           "description": "Enhance submodule detection to filter by GitHub user ownership",
-          "status": "pending",
+          "status": "done",
           "priority": "medium",
           "details": "- Implement submodule enumeration\n- Add GitHub URL parsing and user extraction\n- Filter submodules by user ownership\n- Apply project naming logic to submodules",
           "dependencies": ["3"],
