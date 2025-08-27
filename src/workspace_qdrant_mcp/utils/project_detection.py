@@ -77,6 +77,19 @@ class ProjectDetector:
         Returns:
             List of subproject names
         """
+        submodules = self.get_detailed_submodules(path)
+        return [sm["project_name"] for sm in submodules if sm["project_name"]]
+    
+    def get_detailed_submodules(self, path: str = ".") -> List[dict]:
+        """
+        Get detailed information about submodules.
+        
+        Args:
+            path: Path to analyze
+            
+        Returns:
+            List of submodule information dictionaries
+        """
         try:
             git_root = self._find_git_root(path)
             if not git_root:
@@ -88,27 +101,68 @@ class ProjectDetector:
             # Get all submodules
             for submodule in repo.submodules:
                 try:
-                    submodule_url = submodule.url
-                    
-                    # Filter by GitHub user if specified
-                    if self.github_user:
-                        if not self._belongs_to_user(submodule_url):
-                            continue
-                    
-                    # Extract project name from submodule
-                    project_name = self._extract_repo_name_from_remote(submodule_url)
-                    if project_name:
-                        submodules.append(project_name)
+                    submodule_info = self._analyze_submodule(submodule, git_root)
+                    if submodule_info:
+                        submodules.append(submodule_info)
                         
                 except Exception as e:
                     logger.warning("Failed to process submodule %s: %s", submodule.name, e)
                     continue
             
-            return sorted(list(set(submodules)))  # Remove duplicates and sort
+            # Sort by project name
+            submodules.sort(key=lambda x: x.get("project_name", ""))
+            
+            return submodules
             
         except Exception as e:
-            logger.warning("Failed to get subprojects from %s: %s", path, e)
+            logger.warning("Failed to get submodules from %s: %s", path, e)
             return []
+    
+    def _analyze_submodule(self, submodule, git_root: str) -> Optional[dict]:
+        """Analyze a single submodule and extract information."""
+        try:
+            submodule_url = submodule.url
+            submodule_path = os.path.join(git_root, submodule.path)
+            
+            # Parse URL information
+            url_info = self._parse_git_url(submodule_url)
+            
+            # Check if user filtering is required
+            user_owned = False
+            if self.github_user:
+                user_owned = self._belongs_to_user(submodule_url)
+                # Skip if user filtering is enabled but this doesn't belong to user
+                if not user_owned:
+                    return None
+            
+            # Extract project name
+            project_name = self._extract_repo_name_from_remote(submodule_url)
+            
+            # Check if submodule is initialized
+            is_initialized = os.path.exists(submodule_path) and os.listdir(submodule_path)
+            
+            # Try to get commit info
+            commit_sha = None
+            try:
+                commit_sha = submodule.hexsha
+            except Exception:
+                pass
+            
+            return {
+                "name": submodule.name,
+                "path": submodule.path,
+                "url": submodule_url,
+                "project_name": project_name,
+                "is_initialized": is_initialized,
+                "user_owned": user_owned,
+                "commit_sha": commit_sha,
+                "url_info": url_info,
+                "local_path": submodule_path
+            }
+            
+        except Exception as e:
+            logger.error("Failed to analyze submodule %s: %s", submodule.name, e)
+            return None
     
     def _find_git_root(self, path: str) -> Optional[str]:
         """
@@ -155,6 +209,66 @@ class ProjectDetector:
             logger.warning("Failed to get remote URL from %s: %s", git_root, e)
             return None
     
+    def _parse_git_url(self, remote_url: str) -> dict:
+        """
+        Parse a Git remote URL and extract components.
+        
+        Args:
+            remote_url: Git remote URL
+            
+        Returns:
+            Dictionary with URL components
+        """
+        url_info = {
+            "original": remote_url,
+            "hostname": None,
+            "username": None,
+            "repository": None,
+            "protocol": None,
+            "is_github": False,
+            "is_ssh": False
+        }
+        
+        if not remote_url:
+            return url_info
+            
+        try:
+            # SSH format: git@github.com:user/repo.git
+            if remote_url.startswith("git@"):
+                url_info["is_ssh"] = True
+                url_info["protocol"] = "ssh"
+                
+                # Parse SSH format
+                ssh_match = re.match(r"git@([^:]+):([^/]+)/(.+?)(?:\.git)?$", remote_url)
+                if ssh_match:
+                    url_info["hostname"] = ssh_match.group(1)
+                    url_info["username"] = ssh_match.group(2)
+                    url_info["repository"] = ssh_match.group(3)
+                    
+            # HTTPS/HTTP format: https://github.com/user/repo.git
+            elif remote_url.startswith(("http://", "https://")):
+                parsed = urlparse(remote_url)
+                url_info["protocol"] = parsed.scheme
+                url_info["hostname"] = parsed.hostname
+                
+                if parsed.path:
+                    path_parts = parsed.path.strip("/").split("/")
+                    if len(path_parts) >= 2:
+                        url_info["username"] = path_parts[0]
+                        repo_name = path_parts[1]
+                        if repo_name.endswith(".git"):
+                            repo_name = repo_name[:-4]
+                        url_info["repository"] = repo_name
+            
+            # Check if it's GitHub
+            if url_info["hostname"] == "github.com":
+                url_info["is_github"] = True
+                
+        except Exception as e:
+            logger.warning("Failed to parse Git URL %s: %s", remote_url, e)
+            
+        return url_info
+    
     def _belongs_to_user(self, remote_url: str) -> bool:
         """
         Check if a remote URL belongs to the configured GitHub user.
@@ -169,25 +283,12 @@ class ProjectDetector:
             return False
             
         try:
-            # Handle different URL formats
-            if remote_url.startswith("git@github.com:"):
-                # SSH format: git@github.com:user/repo.git
-                match = re.match(r"git@github\.com:([^/]+)/", remote_url)
-                if match:
-                    return match.group(1) == self.github_user
-                    
-            elif "github.com" in remote_url:
-                # HTTPS format: https://github.com/user/repo.git
-                parsed = urlparse(remote_url)
-                if parsed.hostname == "github.com" and parsed.path:
-                    path_parts = parsed.path.strip("/").split("/")
-                    if len(path_parts) >= 1:
-                        return path_parts[0] == self.github_user
-            
-            return False
+            url_info = self._parse_git_url(remote_url)
+            return (url_info["is_github"] and 
+                   url_info["username"] == self.github_user)
             
         except Exception as e:
-            logger.warning("Failed to parse remote URL %s: %s", remote_url, e)
+            logger.warning("Failed to check user ownership for URL %s: %s", remote_url, e)
             return False
     
     def _extract_repo_name_from_remote(self, remote_url: str) -> Optional[str]:
@@ -204,30 +305,8 @@ class ProjectDetector:
             return None
             
         try:
-            # Handle SSH format: git@github.com:user/repo.git
-            if remote_url.startswith("git@github.com:"):
-                match = re.match(r"git@github\.com:[^/]+/([^/]+)(?:\.git)?$", remote_url)
-                if match:
-                    return match.group(1)
-            
-            # Handle HTTPS format: https://github.com/user/repo.git
-            elif "github.com" in remote_url:
-                parsed = urlparse(remote_url)
-                if parsed.path:
-                    path_parts = parsed.path.strip("/").split("/")
-                    if len(path_parts) >= 2:
-                        repo_name = path_parts[1]
-                        # Remove .git suffix if present
-                        if repo_name.endswith(".git"):
-                            repo_name = repo_name[:-4]
-                        return repo_name
-            
-            # Fallback: try to extract from any URL
-            match = re.search(r"/([^/]+?)(?:\.git)?/?$", remote_url)
-            if match:
-                return match.group(1)
-                
-            return None
+            url_info = self._parse_git_url(remote_url)
+            return url_info.get("repository")
             
         except Exception as e:
             logger.warning("Failed to extract repo name from %s: %s", remote_url, e)
@@ -247,16 +326,24 @@ class ProjectDetector:
             main_project, subprojects = self.get_project_and_subprojects(path)
             git_root = self._find_git_root(path)
             remote_url = self._get_git_remote_url(git_root) if git_root else None
+            detailed_submodules = self.get_detailed_submodules(path)
+            
+            # Parse main project URL info
+            main_url_info = self._parse_git_url(remote_url) if remote_url else {}
             
             return {
                 "main_project": main_project,
                 "subprojects": subprojects,
                 "git_root": git_root,
                 "remote_url": remote_url,
+                "main_url_info": main_url_info,
                 "github_user": self.github_user,
                 "path": os.path.abspath(path),
                 "is_git_repo": git_root is not None,
                 "belongs_to_user": self._belongs_to_user(remote_url) if remote_url else False,
+                "detailed_submodules": detailed_submodules,
+                "submodule_count": len(detailed_submodules),
+                "user_owned_submodules": [sm for sm in detailed_submodules if sm.get("user_owned", False)],
             }
             
         except Exception as e:
@@ -266,9 +353,13 @@ class ProjectDetector:
                 "subprojects": [],
                 "git_root": None,
                 "remote_url": None,
+                "main_url_info": {},
                 "github_user": self.github_user,
                 "path": os.path.abspath(path),
                 "is_git_repo": False,
                 "belongs_to_user": False,
+                "detailed_submodules": [],
+                "submodule_count": 0,
+                "user_owned_submodules": [],
                 "error": str(e)
             }
