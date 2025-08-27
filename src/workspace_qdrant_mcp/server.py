@@ -14,6 +14,7 @@ from pydantic import BaseModel
 
 from .core.config import Config
 from .core.client import QdrantWorkspaceClient
+from .utils.config_validator import ConfigValidator
 
 # Initialize FastMCP application
 app = FastMCP("workspace-qdrant-mcp")
@@ -54,6 +55,22 @@ async def initialize_workspace() -> None:
     
     # Load configuration
     config = Config()
+    
+    # Validate configuration
+    validator = ConfigValidator(config)
+    is_valid, validation_results = validator.validate_all()
+    
+    if not is_valid:
+        print("❌ Configuration validation failed:")
+        for issue in validation_results["issues"]:
+            print(f"  • {issue}")
+        raise RuntimeError("Configuration validation failed")
+    
+    # Show warnings if any
+    if validation_results["warnings"]:
+        print("⚠️  Configuration warnings:")
+        for warning in validation_results["warnings"]:
+            print(f"  • {warning}")
     
     # Initialize Qdrant workspace client
     workspace_client = QdrantWorkspaceClient(config)
