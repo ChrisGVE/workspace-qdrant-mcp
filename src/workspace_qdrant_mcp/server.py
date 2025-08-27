@@ -17,6 +17,7 @@ from .core.client import QdrantWorkspaceClient
 from .utils.config_validator import ConfigValidator
 from .tools.search import search_workspace, search_collection_by_metadata
 from .tools.documents import add_document, update_document, delete_document, get_document
+from .tools.scratchbook import update_scratchbook, ScratchbookManager
 
 # Initialize FastMCP application
 app = FastMCP("workspace-qdrant-mcp")
@@ -129,6 +130,85 @@ async def search_by_metadata_tool(
         metadata_filter,
         limit
     )
+
+
+@app.tool()
+async def update_scratchbook_tool(
+    content: str,
+    note_id: str = None,
+    title: str = None,
+    tags: list[str] = None,
+    note_type: str = "note"
+) -> dict:
+    """Add or update a scratchbook note."""
+    if not workspace_client:
+        return {"error": "Workspace client not initialized"}
+    
+    return await update_scratchbook(
+        workspace_client,
+        content,
+        note_id,
+        title,
+        tags,
+        note_type
+    )
+
+
+@app.tool()
+async def search_scratchbook_tool(
+    query: str,
+    note_types: list[str] = None,
+    tags: list[str] = None,
+    project_name: str = None,
+    limit: int = 10,
+    mode: str = "hybrid"
+) -> dict:
+    """Search scratchbook notes with specialized filtering."""
+    if not workspace_client:
+        return {"error": "Workspace client not initialized"}
+    
+    manager = ScratchbookManager(workspace_client)
+    return await manager.search_notes(
+        query,
+        note_types,
+        tags,
+        project_name,
+        limit,
+        mode
+    )
+
+
+@app.tool()
+async def list_scratchbook_notes_tool(
+    project_name: str = None,
+    note_type: str = None,
+    tags: list[str] = None,
+    limit: int = 50
+) -> dict:
+    """List notes in scratchbook with optional filtering."""
+    if not workspace_client:
+        return {"error": "Workspace client not initialized"}
+    
+    manager = ScratchbookManager(workspace_client)
+    return await manager.list_notes(
+        project_name,
+        note_type,
+        tags,
+        limit
+    )
+
+
+@app.tool()
+async def delete_scratchbook_note_tool(
+    note_id: str,
+    project_name: str = None
+) -> dict:
+    """Delete a note from the scratchbook."""
+    if not workspace_client:
+        return {"error": "Workspace client not initialized"}
+    
+    manager = ScratchbookManager(workspace_client)
+    return await manager.delete_note(note_id, project_name)
 
 
 async def initialize_workspace() -> None:
