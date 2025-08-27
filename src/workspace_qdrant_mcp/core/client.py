@@ -13,6 +13,7 @@ from qdrant_client.http import models
 
 from .config import Config
 from .collections import WorkspaceCollectionManager
+from ..utils.project_detection import ProjectDetector
 
 logger = logging.getLogger(__name__)
 
@@ -28,6 +29,8 @@ class QdrantWorkspaceClient:
         self.config = config
         self.client: Optional[QdrantClient] = None
         self.collection_manager: Optional[WorkspaceCollectionManager] = None
+        self.project_detector = ProjectDetector(github_user=self.config.workspace.github_user)
+        self.project_info: Optional[Dict] = None
         self.initialized = False
         
     async def initialize(self) -> None:
@@ -46,14 +49,19 @@ class QdrantWorkspaceClient:
             
             logger.info("Connected to Qdrant at %s", self.config.qdrant.url)
             
+            # Detect current project and subprojects
+            self.project_info = self.project_detector.get_project_info()
+            logger.info("Detected project: %s with subprojects: %s", 
+                       self.project_info["main_project"], 
+                       self.project_info["subprojects"])
+            
             # Initialize collection manager
             self.collection_manager = WorkspaceCollectionManager(self.client, self.config)
             
-            # Initialize workspace collections
-            # Note: Project detection will be added in Task 3
+            # Initialize workspace collections with detected project info
             await self.collection_manager.initialize_workspace_collections(
-                project_name="default",  # Placeholder until Task 3 is complete
-                subprojects=[]
+                project_name=self.project_info["main_project"],
+                subprojects=self.project_info["subprojects"]
             )
             
             self.initialized = True
@@ -81,7 +89,8 @@ class QdrantWorkspaceClient:
                 "qdrant_url": self.config.qdrant.url,
                 "collections_count": len(info.collections),
                 "workspace_collections": workspace_collections,
-                "current_project": "default",  # TODO: Implement in Task 3
+                "current_project": self.project_info["main_project"] if self.project_info else None,
+                "project_info": self.project_info,
                 "collection_info": collection_info,
                 "config": {
                     "embedding_model": self.config.embedding.model,
@@ -105,6 +114,15 @@ class QdrantWorkspaceClient:
         except Exception as e:
             logger.error("Failed to list collections: %s", e)
             return []
+    
+    def get_project_info(self) -> Optional[Dict]:
+        """Get current project information."""
+        return self.project_info
+    
+    def refresh_project_detection(self) -> Dict:
+        """Refresh project detection from current directory."""
+        self.project_info = self.project_detector.get_project_info()
+        return self.project_info
     
     async def close(self) -> None:
         """Clean up client connections."""
