@@ -342,7 +342,6 @@ class Config(BaseSettings):
             issues.append("Batch size must be positive")
         elif self.embedding.batch_size > 1000:
             issues.append("Batch size should not exceed 1000 for memory efficiency")
-            
         if self.embedding.chunk_overlap < 0:
             issues.append("Chunk overlap must be non-negative")
         if self.embedding.chunk_overlap >= self.embedding.chunk_size:
