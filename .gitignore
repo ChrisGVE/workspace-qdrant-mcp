@@ -56,6 +56,28 @@ ENV/
 env.bak/
 venv.bak/
 
+# Coverage reports
+.coverage*
+htmlcov/
+
+# Pytest cache
+.pytest_cache/
+
+# Virtual environments
+.venv/
+venv/
+
+# Benchmark results
+.benchmarks/
+
+# Editor specific
+.cursor/
+.idea/
+.vscode/
+
+# OS specific
+Thumbs.db
+
 # Task files
 # tasks.json
-# tasks/ 
+# tasks/
