@@ -5,40 +5,32 @@
 [![Qdrant](https://img.shields.io/badge/Qdrant-1.7%2B-red.svg)](https://qdrant.tech)
 [![FastMCP](https://img.shields.io/badge/FastMCP-0.3%2B-orange.svg)](https://github.com/jlowin/fastmcp)
 
-**Project-scoped Qdrant MCP server with hybrid search and universal scratchbook**
+**Project-scoped Qdrant MCP server with hybrid search and configurable collections**
 
-*Inspired by [claude-qdrant-mcp](https://github.com/example/claude-qdrant-mcp) with enhanced project detection and scratchbook functionality.*
+*Inspired by [claude-qdrant-mcp](https://github.com/marlian/claude-qdrant-mcp) with enhanced project detection, Python implementation, and flexible collection management.*
 
-workspace-qdrant-mcp provides intelligent vector database operations through the Model Context Protocol (MCP), featuring automatic project detection, hybrid search capabilities, and cross-project scratchbook management.
-
-**Key Features** • **Project-Aware Collections** • **Hybrid Search (97.1% precision)** • **Universal Scratchbook** • **MCP Integration**
+workspace-qdrant-mcp provides intelligent vector database operations through the Model Context Protocol (MCP), featuring automatic project detection, hybrid search capabilities, and configurable collection management for seamless integration with Claude Desktop and Claude Code.
 
 ## Prerequisites
 
-**Qdrant server is required** - workspace-qdrant-mcp connects to Qdrant for vector operations.
+**Qdrant server must be running** - workspace-qdrant-mcp connects to Qdrant for vector operations.
 
-```bash
-# Start Qdrant with Docker (recommended)
-docker run -p 6333:6333 qdrant/qdrant
-```
+- **Local**: Default `http://localhost:6333`
+- **Cloud**: Requires `QDRANT_API_KEY` environment variable
 
-Visit the [Qdrant repository](https://github.com/qdrant/qdrant) for installation alternatives.
+For local installation, see the [Qdrant repository](https://github.com/qdrant/qdrant). For documentation examples, we assume the default local setup.
 
 ## Installation
 
-### Quick Install (Recommended)
-
 ```bash
-# Install globally with uv
+# Install globally with uv (recommended)
 uv tool install workspace-qdrant-mcp
 
 # Or with pip
 pip install workspace-qdrant-mcp
 ```
 
-### Development Installation
-
-See [CONTRIBUTING.md](CONTRIBUTING.md) for detailed development setup instructions.
+For development setup, see [CONTRIBUTING.md](CONTRIBUTING.md).
 
 ## MCP Integration
 
@@ -49,11 +41,12 @@ Add to your `claude_desktop_config.json`:
 ```json
 {
   "mcpServers": {
-    "workspace-qdrant": {
+    "workspace-qdrant-mcp": {
       "command": "workspace-qdrant-mcp",
       "env": {
         "QDRANT_URL": "http://localhost:6333",
-        "GITHUB_USER": "your-username"
+        "COLLECTIONS": "project",
+        "GLOBAL_COLLECTIONS": "docs,references"
       }
     }
   }
@@ -62,221 +55,115 @@ Add to your `claude_desktop_config.json`:
 
 ### Claude Code
 
-workspace-qdrant-mcp works seamlessly with Claude Code's MCP integration.
-
-```json
-{
-  "mcp": {
-    "servers": {
-      "workspace-qdrant": {
-        "command": "workspace-qdrant-mcp",
-        "args": ["--port", "8000"]
-      }
-    }
-  }
-}
-```
-
-### Parameter Configuration
-
-**Required environment variables:**
-- `QDRANT_URL`: Qdrant server URL (default: `http://localhost:6333`)
-
-**Optional environment variables:**
-- `GITHUB_USER`: Filter project detection to your repositories
-- `COLLECTIONS`: Comma-separated list (default: `"scratchbook"`)
-
-**Example configurations:**
 ```bash
-# Single collection per project
-COLLECTIONS="scratchbook" workspace-qdrant-mcp
-
-# Multiple collections per project  
-COLLECTIONS="scratchbook,docs,notes" workspace-qdrant-mcp
-# Creates: project-scratchbook, project-docs, project-notes
+claude mcp add workspace-qdrant-mcp
 ```
 
-## Basic Usage
+Configure environment variables through Claude Code's settings or your shell environment.
 
-### Start MCP Server
-
-```bash
-# Default configuration (port 8000)
-workspace-qdrant-mcp
-
-# Custom configuration
-workspace-qdrant-mcp --host 0.0.0.0 --port 8001 --debug
-```
-
-### Verify Setup
-
-```bash
-# Validate configuration
-workspace-qdrant-validate
-
-# Check server health
-curl http://localhost:8000/health
-```
-
-## Configuration Options
+## Configuration
 
 ### Environment Variables
 
-Create `.env` file in your project:
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `QDRANT_URL` | `http://localhost:6333` | Qdrant server URL |
+| `QDRANT_API_KEY` | _(none)_ | Required for Qdrant cloud, optional for local |
+| `COLLECTIONS` | `project` | Collection suffixes (comma-separated) |
+| `GLOBAL_COLLECTIONS` | _(none)_ | Global collection names (comma-separated) |
+| `GITHUB_USER` | _(none)_ | Filter projects by GitHub username |
+| `FASTEMBED_MODEL` | `sentence-transformers/all-MiniLM-L6-v2` | Embedding model |
+
+### Collection Naming
+
+Collections are automatically created based on your project and configuration:
+
+**Project Collections:**
+- `COLLECTIONS="project"` → creates `{project-name}-project`
+- `COLLECTIONS="scratchbook,docs"` → creates `{project-name}-scratchbook`, `{project-name}-docs`
+
+**Global Collections:**
+- `GLOBAL_COLLECTIONS="docs,references"` → creates `docs`, `references`
+
+**Example:** For project "my-app" with `COLLECTIONS="scratchbook,docs"`:
+- `my-app-scratchbook` (project-specific notes)
+- `my-app-docs` (project-specific documentation)
+- `docs` (global documentation)
+- `references` (global references)
+
+## Usage
+
+Interact with your collections through natural language commands in Claude:
+
+**Store Information:**
+- "Store this note in my project scratchbook: [your content]"
+- "Add this document to my docs collection: [document content]"
+
+**Search & Retrieve:**
+- "Search my project for information about authentication"
+- "Find all references to the API endpoint in my scratchbook"
+- "What documentation do I have about deployment?"
+
+**Hybrid Search:**
+- Combines semantic search (meaning-based) with keyword search (exact matches)
+- Automatically optimizes results using reciprocal rank fusion (RRF)
+- Searches across project and global collections
+
+## CLI Tool
+
+Use `wqutil` for collection management and diagnostics:
 
 ```bash
-# Qdrant Configuration (required)
-QDRANT_URL=http://localhost:6333
-
-# Project Detection (optional)
-GITHUB_USER=your-username
-
-# Collection Configuration (optional)
-COLLECTIONS=scratchbook,docs
-
-# Server Configuration (optional)
-WORKSPACE_QDRANT_HOST=127.0.0.1
-WORKSPACE_QDRANT_PORT=8000
-WORKSPACE_QDRANT_DEBUG=false
-```
-
-### Collection Configuration
-
-workspace-qdrant-mcp creates collections based on your project:
-
-**Default behavior:**
-- Single collection: `{project-name}-scratchbook`
-
-**Multiple collections:**
-- Configure: `COLLECTIONS="scratchbook,docs,notes"`
-- Creates: `{project-name}-scratchbook`, `{project-name}-docs`, `{project-name}-notes`
-
-**Project detection:**
-- Auto-detects Git repository name
-- Filters by `GITHUB_USER` if specified
-- Handles submodules and nested projects
-
-## CLI Tool (wqutil)
-
-The `wqutil` (workspace-qdrant utility) command provides collection management:
-
-```bash
-# List workspace collections
+# List collections
 wqutil list-collections
 
-# Show collection details
+# Collection information  
 wqutil collection-info my-project-scratchbook
 
-# Safe collection deletion (with confirmation)
-wqutil delete-collection old-project-docs
+# Validate configuration
+workspace-qdrant-validate
 
-# Show help
-wqutil --help
+# Check workspace status
+wqutil workspace-status
 ```
 
-**Legacy compatibility:** `workspace-qdrant-admin` command still available.
-
-## Quick Examples
-
-### Search Your Workspace
-
-```python
-# Via Python MCP client
-results = await mcp_call("search_workspace", {
-    "query": "vector database implementation",
-    "mode": "hybrid",  # Best results (97.1% precision)
-    "limit": 10
-})
-```
-
-### Manage Scratchbook Notes
-
-```python
-# Add a note
-await mcp_call("update_scratchbook", {
-    "content": "Remember to optimize the search algorithm",
-    "metadata": {"category": "todo", "priority": "high"}
-})
-
-# Search notes across all projects
-results = await mcp_call("search_scratchbook", {
-    "query": "search algorithm optimization"
-})
-```
-
-### Add Documentation
-
-```python
-# Add document to project collection
-await mcp_call("add_document", {
-    "content": "API documentation content...",
-    "collection": "my-project-docs",
-    "metadata": {"type": "api-docs", "version": "1.0"}
-})
-```
+*Note: Legacy `workspace-qdrant-admin` command is also available.*
 
 ## Documentation
 
-- **[API Reference](API.md)** - Comprehensive API documentation
+- **[API Reference](API.md)** - Complete MCP tools documentation
 - **[Contributing Guide](CONTRIBUTING.md)** - Development setup and guidelines
-- **[Benchmarking](benchmarking/README.md)** - Performance metrics and testing
+- **[Benchmarking](benchmarking/README.md)** - Performance testing and metrics
 
 ## Troubleshooting
 
-### Common Issues
-
-**Cannot connect to Qdrant:**
+**Connection Issues:**
 ```bash
-# Check Qdrant is running
+# Verify Qdrant is running
 curl http://localhost:6333/collections
 
-# Start Qdrant if needed
-docker run -p 6333:6333 qdrant/qdrant
+# Test configuration
+workspace-qdrant-validate
 ```
 
-**Project not detected:**
+**Collection Issues:**
 ```bash
-# Check Git configuration
-git remote -v
+# List current collections
+wqutil list-collections
 
-# Set GitHub user for better detection
-GITHUB_USER=your-username workspace-qdrant-mcp
+# Check project detection
+wqutil workspace-status
 ```
 
-**Collections not created:**
-```bash
-# Validate setup
-workspace-qdrant-validate --verbose
-
-# Check server logs
-workspace-qdrant-mcp --debug
-```
-
-### Debug Mode
-
-```bash
-# Enable comprehensive logging
-workspace-qdrant-mcp --debug
-
-# Validate configuration with details
-workspace-qdrant-validate --verbose --fix
-```
-
-### Get Help
-
-- **[GitHub Issues](https://github.com/ChrisGVE/workspace-qdrant-mcp/issues)** - Bug reports and feature requests
-- **[GitHub Discussions](https://github.com/ChrisGVE/workspace-qdrant-mcp/discussions)** - Questions and community
-- **[Documentation](https://github.com/ChrisGVE/workspace-qdrant-mcp/wiki)** - Detailed guides
+For detailed troubleshooting, see [API.md](API.md#troubleshooting).
 
 ## License
 
-MIT License - see [LICENSE](LICENSE) for details.
-
-**Related Projects:**
-- [FastMCP](https://github.com/jlowin/fastmcp) - Modern MCP server framework
-- [Qdrant](https://github.com/qdrant/qdrant) - High-performance vector database
-- [claude-qdrant-mcp](https://github.com/example/claude-qdrant-mcp) - Original inspiration
+This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
 
 ---
 
-**Built with ❤️ by the workspace-qdrant-mcp community**
+**Related Projects:**
+- [claude-qdrant-mcp](https://github.com/marlian/claude-qdrant-mcp) - Original TypeScript implementation
+- [Qdrant](https://qdrant.tech) - Vector database
+- [FastMCP](https://github.com/jlowin/fastmcp) - MCP server framework
