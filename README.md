@@ -7,7 +7,7 @@
 
 **Advanced project-scoped Qdrant MCP server with hybrid search capabilities**
 
-🚀 **Project-Aware Collections** • 🔍 **Hybrid Search** • 📚 **Universal Scratchbook** • ⚡ **High Performance** • 🛡️ **Production Ready**
+**Project-Aware Collections** • **Hybrid Search** • **Universal Scratchbook** • **High Performance** • **Production Ready**
 
 workspace-qdrant-mcp is a comprehensive Model Context Protocol (MCP) server that provides intelligent vector database operations with automatic project detection, hybrid search capabilities, and cross-project scratchbook functionality. Built on FastMCP with Qdrant integration and optimized FastEmbed processing.
 
@@ -29,25 +29,25 @@ workspace-qdrant-mcp is a comprehensive Model Context Protocol (MCP) server that
 
 ## Features
 
-### 🎯 **Project-Scoped Intelligence**
+### Project-Scoped Intelligence
 - **Automatic Project Detection**: Git-aware workspace management with submodule support
 - **Collection Naming**: Consistent `{project-name}-scratchbook` and `{project-name}-docs` conventions
 - **GitHub User Filtering**: Enhanced project detection for user-owned repositories
 - **Safe Operations**: Project scope limits prevent cross-project interference
 
-### 🔍 **Advanced Search Capabilities**
+### Advanced Search Capabilities
 - **Hybrid Search**: Combines dense semantic + sparse keyword search with RRF fusion
 - **Multi-Modal Search**: Symbol, exact, semantic, and metadata-filtered search modes
 - **Evidence-Based Performance**: 100% precision for exact matches, 94.2% for semantic search
 - **Configurable Results**: Customizable result counts and relevance thresholds
 
-### 📚 **Scratchbook Management**
+### Scratchbook Management
 - **Cross-Project Notes**: Universal note-taking system across all projects
 - **Intelligent Storage**: Project-scoped collections with global accessibility
 - **Rich Metadata**: Automatic timestamping, project tagging, and content categorization
 - **Search Integration**: Full-text search across all scratchbook entries
 
-### ⚡ **High Performance**
+### High Performance
 - **FastEmbed Integration**: Optimized ONNX Runtime inference with 384-dim embeddings
 - **Batch Processing**: Configurable batch sizes for optimal throughput
 - **Smart Chunking**: Intelligent document segmentation with overlap
@@ -520,11 +520,11 @@ workspace-qdrant-validate --fix
 
 **Example Output:**
 ```
-✅ Qdrant Connection: http://localhost:6333 (healthy)
-✅ FastEmbed Model: sentence-transformers/all-MiniLM-L6-v2 (loaded)
-✅ Project Detection: claude-code-cfg (found)
-⚠️  Global Collections: references (missing, will create)
-✅ Configuration: All required settings present
+Qdrant Connection: http://localhost:6333 (healthy)
+FastEmbed Model: sentence-transformers/all-MiniLM-L6-v2 (loaded)
+Project Detection: claude-code-cfg (found)
+Global Collections: references (missing, will create)
+Configuration: All required settings present
 
 Validation Summary: 4 passed, 1 warning, 0 errors
 ```
@@ -575,14 +575,14 @@ workspace-qdrant-admin delete-collection old-project-docs --dry-run
 **Example Collection Listing:**
 ```
 Found 5 collections:
-📁 🔒 my-project-scratchbook (127 points)
-📁    my-project-docs (89 points)
-📁    subproject-scratchbook (45 points)
-🌐    docs (234 points)
-🌐    references (156 points)
+[P] [*] my-project-scratchbook (127 points)
+[P]     my-project-docs (89 points)
+[P]     subproject-scratchbook (45 points)
+[G]     docs (234 points)
+[G]     references (156 points)
 
 Legend:
-📁 = Project-scoped  🌐 = Global  🔒 = Protected
+[P] = Project-scoped  [G] = Global  [*] = Protected
 ```
 
 ## MCP Integration
@@ -1316,17 +1316,17 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 ### MIT License Summary
 
 **Permissions:**
-- ✅ Commercial use
-- ✅ Distribution
-- ✅ Modification
-- ✅ Private use
+- Commercial use
+- Distribution
+- Modification
+- Private use
 
 **Conditions:**
-- 📄 License and copyright notice
+- License and copyright notice
 
 **Limitations:**
-- ❌ Liability
-- ❌ Warranty
+- Liability
+- Warranty
 
 ### Third-Party Licenses
 
@@ -1343,7 +1343,7 @@ See [THIRD_PARTY_LICENSES.md](THIRD_PARTY_LICENSES.md) for complete license info
 
 ---
 
-**Built with ❤️ by the workspace-qdrant-mcp community**
+**Built with care by the workspace-qdrant-mcp community**
 
 **Related Projects:**
 - [FastMCP](https://github.com/jlowin/fastmcp) - Modern MCP server framework
@@ -1352,11 +1352,11 @@ See [THIRD_PARTY_LICENSES.md](THIRD_PARTY_LICENSES.md) for complete license info
 - [memexd](https://github.com/your-org/memexd) - Complementary code indexing daemon
 
 **Support the Project:**
-- ⭐ Star the repository
-- 🐛 Report bugs and suggest features
-- 📖 Contribute to documentation
-- 🔧 Submit pull requests
-- 💬 Join community discussions
+- Star the repository
+- Report bugs and suggest features
+- Contribute to documentation
+- Submit pull requests
+- Join community discussions
 ```
 ```
 ```

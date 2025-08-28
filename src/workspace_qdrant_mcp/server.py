@@ -540,14 +540,14 @@ async def initialize_workspace() -> None:
     is_valid, validation_results = validator.validate_all()
     
     if not is_valid:
-        print("❌ Configuration validation failed:")
+        print("Configuration validation failed:")
         for issue in validation_results["issues"]:
             print(f"  • {issue}")
         raise RuntimeError("Configuration validation failed")
     
     # Show warnings if any
     if validation_results["warnings"]:
-        print("⚠️  Configuration warnings:")
+        print("Configuration warnings:")
         for warning in validation_results["warnings"]:
             print(f"  • {warning}")
     

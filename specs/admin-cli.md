@@ -63,15 +63,15 @@ workspace-qdrant-admin list-collections --verbose
 **Example output:**
 ```
 Found 3 collections:
-📁 🔒 claude-code-cfg-scratchbook (50 points)
-📁  claude-code-cfg-docs (125 points)  
-🌐  global-references (200 points)
+[P] [*] claude-code-cfg-scratchbook (50 points)
+[P]     claude-code-cfg-docs (125 points)  
+[G]     global-references (200 points)
 ```
 
 Icons:
-- 📁 = Project-scoped collection
-- 🌐 = Global collection
-- 🔒 = Protected collection
+- [P] = Project-scoped collection
+- [G] = Global collection
+- [*] = Protected collection
 
 ### delete-collection
 
@@ -111,7 +111,7 @@ Project scoped: Yes
 Protected: No
 
 Delete collection 'test-project-scratchbook' with 45 points? [y/N]: y
-✅ Collection deleted successfully
+Collection deleted successfully
 ```
 
 ### collection-info
@@ -195,22 +195,22 @@ The CLI provides clear error messages for common issues:
 
 ### Collection Not Found
 ```
-❌ Cannot delete collection: Collection 'nonexistent' does not exist
+Cannot delete collection: Collection 'nonexistent' does not exist
 ```
 
 ### Protected Collection
 ```
-❌ Cannot delete collection: Collection 'memexd-main-code' is protected (memexd daemon collection)
+Cannot delete collection: Collection 'memexd-main-code' is protected (memexd daemon collection)
 ```
 
 ### Out of Project Scope
 ```
-❌ Cannot delete collection: Collection 'other-project-docs' is outside current project scope
+Cannot delete collection: Collection 'other-project-docs' is outside current project scope
 ```
 
 ### Connection Issues
 ```
-❌ Error listing collections: HTTPConnectionPool(host='localhost', port=6333): 
+Error listing collections: HTTPConnectionPool(host='localhost', port=6333): 
 Connection refused. Is Qdrant running?
 ```
 

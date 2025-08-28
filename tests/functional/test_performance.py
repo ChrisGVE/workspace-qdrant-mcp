@@ -50,7 +50,7 @@ class TestPerformance:
         self.process = psutil.Process(os.getpid())
         self.initial_memory = self.process.memory_info().rss / 1024 / 1024  # MB
         
-        print(f"🚀 Performance testing setup:")
+        print(f"Performance testing setup:")
         print(f"  Test data: {len(self.test_data['chunks'])} chunks, {len(self.test_data['symbols'])} symbols")
         print(f"  Initial memory: {self.initial_memory:.1f} MB")
         
@@ -135,7 +135,7 @@ class TestPerformance:
     @pytest.mark.performance
     async def test_search_response_time_benchmarks(self):
         """Test search response times under various conditions."""
-        print("⚡ Benchmarking search response times...")
+        print("Benchmarking search response times...")
         
         # Test queries of different complexities
         test_queries = [
@@ -196,7 +196,7 @@ class TestPerformance:
         performance_ratio = limit_50_time / limit_10_time if limit_10_time > 0 else 1
         assert performance_ratio < 3.0, f"Performance should scale reasonably (got {performance_ratio:.1f}x)"
         
-        print(f"  ✅ Search scaling: 10→50 results = {performance_ratio:.1f}x time increase")
+        print(f"  Search scaling: 10→50 results = {performance_ratio:.1f}x time increase")
     
     @pytest.mark.performance
     async def test_concurrent_search_performance(self):
@@ -247,7 +247,7 @@ class TestPerformance:
         max_throughput = max(b.operations_per_second for b in concurrent_benchmarks.values())
         
         throughput_improvement = max_throughput / single_throughput
-        print(f"  ✅ Throughput improvement: {throughput_improvement:.1f}x")
+        print(f"  Throughput improvement: {throughput_improvement:.1f}x")
         
         # Should see some concurrency benefit
         assert throughput_improvement > 2.0, "Should show >2x throughput improvement with concurrency"
