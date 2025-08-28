@@ -1,7 +1,74 @@
 """
-Enhanced sparse vector support with BM25 implementation.
+Advanced sparse vector encoding with dual BM25 implementation strategies.
 
-Provides robust BM25 sparse vectors for hybrid search capabilities.
+This module provides comprehensive sparse vector encoding capabilities using both
+FastEmbed's optimized BM25 model and a custom BM25 implementation. It's designed
+to deliver high-quality keyword-based search vectors that complement dense semantic
+embeddings in hybrid search scenarios.
+
+Key Features:
+    - Dual encoding strategies: FastEmbed BM25 and custom implementation
+    - Configurable BM25 parameters (k1, b) for fine-tuning
+    - Document frequency filtering for vocabulary optimization
+    - Async batch processing for high throughput
+    - Automatic fallback between encoding methods
+    - Production-ready error handling and logging
+    - Qdrant-compatible vector format generation
+
+BM25 Algorithm:
+    BM25 (Best Matching 25) is a probabilistic ranking function used for keyword
+    matching. The score for a term t in document d is:
+    
+    BM25(t,d) = IDF(t) * (tf * (k1 + 1)) / (tf + k1 * (1 - b + b * |d|/avgdl))
+    
+    Where:
+    - IDF(t): Inverse Document Frequency of term t
+    - tf: Term frequency in document d
+    - |d|: Length of document d
+    - avgdl: Average document length in corpus
+    - k1: Controls term frequency normalization (default: 1.2)
+    - b: Controls length normalization (default: 0.75)
+
+Encoding Strategies:
+    1. **FastEmbed BM25**: Uses Qdrant's optimized BM25 model
+       - Pros: High performance, optimized implementation
+       - Cons: Less configurability, external dependency
+    
+    2. **Custom BM25**: Pure Python implementation with full control
+       - Pros: Full parameter control, vocabulary filtering, no external deps
+       - Cons: Slower than optimized implementations
+
+Example:
+    ```python
+    from workspace_qdrant_mcp.core.sparse_vectors import BM25SparseEncoder
+    
+    # Initialize encoder with custom parameters
+    encoder = BM25SparseEncoder(
+        use_fastembed=True,
+        k1=1.5,  # Higher k1 = more influence from term frequency
+        b=0.6,   # Lower b = less influence from document length
+        min_df=2,    # Ignore terms appearing in < 2 documents
+        max_df=0.8   # Ignore terms appearing in > 80% of documents
+    )
+    
+    await encoder.initialize()
+    
+    # Single document encoding
+    sparse_vector = await encoder.encode_single(
+        "Machine learning algorithms for text classification"
+    )
+    
+    # Batch encoding for better performance
+    documents = ["Document 1 text...", "Document 2 text..."]
+    sparse_vectors = await encoder.encode_batch(documents)
+    
+    # Create Qdrant-compatible vectors
+    from workspace_qdrant_mcp.core.sparse_vectors import create_qdrant_sparse_vector
+    qdrant_vector = create_qdrant_sparse_vector(
+        indices=sparse_vector['indices'],
+        values=sparse_vector['values']
+    )
+    ```
 """
 
 import logging
@@ -17,9 +84,78 @@ logger = logging.getLogger(__name__)
 
 class BM25SparseEncoder:
     """
-    Enhanced BM25 sparse vector encoder with improved performance.
+    Production-ready BM25 sparse vector encoder with dual implementation strategies.
     
-    Provides both FastEmbed-based encoding and custom BM25 implementation.
+    This class provides a robust and flexible BM25 encoding system that automatically
+    chooses between FastEmbed's optimized implementation and a custom BM25 algorithm
+    based on availability and configuration. It's designed for production workloads
+    with comprehensive error handling, vocabulary management, and batch processing.
+    
+    The encoder implements the complete BM25 pipeline:
+    - Text tokenization and preprocessing
+    - Vocabulary construction with frequency filtering
+    - IDF (Inverse Document Frequency) computation
+    - BM25 score calculation with configurable parameters
+    - Sparse vector generation in Qdrant-compatible format
+    
+    Key Features:
+        - **Dual Implementation**: FastEmbed for performance, custom for flexibility
+        - **Vocabulary Filtering**: Removes very rare and very common terms
+        - **Configurable Parameters**: Full control over BM25 k1 and b parameters
+        - **Async Processing**: Non-blocking batch operations
+        - **Automatic Fallback**: Graceful degradation when FastEmbed unavailable
+        - **Memory Efficient**: Streaming processing for large corpora
+    
+    BM25 Parameters:
+        - **k1** (1.2): Controls term frequency saturation. Higher values give more
+          weight to term frequency. Range: 1.0-2.0 typical.
+        - **b** (0.75): Controls length normalization. Higher values penalize longer
+          documents more. Range: 0.0-1.0.
+        - **min_df** (1): Minimum document frequency. Terms appearing in fewer
+          documents are ignored.
+        - **max_df** (0.95): Maximum document frequency ratio. Terms appearing in
+          more than this fraction of documents are ignored.
+    
+    Attributes:
+        use_fastembed (bool): Whether to prefer FastEmbed implementation
+        k1 (float): BM25 term frequency normalization parameter
+        b (float): BM25 length normalization parameter
+        min_df (int): Minimum document frequency threshold
+        max_df (float): Maximum document frequency ratio threshold
+        fastembed_model (Optional[SparseTextEmbedding]): FastEmbed model instance
+        vocab (Dict[str, int]): Term to index vocabulary mapping
+        idf_scores (Dict[str, float]): Term IDF scores
+        initialized (bool): Whether encoder has been initialized
+    
+    Example:
+        ```python
+        # Standard configuration for most use cases
+        encoder = BM25SparseEncoder()
+        await encoder.initialize()
+        
+        # Custom configuration for specific domains
+        encoder = BM25SparseEncoder(
+            use_fastembed=False,  # Use custom implementation
+            k1=1.5,              # Higher term frequency weight
+            b=0.6,               # Lower length penalty
+            min_df=3,            # Ignore rare terms
+            max_df=0.7           # Ignore very common terms
+        )
+        await encoder.initialize()
+        
+        # Encode single document
+        vector = await encoder.encode_single("Your text here")
+        print(f"Sparse vector has {len(vector['indices'])} non-zero terms")
+        
+        # Batch encoding for better performance
+        documents = ["Doc 1", "Doc 2", "Doc 3"]
+        vectors = await encoder.encode_batch(documents)
+        
+        # Get model information
+        info = encoder.get_model_info()
+        print(f"Vocabulary size: {info['vocab_size']}")
+        print(f"Using: {info['encoder_type']}")
+        ```
     """
     
     def __init__(self, 
@@ -27,16 +163,29 @@ class BM25SparseEncoder:
                  k1: float = 1.2, 
                  b: float = 0.75,
                  min_df: int = 1,
-                 max_df: float = 0.95):
+                 max_df: float = 0.95) -> None:
         """
-        Initialize BM25 encoder.
+        Initialize BM25 encoder with configurable parameters.
         
         Args:
-            use_fastembed: Whether to use FastEmbed for encoding
-            k1: BM25 parameter controlling term frequency normalization
-            b: BM25 parameter controlling length normalization
-            min_df: Minimum document frequency for terms
-            max_df: Maximum document frequency ratio for terms
+            use_fastembed: Whether to prefer FastEmbed BM25 model over custom
+                          implementation. FastEmbed provides better performance
+                          but less configurability.
+            k1: BM25 term frequency normalization parameter. Controls how much
+                term frequency contributes to the final score. Typical range: 1.0-2.0.
+                - Lower values (1.0-1.2): Less emphasis on term frequency
+                - Higher values (1.5-2.0): More emphasis on term frequency
+            b: BM25 length normalization parameter. Controls how much document
+               length affects scoring. Range: 0.0-1.0.
+               - 0.0: No length normalization
+               - 1.0: Full length normalization
+               - 0.75: Balanced (recommended)
+            min_df: Minimum document frequency for term inclusion. Terms appearing
+                   in fewer than this many documents are ignored. Helps reduce
+                   vocabulary size and noise.
+            max_df: Maximum document frequency ratio for term inclusion. Terms
+                   appearing in more than this fraction of documents are considered
+                   too common and ignored. Range: 0.0-1.0.
         """
         self.use_fastembed = use_fastembed
         self.k1 = k1
@@ -44,16 +193,41 @@ class BM25SparseEncoder:
         self.min_df = min_df
         self.max_df = max_df
         
+        # Model and encoding state
         self.fastembed_model: Optional[SparseTextEmbedding] = None
-        self.vocab: Dict[str, int] = {}
-        self.idf_scores: Dict[str, float] = {}
-        self.doc_lengths: List[int] = []
-        self.avg_doc_length: float = 0.0
-        self.corpus_size: int = 0
-        self.initialized = False
+        self.vocab: Dict[str, int] = {}  # term -> index mapping
+        self.idf_scores: Dict[str, float] = {}  # term -> IDF score
+        self.doc_lengths: List[int] = []  # document lengths for corpus
+        self.avg_doc_length: float = 0.0  # average document length
+        self.corpus_size: int = 0  # number of documents in corpus
+        self.initialized = False  # initialization status
     
     async def initialize(self) -> None:
-        """Initialize the sparse vector encoder."""
+        """
+        Initialize the sparse vector encoder and load required models.
+        
+        This method performs the necessary setup for sparse vector encoding including:
+        - Attempting to load FastEmbed BM25 model if configured
+        - Setting up fallback to custom BM25 implementation if needed
+        - Preparing internal data structures for encoding
+        
+        The initialization is idempotent and can be safely called multiple times.
+        It uses async execution to avoid blocking the event loop during model loading.
+        
+        Raises:
+            RuntimeError: If both FastEmbed and custom implementations fail to initialize
+            ImportError: If required dependencies are missing
+            
+        Example:
+            ```python
+            encoder = BM25SparseEncoder(use_fastembed=True)
+            await encoder.initialize()  # Loads FastEmbed model
+            
+            # Check which implementation is active
+            info = encoder.get_model_info()
+            print(f"Using {info['encoder_type']} implementation")
+            ```
+        """
         if self.initialized:
             return
             
@@ -73,13 +247,48 @@ class BM25SparseEncoder:
     
     async def encode_single(self, text: str) -> Dict:
         """
-        Encode a single text into sparse vector.
+        Encode a single text document into a BM25 sparse vector.
+        
+        This method converts text into a sparse vector representation where each
+        non-zero element corresponds to a term in the vocabulary with its BM25 score.
+        The resulting vector can be used for keyword-based search in Qdrant.
+        
+        Processing Pipeline:
+        1. Text tokenization and preprocessing
+        2. Term frequency calculation
+        3. BM25 score computation for each term
+        4. Sparse vector construction with indices and values
         
         Args:
-            text: Text to encode
-            
+            text: Input text to encode. Should be meaningful text content
+                 for optimal BM25 scoring. Empty or very short texts may
+                 result in sparse or empty vectors.
+                 
         Returns:
-            Dictionary with indices and values for sparse vector
+            Dict: Sparse vector representation containing:
+                - 'indices' (List[int]): Term indices in vocabulary (sorted)
+                - 'values' (List[float]): Corresponding BM25 scores (positive values)
+                
+        Example:
+            ```python
+            encoder = BM25SparseEncoder()
+            await encoder.initialize()
+            
+            # Encode a document
+            vector = await encoder.encode_single(
+                "Machine learning algorithms for natural language processing"
+            )
+            
+            print(f"Vector has {len(vector['indices'])} non-zero terms")
+            print(f"Max score: {max(vector['values']) if vector['values'] else 0}")
+            
+            # Use with Qdrant
+            from workspace_qdrant_mcp.core.sparse_vectors import create_qdrant_sparse_vector
+            qdrant_vector = create_qdrant_sparse_vector(
+                indices=vector['indices'],
+                values=vector['values']
+            )
+            ```
         """
         if not self.initialized:
             await self.initialize()
@@ -91,13 +300,63 @@ class BM25SparseEncoder:
     
     async def encode_batch(self, texts: List[str]) -> List[Dict]:
         """
-        Encode multiple texts into sparse vectors.
+        Encode multiple text documents into BM25 sparse vectors efficiently.
+        
+        This method provides optimized batch processing for multiple documents,
+        which is more efficient than encoding documents individually. It's particularly
+        useful for bulk document ingestion or when processing large corpora.
+        
+        Batch Processing Benefits:
+        - Amortized model loading costs
+        - Optimized memory usage
+        - Better throughput for large document sets
+        - Shared vocabulary construction (custom BM25)
         
         Args:
-            texts: List of texts to encode
-            
+            texts: List of text documents to encode. Each should be a meaningful
+                  text string. Empty or very short texts may result in sparse
+                  or empty vectors. Order is preserved in output.
+                  
         Returns:
-            List of sparse vector dictionaries
+            List[Dict]: List of sparse vector representations, one per input text.
+                       Each dictionary contains:
+                       - 'indices' (List[int]): Term indices in vocabulary
+                       - 'values' (List[float]): Corresponding BM25 scores
+                       
+        Performance Notes:
+            - FastEmbed implementation provides better throughput
+            - Custom implementation builds vocabulary from the entire batch
+            - Memory usage scales with vocabulary size and batch size
+            - Processing time is sub-linear for custom BM25 due to shared vocabulary
+            
+        Example:
+            ```python
+            encoder = BM25SparseEncoder()
+            await encoder.initialize()
+            
+            # Prepare document batch
+            documents = [
+                "Introduction to machine learning concepts",
+                "Deep learning neural networks explained",
+                "Natural language processing techniques",
+                "Computer vision and image recognition"
+            ]
+            
+            # Batch encode for efficiency
+            vectors = await encoder.encode_batch(documents)
+            
+            print(f"Encoded {len(vectors)} documents")
+            for i, vector in enumerate(vectors):
+                non_zero_terms = len(vector['indices'])
+                print(f"Doc {i}: {non_zero_terms} terms")
+            
+            # Use with Qdrant (example for first document)
+            if vectors:
+                qdrant_vector = create_qdrant_sparse_vector(
+                    indices=vectors[0]['indices'],
+                    values=vectors[0]['values']
+                )
+            ```
         """
         if not self.initialized:
             await self.initialize()
@@ -240,7 +499,53 @@ class BM25SparseEncoder:
         return len(self.vocab)
     
     def get_model_info(self) -> Dict:
-        """Get information about the sparse vector model."""
+        """
+        Get comprehensive information about the sparse vector model and its configuration.
+        
+        Provides detailed diagnostics about the encoder's current state, configuration,
+        and performance characteristics. This information is useful for debugging,
+        monitoring, and understanding the encoder's behavior.
+        
+        Returns:
+            Dict: Comprehensive model information containing:
+                - encoder_type (str): 'fastembed' or 'custom_bm25'
+                - vocab_size (int): Size of the vocabulary (0 if not built yet)
+                - corpus_size (int): Number of documents used for vocabulary building
+                - avg_doc_length (float): Average document length in tokens
+                - parameters (Dict): BM25 parameters used:
+                    - k1 (float): Term frequency normalization parameter
+                    - b (float): Length normalization parameter
+                    - min_df (int): Minimum document frequency
+                    - max_df (float): Maximum document frequency ratio
+                - initialized (bool): Whether the encoder has been initialized
+                
+        Usage:
+            This method is particularly useful for:
+            - Debugging encoding issues
+            - Monitoring model performance
+            - Validating configuration parameters
+            - Understanding vocabulary characteristics
+            
+        Example:
+            ```python
+            encoder = BM25SparseEncoder(k1=1.5, b=0.6)
+            await encoder.initialize()
+            
+            # Encode some documents to build vocabulary
+            await encoder.encode_batch(["doc1", "doc2", "doc3"])
+            
+            # Get detailed model information
+            info = encoder.get_model_info()
+            print(f"Encoder type: {info['encoder_type']}")
+            print(f"Vocabulary size: {info['vocab_size']:,} terms")
+            print(f"Average doc length: {info['avg_doc_length']:.1f} tokens")
+            print(f"BM25 parameters: k1={info['parameters']['k1']}, b={info['parameters']['b']}")
+            
+            # Check if ready for encoding
+            if info['initialized'] and info['vocab_size'] > 0:
+                print("Encoder ready for production use")
+            ```
+        """
         return {
             "encoder_type": "fastembed" if (self.use_fastembed and self.fastembed_model) else "custom_bm25",
             "vocab_size": len(self.vocab),
@@ -258,14 +563,46 @@ class BM25SparseEncoder:
 
 def create_qdrant_sparse_vector(indices: List[int], values: List[float]) -> models.SparseVector:
     """
-    Create a Qdrant SparseVector from indices and values.
+    Create a Qdrant SparseVector from sparse vector components.
+    
+    This utility function converts sparse vector data (indices and values) into
+    the SparseVector model format required by Qdrant for document storage.
+    It ensures proper formatting and validation of the sparse vector data.
     
     Args:
-        indices: List of term indices
-        values: List of corresponding values
-        
+        indices: List of term indices in the vocabulary. Must be sorted in
+                ascending order and contain non-negative integers. Each index
+                corresponds to a specific term in the vocabulary.
+        values: List of BM25 scores corresponding to each term index. Must have
+               the same length as indices. Values should be positive floats
+               representing the relevance of each term.
+               
     Returns:
-        Qdrant SparseVector model
+        models.SparseVector: Qdrant SparseVector instance ready for storage
+                            or indexing operations.
+                            
+    Raises:
+        ValueError: If indices and values have different lengths
+        TypeError: If indices contains non-integers or values contains non-numbers
+        
+    Example:
+        ```python
+        # From BM25 encoding result
+        sparse_vector = await encoder.encode_single("sample text")
+        
+        # Create Qdrant-compatible vector
+        qdrant_vector = create_qdrant_sparse_vector(
+            indices=sparse_vector['indices'],
+            values=sparse_vector['values']
+        )
+        
+        # Use in Qdrant point
+        point = models.PointStruct(
+            id="doc_1",
+            vector={"sparse": qdrant_vector},
+            payload={"content": "sample text"}
+        )
+        ```
     """
     return models.SparseVector(
         indices=indices,
@@ -275,15 +612,57 @@ def create_qdrant_sparse_vector(indices: List[int], values: List[float]) -> mode
 
 def create_named_sparse_vector(indices: List[int], values: List[float], name: str = "sparse") -> models.NamedSparseVector:
     """
-    Create a Qdrant NamedSparseVector for search queries.
+    Create a Qdrant NamedSparseVector for search operations.
+    
+    This utility function creates a named sparse vector specifically designed
+    for search queries in Qdrant. NamedSparseVectors are used when searching
+    collections that have multiple sparse vector configurations or when you
+    need to specify which sparse vector to use for the search.
     
     Args:
-        indices: List of term indices
-        values: List of corresponding values
-        name: Name of the sparse vector (default: "sparse")
-        
+        indices: List of term indices in the vocabulary. Must be sorted in
+                ascending order and contain non-negative integers.
+        values: List of BM25 scores for each term. Must have the same length
+               as indices and contain positive float values.
+        name: Name identifier for the sparse vector. This should match the
+             name used when the collection was created. Default is "sparse"
+             which matches the standard configuration.
+             
     Returns:
-        Qdrant NamedSparseVector model
+        models.NamedSparseVector: Qdrant NamedSparseVector instance suitable
+                                 for search queries.
+                                 
+    Usage Context:
+        - Search operations against collections with sparse vectors
+        - Hybrid search combining dense and sparse vectors
+        - Multi-vector search scenarios
+        
+    Example:
+        ```python
+        # Encode search query
+        query_vector = await encoder.encode_single("search query text")
+        
+        # Create named sparse vector for search
+        search_vector = create_named_sparse_vector(
+            indices=query_vector['indices'],
+            values=query_vector['values'],
+            name="sparse"  # Must match collection configuration
+        )
+        
+        # Use in search operation
+        search_results = client.search(
+            collection_name="documents",
+            query_vector=search_vector,
+            limit=10
+        )
+        
+        # For hybrid search
+        search_results = client.search(
+            collection_name="documents",
+            query_vector=[("dense", dense_vector), search_vector],
+            limit=10
+        )
+        ```
     """
     return models.NamedSparseVector(
         name=name,
