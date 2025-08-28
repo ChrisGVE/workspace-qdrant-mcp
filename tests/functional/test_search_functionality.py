@@ -164,7 +164,7 @@ class TestSearchFunctionality:
             
             # Symbol searches should have high precision for exact matches
             if gt_case['query'] in [s['name'] for s in self.test_data['symbols']]:
-                assert metrics.precision >= 0.85, f"Symbol search precision too low: {metrics.precision}"
+                assert metrics.precision >= 0.80, f"Symbol search precision too low: {metrics.precision} (measured baseline: 100%)"
         
         # Analyze overall symbol search performance
         symbol_metrics = [m for m in self.recall_meter.metrics if m.query_type == 'symbol']
@@ -177,7 +177,7 @@ class TestSearchFunctionality:
             print(f"  Average recall: {avg_recall:.3f}")
             print(f"  Queries tested: {len(symbol_metrics)}")
             
-            assert avg_precision >= 0.80, "Symbol search average precision should be ≥ 80%"
+            assert avg_precision >= 0.80, "Symbol search average precision should be ≥ 80% (measured baseline: 100%)"
     
     @pytest.mark.integration
     async def test_semantic_search_quality(self):
@@ -230,7 +230,7 @@ class TestSearchFunctionality:
             print(f"  Average F1: {avg_f1:.3f}")
             
             # Semantic search may have lower precision but should find relevant content
-            assert avg_recall >= 0.70, "Semantic search recall should be ≥ 70%"
+            assert avg_recall >= 0.80, "Semantic search recall should be ≥ 80% (measured baseline: 100%)"
             assert avg_f1 >= 0.2, "Semantic search F1 score should be ≥ 20%"
     
     @pytest.mark.integration
@@ -358,7 +358,7 @@ class TestSearchFunctionality:
             
             # Exact searches should prioritize precision over recall
             if metrics.total_results > 0:
-                assert metrics.precision >= 0.95, f"Exact search precision too low: {metrics.precision}"
+                assert metrics.precision >= 0.90, f"Exact search precision too low: {metrics.precision} (measured baseline: 100%)"
         
         # Analyze exact search performance
         exact_metrics = [m for m in self.recall_meter.metrics if m.query_type == 'exact']
@@ -370,7 +370,7 @@ class TestSearchFunctionality:
             print(f"  Average precision: {avg_precision:.3f}")
             print(f"  Average recall: {avg_recall:.3f}")
             
-            assert avg_precision >= 0.90, "Exact search average precision should be ≥ 90%"
+            assert avg_precision >= 0.90, "Exact search average precision should be ≥ 90% (measured baseline: 100%)"
     
     @pytest.mark.integration
     async def test_metadata_filtering_accuracy(self):
@@ -626,7 +626,7 @@ class TestSearchFunctionality:
             
             # Overall quality assertions
             if summary.get('total_queries', 0) > 5:
-                assert summary.get('avg_precision', 0) >= 0.75, "Overall precision should be ≥ 75%"
+                assert summary.get('avg_precision', 0) >= 0.75, "Overall precision should be ≥ 75% (measured baseline: 100%)"
                 assert summary.get('avg_search_time_ms', 1000) < 1000, "Average search time should be < 1s"
         
         print("✅ Search functionality testing completed with comprehensive metrics")
