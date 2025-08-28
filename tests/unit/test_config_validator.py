@@ -54,8 +54,10 @@ class TestConfigValidator:
             mock_service = MagicMock()
             mock_service.initialize = MagicMock()
             mock_service.get_model_info.return_value = {
-                "model_name": "test-model",
-                "vector_size": 384
+                "dense_model": {
+                    "name": "test-model",
+                    "dimensions": 384
+                }
             }
             mock_embedding_service.return_value = mock_service
             
@@ -124,7 +126,7 @@ class TestConfigValidator:
         with patch.object(validator, 'validate_qdrant_connection', return_value=(True, "Qdrant OK")), \
              patch.object(validator, 'validate_embedding_model', return_value=(True, "Embedding OK")), \
              patch.object(validator, 'validate_project_detection', return_value=(True, "Project OK")), \
-             patch.object(validator.config, 'validate_config', return_value=[]):
+             patch('workspace_qdrant_mcp.core.config.Config.validate_config', return_value=[]):
             
             is_valid, results = validator.validate_all()
             
@@ -143,7 +145,7 @@ class TestConfigValidator:
         with patch.object(validator, 'validate_qdrant_connection', return_value=(False, "Qdrant failed")), \
              patch.object(validator, 'validate_embedding_model', return_value=(True, "Embedding OK")), \
              patch.object(validator, 'validate_project_detection', return_value=(True, "Project OK")), \
-             patch.object(validator.config, 'validate_config', return_value=["Config issue 1", "Config issue 2"]):
+             patch('workspace_qdrant_mcp.core.config.Config.validate_config', return_value=["Config issue 1", "Config issue 2"]):
             
             is_valid, results = validator.validate_all()
             
@@ -166,7 +168,7 @@ class TestConfigValidator:
         with patch.object(validator, 'validate_qdrant_connection', return_value=(True, "Qdrant OK")), \
              patch.object(validator, 'validate_embedding_model', return_value=(True, "Embedding OK")), \
              patch.object(validator, 'validate_project_detection', return_value=(True, "Project OK")), \
-             patch.object(validator.config, 'validate_config', return_value=[]):
+             patch('workspace_qdrant_mcp.core.config.Config.validate_config', return_value=[]):
             
             is_valid, results = validator.validate_all()
             
@@ -181,7 +183,7 @@ class TestConfigValidator:
         
         # Mock config validation to return specific issues
         expected_issues = ["Test issue 1", "Test issue 2"]
-        with patch.object(validator.config, 'validate_config', return_value=expected_issues):
+        with patch('workspace_qdrant_mcp.core.config.Config.validate_config', return_value=expected_issues):
             
             issues = validator.config.validate_config()
             
@@ -206,7 +208,7 @@ class TestConfigValidator:
             
             with patch.object(validator, 'validate_qdrant_connection', return_value=(True, "OK")), \
                  patch.object(validator, 'validate_embedding_model', return_value=(True, "OK")), \
-                 patch.object(validator.config, 'validate_config', return_value=[]):
+                 patch('workspace_qdrant_mcp.core.config.Config.validate_config', return_value=[]):
                 
                 is_valid, results = validator.validate_all()
                 
@@ -218,8 +220,8 @@ class TestConfigValidator:
         """Test that validation exceptions are properly handled."""
         validator = ConfigValidator(mock_config)
         
-        # Mock a validation method to raise an exception
-        with patch.object(validator, 'validate_qdrant_connection', side_effect=Exception("Unexpected error")):
+        # Mock QdrantClient to raise an exception
+        with patch('workspace_qdrant_mcp.utils.config_validator.QdrantClient', side_effect=Exception("Unexpected error")):
             
             is_valid, message = validator.validate_qdrant_connection()
             
@@ -233,7 +235,7 @@ class TestConfigValidator:
         with patch.object(validator, 'validate_qdrant_connection', return_value=(True, "Qdrant OK")), \
              patch.object(validator, 'validate_embedding_model', return_value=(True, "Embedding OK")), \
              patch.object(validator, 'validate_project_detection', return_value=(True, "Project OK")), \
-             patch.object(validator.config, 'validate_config', return_value=[]):
+             patch('workspace_qdrant_mcp.core.config.Config.validate_config', return_value=[]):
             
             is_valid, results = validator.validate_all()
             
