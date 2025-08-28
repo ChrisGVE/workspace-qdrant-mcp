@@ -21,6 +21,9 @@ dependencies = [
     "pydantic-settings>=2.0.0",
     "python-dotenv>=1.0.0",
     "typer>=0.9.0",
+    "rich>=13.0.0",
+    "chardet>=5.0.0",
+    "PyPDF2>=3.0.0",
 ]
 
 [project.optional-dependencies]
@@ -38,12 +41,18 @@ dev = [
     "ruff>=0.1.0",
     "mypy>=1.0.0",
 ]
+full = [
+    "markdown>=3.4.0",
+    "PyYAML>=6.0.0",
+    "pypdf>=4.0.0",
+]
 
 [project.scripts]
 workspace-qdrant-mcp = "workspace_qdrant_mcp.server:main"
 wqutil = "workspace_qdrant_mcp.utils.admin_cli:admin_cli"
 workspace-qdrant-validate = "workspace_qdrant_mcp.utils.config_validator:validate_config_cli"
 workspace-qdrant-admin = "workspace_qdrant_mcp.utils.admin_cli:admin_cli"
+workspace-qdrant-ingest = "workspace_qdrant_mcp.cli.ingest:main"
 
 [project.urls]
 Homepage = "https://github.com/ChrisGVE/workspace-qdrant-mcp"
