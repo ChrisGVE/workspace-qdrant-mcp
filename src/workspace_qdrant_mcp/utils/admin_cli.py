@@ -461,9 +461,9 @@ Examples:
                 confirm=args.confirm
             )
             if success:
-                print(f"✅ Collection {args.collection_name} deleted successfully")
+                print(f"Collection {args.collection_name} deleted successfully")
             else:
-                print(f"❌ Failed to delete collection {args.collection_name}")
+                print(f"Failed to delete collection {args.collection_name}")
                 sys.exit(1)
         
         elif args.command == 'search':
@@ -476,9 +476,9 @@ Examples:
             print(f"\nSearch results for: '{args.query}'")
             total = 0
             for result in results:
-                print(f"\n📁 {result['collection']} ({result['count']} results)")
+                print(f"\n{result['collection']} ({result['count']} results)")
                 for hit in result['results'][:5]:  # Show top 5 per collection
-                    print(f"  📄 Score: {hit.get('score', 'N/A'):.3f}")
+                    print(f"  Score: {hit.get('score', 'N/A'):.3f}")
                     if args.content and 'content' in hit:
                         preview = hit['content'][:100] + "..." if len(hit['content']) > 100 else hit['content']
                         print(f"     {preview}")
@@ -489,29 +489,29 @@ Examples:
         elif args.command == 'reset-project':
             success = await admin.reset_project(confirm=args.confirm)
             if success:
-                print(f"✅ Project {admin.current_project} reset successfully")
+                print(f"Project {admin.current_project} reset successfully")
             else:
-                print(f"❌ Failed to reset project {admin.current_project}")
+                print(f"Failed to reset project {admin.current_project}")
                 sys.exit(1)
         
         elif args.command == 'health':
             health = await admin.get_system_health()
-            print(f"\n🔍 System Health Report - {health['timestamp']}")
+            print(f"\nSystem Health Report - {health['timestamp']}")
             print(f"Project: {health['project']}")
             
             # Qdrant status
             qdrant = health['qdrant']
             if qdrant['status'] == 'connected':
-                print(f"✅ Qdrant: Connected ({qdrant['total_collections']} collections, {qdrant['project_collections']} for this project)")
+                print(f"Qdrant: Connected ({qdrant['total_collections']} collections, {qdrant['project_collections']} for this project)")
             else:
-                print(f"❌ Qdrant: {qdrant['error']}")
+                print(f"Qdrant: {qdrant['error']}")
             
             # Project detection status
             proj_detect = health['project_detection']
             if proj_detect['status'] == 'ok':
-                print(f"✅ Project Detection: OK ({proj_detect['detected_projects']} projects detected)")
+                print(f"Project Detection: OK ({proj_detect['detected_projects']} projects detected)")
             else:
-                print(f"❌ Project Detection: {proj_detect['error']}")
+                print(f"Project Detection: {proj_detect['error']}")
             
             print(f"\nConfiguration:")
             print(f"  Qdrant URL: {health['config']['qdrant_url']}")

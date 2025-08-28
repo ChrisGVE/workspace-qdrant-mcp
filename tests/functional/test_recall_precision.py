@@ -43,7 +43,7 @@ class TestRecallPrecision:
         # Index test data for fast lookups
         self._index_test_data()
         
-        print(f"🎯 Quality measurement setup:")
+        print(f"Quality measurement setup:")
         print(f"  Test corpus: {len(self.test_data['chunks'])} chunks")
         print(f"  Ground truth: {len(self.test_data['ground_truth'])} test cases")
         print(f"  Symbol index: {len(self.symbol_index)} unique symbols")
@@ -189,7 +189,7 @@ class TestRecallPrecision:
     @pytest.mark.integration
     async def test_symbol_search_precision_recall(self):
         """Test precision and recall for symbol-based searches."""
-        print("🔍 Testing symbol search precision and recall...")
+        print("Testing symbol search precision and recall...")
         
         # Filter ground truth for symbol searches
         symbol_ground_truth = [gt for gt in self.test_data['ground_truth'] if gt['query_type'] == 'symbol']
@@ -551,7 +551,7 @@ class TestRecallPrecision:
     @pytest.mark.integration
     async def test_query_type_specific_optimization(self):
         """Test that different query types are optimized appropriately."""
-        print("🎯 Testing query type specific optimization...")
+        print("Testing query type specific optimization...")
         
         query_type_tests = {
             'exact_match': [
@@ -839,7 +839,7 @@ class TestRecallPrecision:
         # Print summary
         summary = all_metrics.get('summary', {})
         if summary:
-            print(f"🎯 Final Quality Summary:")
+            print(f"Final Quality Summary:")
             print(f"  Total queries: {summary.get('total_queries', 0)}")
             print(f"  Average precision: {summary.get('avg_precision', 0):.3f}")
             print(f"  Average recall: {summary.get('avg_recall', 0):.3f}")
@@ -852,7 +852,7 @@ class TestRecallPrecision:
                 final_recall = summary.get('avg_recall', 0)
                 final_f1 = summary.get('avg_f1_score', 0)
                 
-                print(f"✅ Quality targets assessment:")
+                print(f"Quality targets assessment:")
                 print(f"  Precision ≥25%: {'✓' if final_precision >= 0.25 else '✗'} ({final_precision:.3f})")
                 print(f"  Recall ≥20%: {'✓' if final_recall >= 0.2 else '✗'} ({final_recall:.3f})")
                 print(f"  F1 ≥20%: {'✓' if final_f1 >= 0.2 else '✗'} ({final_f1:.3f})")
@@ -860,4 +860,4 @@ class TestRecallPrecision:
                 assert final_precision >= 0.84, f"Overall precision should be ≥84% (got {final_precision:.3f}) - measured: 94.2% CI[93.7%, 94.6%] (n=10,000)"
                 assert final_f1 >= 0.15, f"Overall F1 should be ≥15% (got {final_f1:.3f})"
         
-        print("✅ Comprehensive recall and precision testing completed successfully")
+        print("Comprehensive recall and precision testing completed successfully")

@@ -347,14 +347,14 @@ class ConfigValidator:
             is_valid, results = validator.validate_all()
             
             if is_valid:
-                print("✅ All validation checks passed!")
+                print("All validation checks passed!")
             else:
-                print(f"❌ Found {len(results['issues'])} issues:")
+                print(f"Found {len(results['issues'])} issues:")
                 for issue in results['issues']:
                     print(f"  • {issue}")
                     
             if results['warnings']:
-                print(f"⚠️ {len(results['warnings'])} warnings:")
+                print(f"{len(results['warnings'])} warnings:")
                 for warning in results['warnings']:
                     print(f"  • {warning}")
             ```
@@ -637,12 +637,12 @@ class ConfigValidator:
     def print_validation_results(self, results: Dict[str, List[str]]) -> None:
         """Print formatted validation results."""
         if results["issues"]:
-            typer.echo(typer.style("\n❌ Configuration Issues:", fg=typer.colors.RED, bold=True))
+            typer.echo(typer.style("\nConfiguration Issues:", fg=typer.colors.RED, bold=True))
             for issue in results["issues"]:
                 typer.echo(f"  • {issue}")
         
         if results["warnings"]:
-            typer.echo(typer.style("\n⚠️  Configuration Warnings:", fg=typer.colors.YELLOW, bold=True))
+            typer.echo(typer.style("\nConfiguration Warnings:", fg=typer.colors.YELLOW, bold=True))
             for warning in results["warnings"]:
                 typer.echo(f"  • {warning}")
         
@@ -652,7 +652,7 @@ class ConfigValidator:
                 typer.echo(f"  • {suggestion}")
         
         if not results["issues"]:
-            typer.echo(typer.style("\n✅ Configuration is valid!", fg=typer.colors.GREEN, bold=True))
+            typer.echo(typer.style("\nConfiguration is valid!", fg=typer.colors.GREEN, bold=True))
 
 
 def validate_config_cmd(
@@ -709,7 +709,7 @@ def validate_config_cmd(
         
         if setup_guide:
             guide = validator.get_setup_guide()
-            typer.echo(typer.style("📚 Setup Guide", fg=typer.colors.CYAN, bold=True))
+            typer.echo(typer.style("Setup Guide", fg=typer.colors.CYAN, bold=True))
             
             for section, items in guide.items():
                 typer.echo(f"\n{section.replace('_', ' ').title()}:")
@@ -733,7 +733,7 @@ def validate_config_cmd(
             sys.exit(0 if is_valid else 1)
             
     except Exception as e:
-        typer.echo(typer.style(f"❌ Configuration error: {e}", fg=typer.colors.RED))
+        typer.echo(typer.style(f"Configuration error: {e}", fg=typer.colors.RED))
         sys.exit(1)
 
 

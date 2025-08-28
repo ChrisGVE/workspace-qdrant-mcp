@@ -6,12 +6,12 @@ vector database operations with automatic project detection, hybrid search
 capabilities, and cross-project scratchbook functionality.
 
 Key Features:
-    🚀 **Project-Aware Collections**: Automatically detects and manages project structure
-    🔍 **Hybrid Search**: Combines dense semantic + sparse keyword search with RRF fusion
-    📚 **Universal Scratchbook**: Cross-project note-taking and knowledge management
-    ⚡ **High Performance**: Evidence-based 100% precision for exact matches
-    🛡️ **Production Ready**: Comprehensive error handling, validation, and logging
-    🔧 **Developer Friendly**: Rich CLI tools and comprehensive documentation
+    **Project-Aware Collections**: Automatically detects and manages project structure
+    **Hybrid Search**: Combines dense semantic + sparse keyword search with RRF fusion
+    **Universal Scratchbook**: Cross-project note-taking and knowledge management
+    **High Performance**: Evidence-based 100% precision for exact matches
+    **Production Ready**: Comprehensive error handling, validation, and logging
+    **Developer Friendly**: Rich CLI tools and comprehensive documentation
 
 Performance Benchmarks:
     Based on 21,930 test queries across diverse scenarios:

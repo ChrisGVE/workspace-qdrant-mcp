@@ -81,3 +81,15 @@ Thumbs.db
 # Task files
 # tasks.json
 # tasks/
+
+# Log files
+*.log
+workspace_qdrant_admin.log
+
+# macOS
+.DS_Store
+.AppleDouble
+.LSOverride
+
+# Thumbnails
+._*
