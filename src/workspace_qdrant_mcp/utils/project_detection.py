@@ -139,7 +139,7 @@ class ProjectDetector:
             project_name = self._extract_repo_name_from_remote(submodule_url)
             
             # Check if submodule is initialized
-            is_initialized = os.path.exists(submodule_path) and os.listdir(submodule_path)
+            is_initialized = os.path.exists(submodule_path) and bool(os.listdir(submodule_path))
             
             # Try to get commit info
             commit_sha = None
