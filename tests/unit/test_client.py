@@ -56,8 +56,12 @@ class TestQdrantWorkspaceClient:
             with patch('asyncio.get_event_loop') as mock_get_loop:
                 mock_loop = MagicMock()
                 mock_get_loop.return_value = mock_loop
-                mock_loop.run_in_executor.return_value = asyncio.create_future()
-                mock_loop.run_in_executor.return_value.set_result(None)
+                
+                # Create a future and set its result
+                import asyncio
+                future = asyncio.Future()
+                future.set_result(None)
+                mock_loop.run_in_executor.return_value = future
                 
                 await client.initialize()
             
