@@ -529,5 +529,24 @@ Examples:
         sys.exit(1)
 
 
-if __name__ == '__main__':
+def admin_cli() -> None:
+    """Entry point for UV tool installation and CLI execution.
+    
+    Provides the primary entry point when the package is installed via UV or pip
+    and executed as a command-line tool for administrative operations.
+    
+    Usage:
+        ```bash
+        # Install via UV and run admin CLI
+        uv tool install workspace-qdrant-mcp
+        workspace-qdrant-admin list-collections --stats
+        
+        # Run directly from source
+        python -m workspace_qdrant_mcp.utils.admin_cli
+        ```
+    """
     asyncio.run(main())
+
+
+if __name__ == '__main__':
+    admin_cli()
