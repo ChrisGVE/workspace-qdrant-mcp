@@ -1,0 +1,80 @@
+name: Security Vulnerability Report
+description: Report a security vulnerability (Please use email for sensitive issues)
+title: "[Security]: "
+labels: ["security", "P0"]
+assignees: []
+body:
+  - type: markdown
+    attributes:
+      value: |
+        ## Security Policy
+        
+        **IMPORTANT**: For sensitive security issues, please email us directly at chris@example.com instead of filing a public issue.
+        
+        This form is for non-sensitive security issues or general security improvements.
+
+  - type: dropdown
+    id: severity
+    attributes:
+      label: Severity Level
+      description: How severe is this security issue?
+      options:
+        - Low - Security improvement suggestion
+        - Medium - Potential vulnerability with limited impact
+        - High - Significant vulnerability (please use email instead)
+        - Critical - Critical vulnerability (please use email instead)
+    validations:
+      required: true
+
+  - type: textarea
+    id: description
+    attributes:
+      label: Vulnerability Description
+      description: Provide a clear description of the security issue
+      placeholder: "Describe the security concern..."
+    validations:
+      required: true
+
+  - type: textarea
+    id: impact
+    attributes:
+      label: Potential Impact
+      description: What could happen if this vulnerability is exploited?
+      placeholder: "This could allow an attacker to..."
+    validations:
+      required: true
+
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: Steps to Reproduce (if applicable)
+      description: How can this issue be reproduced?
+      placeholder: "1. Configure the server with..."
+    validations:
+      required: false
+
+  - type: textarea
+    id: mitigation
+    attributes:
+      label: Suggested Mitigation
+      description: If you have ideas for how to fix this, please share them
+    validations:
+      required: false
+
+  - type: input
+    id: version
+    attributes:
+      label: Affected Version(s)
+      description: Which versions are affected?
+      placeholder: "0.1.0"
+    validations:
+      required: true
+
+  - type: checkboxes
+    id: responsible-disclosure
+    attributes:
+      label: Responsible Disclosure
+      description: By submitting this report, you agree to responsible disclosure practices
+      options:
+        - label: I agree to responsible disclosure and will not publicly discuss this issue until it is resolved
+          required: true
