@@ -1,7 +1,62 @@
 """
-Configuration validation utilities.
+Comprehensive configuration validation and setup guidance utilities.
 
-Provides comprehensive validation and setup guidance for workspace-qdrant-mcp.
+This module provides advanced configuration validation, connection testing, and setup
+guidance for workspace-qdrant-mcp. It performs comprehensive health checks across all
+components including Qdrant database connectivity, embedding model availability,
+project detection capabilities, and configuration consistency.
+
+Key Features:
+    - Comprehensive validation of all configuration parameters
+    - Live connection testing for Qdrant database and embedding models
+    - Intelligent project detection validation with Git integration
+    - Detailed error reporting with actionable suggestions
+    - Setup guidance and troubleshooting recommendations
+    - CLI interface for configuration diagnostics
+    - Environment variable validation and conflict detection
+
+Validation Coverage:
+    - Qdrant database connectivity and authentication
+    - Embedding model initialization and compatibility
+    - Project detection algorithm functionality
+    - Configuration parameter ranges and consistency
+    - Environment variable setup and conflicts
+    - File system permissions and requirements
+
+Example:
+    ```python
+    from workspace_qdrant_mcp.utils.config_validator import ConfigValidator
+    from workspace_qdrant_mcp.core.config import Config
+    
+    config = Config()
+    validator = ConfigValidator(config)
+    
+    # Comprehensive validation
+    is_valid, results = validator.validate_all()
+    if not is_valid:
+        print("Configuration issues found:")
+        for issue in results['issues']:
+            print(f"  - {issue}")
+    
+    # Individual component testing
+    qdrant_ok, message = validator.validate_qdrant_connection()
+    model_ok, message = validator.validate_embedding_model()
+    ```
+
+CLI Usage:
+    ```bash
+    # Validate current configuration
+    workspace-qdrant-mcp-validate
+    
+    # Show detailed validation results
+    workspace-qdrant-mcp-validate --verbose
+    
+    # Get setup guidance
+    workspace-qdrant-mcp-validate --guide
+    
+    # Validate custom configuration
+    workspace-qdrant-mcp-validate --config /path/to/config.toml
+    ```
 """
 
 import logging
@@ -24,12 +79,57 @@ logger = logging.getLogger(__name__)
 
 class ConfigValidator:
     """
-    Validates configuration and provides setup guidance.
+    Advanced configuration validator with comprehensive health checking capabilities.
     
-    Performs comprehensive validation of all configuration settings.
+    This class provides thorough validation of all workspace-qdrant-mcp configuration
+    parameters, including live connectivity testing, model validation, and environment
+    analysis. It's designed to catch configuration issues early and provide actionable
+    guidance for resolving problems.
+    
+    The validator performs multiple types of validation:
+        - **Static validation**: Configuration parameter ranges, formats, consistency
+        - **Dynamic validation**: Live connection testing, model initialization
+        - **Environment validation**: Variable conflicts, file permissions, dependencies
+        - **Logic validation**: Cross-parameter dependencies and constraints
+    
+    Validation Categories:
+        1. **Qdrant Configuration**: URL format, connectivity, authentication
+        2. **Embedding Configuration**: Model compatibility, parameter ranges
+        3. **Workspace Configuration**: Collection names, user settings
+        4. **Server Configuration**: Host/port validity, permission requirements
+        5. **Environment**: Variable consistency, file availability
+    
+    Attributes:
+        config (Config): Configuration object to validate
+        issues (List[str]): Critical issues that prevent operation
+        warnings (List[str]): Non-critical issues that may affect performance
+        suggestions (List[str]): Recommendations for optimization
+    
+    Example:
+        ```python
+        # Basic validation
+        validator = ConfigValidator()
+        is_valid, results = validator.validate_all()
+        
+        # Custom configuration validation
+        config = Config()
+        config.qdrant.url = "http://custom-qdrant:6333"
+        validator = ConfigValidator(config)
+        
+        # Component-specific testing
+        qdrant_ok, msg = validator.validate_qdrant_connection()
+        model_ok, msg = validator.validate_embedding_model()
+        project_ok, msg = validator.validate_project_detection()
+        ```
     """
     
-    def __init__(self, config: Optional[Config] = None):
+    def __init__(self, config: Optional[Config] = None) -> None:
+        """Initialize the configuration validator.
+        
+        Args:
+            config: Configuration object to validate. If None, creates new Config()
+                   which loads from environment variables and .env files
+        """
         self.config = config or Config()
         self.issues: List[str] = []
         self.warnings: List[str] = []
@@ -37,10 +137,40 @@ class ConfigValidator:
     
     def validate_qdrant_connection(self) -> Tuple[bool, str]:
         """
-        Validate Qdrant connection.
+        Validate Qdrant database connection with comprehensive testing.
+        
+        Performs live connectivity testing to verify that the configured Qdrant
+        database is reachable, properly configured, and responsive. This includes
+        testing authentication if an API key is configured.
+        
+        The validation process:
+        1. Creates a Qdrant client with current configuration
+        2. Attempts to retrieve collection list (basic connectivity)
+        3. Tests authentication if API key is provided
+        4. Verifies response time and basic functionality
+        5. Properly closes the connection
         
         Returns:
-            Tuple of (is_valid, message)
+            Tuple[bool, str]: (is_valid, message) where:
+                - is_valid: True if connection successful, False otherwise
+                - message: Success confirmation or detailed error description
+                
+        Common Failure Scenarios:
+            - Qdrant service not running or unreachable
+            - Invalid URL format or wrong port
+            - Authentication failure with wrong API key
+            - Network connectivity issues
+            - Service overloaded or responding slowly
+            
+        Example:
+            ```python
+            validator = ConfigValidator()
+            is_valid, message = validator.validate_qdrant_connection()
+            if is_valid:
+                print(f"✓ {message}")
+            else:
+                print(f"✗ Connection failed: {message}")
+            ```
         """
         try:
             client = QdrantClient(**self.config.qdrant_client_config)
@@ -52,10 +182,41 @@ class ConfigValidator:
     
     def validate_embedding_model(self) -> Tuple[bool, str]:
         """
-        Validate embedding model initialization.
+        Validate embedding model availability and initialization capability.
+        
+        Tests whether the configured embedding model can be properly initialized
+        and provides basic model information. This validation checks model
+        availability, compatibility, and basic functionality without full initialization
+        to avoid unnecessary resource usage.
+        
+        The validation process:
+        1. Creates an EmbeddingService instance with current configuration
+        2. Retrieves model information and metadata
+        3. Validates model name and expected dimensions
+        4. Checks sparse vector configuration if enabled
+        5. Verifies model compatibility with current environment
         
         Returns:
-            Tuple of (is_valid, message)
+            Tuple[bool, str]: (is_valid, message) where:
+                - is_valid: True if model validation successful, False otherwise
+                - message: Model details on success or error description on failure
+                
+        Common Failure Scenarios:
+            - Model name not found or typo in configuration
+            - Network issues preventing model download
+            - Insufficient disk space for model cache
+            - Memory limitations for model initialization
+            - Incompatible model format or version
+            
+        Example:
+            ```python
+            validator = ConfigValidator()
+            is_valid, message = validator.validate_embedding_model()
+            if is_valid:
+                print(f"✓ {message}")  # e.g., "all-MiniLM-L6-v2 (384D)"
+            else:
+                print(f"✗ Model validation failed: {message}")
+            ```
         """
         try:
             embedding_service = EmbeddingService(self.config)
@@ -69,10 +230,45 @@ class ConfigValidator:
     
     def validate_project_detection(self) -> Tuple[bool, str]:
         """
-        Validate project detection functionality.
+        Validate project detection algorithm and workspace identification.
+        
+        Tests the project detection functionality to ensure it can properly
+        identify project structure, Git repositories, and workspace organization.
+        This includes validating GitHub user configuration and subproject discovery.
+        
+        The validation process:
+        1. Creates a ProjectDetector with configured GitHub user
+        2. Analyzes current directory structure and Git repository
+        3. Tests project name extraction from remotes or directory
+        4. Discovers and validates subprojects/submodules
+        5. Verifies workspace hierarchy and naming conventions
+        
+        Detection Capabilities Tested:
+            - Git repository identification and analysis
+            - Remote URL parsing and project name extraction
+            - GitHub user ownership validation
+            - Submodule discovery and processing
+            - Fallback to directory-based naming
         
         Returns:
-            Tuple of (is_valid, message)
+            Tuple[bool, str]: (is_valid, message) where:
+                - is_valid: True if project detection successful, False otherwise
+                - message: Project details on success or error description on failure
+                
+        Example Output Messages:
+            - "Project detection successful: my-project with 3 subprojects"
+            - "Directory detection successful: workspace (not a Git repository)"
+            - "Git repository found but remote parsing failed"
+            
+        Example:
+            ```python
+            validator = ConfigValidator()
+            is_valid, message = validator.validate_project_detection()
+            if is_valid:
+                print(f"✓ {message}")
+            else:
+                print(f"✗ Detection failed: {message}")
+            ```
         """
         try:
             detector = ProjectDetector(github_user=self.config.workspace.github_user)
@@ -96,10 +292,72 @@ class ConfigValidator:
     
     def validate_all(self) -> Tuple[bool, Dict[str, Any]]:
         """
-        Perform comprehensive configuration validation.
+        Perform comprehensive validation of all configuration components.
+        
+        Executes a complete validation suite covering all aspects of the
+        workspace-qdrant-mcp configuration including connectivity, models,
+        project detection, and parameter consistency. This is the primary
+        validation method that should be used for complete health checks.
+        
+        Validation Components:
+        1. **Qdrant Connection**: Live database connectivity and authentication
+        2. **Embedding Model**: Model availability and initialization capability
+        3. **Project Detection**: Workspace structure and Git repository analysis
+        4. **Configuration Parameters**: Value ranges, consistency, and formatting
+        5. **Environment**: Variable conflicts and system requirements
         
         Returns:
-            Tuple of (is_valid, validation_results)
+            Tuple[bool, Dict[str, Any]]: (is_valid, validation_results) where:
+                - is_valid: True if all validations pass, False if any critical issues
+                - validation_results: Comprehensive results dictionary containing:
+                    - issues (List[str]): Critical errors preventing operation
+                    - warnings (List[str]): Non-critical issues requiring attention
+                    - qdrant_connection (dict): Connection test results
+                    - embedding_model (dict): Model validation results
+                    - project_detection (dict): Project analysis results
+                    - config_validation (dict): Parameter validation results
+        
+        Result Structure:
+            ```python
+            {
+                "issues": ["Critical error messages"],
+                "warnings": ["Warning messages"],
+                "qdrant_connection": {
+                    "valid": bool,
+                    "message": str
+                },
+                "embedding_model": {
+                    "valid": bool,
+                    "message": str
+                },
+                "project_detection": {
+                    "valid": bool,
+                    "message": str
+                },
+                "config_validation": {
+                    "valid": bool,
+                    "issues": List[str]
+                }
+            }
+            ```
+        
+        Example:
+            ```python
+            validator = ConfigValidator()
+            is_valid, results = validator.validate_all()
+            
+            if is_valid:
+                print("✅ All validation checks passed!")
+            else:
+                print(f"❌ Found {len(results['issues'])} issues:")
+                for issue in results['issues']:
+                    print(f"  • {issue}")
+                    
+            if results['warnings']:
+                print(f"⚠️ {len(results['warnings'])} warnings:")
+                for warning in results['warnings']:
+                    print(f"  • {warning}")
+            ```
         """
         # Clear previous results
         self.issues.clear()
@@ -304,7 +562,39 @@ class ConfigValidator:
             return False
     
     def get_setup_guide(self) -> Dict[str, List[str]]:
-        """Generate setup guidance based on current configuration."""
+        """
+        Generate comprehensive setup guidance and troubleshooting information.
+        
+        Provides detailed setup instructions, configuration examples, and
+        troubleshooting guidance based on common deployment scenarios.
+        This method is particularly useful for new users or when setting
+        up the system in new environments.
+        
+        Guide Categories:
+            - **quick_start**: Step-by-step setup for immediate use
+            - **qdrant_setup**: Qdrant database installation and configuration
+            - **environment_variables**: Complete environment variable reference
+            - **troubleshooting**: Common issues and their solutions
+        
+        Returns:
+            Dict[str, List[str]]: Setup guide organized by categories, each
+                                 containing a list of instruction steps or
+                                 information items.
+        
+        Example:
+            ```python
+            validator = ConfigValidator()
+            guide = validator.get_setup_guide()
+            
+            print("Quick Start Guide:")
+            for step in guide['quick_start']:
+                print(f"  {step}")
+                
+            print("\nEnvironment Variables:")
+            for item in guide['environment_variables']:
+                print(f"  {item}")
+            ```
+        """
         guide = {
             "quick_start": [
                 "1. Ensure Qdrant is running (docker run -p 6333:6333 qdrant/qdrant)",
@@ -370,7 +660,45 @@ def validate_config_cmd(
     config_file: Optional[str] = typer.Option(None, "--config", help="Path to config file"),
     setup_guide: bool = typer.Option(False, "--guide", help="Show setup guide"),
 ) -> None:
-    """Validate workspace-qdrant-mcp configuration."""
+    """
+    Command-line interface for comprehensive configuration validation.
+    
+    This CLI command provides a convenient way to validate workspace-qdrant-mcp
+    configuration from the terminal, with options for detailed output and setup
+    guidance. It's designed for both interactive debugging and automated deployment
+    validation.
+    
+    Features:
+        - Complete configuration validation with colored output
+        - Verbose mode for detailed configuration analysis
+        - Custom configuration file support
+        - Built-in setup guide and troubleshooting
+        - Exit codes for automation (0 = success, 1 = failure)
+    
+    Args:
+        verbose: Show detailed configuration summary including all settings
+        config_file: Path to custom configuration file (overrides environment)
+        setup_guide: Display comprehensive setup instructions instead of validation
+    
+    Exit Codes:
+        0: All validations passed successfully
+        1: Configuration issues found or validation failed
+    
+    Examples:
+        ```bash
+        # Basic validation
+        workspace-qdrant-mcp-validate
+        
+        # Detailed validation with configuration summary
+        workspace-qdrant-mcp-validate --verbose
+        
+        # Validate custom configuration file
+        workspace-qdrant-mcp-validate --config /path/to/config.toml
+        
+        # Show setup guide instead of validation
+        workspace-qdrant-mcp-validate --guide
+        ```
+    """
     
     if config_file:
         os.environ["CONFIG_FILE"] = config_file
@@ -410,7 +738,26 @@ def validate_config_cmd(
 
 
 def validate_config_cli() -> None:
-    """Console script entry point for uv tool installation."""
+    """
+    Console script entry point for UV tool installation and direct execution.
+    
+    This function serves as the primary entry point when the configuration validator
+    is installed as a command-line tool via UV or pip. It provides a clean interface
+    for invoking the validation functionality from the command line.
+    
+    Installation and Usage:
+        ```bash
+        # Install as UV tool
+        uv tool install workspace-qdrant-mcp
+        workspace-qdrant-mcp-validate --help
+        
+        # Run directly from source
+        python -m workspace_qdrant_mcp.utils.config_validator --help
+        ```
+    
+    The function uses Typer for CLI argument parsing and delegates to
+    validate_config_cmd for the actual validation logic.
+    """
     typer.run(validate_config_cmd)
 
 
