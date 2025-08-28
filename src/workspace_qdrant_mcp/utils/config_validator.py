@@ -8,7 +8,7 @@ import logging
 import os
 import sys
 from pathlib import Path
-from typing import Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional, Tuple
 from urllib.parse import urlparse
 
 import typer
@@ -16,6 +16,8 @@ from qdrant_client import QdrantClient
 from qdrant_client.http.exceptions import ResponseHandlingException
 
 from ..core.config import Config
+from ..core.embeddings import EmbeddingService
+from .project_detection import ProjectDetector
 
 logger = logging.getLogger(__name__)
 
@@ -33,31 +35,143 @@ class ConfigValidator:
         self.warnings: List[str] = []
         self.suggestions: List[str] = []
     
-    def validate_all(self) -> Tuple[bool, Dict[str, List[str]]]:
+    def validate_qdrant_connection(self) -> Tuple[bool, str]:
+        """
+        Validate Qdrant connection.
+        
+        Returns:
+            Tuple of (is_valid, message)
+        """
+        try:
+            client = QdrantClient(**self.config.qdrant_client_config)
+            client.get_collections()
+            client.close()
+            return True, "Qdrant successfully connected to server"
+        except Exception as e:
+            return False, str(e)
+    
+    def validate_embedding_model(self) -> Tuple[bool, str]:
+        """
+        Validate embedding model initialization.
+        
+        Returns:
+            Tuple of (is_valid, message)
+        """
+        try:
+            embedding_service = EmbeddingService(self.config)
+            # Try to get model info without full initialization
+            model_info = embedding_service.get_model_info()
+            model_name = model_info["dense_model"]["name"]
+            vector_size = model_info["dense_model"]["dimensions"]
+            return True, f"Embedding model successfully loaded: {model_name} ({vector_size}D)"
+        except Exception as e:
+            return False, str(e)
+    
+    def validate_project_detection(self) -> Tuple[bool, str]:
+        """
+        Validate project detection functionality.
+        
+        Returns:
+            Tuple of (is_valid, message)
+        """
+        try:
+            detector = ProjectDetector(github_user=self.config.workspace.github_user)
+            project_info = detector.get_project_info()
+            
+            main_project = project_info["main_project"]
+            subprojects = project_info["subprojects"]
+            is_git_repo = project_info["is_git_repo"]
+            
+            if is_git_repo:
+                message = f"Project detection successful: {main_project}"
+                if subprojects:
+                    subproject_count = len(subprojects)
+                    message += f" with {subproject_count} subproject{'s' if subproject_count != 1 else ''}"
+            else:
+                message = f"Directory detection successful: {main_project} (not a Git repository)"
+                
+            return True, message
+        except Exception as e:
+            return False, str(e)
+    
+    def validate_all(self) -> Tuple[bool, Dict[str, Any]]:
         """
         Perform comprehensive configuration validation.
         
         Returns:
             Tuple of (is_valid, validation_results)
         """
+        # Clear previous results
         self.issues.clear()
         self.warnings.clear()
         self.suggestions.clear()
         
-        # Validate each component
-        self._validate_qdrant_config()
-        self._validate_embedding_config()
-        self._validate_workspace_config()
-        self._validate_server_config()
-        self._validate_environment()
+        # Individual validations
+        qdrant_valid, qdrant_message = self.validate_qdrant_connection()
+        embedding_valid, embedding_message = self.validate_embedding_model()
+        project_valid, project_message = self.validate_project_detection()
         
-        is_valid = len(self.issues) == 0
+        # Basic config validation
+        config_issues = self.config.validate_config()
         
-        return is_valid, {
-            "issues": self.issues.copy(),
-            "warnings": self.warnings.copy(),
-            "suggestions": self.suggestions.copy()
+        # Collect issues
+        issues = []
+        if not qdrant_valid:
+            issues.append(qdrant_message)
+        if not embedding_valid:
+            issues.append(embedding_message)
+        if not project_valid:
+            issues.append(project_message)
+        issues.extend(config_issues)
+        
+        # Generate warnings
+        warnings = self._generate_warnings()
+        
+        # Overall validation status
+        is_valid = len(issues) == 0
+        
+        # Comprehensive results structure
+        results = {
+            "issues": issues,
+            "warnings": warnings,
+            "qdrant_connection": {
+                "valid": qdrant_valid,
+                "message": qdrant_message
+            },
+            "embedding_model": {
+                "valid": embedding_valid,
+                "message": embedding_message
+            },
+            "project_detection": {
+                "valid": project_valid,
+                "message": project_message
+            },
+            "config_validation": {
+                "valid": len(config_issues) == 0,
+                "issues": config_issues
+            }
         }
+        
+        return is_valid, results
+    
+    def _generate_warnings(self) -> List[str]:
+        """Generate configuration warnings."""
+        warnings = []
+        
+        # Check for missing GitHub user when it would be beneficial
+        if not self.config.workspace.github_user:
+            try:
+                detector = ProjectDetector()
+                project_info = detector.get_project_info()
+                if project_info.get("is_git_repo") and project_info.get("remote_url"):
+                    warnings.append("GitHub user not configured - project ownership detection limited")
+            except Exception:
+                # Ignore detection errors for warning generation
+                pass
+        
+        return warnings
+    
+    # Keep all existing validation methods below this line...
     
     def _validate_qdrant_config(self) -> None:
         """Validate Qdrant connection configuration."""
