@@ -198,11 +198,13 @@ class TestHybridSearchEngine:
             models.ScoredPoint(
                 id="doc1",
                 score=0.9,
+                version=0,
                 payload={"content": "doc1"}
             ),
             models.ScoredPoint(
                 id="doc2",
                 score=0.8,
+                version=0,
                 payload={"content": "doc2"}
             )
         ]
@@ -240,6 +242,7 @@ class TestHybridSearchEngine:
             models.ScoredPoint(
                 id="doc1",
                 score=0.85,
+                version=0,
                 payload={"content": "doc1"}
             )
         ]
@@ -277,6 +280,7 @@ class TestHybridSearchEngine:
             models.ScoredPoint(
                 id="doc1",
                 score=0.9,
+                version=0,
                 payload={"content": "doc1"}
             )
         ]
@@ -284,6 +288,7 @@ class TestHybridSearchEngine:
             models.ScoredPoint(
                 id="doc2",
                 score=0.85,
+                version=0,
                 payload={"content": "doc2"}
             )
         ]
@@ -364,10 +369,10 @@ class TestHybridSearchEngine:
         """Test hybrid search with weighted sum fusion method."""
         # Setup mock results with different scores
         dense_results = [
-            models.ScoredPoint(id="doc1", score=0.9, payload={"content": "doc1"})
+            models.ScoredPoint(id="doc1", score=0.9, version=0, payload={"content": "doc1"})
         ]
         sparse_results = [
-            models.ScoredPoint(id="doc1", score=0.8, payload={"content": "doc1"})
+            models.ScoredPoint(id="doc1", score=0.8, version=0, payload={"content": "doc1"})
         ]
         
         hybrid_engine.client.search.side_effect = [dense_results, sparse_results]
@@ -397,10 +402,10 @@ class TestHybridSearchEngine:
     async def test_hybrid_search_max_fusion(self, hybrid_engine):
         """Test hybrid search with max fusion method."""
         dense_results = [
-            models.ScoredPoint(id="doc1", score=0.9, payload={"content": "doc1"})
+            models.ScoredPoint(id="doc1", score=0.9, version=0, payload={"content": "doc1"})
         ]
         sparse_results = [
-            models.ScoredPoint(id="doc1", score=0.8, payload={"content": "doc1"})
+            models.ScoredPoint(id="doc1", score=0.8, version=0, payload={"content": "doc1"})
         ]
         
         hybrid_engine.client.search.side_effect = [dense_results, sparse_results]
@@ -497,7 +502,7 @@ class TestHybridSearchEngine:
         """Test benchmarking different fusion methods."""
         # Mock search results
         hybrid_engine.client.search.return_value = [
-            models.ScoredPoint(id="doc1", score=0.9, payload={"content": "doc1"})
+            models.ScoredPoint(id="doc1", score=0.9, version=0, payload={"content": "doc1"})
         ]
         
         query_embeddings = {"dense": [0.1] * 384}
@@ -531,6 +536,7 @@ class TestHybridSearchEngine:
             models.ScoredPoint(
                 id=f"doc{i}",
                 score=0.9 - (i * 0.1),
+                version=0,
                 payload={"content": f"doc{i}"}
             )
             for i in range(20)  # 20 results
