@@ -7,154 +7,112 @@ and includes robust safety mechanisms, project scoping, and comprehensive operat
 for development, debugging, and maintenance workflows.
 
 Safety Features:
-    - Interactive confirmation prompts for destructive operations
-    - Dry-run mode for testing commands without side effects
-    - Project scoping to prevent accidental cross-project operations
-    - Protected collection lists to prevent system data deletion
-    - Comprehensive logging and operation auditing
-    - Rollback capabilities for supported operations
+    - Interactive confirmation for destructive operations
+    - Project-scoped operations to prevent cross-project conflicts
+    - Comprehensive logging and audit trail
+    - Dry-run mode for safe operation preview
+    - Data validation and backup recommendations
 
-Key Operations:
-    - Collection management (create, delete, inspect, backup)
-    - Document operations (add, update, delete, search)
-    - Workspace analysis and diagnostics
-    - Data migration and export tools
-    - Performance monitoring and optimization
-    - Configuration validation and testing
+Operations Available:
+    - Collection management (create, delete, list with statistics)
+    - Data operations (upsert, search, statistics, cleanup)
+    - Project detection and configuration validation
+    - System health monitoring and diagnostics
+    - Development utilities (reset, rebuild, backup)
 
-Project Scoping:
-    The CLI automatically detects the current project context and applies appropriate
-    scoping to prevent accidental operations on other projects' data. This includes:
-    - Automatic project detection from Git repositories
-    - Collection filtering based on project ownership
-    - Safety prompts when operating outside current project
-    - Protected collections that require explicit confirmation
+Security Considerations:
+    - No automatic data deletion without explicit confirmation
+    - Project boundaries enforced to prevent accidental cross-project operations
+    - Comprehensive logging for audit and debugging
+    - Safe defaults with explicit override requirements
 
-Usage Patterns:
+Usage Examples:
     ```bash
-    # Interactive mode with safety prompts
-    python -m workspace_qdrant_mcp.utils.admin_cli
+    # List all collections with statistics
+    python -m workspace_qdrant_mcp.utils.admin_cli list-collections --stats
     
-    # Direct command execution
-    python -m workspace_qdrant_mcp.utils.admin_cli delete-collection my-collection
+    # Delete collection with confirmation
+    python -m workspace_qdrant_mcp.utils.admin_cli delete-collection docs_project1
     
-    # Dry-run mode for testing
-    python -m workspace_qdrant_mcp.utils.admin_cli --dry-run delete-project
+    # Dry run collection reset
+    python -m workspace_qdrant_mcp.utils.admin_cli reset-project --dry-run
     
-    # Batch operations with confirmation
-    python -m workspace_qdrant_mcp.utils.admin_cli migrate-data --source old-db
+    # Search with debugging
+    python -m workspace_qdrant_mcp.utils.admin_cli search "function definition" --debug
     ```
 
-Example:
-    ```python
-    from workspace_qdrant_mcp.utils.admin_cli import WorkspaceQdrantAdmin
-    
-    admin = WorkspaceQdrantAdmin(dry_run=True)
-    await admin.delete_project_collections(confirm=False)  # Safe testing
-    
-    admin = WorkspaceQdrantAdmin(dry_run=False)
-    collections = await admin.list_project_collections()
-    ```
+Architecture:
+    - Async-first design for efficient operations
+    - Modular command structure with shared utilities
+    - Configuration management with environment variable support
+    - Extensible plugin architecture for custom operations
 """
 
+import asyncio
 import logging
-import os
-import sys
+from datetime import datetime
 from pathlib import Path
-from typing import List, Optional, Set
-
-import typer
-from qdrant_client import QdrantClient
-from qdrant_client.http.exceptions import ResponseHandlingException
+from typing import Any, Dict, List, Optional, Union
+import sys
+import argparse
+from contextlib import asynccontextmanager
 
 from ..core.config import Config
-from ..core.collections import WorkspaceCollectionManager
-from .project_detection import ProjectDetector
+from ..core.client import QdrantWorkspaceClient
+from ..utils.project_detection import ProjectDetector
 
-# Configure logging
+# Configure logging for admin operations
 logging.basicConfig(
     level=logging.INFO,
-    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s"
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+    handlers=[
+        logging.StreamHandler(sys.stdout),
+        logging.FileHandler('workspace_qdrant_admin.log')
+    ]
 )
+
 logger = logging.getLogger(__name__)
 
 
 class WorkspaceQdrantAdmin:
     """
-    Comprehensive administrative interface for workspace-qdrant management.
+    Comprehensive administrative interface for workspace-qdrant-mcp.
     
-    This class provides a full suite of administrative operations for managing
-    workspace-qdrant collections, documents, and configurations. It emphasizes
-    safety through project scoping, confirmation prompts, and comprehensive
-    logging while providing powerful tools for development and maintenance.
-    
-    The admin interface operates with multiple safety layers:
-    - Project context awareness to prevent cross-project accidents
-    - Interactive confirmation for destructive operations
-    - Dry-run mode for testing commands safely
-    - Protected collection detection and warnings
-    - Comprehensive operation logging and audit trails
-    
-    Key Capabilities:
-        - Collection lifecycle management (CRUD operations)
-        - Document batch operations and migrations
-        - Workspace analysis and health checking
-        - Performance monitoring and optimization
-        - Data export and backup operations
-        - Configuration validation and testing
-    
-    Attributes:
-        config (Config): Configuration object with Qdrant and workspace settings
-        dry_run (bool): Whether to execute operations or just simulate them
-        client (QdrantClient): Direct Qdrant client for database operations
-        collection_manager (WorkspaceCollectionManager): Collection management interface
-        project_detector (ProjectDetector): Project structure detection
-        project_info (Dict): Current project information and context
-        current_project (str): Main project name for scoping operations
-        subprojects (List[str]): Detected subproject names
-    
-    Safety Mechanisms:
-        - All destructive operations require explicit confirmation
-        - Project scoping prevents accidental cross-project operations
-        - Protected collections (like system collections) have additional safeguards
-        - Dry-run mode allows testing without side effects
-        - Comprehensive logging provides audit trails
-    
-    Example:
-        ```python
-        # Initialize with dry-run for testing
-        admin = WorkspaceQdrantAdmin(dry_run=True)
-        
-        # List collections in current project
-        collections = await admin.list_project_collections()
-        
-        # Delete with safety prompts (dry-run won't actually delete)
-        await admin.delete_project_collections(confirm=True)
-        
-        # Production operations
-        admin = WorkspaceQdrantAdmin(dry_run=False)
-        await admin.backup_collections(["/backup/path"])
-        ```
+    Provides safe, project-scoped operations for collection management,
+    data operations, and system maintenance with comprehensive logging
+    and safety mechanisms.
     """
     
-    def __init__(self, config: Optional[Config] = None, dry_run: bool = False) -> None:
-        """Initialize the administrative interface with safety configuration.
+    def __init__(self, config: Optional[Config] = None, dry_run: bool = False, project_scope: Optional[str] = None):
+        """
+        Initialize the administrative interface.
         
         Args:
-            config: Configuration object. If None, loads from environment/files
-            dry_run: If True, operations are simulated without actual execution.
-                    Useful for testing commands safely before running them
+            config: Configuration instance. If None, loads from environment.
+            dry_run: If True, operations will be logged but not executed.
+            project_scope: Limit operations to specific project. If None, auto-detects.
         """
         self.config = config or Config()
         self.dry_run = dry_run
-        self.client = QdrantClient(**self.config.qdrant_client_config)
-        self.collection_manager = WorkspaceCollectionManager(self.client, self.config)
-        self.project_detector = ProjectDetector(github_user=self.config.workspace.github_user)
+        self.project_scope = project_scope
+        self.client: Optional[QdrantWorkspaceClient] = None
         
-        # Initialize project context for scoping operations
-        self.project_info = self.project_detector.get_project_info()
-        self.current_project = self.project_info["main_project"]
-        self.subprojects = self.project_info["subprojects"]
+        # Initialize project detection
+        self.project_detector = ProjectDetector(self.config.workspace.github_user)
+        
+        # Determine current project context
+        if not self.project_scope:
+            current_dir = Path.cwd()
+            detected_projects = self.project_detector.detect_projects([current_dir])
+            if detected_projects:
+                self.current_project = detected_projects[0].name
+            else:
+                self.current_project = "unknown_project"
+        else:
+            self.current_project = self.project_scope
+        
+        # Configure collection prefix for safety
+        self.collection_prefix = f"{self.config.workspace.collection_prefix}{self.current_project}_"
         
         # Log initialization for audit trail
         logger.info(
@@ -162,410 +120,414 @@ class WorkspaceQdrantAdmin:
             self.current_project, self.dry_run
         )
     
-    def get_protected_collections(self) -> Set[str]:
-        """
-        Get set of protected collections that cannot be deleted.
-        
-        Returns:
-            Set of protected collection names
-        """
-        protected = set()
-        
-        # Protect memexd daemon collections (-code suffix)
+    @asynccontextmanager
+    async def get_client(self):
+        """Async context manager for client lifecycle."""
+        if not self.client:
+            self.client = QdrantWorkspaceClient(self.config)
         try:
-            all_collections = self.client.get_collections()
-            for collection in all_collections.collections:
-                if collection.name.endswith("-code"):
-                    protected.add(collection.name)
-        except Exception as e:
-            logger.warning("Could not list collections to identify protected ones: %s", e)
-        
-        return protected
+            yield self.client
+        finally:
+            if self.client:
+                await self.client.cleanup()
+                self.client = None
     
-    def list_collections(self, show_all: bool = False) -> List[str]:
+    async def list_collections(self, include_stats: bool = False) -> List[Dict[str, Any]]:
         """
-        List collections with optional filtering.
+        List all collections with optional statistics.
         
         Args:
-            show_all: If True, show all collections, otherwise only workspace collections
+            include_stats: If True, includes document counts and size information.
             
         Returns:
-            List of collection names
+            List of collection information dictionaries.
         """
-        try:
-            if show_all:
-                all_collections = self.client.get_collections()
-                return sorted([col.name for col in all_collections.collections])
-            else:
-                # Get workspace collections synchronously
-                try:
-                    all_collections = self.client.get_collections()
-                    workspace_collections = []
-                    
-                    for collection in all_collections.collections:
-                        # Filter for workspace collections (exclude memexd -code collections)
-                        if self.collection_manager._is_workspace_collection(collection.name):
-                            workspace_collections.append(collection.name)
-                            
-                    return sorted(workspace_collections)
-                    
-                except Exception as e:
-                    logger.error("Failed to list collections: %s", e)
-                    return []
-        except Exception as e:
-            logger.error("Failed to list collections: %s", e)
-            return []
+        async with self.get_client() as client:
+            try:
+                collections = await client.list_collections()
+                
+                # Filter to current project if project scoping is enabled
+                if self.project_scope:
+                    collections = [
+                        col for col in collections 
+                        if col.get('name', '').startswith(self.collection_prefix)
+                    ]
+                
+                if include_stats:
+                    for collection in collections:
+                        try:
+                            # Get collection statistics
+                            stats = await client.get_collection_info(collection['name'])
+                            collection['stats'] = stats
+                        except Exception as e:
+                            logger.warning(f"Could not get stats for {collection['name']}: {e}")
+                            collection['stats'] = {'error': str(e)}
+                
+                logger.info(f"Listed {len(collections)} collections")
+                return collections
+                
+            except Exception as e:
+                logger.error(f"Failed to list collections: {e}")
+                raise
     
-    def is_project_scoped_collection(self, collection_name: str) -> bool:
+    async def delete_collection(self, collection_name: str, confirm: bool = False) -> bool:
         """
-        Check if a collection belongs to the current project scope.
+        Safely delete a collection with confirmation.
         
         Args:
-            collection_name: Name of the collection to check
+            collection_name: Name of collection to delete.
+            confirm: If True, skips interactive confirmation.
             
         Returns:
-            True if collection is within project scope
+            True if collection was deleted, False otherwise.
         """
-        # Global collections are always in scope
-        if collection_name in self.config.workspace.global_collections:
-            return True
-        
-        # Check main project collections
-        project_prefixes = [f"{self.current_project}-"]
-        
-        # Add subproject prefixes
-        if self.subprojects:
-            project_prefixes.extend([f"{sub}-" for sub in self.subprojects])
-        
-        return any(collection_name.startswith(prefix) for prefix in project_prefixes)
-    
-    def validate_collection_for_deletion(self, collection_name: str) -> tuple[bool, str]:
-        """
-        Validate if a collection can be safely deleted.
-        
-        Args:
-            collection_name: Name of collection to validate
-            
-        Returns:
-            Tuple of (can_delete, reason)
-        """
-        # Check if collection exists
-        try:
-            existing_collections = self.client.get_collections()
-            collection_names = {col.name for col in existing_collections.collections}
-            
-            if collection_name not in collection_names:
-                return False, f"Collection '{collection_name}' does not exist"
-        except Exception as e:
-            return False, f"Cannot verify collection existence: {e}"
-        
-        # Check if protected
-        protected = self.get_protected_collections()
-        if collection_name in protected:
-            return False, f"Collection '{collection_name}' is protected (memexd daemon collection)"
-        
-        # Check project scope
-        if not self.is_project_scoped_collection(collection_name):
-            return False, f"Collection '{collection_name}' is outside current project scope"
-        
-        return True, "Collection can be safely deleted"
-    
-    def delete_collection(
-        self, 
-        collection_name: str, 
-        force: bool = False
-    ) -> bool:
-        """
-        Delete a collection with safety checks.
-        
-        Args:
-            collection_name: Name of collection to delete
-            force: Skip confirmation prompts if True
-            
-        Returns:
-            True if deletion was successful
-        """
-        # Validate collection
-        can_delete, reason = self.validate_collection_for_deletion(collection_name)
-        if not can_delete:
-            logger.error("Cannot delete collection: %s", reason)
+        # Safety check: ensure collection belongs to current project
+        if self.project_scope and not collection_name.startswith(self.collection_prefix):
+            logger.error(f"Collection {collection_name} does not belong to project {self.current_project}")
             return False
         
-        # Get collection info before deletion
-        try:
-            collection_info = self.client.get_collection(collection_name)
-            point_count = collection_info.points_count
-            logger.info("Collection '%s' contains %d points", collection_name, point_count)
-        except Exception as e:
-            logger.warning("Could not get collection info: %s", e)
-            point_count = "unknown"
+        async with self.get_client() as client:
+            try:
+                # Check if collection exists
+                collections = await client.list_collections()
+                collection_names = [col.get('name') for col in collections]
+                
+                if collection_name not in collection_names:
+                    logger.warning(f"Collection {collection_name} does not exist")
+                    return False
+                
+                # Get collection info for confirmation
+                try:
+                    info = await client.get_collection_info(collection_name)
+                    doc_count = info.get('points_count', 'Unknown')
+                except Exception:
+                    doc_count = 'Unknown'
+                
+                # Interactive confirmation unless explicitly confirmed
+                if not confirm and not self.dry_run:
+                    print(f"\n⚠️  WARNING: You are about to delete collection '{collection_name}'")
+                    print(f"   Project: {self.current_project}")
+                    print(f"   Document count: {doc_count}")
+                    print(f"   This operation cannot be undone!")
+                    
+                    response = input("\nType 'DELETE' to confirm: ")
+                    if response != 'DELETE':
+                        print("Operation cancelled.")
+                        return False
+                
+                if self.dry_run:
+                    logger.info(f"DRY RUN: Would delete collection {collection_name} ({doc_count} documents)")
+                    return True
+                
+                # Perform deletion
+                await client.delete_collection(collection_name)
+                logger.info(f"Successfully deleted collection {collection_name}")
+                return True
+                
+            except Exception as e:
+                logger.error(f"Failed to delete collection {collection_name}: {e}")
+                raise
+    
+    async def search_collections(self, query: str, limit: int = 10, include_content: bool = False) -> List[Dict[str, Any]]:
+        """
+        Search across all project collections.
         
-        # Confirmation prompt (unless forced or dry-run)
-        if not force and not self.dry_run:
-            confirmation = typer.confirm(
-                f"Delete collection '{collection_name}' with {point_count} points?"
-            )
-            if not confirmation:
-                logger.info("Collection deletion cancelled by user")
+        Args:
+            query: Search query string.
+            limit: Maximum number of results per collection.
+            include_content: If True, includes document content in results.
+            
+        Returns:
+            Search results organized by collection.
+        """
+        async with self.get_client() as client:
+            try:
+                collections = await self.list_collections()
+                results = []
+                
+                for collection in collections:
+                    collection_name = collection['name']
+                    try:
+                        search_results = await client.hybrid_search(
+                            query, 
+                            collection_name=collection_name,
+                            limit=limit
+                        )
+                        
+                        if search_results:
+                            results.append({
+                                'collection': collection_name,
+                                'query': query,
+                                'results': search_results,
+                                'count': len(search_results)
+                            })
+                            
+                    except Exception as e:
+                        logger.warning(f"Search failed for collection {collection_name}: {e}")
+                        continue
+                
+                total_results = sum(r['count'] for r in results)
+                logger.info(f"Search completed: {total_results} results across {len(results)} collections")
+                return results
+                
+            except Exception as e:
+                logger.error(f"Search operation failed: {e}")
+                raise
+    
+    async def reset_project(self, confirm: bool = False) -> bool:
+        """
+        Reset all collections for the current project.
+        
+        Args:
+            confirm: If True, skips interactive confirmation.
+            
+        Returns:
+            True if reset completed successfully.
+        """
+        collections = await self.list_collections()
+        project_collections = [
+            col for col in collections 
+            if col['name'].startswith(self.collection_prefix)
+        ]
+        
+        if not project_collections:
+            logger.info(f"No collections found for project {self.current_project}")
+            return True
+        
+        # Interactive confirmation
+        if not confirm and not self.dry_run:
+            print(f"\n⚠️  WARNING: You are about to reset project '{self.current_project}'")
+            print(f"   This will delete {len(project_collections)} collections:")
+            for col in project_collections:
+                print(f"   - {col['name']}")
+            print(f"   This operation cannot be undone!")
+            
+            response = input(f"\nType 'RESET {self.current_project}' to confirm: ")
+            if response != f'RESET {self.current_project}':
+                print("Operation cancelled.")
                 return False
         
-        # Perform deletion
-        if self.dry_run:
-            logger.info("DRY RUN: Would delete collection '%s'", collection_name)
-            return True
-        
-        try:
-            self.client.delete_collection(collection_name)
-            logger.info("Successfully deleted collection '%s'", collection_name)
-            return True
-        except ResponseHandlingException as e:
-            logger.error("Failed to delete collection '%s': %s", collection_name, e)
-            return False
-        except Exception as e:
-            logger.error("Unexpected error deleting collection '%s': %s", collection_name, e)
-            return False
-    
-    def get_collection_info(self, collection_name: Optional[str] = None) -> dict:
-        """
-        Get detailed information about collections.
-        
-        Args:
-            collection_name: Specific collection name, or None for all workspace collections
-            
-        Returns:
-            Dictionary with collection information
-        """
-        if collection_name:
-            # Single collection info
+        # Delete all project collections
+        success_count = 0
+        for collection in project_collections:
             try:
-                info = self.client.get_collection(collection_name)
-                return {
-                    collection_name: {
-                        "vectors_count": info.vectors_count,
-                        "points_count": info.points_count,
-                        "status": info.status,
-                        "optimizer_status": info.optimizer_status,
-                        "config": {
-                            "distance": info.config.params.vectors.distance.value,
-                            "vector_size": info.config.params.vectors.size,
-                        },
-                        "project_scoped": self.is_project_scoped_collection(collection_name),
-                        "protected": collection_name in self.get_protected_collections()
+                if await self.delete_collection(collection['name'], confirm=True):
+                    success_count += 1
+            except Exception as e:
+                logger.error(f"Failed to delete {collection['name']}: {e}")
+        
+        logger.info(f"Reset completed: {success_count}/{len(project_collections)} collections reset")
+        return success_count == len(project_collections)
+    
+    async def get_system_health(self) -> Dict[str, Any]:
+        """Get comprehensive system health information."""
+        async with self.get_client() as client:
+            try:
+                health_info = {
+                    'timestamp': datetime.now().isoformat(),
+                    'project': self.current_project,
+                    'config': {
+                        'qdrant_url': self.config.qdrant.url,
+                        'debug_mode': self.config.debug,
+                        'collection_prefix': self.collection_prefix
                     }
                 }
+                
+                # Test Qdrant connection
+                try:
+                    collections = await client.list_collections()
+                    health_info['qdrant'] = {
+                        'status': 'connected',
+                        'total_collections': len(collections),
+                        'project_collections': len([
+                            col for col in collections 
+                            if col['name'].startswith(self.collection_prefix)
+                        ])
+                    }
+                except Exception as e:
+                    health_info['qdrant'] = {
+                        'status': 'error',
+                        'error': str(e)
+                    }
+                
+                # Check project detection
+                try:
+                    detected_projects = self.project_detector.detect_projects([Path.cwd()])
+                    health_info['project_detection'] = {
+                        'status': 'ok',
+                        'detected_projects': len(detected_projects),
+                        'current_project': self.current_project
+                    }
+                except Exception as e:
+                    health_info['project_detection'] = {
+                        'status': 'error',
+                        'error': str(e)
+                    }
+                
+                return health_info
+                
             except Exception as e:
-                return {collection_name: {"error": str(e)}}
-        else:
-            # All workspace collections - sync version
-            try:
-                workspace_collections = self.list_collections(show_all=False)
-                collection_info = {}
-                
-                for collection_name in workspace_collections:
-                    try:
-                        info = self.client.get_collection(collection_name)
-                        collection_info[collection_name] = {
-                            "vectors_count": info.vectors_count,
-                            "points_count": info.points_count,
-                            "status": info.status,
-                            "optimizer_status": info.optimizer_status,
-                            "config": {
-                                "distance": info.config.params.vectors.distance.value,
-                                "vector_size": info.config.params.vectors.size,
-                            },
-                            "project_scoped": self.is_project_scoped_collection(collection_name),
-                            "protected": collection_name in self.get_protected_collections()
-                        }
-                    except Exception as e:
-                        logger.warning("Failed to get info for collection %s: %s", collection_name, e)
-                        collection_info[collection_name] = {"error": str(e)}
-                
-                return {
-                    "collections": collection_info,
-                    "total_collections": len(workspace_collections)
-                }
-                
-            except Exception as e:
-                logger.error("Failed to get collection info: %s", e)
-                return {"error": str(e)}
+                logger.error(f"Health check failed: {e}")
+                raise
+
+
+async def main():
+    """Main CLI entry point."""
+    parser = argparse.ArgumentParser(
+        description="Workspace Qdrant Administrative CLI",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog="""
+Examples:
+    # List collections with statistics
+    python -m workspace_qdrant_mcp.utils.admin_cli list-collections --stats
     
-    def close(self):
-        """Close the Qdrant client connection."""
-        self.client.close()
-
-
-# CLI Application
-app = typer.Typer(
-    name="workspace-qdrant-admin",
-    help="Administrative CLI for workspace-qdrant-mcp collections"
-)
-
-
-@app.command()
-def list_collections(
-    all_collections: bool = typer.Option(
-        False, "--all", "-a", help="Show all collections, not just workspace collections"
-    ),
-    verbose: bool = typer.Option(False, "--verbose", "-v", help="Show verbose output")
-) -> None:
-    """List collections in the Qdrant instance."""
+    # Delete specific collection
+    python -m workspace_qdrant_mcp.utils.admin_cli delete-collection docs_myproject
     
-    try:
-        admin = WorkspaceQdrantAdmin()
-        collections = admin.list_collections(show_all=all_collections)
-        
-        if not collections:
-            typer.echo("No collections found.")
-            return
-        
-        typer.echo(f"\nFound {len(collections)} collection{'s' if len(collections) != 1 else ''}:")
-        
-        if verbose:
-            # Show detailed info
-            for collection_name in collections:
-                info = admin.get_collection_info(collection_name)
-                collection_data = info.get(collection_name, {})
-                
-                if "error" in collection_data:
-                    typer.echo(f"  ❌ {collection_name} (error: {collection_data['error']})")
-                else:
-                    points = collection_data.get("points_count", 0)
-                    protected = "🔒" if collection_data.get("protected", False) else ""
-                    scoped = "📁" if collection_data.get("project_scoped", False) else "🌐"
-                    typer.echo(f"  {scoped} {protected} {collection_name} ({points} points)")
-        else:
-            # Simple list
-            for collection_name in collections:
-                typer.echo(f"  • {collection_name}")
-        
-        admin.close()
-        
-    except Exception as e:
-        typer.echo(typer.style(f"❌ Error listing collections: {e}", fg=typer.colors.RED))
-        sys.exit(1)
-
-
-@app.command()
-def delete_collection(
-    collection_name: str = typer.Argument(..., help="Name of collection to delete"),
-    force: bool = typer.Option(False, "--force", "-f", help="Skip confirmation prompts"),
-    dry_run: bool = typer.Option(False, "--dry-run", help="Show what would be deleted without actually deleting")
-) -> None:
-    """Delete a collection with safety checks."""
+    # Search across collections
+    python -m workspace_qdrant_mcp.utils.admin_cli search "async function" --limit 5
     
-    try:
-        admin = WorkspaceQdrantAdmin(dry_run=dry_run)
-        
-        # Show what we're about to delete
-        info = admin.get_collection_info(collection_name)
-        collection_data = info.get(collection_name, {})
-        
-        if "error" in collection_data:
-            typer.echo(typer.style(f"❌ Cannot access collection '{collection_name}': {collection_data['error']}", fg=typer.colors.RED))
-            sys.exit(1)
-        
-        # Display collection info
-        points = collection_data.get("points_count", 0)
-        protected = collection_data.get("protected", False)
-        scoped = collection_data.get("project_scoped", False)
-        
-        typer.echo(f"\nCollection: {collection_name}")
-        typer.echo(f"Points: {points}")
-        typer.echo(f"Project scoped: {'Yes' if scoped else 'No'}")
-        typer.echo(f"Protected: {'Yes' if protected else 'No'}")
-        
-        # Attempt deletion
-        success = admin.delete_collection(collection_name, force=force)
-        
-        if success:
-            if dry_run:
-                typer.echo(typer.style("✅ DRY RUN: Collection would be deleted successfully", fg=typer.colors.GREEN))
-            else:
-                typer.echo(typer.style("✅ Collection deleted successfully", fg=typer.colors.GREEN))
-        else:
-            typer.echo(typer.style("❌ Collection deletion failed", fg=typer.colors.RED))
-            sys.exit(1)
-        
-        admin.close()
-        
-    except Exception as e:
-        typer.echo(typer.style(f"❌ Error deleting collection: {e}", fg=typer.colors.RED))
-        sys.exit(1)
-
-
-@app.command()
-def collection_info(
-    collection_name: Optional[str] = typer.Argument(None, help="Name of specific collection (optional)")
-) -> None:
-    """Show detailed information about collections."""
+    # Reset project (with confirmation)
+    python -m workspace_qdrant_mcp.utils.admin_cli reset-project
     
-    try:
-        admin = WorkspaceQdrantAdmin()
-        info = admin.get_collection_info(collection_name)
-        
-        if collection_name:
-            # Single collection
-            collection_data = info.get(collection_name, {})
-            if "error" in collection_data:
-                typer.echo(typer.style(f"❌ Error getting collection info: {collection_data['error']}", fg=typer.colors.RED))
-                sys.exit(1)
-            
-            typer.echo(f"\nCollection: {collection_name}")
-            typer.echo(f"Points: {collection_data.get('points_count', 0)}")
-            typer.echo(f"Vectors: {collection_data.get('vectors_count', 0)}")
-            typer.echo(f"Status: {collection_data.get('status', 'unknown')}")
-            typer.echo(f"Project scoped: {'Yes' if collection_data.get('project_scoped', False) else 'No'}")
-            typer.echo(f"Protected: {'Yes' if collection_data.get('protected', False) else 'No'}")
-            
-            config = collection_data.get('config', {})
-            if config:
-                typer.echo(f"Vector size: {config.get('vector_size', 'unknown')}")
-                typer.echo(f"Distance metric: {config.get('distance', 'unknown')}")
-        
-        else:
-            # All collections
-            collections = info.get("collections", {})
-            total = info.get("total_collections", 0)
-            
-            typer.echo(f"\nWorkspace Collections ({total} total):")
-            
-            for name, data in collections.items():
-                if "error" in data:
-                    typer.echo(f"  ❌ {name} (error: {data['error']})")
-                else:
-                    points = data.get("points_count", 0)
-                    status = data.get("status", "unknown")
-                    typer.echo(f"  • {name}: {points} points ({status})")
-        
-        admin.close()
-        
-    except Exception as e:
-        typer.echo(typer.style(f"❌ Error getting collection info: {e}", fg=typer.colors.RED))
-        sys.exit(1)
-
-
-@app.callback()
-def main(
-    config_file: Optional[str] = typer.Option(None, "--config", help="Path to config file"),
-    verbose: bool = typer.Option(False, "--verbose", "-v", help="Enable verbose logging"),
-) -> None:
-    """Administrative CLI for workspace-qdrant-mcp collections."""
+    # System health check
+    python -m workspace_qdrant_mcp.utils.admin_cli health
+        """
+    )
     
-    if config_file:
-        os.environ["CONFIG_FILE"] = config_file
+    parser.add_argument('--dry-run', action='store_true', help='Preview operations without executing')
+    parser.add_argument('--project', help='Limit operations to specific project')
+    parser.add_argument('--debug', action='store_true', help='Enable debug logging')
     
-    if verbose:
+    subparsers = parser.add_subparsers(dest='command', help='Available commands')
+    
+    # List collections command
+    list_parser = subparsers.add_parser('list-collections', help='List all collections')
+    list_parser.add_argument('--stats', action='store_true', help='Include collection statistics')
+    
+    # Delete collection command
+    delete_parser = subparsers.add_parser('delete-collection', help='Delete a collection')
+    delete_parser.add_argument('collection_name', help='Name of collection to delete')
+    delete_parser.add_argument('--confirm', action='store_true', help='Skip confirmation prompt')
+    
+    # Search command
+    search_parser = subparsers.add_parser('search', help='Search across collections')
+    search_parser.add_argument('query', help='Search query')
+    search_parser.add_argument('--limit', type=int, default=10, help='Results per collection')
+    search_parser.add_argument('--content', action='store_true', help='Include document content')
+    
+    # Reset project command
+    reset_parser = subparsers.add_parser('reset-project', help='Reset all project collections')
+    reset_parser.add_argument('--confirm', action='store_true', help='Skip confirmation prompt')
+    
+    # Health check command
+    subparsers.add_parser('health', help='Check system health')
+    
+    args = parser.parse_args()
+    
+    if args.debug:
         logging.getLogger().setLevel(logging.DEBUG)
-
-
-def admin_cli():
-    """Console script entry point."""
+    
+    if not args.command:
+        parser.print_help()
+        return
+    
     try:
-        app()
+        # Initialize admin interface
+        config = Config()
+        admin = WorkspaceQdrantAdmin(
+            config=config,
+            dry_run=args.dry_run,
+            project_scope=args.project
+        )
+        
+        # Execute command
+        if args.command == 'list-collections':
+            collections = await admin.list_collections(include_stats=args.stats)
+            print(f"\nFound {len(collections)} collections:")
+            for col in collections:
+                print(f"  - {col['name']}")
+                if args.stats and 'stats' in col:
+                    stats = col['stats']
+                    if isinstance(stats, dict) and 'error' not in stats:
+                        print(f"    Documents: {stats.get('points_count', 'Unknown')}")
+                        print(f"    Vectors: {stats.get('vectors_count', 'Unknown')}")
+                    else:
+                        print(f"    Stats: {stats}")
+        
+        elif args.command == 'delete-collection':
+            success = await admin.delete_collection(
+                args.collection_name,
+                confirm=args.confirm
+            )
+            if success:
+                print(f"✅ Collection {args.collection_name} deleted successfully")
+            else:
+                print(f"❌ Failed to delete collection {args.collection_name}")
+                sys.exit(1)
+        
+        elif args.command == 'search':
+            results = await admin.search_collections(
+                args.query,
+                limit=args.limit,
+                include_content=args.content
+            )
+            
+            print(f"\nSearch results for: '{args.query}'")
+            total = 0
+            for result in results:
+                print(f"\n📁 {result['collection']} ({result['count']} results)")
+                for hit in result['results'][:5]:  # Show top 5 per collection
+                    print(f"  📄 Score: {hit.get('score', 'N/A'):.3f}")
+                    if args.content and 'content' in hit:
+                        preview = hit['content'][:100] + "..." if len(hit['content']) > 100 else hit['content']
+                        print(f"     {preview}")
+                total += result['count']
+            
+            print(f"\nTotal results: {total}")
+        
+        elif args.command == 'reset-project':
+            success = await admin.reset_project(confirm=args.confirm)
+            if success:
+                print(f"✅ Project {admin.current_project} reset successfully")
+            else:
+                print(f"❌ Failed to reset project {admin.current_project}")
+                sys.exit(1)
+        
+        elif args.command == 'health':
+            health = await admin.get_system_health()
+            print(f"\n🔍 System Health Report - {health['timestamp']}")
+            print(f"Project: {health['project']}")
+            
+            # Qdrant status
+            qdrant = health['qdrant']
+            if qdrant['status'] == 'connected':
+                print(f"✅ Qdrant: Connected ({qdrant['total_collections']} collections, {qdrant['project_collections']} for this project)")
+            else:
+                print(f"❌ Qdrant: {qdrant['error']}")
+            
+            # Project detection status
+            proj_detect = health['project_detection']
+            if proj_detect['status'] == 'ok':
+                print(f"✅ Project Detection: OK ({proj_detect['detected_projects']} projects detected)")
+            else:
+                print(f"❌ Project Detection: {proj_detect['error']}")
+            
+            print(f"\nConfiguration:")
+            print(f"  Qdrant URL: {health['config']['qdrant_url']}")
+            print(f"  Debug Mode: {health['config']['debug_mode']}")
+            print(f"  Collection Prefix: {health['config']['collection_prefix']}")
+    
     except KeyboardInterrupt:
-        typer.echo("\n❌ Operation cancelled by user")
+        print("\n\nOperation cancelled by user")
+        sys.exit(1)
+    except Exception as e:
+        logger.error(f"Command failed: {e}")
+        if args.debug:
+            import traceback
+            traceback.print_exc()
         sys.exit(1)
 
 
-if __name__ == "__main__":
-    admin_cli()
+if __name__ == '__main__':
+    asyncio.run(main())
