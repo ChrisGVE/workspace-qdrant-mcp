@@ -154,25 +154,35 @@ BATCH_SIZE=50
 
 ## Implementation Phases
 
-### Phase 1: Core Port (Days 1-5)
-- [ ] Set up Python project structure with FastMCP
-- [ ] Port TypeScript collection management to Python
-- [ ] Implement project detection logic
-- [ ] Integrate FastEmbed for embedding generation
-- [ ] Basic search and document management tools
+### Phase 1: Documentation & Configuration Fixes
+- [ ] Fix README.md documentation errors (MCP server usage, stdio vs port, collections naming)
+- [ ] Correct default COLLECTIONS from "scratchbook" to "project"
+- [ ] Add proper Claude Code installation instructions using `claude mcp add`
+- [ ] Document environment variables with defaults and QDRANT_API_KEY for cloud
+- [ ] Remove API calls from README, move to API.md reference
+- [ ] Add global collections configuration documentation
+- [ ] Remove incorrect basic usage section (users never run MCP servers directly)
 
-### Phase 2: Enhancement (Days 5-8)  
-- [ ] Add BM25 sparse vector support
-- [ ] Implement hybrid search with RRF fusion
-- [ ] Add scratchbook-specific functionality
-- [ ] GitHub user-aware submodule detection
-- [ ] Configuration management and validation
+### Phase 2: Feature Analysis & Implementation
+- [ ] Conduct feature comparison analysis between claude-qdrant-mcp and current implementation
+- [ ] Identify missing features (especially CLI document ingestion)
+- [ ] Implement missing features with proper testing
+- [ ] Add stdio protocol support for MCP communication
+- [ ] Enhance collection configuration system
 
-### Phase 3: Integration (Days 8-10)
-- [ ] Test integration with existing Qdrant instance
-- [ ] Validate against memexd daemon compatibility
-- [ ] Performance optimization and tuning
-- [ ] Documentation and usage examples
+### Phase 3: Testing Infrastructure Enhancement
+- [ ] Identify authoritative benchmark tool (consolidate others)
+- [ ] Implement large OSS project ingestion testing (neovim, rust, go)
+- [ ] Add chunk size optimization testing
+- [ ] Validate CI/CD pipeline functionality
+- [ ] Create comprehensive test suite with real-world data
+
+### Phase 4: Code Quality & Performance
+- [ ] Optimize chunk size based on testing results
+- [ ] Ensure all subtasks have proper testing coverage
+- [ ] Validate performance with mixed project databases
+- [ ] Clean up legacy/unused benchmark tools
+- [ ] Final documentation review and optimization
 
 ## Success Criteria
 
