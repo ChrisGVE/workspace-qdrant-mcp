@@ -1,0 +1,12 @@
+{"message":"feat:","Complete","functional","test","suite","with","recall","measurement
+
+-","Add","comprehensive","functional","tests","using","real","workspace","data
+-","Implement","precision/recall","metrics","for","search","quality","assessment
+-","Create","performance","benchmarking","framework
+-","Add","end-to-end","MCP","server","integration","tests
+-","Include","CLI","admin","tool","with","safe","collection","deletion
+-","Generate","detailed","test","reports","with","quality","metrics
+-","Target:","≥40%","symbol","precision,","≥25%","semantic","recall
+
+🤖","Generated","with","Claude","Code
+","tree":"4e3f21c1e9f88bd35bc56df82c657e30021f4871","parents":["bebb3a48484e773355059e605c613f5d75746393"]}
