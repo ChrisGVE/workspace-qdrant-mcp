@@ -130,7 +130,9 @@ class TestQdrantWorkspaceClient:
         client.collection_manager = mock_collection_manager
         
         # Mock embedding service
-        client.embedding_service.get_model_info.return_value = {"model": "test-model"}
+        mock_embedding_service = MagicMock()
+        mock_embedding_service.get_model_info.return_value = {"model": "test-model"}
+        client.embedding_service = mock_embedding_service
         
         # Mock asyncio executor for get_collections
         with patch('asyncio.get_event_loop') as mock_get_loop:
@@ -151,12 +153,24 @@ class TestQdrantWorkspaceClient:
                                 size=384,
                                 distance=models.Distance.COSINE
                             )
+                        ),
+                        hnsw_config=models.HnswConfig(
+                            m=16,
+                            ef_construct=100,
+                            full_scan_threshold=10000
+                        ),
+                        optimizer_config=models.OptimizersConfig(
+                            deleted_threshold=0.2,
+                            vacuum_min_vector_number=1000,
+                            default_segment_number=2,
+                            flush_interval_sec=5
                         )
                     )
                 )
             ])
             
-            future = asyncio.create_future()
+            import asyncio
+            future = asyncio.Future()
             future.set_result(collections_response)
             mock_loop.run_in_executor.return_value = future
             
@@ -330,7 +344,8 @@ class TestQdrantWorkspaceClient:
             
             mock_loop = MagicMock()
             mock_get_loop.return_value = mock_loop
-            future = asyncio.create_future()
+            import asyncio
+            future = asyncio.Future()
             future.set_result(None)
             mock_loop.run_in_executor.return_value = future
             
@@ -374,7 +389,8 @@ class TestQdrantWorkspaceClient:
             
             mock_loop = MagicMock()
             mock_get_loop.return_value = mock_loop
-            future = asyncio.create_future()
+            import asyncio
+            future = asyncio.Future()
             future.set_result(None)
             mock_loop.run_in_executor.return_value = future
             
@@ -411,10 +427,12 @@ class TestQdrantWorkspaceClient:
         )
         client.collection_manager = mock_collection_manager
         
-        client.embedding_service.get_model_info.return_value = {
+        mock_embedding_service = MagicMock()
+        mock_embedding_service.get_model_info.return_value = {
             "model_name": "sentence-transformers/all-MiniLM-L6-v2",
             "vector_size": 384
         }
+        client.embedding_service = mock_embedding_service
         
         # Mock Qdrant collections response
         collections_response = models.CollectionsResponse(
@@ -432,6 +450,17 @@ class TestQdrantWorkspaceClient:
                                 size=384,
                                 distance=models.Distance.COSINE
                             )
+                        ),
+                        hnsw_config=models.HnswConfig(
+                            m=16,
+                            ef_construct=100,
+                            full_scan_threshold=10000
+                        ),
+                        optimizer_config=models.OptimizersConfig(
+                            deleted_threshold=0.2,
+                            vacuum_min_vector_number=1000,
+                            default_segment_number=2,
+                            flush_interval_sec=5
                         )
                     )
                 )
@@ -441,7 +470,8 @@ class TestQdrantWorkspaceClient:
         with patch('asyncio.get_event_loop') as mock_get_loop:
             mock_loop = MagicMock()
             mock_get_loop.return_value = mock_loop
-            future = asyncio.create_future()
+            import asyncio
+            future = asyncio.Future()
             future.set_result(collections_response)
             mock_loop.run_in_executor.return_value = future
             
