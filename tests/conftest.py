@@ -82,6 +82,17 @@ def mock_qdrant_client():
                             size=384,
                             distance=models.Distance.COSINE
                         )
+                    ),
+                    hnsw_config=models.HnswConfig(
+                        m=16,
+                        ef_construct=100,
+                        full_scan_threshold=10000
+                    ),
+                    optimizer_config=models.OptimizersConfig(
+                        deleted_threshold=0.2,
+                        vacuum_min_vector_number=1000,
+                        default_segment_number=2,
+                        flush_interval_sec=5
                     )
                 )
             )
@@ -92,11 +103,13 @@ def mock_qdrant_client():
         models.ScoredPoint(
             id="test_id_1",
             score=0.95,
+            version=0,
             payload={"content": "Test document 1", "source": "test"}
         ),
         models.ScoredPoint(
             id="test_id_2",
             score=0.85,
+            version=0,
             payload={"content": "Test document 2", "source": "test"}
         )
     ]
