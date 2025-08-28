@@ -92,7 +92,7 @@ jobs:
         echo '```' >> quality-report.md
 
     - name: Upload quality reports
-      uses: actions/upload-artifact@v3
+      uses: actions/upload-artifact@v4
       with:
         name: quality-reports
         path: |
@@ -185,7 +185,7 @@ jobs:
         echo '```' >> dependency-report.md
 
     - name: Upload dependency reports
-      uses: actions/upload-artifact@v3
+      uses: actions/upload-artifact@v4
       with:
         name: dependency-reports
         path: |
@@ -203,11 +203,6 @@ jobs:
         image: qdrant/qdrant:v1.7.0
         ports:
           - 6333:6333
-        options: >-
-          --health-cmd "curl -f http://localhost:6333/health || exit 1"
-          --health-interval 10s
-          --health-timeout 5s
-          --health-retries 5
 
     steps:
     - name: Checkout code
@@ -243,12 +238,12 @@ jobs:
         
         echo "## Simple Benchmark" >> performance-report.md
         echo '```' >> performance-report.md
-        python benchmarking/simple_benchmark.py >> performance-report.md
+        python benchmarking/authoritative_benchmark.py --skip-oss --chunk-sizes 1000 >> performance-report.md
         echo '```' >> performance-report.md
         
         echo "## Comprehensive Benchmark" >> performance-report.md  
         echo '```' >> performance-report.md
-        timeout 300s python benchmarking/comprehensive_benchmark.py >> performance-report.md || echo "Benchmark timed out after 5 minutes" >> performance-report.md
+        timeout 300s python benchmarking/authoritative_benchmark.py --chunk-sizes 1000,2000 >> performance-report.md || echo "Benchmark timed out after 5 minutes" >> performance-report.md
         echo '```' >> performance-report.md
 
     - name: Memory profiling
@@ -256,11 +251,11 @@ jobs:
         . .venv/bin/activate
         echo "## Memory Usage Profile" >> performance-report.md
         echo '```' >> performance-report.md
-        python -m memory_profiler benchmarking/simple_benchmark.py >> performance-report.md || echo "Memory profiling failed" >> performance-report.md
+        python -m memory_profiler benchmarking/authoritative_benchmark.py --skip-oss --chunk-sizes 1000 >> performance-report.md || echo "Memory profiling failed" >> performance-report.md
         echo '```' >> performance-report.md
 
     - name: Upload performance reports
-      uses: actions/upload-artifact@v3
+      uses: actions/upload-artifact@v4
       with:
         name: performance-reports
         path: performance-report.md
@@ -319,7 +314,7 @@ jobs:
         " >> doc-report.md
 
     - name: Upload documentation reports
-      uses: actions/upload-artifact@v3
+      uses: actions/upload-artifact@v4
       with:
         name: documentation-reports
         path: doc-report.md

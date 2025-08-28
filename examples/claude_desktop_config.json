@@ -1,0 +1,12 @@
+{
+  "mcpServers": {
+    "workspace-qdrant-mcp": {
+      "command": "uv",
+      "args": ["tool", "run", "workspace-qdrant-mcp"],
+      "env": {
+        "QDRANT_URL": "http://localhost:6333",
+        "OPENAI_API_KEY": "your-openai-api-key-here"
+      }
+    }
+  }
+}

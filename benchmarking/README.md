@@ -1,37 +1,38 @@
 # Benchmarking Suite
 
-Comprehensive performance benchmarks for workspace-qdrant-mcp with evidence-based metrics.
+Authoritative performance benchmarks for workspace-qdrant-mcp with realistic, end-to-end testing.
 
-## Performance Metrics
+## Overview
 
-**Evidence-based performance data from 21,930 test queries:**
+The benchmarking suite has been consolidated into a single, comprehensive tool that provides realistic performance measurements using actual Qdrant operations, the workspace-qdrant-ingest CLI, and large open-source projects for mixed-environment testing.
 
-| Search Type | Precision | Recall | Queries Tested | Response Time |
-|-------------|-----------|--------|----------------|---------------|
-| Symbol/Exact | **100%** | **78.3%** | 1,930 | <20ms |
-| Semantic | **94.2%** | **78.3%** | 10,000 | <50ms |
-| Hybrid | **97.1%** | **82.1%** | 10,000 | <75ms |
+## Performance Methodology
 
-**System Performance:**
-- **Embedding generation:** >100 docs/second (CPU)
-- **Collection detection:** <1 second for typical projects
-- **Memory usage:** <150MB RSS when active
-- **Concurrent operations:** Full async support
-- **Throughput:** 1000+ search queries/minute
+**Realistic Testing Approach:**
+- ✅ **Real Qdrant Integration:** Actual search operations, not simulations
+- ✅ **CLI Integration:** Uses workspace-qdrant-ingest for realistic data loading
+- ✅ **Large OSS Projects:** Tests with neovim, rust, and go codebases
+- ✅ **Chunk Size Optimization:** Compares performance across chunk sizes
+- ✅ **Statistical Analysis:** Confidence intervals and proper sampling
+- ✅ **End-to-End Testing:** Complete workflow from ingestion to search
 
-## Benchmark Files
+## Benchmark Tools
 
-### Core Benchmarks
+### Authoritative Benchmark
 
-- **`simple_benchmark.py`** - Basic performance tests for fundamental operations
-- **`comprehensive_benchmark.py`** - Detailed benchmarking across all major features
-- **`efficient_large_benchmark.py`** - Optimized benchmarks for large-scale testing
-- **`large_scale_benchmark.py`** - High-volume performance testing
-- **`benchmark_actual_performance.py`** - Real-world performance measurements
+- **`authoritative_benchmark.py`** - Comprehensive, realistic performance testing
+  - Real Qdrant search operations
+  - Large OSS project integration (neovim, rust, go)
+  - Chunk size optimization testing (500, 1000, 2000, 4000 chars)
+  - Project-only vs mixed environment comparisons
+  - Statistical analysis with confidence intervals
+  - End-to-end workflow testing
 
-### Test Runners
+### Test Orchestration
 
-- **`run_comprehensive_tests.py`** - Orchestrates complete benchmark suite execution
+- **`run_comprehensive_tests.py`** - CI/CD test suite orchestration
+  - Pytest integration for functional tests
+  - Different purpose from benchmark (test validation vs performance measurement)
 
 ## Running Benchmarks
 
@@ -44,249 +45,250 @@ pip install -e .[dev]
 # Start Qdrant server
 docker run -p 6333:6333 qdrant/qdrant
 
-# Validate configuration
+# Validate configuration (optional)
 workspace-qdrant-validate
 ```
 
-### Individual Benchmarks
+### Authoritative Benchmark
 
 ```bash
-# Basic performance tests
-python benchmarking/simple_benchmark.py
+# Full benchmark with OSS projects and all chunk sizes
+python benchmarking/authoritative_benchmark.py
 
-# Comprehensive feature benchmarks
-python benchmarking/comprehensive_benchmark.py
+# Skip OSS project download (faster, less realistic)
+python benchmarking/authoritative_benchmark.py --skip-oss
 
-# Large-scale performance testing
-python benchmarking/large_scale_benchmark.py
+# Test specific chunk sizes only
+python benchmarking/authoritative_benchmark.py --chunk-sizes 1000 2000
 
-# Real-world usage scenarios
-python benchmarking/benchmark_actual_performance.py
+# Example output location
+ls benchmark_results/
 ```
 
-### Complete Benchmark Suite
+### Test Suite Orchestration
 
 ```bash
-# Run all benchmarks with reporting
+# Run functional test suite (different from benchmarking)
 python benchmarking/run_comprehensive_tests.py
 
-# Run with pytest for CI integration
-pytest tests/benchmarks/ --benchmark-only
-
-# Generate performance comparison
-pytest tests/benchmarks/ --benchmark-compare=baseline
+# Run specific test categories
+python benchmarking/run_comprehensive_tests.py --categories performance recall_precision
 ```
 
-## Benchmark Categories
+## Benchmark Test Scenarios
 
-### Search Performance
+### Project-Only vs Mixed Environment Testing
 
-**Test scenarios:**
-- Exact text matching (symbol search)
-- Semantic similarity search
-- Hybrid search with various weightings
-- Cross-collection search
-- Filtered search with metadata
+**Scenario A: Project-Only**
+- Ingest workspace-qdrant-mcp codebase only
+- Test search quality in clean environment
+- Baseline performance measurements
+- Optimal precision/recall expected
 
-**Metrics tracked:**
-- Precision and recall rates
-- Response time percentiles (p50, p95, p99)
-- Queries per second (QPS)
-- Memory usage during operations
+**Scenario B: Mixed Environment**
+- Ingest project + large OSS codebases (neovim, rust, go)
+- Test search precision with "noise" data
+- Realistic production-like conditions
+- Measures performance degradation in mixed environments
 
-### Embedding Performance
+### Chunk Size Optimization
 
-**Test scenarios:**
-- Document chunking and processing
-- Batch embedding generation
-- Large document handling
-- Concurrent embedding requests
+**Chunk sizes tested:** 500, 1000, 2000, 4000 characters
 
-**Metrics tracked:**
-- Documents processed per second
-- Memory usage per document
-- Embedding generation latency
-- Batch processing efficiency
+**Metrics compared:**
+- Search precision and recall
+- Response time performance
+- Index size and memory usage
+- Embedding generation time
 
-### System Performance
+**Optimization goals:**
+- Identify optimal chunk size for search quality
+- Balance performance vs accuracy
+- Provide actionable configuration recommendations
 
-**Test scenarios:**
-- Server startup time
-- Collection creation and management
-- Project detection accuracy
-- Memory usage over time
-- Concurrent client handling
+### Search Type Performance
+
+**Search types benchmarked:**
+- **Semantic Search:** Vector similarity matching
+- **Hybrid Search:** Combined vector and keyword search
+- **Exact Search:** Precise text matching
 
 **Metrics tracked:**
-- Cold start time
-- Memory footprint growth
-- CPU utilization patterns
-- Network throughput
+- Precision, recall, and F1 scores
+- Response time percentiles (p50, p95, p99)  
+- Queries per second throughput
+- Statistical confidence intervals
 
-## Performance Thresholds
+## Expected Performance Characteristics
 
-**Search Quality Requirements:**
-- Symbol search: ≥90% precision, ≥70% recall
-- Semantic search: ≥84% precision, ≥70% recall
-- Hybrid search: ≥90% precision, ≥75% recall
+**Realistic Performance Targets:**
+- Performance thresholds are determined empirically from actual benchmark runs
+- Confidence intervals provided for statistical reliability
+- Separate baselines for project-only vs mixed environments
+- Chunk size recommendations based on measured trade-offs
 
-**Response Time Requirements:**
-- Search operations: <100ms average
-- Document addition: <200ms average
-- Collection operations: <500ms average
-- Server health check: <10ms average
+**Key Insights Provided:**
+- **Precision Degradation:** Quantified impact of mixed OSS projects on search quality
+- **Chunk Size Optimization:** Optimal chunk size for your use case
+- **Response Time Analysis:** P50, P95, P99 response time distributions
+- **Scalability Characteristics:** Performance impact of index size growth
 
-**Resource Usage Limits:**
-- Memory usage: <200MB RSS during normal operations
-- CPU usage: <50% average on single core
-- Disk I/O: <10MB/s sustained
+**Data-Driven Recommendations:**
+- Chunk size selection based on quality vs speed trade-offs
+- Expected precision/recall ranges for realistic workloads
+- Configuration tuning guidance for production deployments
 
 ## Output and Reporting
 
 ### Benchmark Results
 
-Benchmarks generate detailed performance reports:
+The authoritative benchmark generates comprehensive reports with statistical analysis:
 
 ```
-Search Performance Report
-========================
-Hybrid Search:
-  - Precision: 97.1% (target: ≥90%)
-  - Recall: 82.1% (target: ≥75%)
-  - Mean response time: 45.2ms (target: <100ms)
-  - 95th percentile: 78.5ms
-  - Queries per second: 1,247
+🎯 Benchmark Results Summary
+============================
+Scenario              | Chunk Size | Documents | Chunks   | Precision | Recall
+project_only_1000     | 1000       | 156       | 2,341    | 0.892     | 0.734
+mixed_projects_1000   | 1000       | 8,432     | 125,678  | 0.743     | 0.681
+project_only_2000     | 2000       | 156       | 1,284    | 0.915     | 0.701
+mixed_projects_2000   | 2000       | 8,432     | 68,432   | 0.761     | 0.663
 
-Semantic Search:
-  - Precision: 94.2% (target: ≥84%)
-  - Recall: 78.3% (target: ≥70%)
-  - Mean response time: 38.1ms (target: <100ms)
-  - 95th percentile: 62.3ms
-  - Queries per second: 1,456
+📈 Performance Comparison: Project-Only vs Mixed
+================================================
+Chunk Size | Project Precision | Mixed Precision | Precision Drop
+1000       | 0.892            | 0.743           | 16.7%
+2000       | 0.915            | 0.761           | 16.8%
 
-Memory Usage:
-  - Peak RSS: 145MB (target: <200MB)
-  - Average RSS: 128MB
-  - Memory growth rate: 0.2MB/hour
+📏 Chunk Size Optimization Analysis
+====================================
+Chunk Size | Precision | Recall | Response Time | Recommendation
+1000       | 0.892     | 0.734  | 0.045s       | ✅ Best Quality
+2000       | 0.915     | 0.701  | 0.038s       | ⚡ Best Speed
 ```
 
 ### Output Locations
 
-- **Console output:** Real-time benchmark progress
-- **`.benchmarks/` directory:** Detailed results (gitignored)
-- **`htmlcov/benchmarks/`:** HTML benchmark reports
-- **CI artifacts:** Automated performance reports
+- **Console output:** Real-time benchmark progress with rich formatting
+- **`benchmark_results/`:** Detailed JSON results with timestamps
+- **`test_data/`:** Downloaded OSS projects (cached for future runs)
+- **Benchmark logs:** Comprehensive logging for debugging
 
-## Continuous Performance Monitoring
+## Integration with Development Workflow
 
 ### CI Integration
 
+The authoritative benchmark can be integrated into CI/CD pipelines:
+
 ```yaml
-# .github/workflows/performance.yml
+# Example CI integration
 name: Performance Benchmarks
 on:
   pull_request:
-    paths: ['src/**']
+    paths: ['src/**', 'benchmarking/**']
 
 jobs:
   benchmark:
     runs-on: ubuntu-latest
+    services:
+      qdrant:
+        image: qdrant/qdrant
+        ports:
+          - 6333:6333
     steps:
       - uses: actions/checkout@v3
-      - name: Run benchmarks
+      - name: Run authoritative benchmark
         run: |
-          pytest tests/benchmarks/ --benchmark-json=benchmark.json
-      - name: Performance regression check
-        run: |
-          python scripts/check_performance_regression.py benchmark.json
+          python benchmarking/authoritative_benchmark.py --skip-oss
+      - name: Archive benchmark results
+        uses: actions/upload-artifact@v3
+        with:
+          name: benchmark-results
+          path: benchmark_results/
 ```
 
-### Performance Regression Detection
+### Custom Benchmark Scenarios
 
-- **Automated alerts:** When performance drops >10%
-- **Baseline tracking:** Performance trends over time
-- **Threshold enforcement:** Block PRs that regress performance
-- **Detailed analysis:** Identify performance bottlenecks
-
-## Custom Benchmarks
-
-### Creating New Benchmarks
+To add custom test scenarios, modify the `authoritative_benchmark.py`:
 
 ```python
-# benchmarking/test_custom_feature.py
-import pytest
-from workspace_qdrant_mcp import WorkspaceManager
+# Add to _generate_scenarios() method
+custom_scenario = BenchmarkScenario(
+    name="custom_test",
+    collection_name="custom_collection", 
+    chunk_size=1500,
+    includes_oss=True
+)
+self.scenarios.append(custom_scenario)
 
-class TestCustomFeaturePerformance:
-    @pytest.mark.benchmark(group="custom")
-    def test_custom_operation_performance(self, benchmark):
-        """Benchmark custom operation."""
-        manager = WorkspaceManager()
-        
-        def custom_operation():
-            return manager.custom_feature("test_data")
-        
-        result = benchmark(custom_operation)
-        
-        # Assert performance requirements
-        assert benchmark.stats.mean < 0.1  # <100ms
-        assert result["quality_metric"] >= 0.90  # ≥90% quality
+# Add to _generate_test_queries() method
+custom_queries = [
+    {"text": "your custom query", "type": "semantic", "expected_relevance": "high"}
+]
+queries.extend(custom_queries)
 ```
 
-### Running Custom Benchmarks
+## Troubleshooting
 
+### Common Issues
+
+**Qdrant Connection Problems:**
 ```bash
-# Run specific benchmark group
-pytest tests/benchmarks/ -k "custom" --benchmark-only
+# Verify Qdrant is running
+curl http://localhost:6333/health
 
-# Run with specific configuration
-PERF_CONFIG=high_memory pytest tests/benchmarks/test_custom_feature.py
+# Start Qdrant if not running
+docker run -p 6333:6333 qdrant/qdrant
+
+# Check Qdrant logs
+docker logs $(docker ps -q --filter ancestor=qdrant/qdrant)
 ```
 
-## Troubleshooting Benchmark Issues
+**OSS Project Download Failures:**
+- Network connectivity issues may cause download failures
+- Use `--skip-oss` flag for faster testing without external dependencies
+- Downloaded projects are cached in `test_data/` directory
 
-### Common Problems
+**Memory Issues:**
+- Large OSS projects require significant memory for processing
+- Monitor system resources during benchmark execution
+- Consider testing fewer chunk sizes or projects if memory limited
 
-**Inconsistent results:**
-- Ensure system is idle during benchmarks
-- Use `--benchmark-disable-gc` for consistent GC behavior
-- Run multiple iterations with `--benchmark-min-rounds=10`
-
-**Memory issues:**
-- Monitor system memory with `htop` during benchmarks
-- Use smaller test datasets if needed
-- Clear Qdrant collections between tests
-
-**Qdrant connection issues:**
-- Verify Qdrant is running: `curl http://localhost:6333/health`
-- Check Qdrant logs: `docker logs <container_id>`
-- Reset Qdrant data: `docker volume rm <volume_name>`
+**Performance Inconsistencies:**
+- Ensure system is idle during benchmarking
+- Run multiple benchmark iterations for statistical reliability
+- Check for background processes affecting performance
 
 ### Debug Mode
 
 ```bash
-# Run benchmarks with debug logging
-LOG_LEVEL=DEBUG pytest tests/benchmarks/ --benchmark-only -v
+# Enable debug logging
+python benchmarking/authoritative_benchmark.py --debug
 
-# Profile memory usage
-pytest tests/benchmarks/ --benchmark-only --profile
+# Check benchmark logs
+tail -f benchmark_results/benchmark.log
 
-# Generate flame graphs
-pytest tests/benchmarks/ --benchmark-only --profile-svg
+# Inspect intermediate results
+ls -la benchmark_results/
+cat benchmark_results/benchmark_results_*.json | jq .
 ```
 
-## Performance Optimization Tips
+## Migration from Old Benchmark Tools
 
-### For Development
+**If you were using the old benchmark files:**
 
-- **Batch operations:** Process multiple documents together
-- **Connection pooling:** Reuse Qdrant connections
-- **Caching:** Cache frequently accessed data
-- **Async operations:** Use async/await for I/O operations
+- `simple_benchmark.py` → Use `authoritative_benchmark.py --skip-oss --chunk-sizes 1000`
+- `comprehensive_benchmark.py` → Use `authoritative_benchmark.py --chunk-sizes 1000 2000`  
+- `efficient_large_benchmark.py` → Use `authoritative_benchmark.py` (full suite)
+- `large_scale_benchmark.py` → Use `authoritative_benchmark.py` (full suite)
+- `benchmark_actual_performance.py` → Use `authoritative_benchmark.py` (enhanced version)
 
-### For Production
+**Benefits of migration:**
+- Real Qdrant integration instead of simulation
+- Large OSS project testing for realistic scenarios
+- Chunk size optimization recommendations
+- Statistical analysis with confidence intervals
+- End-to-end workflow validation
 
-- **Resource allocation:** Adequate CPU and memory
-- **Database tuning:** Optimize Qdrant configuration
-- **Load balancing:** Distribute requests across instances
-- **Monitoring:** Track performance metrics continuously
+---
+
+*The authoritative benchmark provides comprehensive, realistic performance measurement to replace all previous simulation-based tools.*

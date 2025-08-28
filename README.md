@@ -1,3 +1,5 @@
+[![MseeP.ai Security Assessment Badge](https://mseep.net/pr/chrisgve-workspace-qdrant-mcp-badge.png)](https://mseep.ai/app/chrisgve-workspace-qdrant-mcp)
+
 # workspace-qdrant-mcp
 
 [![Python](https://img.shields.io/badge/Python-3.9%2B-blue.svg)](https://www.python.org/downloads/)
@@ -29,6 +31,13 @@ uv tool install workspace-qdrant-mcp
 # Or with pip
 pip install workspace-qdrant-mcp
 ```
+
+**After installation, run the setup wizard:**
+```bash
+workspace-qdrant-setup
+```
+
+This interactive wizard will guide you through configuration, test your setup, and get you ready to use the MCP server with Claude in minutes.
 
 For development setup, see [CONTRIBUTING.md](CONTRIBUTING.md).
 
@@ -72,7 +81,34 @@ Configure environment variables through Claude Code's settings or your shell env
 | `COLLECTIONS` | `project` | Collection suffixes (comma-separated) |
 | `GLOBAL_COLLECTIONS` | _(none)_ | Global collection names (comma-separated) |
 | `GITHUB_USER` | _(none)_ | Filter projects by GitHub username |
-| `FASTEMBED_MODEL` | `sentence-transformers/all-MiniLM-L6-v2` | Embedding model |
+| `FASTEMBED_MODEL` | `sentence-transformers/all-MiniLM-L6-v2` | Embedding model (see options below) |
+
+### Embedding Model Options
+
+Choose the embedding model that best fits your system resources and quality requirements:
+
+**Lightweight (384D) - Good for limited resources:**
+- `sentence-transformers/all-MiniLM-L6-v2` (default) - Fast, low memory
+
+**Balanced (768D) - Better quality, moderate resources:**
+- `BAAI/bge-base-en-v1.5` - Excellent for most use cases
+- `jinaai/jina-embeddings-v2-base-en` - Good multilingual support
+- `thenlper/gte-base` - Google's T5-based model
+
+**High Quality (1024D) - Best results, high resource usage:**
+- `BAAI/bge-large-en-v1.5` - Top performance for English
+- `mixedbread-ai/mxbai-embed-large-v1` - Latest state-of-the-art
+
+**Configuration example:**
+```bash
+# Use a more powerful model
+export FASTEMBED_MODEL="BAAI/bge-base-en-v1.5"
+
+# Or in Claude Desktop config
+"env": {
+  "FASTEMBED_MODEL": "BAAI/bge-base-en-v1.5"
+}
+```
 
 ### Collection Naming
 
@@ -109,9 +145,70 @@ Interact with your collections through natural language commands in Claude:
 - Automatically optimizes results using reciprocal rank fusion (RRF)
 - Searches across project and global collections
 
-## CLI Tool
+## CLI Tools
 
-Use `wqutil` for collection management and diagnostics:
+### Interactive Setup Wizard
+
+Get up and running in minutes with the guided setup wizard:
+
+```bash
+# Interactive setup with guided prompts
+workspace-qdrant-setup
+
+# Advanced mode with all configuration options
+workspace-qdrant-setup --advanced
+
+# Non-interactive mode for automation
+workspace-qdrant-setup --non-interactive
+```
+
+The setup wizard:
+- Tests Qdrant connectivity and validates configuration
+- Helps choose optimal embedding models
+- Configures Claude Desktop integration automatically
+- Creates sample documents for immediate testing
+- Provides final system verification
+
+### Diagnostics and Testing
+
+Comprehensive troubleshooting and health monitoring:
+
+```bash
+# Full system diagnostics
+workspace-qdrant-test
+
+# Test specific components
+workspace-qdrant-test --component qdrant
+workspace-qdrant-test --component embedding
+
+# Include performance benchmarks
+workspace-qdrant-test --benchmark
+
+# Generate detailed report
+workspace-qdrant-test --report diagnostic_report.json
+```
+
+### Health Monitoring
+
+Real-time system health and performance monitoring:
+
+```bash
+# One-time health check
+workspace-qdrant-health
+
+# Continuous monitoring with live dashboard
+workspace-qdrant-health --watch
+
+# Detailed analysis with optimization recommendations
+workspace-qdrant-health --analyze
+
+# Generate health report
+workspace-qdrant-health --report health_report.json
+```
+
+### Collection Management
+
+Use `wqutil` for collection management and administration:
 
 ```bash
 # List collections
@@ -127,7 +224,20 @@ workspace-qdrant-validate
 wqutil workspace-status
 ```
 
-*Note: Legacy `workspace-qdrant-admin` command is also available.*
+### Document Ingestion
+
+Batch process documents for immediate searchability:
+
+```bash
+# Ingest documents from a directory
+workspace-qdrant-ingest /path/to/docs --collection my-project
+
+# Process specific formats only
+workspace-qdrant-ingest /path/to/docs -c my-project -f pdf,md
+
+# Preview what would be processed (dry run)
+workspace-qdrant-ingest /path/to/docs -c my-project --dry-run
+```
 
 ## Documentation
 
@@ -137,13 +247,40 @@ wqutil workspace-status
 
 ## Troubleshooting
 
+**Quick Diagnostics:**
+```bash
+# Run comprehensive system diagnostics
+workspace-qdrant-test
+
+# Get real-time health status
+workspace-qdrant-health
+
+# Run setup wizard to reconfigure
+workspace-qdrant-setup
+```
+
 **Connection Issues:**
 ```bash
+# Test Qdrant connectivity specifically
+workspace-qdrant-test --component qdrant
+
 # Verify Qdrant is running
 curl http://localhost:6333/collections
 
-# Test configuration
+# Validate complete configuration
 workspace-qdrant-validate
+```
+
+**Performance Issues:**
+```bash
+# Run performance benchmarks
+workspace-qdrant-test --benchmark
+
+# Monitor system resources
+workspace-qdrant-health --watch
+
+# Get optimization recommendations
+workspace-qdrant-health --analyze
 ```
 
 **Collection Issues:**

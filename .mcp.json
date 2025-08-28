@@ -19,6 +19,15 @@
 				"AZURE_OPENAI_API_KEY": "YOUR_AZURE_KEY_HERE",
 				"OLLAMA_API_KEY": "YOUR_OLLAMA_API_KEY_HERE"
 			}
+		},
+		"workspace-qdrant-mcp": {
+			"command": "python",
+			"args": ["-m", "workspace_qdrant_mcp.server"],
+			"env": {
+				"PYTHONPATH": "src",
+				"QDRANT_URL": "http://localhost:6333",
+				"OPENAI_API_KEY": "YOUR_OPENAI_KEY_HERE"
+			}
 		}
 	}
 }

@@ -10,16 +10,17 @@ Available commands:
     - Progress tracking and error handling for large ingestion operations
 
 The CLI tools integrate with the existing workspace collection system and
-provide the missing batch processing capabilities identified in the feature gap analysis.
+provide the missing batch processing capabilities identified in the feature
+gap analysis.
 """
 
+from . import parsers
 from .ingest import main as ingest_main
 from .ingestion_engine import DocumentIngestionEngine, IngestionResult, IngestionStats
-from . import parsers
 
 __all__ = [
     "ingest_main",
-    "DocumentIngestionEngine", 
+    "DocumentIngestionEngine",
     "IngestionResult",
     "IngestionStats",
     "parsers",

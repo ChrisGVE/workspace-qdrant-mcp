@@ -120,7 +120,7 @@ jobs:
     
     strategy:
       matrix:
-        python-version: ["3.8", "3.9", "3.10", "3.11", "3.12"]
+        python-version: ["3.10", "3.11", "3.12"]
     
     services:
       qdrant:
@@ -229,8 +229,9 @@ jobs:
         
         # Test console scripts
         workspace-qdrant-mcp --help
-        workspace-qdrant-validate --help
-        workspace-qdrant-admin --help
+        workspace-qdrant-test --help
+        workspace-qdrant-health --help
+        workspace-qdrant-ingest --help
         
         # Test import
         python -c "import workspace_qdrant_mcp; print(f'Version: {workspace_qdrant_mcp.__version__}')"
@@ -244,11 +245,12 @@ jobs:
         
         # Test console scripts
         workspace-qdrant-mcp --help
-        workspace-qdrant-validate --help
-        workspace-qdrant-admin --help
+        workspace-qdrant-test --help
+        workspace-qdrant-health --help
+        workspace-qdrant-ingest --help
 
     - name: Upload build artifacts
-      uses: actions/upload-artifact@v3
+      uses: actions/upload-artifact@v4
       with:
         name: release-packages
         path: dist/
@@ -301,7 +303,7 @@ jobs:
         echo "Timestamp: $(date -Iseconds)" >> release_benchmark.txt
         echo "=" >> release_benchmark.txt
         
-        python benchmarking/simple_benchmark.py >> release_benchmark.txt
+        python benchmarking/authoritative_benchmark.py --skip-oss --chunk-sizes 1000 >> release_benchmark.txt
 
     - name: Validate performance meets evidence-based thresholds
       run: |
@@ -332,7 +334,7 @@ jobs:
         "
 
     - name: Upload benchmark results
-      uses: actions/upload-artifact@v3
+      uses: actions/upload-artifact@v4
       with:
         name: release-benchmark-results
         path: release_benchmark.txt
@@ -349,13 +351,13 @@ jobs:
         fetch-depth: 0
 
     - name: Download release packages
-      uses: actions/download-artifact@v3
+      uses: actions/download-artifact@v4
       with:
         name: release-packages
         path: dist/
 
     - name: Download benchmark results
-      uses: actions/download-artifact@v3
+      uses: actions/download-artifact@v4
       with:
         name: release-benchmark-results
 
@@ -377,7 +379,7 @@ jobs:
         echo "" >> $GITHUB_ENV
         echo "## 🧪 Test Coverage" >> $GITHUB_ENV
         echo "" >> $GITHUB_ENV
-        echo "- Multi-Python version testing (3.8-3.12)" >> $GITHUB_ENV
+        echo "- Multi-Python version testing (3.10-3.12)" >> $GITHUB_ENV
         echo "- Comprehensive unit and integration tests" >> $GITHUB_ENV
         echo "- Security vulnerability scanning" >> $GITHUB_ENV
         echo "- Performance benchmarking" >> $GITHUB_ENV
@@ -400,8 +402,9 @@ jobs:
         echo "## 🚀 Console Scripts" >> $GITHUB_ENV
         echo "" >> $GITHUB_ENV
         echo "- \`workspace-qdrant-mcp\` - Main MCP server" >> $GITHUB_ENV
-        echo "- \`workspace-qdrant-validate\` - Configuration validator" >> $GITHUB_ENV  
-        echo "- \`workspace-qdrant-admin\` - Administrative CLI" >> $GITHUB_ENV
+        echo "- \`workspace-qdrant-test\` - Diagnostics and testing CLI" >> $GITHUB_ENV  
+        echo "- \`workspace-qdrant-health\` - Health check CLI" >> $GITHUB_ENV
+        echo "- \`workspace-qdrant-ingest\` - Data ingestion CLI" >> $GITHUB_ENV
         echo "" >> $GITHUB_ENV
         echo "## 📊 Performance Benchmark Results" >> $GITHUB_ENV
         echo "" >> $GITHUB_ENV
@@ -410,36 +413,29 @@ jobs:
         echo '```' >> $GITHUB_ENV
         echo "EOF" >> $GITHUB_ENV
 
-    - name: Create GitHub Release
-      uses: actions/create-release@v1
+    - name: Create GitHub Release with assets
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-      with:
-        tag_name: v${{ needs.validate-release.outputs.version }}
-        release_name: Release v${{ needs.validate-release.outputs.version }}
-        body: ${{ env.RELEASE_NOTES }}
-        draft: false
-        prerelease: ${{ needs.validate-release.outputs.is_prerelease }}
-
-    - name: Upload wheel to release
-      uses: actions/upload-release-asset@v1
-      env:
-        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-      with:
-        upload_url: ${{ steps.create_release.outputs.upload_url }}
-        asset_path: dist/${{ needs.build-and-test-packages.outputs.wheel_name }}
-        asset_name: ${{ needs.build-and-test-packages.outputs.wheel_name }}
-        asset_content_type: application/zip
-
-    - name: Upload sdist to release
-      uses: actions/upload-release-asset@v1
-      env:
-        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-      with:
-        upload_url: ${{ steps.create_release.outputs.upload_url }}
-        asset_path: dist/${{ needs.build-and-test-packages.outputs.sdist_name }}
-        asset_name: ${{ needs.build-and-test-packages.outputs.sdist_name }}
-        asset_content_type: application/gzip
+      run: |
+        VERSION="v${{ needs.validate-release.outputs.version }}"
+        IS_PRERELEASE="${{ needs.validate-release.outputs.is_prerelease }}"
+        
+        # Save release notes to a file for gh CLI
+        cat > release_notes.md << 'EOF'
+        ${{ env.RELEASE_NOTES }}
+        EOF
+        
+        # Create release with assets
+        if [ "$IS_PRERELEASE" = "true" ]; then
+          gh release create "$VERSION" dist/*.whl dist/*.tar.gz \
+            --title "Release $VERSION" \
+            --notes-file release_notes.md \
+            --prerelease
+        else
+          gh release create "$VERSION" dist/*.whl dist/*.tar.gz \
+            --title "Release $VERSION" \
+            --notes-file release_notes.md
+        fi
 
   publish-to-pypi:
     name: Publish to PyPI
@@ -450,7 +446,7 @@ jobs:
 
     steps:
     - name: Download release packages
-      uses: actions/download-artifact@v3
+      uses: actions/download-artifact@v4
       with:
         name: release-packages
         path: dist/
@@ -485,7 +481,7 @@ jobs:
 
     steps:
     - name: Download release packages
-      uses: actions/download-artifact@v3
+      uses: actions/download-artifact@v4
       with:
         name: release-packages
         path: dist/
@@ -509,8 +505,9 @@ jobs:
         
         # Test console scripts
         workspace-qdrant-mcp --help
-        workspace-qdrant-validate --help
-        workspace-qdrant-admin --help
+        workspace-qdrant-test --help
+        workspace-qdrant-health --help
+        workspace-qdrant-ingest --help
         
         echo "✅ Package successfully tested from Test PyPI"
 

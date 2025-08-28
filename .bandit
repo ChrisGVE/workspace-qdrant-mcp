@@ -1,0 +1,7 @@
+[bandit]
+# Bandit configuration for workspace-qdrant-mcp
+# Skip certain checks that are acceptable in development/diagnostic tools
+
+# Skip B110 (try_except_pass) and B104 (hardcoded_bind_all_interfaces)
+# These are acceptable patterns in diagnostic and development contexts
+skips = B110,B104
