@@ -609,14 +609,20 @@ class ScratchbookManager:
             return first_line
         
         words = first_line.split()
-        title = ""
-        for word in words:
-            if len(title + " " + word) > max_length - 3:  # Leave space for "..."
-                title += "..."
-                break
-            title = (title + " " + word).strip()
+        title_words = []
+        current_length = 0
         
-        return title or "Untitled Note"
+        for word in words:
+            # Check if adding this word would exceed the limit
+            word_length = len(word) + (1 if title_words else 0)  # +1 for space separator
+            if current_length + word_length > max_length - 3:  # Leave space for "..."
+                if title_words:
+                    title_words.append("...")
+                break
+            title_words.append(word)
+            current_length += word_length
+        
+        return " ".join(title_words) if title_words else "Untitled Note"
 
 
 async def update_scratchbook(
