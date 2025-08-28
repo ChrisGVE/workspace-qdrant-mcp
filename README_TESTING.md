@@ -126,10 +126,10 @@ The comprehensive test runner generates detailed reports:
 The test suite validates against these quality targets:
 
 ### Search Quality
-- **Symbol Search Precision**: ≥ 40% for exact symbol matches
-- **Semantic Search Recall**: ≥ 25% for conceptual queries  
-- **Overall F1 Score**: ≥ 20% across all query types
-- **Precision@1**: ≥ 30% for top search result relevance
+- **Symbol Search Precision**: ≥ 85% for exact symbol matches
+- **Semantic Search Recall**: ≥ 75% for conceptual queries  
+- **Overall F1 Score**: ≥ 70% across all query types
+- **Precision@1**: ≥ 90% for top search result relevance
 
 ### Performance
 - **Search Response Time**: < 200ms average, < 500ms P95
