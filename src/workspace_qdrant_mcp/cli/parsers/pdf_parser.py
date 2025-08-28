@@ -11,12 +11,11 @@ from pathlib import Path
 from typing import Dict, List, Optional, Union, Any
 
 try:
-    import PyPDF2
+    import pypdf as PyPDF2
     HAS_PYPDF2 = True
 except ImportError:
     try:
-        import pypdf
-        PyPDF2 = pypdf
+        import PyPDF2
         HAS_PYPDF2 = True
     except ImportError:
         HAS_PYPDF2 = False
@@ -54,7 +53,7 @@ class PDFParser(DocumentParser):
     def can_parse(self, file_path: Union[str, Path]) -> bool:
         """Check if this parser can handle the given file."""
         if not HAS_PYPDF2:
-            logger.warning("PyPDF2/pypdf not available, PDF parsing disabled")
+            logger.warning("pypdf not available, PDF parsing disabled")
             return False
         return super().can_parse(file_path)
     
@@ -87,8 +86,8 @@ class PDFParser(DocumentParser):
         """
         if not HAS_PYPDF2:
             raise ImportError(
-                "PDF parsing requires PyPDF2 or pypdf. "
-                "Install with: pip install PyPDF2 or pip install pypdf"
+                "PDF parsing requires pypdf. "
+                "Install with: pip install pypdf"
             )
         
         file_path = Path(file_path)

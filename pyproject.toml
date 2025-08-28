@@ -11,7 +11,7 @@ authors = [
 ]
 readme = "README.md"
 license = {text = "MIT"}
-requires-python = ">=3.9"
+requires-python = ">=3.10"
 dependencies = [
     "fastmcp>=0.3.0",
     "qdrant-client>=1.7.0",
@@ -23,7 +23,7 @@ dependencies = [
     "typer>=0.9.0",
     "rich>=13.0.0",
     "chardet>=5.0.0",
-    "PyPDF2>=3.0.0",
+    "pypdf>=4.0.0",
 ]
 
 [project.optional-dependencies]
