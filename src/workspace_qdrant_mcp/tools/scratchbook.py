@@ -405,7 +405,7 @@ class ScratchbookManager:
             # Validate collection exists
             available_collections = await self.client.list_collections()
             if collection_name not in available_collections:
-                return {"error": f"Scratchbook collection '{collection_name}' not found"
+                return {"error": f"Scratchbook collection '{collection_name}' not found"}
             
             # Generate embeddings for query
             embedding_service = self.client.get_embedding_service()
