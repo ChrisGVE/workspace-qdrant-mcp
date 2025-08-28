@@ -504,7 +504,7 @@ class TestServerIntegration:
     async def test_full_workspace_initialization_flow(self, environment_variables, temp_git_repo):
         """Test complete workspace initialization flow with real-ish components."""
         # This test uses more realistic mocking to simulate a full initialization
-        with patch('workspace_qdrant_mcp.server.QdrantClient') as mock_qdrant_client_class, \
+        with patch('workspace_qdrant_mcp.core.client.QdrantClient') as mock_qdrant_client_class, \
              patch('workspace_qdrant_mcp.server.QdrantWorkspaceClient') as mock_client_class:
             
             # Mock Qdrant client
