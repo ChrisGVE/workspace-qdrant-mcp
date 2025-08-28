@@ -1,7 +1,59 @@
 """
-Scratchbook-specific functionality for workspace-qdrant-mcp.
+Comprehensive scratchbook management for workspace-qdrant-mcp.
 
-Provides specialized tools for managing scratchbook collections with notes and ideas.
+This module implements a sophisticated scratchbook system for managing notes, ideas,
+todos, and reminders across projects. It provides a unified interface for capturing
+and organizing thoughts, code snippets, meeting notes, and project insights with
+advanced search and organization capabilities.
+
+Key Features:
+    - Multi-project note organization with automatic project detection
+    - Rich note types: notes, ideas, todos, reminders, code-snippets, meetings
+    - Hierarchical tagging system for flexible organization
+    - Version tracking with automatic timestamping
+    - Advanced search with semantic and keyword matching
+    - Cross-project note discovery and linking
+    - Export capabilities for external tools
+
+Note Structure:
+    Each note contains:
+    - Unique identifier and title (auto-generated or custom)
+    - Rich content with markdown support
+    - Project association (current or specified)
+    - Type classification (note, idea, todo, etc.)
+    - Tag-based organization system
+    - Creation and modification timestamps
+    - Version history (future enhancement)
+
+Use Cases:
+    - Meeting notes with action items
+    - Code snippets and implementation ideas
+    - Project todos and reminders
+    - Research findings and insights
+    - Cross-project knowledge sharing
+    - Daily development journal
+
+Example:
+    ```python
+    from workspace_qdrant_mcp.tools.scratchbook import ScratchbookManager
+    
+    manager = ScratchbookManager(workspace_client)
+    
+    # Add a meeting note
+    result = await manager.add_note(
+        content="Discussed API design patterns...",
+        title="Architecture Review Meeting",
+        note_type="meeting",
+        tags=["architecture", "api", "team-review"]
+    )
+    
+    # Search across projects
+    notes = await manager.search_notes(
+        query="authentication patterns",
+        note_types=["note", "idea"],
+        tags=["security"]
+    )
+    ```
 """
 
 import logging
@@ -20,12 +72,54 @@ logger = logging.getLogger(__name__)
 
 class ScratchbookManager:
     """
-    Manages scratchbook collections with specialized note functionality.
+    Advanced scratchbook manager for cross-project note management.
     
-    Provides note versioning, organization, and search capabilities.
+    This class provides a comprehensive interface for managing a workspace-wide
+    scratchbook system that spans multiple projects. It handles note lifecycle
+    management, intelligent organization, search capabilities, and maintains
+    project context while enabling cross-project knowledge discovery.
+    
+    The scratchbook system is designed for developers and teams who need to:
+    - Capture ideas and insights quickly during development
+    - Maintain project-specific notes while enabling cross-project search
+    - Organize information with flexible tagging and categorization
+    - Search historical notes and decisions using semantic search
+    - Export notes for integration with external tools
+    
+    Architecture:
+        - Uses the global 'scratchbook' collection for all notes
+        - Each note includes project context for scoping
+        - Supports multiple note types with specialized handling
+        - Implements versioning for tracking note evolution
+        - Provides rich metadata for advanced filtering and search
+    
+    Attributes:
+        client (QdrantWorkspaceClient): Workspace client for database operations
+        project_info (Optional[Dict]): Current project information for context
+    
+    Example:
+        ```python
+        manager = ScratchbookManager(workspace_client)
+        
+        # Add different types of notes
+        await manager.add_note("Important insight about caching", 
+                              note_type="idea", tags=["performance"])
+        
+        await manager.add_note("Fix authentication bug in login.py",
+                              note_type="todo", tags=["bug", "auth"])
+        
+        # Search and organize
+        ideas = await manager.search_notes("caching", note_types=["idea"])
+        todos = await manager.list_notes(note_type="todo", limit=10)
+        ```
     """
     
-    def __init__(self, client: QdrantWorkspaceClient):
+    def __init__(self, client: QdrantWorkspaceClient) -> None:
+        """Initialize the scratchbook manager with workspace context.
+        
+        Args:
+            client: Initialized workspace client for database operations
+        """
         self.client = client
         self.project_info = client.get_project_info()
     

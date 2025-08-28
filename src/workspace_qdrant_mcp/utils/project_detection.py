@@ -1,7 +1,49 @@
 """
-Project detection logic with Git and GitHub integration.
+Intelligent project detection with Git and GitHub integration.
 
-Detects project names and subprojects based on Git repositories and GitHub user ownership.
+This module provides sophisticated project structure detection capabilities that analyze
+Git repositories, GitHub ownership, and directory structures to automatically identify
+project hierarchies and relationships. It's designed to work seamlessly with monorepos,
+multi-project workspaces, and nested Git repositories.
+
+Key Features:
+    - Automatic project name detection from Git remotes and directory structure
+    - GitHub user ownership verification for accurate project identification
+    - Submodule and nested repository discovery
+    - Monorepo support with subproject detection
+    - Configurable project naming strategies
+    - Robust error handling for various Git repository states
+
+Detection Algorithm:
+    1. Traverses directory tree to find Git repository root
+    2. Analyzes Git remote URLs for GitHub ownership information
+    3. Applies user-specific naming rules when GitHub user is configured
+    4. Discovers submodules and nested projects
+    5. Generates hierarchical project structure
+    6. Falls back to directory-based naming when Git is unavailable
+
+Supported Scenarios:
+    - Standard Git repositories with GitHub remotes
+    - Monorepos with multiple logical projects
+    - Nested Git repositories and submodules
+    - Local repositories without remotes
+    - Directories without Git initialization
+    - Complex ownership scenarios with multiple users
+
+Example:
+    ```python
+    from workspace_qdrant_mcp.utils.project_detection import ProjectDetector
+    
+    # Basic project detection
+    detector = ProjectDetector()
+    project_name = detector.get_project_name("/path/to/project")
+    
+    # GitHub user-aware detection
+    detector = ProjectDetector(github_user="username")
+    project_info = detector.get_project_info()
+    print(f"Main project: {project_info['main_project']}")
+    print(f"Subprojects: {project_info['subprojects']}")
+    ```
 """
 
 import logging
@@ -19,12 +61,54 @@ logger = logging.getLogger(__name__)
 
 class ProjectDetector:
     """
-    Detects project information from Git repositories.
+    Advanced project detection engine with Git and GitHub integration.
     
-    Handles project name resolution, submodule detection, and GitHub user filtering.
+    This class provides comprehensive project structure analysis by examining Git
+    repositories, remote configurations, directory structures, and ownership patterns.
+    It's designed to automatically discover project hierarchies in complex development
+    environments including monorepos, nested projects, and multi-user repositories.
+    
+    The detector implements a sophisticated algorithm that:
+    - Analyzes Git repository structure and remote configurations
+    - Applies GitHub user ownership filtering when configured
+    - Discovers subprojects through submodules and directory analysis
+    - Handles edge cases like missing remotes or complex repository structures
+    - Provides fallback mechanisms for non-Git environments
+    
+    Attributes:
+        github_user (Optional[str]): GitHub username for ownership filtering.
+                                   When specified, only repositories owned by this
+                                   user will use remote-based naming
+    
+    Detection Strategy:
+        1. **Git-based**: Uses Git remote URL to determine project name
+        2. **Directory-based**: Falls back to directory name when Git unavailable
+        3. **User-filtered**: Applies GitHub user ownership rules when configured
+        4. **Hierarchical**: Discovers subprojects and maintains relationships
+    
+    Example:
+        ```python
+        # Basic usage
+        detector = ProjectDetector()
+        name = detector.get_project_name()  # Current directory
+        
+        # With GitHub user filtering
+        detector = ProjectDetector(github_user="myusername")
+        info = detector.get_project_info()
+        
+        # Custom path analysis
+        subprojects = detector.get_subprojects("/path/to/monorepo")
+        ```
     """
     
-    def __init__(self, github_user: Optional[str] = None):
+    def __init__(self, github_user: Optional[str] = None) -> None:
+        """Initialize the project detector with optional GitHub user filtering.
+        
+        Args:
+            github_user: GitHub username for ownership-based project naming.
+                        When provided, repositories owned by this user will use
+                        remote-based names, while others use directory names
+        """
         self.github_user = github_user
     
     def get_project_name(self, path: str = ".") -> str:

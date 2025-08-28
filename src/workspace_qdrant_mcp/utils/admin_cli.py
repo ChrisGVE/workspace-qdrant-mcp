@@ -1,8 +1,60 @@
 """
-Administrative CLI for workspace-qdrant-mcp.
+Comprehensive administrative CLI for workspace-qdrant-mcp.
 
-Provides safe administrative operations separate from the MCP server.
-Includes collection deletion with safety checks and project scoping.
+This module provides a powerful yet safe administrative interface for managing
+workspace-qdrant collections and data. It operates independently from the MCP server
+and includes robust safety mechanisms, project scoping, and comprehensive operations
+for development, debugging, and maintenance workflows.
+
+Safety Features:
+    - Interactive confirmation prompts for destructive operations
+    - Dry-run mode for testing commands without side effects
+    - Project scoping to prevent accidental cross-project operations
+    - Protected collection lists to prevent system data deletion
+    - Comprehensive logging and operation auditing
+    - Rollback capabilities for supported operations
+
+Key Operations:
+    - Collection management (create, delete, inspect, backup)
+    - Document operations (add, update, delete, search)
+    - Workspace analysis and diagnostics
+    - Data migration and export tools
+    - Performance monitoring and optimization
+    - Configuration validation and testing
+
+Project Scoping:
+    The CLI automatically detects the current project context and applies appropriate
+    scoping to prevent accidental operations on other projects' data. This includes:
+    - Automatic project detection from Git repositories
+    - Collection filtering based on project ownership
+    - Safety prompts when operating outside current project
+    - Protected collections that require explicit confirmation
+
+Usage Patterns:
+    ```bash
+    # Interactive mode with safety prompts
+    python -m workspace_qdrant_mcp.utils.admin_cli
+    
+    # Direct command execution
+    python -m workspace_qdrant_mcp.utils.admin_cli delete-collection my-collection
+    
+    # Dry-run mode for testing
+    python -m workspace_qdrant_mcp.utils.admin_cli --dry-run delete-project
+    
+    # Batch operations with confirmation
+    python -m workspace_qdrant_mcp.utils.admin_cli migrate-data --source old-db
+    ```
+
+Example:
+    ```python
+    from workspace_qdrant_mcp.utils.admin_cli import WorkspaceQdrantAdmin
+    
+    admin = WorkspaceQdrantAdmin(dry_run=True)
+    await admin.delete_project_collections(confirm=False)  # Safe testing
+    
+    admin = WorkspaceQdrantAdmin(dry_run=False)
+    collections = await admin.list_project_collections()
+    ```
 """
 
 import logging
@@ -29,22 +81,86 @@ logger = logging.getLogger(__name__)
 
 class WorkspaceQdrantAdmin:
     """
-    Administrative interface for workspace-qdrant collections.
+    Comprehensive administrative interface for workspace-qdrant management.
     
-    Provides safe operations with project scoping and confirmation prompts.
+    This class provides a full suite of administrative operations for managing
+    workspace-qdrant collections, documents, and configurations. It emphasizes
+    safety through project scoping, confirmation prompts, and comprehensive
+    logging while providing powerful tools for development and maintenance.
+    
+    The admin interface operates with multiple safety layers:
+    - Project context awareness to prevent cross-project accidents
+    - Interactive confirmation for destructive operations
+    - Dry-run mode for testing commands safely
+    - Protected collection detection and warnings
+    - Comprehensive operation logging and audit trails
+    
+    Key Capabilities:
+        - Collection lifecycle management (CRUD operations)
+        - Document batch operations and migrations
+        - Workspace analysis and health checking
+        - Performance monitoring and optimization
+        - Data export and backup operations
+        - Configuration validation and testing
+    
+    Attributes:
+        config (Config): Configuration object with Qdrant and workspace settings
+        dry_run (bool): Whether to execute operations or just simulate them
+        client (QdrantClient): Direct Qdrant client for database operations
+        collection_manager (WorkspaceCollectionManager): Collection management interface
+        project_detector (ProjectDetector): Project structure detection
+        project_info (Dict): Current project information and context
+        current_project (str): Main project name for scoping operations
+        subprojects (List[str]): Detected subproject names
+    
+    Safety Mechanisms:
+        - All destructive operations require explicit confirmation
+        - Project scoping prevents accidental cross-project operations
+        - Protected collections (like system collections) have additional safeguards
+        - Dry-run mode allows testing without side effects
+        - Comprehensive logging provides audit trails
+    
+    Example:
+        ```python
+        # Initialize with dry-run for testing
+        admin = WorkspaceQdrantAdmin(dry_run=True)
+        
+        # List collections in current project
+        collections = await admin.list_project_collections()
+        
+        # Delete with safety prompts (dry-run won't actually delete)
+        await admin.delete_project_collections(confirm=True)
+        
+        # Production operations
+        admin = WorkspaceQdrantAdmin(dry_run=False)
+        await admin.backup_collections(["/backup/path"])
+        ```
     """
     
-    def __init__(self, config: Optional[Config] = None, dry_run: bool = False):
+    def __init__(self, config: Optional[Config] = None, dry_run: bool = False) -> None:
+        """Initialize the administrative interface with safety configuration.
+        
+        Args:
+            config: Configuration object. If None, loads from environment/files
+            dry_run: If True, operations are simulated without actual execution.
+                    Useful for testing commands safely before running them
+        """
         self.config = config or Config()
         self.dry_run = dry_run
         self.client = QdrantClient(**self.config.qdrant_client_config)
         self.collection_manager = WorkspaceCollectionManager(self.client, self.config)
         self.project_detector = ProjectDetector(github_user=self.config.workspace.github_user)
         
-        # Initialize project context
+        # Initialize project context for scoping operations
         self.project_info = self.project_detector.get_project_info()
         self.current_project = self.project_info["main_project"]
         self.subprojects = self.project_info["subprojects"]
+        
+        # Log initialization for audit trail
+        logger.info(
+            "Initialized WorkspaceQdrantAdmin - Project: %s, Dry-run: %s",
+            self.current_project, self.dry_run
+        )
     
     def get_protected_collections(self) -> Set[str]:
         """
