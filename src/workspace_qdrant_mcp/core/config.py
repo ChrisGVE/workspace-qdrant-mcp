@@ -157,6 +157,8 @@ class Config(BaseSettings):
             issues.append("Chunk size must be positive")
         if self.embedding.batch_size <= 0:
             issues.append("Batch size must be positive")
+        if self.embedding.chunk_overlap < 0:
+            issues.append("Chunk overlap must be non-negative")
         if self.embedding.chunk_overlap >= self.embedding.chunk_size:
             issues.append("Chunk overlap must be less than chunk size")
             
