@@ -1,7 +1,54 @@
 """
-Hybrid search implementation with Reciprocal Rank Fusion (RRF).
+Advanced hybrid search implementation with multiple fusion strategies.
 
-Combines dense and sparse vector search results for improved retrieval performance.
+This module provides a sophisticated hybrid search system that combines dense semantic
+vector search with sparse keyword-based search to achieve optimal retrieval performance.
+It implements multiple fusion algorithms including Reciprocal Rank Fusion (RRF),
+weighted sum, and maximum score fusion for different use cases.
+
+Key Features:
+    - Multiple fusion strategies (RRF, weighted sum, max score)
+    - Configurable weights for dense and sparse components
+    - Detailed fusion analysis and explanation capabilities
+    - Benchmark tools for comparing fusion methods
+    - Production-ready error handling and logging
+    - Optimal result ranking across multiple search modalities
+
+Fusion Algorithms:
+    - **RRF (Reciprocal Rank Fusion)**: Industry-standard fusion using reciprocal ranks
+    - **Weighted Sum**: Score normalization with configurable weights
+    - **Max Score**: Takes maximum score across search modalities
+
+Performance Characteristics:
+    - RRF: Best for balanced precision/recall, handles score distribution differences
+    - Weighted Sum: Good when score ranges are similar, allows fine-tuned control
+    - Max Score: Emphasizes best matches, good for high-precision scenarios
+
+Example:
+    ```python
+    from workspace_qdrant_mcp.core.hybrid_search import HybridSearchEngine
+    from qdrant_client import QdrantClient
+    
+    client = QdrantClient("http://localhost:6333")
+    engine = HybridSearchEngine(client)
+    
+    # Hybrid search with RRF fusion
+    results = await engine.hybrid_search(
+        collection_name="documents",
+        query_embeddings={
+            "dense": [0.1, 0.2, ...],  # 384-dim semantic vector
+            "sparse": {"indices": [1, 5, 10], "values": [0.8, 0.6, 0.4]}
+        },
+        limit=10,
+        fusion_method="rrf",
+        dense_weight=1.0,
+        sparse_weight=1.0
+    )
+    
+    # Analyze fusion process
+    ranker = RRFFusionRanker()
+    explanation = ranker.explain_fusion(dense_results, sparse_results)
+    ```
 """
 
 import logging
@@ -19,18 +66,50 @@ logger = logging.getLogger(__name__)
 
 class RRFFusionRanker:
     """
-    Reciprocal Rank Fusion (RRF) implementation for combining search results.
+    Advanced Reciprocal Rank Fusion (RRF) implementation for multi-modal search fusion.
     
-    Combines rankings from multiple retrieval systems using the RRF formula:
-    RRF(d) = Σ(1 / (k + r(d)))
+    Implements the industry-standard RRF algorithm for combining rankings from multiple
+    retrieval systems. RRF provides a robust method for fusion that doesn't depend on
+    score magnitudes or distributions, making it ideal for combining heterogeneous
+    search results like dense semantic and sparse keyword vectors.
+    
+    The RRF formula: RRF(d) = Σ(1 / (k + r(d)))
+    Where:
+        - d is a document
+        - k is a constant (typically 60)
+        - r(d) is the rank of document d in each ranking
+    
+    Key Advantages:
+        - Score-agnostic: Works regardless of score distributions
+        - Rank-based: Focuses on relative ordering rather than absolute scores
+        - Proven effectiveness: Widely used in information retrieval research
+        - Handles missing documents gracefully (documents not in all rankings)
+    
+    Attributes:
+        k (int): RRF constant parameter controlling rank contribution decay
+    
+    Example:
+        ```python
+        ranker = RRFFusionRanker(k=60)
+        
+        dense_results = [{"id": "doc1", "score": 0.9}, {"id": "doc2", "score": 0.7}]
+        sparse_results = [{"id": "doc2", "score": 0.8}, {"id": "doc3", "score": 0.6}]
+        
+        fused = ranker.fuse_rankings(dense_results, sparse_results)
+        # Result combines both rankings with RRF scoring
+        ```
     """
     
-    def __init__(self, k: int = 60):
+    def __init__(self, k: int = 60) -> None:
         """
-        Initialize RRF ranker.
+        Initialize RRF ranker with configurable constant parameter.
         
         Args:
-            k: RRF constant parameter (typically 60)
+            k: RRF constant parameter that controls how quickly rank contribution
+               decays. Typical values:
+               - 60: Standard value from literature (recommended)
+               - 10-30: More emphasis on top-ranked results
+               - 100+: More uniform contribution across ranks
         """
         self.k = k
     
@@ -158,12 +237,70 @@ class RRFFusionRanker:
 
 class HybridSearchEngine:
     """
-    Hybrid search engine combining dense and sparse vector search.
+    Production-ready hybrid search engine with multiple fusion strategies.
     
-    Provides unified interface for hybrid search with customizable fusion methods.
+    This class provides a comprehensive interface for performing hybrid search that
+    combines dense semantic embeddings with sparse keyword vectors. It supports
+    multiple fusion algorithms, configurable weighting, and detailed analysis
+    capabilities for optimal search performance.
+    
+    The engine is designed for production use with:
+    - Multiple fusion strategies for different use cases
+    - Robust error handling and logging
+    - Performance optimization with expanded result sets
+    - Comprehensive result metadata for analysis
+    - Benchmarking tools for algorithm comparison
+    
+    Supported Fusion Methods:
+    1. **RRF (Reciprocal Rank Fusion)**: Score-agnostic, rank-based fusion
+       - Best for: General use, handling different score distributions
+       - Performance: Balanced precision/recall
+    
+    2. **Weighted Sum**: Normalized scores with configurable weights
+       - Best for: Fine-tuned control, similar score ranges
+       - Performance: Good when score distributions are well-understood
+    
+    3. **Max Score**: Takes maximum score across modalities
+       - Best for: High-precision scenarios, emphasizing best matches
+       - Performance: High precision, may reduce recall
+    
+    Attributes:
+        client (QdrantClient): Qdrant database client for vector operations
+        rrf_ranker (RRFFusionRanker): RRF fusion algorithm implementation
+    
+    Example:
+        ```python
+        from qdrant_client import QdrantClient
+        
+        client = QdrantClient("http://localhost:6333")
+        engine = HybridSearchEngine(client)
+        
+        # Perform hybrid search
+        results = await engine.hybrid_search(
+            collection_name="documents",
+            query_embeddings={
+                "dense": dense_vector,
+                "sparse": {"indices": indices, "values": values}
+            },
+            limit=10,
+            fusion_method="rrf"
+        )
+        
+        # Compare fusion methods
+        benchmark = engine.benchmark_fusion_methods(
+            collection_name="documents",
+            query_embeddings=embeddings,
+            limit=10
+        )
+        ```
     """
     
-    def __init__(self, qdrant_client: QdrantClient):
+    def __init__(self, qdrant_client: QdrantClient) -> None:
+        """Initialize hybrid search engine with Qdrant client.
+        
+        Args:
+            qdrant_client: Configured Qdrant client for database operations
+        """
         self.client = qdrant_client
         self.rrf_ranker = RRFFusionRanker()
     
@@ -179,20 +316,102 @@ class HybridSearchEngine:
         query_filter: Optional[models.Filter] = None
     ) -> Dict:
         """
-        Perform hybrid search combining dense and sparse vectors.
+        Perform comprehensive hybrid search combining dense semantic and sparse keyword vectors.
+        
+        This method executes the complete hybrid search pipeline: performing both
+        dense and sparse searches against the Qdrant collection, then fusing the
+        results using the specified algorithm. It's optimized for production use
+        with enhanced result sets and comprehensive error handling.
+        
+        Search Pipeline:
+        1. **Dense Search**: Semantic similarity using embedding vectors
+        2. **Sparse Search**: Keyword matching using BM25-style sparse vectors
+        3. **Result Fusion**: Combines rankings using selected fusion algorithm
+        4. **Post-processing**: Applies limits and formats comprehensive results
+        
+        Fusion Methods Available:
+        - **rrf**: Reciprocal Rank Fusion (recommended for most cases)
+        - **weighted_sum**: Score normalization with configurable weights
+        - **max**: Maximum score fusion for high-precision scenarios
         
         Args:
-            collection_name: Qdrant collection name
-            query_embeddings: Dictionary with 'dense' and 'sparse' embeddings
-            limit: Maximum number of results
-            score_threshold: Minimum score threshold
-            dense_weight: Weight for dense results in fusion
-            sparse_weight: Weight for sparse results in fusion
-            fusion_method: Fusion method ('rrf', 'weighted_sum', 'max')
-            query_filter: Optional Qdrant filter
+            collection_name: Target Qdrant collection name
+            query_embeddings: Dictionary containing embedding vectors:
+                - 'dense' (List[float]): Semantic embedding vector (e.g., 384-dim)
+                - 'sparse' (Dict): Sparse vector with 'indices' and 'values' arrays
+            limit: Maximum number of results in final ranking (1-1000)
+            score_threshold: Minimum relevance score threshold (0.0-1.0)
+            dense_weight: Multiplicative weight for dense search contribution
+            sparse_weight: Multiplicative weight for sparse search contribution
+            fusion_method: Algorithm for combining results ('rrf', 'weighted_sum', 'max')
+            query_filter: Optional Qdrant filter for metadata-based filtering
             
         Returns:
-            Dictionary with hybrid search results
+            Dict: Comprehensive search results containing:
+                - collection (str): Source collection name
+                - fusion_method (str): Fusion algorithm used
+                - total_results (int): Number of results returned
+                - dense_results_count (int): Results from dense search
+                - sparse_results_count (int): Results from sparse search
+                - weights (Dict): Applied weights for fusion
+                - results (List[Dict]): Final fused results with metadata:
+                    - id (str): Document identifier
+                    - payload (Dict): Document content and metadata
+                    - rrf_score/score (float): Final fusion score
+                    - dense_score (float): Original dense similarity score
+                    - sparse_score (float): Original sparse matching score
+                    - search_type (str): Result type ('hybrid')
+                - error (str): Error message if search failed
+                
+        Raises:
+            ValueError: If fusion_method is not supported
+            RuntimeError: If both dense and sparse embeddings are missing
+            ConnectionError: If Qdrant database is unreachable
+            
+        Example:
+            ```python
+            engine = HybridSearchEngine(qdrant_client)
+            
+            # Basic hybrid search
+            results = await engine.hybrid_search(
+                collection_name="documents",
+                query_embeddings={
+                    "dense": [0.1, 0.2, 0.3, ...],  # 384 dimensions
+                    "sparse": {
+                        "indices": [42, 128, 1337],
+                        "values": [0.8, 0.6, 0.4]
+                    }
+                },
+                limit=20,
+                fusion_method="rrf"
+            )
+            
+            # Advanced search with filtering and custom weights
+            results = await engine.hybrid_search(
+                collection_name="technical-docs",
+                query_embeddings=embeddings,
+                limit=10,
+                score_threshold=0.7,
+                dense_weight=1.2,  # Emphasize semantic similarity
+                sparse_weight=0.8,  # De-emphasize keyword matching
+                fusion_method="weighted_sum",
+                query_filter=models.Filter(
+                    must=[
+                        models.FieldCondition(
+                            key="category",
+                            match=models.MatchValue(value="tutorial")
+                        )
+                    ]
+                )
+            )
+            
+            print(f"Found {results['total_results']} results")
+            print(f"Dense: {results['dense_results_count']}, Sparse: {results['sparse_results_count']}")
+            
+            for result in results['results']:
+                print(f"Score: {result.get('rrf_score', result.get('score')):.3f}")
+                print(f"Title: {result['payload'].get('title', 'Untitled')}")
+            ```
         """
         try:
             # Perform dense search
@@ -383,10 +602,70 @@ class HybridSearchEngine:
         limit: int = 10
     ) -> Dict:
         """
-        Benchmark different fusion methods for comparison.
+        Benchmark and compare all available fusion methods for performance analysis.
         
+        This method runs the same hybrid search query using all supported fusion
+        algorithms (RRF, weighted sum, max score) and provides comparative analysis.
+        It's useful for understanding which fusion method works best for specific
+        query types or collections.
+        
+        Use Cases:
+        - Evaluating fusion method effectiveness for specific data types
+        - A/B testing different fusion algorithms
+        - Research and optimization of search performance
+        - Understanding fusion behavior with different query patterns
+        
+        Args:
+            collection_name: Qdrant collection to search
+            query_embeddings: Query vectors (dense and/or sparse)
+            limit: Maximum results per fusion method
+            
         Returns:
-            Dictionary comparing different fusion methods
+            Dict: Comprehensive benchmark results containing:
+                - benchmark_results (Dict): Results for each fusion method:
+                    - 'rrf' (Dict): RRF fusion results or error
+                    - 'weighted_sum' (Dict): Weighted sum results or error
+                    - 'max' (Dict): Max score results or error
+                - query_info (Dict): Query characteristics:
+                    - has_dense (bool): Whether dense embeddings provided
+                    - has_sparse (bool): Whether sparse embeddings provided
+                    - limit (int): Result limit used
+                    
+        Performance Analysis:
+        The benchmark helps identify:
+        - Which method provides best result diversity
+        - Score distribution characteristics
+        - Consensus between dense and sparse search
+        - Method-specific strengths and weaknesses
+        
+        Example:
+            ```python
+            engine = HybridSearchEngine(qdrant_client)
+            
+            benchmark = engine.benchmark_fusion_methods(
+                collection_name="research-papers",
+                query_embeddings={
+                    "dense": semantic_vector,
+                    "sparse": keyword_vector
+                },
+                limit=10
+            )
+            
+            # Analyze results
+            for method, results in benchmark['benchmark_results'].items():
+                if 'error' in results:
+                    print(f"{method}: Failed - {results['error']}")
+                else:
+                    print(f"{method}: {results['total_results']} results")
+                    print(f"  Top score: {results['results'][0]['score']:.3f}")
+                    print(f"  Unique results: {len(set(r['id'] for r in results['results']))}")
+            
+            # Compare result overlap
+            rrf_ids = set(r['id'] for r in benchmark['benchmark_results']['rrf']['results'])
+            ws_ids = set(r['id'] for r in benchmark['benchmark_results']['weighted_sum']['results'])
+            overlap = len(rrf_ids & ws_ids)
+            print(f"RRF/WeightedSum overlap: {overlap}/{limit} documents")
+            ```
         """
         methods = ["rrf", "weighted_sum", "max"]
         results = {}
