@@ -30,9 +30,11 @@ Example:
 """
 
 import asyncio
+import atexit
 import logging
 import os
-from typing import Optional
+import signal
+from typing import List, Optional
 
 import typer
 from fastmcp import FastMCP
@@ -108,7 +110,7 @@ async def workspace_status() -> dict:
 
 
 @app.tool()
-async def list_workspace_collections() -> list[str]:
+async def list_workspace_collections() -> List[str]:
     """List all available workspace collections for the current project.
     
     Returns collections that are automatically created based on project detection,
@@ -138,7 +140,7 @@ async def list_workspace_collections() -> list[str]:
 @app.tool()
 async def search_workspace_tool(
     query: str,
-    collections: list[str] = None,
+    collections: List[str] = None,
     mode: str = "hybrid",
     limit: int = 10,
     score_threshold: float = 0.7
@@ -342,7 +344,7 @@ async def update_scratchbook_tool(
     content: str,
     note_id: str = None,
     title: str = None,
-    tags: list[str] = None,
+    tags: List[str] = None,
     note_type: str = "note"
 ) -> dict:
     """Add or update a scratchbook note."""
@@ -362,8 +364,8 @@ async def update_scratchbook_tool(
 @app.tool()
 async def search_scratchbook_tool(
     query: str,
-    note_types: list[str] = None,
-    tags: list[str] = None,
+    note_types: List[str] = None,
+    tags: List[str] = None,
     project_name: str = None,
     limit: int = 10,
     mode: str = "hybrid"
@@ -387,7 +389,7 @@ async def search_scratchbook_tool(
 async def list_scratchbook_notes_tool(
     project_name: str = None,
     note_type: str = None,
-    tags: list[str] = None,
+    tags: List[str] = None,
     limit: int = 50
 ) -> dict:
     """List notes in scratchbook with optional filtering."""
@@ -457,6 +459,49 @@ async def hybrid_search_advanced_tool(
     except Exception as e:
         logger.error("Advanced hybrid search failed: %s", e)
         return {"error": f"Advanced hybrid search failed: {e}"}
+
+
+async def cleanup_workspace() -> None:
+    """Clean up workspace resources on server shutdown.
+    
+    Ensures proper cleanup of database connections, embedding models,
+    and any other resources to prevent memory leaks and hanging connections.
+    """
+    global workspace_client
+    if workspace_client:
+        try:
+            await workspace_client.close()
+            logger.info("Workspace client cleaned up successfully")
+        except Exception as e:
+            logger.error("Error during workspace cleanup: %s", e)
+
+
+def setup_signal_handlers() -> None:
+    """Set up signal handlers for graceful shutdown.
+    
+    Registers handlers for SIGINT (Ctrl+C) and SIGTERM to ensure
+    proper resource cleanup before process termination.
+    """
+    def signal_handler(signum, frame):
+        logger.info("Received signal %s, initiating graceful shutdown...", signum)
+        try:
+            # Run cleanup in the event loop if possible
+            loop = asyncio.get_event_loop()
+            if loop.is_running():
+                loop.create_task(cleanup_workspace())
+            else:
+                asyncio.run(cleanup_workspace())
+        except Exception as e:
+            logger.error("Error during signal cleanup: %s", e)
+        finally:
+            os._exit(0)
+    
+    # Register signal handlers
+    signal.signal(signal.SIGINT, signal_handler)
+    signal.signal(signal.SIGTERM, signal_handler)
+    
+    # Register atexit cleanup as backup
+    atexit.register(lambda: asyncio.run(cleanup_workspace()) if workspace_client else None)
 
 
 async def initialize_workspace() -> None:
@@ -551,6 +596,9 @@ def run_server(
     # Set configuration file if provided
     if config_file:
         os.environ["CONFIG_FILE"] = config_file
+    
+    # Set up signal handlers for graceful shutdown
+    setup_signal_handlers()
     
     # Initialize workspace before running server
     asyncio.run(initialize_workspace())

@@ -168,7 +168,7 @@ class Config(BaseSettings):
         WORKSPACE_QDRANT_QDRANT__URL=http://localhost:6333
         WORKSPACE_QDRANT_WORKSPACE__GITHUB_USER=myusername
         ```
-    ""\
+    """
     
     model_config = SettingsConfigDict(
         env_file=".env",

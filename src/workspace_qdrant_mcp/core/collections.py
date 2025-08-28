@@ -4,6 +4,7 @@ Collection management for workspace-scoped Qdrant collections.
 Handles creation, configuration, and management of project-specific collections.
 """
 
+import asyncio
 import logging
 from dataclasses import dataclass
 from typing import Dict, List, Optional, Set
@@ -110,9 +111,12 @@ class WorkspaceCollectionManager:
                 )
             )
         
-        # Create collections
-        for collection_config in collections_to_create:
-            await self._ensure_collection_exists(collection_config)
+        # Create collections in parallel for better performance
+        if collections_to_create:
+            await asyncio.gather(*[
+                self._ensure_collection_exists(config) 
+                for config in collections_to_create
+            ])
     
     async def _ensure_collection_exists(self, collection_config: CollectionConfig) -> None:
         """
