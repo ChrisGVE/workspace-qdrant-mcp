@@ -42,6 +42,7 @@ dev = [
 [project.scripts]
 workspace-qdrant-mcp = "workspace_qdrant_mcp.server:main"
 workspace-qdrant-validate = "workspace_qdrant_mcp.utils.config_validator:validate_config_cli"
+workspace-qdrant-admin = "workspace_qdrant_mcp.utils.admin_cli:admin_cli"
 
 [project.urls]
 Homepage = "https://github.com/chris/workspace-qdrant-mcp"
