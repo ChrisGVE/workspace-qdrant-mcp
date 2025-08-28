@@ -115,22 +115,29 @@ class WorkspaceConfig(BaseModel):
     """Configuration for workspace and project management.
     
     Defines workspace-level settings including global collections that span
-    multiple projects, GitHub integration for project detection, and collection
-    organization preferences.
+    multiple projects, configurable project collections, GitHub integration 
+    for project detection, and collection organization preferences.
     
     Attributes:
+        collections: Project collection suffixes (creates {project-name}-{suffix})
         global_collections: Collections available across all projects (e.g., 'scratchbook')
         github_user: GitHub username for project ownership detection
         collection_prefix: Optional prefix for all collection names
         max_collections: Maximum number of collections per workspace (safety limit)
     
     Usage Patterns:
+        - collections define project-specific collection types
         - global_collections enable cross-project knowledge sharing
         - github_user enables intelligent project name detection
         - collection_prefix helps organize collections in shared Qdrant instances
         - max_collections prevents runaway collection creation
+    
+    Examples:
+        - collections=["project"] → creates {project-name}-project
+        - collections=["scratchbook", "docs"] → creates {project-name}-scratchbook, {project-name}-docs
     """
     
+    collections: List[str] = ["project"]
     global_collections: List[str] = ["docs", "references", "standards"]
     github_user: Optional[str] = None
     collection_prefix: str = ""
@@ -224,6 +231,9 @@ class Config(BaseSettings):
             self.embedding.batch_size = int(batch_size)
             
         # Workspace nested config
+        if collections := os.getenv("WORKSPACE_QDRANT_WORKSPACE__COLLECTIONS"):
+            # Parse comma-separated list
+            self.workspace.collections = [c.strip() for c in collections.split(",") if c.strip()]
         if global_collections := os.getenv("WORKSPACE_QDRANT_WORKSPACE__GLOBAL_COLLECTIONS"):
             # Parse comma-separated list
             self.workspace.global_collections = [c.strip() for c in global_collections.split(",") if c.strip()]
@@ -256,9 +266,14 @@ class Config(BaseSettings):
             self.embedding.batch_size = int(batch_size)
             
         # Legacy workspace config
-        if collections := os.getenv("GLOBAL_COLLECTIONS"):
+        if collections := os.getenv("COLLECTIONS"):
+            # Support both legacy COLLECTIONS and new COLLECTIONS env var
+            self.workspace.collections = [
+                c.strip() for c in collections.split(",") if c.strip()
+            ]
+        if global_collections := os.getenv("GLOBAL_COLLECTIONS"):
             self.workspace.global_collections = [
-                c.strip() for c in collections.split(",")
+                c.strip() for c in global_collections.split(",") if c.strip()
             ]
         if github_user := os.getenv("GITHUB_USER"):
             self.workspace.github_user = github_user
@@ -348,6 +363,11 @@ class Config(BaseSettings):
             issues.append("Chunk overlap must be less than chunk size")
             
         # Validate workspace settings
+        if not self.workspace.collections:
+            issues.append("At least one project collection must be configured")
+        elif len(self.workspace.collections) > 20:
+            issues.append("Too many project collections configured (max 20 recommended)")
+            
         if not self.workspace.global_collections:
             issues.append("At least one global collection must be configured")
         elif len(self.workspace.global_collections) > 50:
