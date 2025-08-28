@@ -31,14 +31,22 @@ def mock_client():
     
     # Mock collections response
     collections_response = Mock()
-    collections_response.collections = [
-        Mock(name="test-project-scratchbook"),
-        Mock(name="test-project-docs"),
-        Mock(name="subproject-docs"),
-        Mock(name="global-docs"),
-        Mock(name="memexd-main-code"),  # Protected collection
-        Mock(name="external-collection"),  # Not project-scoped
+    mock_collections = [
+        Mock(),
+        Mock(),
+        Mock(),
+        Mock(),
+        Mock(),
+        Mock(),
     ]
+    mock_collections[0].name = "test-project-scratchbook"
+    mock_collections[1].name = "test-project-docs"
+    mock_collections[2].name = "subproject-docs"
+    mock_collections[3].name = "global-docs"
+    mock_collections[4].name = "memexd-main-code"  # Protected collection
+    mock_collections[5].name = "external-collection"  # Not project-scoped
+    
+    collections_response.collections = mock_collections
     client.get_collections.return_value = collections_response
     
     # Mock collection info response
@@ -224,6 +232,9 @@ class TestWorkspaceQdrantAdmin:
             
             # Mock the _is_workspace_collection method
             mock_manager.return_value._is_workspace_collection.side_effect = lambda name: not name.endswith('-code')
+            
+            # Mock client to return the proper collections
+            mock_client.get_collections.return_value = collections_response
             
             admin = WorkspaceQdrantAdmin(config=mock_config)
             collections = admin.list_collections(show_all=False)
