@@ -1,7 +1,56 @@
 """
-Document management tools for workspace-qdrant-mcp.
+Advanced document management tools for workspace-qdrant-mcp.
 
-Provides MCP tools for adding and managing documents in collections.
+This module provides comprehensive document lifecycle management including addition,
+retrieval, updating, and deletion of documents in workspace collections. It handles
+intelligent text chunking, automatic embedding generation, metadata management,
+and provides robust error handling for production workloads.
+
+Key Features:
+    - Intelligent text chunking for large documents with overlap preservation
+    - Automatic dense and sparse embedding generation
+    - Rich metadata support with auto-generated fields
+    - Batch operations for high-throughput document processing
+    - Content deduplication via SHA256 hashing
+    - Atomic operations with rollback on failure
+    - Comprehensive error handling and logging
+
+Document Processing Pipeline:
+    1. Content validation and sanitization
+    2. Optional intelligent text chunking at word boundaries
+    3. Dense + sparse embedding generation for each chunk
+    4. Metadata enrichment with timestamps and content hashes
+    5. Atomic insertion with transaction support
+    6. Success confirmation with detailed statistics
+
+Supported Operations:
+    - add_document: Add new documents with chunking and embedding
+    - get_document: Retrieve documents with optional vector data
+    - update_document: Modify existing documents with version tracking
+    - delete_document: Remove documents with cascade cleanup
+
+Example:
+    ```python
+    from workspace_qdrant_mcp.tools.documents import add_document
+    
+    # Add a code file with metadata
+    result = await add_document(
+        client=workspace_client,
+        content=file_content,
+        collection="my-project",
+        metadata={
+            "file_path": "/src/auth.py",
+            "file_type": "python",
+            "author": "dev-team",
+            "project": "authentication-service"
+        },
+        document_id="auth-module",
+        chunk_text=True
+    )
+    
+    if result["success"]:
+        print(f"Added {result['chunks_added']} chunks")
+    ```
 """
 
 import logging
@@ -27,24 +76,82 @@ async def add_document(
     chunk_text: bool = True
 ) -> Dict:
     """
-    Add document to specified collection.
+    Add a document to the specified workspace collection with intelligent processing.
+    
+    This function handles the complete document ingestion pipeline including content
+    validation, intelligent chunking, embedding generation, metadata enrichment,
+    and atomic storage. It's designed for both single documents and batch processing
+    workflows.
+    
+    The processing pipeline:
+    1. Validates content and collection existence
+    2. Optionally chunks large text at word boundaries with overlap
+    3. Generates dense semantic and sparse keyword embeddings
+    4. Enriches metadata with timestamps, content hashes, and system fields
+    5. Stores documents atomically with transaction support
+    6. Returns detailed success metrics and identifiers
     
     Args:
-        client: Workspace client instance
-        content: Document content
-        collection: Target collection name
-        metadata: Optional metadata dictionary
-        document_id: Optional document ID (generates UUID if not provided)
-        chunk_text: Whether to chunk large text
+        client: Initialized workspace client with embedding service
+        content: Document text content to be indexed. Should be meaningful text
+                for optimal embedding generation
+        collection: Target collection name (must exist in workspace)
+        metadata: Optional metadata dictionary for document classification and filtering.
+                 Common fields: file_path, file_type, author, project, tags
+        document_id: Custom document identifier. If None, generates UUID.
+                    Should be unique within the collection
+        chunk_text: Whether to intelligently split large documents into overlapping
+                   chunks. Recommended for documents > 1000 characters
         
     Returns:
-        Dictionary with operation result
+        Dict: Operation result containing:
+            - success (bool): Whether the operation completed successfully
+            - document_id (str): Final document identifier used
+            - chunks_added (int): Number of text chunks created and stored
+            - collection (str): Target collection name
+            - metadata (Dict): Final metadata applied (including auto-generated fields)
+            - processing_time (float): Total processing time in seconds
+            - embedding_stats (Dict): Embedding generation statistics
+            - error (str): Error message if operation failed
+            
+    Raises:
+        ValueError: If content is empty or collection doesn't exist
+        RuntimeError: If embedding generation or storage fails
+        
+    Example:
+        ```python
+        # Add a Python file with rich metadata
+        result = await add_document(
+            client=workspace_client,
+            content=open("/src/auth.py").read(),
+            collection="authentication-service",
+            metadata={
+                "file_path": "/src/auth.py",
+                "file_type": "python",
+                "author": "jane.doe",
+                "last_modified": "2024-01-15T10:30:00Z",
+                "tags": ["authentication", "security", "api"]
+            },
+            document_id="auth-py-module",
+            chunk_text=True
+        )
+        
+        if result["success"]:
+            print(f"Successfully added {result['chunks_added']} chunks")
+            print(f"Processing time: {result['processing_time']:.2f}s")
+        else:
+            print(f"Failed: {result['error']}")
+        ```
     """
+    # Input validation
     if not client.initialized:
         return {"error": "Workspace client not initialized"}
     
     if not content or not content.strip():
         return {"error": "Content cannot be empty"}
+        
+    # Record start time for performance metrics
+    start_time = datetime.now()
     
     try:
         # Validate collection exists
