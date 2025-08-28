@@ -364,36 +364,36 @@ async def _show_formats() -> None:
     """Display supported file formats."""
     
     try:
-        # Initialize minimal components to get format info
-        config = Config()
-        client = QdrantWorkspaceClient(config)
-        await client.initialize()
+        # Get format info without initializing full client
+        from .parsers import TextParser, MarkdownParser, PDFParser
         
-        engine = DocumentIngestionEngine(client)
-        formats = await engine.get_supported_formats()
+        parsers = [
+            TextParser(),
+            MarkdownParser(), 
+            PDFParser(),
+        ]
         
         console.print("📄 Supported File Formats", style="bold blue")
         console.print()
         
-        for format_name, format_info in formats.items():
+        for parser in parsers:
             # Format header
-            console.print(f"🔹 {format_name}", style="bold cyan")
+            console.print(f"🔹 {parser.format_name}", style="bold cyan")
             
             # Extensions
-            ext_text = ", ".join(format_info['extensions'])
+            ext_text = ", ".join(parser.supported_extensions)
             console.print(f"   Extensions: {ext_text}")
             
             # Parsing options
-            if format_info['options']:
+            options = parser.get_parsing_options()
+            if options:
                 console.print("   Options:")
-                for option_name, option_info in format_info['options'].items():
+                for option_name, option_info in options.items():
                     default_val = option_info.get('default', 'None')
                     desc = option_info.get('description', 'No description')
                     console.print(f"     • {option_name}: {desc} (default: {default_val})")
             
             console.print()
-        
-        await client.close()
         
     except Exception as e:
         console.print(f"❌ Error getting format info: {e}", style="red")
@@ -404,20 +404,66 @@ async def _estimate_processing(path: str, formats: Optional[List[str]], concurre
     """Display processing time estimation."""
     
     try:
-        # Initialize components
-        config = Config()
-        client = QdrantWorkspaceClient(config)
-        await client.initialize()
+        # Simple file discovery without full client
+        from .ingestion_engine import DocumentIngestionEngine
+        from .parsers import TextParser, MarkdownParser, PDFParser
         
-        engine = DocumentIngestionEngine(client, concurrency=concurrency)
-        estimation = await engine.estimate_processing_time(path, formats)
+        # Create a minimal engine for file analysis
+        parsers = [TextParser(), MarkdownParser(), PDFParser()]
+        
+        # Find files manually
+        directory_path = Path(path)
+        if not directory_path.exists():
+            console.print(f"❌ Directory not found: {path}", style="red")
+            return
+            
+        # Get supported extensions
+        supported_extensions = set()
+        format_filter = set(formats) if formats else None
+        
+        for parser in parsers:
+            if not format_filter or any(fmt in parser.format_name.lower() for fmt in format_filter):
+                supported_extensions.update(parser.supported_extensions)
+        
+        # Find files
+        files = []
+        for file_path in directory_path.rglob("*"):
+            if file_path.is_file() and file_path.suffix.lower() in supported_extensions:
+                files.append(file_path)
+        
+        # Calculate stats
+        total_size = 0
+        file_types = {}
+        
+        for file_path in files:
+            try:
+                size = file_path.stat().st_size
+                total_size += size
+                
+                # Find parser for type classification
+                for parser in parsers:
+                    if parser.can_parse(file_path):
+                        file_types[parser.format_name] = file_types.get(parser.format_name, 0) + 1
+                        break
+            except OSError:
+                continue
+        
+        # Simple estimation (adjust based on empirical data)
+        estimated_seconds = (total_size / (1024 * 1024)) * 2  # ~2 seconds per MB
+        estimated_seconds /= concurrency  # Account for concurrency
+        
+        estimation = {
+            "files_found": len(files),
+            "total_size_mb": total_size / (1024 * 1024),
+            "file_types": file_types,
+            "estimated_time_seconds": estimated_seconds,
+            "estimated_time_human": f"{estimated_seconds // 60:.0f}m {estimated_seconds % 60:.0f}s"
+        }
         
         console.print("⏱️  Processing Time Estimation", style="bold blue")
         console.print()
         
         _display_estimation(estimation, False)
-        
-        await client.close()
         
     except Exception as e:
         console.print(f"❌ Error during estimation: {e}", style="red")
