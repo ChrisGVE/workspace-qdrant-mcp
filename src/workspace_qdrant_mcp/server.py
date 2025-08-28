@@ -460,7 +460,31 @@ async def hybrid_search_advanced_tool(
 
 
 async def initialize_workspace() -> None:
-    """Initialize the workspace client and collections."""
+    """Initialize the workspace client and project-specific collections.
+    
+    Performs comprehensive setup including configuration validation, project detection,
+    Qdrant connection establishment, embedding model initialization, and workspace
+    collection creation based on detected project structure.
+    
+    The initialization process:
+    1. Loads and validates configuration from environment/config files
+    2. Tests Qdrant database connectivity
+    3. Detects current project and subprojects from directory structure
+    4. Initializes embedding models (dense + sparse if enabled)
+    5. Creates workspace-scoped collections for discovered projects
+    6. Sets up global collections (scratchbook, shared resources)
+    
+    Raises:
+        RuntimeError: If configuration validation fails or critical services unavailable
+        ConnectionError: If Qdrant database is unreachable
+        ModelError: If embedding models cannot be initialized
+    
+    Example:
+        ```python
+        # Initialize before starting the MCP server
+        await initialize_workspace()
+        ```
+    """
     global workspace_client
     
     # Load configuration
@@ -494,7 +518,35 @@ def run_server(
     port: int = typer.Option(8000, help="Port to bind to"),
     config_file: Optional[str] = typer.Option(None, help="Path to configuration file"),
 ) -> None:
-    """Run the workspace-qdrant-mcp server."""
+    """Start the workspace-qdrant-mcp MCP server.
+    
+    Initializes the workspace environment and starts the FastMCP server with the
+    specified host and port configuration. Performs full workspace initialization
+    including project detection, database setup, and model loading before accepting
+    client connections.
+    
+    Args:
+        host: IP address to bind the server to (default: 127.0.0.1 for localhost)
+        port: TCP port number for the server (default: 8000)
+        config_file: Optional path to custom configuration file (overrides defaults)
+    
+    Environment Variables:
+        CONFIG_FILE: Path to configuration file (can be set via --config-file)
+        QDRANT_URL: Qdrant database endpoint URL
+        OPENAI_API_KEY: Required for embedding generation (if using OpenAI models)
+        
+    Example:
+        ```bash
+        # Start server on default host:port
+        python -m workspace_qdrant_mcp.server
+        
+        # Start with custom configuration
+        python -m workspace_qdrant_mcp.server --config-file ./custom.toml
+        
+        # Start on different host:port
+        python -m workspace_qdrant_mcp.server --host 0.0.0.0 --port 9000
+        ```
+    """
     
     # Set configuration file if provided
     if config_file:
@@ -508,7 +560,22 @@ def run_server(
 
 
 def main() -> None:
-    """Console script entry point for uv tool installation."""
+    """Console script entry point for UV tool installation and direct execution.
+    
+    Provides the primary entry point when the package is installed via UV or pip
+    and executed as a command-line tool. Uses Typer for CLI argument parsing
+    and delegates to run_server for the actual server startup.
+    
+    Usage:
+        ```bash
+        # Install via UV and run
+        uv tool install workspace-qdrant-mcp
+        workspace-qdrant-mcp --host 0.0.0.0 --port 8080
+        
+        # Run directly from source
+        python -m workspace_qdrant_mcp.server
+        ```
+    """
     typer.run(run_server)
 
 
