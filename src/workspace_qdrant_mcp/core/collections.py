@@ -14,8 +14,8 @@ Key Features:
     - Parallel collection creation for better performance
 
 Collection Types:
-    - Project collections: [project-name]-docs, [project-name]-scratchbook
-    - Subproject collections: [subproject-name]-docs, [subproject-name]-scratchbook  
+    - Project collections: [project-name]-{suffix} for each configured suffix
+    - Subproject collections: [subproject-name]-{suffix} for each configured suffix  
     - Global collections: scratchbook, shared-notes (cross-project)
 
 Example:
@@ -155,8 +155,8 @@ class WorkspaceCollectionManager:
         All collections are created with optimized settings for search performance.
         
         Collection Creation Pattern:
-            Main project: [project-name]-docs, [project-name]-scratchbook
-            Subprojects: [subproject-name]-docs, [subproject-name]-scratchbook
+            Main project: [project-name]-{suffix} for each workspace.collections suffix
+            Subprojects: [subproject-name]-{suffix} for each workspace.collections suffix
             Global: scratchbook, shared-notes (configurable via workspace.global_collections)
         
         Args:
@@ -183,46 +183,32 @@ class WorkspaceCollectionManager:
         collections_to_create = []
         
         # Main project collections
-        collections_to_create.extend([
-            CollectionConfig(
-                name=f"{project_name}-scratchbook",
-                description=f"Scratchbook notes for {project_name}",
-                collection_type="scratchbook",
-                project_name=project_name,
-                vector_size=self._get_vector_size(),
-                enable_sparse_vectors=self.config.embedding.enable_sparse_vectors
-            ),
-            CollectionConfig(
-                name=f"{project_name}-docs",
-                description=f"Documentation for {project_name}",
-                collection_type="docs", 
-                project_name=project_name,
-                vector_size=self._get_vector_size(),
-                enable_sparse_vectors=self.config.embedding.enable_sparse_vectors
+        for suffix in self.config.workspace.collections:
+            collections_to_create.append(
+                CollectionConfig(
+                    name=f"{project_name}-{suffix}",
+                    description=f"{suffix.title()} collection for {project_name}",
+                    collection_type=suffix,
+                    project_name=project_name,
+                    vector_size=self._get_vector_size(),
+                    enable_sparse_vectors=self.config.embedding.enable_sparse_vectors
+                )
             )
-        ])
         
         # Subproject collections
         if subprojects:
             for subproject in subprojects:
-                collections_to_create.extend([
-                    CollectionConfig(
-                        name=f"{subproject}-scratchbook",
-                        description=f"Scratchbook notes for {subproject}",
-                        collection_type="scratchbook",
-                        project_name=subproject,
-                        vector_size=self._get_vector_size(),
-                        enable_sparse_vectors=self.config.embedding.enable_sparse_vectors
-                    ),
-                    CollectionConfig(
-                        name=f"{subproject}-docs", 
-                        description=f"Documentation for {subproject}",
-                        collection_type="docs",
-                        project_name=subproject,
-                        vector_size=self._get_vector_size(),
-                        enable_sparse_vectors=self.config.embedding.enable_sparse_vectors
+                for suffix in self.config.workspace.collections:
+                    collections_to_create.append(
+                        CollectionConfig(
+                            name=f"{subproject}-{suffix}",
+                            description=f"{suffix.title()} collection for {subproject}",
+                            collection_type=suffix,
+                            project_name=subproject,
+                            vector_size=self._get_vector_size(),
+                            enable_sparse_vectors=self.config.embedding.enable_sparse_vectors
+                        )
                     )
-                ])
         
         # Global collections
         for global_collection in self.config.workspace.global_collections:
@@ -439,7 +425,7 @@ class WorkspaceCollectionManager:
         This enables workspace isolation while sharing the database instance.
         
         Inclusion Criteria:
-            - Collections ending in '-scratchbook' or '-docs' (project collections)
+            - Collections ending in configured project collection suffixes
             - Collections in the global_collections configuration list
             - Collections that match workspace naming patterns
         
@@ -458,7 +444,7 @@ class WorkspaceCollectionManager:
         Example:
             ```python
             # These would return True:
-            manager._is_workspace_collection("my-project-docs")         # True
+            manager._is_workspace_collection("my-project-docs")         # True (if 'docs' in collections)
             manager._is_workspace_collection("scratchbook")            # True (global)
             
             # These would return False:
@@ -474,9 +460,10 @@ class WorkspaceCollectionManager:
         if collection_name in self.config.workspace.global_collections:
             return True
             
-        # Include project collections (ending with -scratchbook or -docs)
-        if collection_name.endswith(("-scratchbook", "-docs")):
-            return True
+        # Include project collections (ending with configured suffixes)
+        for suffix in self.config.workspace.collections:
+            if collection_name.endswith(f"-{suffix}"):
+                return True
             
         return False
     
