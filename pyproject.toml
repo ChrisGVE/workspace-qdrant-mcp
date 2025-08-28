@@ -45,8 +45,10 @@ workspace-qdrant-validate = "workspace_qdrant_mcp.utils.config_validator:validat
 workspace-qdrant-admin = "workspace_qdrant_mcp.utils.admin_cli:admin_cli"
 
 [project.urls]
-Homepage = "https://github.com/chris/workspace-qdrant-mcp"
-Repository = "https://github.com/chris/workspace-qdrant-mcp"
+Homepage = "https://github.com/ChrisGVE/workspace-qdrant-mcp"
+Repository = "https://github.com/ChrisGVE/workspace-qdrant-mcp"
+Issues = "https://github.com/ChrisGVE/workspace-qdrant-mcp/issues"
+Changelog = "https://github.com/ChrisGVE/workspace-qdrant-mcp/blob/main/CHANGELOG.md"
 
 [tool.hatch.version]
 path = "src/workspace_qdrant_mcp/__init__.py"

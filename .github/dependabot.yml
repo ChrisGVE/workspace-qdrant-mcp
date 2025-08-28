@@ -1,0 +1,104 @@
+# GitHub Dependabot configuration for automated dependency updates
+# This keeps dependencies secure and up-to-date with evidence-based testing
+
+version: 2
+updates:
+  # Python package dependencies
+  - package-ecosystem: "pip"
+    directory: "/"
+    schedule:
+      interval: "daily"
+      time: "04:00"  # 4 AM UTC
+    open-pull-requests-limit: 10
+    reviewers:
+      - "@chris"  # Replace with actual maintainer usernames
+    assignees:
+      - "@chris"
+    commit-message:
+      prefix: "deps"
+      prefix-development: "deps(dev)"
+      include: "scope"
+    labels:
+      - "dependencies"
+      - "security"
+    # Group updates by dependency type
+    groups:
+      production-dependencies:
+        patterns:
+          - "fastmcp*"
+          - "qdrant-client*"
+          - "fastembed*" 
+          - "GitPython*"
+          - "pydantic*"
+          - "python-dotenv*"
+          - "typer*"
+      development-dependencies:
+        patterns:
+          - "pytest*"
+          - "black*"
+          - "ruff*"
+          - "mypy*"
+          - "bandit*"
+          - "safety*"
+      security-dependencies:
+        patterns:
+          - "cryptography*"
+          - "requests*"
+          - "urllib3*"
+          - "certifi*"
+    # Ignore specific versions if they have known issues
+    ignore:
+      # Example: ignore specific versions with compatibility issues
+      # - dependency-name: "some-package"
+      #   versions: ["1.2.0", "1.2.1"]
+    # Version update strategy
+    versioning-strategy: "increase"
+    # Automatically merge minor and patch updates that pass CI
+    auto-merge:
+      - match:
+          update_type: "security"
+      - match:
+          update_type: "semver:patch"
+          dependency_type: "direct"
+      - match:
+          update_type: "semver:minor"
+          dependency_type: "development"
+
+  # GitHub Actions workflow dependencies
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+      time: "04:00"
+    open-pull-requests-limit: 5
+    reviewers:
+      - "@chris"
+    commit-message:
+      prefix: "ci"
+      include: "scope"
+    labels:
+      - "github-actions"
+      - "ci/cd"
+    # Group all GitHub Actions updates together
+    groups:
+      github-actions:
+        patterns:
+          - "*"
+
+  # Docker dependencies (if any Dockerfiles are added)
+  - package-ecosystem: "docker"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+      day: "tuesday"
+      time: "04:00"
+    open-pull-requests-limit: 3
+    reviewers:
+      - "@chris"
+    commit-message:
+      prefix: "docker"
+      include: "scope"
+    labels:
+      - "docker"
+      - "infrastructure"

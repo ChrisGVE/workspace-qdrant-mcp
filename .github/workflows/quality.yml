@@ -1,0 +1,325 @@
+name: Quality Assurance
+
+on:
+  push:
+    branches: [ main, develop ]
+  pull_request:
+    branches: [ main, develop ]
+  schedule:
+    # Run quality checks daily at 2 AM UTC
+    - cron: '0 2 * * *'
+
+jobs:
+  code-quality:
+    name: Code Quality Analysis
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+      with:
+        fetch-depth: 0  # Fetch full history for better analysis
+
+    - name: Set up Python 3.11
+      uses: actions/setup-python@v4
+      with:
+        python-version: "3.11"
+
+    - name: Install uv
+      uses: astral-sh/setup-uv@v1
+
+    - name: Install dependencies and analysis tools
+      run: |
+        uv venv --python 3.11
+        . .venv/bin/activate
+        uv pip install -e ".[dev]"
+        uv pip install bandit[toml] safety vulture radon complexity-report
+
+    - name: Run comprehensive ruff analysis
+      run: |
+        . .venv/bin/activate
+        echo "## Ruff Analysis" >> quality-report.md
+        echo "### Code Quality Issues" >> quality-report.md
+        ruff check src/ tests/ --output-format=github >> quality-report.md || true
+        
+        echo "### Formatting Issues" >> quality-report.md
+        ruff format --check --diff src/ tests/ >> quality-report.md || true
+
+    - name: Run detailed mypy analysis
+      run: |
+        . .venv/bin/activate
+        echo "## MyPy Type Analysis" >> quality-report.md
+        mypy src/workspace_qdrant_mcp/ --html-report mypy-report/ --show-error-codes --pretty >> quality-report.md || true
+
+    - name: Run comprehensive security analysis
+      run: |
+        . .venv/bin/activate
+        echo "## Security Analysis" >> quality-report.md
+        
+        echo "### Bandit Security Scanner" >> quality-report.md
+        bandit -r src/workspace_qdrant_mcp/ -f txt >> quality-report.md || true
+        
+        echo "### Safety Vulnerability Check" >> quality-report.md
+        safety check >> quality-report.md || true
+
+    - name: Calculate code complexity
+      run: |
+        . .venv/bin/activate
+        echo "## Code Complexity Analysis" >> quality-report.md
+        
+        echo "### Cyclomatic Complexity" >> quality-report.md
+        radon cc src/workspace_qdrant_mcp/ -s >> quality-report.md || true
+        
+        echo "### Maintainability Index" >> quality-report.md
+        radon mi src/workspace_qdrant_mcp/ -s >> quality-report.md || true
+        
+        echo "### Halstead Complexity" >> quality-report.md
+        radon hal src/workspace_qdrant_mcp/ >> quality-report.md || true
+
+    - name: Find dead code
+      run: |
+        . .venv/bin/activate
+        echo "## Dead Code Analysis" >> quality-report.md
+        vulture src/workspace_qdrant_mcp/ >> quality-report.md || true
+
+    - name: Generate test coverage report
+      run: |
+        . .venv/bin/activate
+        pytest --cov=src/workspace_qdrant_mcp --cov-report=html --cov-report=term >> coverage-output.txt
+        echo "## Test Coverage Report" >> quality-report.md
+        echo '```' >> quality-report.md
+        cat coverage-output.txt >> quality-report.md
+        echo '```' >> quality-report.md
+
+    - name: Upload quality reports
+      uses: actions/upload-artifact@v3
+      with:
+        name: quality-reports
+        path: |
+          quality-report.md
+          mypy-report/
+          htmlcov/
+          coverage-output.txt
+
+    - name: Comment PR with quality summary
+      if: github.event_name == 'pull_request'
+      uses: actions/github-script@v7
+      with:
+        script: |
+          const fs = require('fs');
+          
+          if (fs.existsSync('quality-report.md')) {
+            const qualityReport = fs.readFileSync('quality-report.md', 'utf8');
+            
+            // Truncate report if too long for PR comment
+            const maxLength = 65000;
+            const report = qualityReport.length > maxLength 
+              ? qualityReport.substring(0, maxLength) + '\n\n... (report truncated)'
+              : qualityReport;
+            
+            await github.rest.issues.createComment({
+              issue_number: context.issue.number,
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              body: `## 📊 Quality Analysis Report\n\n${report}`
+            });
+          }
+
+  dependency-audit:
+    name: Dependency Security Audit
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Set up Python 3.11
+      uses: actions/setup-python@v4
+      with:
+        python-version: "3.11"
+
+    - name: Install uv
+      uses: astral-sh/setup-uv@v1
+
+    - name: Install dependencies
+      run: |
+        uv venv --python 3.11
+        . .venv/bin/activate
+        uv pip install -e ".[dev]"
+        uv pip install safety pip-audit
+
+    - name: Run pip-audit
+      run: |
+        . .venv/bin/activate
+        pip-audit --format=json --output=pip-audit-report.json || true
+        pip-audit
+
+    - name: Check for outdated dependencies
+      run: |
+        . .venv/bin/activate
+        pip list --outdated --format=json > outdated-deps.json || true
+        
+        echo "📦 Outdated Dependencies:" >> dependency-report.md
+        python -c "
+        import json
+        try:
+            with open('outdated-deps.json') as f:
+                outdated = json.load(f)
+            if outdated:
+                print('| Package | Current | Latest |')
+                print('|---------|---------|--------|')
+                for pkg in outdated:
+                    print(f'| {pkg[\"name\"]} | {pkg[\"version\"]} | {pkg[\"latest_version\"]} |')
+            else:
+                print('All dependencies are up to date! 🎉')
+        except:
+            print('Could not parse outdated dependencies')
+        " >> dependency-report.md
+
+    - name: Generate dependency tree
+      run: |
+        . .venv/bin/activate
+        echo "🌳 Dependency Tree:" >> dependency-report.md
+        echo '```' >> dependency-report.md
+        pip show workspace-qdrant-mcp >> dependency-report.md || true
+        echo '```' >> dependency-report.md
+
+    - name: Upload dependency reports
+      uses: actions/upload-artifact@v3
+      with:
+        name: dependency-reports
+        path: |
+          pip-audit-report.json
+          outdated-deps.json
+          dependency-report.md
+
+  performance-monitoring:
+    name: Performance Monitoring
+    runs-on: ubuntu-latest
+    if: github.ref == 'refs/heads/main'  # Only on main branch
+
+    services:
+      qdrant:
+        image: qdrant/qdrant:v1.7.0
+        ports:
+          - 6333:6333
+        options: >-
+          --health-cmd "curl -f http://localhost:6333/health || exit 1"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Set up Python 3.11
+      uses: actions/setup-python@v4
+      with:
+        python-version: "3.11"
+
+    - name: Install uv
+      uses: astral-sh/setup-uv@v1
+
+    - name: Install dependencies
+      run: |
+        uv venv --python 3.11
+        . .venv/bin/activate
+        uv pip install -e ".[dev]"
+        uv pip install memory-profiler
+
+    - name: Wait for Qdrant
+      run: timeout 60s bash -c 'until curl -f http://localhost:6333/health; do sleep 2; done'
+
+    - name: Run performance benchmarks with profiling
+      env:
+        QDRANT_URL: http://localhost:6333
+      run: |
+        . .venv/bin/activate
+        
+        echo "🚀 Performance Benchmark Results" > performance-report.md
+        echo "Generated: $(date)" >> performance-report.md
+        echo "" >> performance-report.md
+        
+        echo "## Simple Benchmark" >> performance-report.md
+        echo '```' >> performance-report.md
+        python simple_benchmark.py >> performance-report.md
+        echo '```' >> performance-report.md
+        
+        echo "## Comprehensive Benchmark" >> performance-report.md  
+        echo '```' >> performance-report.md
+        timeout 300s python comprehensive_benchmark.py >> performance-report.md || echo "Benchmark timed out after 5 minutes" >> performance-report.md
+        echo '```' >> performance-report.md
+
+    - name: Memory profiling
+      run: |
+        . .venv/bin/activate
+        echo "## Memory Usage Profile" >> performance-report.md
+        echo '```' >> performance-report.md
+        python -m memory_profiler simple_benchmark.py >> performance-report.md || echo "Memory profiling failed" >> performance-report.md
+        echo '```' >> performance-report.md
+
+    - name: Upload performance reports
+      uses: actions/upload-artifact@v3
+      with:
+        name: performance-reports
+        path: performance-report.md
+
+    - name: Store performance metrics
+      run: |
+        # This would integrate with a performance tracking system
+        echo "📈 Performance metrics stored for trend analysis"
+        echo "Commit: ${{ github.sha }}" >> performance-metrics.json
+        echo "Date: $(date -Iseconds)" >> performance-metrics.json
+
+  documentation-check:
+    name: Documentation Quality
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Set up Python 3.11
+      uses: actions/setup-python@v4
+      with:
+        python-version: "3.11"
+
+    - name: Install uv
+      uses: astral-sh/setup-uv@v1
+
+    - name: Install dependencies
+      run: |
+        uv venv --python 3.11
+        . .venv/bin/activate
+        uv pip install -e ".[dev]"
+        uv pip install pydocstyle docstring-parser
+
+    - name: Check docstring quality
+      run: |
+        . .venv/bin/activate
+        echo "## Documentation Quality Report" > doc-report.md
+        echo "### Docstring Analysis" >> doc-report.md
+        pydocstyle src/workspace_qdrant_mcp/ >> doc-report.md || true
+
+    - name: Generate API documentation
+      run: |
+        . .venv/bin/activate
+        python -c "
+        import pkgutil
+        import importlib
+        import workspace_qdrant_mcp
+        
+        print('### Available Modules')
+        for importer, modname, ispkg in pkgutil.walk_packages(
+            workspace_qdrant_mcp.__path__, 
+            workspace_qdrant_mcp.__name__ + '.'
+        ):
+            print(f'- {modname}')
+        " >> doc-report.md
+
+    - name: Upload documentation reports
+      uses: actions/upload-artifact@v3
+      with:
+        name: documentation-reports
+        path: doc-report.md
