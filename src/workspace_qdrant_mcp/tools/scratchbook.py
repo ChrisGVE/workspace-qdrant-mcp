@@ -87,7 +87,8 @@ class ScratchbookManager:
     - Export notes for integration with external tools
     
     Architecture:
-        - Uses the global 'scratchbook' collection for all notes
+        - Uses the appropriate project collection for scoped notes
+        - Falls back to global scratchbook collection if available
         - Each note includes project context for scoping
         - Supports multiple note types with specialized handling
         - Implements versioning for tracking note evolution
@@ -123,6 +124,42 @@ class ScratchbookManager:
         self.client = client
         self.project_info = client.get_project_info()
     
+    def _get_scratchbook_collection_name(self, project_name: Optional[str] = None) -> str:
+        """Determine the appropriate collection name for scratchbook operations.
+        
+        Prioritizes:
+        1. Project collection with 'scratchbook' suffix if available
+        2. First configured project collection suffix 
+        3. Global 'scratchbook' collection as fallback
+        
+        Args:
+            project_name: Project name (defaults to current project)
+            
+        Returns:
+            Collection name to use for scratchbook operations
+        """
+        if not project_name:
+            project_name = self.project_info["main_project"] if self.project_info else "default"
+            
+        # Get workspace configuration for available collections
+        config = self.client.config
+        
+        # Prefer 'scratchbook' suffix if configured
+        if "scratchbook" in config.workspace.collections:
+            return f"{project_name}-scratchbook"
+            
+        # Use first configured collection suffix
+        if config.workspace.collections:
+            first_suffix = config.workspace.collections[0]
+            return f"{project_name}-{first_suffix}"
+            
+        # Fallback to global scratchbook if available
+        if "scratchbook" in config.workspace.global_collections:
+            return "scratchbook"
+            
+        # Final fallback - use default pattern
+        return f"{project_name}-scratchbook"
+    
     async def add_note(
         self,
         content: str,
@@ -151,11 +188,8 @@ class ScratchbookManager:
             return {"error": "Note content cannot be empty"}
         
         try:
-            # Determine collection name
-            if not project_name:
-                project_name = self.project_info["main_project"] if self.project_info else "default"
-            
-            collection_name = f"{project_name}-scratchbook"
+            # Determine collection name using configured collections
+            collection_name = self._get_scratchbook_collection_name(project_name)
             
             # Validate collection exists
             available_collections = await self.client.list_collections()
@@ -252,11 +286,8 @@ class ScratchbookManager:
             return {"error": "Workspace client not initialized"}
         
         try:
-            # Determine collection name
-            if not project_name:
-                project_name = self.project_info["main_project"] if self.project_info else "default"
-            
-            collection_name = f"{project_name}-scratchbook"
+            # Determine collection name using configured collections
+            collection_name = self._get_scratchbook_collection_name(project_name)
             
             # Find existing note
             existing_points = self.client.client.scroll(
@@ -368,16 +399,13 @@ class ScratchbookManager:
             return {"error": "Workspace client not initialized"}
         
         try:
-            # Determine collection name
-            if not project_name:
-                project_name = self.project_info["main_project"] if self.project_info else "default"
-            
-            collection_name = f"{project_name}-scratchbook"
+            # Determine collection name using configured collections
+            collection_name = self._get_scratchbook_collection_name(project_name)
             
             # Validate collection exists
             available_collections = await self.client.list_collections()
             if collection_name not in available_collections:
-                return {"error": f"Scratchbook collection '{collection_name}' not found"}
+                return {"error": f"Scratchbook collection '{collection_name}' not found"
             
             # Generate embeddings for query
             embedding_service = self.client.get_embedding_service()
@@ -480,11 +508,8 @@ class ScratchbookManager:
             return {"error": "Workspace client not initialized"}
         
         try:
-            # Determine collection name
-            if not project_name:
-                project_name = self.project_info["main_project"] if self.project_info else "default"
-            
-            collection_name = f"{project_name}-scratchbook"
+            # Determine collection name using configured collections
+            collection_name = self._get_scratchbook_collection_name(project_name)
             
             # Build filter conditions
             filter_conditions = [
@@ -570,11 +595,8 @@ class ScratchbookManager:
             return {"error": "Workspace client not initialized"}
         
         try:
-            # Determine collection name
-            if not project_name:
-                project_name = self.project_info["main_project"] if self.project_info else "default"
-            
-            collection_name = f"{project_name}-scratchbook"
+            # Determine collection name using configured collections
+            collection_name = self._get_scratchbook_collection_name(project_name)
             
             # Delete the note
             result = self.client.client.delete(
