@@ -66,7 +66,7 @@ class WorkspaceQdrantAdmin:
         
         return protected
     
-    async def list_collections(self, show_all: bool = False) -> List[str]:
+    def list_collections(self, show_all: bool = False) -> List[str]:
         """
         List collections with optional filtering.
         
@@ -81,7 +81,21 @@ class WorkspaceQdrantAdmin:
                 all_collections = self.client.get_collections()
                 return sorted([col.name for col in all_collections.collections])
             else:
-                return await self.collection_manager.list_workspace_collections()
+                # Get workspace collections synchronously
+                try:
+                    all_collections = self.client.get_collections()
+                    workspace_collections = []
+                    
+                    for collection in all_collections.collections:
+                        # Filter for workspace collections (exclude memexd -code collections)
+                        if self.collection_manager._is_workspace_collection(collection.name):
+                            workspace_collections.append(collection.name)
+                            
+                    return sorted(workspace_collections)
+                    
+                except Exception as e:
+                    logger.error("Failed to list collections: %s", e)
+                    return []
         except Exception as e:
             logger.error("Failed to list collections: %s", e)
             return []
@@ -140,7 +154,7 @@ class WorkspaceQdrantAdmin:
         
         return True, "Collection can be safely deleted"
     
-    async def delete_collection(
+    def delete_collection(
         self, 
         collection_name: str, 
         force: bool = False
@@ -195,7 +209,7 @@ class WorkspaceQdrantAdmin:
             logger.error("Unexpected error deleting collection '%s': %s", collection_name, e)
             return False
     
-    async def get_collection_info(self, collection_name: Optional[str] = None) -> dict:
+    def get_collection_info(self, collection_name: Optional[str] = None) -> dict:
         """
         Get detailed information about collections.
         
@@ -226,8 +240,38 @@ class WorkspaceQdrantAdmin:
             except Exception as e:
                 return {collection_name: {"error": str(e)}}
         else:
-            # All workspace collections
-            return await self.collection_manager.get_collection_info()
+            # All workspace collections - sync version
+            try:
+                workspace_collections = self.list_collections(show_all=False)
+                collection_info = {}
+                
+                for collection_name in workspace_collections:
+                    try:
+                        info = self.client.get_collection(collection_name)
+                        collection_info[collection_name] = {
+                            "vectors_count": info.vectors_count,
+                            "points_count": info.points_count,
+                            "status": info.status,
+                            "optimizer_status": info.optimizer_status,
+                            "config": {
+                                "distance": info.config.params.vectors.distance.value,
+                                "vector_size": info.config.params.vectors.size,
+                            },
+                            "project_scoped": self.is_project_scoped_collection(collection_name),
+                            "protected": collection_name in self.get_protected_collections()
+                        }
+                    except Exception as e:
+                        logger.warning("Failed to get info for collection %s: %s", collection_name, e)
+                        collection_info[collection_name] = {"error": str(e)}
+                
+                return {
+                    "collections": collection_info,
+                    "total_collections": len(workspace_collections)
+                }
+                
+            except Exception as e:
+                logger.error("Failed to get collection info: %s", e)
+                return {"error": str(e)}
     
     def close(self):
         """Close the Qdrant client connection."""
@@ -242,7 +286,7 @@ app = typer.Typer(
 
 
 @app.command()
-async def list_collections(
+def list_collections(
     all_collections: bool = typer.Option(
         False, "--all", "-a", help="Show all collections, not just workspace collections"
     ),
@@ -252,7 +296,7 @@ async def list_collections(
     
     try:
         admin = WorkspaceQdrantAdmin()
-        collections = await admin.list_collections(show_all=all_collections)
+        collections = admin.list_collections(show_all=all_collections)
         
         if not collections:
             typer.echo("No collections found.")
@@ -263,7 +307,7 @@ async def list_collections(
         if verbose:
             # Show detailed info
             for collection_name in collections:
-                info = await admin.get_collection_info(collection_name)
+                info = admin.get_collection_info(collection_name)
                 collection_data = info.get(collection_name, {})
                 
                 if "error" in collection_data:
@@ -286,7 +330,7 @@ async def list_collections(
 
 
 @app.command()
-async def delete_collection(
+def delete_collection(
     collection_name: str = typer.Argument(..., help="Name of collection to delete"),
     force: bool = typer.Option(False, "--force", "-f", help="Skip confirmation prompts"),
     dry_run: bool = typer.Option(False, "--dry-run", help="Show what would be deleted without actually deleting")
@@ -297,7 +341,7 @@ async def delete_collection(
         admin = WorkspaceQdrantAdmin(dry_run=dry_run)
         
         # Show what we're about to delete
-        info = await admin.get_collection_info(collection_name)
+        info = admin.get_collection_info(collection_name)
         collection_data = info.get(collection_name, {})
         
         if "error" in collection_data:
@@ -315,7 +359,7 @@ async def delete_collection(
         typer.echo(f"Protected: {'Yes' if protected else 'No'}")
         
         # Attempt deletion
-        success = await admin.delete_collection(collection_name, force=force)
+        success = admin.delete_collection(collection_name, force=force)
         
         if success:
             if dry_run:
@@ -334,14 +378,14 @@ async def delete_collection(
 
 
 @app.command()
-async def collection_info(
+def collection_info(
     collection_name: Optional[str] = typer.Argument(None, help="Name of specific collection (optional)")
 ) -> None:
     """Show detailed information about collections."""
     
     try:
         admin = WorkspaceQdrantAdmin()
-        info = await admin.get_collection_info(collection_name)
+        info = admin.get_collection_info(collection_name)
         
         if collection_name:
             # Single collection
@@ -400,15 +444,6 @@ def main(
 
 def admin_cli():
     """Console script entry point."""
-    import asyncio
-    
-    # Patch typer commands to work with async
-    original_commands = {}
-    for command in app.registered_commands.values():
-        if asyncio.iscoroutinefunction(command.callback):
-            original_commands[command] = command.callback
-            command.callback = lambda *args, cmd=command.callback, **kwargs: asyncio.run(cmd(*args, **kwargs))
-    
     try:
         app()
     except KeyboardInterrupt:
