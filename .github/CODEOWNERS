@@ -15,7 +15,7 @@
 # Documentation
 /docs/ @ChrisGVE
 /README.md @ChrisGVE
-/PRD.md @ChrisGVE
+/specs/ @ChrisGVE
 
 # Security sensitive files
 /.github/workflows/security.yml @ChrisGVE

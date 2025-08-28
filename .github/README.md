@@ -215,7 +215,7 @@ pytest --cov=src/workspace_qdrant_mcp
 #### Performance Test Failures
 ```bash
 # Run simple benchmark locally
-python simple_benchmark.py
+python benchmarking/simple_benchmark.py
 
 # Check Qdrant connectivity
 curl -f http://localhost:6333/health
@@ -269,7 +269,7 @@ safety check
 - **GitHub Actions Documentation**: https://docs.github.com/actions
 - **uv Package Manager**: https://github.com/astral-sh/uv
 - **Qdrant Vector Database**: https://qdrant.tech/
-- **Evidence-Based Testing**: See `simple_benchmark.py` for methodology
+- **Evidence-Based Testing**: See `benchmarking/simple_benchmark.py` for methodology
 
 ---
 

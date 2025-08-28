@@ -186,21 +186,21 @@ jobs:
     - name: Run simple benchmark
       run: |
         . .venv/bin/activate
-        python simple_benchmark.py > simple_benchmark_results.txt
+        python benchmarking/simple_benchmark.py > simple_benchmark_results.txt
 
     - name: Run comprehensive benchmark
       env:
         QDRANT_URL: http://localhost:6333
       run: |
         . .venv/bin/activate
-        python comprehensive_benchmark.py > comprehensive_benchmark_results.txt
+        python benchmarking/comprehensive_benchmark.py > comprehensive_benchmark_results.txt
 
     - name: Run efficient large benchmark
       env:
         QDRANT_URL: http://localhost:6333
       run: |
         . .venv/bin/activate
-        python efficient_large_benchmark.py > efficient_large_benchmark_results.txt
+        python benchmarking/efficient_large_benchmark.py > efficient_large_benchmark_results.txt
 
     - name: Validate performance against evidence-based thresholds
       run: |

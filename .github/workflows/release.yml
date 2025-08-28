@@ -301,7 +301,7 @@ jobs:
         echo "Timestamp: $(date -Iseconds)" >> release_benchmark.txt
         echo "=" >> release_benchmark.txt
         
-        python simple_benchmark.py >> release_benchmark.txt
+        python benchmarking/simple_benchmark.py >> release_benchmark.txt
 
     - name: Validate performance meets evidence-based thresholds
       run: |
