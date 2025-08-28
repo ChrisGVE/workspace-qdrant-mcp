@@ -1,0 +1,29 @@
+# Global owners
+* @ChrisGVE
+
+# MCP Server core
+/src/workspace_qdrant_mcp/ @ChrisGVE
+
+# CLI tools
+/src/workspace_qdrant_mcp/utils/ @ChrisGVE
+
+# Configuration and deployment
+/.github/ @ChrisGVE
+/pyproject.toml @ChrisGVE
+/.env.example @ChrisGVE
+
+# Documentation
+/docs/ @ChrisGVE
+/README.md @ChrisGVE
+/PRD.md @ChrisGVE
+
+# Security sensitive files
+/.github/workflows/security.yml @ChrisGVE
+/src/workspace_qdrant_mcp/config/ @ChrisGVE
+
+# Tests
+/tests/ @ChrisGVE
+
+# Benchmarks and performance
+/*benchmark*.py @ChrisGVE
+/run_*.py @ChrisGVE

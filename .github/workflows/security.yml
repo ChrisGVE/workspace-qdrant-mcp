@@ -1,0 +1,474 @@
+name: Security Scanning
+
+on:
+  push:
+    branches: [ main, develop ]
+  pull_request:
+    branches: [ main, develop ]
+  schedule:
+    # Run security scans daily at 1 AM UTC
+    - cron: '0 1 * * *'
+  workflow_dispatch:
+
+jobs:
+  security-scan:
+    name: Security Analysis
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+      with:
+        fetch-depth: 0
+
+    - name: Set up Python 3.11
+      uses: actions/setup-python@v4
+      with:
+        python-version: "3.11"
+
+    - name: Install uv
+      uses: astral-sh/setup-uv@v1
+
+    - name: Install dependencies and security tools
+      run: |
+        uv venv --python 3.11
+        . .venv/bin/activate
+        uv pip install -e ".[dev]"
+        uv pip install bandit[toml] safety pip-audit semgrep
+
+    - name: Run Bandit security linter
+      run: |
+        . .venv/bin/activate
+        echo "🔍 Running Bandit Security Analysis" | tee security-report.txt
+        echo "=======================================" >> security-report.txt
+        echo "" >> security-report.txt
+        
+        bandit -r src/workspace_qdrant_mcp/ -f txt >> security-report.txt
+        bandit -r src/workspace_qdrant_mcp/ -f json -o bandit-report.json
+
+    - name: Run Safety vulnerability scanner
+      run: |
+        . .venv/bin/activate
+        echo "" >> security-report.txt
+        echo "🛡️  Safety Vulnerability Scan" >> security-report.txt
+        echo "=============================" >> security-report.txt
+        echo "" >> security-report.txt
+        
+        safety check --json --output safety-report.json || true
+        safety check >> security-report.txt || true
+
+    - name: Run pip-audit
+      run: |
+        . .venv/bin/activate
+        echo "" >> security-report.txt
+        echo "🔒 pip-audit Dependency Scan" >> security-report.txt
+        echo "============================" >> security-report.txt
+        echo "" >> security-report.txt
+        
+        pip-audit --format=json --output=pip-audit-report.json || true
+        pip-audit >> security-report.txt || true
+
+    - name: Run Semgrep static analysis
+      run: |
+        . .venv/bin/activate
+        echo "" >> security-report.txt
+        echo "⚡ Semgrep Static Analysis" >> security-report.txt
+        echo "==========================" >> security-report.txt
+        echo "" >> security-report.txt
+        
+        semgrep --config=auto src/workspace_qdrant_mcp/ --json --output=semgrep-report.json || true
+        semgrep --config=auto src/workspace_qdrant_mcp/ >> security-report.txt || true
+
+    - name: Analyze security findings
+      run: |
+        . .venv/bin/activate
+        python -c "
+        import json
+        import sys
+        
+        def analyze_report(filename, tool_name):
+            try:
+                with open(filename, 'r') as f:
+                    data = json.load(f)
+                
+                if tool_name == 'bandit':
+                    issues = data.get('results', [])
+                    high_severity = [i for i in issues if i.get('issue_severity') == 'HIGH']
+                    medium_severity = [i for i in issues if i.get('issue_severity') == 'MEDIUM']
+                    
+                    print(f'{tool_name}: {len(high_severity)} high, {len(medium_severity)} medium severity issues')
+                    
+                    if high_severity:
+                        print(f'❌ HIGH severity security issues found by {tool_name}')
+                        for issue in high_severity[:5]:  # Show first 5
+                            print(f'  - {issue.get(\"test_name\", \"Unknown\")}: {issue.get(\"issue_text\", \"No description\")}')
+                        return False
+                        
+                elif tool_name == 'safety':
+                    vulnerabilities = data if isinstance(data, list) else []
+                    if vulnerabilities:
+                        print(f'{tool_name}: {len(vulnerabilities)} vulnerabilities found')
+                        print(f'❌ Known vulnerabilities found by {tool_name}')
+                        for vuln in vulnerabilities[:3]:  # Show first 3
+                            print(f'  - {vuln.get(\"package\", \"Unknown package\")}: {vuln.get(\"vulnerability\", \"No description\")}')
+                        return False
+                    else:
+                        print(f'{tool_name}: No vulnerabilities found')
+                        
+                elif tool_name == 'pip-audit':
+                    vulnerabilities = data.get('vulnerabilities', [])
+                    if vulnerabilities:
+                        print(f'{tool_name}: {len(vulnerabilities)} vulnerabilities found')
+                        print(f'❌ Dependency vulnerabilities found by {tool_name}')
+                        return False
+                    else:
+                        print(f'{tool_name}: No vulnerabilities found')
+                        
+                elif tool_name == 'semgrep':
+                    findings = data.get('results', [])
+                    errors = [f for f in findings if f.get('severity') == 'ERROR']
+                    warnings = [f for f in findings if f.get('severity') == 'WARNING']
+                    
+                    print(f'{tool_name}: {len(errors)} errors, {len(warnings)} warnings')
+                    
+                    if errors:
+                        print(f'❌ Security errors found by {tool_name}')
+                        for error in errors[:3]:  # Show first 3
+                            print(f'  - {error.get(\"check_id\", \"Unknown\")}: {error.get(\"message\", \"No description\")}')
+                        return False
+                        
+                return True
+                
+            except FileNotFoundError:
+                print(f'⚠️  {tool_name} report not found: {filename}')
+                return True  # Don't fail if report doesn't exist
+            except Exception as e:
+                print(f'⚠️  Error analyzing {tool_name} report: {e}')
+                return True  # Don't fail on parsing errors
+        
+        print('🔍 Security Analysis Summary')
+        print('=' * 40)
+        
+        all_clear = True
+        all_clear &= analyze_report('bandit-report.json', 'bandit')
+        all_clear &= analyze_report('safety-report.json', 'safety')
+        all_clear &= analyze_report('pip-audit-report.json', 'pip-audit')
+        all_clear &= analyze_report('semgrep-report.json', 'semgrep')
+        
+        if all_clear:
+            print('✅ All security scans passed')
+        else:
+            print('❌ Security issues detected - review required')
+            sys.exit(1)
+        "
+
+    - name: Upload security reports
+      uses: actions/upload-artifact@v3
+      if: always()
+      with:
+        name: security-reports
+        path: |
+          security-report.txt
+          bandit-report.json
+          safety-report.json
+          pip-audit-report.json
+          semgrep-report.json
+
+    - name: Comment PR with security summary
+      if: github.event_name == 'pull_request'
+      uses: actions/github-script@v7
+      with:
+        script: |
+          const fs = require('fs');
+          
+          if (fs.existsSync('security-report.txt')) {
+            const securityReport = fs.readFileSync('security-report.txt', 'utf8');
+            
+            // Truncate if too long
+            const maxLength = 60000;
+            const report = securityReport.length > maxLength 
+              ? securityReport.substring(0, maxLength) + '\n\n... (report truncated, see artifacts for full report)'
+              : securityReport;
+            
+            await github.rest.issues.createComment({
+              issue_number: context.issue.number,
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              body: `## 🔒 Security Scan Report\n\n\`\`\`\n${report}\n\`\`\``
+            });
+          }
+
+  dependency-security:
+    name: Dependency Security Check
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Set up Python 3.11
+      uses: actions/setup-python@v4
+      with:
+        python-version: "3.11"
+
+    - name: Install uv
+      uses: astral-sh/setup-uv@v1
+
+    - name: Install dependencies
+      run: |
+        uv venv --python 3.11
+        . .venv/bin/activate
+        uv pip install -e ".[dev]"
+
+    - name: Generate requirements for scanning
+      run: |
+        . .venv/bin/activate
+        pip freeze > requirements-current.txt
+
+    - name: Scan with GitHub Advisory Database
+      uses: pypa/gh-action-pip-audit@v1.0.8
+      with:
+        inputs: requirements-current.txt
+        format: json
+        output: github-advisory-report.json
+
+    - name: Check for outdated packages with known vulnerabilities
+      run: |
+        . .venv/bin/activate
+        python -c "
+        import subprocess
+        import json
+        import sys
+        
+        print('📦 Checking for outdated packages...')
+        
+        try:
+            result = subprocess.run(['pip', 'list', '--outdated', '--format=json'], 
+                                  capture_output=True, text=True)
+            outdated = json.loads(result.stdout) if result.stdout else []
+            
+            if outdated:
+                print(f'⚠️  Found {len(outdated)} outdated packages:')
+                for pkg in outdated[:10]:  # Show first 10
+                    print(f'  - {pkg[\"name\"]}: {pkg[\"version\"]} → {pkg[\"latest_version\"]}')
+                
+                # Check if any outdated packages are critical
+                critical_packages = ['requests', 'urllib3', 'cryptography', 'pyjwt']
+                outdated_critical = [pkg for pkg in outdated if pkg['name'].lower() in critical_packages]
+                
+                if outdated_critical:
+                    print(f'❌ Critical packages are outdated: {[pkg[\"name\"] for pkg in outdated_critical]}')
+                    sys.exit(1)
+                else:
+                    print('✅ No critical packages are outdated')
+            else:
+                print('✅ All packages are up to date')
+                
+        except Exception as e:
+            print(f'⚠️  Error checking outdated packages: {e}')
+        "
+
+    - name: Upload dependency reports
+      uses: actions/upload-artifact@v3
+      with:
+        name: dependency-security-reports
+        path: |
+          requirements-current.txt
+          github-advisory-report.json
+
+  secrets-scan:
+    name: Secrets and Credentials Scan
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+      with:
+        fetch-depth: 0
+
+    - name: Run TruffleHog secrets scan
+      uses: trufflesecurity/trufflehog@main
+      with:
+        path: ./
+        base: main
+        head: HEAD
+        extra_args: --debug --only-verified
+
+    - name: Run gitleaks
+      uses: gitleaks/gitleaks-action@v2
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        GITLEAKS_LICENSE: ${{ secrets.GITLEAKS_LICENSE }}
+
+  code-quality-security:
+    name: Code Quality Security Checks  
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Set up Python 3.11
+      uses: actions/setup-python@v4
+      with:
+        python-version: "3.11"
+
+    - name: Install uv
+      uses: astral-sh/setup-uv@v1
+
+    - name: Install dependencies
+      run: |
+        uv venv --python 3.11
+        . .venv/bin/activate
+        uv pip install -e ".[dev]"
+
+    - name: Check for hardcoded credentials patterns
+      run: |
+        . .venv/bin/activate
+        python -c "
+        import os
+        import re
+        import sys
+        
+        # Patterns that might indicate hardcoded secrets
+        secret_patterns = [
+            r'password\s*=\s*[\"\\'][^\"\\'\s]+[\"\\']',
+            r'api_key\s*=\s*[\"\\'][^\"\\'\s]+[\"\\']',
+            r'secret_key\s*=\s*[\"\\'][^\"\\'\s]+[\"\\']',
+            r'token\s*=\s*[\"\\'][^\"\\'\s]+[\"\\']',
+            r'[\"\\'][A-Za-z0-9+/=]{32,}[\"\\']',  # Base64-like strings
+        ]
+        
+        print('🔍 Scanning for hardcoded credentials patterns...')
+        
+        findings = []
+        for root, dirs, files in os.walk('src/'):
+            # Skip certain directories
+            dirs[:] = [d for d in dirs if d not in ['.git', '__pycache__', '.pytest_cache']]
+            
+            for file in files:
+                if file.endswith('.py'):
+                    file_path = os.path.join(root, file)
+                    try:
+                        with open(file_path, 'r', encoding='utf-8') as f:
+                            content = f.read()
+                            
+                        for pattern in secret_patterns:
+                            matches = re.finditer(pattern, content, re.IGNORECASE)
+                            for match in matches:
+                                # Skip common false positives
+                                if any(fp in match.group().lower() for fp in ['test', 'example', 'dummy', 'placeholder']):
+                                    continue
+                                findings.append((file_path, match.group()))
+                    except Exception as e:
+                        print(f'Warning: Could not scan {file_path}: {e}')
+        
+        if findings:
+            print(f'❌ Found {len(findings)} potential hardcoded credentials:')
+            for file_path, match in findings:
+                print(f'  - {file_path}: {match}')
+            sys.exit(1)
+        else:
+            print('✅ No hardcoded credentials patterns found')
+        "
+
+    - name: Check file permissions
+      run: |
+        echo "🔍 Checking file permissions..."
+        
+        # Find files with potentially dangerous permissions
+        find . -type f \( -perm -004 -o -perm -002 \) -not -path './.git/*' -not -path './.*' > permissive-files.txt || true
+        
+        if [ -s permissive-files.txt ]; then
+          echo "❌ Files with overly permissive permissions found:"
+          cat permissive-files.txt
+          exit 1
+        else
+          echo "✅ File permissions look secure"
+        fi
+
+  security-summary:
+    name: Security Summary
+    runs-on: ubuntu-latest
+    needs: [security-scan, dependency-security, secrets-scan, code-quality-security]
+    if: always()
+
+    steps:
+    - name: Download all security reports
+      uses: actions/download-artifact@v3
+      with:
+        path: security-artifacts/
+
+    - name: Generate security summary
+      run: |
+        echo "# 🔒 Security Analysis Summary" > security-summary.md
+        echo "" >> security-summary.md
+        echo "**Generated:** $(date)" >> security-summary.md
+        echo "**Commit:** ${{ github.sha }}" >> security-summary.md
+        echo "" >> security-summary.md
+        
+        echo "## Security Scan Results" >> security-summary.md
+        echo "" >> security-summary.md
+        
+        # Check job results
+        if [ "${{ needs.security-scan.result }}" == "success" ]; then
+          echo "- ✅ **Static Security Analysis**: Passed" >> security-summary.md
+        else
+          echo "- ❌ **Static Security Analysis**: Failed" >> security-summary.md
+        fi
+        
+        if [ "${{ needs.dependency-security.result }}" == "success" ]; then
+          echo "- ✅ **Dependency Security**: Passed" >> security-summary.md
+        else
+          echo "- ❌ **Dependency Security**: Failed" >> security-summary.md
+        fi
+        
+        if [ "${{ needs.secrets-scan.result }}" == "success" ]; then
+          echo "- ✅ **Secrets Scan**: Passed" >> security-summary.md
+        else
+          echo "- ❌ **Secrets Scan**: Failed" >> security-summary.md
+        fi
+        
+        if [ "${{ needs.code-quality-security.result }}" == "success" ]; then
+          echo "- ✅ **Code Quality Security**: Passed" >> security-summary.md
+        else
+          echo "- ❌ **Code Quality Security**: Failed" >> security-summary.md
+        fi
+        
+        echo "" >> security-summary.md
+        echo "## Security Tools Used" >> security-summary.md
+        echo "" >> security-summary.md
+        echo "- **Bandit**: Python security linter" >> security-summary.md
+        echo "- **Safety**: Known vulnerability database" >> security-summary.md
+        echo "- **pip-audit**: PyPI advisory database" >> security-summary.md
+        echo "- **Semgrep**: Static analysis security rules" >> security-summary.md
+        echo "- **TruffleHog**: Secrets detection" >> security-summary.md
+        echo "- **Gitleaks**: Git secrets scanning" >> security-summary.md
+        echo "" >> security-summary.md
+        echo "## Recommendations" >> security-summary.md
+        echo "" >> security-summary.md
+        echo "1. Review any failed security checks immediately" >> security-summary.md
+        echo "2. Keep dependencies updated to latest secure versions" >> security-summary.md
+        echo "3. Never commit secrets or credentials to repository" >> security-summary.md
+        echo "4. Use environment variables for sensitive configuration" >> security-summary.md
+        echo "5. Regularly review and update security policies" >> security-summary.md
+
+    - name: Upload security summary
+      uses: actions/upload-artifact@v3
+      with:
+        name: security-summary
+        path: security-summary.md
+
+    - name: Create security badge status
+      run: |
+        # This could be used to update a security badge or status
+        if [ "${{ needs.security-scan.result }}" == "success" ] && 
+           [ "${{ needs.dependency-security.result }}" == "success" ] && 
+           [ "${{ needs.secrets-scan.result }}" == "success" ] && 
+           [ "${{ needs.code-quality-security.result }}" == "success" ]; then
+          echo "SECURITY_STATUS=passing" >> $GITHUB_ENV
+          echo "🛡️  All security checks passed"
+        else
+          echo "SECURITY_STATUS=failing" >> $GITHUB_ENV
+          echo "⚠️  Some security checks failed - review required"
+        fi
