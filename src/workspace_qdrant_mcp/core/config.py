@@ -63,6 +63,43 @@ class Config(BaseSettings):
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
         self._load_legacy_env_vars()
+        self._load_nested_env_vars()
+    
+    def _load_nested_env_vars(self) -> None:
+        """Load nested configuration from environment variables with double underscore syntax."""
+        
+        # Qdrant nested config
+        if url := os.getenv("WORKSPACE_QDRANT_QDRANT__URL"):
+            self.qdrant.url = url
+        if api_key := os.getenv("WORKSPACE_QDRANT_QDRANT__API_KEY"):
+            self.qdrant.api_key = api_key
+        if timeout := os.getenv("WORKSPACE_QDRANT_QDRANT__TIMEOUT"):
+            self.qdrant.timeout = int(timeout)
+        if prefer_grpc := os.getenv("WORKSPACE_QDRANT_QDRANT__PREFER_GRPC"):
+            self.qdrant.prefer_grpc = prefer_grpc.lower() == "true"
+            
+        # Embedding nested config  
+        if model := os.getenv("WORKSPACE_QDRANT_EMBEDDING__MODEL"):
+            self.embedding.model = model
+        if sparse := os.getenv("WORKSPACE_QDRANT_EMBEDDING__ENABLE_SPARSE_VECTORS"):
+            self.embedding.enable_sparse_vectors = sparse.lower() == "true"
+        if chunk_size := os.getenv("WORKSPACE_QDRANT_EMBEDDING__CHUNK_SIZE"):
+            self.embedding.chunk_size = int(chunk_size)
+        if chunk_overlap := os.getenv("WORKSPACE_QDRANT_EMBEDDING__CHUNK_OVERLAP"):
+            self.embedding.chunk_overlap = int(chunk_overlap)
+        if batch_size := os.getenv("WORKSPACE_QDRANT_EMBEDDING__BATCH_SIZE"):
+            self.embedding.batch_size = int(batch_size)
+            
+        # Workspace nested config
+        if global_collections := os.getenv("WORKSPACE_QDRANT_WORKSPACE__GLOBAL_COLLECTIONS"):
+            # Parse comma-separated list
+            self.workspace.global_collections = [c.strip() for c in global_collections.split(",") if c.strip()]
+        if github_user := os.getenv("WORKSPACE_QDRANT_WORKSPACE__GITHUB_USER"):
+            self.workspace.github_user = github_user
+        if collection_prefix := os.getenv("WORKSPACE_QDRANT_WORKSPACE__COLLECTION_PREFIX"):
+            self.workspace.collection_prefix = collection_prefix
+        if max_collections := os.getenv("WORKSPACE_QDRANT_WORKSPACE__MAX_COLLECTIONS"):
+            self.workspace.max_collections = int(max_collections)
     
     def _load_legacy_env_vars(self) -> None:
         """Load legacy environment variables for backward compatibility."""

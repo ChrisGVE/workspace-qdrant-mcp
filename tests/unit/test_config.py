@@ -179,7 +179,7 @@ class TestConfig:
         "WORKSPACE_QDRANT_QDRANT__URL": "https://env.qdrant.io",
         "WORKSPACE_QDRANT_QDRANT__API_KEY": "env-api-key",
         "WORKSPACE_QDRANT_QDRANT__TIMEOUT": "45",
-    })
+    }, clear=False)
     def test_nested_environment_variables(self):
         """Test loading nested configuration from environment variables."""
         config = Config()
@@ -207,6 +207,7 @@ class TestConfig:
         assert config.embedding.chunk_size == 800
         assert config.workspace.github_user == "legacyuser"
     
+    @patch.dict(os.environ, {"QDRANT_API_KEY": ""}, clear=False)
     def test_qdrant_client_config(self):
         """Test Qdrant client configuration generation."""
         config = Config()
