@@ -243,12 +243,12 @@ jobs:
         
         echo "## Simple Benchmark" >> performance-report.md
         echo '```' >> performance-report.md
-        python simple_benchmark.py >> performance-report.md
+        python benchmarking/simple_benchmark.py >> performance-report.md
         echo '```' >> performance-report.md
         
         echo "## Comprehensive Benchmark" >> performance-report.md  
         echo '```' >> performance-report.md
-        timeout 300s python comprehensive_benchmark.py >> performance-report.md || echo "Benchmark timed out after 5 minutes" >> performance-report.md
+        timeout 300s python benchmarking/comprehensive_benchmark.py >> performance-report.md || echo "Benchmark timed out after 5 minutes" >> performance-report.md
         echo '```' >> performance-report.md
 
     - name: Memory profiling
@@ -256,7 +256,7 @@ jobs:
         . .venv/bin/activate
         echo "## Memory Usage Profile" >> performance-report.md
         echo '```' >> performance-report.md
-        python -m memory_profiler simple_benchmark.py >> performance-report.md || echo "Memory profiling failed" >> performance-report.md
+        python -m memory_profiler benchmarking/simple_benchmark.py >> performance-report.md || echo "Memory profiling failed" >> performance-report.md
         echo '```' >> performance-report.md
 
     - name: Upload performance reports

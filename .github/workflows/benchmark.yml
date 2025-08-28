@@ -45,7 +45,7 @@ jobs:
     - name: Run simple benchmark
       run: |
         . .venv/bin/activate
-        python simple_benchmark.py | tee simple_benchmark_output.txt
+        python benchmarking/simple_benchmark.py | tee simple_benchmark_output.txt
 
     - name: Parse and validate simple benchmark results
       run: |
@@ -135,7 +135,7 @@ jobs:
       timeout-minutes: 15
       run: |
         . .venv/bin/activate
-        python comprehensive_benchmark.py | tee comprehensive_benchmark_output.txt
+        python benchmarking/comprehensive_benchmark.py | tee comprehensive_benchmark_output.txt
 
     - name: Validate comprehensive benchmark thresholds
       run: |
@@ -229,7 +229,7 @@ jobs:
         echo "Commit: ${{ github.sha }}" >> large_benchmark_output.txt
         echo "=" >> large_benchmark_output.txt
         
-        python efficient_large_benchmark.py >> large_benchmark_output.txt
+        python benchmarking/efficient_large_benchmark.py >> large_benchmark_output.txt
 
     - name: Memory and performance profiling
       env:
@@ -237,7 +237,7 @@ jobs:
       run: |
         . .venv/bin/activate
         echo "## Memory Profile" >> large_benchmark_output.txt
-        python -m memory_profiler efficient_large_benchmark.py >> large_benchmark_output.txt || echo "Memory profiling failed" >> large_benchmark_output.txt
+        python -m memory_profiler benchmarking/efficient_large_benchmark.py >> large_benchmark_output.txt || echo "Memory profiling failed" >> large_benchmark_output.txt
 
     - name: System resource monitoring
       run: |

@@ -55,16 +55,16 @@ The test suite automatically collects real data from the workspace-qdrant-mcp co
 ### Quick Start
 ```bash
 # Run all functional tests
-python run_comprehensive_tests.py
+python benchmarking/run_comprehensive_tests.py
 
 # Run specific categories
-python run_comprehensive_tests.py --categories data_ingestion search_functionality
+python benchmarking/run_comprehensive_tests.py --categories data_ingestion search_functionality
 
 # Quiet mode
-python run_comprehensive_tests.py --quiet
+python benchmarking/run_comprehensive_tests.py --quiet
 
 # Custom output directory
-python run_comprehensive_tests.py --output-dir my_test_results
+python benchmarking/run_comprehensive_tests.py --output-dir my_test_results
 ```
 
 ### Individual Test Categories
@@ -149,7 +149,7 @@ The test suite validates against these quality targets:
 ```yaml
 - name: Run Comprehensive Tests
   run: |
-    python run_comprehensive_tests.py --quiet
+    python benchmarking/run_comprehensive_tests.py --quiet
     
 - name: Upload Test Results
   uses: actions/upload-artifact@v3
