@@ -253,8 +253,8 @@ class TestRecallPrecision:
         print(f"  Precision@5: {avg_precision_at_5:.3f}")
         
         # Symbol searches should have high precision for exact matches
-        assert avg_precision >= 0.4, f"Symbol search precision should be ≥ 40% (got {avg_precision:.3f})"
-        assert avg_precision_at_1 >= 0.3, f"Symbol search P@1 should be ≥ 30% (got {avg_precision_at_1:.3f})"
+        assert avg_precision >= 0.85, f"Symbol search precision should be ≥ 85% (got {avg_precision:.3f})"
+        assert avg_precision_at_1 >= 0.90, f"Symbol search P@1 should be ≥ 90% (got {avg_precision_at_1:.3f})"
         
         # Analyze per-symbol performance
         high_precision_queries = [m for m in symbol_metrics if m.precision >= 0.7]
@@ -348,9 +348,9 @@ class TestRecallPrecision:
         print(f"  Recall@10: {avg_recall_at_10:.3f}")
         
         # Semantic search should have reasonable recall and precision
-        assert avg_recall >= 0.25, f"Semantic search recall should be ≥ 25% (got {avg_recall:.3f})"
+        assert avg_recall >= 0.75, f"Semantic search recall should be ≥ 75% (got {avg_recall:.3f})"
         assert avg_f1 >= 0.2, f"Semantic search F1 should be ≥ 20% (got {avg_f1:.3f})"
-        assert avg_recall_at_10 >= 0.3, f"Semantic search R@10 should be ≥ 30% (got {avg_recall_at_10:.3f})"
+        assert avg_recall_at_10 >= 0.85, f"Semantic search R@10 should be ≥ 85% (got {avg_recall_at_10:.3f})"
         
         return semantic_metrics
     
@@ -857,7 +857,7 @@ class TestRecallPrecision:
                 print(f"  Recall ≥20%: {'✓' if final_recall >= 0.2 else '✗'} ({final_recall:.3f})")
                 print(f"  F1 ≥20%: {'✓' if final_f1 >= 0.2 else '✗'} ({final_f1:.3f})")
                 
-                assert final_precision >= 0.15, f"Overall precision should be ≥15% (got {final_precision:.3f})"
+                assert final_precision >= 0.70, f"Overall precision should be ≥70% (got {final_precision:.3f})"
                 assert final_f1 >= 0.15, f"Overall F1 should be ≥15% (got {final_f1:.3f})"
         
         print("✅ Comprehensive recall and precision testing completed successfully")
