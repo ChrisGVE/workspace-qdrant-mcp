@@ -31,7 +31,7 @@ Quick Start:
     # Install and run the MCP server
     uv tool install workspace-qdrant-mcp
     workspace-qdrant-mcp --host 0.0.0.0 --port 8000
-    
+
     # Or run from source
     python -m workspace_qdrant_mcp.server
     ```

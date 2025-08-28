@@ -18,13 +18,13 @@ Each parser implements the DocumentParser interface and provides:
 """
 
 from .base import DocumentParser, ParsedDocument
-from .text_parser import TextParser
 from .markdown_parser import MarkdownParser
 from .pdf_parser import PDFParser
+from .text_parser import TextParser
 
 __all__ = [
     "DocumentParser",
-    "ParsedDocument", 
+    "ParsedDocument",
     "TextParser",
     "MarkdownParser",
     "PDFParser",
