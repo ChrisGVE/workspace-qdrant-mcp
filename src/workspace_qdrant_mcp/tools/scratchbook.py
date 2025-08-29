@@ -344,6 +344,7 @@ class ScratchbookManager:
                 "content_updated": content is not None,
                 "title_updated": title is not None,
                 "tags_updated": tags is not None,
+                "metadata_updated": title is not None or tags is not None,
             }
 
         except Exception as e:
