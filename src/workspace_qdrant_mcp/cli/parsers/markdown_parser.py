@@ -132,7 +132,7 @@ class MarkdownParser(DocumentParser):
             if frontmatter:
                 for key, value in frontmatter.items():
                     # Prefix frontmatter fields to avoid conflicts
-                    if isinstance(value, (str, int, float, bool)):
+                    if isinstance(value, str | int | float | bool):
                         additional_metadata[f"fm_{key}"] = value
                     elif isinstance(value, list) and all(
                         isinstance(x, str) for x in value
