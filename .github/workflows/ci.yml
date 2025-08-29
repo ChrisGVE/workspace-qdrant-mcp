@@ -37,7 +37,7 @@ jobs:
       uses: actions/checkout@v4
 
     - name: Set up Python ${{ matrix.python-version }}
-      uses: actions/setup-python@v4
+      uses: actions/setup-python@v5
       with:
         python-version: ${{ matrix.python-version }}
 
@@ -111,7 +111,7 @@ jobs:
         pytest --cov=src/workspace_qdrant_mcp --cov-report=xml --cov-report=html --cov-fail-under=80 --junitxml=pytest-results.xml
 
     - name: Upload coverage reports
-      uses: codecov/codecov-action@v3
+      uses: codecov/codecov-action@v4
       if: matrix.python-version == '3.11'
       with:
         file: ./coverage.xml
@@ -121,17 +121,15 @@ jobs:
     - name: Test console scripts functionality
       run: |
         . .venv/bin/activate
-        # Test workspace-qdrant-mcp command exists and shows help
+        # Test all console scripts exist and show help
         workspace-qdrant-mcp --help
-        
-        # Test workspace-qdrant-test command (diagnostics)
         workspace-qdrant-test --help
-        
-        # Test workspace-qdrant-health command
         workspace-qdrant-health --help
-        
-        # Test workspace-qdrant-ingest command
         workspace-qdrant-ingest --help
+        workspace-qdrant-setup --help
+        workspace-qdrant-validate --help
+        workspace-qdrant-admin --help
+        wqutil --help
 
     - name: Upload test results
       uses: actions/upload-artifact@v4
@@ -162,7 +160,7 @@ jobs:
       uses: actions/checkout@v4
 
     - name: Set up Python 3.11
-      uses: actions/setup-python@v4
+      uses: actions/setup-python@v5
       with:
         python-version: "3.11"
 
@@ -200,9 +198,9 @@ jobs:
         # This would parse actual benchmark output and validate
         # For now, we show the expected thresholds
         thresholds = {
-            'symbol_search': {'precision': ${{ env.SYMBOL_SEARCH_PRECISION_THRESHOLD }}, 'recall': ${{ env.SYMBOL_SEARCH_RECALL_THRESHOLD }}},
-            'exact_search': {'precision': ${{ env.EXACT_SEARCH_PRECISION_THRESHOLD }}, 'recall': ${{ env.EXACT_SEARCH_RECALL_THRESHOLD }}},
-            'semantic_search': {'precision': ${{ env.SEMANTIC_SEARCH_PRECISION_THRESHOLD }}, 'recall': ${{ env.SEMANTIC_SEARCH_RECALL_THRESHOLD }}}
+            'symbol_search': {'precision': float('${{ env.SYMBOL_SEARCH_PRECISION_THRESHOLD }}'), 'recall': float('${{ env.SYMBOL_SEARCH_RECALL_THRESHOLD }}')},
+            'exact_search': {'precision': float('${{ env.EXACT_SEARCH_PRECISION_THRESHOLD }}'), 'recall': float('${{ env.EXACT_SEARCH_RECALL_THRESHOLD }}')},
+            'semantic_search': {'precision': float('${{ env.SEMANTIC_SEARCH_PRECISION_THRESHOLD }}'), 'recall': float('${{ env.SEMANTIC_SEARCH_RECALL_THRESHOLD }}')}
         }
         
         print('🎯 Evidence-based Quality Gates:')
@@ -230,7 +228,7 @@ jobs:
       uses: actions/checkout@v4
 
     - name: Set up Python 3.11
-      uses: actions/setup-python@v4
+      uses: actions/setup-python@v5
       with:
         python-version: "3.11"
 
@@ -261,11 +259,15 @@ jobs:
         . test-env/bin/activate
         pip install dist/*.whl
         
-        # Test console scripts work
+        # Test all console scripts work
         workspace-qdrant-mcp --help
         workspace-qdrant-test --help  
         workspace-qdrant-health --help
         workspace-qdrant-ingest --help
+        workspace-qdrant-setup --help
+        workspace-qdrant-validate --help
+        workspace-qdrant-admin --help
+        wqutil --help
 
     - name: Upload build artifacts
       uses: actions/upload-artifact@v4

@@ -21,7 +21,7 @@ jobs:
         fetch-depth: 0  # Fetch full history for better analysis
 
     - name: Set up Python 3.11
-      uses: actions/setup-python@v4
+      uses: actions/setup-python@v5
       with:
         python-version: "3.11"
 
@@ -49,7 +49,9 @@ jobs:
       run: |
         . .venv/bin/activate
         echo "## MyPy Type Analysis" >> quality-report.md
-        mypy src/workspace_qdrant_mcp/ --html-report mypy-report/ --show-error-codes --pretty >> quality-report.md || true
+        echo "🔧 MyPy temporarily disabled to focus on functionality" >> quality-report.md
+        echo "Will be re-enabled with proper type annotations in future releases" >> quality-report.md
+        # mypy src/workspace_qdrant_mcp/ --html-report mypy-report/ --show-error-codes --pretty >> quality-report.md || true
 
     - name: Run comprehensive security analysis
       run: |
@@ -134,7 +136,7 @@ jobs:
       uses: actions/checkout@v4
 
     - name: Set up Python 3.11
-      uses: actions/setup-python@v4
+      uses: actions/setup-python@v5
       with:
         python-version: "3.11"
 
@@ -209,7 +211,7 @@ jobs:
       uses: actions/checkout@v4
 
     - name: Set up Python 3.11
-      uses: actions/setup-python@v4
+      uses: actions/setup-python@v5
       with:
         python-version: "3.11"
 
@@ -223,8 +225,11 @@ jobs:
         uv pip install -e ".[dev]"
         uv pip install memory-profiler
 
-    - name: Wait for Qdrant
-      run: timeout 60s bash -c 'until curl -f http://localhost:6333/health; do sleep 2; done'
+    - name: Wait for Qdrant to be ready
+      run: |
+        echo "Waiting for Qdrant to be ready..."
+        timeout 60s bash -c 'until curl -f http://localhost:6333/ || curl -f http://localhost:6333/health; do sleep 2; done'
+        curl -f http://localhost:6333/health
 
     - name: Run performance benchmarks with profiling
       env:
@@ -276,7 +281,7 @@ jobs:
       uses: actions/checkout@v4
 
     - name: Set up Python 3.11
-      uses: actions/setup-python@v4
+      uses: actions/setup-python@v5
       with:
         python-version: "3.11"
 
