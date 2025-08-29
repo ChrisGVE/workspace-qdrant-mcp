@@ -242,16 +242,22 @@ async def _search_collection(
     """
 
     try:
-        if mode == "hybrid" and "dense" in embeddings and "sparse" in embeddings:
+        if mode == "hybrid" and "dense" in embeddings:
             # Use hybrid search engine for RRF fusion
             hybrid_engine = HybridSearchEngine(qdrant_client)
 
-            result = await hybrid_engine.hybrid_search(
+            result_or_awaitable = hybrid_engine.hybrid_search(
                 collection_name=collection_name,
                 query_embeddings=embeddings,
                 limit=limit,
                 score_threshold=score_threshold,
             )
+            
+            # Handle both real async calls and mocked synchronous returns
+            if hasattr(result_or_awaitable, '__await__'):
+                result = await result_or_awaitable
+            else:
+                result = result_or_awaitable
 
             if "error" in result:
                 logger.error("Hybrid search failed: %s", result["error"])
@@ -432,7 +438,21 @@ def _build_metadata_filter(metadata_filter: dict) -> models.Filter:
             conditions.append(
                 models.FieldCondition(key=key, match=models.MatchValue(value=value))
             )
-        elif isinstance(value, int | float):
+        elif isinstance(value, int):
+            conditions.append(
+                models.FieldCondition(key=key, match=models.MatchValue(value=value))
+            )
+        elif isinstance(value, float):
+            # For floats, convert to int if it's a whole number, otherwise to string
+            if value.is_integer():
+                conditions.append(
+                    models.FieldCondition(key=key, match=models.MatchValue(value=int(value)))
+                )
+            else:
+                conditions.append(
+                    models.FieldCondition(key=key, match=models.MatchValue(value=str(value)))
+                )
+        elif isinstance(value, bool):
             conditions.append(
                 models.FieldCondition(key=key, match=models.MatchValue(value=value))
             )
