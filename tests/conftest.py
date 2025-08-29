@@ -330,7 +330,7 @@ def environment_variables():
         "WORKSPACE_QDRANT_PORT": "8000",
         "WORKSPACE_QDRANT_DEBUG": "true",
         "WORKSPACE_QDRANT_QDRANT__URL": "http://localhost:6333",
-        "WORKSPACE_QDRANT_GITHUB_USER": "testuser",
+        "WORKSPACE_QDRANT_WORKSPACE__GITHUB_USER": "testuser",
     }
 
     original_env = {}
