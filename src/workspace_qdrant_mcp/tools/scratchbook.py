@@ -177,7 +177,11 @@ class ScratchbookManager:
             collection_name = self._get_scratchbook_collection_name(project_name)
 
             # Validate collection exists
-            available_collections = await self.client.list_collections()
+            collections_result = self.client.list_collections()
+            if hasattr(collections_result, '__await__'):
+                available_collections = await collections_result
+            else:
+                available_collections = collections_result
             if collection_name not in available_collections:
                 return {
                     "error": f"Scratchbook collection '{collection_name}' not found"
@@ -395,7 +399,11 @@ class ScratchbookManager:
             collection_name = self._get_scratchbook_collection_name(project_name)
 
             # Validate collection exists
-            available_collections = await self.client.list_collections()
+            collections_result = self.client.list_collections()
+            if hasattr(collections_result, '__await__'):
+                available_collections = await collections_result
+            else:
+                available_collections = collections_result
             if collection_name not in available_collections:
                 return {
                     "error": f"Scratchbook collection '{collection_name}' not found"
