@@ -67,7 +67,6 @@ class TestFullWorkflowE2E:
                     )
                     mock_collection_manager_class.return_value = mock_collection_manager
 
-
                     # Mock list_collections method
                     client.list_collections = AsyncMock(
                         return_value=["test-project_docs", "test-project_scratchbook"]

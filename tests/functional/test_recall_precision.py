@@ -14,10 +14,9 @@ from unittest.mock import AsyncMock
 import numpy as np
 import pytest
 
-from workspace_qdrant_mcp.tools.search import search_workspace
-
 from tests.fixtures.test_data_collector import DataCollector
 from tests.utils.metrics import PerformanceBenchmarker, RecallPrecisionMeter
+from workspace_qdrant_mcp.tools.search import search_workspace
 
 
 class TestRecallPrecision:

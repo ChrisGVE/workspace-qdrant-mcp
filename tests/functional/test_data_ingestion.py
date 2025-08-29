@@ -13,10 +13,9 @@ import pytest
 from qdrant_client import QdrantClient
 from qdrant_client.http import models
 
-from workspace_qdrant_mcp.tools.documents import add_document
-
 from tests.fixtures.test_data_collector import DataCollector
 from tests.utils.metrics import PerformanceBenchmarker, TimedOperation
+from workspace_qdrant_mcp.tools.documents import add_document
 
 
 class TestRealDataIngestion:

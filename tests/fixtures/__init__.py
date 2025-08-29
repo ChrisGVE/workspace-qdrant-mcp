@@ -3,8 +3,8 @@
 from .test_data_collector import (
     CodeChunk,
     CodeSymbol,
-    SearchGroundTruth,
     DataCollector,
+    SearchGroundTruth,
 )
 
 __all__ = ["DataCollector", "CodeSymbol", "CodeChunk", "SearchGroundTruth"]

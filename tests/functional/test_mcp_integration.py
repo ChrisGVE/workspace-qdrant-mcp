@@ -11,6 +11,8 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
+from tests.fixtures.test_data_collector import DataCollector
+from tests.utils.metrics import AsyncTimedOperation, PerformanceBenchmarker
 from workspace_qdrant_mcp.core.client import QdrantWorkspaceClient
 from workspace_qdrant_mcp.server import (
     add_document_tool,
@@ -25,9 +27,6 @@ from workspace_qdrant_mcp.server import (
     update_scratchbook_tool,
     workspace_status,
 )
-
-from tests.fixtures.test_data_collector import DataCollector
-from tests.utils.metrics import AsyncTimedOperation, PerformanceBenchmarker
 
 
 class TestMCPIntegration:
