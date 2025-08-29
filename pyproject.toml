@@ -4,54 +4,50 @@ build-backend = "hatchling.build"
 
 [project]
 name = "workspace-qdrant-mcp"
-dynamic = ["version"]
+version = "0.1.0"
 description = "Project-scoped Qdrant MCP server with scratchbook functionality"
 authors = [
-    {name = "Chris", email = "chris@example.com"}
+  { name = "Christian C. Berclaz", email = "christian.berclaz@mac.com" },
 ]
 readme = "README.md"
-license = {text = "MIT"}
+license = { text = "MIT" }
 requires-python = ">=3.10"
 dependencies = [
-    "fastmcp>=0.3.0",
-    "qdrant-client>=1.7.0",
-    "fastembed>=0.2.0",
-    "GitPython>=3.1.0",
-    "pydantic>=2.0.0",
-    "pydantic-settings>=2.0.0",
-    "python-dotenv>=1.0.0",
-    "typer>=0.9.0",
-    "rich>=13.0.0",
-    "chardet>=5.0.0",
-    "pypdf>=4.0.0",
-    "psutil>=5.8.0",
-    "tqdm>=4.67.1",
+  "fastmcp>=0.3.0",
+  "qdrant-client>=1.7.0",
+  "fastembed>=0.2.0",
+  "GitPython>=3.1.0",
+  "pydantic>=2.0.0",
+  "pydantic-settings>=2.0.0",
+  "python-dotenv>=1.0.0",
+  "typer>=0.9.0",
+  "rich>=13.0.0",
+  "chardet>=5.0.0",
+  "pypdf>=4.0.0",
+  "psutil>=5.8.0",
+  "tqdm>=4.67.1",
 ]
 
 [project.optional-dependencies]
 dev = [
-    "pytest>=7.0.0",
-    "pytest-asyncio>=0.21.0",
-    "pytest-mock>=3.11.0",
-    "pytest-cov>=4.1.0",
-    "pytest-xdist>=3.3.0",
-    "pytest-timeout>=2.1.0",
-    "pytest-benchmark>=4.0.0",
-    "httpx>=0.24.0",
-    "respx>=0.20.0",
-    "black>=23.0.0",
-    "ruff>=0.1.0",
-    "mypy>=1.0.0",
-    # Type stubs for mypy
-    "types-PyYAML>=6.0.0",
-    "types-Markdown>=3.4.0",
-    "types-psutil>=5.8.0",
+  "pytest>=7.0.0",
+  "pytest-asyncio>=0.21.0",
+  "pytest-mock>=3.11.0",
+  "pytest-cov>=4.1.0",
+  "pytest-xdist>=3.3.0",
+  "pytest-timeout>=2.1.0",
+  "pytest-benchmark>=4.0.0",
+  "httpx>=0.24.0",
+  "respx>=0.20.0",
+  "black>=23.0.0",
+  "ruff>=0.1.0",
+  "mypy>=1.0.0",
+  # Type stubs for mypy
+  "types-PyYAML>=6.0.0",
+  "types-Markdown>=3.4.0",
+  "types-psutil>=5.8.0",
 ]
-full = [
-    "markdown>=3.4.0",
-    "PyYAML>=6.0.0",
-    "pypdf>=4.0.0",
-]
+full = ["markdown>=3.4.0", "PyYAML>=6.0.0", "pypdf>=4.0.0"]
 
 [project.scripts]
 workspace-qdrant-mcp = "workspace_qdrant_mcp.server:main"
@@ -86,19 +82,19 @@ line-length = 88
 [tool.ruff.lint]
 select = ["E", "F", "W", "B", "I", "N", "UP"]
 ignore = [
-    "E501",     # Line too long - let formatter handle this
-    "S101",     # Use of assert detected - acceptable in tests
-    "S110",     # try-except-pass - sometimes necessary
-    "C901",     # Function too complex - diagnostics function is inherently complex
-    "PLR0913",  # Too many arguments - sometimes necessary
-    "PLR0915",  # Too many statements - sometimes necessary  
-    "PLC0415",  # Import should be at top level - sometimes imports need to be conditional
-    "E722",     # Bare except - sometimes necessary for diagnostics
-    "B023",     # Function definition does not bind loop variable - acceptable in tests/async code
-    "B008",     # Do not perform function calls in argument defaults - common typer pattern
-    "E741",     # Ambiguous variable name - sometimes acceptable in short contexts
-    "F401",     # Imported but unused - sometimes imports are for availability checking
-    "F821",     # Undefined name - may be false positive in test contexts
+  "E501",    # Line too long - let formatter handle this
+  "S101",    # Use of assert detected - acceptable in tests
+  "S110",    # try-except-pass - sometimes necessary
+  "C901",    # Function too complex - diagnostics function is inherently complex
+  "PLR0913", # Too many arguments - sometimes necessary
+  "PLR0915", # Too many statements - sometimes necessary  
+  "PLC0415", # Import should be at top level - sometimes imports need to be conditional
+  "E722",    # Bare except - sometimes necessary for diagnostics
+  "B023",    # Function definition does not bind loop variable - acceptable in tests/async code
+  "B008",    # Do not perform function calls in argument defaults - common typer pattern
+  "E741",    # Ambiguous variable name - sometimes acceptable in short contexts
+  "F401",    # Imported but unused - sometimes imports are for availability checking
+  "F821",    # Undefined name - may be false positive in test contexts
 ]
 
 [tool.mypy]
@@ -110,60 +106,48 @@ ignore_missing_imports = true
 no_implicit_optional = false
 allow_untyped_defs = true
 allow_incomplete_defs = true
-exclude = [
-    ".venv/",
-    "build/",
-    "dist/",
-]
+exclude = [".venv/", "build/", "dist/"]
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
 testpaths = ["tests"]
 addopts = "-v --tb=short --cov=src/workspace_qdrant_mcp --cov-report=term-missing --cov-report=html --cov-fail-under=80"
 markers = [
-    "unit: Unit tests",
-    "integration: Integration tests",
-    "e2e: End-to-end tests",
-    "slow: Slow running tests",
-    "performance: Performance and benchmark tests",
-    "requires_qdrant: Tests requiring Qdrant server",
-    "requires_git: Tests requiring Git repository",
+  "unit: Unit tests",
+  "integration: Integration tests",
+  "e2e: End-to-end tests",
+  "slow: Slow running tests",
+  "performance: Performance and benchmark tests",
+  "requires_qdrant: Tests requiring Qdrant server",
+  "requires_git: Tests requiring Git repository",
 ]
 timeout = 300
 filterwarnings = [
-    "ignore::DeprecationWarning",
-    "ignore::PendingDeprecationWarning",
+  "ignore::DeprecationWarning",
+  "ignore::PendingDeprecationWarning",
 ]
 
 [tool.coverage.run]
 source = ["src"]
-omit = [
-    "*/tests/*",
-    "*/__init__.py",
-    "*/conftest.py",
-]
+omit = ["*/tests/*", "*/__init__.py", "*/conftest.py"]
 
 [tool.coverage.report]
 show_missing = true
 skip_covered = false
 exclude_lines = [
-    "pragma: no cover",
-    "def __repr__",
-    "if self.debug:",
-    "if settings.DEBUG",
-    "raise AssertionError",
-    "raise NotImplementedError",
-    "if 0:",
-    "if __name__ == .__main__.:",
-    "pass",
+  "pragma: no cover",
+  "def __repr__",
+  "if self.debug:",
+  "if settings.DEBUG",
+  "raise AssertionError",
+  "raise NotImplementedError",
+  "if 0:",
+  "if __name__ == .__main__.:",
+  "pass",
 ]
 
 [tool.coverage.html]
 directory = "htmlcov"
 
 [dependency-groups]
-dev = [
-    "bandit>=1.8.6",
-    "rich>=14.1.0",
-    "typer>=0.16.1",
-]
+dev = ["bandit>=1.8.6", "rich>=14.1.0", "typer>=0.16.1"]
