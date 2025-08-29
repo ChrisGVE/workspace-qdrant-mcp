@@ -14,7 +14,6 @@ try:
     import pypdf
     # Alias for backward compatibility with tests that expect PyPDF2
     PyPDF2 = pypdf
-    
     HAS_PYPDF = True
     HAS_PYPDF2 = True  # For backward compatibility with tests
 except ImportError:
