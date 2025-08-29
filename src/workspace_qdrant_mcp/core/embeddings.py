@@ -265,7 +265,14 @@ class EmbeddingService:
             embeddings = await asyncio.get_event_loop().run_in_executor(
                 None, lambda: list(self.dense_model.embed(texts))
             )
-            return [embedding.tolist() for embedding in embeddings]
+            # Handle both numpy arrays (with .tolist()) and plain lists
+            result = []
+            for embedding in embeddings:
+                if hasattr(embedding, 'tolist'):
+                    result.append(embedding.tolist())
+                else:
+                    result.append(embedding)
+            return result
 
         except Exception as e:
             logger.error("Failed to generate dense embeddings: %s", e)
