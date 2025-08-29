@@ -466,10 +466,10 @@ class TestPDFParser:
         content = "This is a test document with multiple words."
         analysis = parser._analyze_pdf_content(content, 1)
 
-        assert analysis["word_count"] == 9
+        assert analysis["word_count"] == 8
         assert analysis["character_count"] == len(content)
         assert analysis["pages_with_content"] == 1
-        assert analysis["avg_words_per_page"] == 9.0
+        assert analysis["avg_words_per_page"] == 8.0
 
     def test_get_parsing_options(self, parser):
         """Test parsing options."""
@@ -493,12 +493,16 @@ class TestParserErrorHandling:
             await parser.parse("/nonexistent/file.txt")
 
     @pytest.mark.asyncio
-    async def test_unsupported_format_validation(self):
+    async def test_unsupported_format_validation(self, tmp_path):
         """Test validation of unsupported file formats."""
         parser = TextParser()
+        
+        # Create a temporary file with unsupported extension
+        test_file = tmp_path / "test.unsupported"
+        test_file.write_text("test content")
 
         with pytest.raises(ValueError, match="File format not supported"):
-            await parser.parse("test.unsupported")
+            await parser.parse(str(test_file))
 
     @pytest.mark.asyncio
     async def test_directory_instead_of_file_raises_error(self):
