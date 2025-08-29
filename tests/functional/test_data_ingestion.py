@@ -15,7 +15,7 @@ from qdrant_client.http import models
 
 from workspace_qdrant_mcp.tools.documents import add_document
 
-from ..fixtures.test_data_collector import TestDataCollector
+from tests.fixtures.test_data_collector import DataCollector
 from ..utils.metrics import PerformanceBenchmarker, TimedOperation
 
 
@@ -30,7 +30,7 @@ class TestRealDataIngestion:
 
         # Collect real test data from source
         source_root = Path(__file__).parent.parent.parent  # workspace-qdrant-mcp root
-        self.data_collector = TestDataCollector(source_root)
+        self.data_collector = DataCollector(source_root)
 
         with TimedOperation(self.benchmarker, "data_collection"):
             self.test_data = self.data_collector.collect_all_data()

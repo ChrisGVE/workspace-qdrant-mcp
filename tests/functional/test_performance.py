@@ -20,7 +20,7 @@ from workspace_qdrant_mcp.core.client import QdrantWorkspaceClient
 from workspace_qdrant_mcp.tools.documents import add_document
 from workspace_qdrant_mcp.tools.search import search_workspace
 
-from ..fixtures.test_data_collector import TestDataCollector
+from tests.fixtures.test_data_collector import DataCollector
 from ..utils.metrics import PerformanceBenchmarker
 
 
@@ -38,7 +38,7 @@ class TestPerformance:
 
         # Collect comprehensive test data
         source_root = tmp_path.parent.parent.parent
-        self.data_collector = TestDataCollector(source_root)
+        self.data_collector = DataCollector(source_root)
         self.test_data = self.data_collector.collect_all_data()
 
         # Create performance-oriented mock client
