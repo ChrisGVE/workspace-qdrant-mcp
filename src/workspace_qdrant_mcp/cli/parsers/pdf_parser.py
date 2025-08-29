@@ -14,8 +14,10 @@ try:
     import pypdf
 
     HAS_PYPDF = True
+    HAS_PYPDF2 = True  # For backward compatibility with tests
 except ImportError:
     HAS_PYPDF = False
+    HAS_PYPDF2 = False  # For backward compatibility with tests
 
 from .base import DocumentParser, ParsedDocument
 
@@ -49,7 +51,7 @@ class PDFParser(DocumentParser):
 
     def can_parse(self, file_path: Union[str, Path]) -> bool:
         """Check if this parser can handle the given file."""
-        if not HAS_PYPDF:
+        if not HAS_PYPDF2:
             logger.warning("pypdf not available, PDF parsing disabled")
             return False
         return super().can_parse(file_path)
@@ -81,7 +83,7 @@ class PDFParser(DocumentParser):
             ImportError: If PyPDF2/pypdf is not installed
             RuntimeError: If PDF parsing fails
         """
-        if not HAS_PYPDF:
+        if not HAS_PYPDF2:
             raise ImportError(
                 "PDF parsing requires pypdf. Install with: pip install pypdf"
             )
