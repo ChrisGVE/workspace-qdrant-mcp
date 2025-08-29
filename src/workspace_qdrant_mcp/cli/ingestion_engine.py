@@ -9,10 +9,11 @@ concurrent processing, deduplication, and comprehensive error handling.
 import asyncio
 import logging
 from collections import defaultdict
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Callable
+from typing import Any
 
 from ..core.client import QdrantWorkspaceClient
 from ..tools.documents import add_document
