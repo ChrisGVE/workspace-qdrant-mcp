@@ -273,13 +273,13 @@ class MarkdownParser(DocumentParser):
         code_block_pattern = re.compile(r"```[\s\S]*?```|`[^`]+`", re.MULTILINE)
         code_blocks = code_block_pattern.findall(content)
 
-        # Count links
-        link_pattern = re.compile(r"\[([^\]]+)\]\(([^)]+)\)")
-        links = link_pattern.findall(content)
-
-        # Count images
+        # Count images first
         image_pattern = re.compile(r"!\[([^\]]*)\]\(([^)]+)\)")
         images = image_pattern.findall(content)
+
+        # Count links (excluding image links by using negative lookbehind)
+        link_pattern = re.compile(r"(?<!!)\[([^\]]+)\]\(([^)]+)\)")
+        links = link_pattern.findall(content)
 
         # Count lists
         list_pattern = re.compile(r"^[\s]*[-*+]\s|^[\s]*\d+\.\s", re.MULTILINE)
