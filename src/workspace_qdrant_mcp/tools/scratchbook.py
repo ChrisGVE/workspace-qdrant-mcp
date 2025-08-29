@@ -678,13 +678,13 @@ async def update_scratchbook(
         manager = ScratchbookManager(client)
 
         if note_id:
-            result = manager.update_note(note_id, content, title, tags)
+            result = manager.update_note(note_id, content, title, tags, None)
             if hasattr(result, '__await__'):
                 return await result
             else:
                 return result
         else:
-            result = manager.add_note(content, title, tags, note_type)
+            result = manager.add_note(content, title, tags, note_type, None)
             if hasattr(result, '__await__'):
                 return await result
             else:
