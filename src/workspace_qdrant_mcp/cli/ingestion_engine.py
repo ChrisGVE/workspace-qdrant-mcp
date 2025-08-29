@@ -12,7 +12,7 @@ from collections import defaultdict
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any
+from typing import Any, Callable
 
 from ..core.client import QdrantWorkspaceClient
 from ..tools.documents import add_document
@@ -139,7 +139,7 @@ class DocumentIngestionEngine:
         collection: str,
         formats: list[str] | None = None,
         dry_run: bool = False,
-        progress_callback: callable | None = None,
+        progress_callback: Callable | None = None,
         recursive: bool = True,
         exclude_patterns: list[str] | None = None,
     ) -> IngestionResult:
@@ -314,7 +314,7 @@ class DocumentIngestionEngine:
         collection: str,
         stats: IngestionStats,
         dry_run: bool,
-        progress_callback: callable | None,
+        progress_callback: Callable | None,
     ) -> None:
         """Process files with concurrency control."""
 
