@@ -33,7 +33,7 @@ jobs:
         uv venv --python 3.11
         . .venv/bin/activate
         uv pip install -e ".[dev]"
-        uv pip install bandit[toml] safety vulture radon complexity-report
+        uv pip install bandit[toml] safety vulture radon
 
     - name: Run comprehensive ruff analysis
       run: |
