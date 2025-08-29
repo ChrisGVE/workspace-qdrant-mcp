@@ -328,8 +328,12 @@ class ScratchbookManager:
                     id=note_id, vector=vectors, payload=new_payload
                 )
             else:
-                # Update only payload
-                updated_point = models.PointStruct(id=note_id, payload=new_payload)
+                # Update only payload, preserve existing vector
+                updated_point = models.PointStruct(
+                    id=note_id, 
+                    vector=existing_point.vector,  # Preserve existing vector
+                    payload=new_payload
+                )
 
             self.client.client.upsert(
                 collection_name=collection_name, points=[updated_point]
@@ -424,8 +428,7 @@ class ScratchbookManager:
                 collection_name=collection_name,
                 query_embeddings=embeddings,
                 limit=limit,
-                search_filter=search_filter,
-                mode=mode,
+                query_filter=search_filter,
             )
 
             return {
@@ -511,8 +514,8 @@ class ScratchbookManager:
                     }
                 )
 
-            # Sort by updated_at (most recent first)
-            notes.sort(key=lambda x: x.get("updated_at", ""), reverse=True)
+            # Sort by updated_at (most recent first), handle None values
+            notes.sort(key=lambda x: x.get("updated_at") or "", reverse=True)
 
             return {
                 "collection": collection_name,
