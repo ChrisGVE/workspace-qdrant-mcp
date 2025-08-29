@@ -76,14 +76,14 @@ class ProjectDetector:
 
     Attributes:
         github_user (Optional[str]): GitHub username for ownership filtering.
-                                   REQUIRED for subproject detection - when not specified,
-                                   no subprojects are included (conservative approach)
+                                   When specified, only repositories owned by this
+                                   user will be included as subprojects
 
     Detection Strategy:
         1. **Git-based**: Uses Git remote URL to determine project name
         2. **Directory-based**: Falls back to directory name when Git unavailable
-        3. **Conservative subprojects**: Only includes subprojects when github_user is configured
-        4. **Ownership-filtered**: Subprojects must be owned by the specified user
+        3. **User-filtered**: Applies GitHub user ownership rules when configured
+        4. **Hierarchical**: Discovers subprojects and maintains relationships
 
     Example:
         ```python
@@ -153,16 +153,13 @@ class ProjectDetector:
 
     def get_subprojects(self, path: str = ".") -> list[str]:
         """
-        Get list of subprojects (Git submodules owned by the configured GitHub user).
-        
-        Conservative approach: Returns empty list if no github_user is configured,
-        preventing unmanageable collection sprawl in large monorepos.
+        Get list of subprojects (Git submodules filtered by GitHub user).
 
         Args:
             path: Path to analyze
 
         Returns:
-            List of subproject names (empty if no github_user configured)
+            List of subproject names
         """
         submodules = self.get_detailed_submodules(path)
         return [sm["project_name"] for sm in submodules if sm["project_name"]]
@@ -218,14 +215,12 @@ class ProjectDetector:
             # Parse URL information
             url_info = self._parse_git_url(submodule_url)
 
-            # Conservative approach: Only include subprojects if github_user is configured
-            # This prevents unmanageable collection sprawl in large monorepos
-            if not self.github_user:
-                return None
-                
             # Check if this submodule belongs to the configured user
             user_owned = self._belongs_to_user(submodule_url)
-            if not user_owned:
+            
+            # If github_user is configured, only include user-owned subprojects
+            # If no github_user is configured, include all subprojects (no filtering)
+            if self.github_user and not user_owned:
                 return None
 
             # Extract project name
