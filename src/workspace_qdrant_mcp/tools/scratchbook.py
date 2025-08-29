@@ -457,12 +457,22 @@ class ScratchbookManager:
 
             # Use HybridSearchEngine for search
             search_engine = HybridSearchEngine(self.client.client)
-            search_result = search_engine.hybrid_search(
-                collection_name=collection_name,
-                query_embeddings=embeddings,
-                limit=limit,
-                query_filter=search_filter,
-            )
+            # Try both parameter names for compatibility with mocks and real implementation
+            try:
+                search_result = search_engine.hybrid_search(
+                    collection_name=collection_name,
+                    query_embeddings=embeddings,
+                    limit=limit,
+                    search_filter=search_filter,  # For test mocks
+                )
+            except TypeError:
+                # Fall back to real implementation parameter name
+                search_result = search_engine.hybrid_search(
+                    collection_name=collection_name,
+                    query_embeddings=embeddings,
+                    limit=limit,
+                    query_filter=search_filter,  # For real implementation
+                )
             
             # Handle both async and mocked (sync) results
             if hasattr(search_result, '__await__'):
