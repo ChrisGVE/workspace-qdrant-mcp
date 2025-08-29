@@ -532,7 +532,7 @@ class TestMCPIntegration:
                     assert "id" in result
                     assert "score" in result
                     assert "content" in result
-                    assert isinstance(result["score"], (int, float))
+                    assert isinstance(result["score"], int | float)
                     assert result["score"] >= search_params["score_threshold"]
 
                 # Verify results are sorted by score
