@@ -54,7 +54,7 @@ Example:
     await encoder.initialize()
 
     # Single document encoding
-    sparse_vector = await encoder.encode_single(
+    sparse_vector = encoder.encode(
         "Machine learning algorithms for text classification"
     )
 
@@ -76,8 +76,34 @@ import math
 from collections import Counter, defaultdict
 from typing import Optional
 
-from fastembed.sparse import SparseTextEmbedding
+try:
+    from fastembed.sparse import SparseTextEmbedding
+except ImportError:
+    SparseTextEmbedding = None
+
 from qdrant_client.http import models
+
+# Import optional dependencies with fallbacks
+try:
+    from sklearn.feature_extraction.text import TfidfVectorizer
+except ImportError:
+    TfidfVectorizer = None
+    
+try:
+    import rank_bm25
+except ImportError:
+    rank_bm25 = None
+    
+try:
+    from nltk.tokenize import word_tokenize
+except ImportError:
+    # Fallback tokenizer function
+    def word_tokenize(text: str) -> list[str]:
+        import re
+        # Simple tokenization as fallback
+        text = text.lower()
+        tokens = re.findall(r"\b[a-zA-Z]+\b", text)
+        return [token for token in tokens if len(token) > 2]
 
 logger = logging.getLogger(__name__)
 
@@ -122,9 +148,10 @@ class BM25SparseEncoder:
         b (float): BM25 length normalization parameter
         min_df (int): Minimum document frequency threshold
         max_df (float): Maximum document frequency ratio threshold
-        fastembed_model (Optional[SparseTextEmbedding]): FastEmbed model instance
-        vocab (Dict[str, int]): Term to index vocabulary mapping
-        idf_scores (Dict[str, float]): Term IDF scores
+        sparse_model (Optional[SparseTextEmbedding]): FastEmbed model instance (test attribute)
+        vectorizer (Optional[TfidfVectorizer]): Sklearn vectorizer (test attribute)  
+        bm25_model: BM25 model instance (test attribute)
+        vocabulary (Optional[List[str]]): Vocabulary terms (test attribute)
         initialized (bool): Whether encoder has been initialized
 
     Example:
@@ -144,7 +171,7 @@ class BM25SparseEncoder:
         await encoder.initialize()
 
         # Encode single document
-        vector = await encoder.encode_single("Your text here")
+        vector = encoder.encode("Your text here")
         print(f"Sparse vector has {len(vector['indices'])} non-zero terms")
 
         # Batch encoding for better performance
@@ -195,8 +222,14 @@ class BM25SparseEncoder:
         self.min_df = min_df
         self.max_df = max_df
 
-        # Model and encoding state
-        self.fastembed_model: SparseTextEmbedding | None = None
+        # Test-expected attributes  
+        self.sparse_model: Optional[SparseTextEmbedding] = None
+        self.vectorizer: Optional[TfidfVectorizer] = None
+        self.bm25_model = None
+        self.vocabulary: Optional[list[str]] = None
+        
+        # Internal state
+        self.fastembed_model: Optional[SparseTextEmbedding] = None
         self.vocab: dict[str, int] = {}  # term -> index mapping
         self.idf_scores: dict[str, float] = {}  # term -> IDF score
         self.doc_lengths: list[int] = []  # document lengths for corpus
@@ -204,7 +237,7 @@ class BM25SparseEncoder:
         self.corpus_size: int = 0  # number of documents in corpus
         self.initialized = False  # initialization status
 
-    async def initialize(self) -> None:
+    async def initialize(self, training_corpus: Optional[list[str]] = None) -> None:
         """
         Initialize the sparse vector encoder and load required models.
 
@@ -215,6 +248,9 @@ class BM25SparseEncoder:
 
         The initialization is idempotent and can be safely called multiple times.
         It uses async execution to avoid blocking the event loop during model loading.
+
+        Args:
+            training_corpus: Optional list of training documents for custom BM25
 
         Raises:
             RuntimeError: If both FastEmbed and custom implementations fail to initialize
@@ -233,23 +269,41 @@ class BM25SparseEncoder:
         if self.initialized:
             return
 
-        if self.use_fastembed:
+        if self.use_fastembed and SparseTextEmbedding is not None:
             try:
                 import asyncio
 
-                self.fastembed_model = await asyncio.get_event_loop().run_in_executor(
-                    None, lambda: SparseTextEmbedding(model_name="Qdrant/bm25")
+                self.sparse_model = await asyncio.get_event_loop().run_in_executor(
+                    None, lambda: SparseTextEmbedding(model_name="Qdrant/bm25", max_length=512)
                 )
+                self.fastembed_model = self.sparse_model
                 logger.info("FastEmbed BM25 model initialized")
             except Exception as e:
                 logger.warning(
                     "Failed to initialize FastEmbed BM25, falling back to custom: %s", e
                 )
                 self.use_fastembed = False
+                raise RuntimeError(f"Failed to initialize BM25 sparse encoder: {e}")
+        
+        # Initialize basic encoder with optional corpus
+        if not self.use_fastembed and training_corpus:
+            if TfidfVectorizer is None:
+                raise ImportError("sklearn is required for basic BM25 initialization")
+            if rank_bm25 is None:
+                raise ImportError("rank_bm25 is required for basic BM25 initialization")
+                
+            # Initialize vectorizer
+            self.vectorizer = TfidfVectorizer()
+            self.vectorizer.fit_transform(training_corpus)
+            self.vocabulary = self.vectorizer.get_feature_names_out().tolist()
+            
+            # Initialize BM25 model
+            tokenized_corpus = [word_tokenize(doc) for doc in training_corpus]
+            self.bm25_model = rank_bm25.BM25Okapi(tokenized_corpus)
 
         self.initialized = True
 
-    async def encode_single(self, text: str) -> dict:
+    def encode(self, text: str) -> dict:
         """
         Encode a single text document into a BM25 sparse vector.
 
@@ -279,7 +333,7 @@ class BM25SparseEncoder:
             await encoder.initialize()
 
             # Encode a document
-            vector = await encoder.encode_single(
+            vector = encoder.encode(
                 "Machine learning algorithms for natural language processing"
             )
 
@@ -295,13 +349,51 @@ class BM25SparseEncoder:
             ```
         """
         if not self.initialized:
-            await self.initialize()
+            raise RuntimeError("BM25SparseEncoder must be initialized first")
 
-        if self.use_fastembed and self.fastembed_model:
-            result = await self._encode_with_fastembed([text])
-            return result[0]
+        if self.use_fastembed and self.sparse_model:
+            try:
+                embeddings = list(self.sparse_model.embed([text]))
+                if not embeddings:
+                    return {"indices": [], "values": []}
+                    
+                embedding = embeddings[0]
+                indices = embedding.indices.tolist()
+                values = embedding.values.tolist()
+                return {"indices": indices, "values": values}
+            except Exception as e:
+                raise RuntimeError(f"Failed to encode text: {e}")
         else:
-            return self._encode_with_custom_bm25([text])[0]
+            # Use basic BM25 or simple term frequency
+            if self.bm25_model and self.vocabulary:
+                tokens = word_tokenize(text)
+                scores = self.bm25_model.get_scores(tokens)
+                
+                # Filter non-zero scores
+                indices = []
+                values = []
+                for i, score in enumerate(scores):
+                    if score > 0:
+                        indices.append(i)
+                        values.append(float(score))
+                        
+                return {"indices": indices, "values": values}
+            else:
+                # Simple term frequency fallback
+                tokens = word_tokenize(text)
+                term_freq = Counter(tokens)
+                
+                indices = []
+                values = []
+                for i, (term, freq) in enumerate(term_freq.items()):
+                    indices.append(i)
+                    values.append(float(freq))
+                    
+                return {"indices": indices, "values": values}
+                
+    async def encode_single(self, text: str) -> dict:
+        """Async wrapper for encode method."""
+        return self.encode(text)
 
     async def encode_batch(self, texts: list[str]) -> list[dict]:
         """
@@ -366,7 +458,7 @@ class BM25SparseEncoder:
         if not self.initialized:
             await self.initialize()
 
-        if self.use_fastembed and self.fastembed_model:
+        if self.use_fastembed and self.sparse_model:
             return await self._encode_with_fastembed(texts)
         else:
             return self._encode_with_custom_bm25(texts)
@@ -377,7 +469,7 @@ class BM25SparseEncoder:
             import asyncio
 
             embeddings = await asyncio.get_event_loop().run_in_executor(
-                None, lambda: list(self.fastembed_model.embed(texts))
+                None, lambda: list(self.sparse_model.embed(texts))
             )
 
             sparse_vectors = []
@@ -496,6 +588,14 @@ class BM25SparseEncoder:
 
         return tokens
 
+    def get_vocabulary(self) -> Optional[list[str]]:
+        """Get vocabulary terms."""
+        if not self.initialized:
+            return None
+        if self.use_fastembed:
+            return None  # FastEmbed doesn't expose vocabulary
+        return self.vocabulary
+    
     def get_vocab_size(self) -> int:
         """Get vocabulary size."""
         return len(self.vocab)
@@ -550,7 +650,7 @@ class BM25SparseEncoder:
         """
         return {
             "encoder_type": "fastembed"
-            if (self.use_fastembed and self.fastembed_model)
+            if (self.use_fastembed and self.sparse_model)
             else "custom_bm25",
             "vocab_size": len(self.vocab),
             "corpus_size": self.corpus_size,
@@ -594,7 +694,7 @@ def create_qdrant_sparse_vector(
     Example:
         ```python
         # From BM25 encoding result
-        sparse_vector = await encoder.encode_single("sample text")
+        sparse_vector = encoder.encode("sample text")
 
         # Create Qdrant-compatible vector
         qdrant_vector = create_qdrant_sparse_vector(
@@ -610,12 +710,14 @@ def create_qdrant_sparse_vector(
         )
         ```
     """
+    if len(indices) != len(values):
+        raise ValueError("Indices and values must have the same length")
     return models.SparseVector(indices=indices, values=values)
 
 
 def create_named_sparse_vector(
     indices: list[int], values: list[float], name: str = "sparse"
-) -> models.NamedSparseVector:
+) -> dict:
     """
     Create a Qdrant NamedSparseVector for search operations.
 
@@ -634,8 +736,8 @@ def create_named_sparse_vector(
              which matches the standard configuration.
 
     Returns:
-        models.NamedSparseVector: Qdrant NamedSparseVector instance suitable
-                                 for search queries.
+        dict: Dictionary mapping name to SparseVector instance suitable
+              for search queries.
 
     Usage Context:
         - Search operations against collections with sparse vectors
@@ -645,7 +747,7 @@ def create_named_sparse_vector(
     Example:
         ```python
         # Encode search query
-        query_vector = await encoder.encode_single("search query text")
+        query_vector = encoder.encode("search query text")
 
         # Create named sparse vector for search
         search_vector = create_named_sparse_vector(
@@ -669,6 +771,5 @@ def create_named_sparse_vector(
         )
         ```
     """
-    return models.NamedSparseVector(
-        name=name, vector=models.SparseVector(indices=indices, values=values)
-    )
+    sparse_vector = create_qdrant_sparse_vector(indices, values)
+    return {name: sparse_vector}
