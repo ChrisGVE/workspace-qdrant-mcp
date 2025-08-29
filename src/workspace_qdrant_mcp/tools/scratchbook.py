@@ -343,6 +343,8 @@ class ScratchbookManager:
 
             return {
                 "note_id": note_id,
+                "title": new_payload["title"],
+                "tags": new_payload["tags"],
                 "collection": collection_name,
                 "version": new_payload["version"],
                 "updated_at": new_payload["updated_at"],
