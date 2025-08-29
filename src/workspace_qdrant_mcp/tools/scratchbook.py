@@ -436,7 +436,7 @@ class ScratchbookManager:
                 collection_name=collection_name,
                 query_embeddings=embeddings,
                 limit=limit,
-                query_filter=search_filter,
+                search_filter=search_filter,
             )
             
             # Handle both async and mocked (sync) results
