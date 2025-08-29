@@ -17,7 +17,7 @@ import pytest
 from workspace_qdrant_mcp.tools.search import search_workspace
 
 from tests.fixtures.test_data_collector import DataCollector
-from ..utils.metrics import PerformanceBenchmarker, RecallPrecisionMeter
+from tests.utils.metrics import PerformanceBenchmarker, RecallPrecisionMeter
 
 
 class TestRecallPrecision:

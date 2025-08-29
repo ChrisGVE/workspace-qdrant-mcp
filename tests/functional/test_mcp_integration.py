@@ -27,7 +27,7 @@ from workspace_qdrant_mcp.server import (
 )
 
 from tests.fixtures.test_data_collector import DataCollector
-from ..utils.metrics import AsyncTimedOperation, PerformanceBenchmarker
+from tests.utils.metrics import AsyncTimedOperation, PerformanceBenchmarker
 
 
 class TestMCPIntegration:

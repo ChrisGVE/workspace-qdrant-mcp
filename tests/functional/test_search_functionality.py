@@ -18,7 +18,7 @@ from workspace_qdrant_mcp.tools.search import (
 )
 
 from tests.fixtures.test_data_collector import DataCollector
-from ..utils.metrics import (
+from tests.utils.metrics import (
     AsyncTimedOperation,
     PerformanceBenchmarker,
     RecallPrecisionMeter,
