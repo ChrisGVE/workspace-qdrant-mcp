@@ -94,16 +94,14 @@ try:
 except ImportError:
     rank_bm25 = None
     
-try:
-    from nltk.tokenize import word_tokenize
-except ImportError:
-    # Fallback tokenizer function
-    def word_tokenize(text: str) -> list[str]:
-        import re
-        # Simple tokenization as fallback
-        text = text.lower()
-        tokens = re.findall(r"\b[a-zA-Z]+\b", text)
-        return [token for token in tokens if len(token) > 2]
+# Use simple tokenizer to avoid NLTK data dependency issues
+def word_tokenize(text: str) -> list[str]:
+    """Simple word tokenizer for BM25 processing."""
+    import re
+    # Simple tokenization
+    text = text.lower()
+    tokens = re.findall(r"\b[a-zA-Z]+\b", text)
+    return [token for token in tokens if len(token) > 2]
 
 logger = logging.getLogger(__name__)
 
@@ -287,15 +285,23 @@ class BM25SparseEncoder:
         
         # Initialize basic encoder with optional corpus
         if not self.use_fastembed and training_corpus:
-            if TfidfVectorizer is None:
+            # Import sklearn at runtime to allow mocking
+            try:
+                from sklearn.feature_extraction.text import TfidfVectorizer
+            except ImportError:
                 raise ImportError("sklearn is required for basic BM25 initialization")
-            if rank_bm25 is None:
+            
+            try:
+                import rank_bm25
+            except ImportError:
                 raise ImportError("rank_bm25 is required for basic BM25 initialization")
                 
             # Initialize vectorizer
             self.vectorizer = TfidfVectorizer()
             self.vectorizer.fit_transform(training_corpus)
-            self.vocabulary = self.vectorizer.get_feature_names_out().tolist()
+            feature_names = self.vectorizer.get_feature_names_out()
+            # Convert to list if it's a numpy array, otherwise use as-is (for mocking)
+            self.vocabulary = feature_names.tolist() if hasattr(feature_names, 'tolist') else list(feature_names)
             
             # Initialize BM25 model
             tokenized_corpus = [word_tokenize(doc) for doc in training_corpus]
