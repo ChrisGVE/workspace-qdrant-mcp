@@ -21,8 +21,12 @@
 			}
 		},
 		"workspace-qdrant-mcp": {
+			"type": "stdio",
 			"command": "python",
-			"args": ["-m", "workspace_qdrant_mcp.server"],
+			"args": [
+				"-m",
+				"workspace_qdrant_mcp.server"
+			],
 			"env": {
 				"PYTHONPATH": "src",
 				"QDRANT_URL": "http://localhost:6333",

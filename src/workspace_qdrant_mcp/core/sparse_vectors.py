@@ -358,8 +358,14 @@ class BM25SparseEncoder:
                     return {"indices": [], "values": []}
                     
                 embedding = embeddings[0]
-                indices = embedding.indices.tolist()
-                values = embedding.values.tolist()
+                # Handle both tuple format (for tests) and object format (real FastEmbed)
+                if isinstance(embedding, tuple):
+                    indices, values = embedding
+                    indices = indices.tolist() if hasattr(indices, 'tolist') else list(indices)
+                    values = values.tolist() if hasattr(values, 'tolist') else list(values)
+                else:
+                    indices = embedding.indices.tolist()
+                    values = embedding.values.tolist()
                 return {"indices": indices, "values": values}
             except Exception as e:
                 raise RuntimeError(f"Failed to encode text: {e}")
@@ -474,8 +480,14 @@ class BM25SparseEncoder:
 
             sparse_vectors = []
             for embedding in embeddings:
-                indices = embedding.indices.tolist()
-                values = embedding.values.tolist()
+                # Handle both tuple format (for tests) and object format (real FastEmbed)
+                if isinstance(embedding, tuple):
+                    indices, values = embedding
+                    indices = indices.tolist() if hasattr(indices, 'tolist') else list(indices)
+                    values = values.tolist() if hasattr(values, 'tolist') else list(values)
+                else:
+                    indices = embedding.indices.tolist()
+                    values = embedding.values.tolist()
                 sparse_vectors.append({"indices": indices, "values": values})
 
             return sparse_vectors
