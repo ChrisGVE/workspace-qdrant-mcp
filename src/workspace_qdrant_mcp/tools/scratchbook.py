@@ -678,9 +678,17 @@ async def update_scratchbook(
         manager = ScratchbookManager(client)
 
         if note_id:
-            return await manager.update_note(note_id, content, title, tags)
+            result = manager.update_note(note_id, content, title, tags)
+            if hasattr(result, '__await__'):
+                return await result
+            else:
+                return result
         else:
-            return await manager.add_note(content, title, tags, note_type)
+            result = manager.add_note(content, title, tags, note_type)
+            if hasattr(result, '__await__'):
+                return await result
+            else:
+                return result
     except Exception as e:
         logger.error("Failed to update scratchbook: %s", e)
         return {"error": f"Failed to update scratchbook: {e}"}
