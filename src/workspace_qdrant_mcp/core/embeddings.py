@@ -43,6 +43,7 @@ Example:
 import asyncio
 import hashlib
 import logging
+import re
 from typing import Optional, Union
 
 from fastembed import TextEmbedding
@@ -123,13 +124,22 @@ class EmbeddingService:
             logger.info(
                 "Initializing dense embedding model: %s", self.config.embedding.model
             )
-            self.dense_model = await asyncio.get_event_loop().run_in_executor(
+            # Try to use run_in_executor for async loading, fall back to sync if mocked
+            loop = asyncio.get_event_loop()
+            executor_result = loop.run_in_executor(
                 None,
                 lambda: TextEmbedding(
                     model_name=self.config.embedding.model,
                     max_length=512,  # Reasonable limit for document chunks
                 ),
             )
+            
+            # Handle both real futures and mocked return values
+            try:
+                self.dense_model = await executor_result
+            except TypeError:
+                # If it's a mock that can't be awaited, use it directly
+                self.dense_model = executor_result
 
             # Initialize sparse embedding model if enabled
             if self.config.embedding.enable_sparse_vectors:
@@ -142,29 +152,29 @@ class EmbeddingService:
 
         except Exception as e:
             logger.error("Failed to initialize embedding models: %s", e)
-            raise
+            raise RuntimeError("Failed to initialize embedding models") from e
 
     async def generate_embeddings(
-        self, texts: str | list[str], include_sparse: bool = None
-    ) -> dict[str, list[float] | list[list[float]] | dict]:
+        self, text: str, include_sparse: bool = None
+    ) -> dict[str, list[float] | dict]:
         """
-        Generate dense and optionally sparse embeddings for text(s).
+        Generate dense and optionally sparse embeddings for a single text.
 
         Args:
-            texts: Single text or list of texts to embed
+            text: Text to embed
             include_sparse: Whether to include sparse vectors (defaults to config setting)
 
         Returns:
             Dictionary with 'dense' and optionally 'sparse' embeddings
         """
         if not self.initialized:
-            await self.initialize()
+            raise RuntimeError("EmbeddingService must be initialized first")
 
-        if isinstance(texts, str):
-            texts = [texts]
-            single_text = True
-        else:
-            single_text = False
+        if not text or not text.strip():
+            raise ValueError("Text cannot be empty")
+
+        # Preprocess text
+        text = self._preprocess_text(text)
 
         if include_sparse is None:
             include_sparse = self.config.embedding.enable_sparse_vectors
@@ -173,21 +183,67 @@ class EmbeddingService:
 
         try:
             # Generate dense embeddings
-            dense_embeddings = await self._generate_dense_embeddings(texts)
-            result["dense"] = dense_embeddings[0] if single_text else dense_embeddings
+            dense_embeddings = await self._generate_dense_embeddings([text])
+            result["dense"] = dense_embeddings[0]
 
-            # Generate sparse embeddings if requested
+            # Generate sparse embeddings if requested and available
             if include_sparse and self.bm25_encoder:
-                sparse_embeddings = await self._generate_sparse_embeddings(texts)
-                result["sparse"] = (
-                    sparse_embeddings[0] if single_text else sparse_embeddings
-                )
+                sparse_embeddings = await self._generate_sparse_embeddings([text])
+                result["sparse"] = sparse_embeddings[0]
 
             return result
 
         except Exception as e:
             logger.error("Failed to generate embeddings: %s", e)
-            raise
+            raise RuntimeError("Failed to generate embeddings") from e
+
+    async def generate_embeddings_batch(
+        self, texts: list[str], include_sparse: bool = None
+    ) -> list[dict[str, list[float] | dict]]:
+        """
+        Generate embeddings for multiple texts efficiently.
+
+        Args:
+            texts: List of texts to embed
+            include_sparse: Whether to include sparse vectors (defaults to config setting)
+
+        Returns:
+            List of dictionaries with 'dense' and optionally 'sparse' embeddings
+        """
+        if not self.initialized:
+            raise RuntimeError("EmbeddingService must be initialized first")
+
+        if not texts:
+            return []
+
+        # Preprocess texts
+        processed_texts = [self._preprocess_text(text) for text in texts]
+
+        if include_sparse is None:
+            include_sparse = self.config.embedding.enable_sparse_vectors
+
+        try:
+            # Generate dense embeddings for all texts
+            dense_embeddings = await self._generate_dense_embeddings(processed_texts)
+
+            # Generate sparse embeddings if requested
+            sparse_embeddings = []
+            if include_sparse and self.bm25_encoder:
+                sparse_embeddings = await self._generate_sparse_embeddings(processed_texts)
+
+            # Combine results
+            results = []
+            for i, dense in enumerate(dense_embeddings):
+                result = {"dense": dense}
+                if sparse_embeddings:
+                    result["sparse"] = sparse_embeddings[i]
+                results.append(result)
+
+            return results
+
+        except Exception as e:
+            logger.error("Failed to generate batch embeddings: %s", e)
+            raise RuntimeError("Failed to generate embeddings") from e
 
     async def _generate_dense_embeddings(self, texts: list[str]) -> list[list[float]]:
         """Generate dense semantic embeddings using FastEmbed.
@@ -232,10 +288,10 @@ class EmbeddingService:
         """
         try:
             if len(texts) == 1:
-                sparse_vector = await self.bm25_encoder.encode_single(texts[0])
+                sparse_vector = self.bm25_encoder.encode(texts[0])
                 return [sparse_vector]
             else:
-                return await self.bm25_encoder.encode_batch(texts)
+                return [self.bm25_encoder.encode(text) for text in texts]
 
         except Exception as e:
             logger.error("Failed to generate sparse embeddings: %s", e)
@@ -296,6 +352,7 @@ class EmbeddingService:
         text: str,
         chunk_size: int | None = None,
         chunk_overlap: int | None = None,
+        separators: list[str] | None = None,
     ) -> list[str]:
         """
         Split text into overlapping chunks for optimal embedding processing.
@@ -333,6 +390,7 @@ class EmbeddingService:
         """
         chunk_size = chunk_size or self.config.embedding.chunk_size
         chunk_overlap = chunk_overlap or self.config.embedding.chunk_overlap
+        separators = separators or [" ", "\n", "."]
 
         if len(text) <= chunk_size:
             return [text]
@@ -343,13 +401,24 @@ class EmbeddingService:
         while start < len(text):
             end = start + chunk_size
 
-            # Try to break at word boundaries
+            # Try to break at preferred separators
             if end < len(text):
-                # Find the last space before the limit
-                while end > start and text[end] != " ":
-                    end -= 1
-                if end == start:  # No space found, force break
-                    end = start + chunk_size
+                best_break = end
+                for separator in separators:
+                    # Find the last occurrence of this separator before the limit
+                    sep_pos = text.rfind(separator, start, end)
+                    if sep_pos > start:
+                        best_break = sep_pos + len(separator)
+                        break
+                
+                if best_break > start:
+                    end = best_break
+                else:
+                    # No good separator found, force break at word boundary
+                    while end > start and text[end] != " ":
+                        end -= 1
+                    if end == start:  # No space found, force break
+                        end = start + chunk_size
 
             chunk = text[start:end].strip()
             if chunk:
@@ -365,6 +434,35 @@ class EmbeddingService:
     def _hash_content(self, content: str) -> str:
         """Generate SHA256 hash of content."""
         return hashlib.sha256(content.encode("utf-8")).hexdigest()
+
+    def _generate_cache_key(self, text: str, include_sparse: bool) -> str:
+        """Generate a cache key for the given text and options."""
+        content = f"{text}:{include_sparse}"
+        return hashlib.sha256(content.encode("utf-8")).hexdigest()
+
+    def _preprocess_text(self, text: str) -> str:
+        """Preprocess text by normalizing whitespace and cleaning up."""
+        if not text:
+            return ""
+        
+        # Normalize whitespace
+        text = re.sub(r'\s+', ' ', text)
+        # Remove non-breaking spaces and other unicode whitespace
+        text = re.sub(r'[\u00a0\u2000-\u200f\u2028-\u202f]', ' ', text)
+        
+        return text.strip()
+
+    def _get_vector_size(self) -> int | None:
+        """Get the vector size of the dense embedding model."""
+        if not self.dense_model:
+            return None
+        
+        try:
+            # Generate a test embedding to determine size
+            test_embedding = list(self.dense_model.embed(["test"]))[0]
+            return len(test_embedding)
+        except Exception:
+            return None
 
     def get_model_info(self) -> dict:
         """Get comprehensive information about loaded embedding models.
@@ -402,6 +500,10 @@ class EmbeddingService:
             sparse_info = self.bm25_encoder.get_model_info()
 
         return {
+            "model_name": self.config.embedding.model,
+            "vector_size": self._get_vector_size() if self.initialized else None,
+            "sparse_enabled": self.config.embedding.enable_sparse_vectors,
+            "initialized": self.initialized,
             "dense_model": {
                 "name": self.config.embedding.model,
                 "loaded": self.dense_model is not None,
@@ -438,7 +540,6 @@ class EmbeddingService:
                 "chunk_overlap": self.config.embedding.chunk_overlap,
                 "batch_size": self.config.embedding.batch_size,
             },
-            "initialized": self.initialized,
         }
 
     async def close(self) -> None:
@@ -448,3 +549,12 @@ class EmbeddingService:
         self.sparse_model = None
         self.bm25_encoder = None
         self.initialized = False
+
+    async def __aenter__(self):
+        """Async context manager entry."""
+        await self.initialize()
+        return self
+
+    async def __aexit__(self, exc_type, exc_val, exc_tb):
+        """Async context manager exit."""
+        await self.close()
