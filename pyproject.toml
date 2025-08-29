@@ -125,6 +125,7 @@ markers = [
     "integration: Integration tests",
     "e2e: End-to-end tests",
     "slow: Slow running tests",
+    "performance: Performance and benchmark tests",
     "requires_qdrant: Tests requiring Qdrant server",
     "requires_git: Tests requiring Git repository",
 ]
