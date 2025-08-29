@@ -70,7 +70,8 @@ class TestFullWorkflowE2E:
                     # Mock event loop for Qdrant client operations
                     mock_loop = MagicMock()
                     mock_get_loop.return_value = mock_loop
-                    future = asyncio.create_future()
+                    loop = asyncio.get_event_loop()
+                    future = loop.create_future()
                     future.set_result(MagicMock(collections=[]))
                     mock_loop.run_in_executor.return_value = future
 
