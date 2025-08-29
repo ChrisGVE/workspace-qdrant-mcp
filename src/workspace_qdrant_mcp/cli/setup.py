@@ -74,7 +74,7 @@ app = typer.Typer(
 class SetupResult:
     """Result of setup wizard operation."""
 
-    def __init__(self, success: bool, message: str, config_path: Optional[Path] = None):
+    def __init__(self, success: bool, message: str, config_path: Path | None = None):
         self.success = success
         self.message = message
         self.config_path = config_path
@@ -298,7 +298,7 @@ class SetupWizard:
         except Exception as e:
             return False, f"No write access: {e}"
 
-    async def _configure_qdrant(self) -> Optional[QdrantConfig]:
+    async def _configure_qdrant(self) -> QdrantConfig | None:
         """Configure Qdrant database connection."""
         console.print("\n🗄️  Qdrant Database Configuration", style="bold blue")
         console.print("Configure your Qdrant vector database connection.\n")
@@ -385,7 +385,7 @@ class SetupWizard:
         except Exception as e:
             return False, f"Connection failed: {str(e)}"
 
-    async def _configure_embedding(self) -> Optional[EmbeddingConfig]:
+    async def _configure_embedding(self) -> EmbeddingConfig | None:
         """Configure embedding service."""
         console.print("\n🧠 Embedding Model Configuration", style="bold blue")
         console.print("Configure text embedding generation settings.\n")
@@ -503,7 +503,7 @@ class SetupWizard:
         except Exception as e:
             return False, f"Model initialization failed: {str(e)}"
 
-    async def _configure_workspace(self) -> Optional[WorkspaceConfig]:
+    async def _configure_workspace(self) -> WorkspaceConfig | None:
         """Configure workspace settings."""
         console.print("\n🏗️  Workspace Configuration", style="bold blue")
         console.print("Configure workspace collections and project settings.\n")
@@ -598,7 +598,7 @@ class SetupWizard:
             console.print(f"❌ Configuration testing failed: {e}", style="red")
             return False
 
-    async def _save_configuration(self) -> Optional[Path]:
+    async def _save_configuration(self) -> Path | None:
         """Save configuration to .env file."""
         try:
             env_path = Path(".env")

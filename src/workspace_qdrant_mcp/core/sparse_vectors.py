@@ -196,7 +196,7 @@ class BM25SparseEncoder:
         self.max_df = max_df
 
         # Model and encoding state
-        self.fastembed_model: Optional[SparseTextEmbedding] = None
+        self.fastembed_model: SparseTextEmbedding | None = None
         self.vocab: dict[str, int] = {}  # term -> index mapping
         self.idf_scores: dict[str, float] = {}  # term -> IDF score
         self.doc_lengths: list[int] = []  # document lengths for corpus
@@ -444,7 +444,7 @@ class BM25SparseEncoder:
             )
             self.idf_scores[term] = max(idf, 0.01)  # Ensure positive IDF
 
-    def _compute_bm25_scores(self, text: str, doc_length: Optional[int] = None) -> dict:
+    def _compute_bm25_scores(self, text: str, doc_length: int | None = None) -> dict:
         """Compute BM25 scores for a document."""
         tokens = self._tokenize(text)
         if doc_length is None:
@@ -476,8 +476,8 @@ class BM25SparseEncoder:
 
         # Sort by indices (required for Qdrant)
         if indices:
-            sorted_pairs = sorted(zip(indices, values))
-            indices, values = zip(*sorted_pairs)
+            sorted_pairs = sorted(zip(indices, values, strict=False))
+            indices, values = zip(*sorted_pairs, strict=False)
             indices = list(indices)
             values = list(values)
 

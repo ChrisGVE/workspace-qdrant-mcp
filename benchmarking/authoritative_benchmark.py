@@ -25,7 +25,7 @@ import sys
 import tempfile
 import time
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Tuple
 import urllib.request
 import zipfile
 
@@ -62,7 +62,7 @@ class OSProject:
         self.repo_url = repo_url
         self.archive_url = archive_url  
         self.description = description
-        self.local_path: Optional[Path] = None
+        self.local_path: Path | None = None
         
     def __str__(self) -> str:
         return f"{self.name}: {self.description}"
@@ -76,9 +76,9 @@ class BenchmarkScenario:
         self.collection_name = collection_name
         self.chunk_size = chunk_size
         self.includes_oss = includes_oss
-        self.ingestion_time: Optional[float] = None
-        self.document_count: Optional[int] = None
-        self.chunk_count: Optional[int] = None
+        self.ingestion_time: float | None = None
+        self.document_count: int | None = None
+        self.chunk_count: int | None = None
 
 
 class AuthoritativeBenchmark:
@@ -125,8 +125,8 @@ class AuthoritativeBenchmark:
         }
         
         # Qdrant client
-        self.client: Optional[QdrantWorkspaceClient] = None
-        self.config: Optional[Config] = None
+        self.client: QdrantWorkspaceClient | None = None
+        self.config: Config | None = None
         
     async def initialize(self):
         """Initialize the benchmark environment."""

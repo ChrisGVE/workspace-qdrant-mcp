@@ -106,7 +106,7 @@ class QdrantConfig(BaseModel):
     """
 
     url: str = "http://localhost:6333"
-    api_key: Optional[str] = None
+    api_key: str | None = None
     timeout: int = 30
     prefer_grpc: bool = False
 
@@ -139,7 +139,7 @@ class WorkspaceConfig(BaseModel):
 
     collections: list[str] = ["project"]
     global_collections: list[str] = ["docs", "references", "standards"]
-    github_user: Optional[str] = None
+    github_user: str | None = None
     collection_prefix: str = ""
     max_collections: int = 100
 

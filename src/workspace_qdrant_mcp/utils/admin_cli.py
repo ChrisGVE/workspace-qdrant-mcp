@@ -85,9 +85,9 @@ class WorkspaceQdrantAdmin:
 
     def __init__(
         self,
-        config: Optional[Config] = None,
+        config: Config | None = None,
         dry_run: bool = False,
-        project_scope: Optional[str] = None,
+        project_scope: str | None = None,
     ):
         """
         Initialize the administrative interface.
@@ -100,7 +100,7 @@ class WorkspaceQdrantAdmin:
         self.config = config or Config()
         self.dry_run = dry_run
         self.project_scope = project_scope
-        self.client: Optional[QdrantWorkspaceClient] = None
+        self.client: QdrantWorkspaceClient | None = None
 
         # Initialize project detection
         self.project_detector = ProjectDetector(self.config.workspace.github_user)

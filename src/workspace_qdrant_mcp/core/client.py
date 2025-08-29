@@ -97,13 +97,13 @@ class QdrantWorkspaceClient:
                    embedding model configuration, and workspace preferences
         """
         self.config = config
-        self.client: Optional[QdrantClient] = None
-        self.collection_manager: Optional[WorkspaceCollectionManager] = None
+        self.client: QdrantClient | None = None
+        self.collection_manager: WorkspaceCollectionManager | None = None
         self.embedding_service = EmbeddingService(config)
         self.project_detector = ProjectDetector(
             github_user=self.config.workspace.github_user
         )
-        self.project_info: Optional[dict] = None
+        self.project_info: dict | None = None
         self.initialized = False
 
     async def initialize(self) -> None:
@@ -263,7 +263,7 @@ class QdrantWorkspaceClient:
             logger.error("Failed to list collections: %s", e)
             return []
 
-    def get_project_info(self) -> Optional[dict]:
+    def get_project_info(self) -> dict | None:
         """Get current project information from detection.
 
         Returns:

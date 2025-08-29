@@ -10,7 +10,7 @@ import statistics
 import time
 from collections import defaultdict
 from dataclasses import dataclass, field
-from typing import Any, Optional
+from typing import Any
 
 
 @dataclass
@@ -74,8 +74,8 @@ class PerformanceBenchmark:
     operations_per_second: float = 0.0
 
     # Resource metrics
-    memory_usage_mb: Optional[float] = None
-    cpu_usage_percent: Optional[float] = None
+    memory_usage_mb: float | None = None
+    cpu_usage_percent: float | None = None
 
     # Sample statistics
     sample_count: int = 0
@@ -100,7 +100,7 @@ class RecallPrecisionMeter:
         expected_results: set[str],
         query_type: str = "unknown",
         search_time_ms: float = 0.0,
-        relevance_scores: Optional[dict[str, float]] = None,
+        relevance_scores: dict[str, float] | None = None,
     ) -> SearchMetrics:
         """
         Evaluate a single search query results.
@@ -212,7 +212,7 @@ class RecallPrecisionMeter:
         self,
         results: list[SearchResult],
         relevant_docs: set[str],
-        relevance_scores: Optional[dict[str, float]] = None,
+        relevance_scores: dict[str, float] | None = None,
     ) -> float:
         """Calculate Normalized Discounted Cumulative Gain (NDCG)."""
         if not relevant_docs:
@@ -240,7 +240,7 @@ class RecallPrecisionMeter:
         return dcg / idcg if idcg > 0 else 0.0
 
     def get_aggregate_metrics(
-        self, query_types: Optional[list[str]] = None
+        self, query_types: list[str] | None = None
     ) -> dict[str, Any]:
         """
         Calculate aggregate metrics across all evaluated queries.

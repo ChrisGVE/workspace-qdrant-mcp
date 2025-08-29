@@ -122,7 +122,7 @@ class ConfigValidator:
         ```
     """
 
-    def __init__(self, config: Optional[Config] = None) -> None:
+    def __init__(self, config: Config | None = None) -> None:
         """Initialize the configuration validator.
 
         Args:
@@ -684,7 +684,7 @@ class ConfigValidator:
 
 def validate_config_cmd(
     verbose: bool = typer.Option(False, "--verbose", "-v", help="Show detailed output"),
-    config_file: Optional[str] = typer.Option(
+    config_file: str | None = typer.Option(
         None, "--config", help="Path to config file"
     ),
     setup_guide: bool = typer.Option(False, "--guide", help="Show setup guide"),

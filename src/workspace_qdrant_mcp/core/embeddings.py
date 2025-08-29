@@ -108,9 +108,9 @@ class EmbeddingService:
                    chunking parameters, and sparse vector preferences
         """
         self.config = config
-        self.dense_model: Optional[TextEmbedding] = None
-        self.sparse_model: Optional[SparseTextEmbedding] = None
-        self.bm25_encoder: Optional[BM25SparseEncoder] = None
+        self.dense_model: TextEmbedding | None = None
+        self.sparse_model: SparseTextEmbedding | None = None
+        self.bm25_encoder: BM25SparseEncoder | None = None
         self.initialized = False
 
     async def initialize(self) -> None:
@@ -145,8 +145,8 @@ class EmbeddingService:
             raise
 
     async def generate_embeddings(
-        self, texts: Union[str, list[str]], include_sparse: bool = None
-    ) -> dict[str, Union[list[float], list[list[float]], dict]]:
+        self, texts: str | list[str], include_sparse: bool = None
+    ) -> dict[str, list[float] | list[list[float]] | dict]:
         """
         Generate dense and optionally sparse embeddings for text(s).
 
@@ -245,7 +245,7 @@ class EmbeddingService:
         self,
         documents: list[dict[str, str]],
         content_field: str = "content",
-        batch_size: Optional[int] = None,
+        batch_size: int | None = None,
     ) -> list[dict]:
         """
         Embed a list of documents with metadata.
@@ -294,8 +294,8 @@ class EmbeddingService:
     def chunk_text(
         self,
         text: str,
-        chunk_size: Optional[int] = None,
-        chunk_overlap: Optional[int] = None,
+        chunk_size: int | None = None,
+        chunk_overlap: int | None = None,
     ) -> list[str]:
         """
         Split text into overlapping chunks for optimal embedding processing.

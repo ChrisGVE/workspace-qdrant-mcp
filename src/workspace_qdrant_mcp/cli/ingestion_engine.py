@@ -12,7 +12,7 @@ from collections import defaultdict
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Optional, Union
+from typing import Any
 
 from ..core.client import QdrantWorkspaceClient
 from ..tools.documents import add_document
@@ -43,8 +43,8 @@ class IngestionStats:
     total_words: int = 0
 
     # Timing stats
-    start_time: Optional[datetime] = None
-    end_time: Optional[datetime] = None
+    start_time: datetime | None = None
+    end_time: datetime | None = None
     processing_time: float = 0.0
 
     # Error tracking
@@ -135,13 +135,13 @@ class DocumentIngestionEngine:
 
     async def process_directory(
         self,
-        directory_path: Union[str, Path],
+        directory_path: str | Path,
         collection: str,
-        formats: Optional[list[str]] = None,
+        formats: list[str] | None = None,
         dry_run: bool = False,
-        progress_callback: Optional[callable] = None,
+        progress_callback: callable | None = None,
         recursive: bool = True,
-        exclude_patterns: Optional[list[str]] = None,
+        exclude_patterns: list[str] | None = None,
     ) -> IngestionResult:
         """
         Process all documents in a directory.
@@ -262,9 +262,9 @@ class DocumentIngestionEngine:
     async def _find_files(
         self,
         directory: Path,
-        formats: Optional[list[str]],
+        formats: list[str] | None,
         recursive: bool,
-        exclude_patterns: Optional[list[str]],
+        exclude_patterns: list[str] | None,
     ) -> list[Path]:
         """Find all processable files in directory."""
 
@@ -314,7 +314,7 @@ class DocumentIngestionEngine:
         collection: str,
         stats: IngestionStats,
         dry_run: bool,
-        progress_callback: Optional[callable],
+        progress_callback: callable | None,
     ) -> None:
         """Process files with concurrency control."""
 
@@ -417,7 +417,7 @@ class DocumentIngestionEngine:
                 )
                 logger.error(f"Failed to process {file_path}: {e}")
 
-    def _find_parser(self, file_path: Path) -> Optional[DocumentParser]:
+    def _find_parser(self, file_path: Path) -> DocumentParser | None:
         """Find the appropriate parser for a file."""
         for parser in self.parsers:
             if parser.can_parse(file_path):
@@ -438,7 +438,7 @@ class DocumentIngestionEngine:
         return formats
 
     async def estimate_processing_time(
-        self, directory_path: Union[str, Path], formats: Optional[list[str]] = None
+        self, directory_path: str | Path, formats: list[str] | None = None
     ) -> dict[str, Any]:
         """Estimate processing time and resource usage."""
         directory_path = Path(directory_path)

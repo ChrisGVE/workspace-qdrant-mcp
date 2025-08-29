@@ -124,7 +124,7 @@ class ScratchbookManager:
         self.project_info = client.get_project_info()
 
     def _get_scratchbook_collection_name(
-        self, project_name: Optional[str] = None
+        self, project_name: str | None = None
     ) -> str:
         """Determine the appropriate collection name for scratchbook operations.
 
@@ -166,10 +166,10 @@ class ScratchbookManager:
     async def add_note(
         self,
         content: str,
-        title: Optional[str] = None,
-        tags: Optional[list[str]] = None,
+        title: str | None = None,
+        tags: list[str] | None = None,
         note_type: str = "note",
-        project_name: Optional[str] = None,
+        project_name: str | None = None,
     ) -> dict:
         """
         Add a new note to the scratchbook.
@@ -262,10 +262,10 @@ class ScratchbookManager:
     async def update_note(
         self,
         note_id: str,
-        content: Optional[str] = None,
-        title: Optional[str] = None,
-        tags: Optional[list[str]] = None,
-        project_name: Optional[str] = None,
+        content: str | None = None,
+        title: str | None = None,
+        tags: list[str] | None = None,
+        project_name: str | None = None,
     ) -> dict:
         """
         Update an existing scratchbook note with versioning.
@@ -368,9 +368,9 @@ class ScratchbookManager:
     async def search_notes(
         self,
         query: str,
-        note_types: Optional[list[str]] = None,
-        tags: Optional[list[str]] = None,
-        project_name: Optional[str] = None,
+        note_types: list[str] | None = None,
+        tags: list[str] | None = None,
+        project_name: str | None = None,
         limit: int = 10,
         mode: str = "hybrid",
     ) -> dict:
@@ -479,9 +479,9 @@ class ScratchbookManager:
 
     async def list_notes(
         self,
-        project_name: Optional[str] = None,
-        note_type: Optional[str] = None,
-        tags: Optional[list[str]] = None,
+        project_name: str | None = None,
+        note_type: str | None = None,
+        tags: list[str] | None = None,
         limit: int = 50,
     ) -> dict:
         """
@@ -563,7 +563,7 @@ class ScratchbookManager:
             return {"error": f"Failed to list notes: {e}"}
 
     async def delete_note(
-        self, note_id: str, project_name: Optional[str] = None
+        self, note_id: str, project_name: str | None = None
     ) -> dict:
         """
         Delete a note from the scratchbook.
@@ -636,9 +636,9 @@ class ScratchbookManager:
 async def update_scratchbook(
     client: QdrantWorkspaceClient,
     content: str,
-    note_id: Optional[str] = None,
-    title: Optional[str] = None,
-    tags: Optional[list[str]] = None,
+    note_id: str | None = None,
+    title: str | None = None,
+    tags: list[str] | None = None,
     note_type: str = "note",
 ) -> dict:
     """
