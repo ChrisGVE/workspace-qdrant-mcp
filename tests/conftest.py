@@ -112,6 +112,12 @@ def mock_embedding_service():
         "vector_size": 384,
         "sparse_enabled": True,
     }
+    # Mock config for chunk_text
+    service.config.embedding.chunk_size = 1000
+    service.config.embedding.chunk_overlap = 200
+    # Mock chunk_text as a regular (non-async) method
+    from unittest.mock import MagicMock
+    service.chunk_text = MagicMock(return_value=["chunk1", "chunk2", "chunk3"])
     return service
 
 
