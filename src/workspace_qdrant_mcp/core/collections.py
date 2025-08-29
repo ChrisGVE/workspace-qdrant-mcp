@@ -329,7 +329,7 @@ class WorkspaceCollectionManager:
             )
             raise
 
-    async def list_workspace_collections(self) -> list[str]:
+    def list_workspace_collections(self) -> list[str]:
         """
         List all collections that belong to the current workspace.
 
@@ -372,7 +372,7 @@ class WorkspaceCollectionManager:
             logger.error("Failed to list collections: %s", e)
             return []
 
-    async def get_collection_info(self) -> dict:
+    def get_collection_info(self) -> dict:
         """
         Get comprehensive information about all workspace collections.
 
@@ -403,7 +403,7 @@ class WorkspaceCollectionManager:
             ```
         """
         try:
-            workspace_collections = await self.list_workspace_collections()
+            workspace_collections = self.list_workspace_collections()
             collection_info = {}
 
             for collection_name in workspace_collections:

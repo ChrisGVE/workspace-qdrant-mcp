@@ -425,8 +425,7 @@ class TestWorkspaceCollectionManager:
         assert "project2-docs" not in result
         assert "global-references" not in result
 
-    @pytest.mark.asyncio
-    async def test_get_collection_info_success(self, collection_manager):
+    def test_get_collection_info_success(self, collection_manager):
         """Test getting collection information."""
         collection_desc = models.CollectionDescription(
             name="test-collection",
@@ -459,7 +458,7 @@ class TestWorkspaceCollectionManager:
         )
         collection_manager.client.get_collection.return_value = collection_desc
 
-        result = await collection_manager.get_collection_info()
+        result = collection_manager.get_collection_info()
 
         assert result is not None
         assert "collections" in result
@@ -468,8 +467,7 @@ class TestWorkspaceCollectionManager:
         assert result["collections"]["test-collection"]["points_count"] == 75
         assert result["collections"]["test-collection"]["config"]["vector_size"] == 384
 
-    @pytest.mark.asyncio
-    async def test_get_collection_info_not_found(self, collection_manager):
+    def test_get_collection_info_not_found(self, collection_manager):
         """Test getting information when collection access fails."""
         # Mock list_workspace_collections to return a collection that will fail
         collection_manager.list_workspace_collections = MagicMock(
@@ -479,7 +477,7 @@ class TestWorkspaceCollectionManager:
             ResponseHandlingException("Collection not found")
         )
 
-        result = await collection_manager.get_collection_info()
+        result = collection_manager.get_collection_info()
 
         # Should return a dict with error information
         assert result is not None
