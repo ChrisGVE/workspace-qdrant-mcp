@@ -496,7 +496,7 @@ class TestParserErrorHandling:
     async def test_unsupported_format_validation(self, tmp_path):
         """Test validation of unsupported file formats."""
         parser = TextParser()
-        
+
         # Create a temporary file with unsupported extension
         test_file = tmp_path / "test.unsupported"
         test_file.write_text("test content")
