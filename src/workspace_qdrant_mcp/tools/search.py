@@ -397,7 +397,7 @@ def _build_metadata_filter(metadata_filter: dict) -> models.Filter:
             conditions.append(
                 models.FieldCondition(key=key, match=models.MatchValue(value=value))
             )
-        elif isinstance(value, (int, float)):
+        elif isinstance(value, int | float):
             conditions.append(
                 models.FieldCondition(key=key, match=models.MatchValue(value=value))
             )
