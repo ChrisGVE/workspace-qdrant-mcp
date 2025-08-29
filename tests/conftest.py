@@ -70,28 +70,7 @@ def mock_qdrant_client():
     client.get_collections.return_value = models.CollectionsResponse(
         collections=[
             models.CollectionDescription(
-                name="test_collection",
-                status=models.CollectionStatus.GREEN,
-                vectors_count=100,
-                indexed_vectors_count=100,
-                points_count=50,
-                segments_count=1,
-                config=models.CollectionConfig(
-                    params=models.CollectionParams(
-                        vectors=models.VectorParams(
-                            size=384, distance=models.Distance.COSINE
-                        )
-                    ),
-                    hnsw_config=models.HnswConfig(
-                        m=16, ef_construct=100, full_scan_threshold=10000
-                    ),
-                    optimizer_config=models.OptimizersConfig(
-                        deleted_threshold=0.2,
-                        vacuum_min_vector_number=1000,
-                        default_segment_number=2,
-                        flush_interval_sec=5,
-                    ),
-                ),
+                name="test_collection"
             )
         ]
     )
