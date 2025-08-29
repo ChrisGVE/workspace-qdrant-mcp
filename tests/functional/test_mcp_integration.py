@@ -26,7 +26,7 @@ from workspace_qdrant_mcp.server import (
     workspace_status,
 )
 
-from ..fixtures.test_data_collector import TestDataCollector
+from tests.fixtures.test_data_collector import DataCollector
 from ..utils.metrics import AsyncTimedOperation, PerformanceBenchmarker
 
 
@@ -41,7 +41,7 @@ class TestMCPIntegration:
 
         # Collect test data
         source_root = tmp_path.parent.parent.parent
-        self.data_collector = TestDataCollector(source_root)
+        self.data_collector = DataCollector(source_root)
         self.test_data = self.data_collector.collect_all_data()
 
         # Create comprehensive mock workspace client
