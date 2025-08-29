@@ -153,16 +153,10 @@ async def add_document(
     datetime.now()
 
     try:
-        # Validate collection exists - use direct Qdrant API to avoid workspace filtering
-        try:
-            all_qdrant_collections = client.client.get_collections()
-            available_collections = [
-                col.name for col in all_qdrant_collections.collections
-            ]
-            if collection not in available_collections:
-                return {"error": f"Collection '{collection}' not found"}
-        except Exception as e:
-            return {"error": f"Failed to check collection existence: {e}"}
+        # Validate collection exists
+        available_collections = await client.list_collections()
+        if collection not in available_collections:
+            return {"error": f"Collection '{collection}' not found"}
 
         # Store original document ID for metadata
         original_document_id = document_id
