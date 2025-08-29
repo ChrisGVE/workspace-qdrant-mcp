@@ -132,6 +132,71 @@ Collections are automatically created based on your project and configuration:
 - `docs` (global documentation)
 - `references` (global references)
 
+### Scratchbook Collections
+
+Every project automatically gets a `{project-name}-scratchbook` collection for capturing development thoughts and notes. This is your **personal development journal** for the project.
+
+**What goes in scratchbook collections:**
+- 📝 **Meeting notes** and action items
+- 💡 **Ideas** and implementation thoughts  
+- ✅ **TODOs** and reminders
+- 🔧 **Code snippets** and implementation patterns
+- 🏗️ **Architecture decisions** and rationale
+- 🐛 **Bug reports** and troubleshooting notes
+- 📊 **Research findings** and links
+- 🎯 **Project goals** and milestones
+
+**Example scratchbook entries:**
+```
+"Discussed API rate limiting in team meeting - need to implement exponential backoff"
+"Found solution for memory leak in worker threads - use weak references"
+"TODO: Update deployment docs after container changes"
+"Code snippet: async context manager pattern for database connections"
+```
+
+### Subproject Support (Git Submodules)
+
+For repositories with **Git submodules**, additional collections are created automatically:
+
+**Requirements:**
+- Must set `WORKSPACE_QDRANT_WORKSPACE__GITHUB_USER=yourusername`
+- Only submodules **owned by you** get collections (prevents vendor/third-party sprawl)
+- Without `github_user` configured, only main project collections are created (conservative approach)
+
+**Example with subprojects:**
+```bash
+# Repository: my-monorepo with submodules
+# - frontend/ (github.com/myuser/frontend)  
+# - backend/ (github.com/myuser/backend)
+# - vendor-lib/ (github.com/vendor/lib) ← ignored
+
+# Collections created:
+my-monorepo-scratchbook    # Main project notes
+my-monorepo-project        # Main project docs
+frontend-scratchbook       # Frontend notes  
+frontend-project          # Frontend docs
+backend-scratchbook       # Backend notes
+backend-project           # Backend docs
+# No collections for vendor-lib (different owner)
+```
+
+### Cross-Collection Search
+
+**Important: All MCP search commands search across ALL your collections simultaneously.**
+
+When you use Claude with commands like:
+- "Search my project for authentication code"  
+- "Find all references to the payment API"
+- "What documentation do I have about deployment?"
+
+The search **automatically includes:**
+- ✅ Main project collections (`project-name-*`)
+- ✅ All subproject collections (`subproject-*`) 
+- ✅ Global collections (`docs`, `references`, etc.)
+- ✅ All scratchbook collections (your notes and ideas)
+
+This gives you **unified search across your entire workspace** - you don't need to specify which collection to search.
+
 ## Usage
 
 Interact with your collections through natural language commands in Claude:
