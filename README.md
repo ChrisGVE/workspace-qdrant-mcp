@@ -304,3 +304,4 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 - [claude-qdrant-mcp](https://github.com/marlian/claude-qdrant-mcp) - Original TypeScript implementation
 - [Qdrant](https://qdrant.tech) - Vector database
 - [FastMCP](https://github.com/jlowin/fastmcp) - MCP server framework
+<!-- CI trigger: Fri Aug 29 12:45:26 CEST 2025 -->
