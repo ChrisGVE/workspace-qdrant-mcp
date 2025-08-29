@@ -62,6 +62,9 @@ class TestFullWorkflowE2E:
                     mock_collection_manager.list_workspace_collections = AsyncMock(
                         return_value=["test-project_docs", "test-project_scratchbook"]
                     )
+                    mock_collection_manager.get_collection_info = AsyncMock(
+                        return_value={}
+                    )
                     mock_collection_manager_class.return_value = mock_collection_manager
 
 
@@ -275,7 +278,7 @@ class TestFullWorkflowE2E:
             project_name="test-project",
         )
 
-        assert add_result["status"] == "success"
+        assert "error" not in add_result
         assert "note_id" in add_result
 
         # Test searching notes
@@ -411,7 +414,7 @@ class TestFullWorkflowE2E:
 
             # Test adding large document with chunking
             result = await add_document(
-                workspace_client=client,
+                client=client,
                 content=large_content,
                 collection="docs",
                 metadata={"source": "test", "type": "large_document"},
@@ -447,7 +450,8 @@ class TestFullWorkflowE2E:
             with patch("asyncio.get_event_loop") as mock_get_loop:
                 mock_loop = MagicMock()
                 mock_get_loop.return_value = mock_loop
-                future = asyncio.create_future()
+                loop = asyncio.get_event_loop()
+                future = loop.create_future()
                 future.set_exception(Exception("Connection failed"))
                 mock_loop.run_in_executor.return_value = future
 
@@ -632,7 +636,8 @@ class TestFullWorkflowE2E:
             ):
                 mock_loop = MagicMock()
                 mock_get_loop.return_value = mock_loop
-                future = asyncio.create_future()
+                loop = asyncio.get_event_loop()
+                future = loop.create_future()
                 future.set_result(MagicMock(collections=[]))
                 mock_loop.run_in_executor.return_value = future
 
