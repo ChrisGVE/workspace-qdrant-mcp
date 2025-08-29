@@ -115,16 +115,20 @@ export FASTEMBED_MODEL="BAAI/bge-base-en-v1.5"
 
 Collections are automatically created based on your project and configuration:
 
+**Always Created:**
+- `{project-name}-scratchbook` → Auto-created for notes, ideas, todos, and code snippets
+
 **Project Collections:**
 - `COLLECTIONS="project"` → creates `{project-name}-project`
-- `COLLECTIONS="scratchbook,docs"` → creates `{project-name}-scratchbook`, `{project-name}-docs`
+- `COLLECTIONS="docs,tests"` → creates `{project-name}-docs`, `{project-name}-tests`
 
-**Global Collections:**
-- `GLOBAL_COLLECTIONS="docs,references"` → creates `docs`, `references`
+**Global Collections (User Choice):**
+- `GLOBAL_COLLECTIONS="docs,references"` → creates `docs`, `references` (shared across projects)
 
-**Example:** For project "my-app" with `COLLECTIONS="scratchbook,docs"`:
-- `my-app-scratchbook` (project-specific notes)
-- `my-app-docs` (project-specific documentation)
+**Example:** For project "my-app" with `COLLECTIONS="docs,tests"`:
+- `my-app-scratchbook` (automatically created for notes)
+- `my-app-docs` (project documentation)
+- `my-app-tests` (test-related documents)
 - `docs` (global documentation)
 - `references` (global references)
 

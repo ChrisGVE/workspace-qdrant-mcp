@@ -120,21 +120,23 @@ class WorkspaceConfig(BaseModel):
 
     Attributes:
         collections: Project collection suffixes (creates {project-name}-{suffix})
-        global_collections: Collections available across all projects (e.g., 'scratchbook')
+        global_collections: Collections available across all projects (user-defined)
         github_user: GitHub username for project ownership detection
         collection_prefix: Optional prefix for all collection names
         max_collections: Maximum number of collections per workspace (safety limit)
 
     Usage Patterns:
         - collections define project-specific collection types
-        - global_collections enable cross-project knowledge sharing
+        - global_collections enable cross-project knowledge sharing (user choice)
         - github_user enables intelligent project name detection
         - collection_prefix helps organize collections in shared Qdrant instances
         - max_collections prevents runaway collection creation
+        - scratchbook collections ({project-name}-scratchbook) are created automatically
 
     Examples:
         - collections=["project"] → creates {project-name}-project
-        - collections=["scratchbook", "docs"] → creates {project-name}-scratchbook, {project-name}-docs
+        - collections=["docs", "tests"] → creates {project-name}-docs, {project-name}-tests
+        - scratchbook collection is always created as {project-name}-scratchbook
     """
 
     collections: list[str] = ["project"]
