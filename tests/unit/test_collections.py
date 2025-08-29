@@ -427,13 +427,14 @@ class TestWorkspaceCollectionManager:
 
     def test_get_collection_info_success(self, collection_manager):
         """Test getting collection information."""
-        collection_desc = models.CollectionDescription(
-            name="test-collection",
+        collection_desc = models.CollectionInfo(
             status=models.CollectionStatus.GREEN,
             vectors_count=150,
             indexed_vectors_count=150,
             points_count=75,
             segments_count=2,
+            optimizer_status=models.OptimizersStatusOneOf.OK,
+            payload_schema={},    # Required field
             config=models.CollectionConfig(
                 params=models.CollectionParams(
                     vectors=models.VectorParams(
