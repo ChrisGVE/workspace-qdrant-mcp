@@ -20,7 +20,7 @@ except ImportError:
     # Create a dummy PyPDF2 for test compatibility
     class PyPDF2:
         pass
-    
+
     HAS_PYPDF = False
     HAS_PYPDF2 = False  # For backward compatibility with tests
 
