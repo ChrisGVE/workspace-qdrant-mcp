@@ -64,6 +64,7 @@ from typing import Optional
 from qdrant_client.http import models
 
 from ..core.client import QdrantWorkspaceClient
+from ..core.hybrid_search import HybridSearchEngine
 from ..core.sparse_vectors import create_qdrant_sparse_vector
 
 logger = logging.getLogger(__name__)
@@ -417,46 +418,22 @@ class ScratchbookManager:
                 models.Filter(must=filter_conditions) if filter_conditions else None
             )
 
-            # Perform search
-            search_results = []
-
-            if mode in ["dense", "hybrid"]:
-                # Dense vector search
-                dense_results = self.client.client.search(
-                    collection_name=collection_name,
-                    query_vector=("dense", embeddings["dense"]),
-                    query_filter=search_filter,
-                    limit=limit,
-                    with_payload=True,
-                )
-
-                for result in dense_results:
-                    search_results.append(
-                        {
-                            "note_id": result.id,
-                            "score": result.score,
-                            "title": result.payload.get("title", ""),
-                            "note_type": result.payload.get("note_type", "note"),
-                            "tags": result.payload.get("tags", []),
-                            "created_at": result.payload.get("created_at"),
-                            "updated_at": result.payload.get("updated_at"),
-                            "version": result.payload.get("version", 1),
-                            "content": result.payload.get("content", "")[:200] + "..."
-                            if len(result.payload.get("content", "")) > 200
-                            else result.payload.get("content", ""),
-                            "search_type": "dense",
-                        }
-                    )
-
-            # Sort by score and return
-            search_results.sort(key=lambda x: x.get("score", 0), reverse=True)
+            # Use HybridSearchEngine for search
+            search_engine = HybridSearchEngine(self.client.client)
+            search_result = await search_engine.hybrid_search(
+                collection_name=collection_name,
+                query_embeddings=embeddings,
+                limit=limit,
+                search_filter=search_filter,
+                mode=mode,
+            )
 
             return {
                 "query": query,
                 "collection": collection_name,
-                "total_results": len(search_results),
+                "results": search_result.get("results", []),
+                "total": search_result.get("total", 0),
                 "filters": {"note_types": note_types, "tags": tags},
-                "results": search_results[:limit],
             }
 
         except Exception as e:
@@ -539,7 +516,7 @@ class ScratchbookManager:
 
             return {
                 "collection": collection_name,
-                "total_notes": len(notes),
+                "total": len(notes),
                 "filters": {"note_type": note_type, "tags": tags},
                 "notes": notes,
             }
@@ -566,6 +543,25 @@ class ScratchbookManager:
             # Determine collection name using configured collections
             collection_name = self._get_scratchbook_collection_name(project_name)
 
+            # Check if note exists first
+            existing_points = self.client.client.scroll(
+                collection_name=collection_name,
+                scroll_filter=models.Filter(
+                    must=[
+                        models.FieldCondition(
+                            key="note_id", match=models.MatchValue(value=note_id)
+                        )
+                    ]
+                ),
+                with_payload=True,
+                limit=1,
+            )
+
+            if not existing_points[0]:
+                return {
+                    "error": f"Note '{note_id}' not found in scratchbook '{collection_name}'"
+                }
+
             # Delete the note
             result = self.client.client.delete(
                 collection_name=collection_name,
@@ -577,7 +573,8 @@ class ScratchbookManager:
             return {
                 "note_id": note_id,
                 "collection": collection_name,
-                "deleted": True,
+                "status": "success",
+                "deleted_at": datetime.utcnow().isoformat(),
                 "operation_id": result.operation_id,
             }
 
@@ -639,9 +636,13 @@ async def update_scratchbook(
     Returns:
         Dictionary with operation result
     """
-    manager = ScratchbookManager(client)
+    try:
+        manager = ScratchbookManager(client)
 
-    if note_id:
-        return await manager.update_note(note_id, content, title, tags)
-    else:
-        return await manager.add_note(content, title, tags, note_type)
+        if note_id:
+            return await manager.update_note(note_id, content, title, tags)
+        else:
+            return await manager.add_note(content, title, tags, note_type)
+    except Exception as e:
+        logger.error("Failed to update scratchbook: %s", e)
+        return {"error": f"Failed to update scratchbook: {e}"}
