@@ -12,6 +12,7 @@ from typing import Any, Optional, Union
 
 try:
     import pypdf
+
     # Alias for backward compatibility with tests that expect PyPDF2
     PyPDF2 = pypdf
     HAS_PYPDF = True
