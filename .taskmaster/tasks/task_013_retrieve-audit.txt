@@ -1,0 +1,16 @@
+# Task ID: 13
+# Title: Cross-Collection Search Capabilities Documentation
+# Status: pending
+# Dependencies: 6, 12
+# Priority: medium
+# Description: Document advanced search capabilities across collections
+# Details:
+- Document cross-collection search patterns
+- Create examples of federated search
+- Document collection filtering strategies
+- Show metadata aggregation techniques
+- Create best practices guide
+- Add performance considerations documentation
+
+# Test Strategy:
+Documentation accuracy validation, example testing
