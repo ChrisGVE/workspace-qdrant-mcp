@@ -299,6 +299,12 @@ class ScratchbookManager:
             new_payload = old_payload.copy()
             new_payload["updated_at"] = datetime.utcnow().isoformat()
             new_payload["version"] = old_payload.get("version", 1) + 1
+            
+            # Ensure required fields exist
+            if "title" not in new_payload:
+                new_payload["title"] = ""
+            if "tags" not in new_payload:
+                new_payload["tags"] = []
 
             # Update fields if provided
             if title is not None:
@@ -343,8 +349,8 @@ class ScratchbookManager:
 
             return {
                 "note_id": note_id,
-                "title": new_payload["title"],
-                "tags": new_payload["tags"],
+                "title": new_payload.get("title", ""),
+                "tags": new_payload.get("tags", []),
                 "collection": collection_name,
                 "version": new_payload["version"],
                 "updated_at": new_payload["updated_at"],
