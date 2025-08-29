@@ -351,8 +351,10 @@ async def update_document(
                         id=point.id, vector=vectors, payload=new_payload
                     )
                 else:
-                    # Update only payload
-                    updated_point = models.PointStruct(id=point.id, payload=new_payload)
+                    # Update only payload - preserve original vector
+                    updated_point = models.PointStruct(
+                        id=point.id, vector=point.vector, payload=new_payload
+                    )
 
                 client.client.upsert(collection_name=collection, points=[updated_point])
 
