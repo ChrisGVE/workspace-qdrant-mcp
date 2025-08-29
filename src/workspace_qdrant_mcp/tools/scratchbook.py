@@ -124,41 +124,24 @@ class ScratchbookManager:
         self.project_info = client.get_project_info()
 
     def _get_scratchbook_collection_name(self, project_name: str | None = None) -> str:
-        """Determine the appropriate collection name for scratchbook operations.
+        """Determine the scratchbook collection name for the project.
 
-        Prioritizes:
-        1. Project collection with 'scratchbook' suffix if available
-        2. First configured project collection suffix
-        3. Global 'scratchbook' collection as fallback
+        The scratchbook collection is always project-specific and uses the pattern
+        '{project-name}-scratchbook'. This collection is created automatically and
+        does not need to be declared in the workspace configuration.
 
         Args:
             project_name: Project name (defaults to current project)
 
         Returns:
-            Collection name to use for scratchbook operations
+            Collection name: {project-name}-scratchbook
         """
         if not project_name:
             project_name = (
                 self.project_info["main_project"] if self.project_info else "default"
             )
 
-        # Get workspace configuration for available collections
-        config = self.client.config
-
-        # Prefer 'scratchbook' suffix if configured
-        if "scratchbook" in config.workspace.collections:
-            return f"{project_name}-scratchbook"
-
-        # Use first configured collection suffix
-        if config.workspace.collections:
-            first_suffix = config.workspace.collections[0]
-            return f"{project_name}-{first_suffix}"
-
-        # Fallback to global scratchbook if available
-        if "scratchbook" in config.workspace.global_collections:
-            return "scratchbook"
-
-        # Final fallback - use default pattern
+        # Always use the consistent scratchbook naming pattern
         return f"{project_name}-scratchbook"
 
     async def add_note(
