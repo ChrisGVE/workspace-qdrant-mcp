@@ -165,16 +165,14 @@ class TestWorkspaceCollectionManager:
                         )
                     ),
                     hnsw_config=models.HnswConfig(
-                        m=16,
-                        ef_construct=100,
-                        full_scan_threshold=10000
+                        m=16, ef_construct=100, full_scan_threshold=10000
                     ),
                     optimizer_config=models.OptimizersConfig(
                         deleted_threshold=0.2,
                         vacuum_min_vector_number=1000,
                         default_segment_number=0,
-                        flush_interval_sec=5
-                    )
+                        flush_interval_sec=5,
+                    ),
                 ),
             )
         ]
@@ -214,7 +212,9 @@ class TestWorkspaceCollectionManager:
         assert any("references" in name for name in created_names)
         assert any("standards" in name for name in created_names)
 
-    @pytest.mark.skip(reason="create_collection method does not exist in actual implementation")
+    @pytest.mark.skip(
+        reason="create_collection method does not exist in actual implementation"
+    )
     @pytest.mark.asyncio
     async def test_create_collection_success(self, collection_manager):
         """Test successful collection creation."""
@@ -241,7 +241,9 @@ class TestWorkspaceCollectionManager:
         assert "dense" in vectors_config
         assert "sparse" in vectors_config  # Sparse vectors enabled
 
-    @pytest.mark.skip(reason="create_collection method does not exist in actual implementation")
+    @pytest.mark.skip(
+        reason="create_collection method does not exist in actual implementation"
+    )
     @pytest.mark.asyncio
     async def test_create_collection_without_sparse_vectors(self, collection_manager):
         """Test collection creation without sparse vectors."""
@@ -263,7 +265,9 @@ class TestWorkspaceCollectionManager:
         assert "dense" in vectors_config
         assert "sparse" not in vectors_config
 
-    @pytest.mark.skip(reason="create_collection method does not exist in actual implementation")
+    @pytest.mark.skip(
+        reason="create_collection method does not exist in actual implementation"
+    )
     @pytest.mark.asyncio
     async def test_create_collection_failure(self, collection_manager):
         """Test collection creation failure."""
@@ -281,7 +285,9 @@ class TestWorkspaceCollectionManager:
 
         assert result is False
 
-    @pytest.mark.skip(reason="delete_collection method does not exist in actual implementation")
+    @pytest.mark.skip(
+        reason="delete_collection method does not exist in actual implementation"
+    )
     @pytest.mark.asyncio
     async def test_delete_collection_success(self, collection_manager):
         """Test successful collection deletion."""
@@ -294,7 +300,9 @@ class TestWorkspaceCollectionManager:
             collection_name="test-collection"
         )
 
-    @pytest.mark.skip(reason="delete_collection method does not exist in actual implementation")
+    @pytest.mark.skip(
+        reason="delete_collection method does not exist in actual implementation"
+    )
     @pytest.mark.asyncio
     async def test_delete_collection_failure(self, collection_manager):
         """Test collection deletion failure."""
@@ -306,7 +314,9 @@ class TestWorkspaceCollectionManager:
 
         assert result is False
 
-    @pytest.mark.skip(reason="collection_exists method does not exist in actual implementation")
+    @pytest.mark.skip(
+        reason="collection_exists method does not exist in actual implementation"
+    )
     @pytest.mark.asyncio
     async def test_collection_exists_true(self, collection_manager):
         """Test collection existence check - exists."""
@@ -329,7 +339,9 @@ class TestWorkspaceCollectionManager:
 
         assert result is True
 
-    @pytest.mark.skip(reason="collection_exists method does not exist in actual implementation")
+    @pytest.mark.skip(
+        reason="collection_exists method does not exist in actual implementation"
+    )
     @pytest.mark.asyncio
     async def test_collection_exists_false(self, collection_manager):
         """Test collection existence check - does not exist."""
@@ -341,7 +353,9 @@ class TestWorkspaceCollectionManager:
 
         assert result is False
 
-    @pytest.mark.skip(reason="collection_exists method does not exist in actual implementation")
+    @pytest.mark.skip(
+        reason="collection_exists method does not exist in actual implementation"
+    )
     @pytest.mark.asyncio
     async def test_collection_exists_exception(self, collection_manager):
         """Test collection existence check with exception."""
@@ -353,7 +367,9 @@ class TestWorkspaceCollectionManager:
 
         assert result is False
 
-    @pytest.mark.skip(reason="list_collections method does not exist - use list_workspace_collections instead")
+    @pytest.mark.skip(
+        reason="list_collections method does not exist - use list_workspace_collections instead"
+    )
     @pytest.mark.asyncio
     async def test_list_collections(self, collection_manager):
         """Test listing collections."""
@@ -371,7 +387,9 @@ class TestWorkspaceCollectionManager:
 
         assert result == ["collection1", "collection2", "collection3"]
 
-    @pytest.mark.skip(reason="list_collections method does not exist - use list_workspace_collections instead")
+    @pytest.mark.skip(
+        reason="list_collections method does not exist - use list_workspace_collections instead"
+    )
     @pytest.mark.asyncio
     async def test_list_collections_empty(self, collection_manager):
         """Test listing collections when none exist."""
@@ -383,7 +401,9 @@ class TestWorkspaceCollectionManager:
 
         assert result == []
 
-    @pytest.mark.skip(reason="list_collections method does not exist - use list_workspace_collections instead")
+    @pytest.mark.skip(
+        reason="list_collections method does not exist - use list_workspace_collections instead"
+    )
     @pytest.mark.asyncio
     async def test_list_collections_filtered(self, collection_manager):
         """Test listing collections with filter."""
@@ -422,21 +442,21 @@ class TestWorkspaceCollectionManager:
                     )
                 ),
                 hnsw_config=models.HnswConfig(
-                    m=16,
-                    ef_construct=100,
-                    full_scan_threshold=10000
+                    m=16, ef_construct=100, full_scan_threshold=10000
                 ),
                 optimizer_config=models.OptimizersConfig(
                     deleted_threshold=0.2,
                     vacuum_min_vector_number=1000,
                     default_segment_number=0,
-                    flush_interval_sec=5
-                )
+                    flush_interval_sec=5,
+                ),
             ),
         )
 
         # Mock list_workspace_collections to return our test collection
-        collection_manager.list_workspace_collections = MagicMock(return_value=["test-collection"])
+        collection_manager.list_workspace_collections = MagicMock(
+            return_value=["test-collection"]
+        )
         collection_manager.client.get_collection.return_value = collection_desc
 
         result = await collection_manager.get_collection_info()
@@ -452,7 +472,9 @@ class TestWorkspaceCollectionManager:
     async def test_get_collection_info_not_found(self, collection_manager):
         """Test getting information when collection access fails."""
         # Mock list_workspace_collections to return a collection that will fail
-        collection_manager.list_workspace_collections = MagicMock(return_value=["failing-collection"])
+        collection_manager.list_workspace_collections = MagicMock(
+            return_value=["failing-collection"]
+        )
         collection_manager.client.get_collection.side_effect = (
             ResponseHandlingException("Collection not found")
         )
@@ -465,7 +487,9 @@ class TestWorkspaceCollectionManager:
         assert "failing-collection" in result["collections"]
         assert "error" in result["collections"]["failing-collection"]
 
-    @pytest.mark.skip(reason="_generate_collection_name method does not exist in actual implementation")
+    @pytest.mark.skip(
+        reason="_generate_collection_name method does not exist in actual implementation"
+    )
     def test_generate_collection_name_project_scoped(self, collection_manager):
         """Test project-scoped collection name generation."""
         name = collection_manager._generate_collection_name(
@@ -474,7 +498,9 @@ class TestWorkspaceCollectionManager:
 
         assert name == "test-project-docs"
 
-    @pytest.mark.skip(reason="_generate_collection_name method does not exist in actual implementation")
+    @pytest.mark.skip(
+        reason="_generate_collection_name method does not exist in actual implementation"
+    )
     def test_generate_collection_name_global(self, collection_manager):
         """Test global collection name generation."""
         name = collection_manager._generate_collection_name(
@@ -483,7 +509,9 @@ class TestWorkspaceCollectionManager:
 
         assert name == "references"
 
-    @pytest.mark.skip(reason="_generate_collection_name method does not exist in actual implementation")
+    @pytest.mark.skip(
+        reason="_generate_collection_name method does not exist in actual implementation"
+    )
     def test_generate_collection_name_with_prefix(self, collection_manager):
         """Test collection name generation with prefix."""
         # Enable prefix in config
@@ -495,7 +523,9 @@ class TestWorkspaceCollectionManager:
 
         assert name == "dev_test-project-docs"
 
-    @pytest.mark.skip(reason="_build_vectors_config method does not exist in actual implementation")
+    @pytest.mark.skip(
+        reason="_build_vectors_config method does not exist in actual implementation"
+    )
     def test_build_vectors_config_with_sparse(self, collection_manager):
         """Test vectors configuration building with sparse vectors."""
         config = CollectionConfig(
@@ -521,7 +551,9 @@ class TestWorkspaceCollectionManager:
         sparse_config = vectors_config["sparse"]
         assert sparse_config.modifier == models.Modifier.IDF
 
-    @pytest.mark.skip(reason="_build_vectors_config method does not exist in actual implementation")
+    @pytest.mark.skip(
+        reason="_build_vectors_config method does not exist in actual implementation"
+    )
     def test_build_vectors_config_without_sparse(self, collection_manager):
         """Test vectors configuration building without sparse vectors."""
         config = CollectionConfig(
@@ -542,7 +574,9 @@ class TestWorkspaceCollectionManager:
         assert dense_config.size == 768
         assert dense_config.distance == models.Distance.DOT
 
-    @pytest.mark.skip(reason="_build_vectors_config method does not exist in actual implementation")
+    @pytest.mark.skip(
+        reason="_build_vectors_config method does not exist in actual implementation"
+    )
     def test_build_vectors_config_invalid_distance(self, collection_manager):
         """Test vectors configuration with invalid distance metric."""
         config = CollectionConfig(
@@ -558,7 +592,9 @@ class TestWorkspaceCollectionManager:
         dense_config = vectors_config["dense"]
         assert dense_config.distance == models.Distance.COSINE
 
-    @pytest.mark.skip(reason="ensure_collection_exists public method does not exist - only _ensure_collection_exists private method")
+    @pytest.mark.skip(
+        reason="ensure_collection_exists public method does not exist - only _ensure_collection_exists private method"
+    )
     @pytest.mark.asyncio
     async def test_ensure_collection_exists_create_new(self, collection_manager):
         """Test ensuring collection exists - creates new collection."""
@@ -577,7 +613,9 @@ class TestWorkspaceCollectionManager:
         assert result is True
         collection_manager.client.create_collection.assert_called_once()
 
-    @pytest.mark.skip(reason="ensure_collection_exists public method does not exist - only _ensure_collection_exists private method")
+    @pytest.mark.skip(
+        reason="ensure_collection_exists public method does not exist - only _ensure_collection_exists private method"
+    )
     @pytest.mark.asyncio
     async def test_ensure_collection_exists_already_exists(self, collection_manager):
         """Test ensuring collection exists - collection already exists."""
@@ -601,7 +639,9 @@ class TestWorkspaceCollectionManager:
         assert result is True
         collection_manager.client.create_collection.assert_not_called()
 
-    @pytest.mark.skip(reason="_validate_collection_limits method does not exist in actual implementation")
+    @pytest.mark.skip(
+        reason="_validate_collection_limits method does not exist in actual implementation"
+    )
     def test_validate_collection_limits_under_limit(self, collection_manager):
         """Test collection limit validation - under limit."""
         existing_collections = [f"collection{i}" for i in range(5)]  # 5 collections
@@ -611,7 +651,9 @@ class TestWorkspaceCollectionManager:
 
         assert result is True
 
-    @pytest.mark.skip(reason="_validate_collection_limits method does not exist in actual implementation")
+    @pytest.mark.skip(
+        reason="_validate_collection_limits method does not exist in actual implementation"
+    )
     def test_validate_collection_limits_at_limit(self, collection_manager):
         """Test collection limit validation - at limit."""
         existing_collections = [f"collection{i}" for i in range(10)]  # 10 collections
@@ -621,7 +663,9 @@ class TestWorkspaceCollectionManager:
 
         assert result is True
 
-    @pytest.mark.skip(reason="_validate_collection_limits method does not exist in actual implementation")
+    @pytest.mark.skip(
+        reason="_validate_collection_limits method does not exist in actual implementation"
+    )
     def test_validate_collection_limits_over_limit(self, collection_manager):
         """Test collection limit validation - over limit."""
         existing_collections = [f"collection{i}" for i in range(15)]  # 15 collections
@@ -631,7 +675,9 @@ class TestWorkspaceCollectionManager:
 
         assert result is False
 
-    @pytest.mark.skip(reason="_validate_collection_limits method does not exist in actual implementation")
+    @pytest.mark.skip(
+        reason="_validate_collection_limits method does not exist in actual implementation"
+    )
     def test_validate_collection_limits_unlimited(self, collection_manager):
         """Test collection limit validation - unlimited."""
         # Set unlimited
