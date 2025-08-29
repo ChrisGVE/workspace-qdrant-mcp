@@ -192,34 +192,17 @@ class DocumentIngestionEngine:
 
             logger.info(f"Found {len(files_to_process)} files to process")
 
-            # Ensure collection exists (create if not dry run)
+            # Verify collection exists
             if not dry_run:
                 available_collections = await self.client.list_collections()
                 if collection not in available_collections:
-                    logger.info(f"Collection '{collection}' not found. Creating it...")
-
-                    # Create collection using the client's collection manager
-                    from ..core.collections import CollectionConfig
-
-                    collection_config = CollectionConfig(
-                        name=collection,
-                        description=f"Ingested documents collection: {collection}",
-                        collection_type="docs",  # Type for ingested documents
-                        project_name=None,  # Generic collection
-                        vector_size=384,  # all-MiniLM-L6-v2 dimension
-                        distance_metric="Cosine",
-                        enable_sparse_vectors=True,
+                    return IngestionResult(
+                        success=False,
+                        stats=stats,
+                        collection=collection,
+                        message=f"Collection '{collection}' not found",
+                        dry_run=dry_run,
                     )
-
-                    # Use the client's collection manager to create the collection
-                    await self.client.collection_manager._ensure_collection_exists(
-                        collection_config
-                    )
-
-                    # Small delay to allow for collection consistency across Qdrant
-                    await asyncio.sleep(0.5)
-
-                    logger.info(f"Successfully created collection '{collection}'")
 
             # Process files with concurrency control
             await self._process_files_batch(
