@@ -123,9 +123,7 @@ class ScratchbookManager:
         self.client = client
         self.project_info = client.get_project_info()
 
-    def _get_scratchbook_collection_name(
-        self, project_name: str | None = None
-    ) -> str:
+    def _get_scratchbook_collection_name(self, project_name: str | None = None) -> str:
         """Determine the appropriate collection name for scratchbook operations.
 
         Prioritizes:
@@ -562,9 +560,7 @@ class ScratchbookManager:
             logger.error("Failed to list scratchbook notes: %s", e)
             return {"error": f"Failed to list notes: {e}"}
 
-    async def delete_note(
-        self, note_id: str, project_name: str | None = None
-    ) -> dict:
+    async def delete_note(self, note_id: str, project_name: str | None = None) -> dict:
         """
         Delete a note from the scratchbook.
 

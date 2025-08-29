@@ -159,9 +159,7 @@ class DocumentParser(ABC):
         return file_path.suffix.lower() in self.supported_extensions
 
     @abstractmethod
-    async def parse(
-        self, file_path: str | Path, **options: Any
-    ) -> ParsedDocument:
+    async def parse(self, file_path: str | Path, **options: Any) -> ParsedDocument:
         """
         Parse a document file and extract its text content.
 
