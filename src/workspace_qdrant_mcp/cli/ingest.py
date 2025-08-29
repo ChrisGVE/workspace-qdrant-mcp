@@ -431,7 +431,7 @@ async def _show_formats() -> None:
 
 
 async def _estimate_processing(
-    path: str, formats: Optional[list[str]], concurrency: int
+    path: str, formats: list[str] | None, concurrency: int
 ) -> None:
     """Display processing time estimation."""
 
