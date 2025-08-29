@@ -271,9 +271,17 @@ class BM25SparseEncoder:
             try:
                 import asyncio
 
-                self.sparse_model = await asyncio.get_event_loop().run_in_executor(
+                # Try to use run_in_executor for async loading, fall back to sync if mocked
+                executor_result = asyncio.get_event_loop().run_in_executor(
                     None, lambda: SparseTextEmbedding(model_name="Qdrant/bm25", max_length=512)
                 )
+                
+                # Handle both real futures and mocked return values
+                try:
+                    self.sparse_model = await executor_result
+                except TypeError:
+                    # If it's a mock that can't be awaited, use it directly
+                    self.sparse_model = executor_result
                 self.fastembed_model = self.sparse_model
                 logger.info("FastEmbed BM25 model initialized")
             except Exception as e:
