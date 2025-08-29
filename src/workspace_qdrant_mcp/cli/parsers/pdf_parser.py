@@ -12,10 +12,16 @@ from typing import Any, Optional, Union
 
 try:
     import pypdf
-
+    # Alias for backward compatibility with tests that expect PyPDF2
+    PyPDF2 = pypdf
+    
     HAS_PYPDF = True
     HAS_PYPDF2 = True  # For backward compatibility with tests
 except ImportError:
+    # Create a dummy PyPDF2 for test compatibility
+    class PyPDF2:
+        pass
+    
     HAS_PYPDF = False
     HAS_PYPDF2 = False  # For backward compatibility with tests
 
