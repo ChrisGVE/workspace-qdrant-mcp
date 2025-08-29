@@ -397,7 +397,7 @@ class EmbeddingService:
         """
         chunk_size = chunk_size or self.config.embedding.chunk_size
         chunk_overlap = chunk_overlap or self.config.embedding.chunk_overlap
-        separators = separators or [" ", "\n", "."]
+        separators = separators or [". ", "\n\n", "\n", " "]
 
         if len(text) <= chunk_size:
             return [text]
