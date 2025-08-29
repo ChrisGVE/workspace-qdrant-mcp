@@ -4,7 +4,7 @@ from .test_data_collector import (
     CodeChunk,
     CodeSymbol,
     SearchGroundTruth,
-    TestDataCollector,
+    DataCollector,
 )
 
-__all__ = ["TestDataCollector", "CodeSymbol", "CodeChunk", "SearchGroundTruth"]
+__all__ = ["DataCollector", "CodeSymbol", "CodeChunk", "SearchGroundTruth"]
