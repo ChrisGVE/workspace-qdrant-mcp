@@ -233,7 +233,7 @@ class PDFParser(DocumentParser):
                         if "date" in meta_key.lower() and isinstance(value, str):
                             parsed_date = self._parse_pdf_date(value)
                             metadata[meta_key] = parsed_date
-                        elif isinstance(value, (str, int, float, bool)):
+                        elif isinstance(value, str | int | float | bool):
                             metadata[meta_key] = value
 
         except Exception as e:
