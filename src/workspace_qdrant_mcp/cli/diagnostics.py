@@ -943,7 +943,9 @@ class DiagnosticTool:
 
                 # Insert test points
                 test_points = []
-                for i, (doc, embedding) in enumerate(zip(test_docs, embeddings, strict=True)):
+                for i, (doc, embedding) in enumerate(
+                    zip(test_docs, embeddings, strict=True)
+                ):
                     vector_data = {"dense": embedding}
 
                     if (

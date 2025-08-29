@@ -332,7 +332,9 @@ class TestSearchFunctionality:
         assert hybrid_avg_results > 0, "Hybrid search should return results"
 
         # Check that hybrid search finds different results than semantic-only
-        for hybrid_res, semantic_res in zip(hybrid_results, semantic_results, strict=True):
+        for hybrid_res, semantic_res in zip(
+            hybrid_results, semantic_results, strict=True
+        ):
             hybrid_ids = set(r["id"] for r in hybrid_res["results"])
             semantic_ids = set(r["id"] for r in semantic_res["results"])
 
