@@ -1,0 +1,16 @@
+# Task ID: 12
+# Title: Documentation Updates for Dual MCP Setup
+# Status: pending
+# Dependencies: 11
+# Priority: medium
+# Description: Create comprehensive documentation for using both MCPs together
+# Details:
+- Add section about complementary retrieve MCP
+- Create installation guide for both MCPs
+- Document configuration for simultaneous use
+- Create usage examples showing both MCPs
+- Add troubleshooting section for dual setup
+- Update existing documentation with retrieve capabilities
+
+# Test Strategy:
+Documentation completeness review, example validation, user feedback

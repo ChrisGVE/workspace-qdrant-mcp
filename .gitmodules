@@ -1,0 +1,3 @@
+[submodule "external/mcp-server-qdrant-retrieve"]
+	path = external/mcp-server-qdrant-retrieve
+	url = https://github.com/gergelyszerovay/mcp-server-qdrant-retrieve.git
