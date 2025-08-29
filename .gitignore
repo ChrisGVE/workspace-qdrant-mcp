@@ -9,6 +9,14 @@ dev-debug.log
 # Dependency directories
 node_modules/
 
+# AI Assistant files
+specs/
+CLAUDE.MD
+COLLECTIONS_IMPLEMENTATION.md 
+CONSOLIDATION_SUMMARY.md 
+IMPLEMENTATION_SUMMARY.md 
+
+
 # Environment variables
 .env
 
@@ -62,6 +70,7 @@ htmlcov/
 
 # Pytest cache
 .pytest_cache/
+test_data/
 
 # Virtual environments
 .venv/
@@ -69,6 +78,7 @@ venv/
 
 # Benchmark results
 .benchmarks/
+benchmarking_results/
 
 # Editor specific
 .cursor/
