@@ -188,12 +188,16 @@ class ScratchbookManager:
                 title = self._generate_title_from_content(content)
 
             # Prepare metadata
+            # Ensure project_name is set to actual project name, not None
+            actual_project_name = project_name if project_name else (
+                self.project_info["main_project"] if self.project_info else "default"
+            )
             metadata = {
                 "note_id": note_id,
                 "title": title,
                 "note_type": note_type,
                 "tags": tags or [],
-                "project_name": project_name,
+                "project_name": actual_project_name,
                 "collection_type": "scratchbook",
                 "created_at": datetime.utcnow().isoformat(),
                 "updated_at": datetime.utcnow().isoformat(),
