@@ -11,17 +11,16 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-from workspace_qdrant_mcp.tools.scratchbook import ScratchbookManager
-from workspace_qdrant_mcp.tools.search import (
-    search_collection_by_metadata,
-    search_workspace,
-)
-
 from tests.fixtures.test_data_collector import DataCollector
 from tests.utils.metrics import (
     AsyncTimedOperation,
     PerformanceBenchmarker,
     RecallPrecisionMeter,
+)
+from workspace_qdrant_mcp.tools.scratchbook import ScratchbookManager
+from workspace_qdrant_mcp.tools.search import (
+    search_collection_by_metadata,
+    search_workspace,
 )
 
 

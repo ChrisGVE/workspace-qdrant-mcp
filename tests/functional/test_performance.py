@@ -16,12 +16,11 @@ from unittest.mock import AsyncMock
 import psutil
 import pytest
 
+from tests.fixtures.test_data_collector import DataCollector
+from tests.utils.metrics import PerformanceBenchmarker
 from workspace_qdrant_mcp.core.client import QdrantWorkspaceClient
 from workspace_qdrant_mcp.tools.documents import add_document
 from workspace_qdrant_mcp.tools.search import search_workspace
-
-from tests.fixtures.test_data_collector import DataCollector
-from tests.utils.metrics import PerformanceBenchmarker
 
 
 class TestPerformance:
