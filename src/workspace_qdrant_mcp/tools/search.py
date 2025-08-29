@@ -129,6 +129,15 @@ async def search_workspace(
     if not client.initialized:
         return {"error": "Workspace client not initialized"}
 
+    # Validate query
+    if not query or not query.strip():
+        return {"error": "Query cannot be empty"}
+
+    # Validate search mode
+    valid_modes = ["hybrid", "dense", "sparse"]
+    if mode not in valid_modes:
+        return {"error": f"Invalid search mode '{mode}'. Must be one of: {valid_modes}"}
+
     try:
         # Get embedding service
         embedding_service = client.get_embedding_service()
@@ -151,6 +160,14 @@ async def search_workspace(
                 return {
                     "error": f"Collections not found: {', '.join(invalid_collections)}"
                 }
+
+        # Check if we have any collections to search
+        if not collections:
+            return {"error": "No collections available for search"}
+
+        # Validate sparse mode has sparse embeddings
+        if mode == "sparse" and "sparse" not in embeddings:
+            return {"error": "Sparse embeddings not available for sparse search mode"}
 
         # Search each collection
         all_results = []
@@ -184,8 +201,13 @@ async def search_workspace(
             "query": query,
             "mode": mode,
             "collections_searched": collections,
-            "total_results": len(final_results),
+            "total": len(final_results),
             "results": final_results,
+            "search_params": {
+                "mode": mode,
+                "limit": limit,
+                "score_threshold": score_threshold,
+            },
         }
 
     except Exception as e:
@@ -256,21 +278,24 @@ async def _search_collection(
             # Dense vector search
             dense_results = qdrant_client.search(
                 collection_name=collection_name,
-                query_vector=("dense", embeddings["dense"]),
+                query_vector=embeddings["dense"],
+                using="dense",
                 limit=limit,
                 score_threshold=score_threshold,
                 with_payload=True,
             )
 
             for result in dense_results:
-                search_results.append(
-                    {
-                        "id": result.id,
-                        "score": result.score,
-                        "payload": result.payload,
-                        "search_type": "dense",
-                    }
-                )
+                # Apply score threshold filtering
+                if result.score >= score_threshold:
+                    search_results.append(
+                        {
+                            "id": result.id,
+                            "score": result.score,
+                            "payload": result.payload,
+                            "search_type": "dense",
+                        }
+                    )
 
         elif mode == "sparse" and "sparse" in embeddings:
             # Sparse vector search using enhanced BM25
@@ -283,20 +308,23 @@ async def _search_collection(
             sparse_results = qdrant_client.search(
                 collection_name=collection_name,
                 query_vector=sparse_vector,
+                using="sparse",
                 limit=limit,
                 score_threshold=score_threshold,
                 with_payload=True,
             )
 
             for result in sparse_results:
-                search_results.append(
-                    {
-                        "id": result.id,
-                        "score": result.score,
-                        "payload": result.payload,
-                        "search_type": "sparse",
-                    }
-                )
+                # Apply score threshold filtering
+                if result.score >= score_threshold:
+                    search_results.append(
+                        {
+                            "id": result.id,
+                            "score": result.score,
+                            "payload": result.payload,
+                            "search_type": "sparse",
+                        }
+                    )
 
         return search_results[:limit]
 
@@ -329,6 +357,10 @@ async def search_collection_by_metadata(
     if not client.initialized:
         return {"error": "Workspace client not initialized"}
 
+    # Validate metadata filter is not empty
+    if not metadata_filter:
+        return {"error": "Metadata filter cannot be empty"}
+
     try:
         # Validate collection exists
         available_collections = await client.list_collections()
@@ -350,10 +382,13 @@ async def search_collection_by_metadata(
         for result in results[0]:  # results is (points, next_page_offset)
             formatted_results.append({"id": result.id, "payload": result.payload})
 
+        # Apply limit enforcement
+        formatted_results = formatted_results[:limit]
+
         return {
             "collection": collection,
             "filter": metadata_filter,
-            "total_results": len(formatted_results),
+            "total": len(formatted_results),
             "results": formatted_results,
         }
 
