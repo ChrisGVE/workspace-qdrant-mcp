@@ -257,7 +257,7 @@ class QdrantWorkspaceClient:
             return []
 
         try:
-            return await self.collection_manager.list_workspace_collections()
+            return self.collection_manager.list_workspace_collections()
 
         except Exception as e:
             logger.error("Failed to list collections: %s", e)
