@@ -51,7 +51,7 @@ class SearchGroundTruth:
     relevance_scores: dict[str, float] = field(default_factory=dict)
 
 
-class TestDataCollector:
+class DataCollector:
     """
     Collects real codebase data for comprehensive testing.
 
