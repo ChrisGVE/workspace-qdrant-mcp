@@ -55,7 +55,7 @@ class PDFParser(DocumentParser):
         """Human-readable format name."""
         return "PDF Document"
 
-    def can_parse(self, file_path: Union[str, Path]) -> bool:
+    def can_parse(self, file_path: str | Path) -> bool:
         """Check if this parser can handle the given file."""
         if not HAS_PYPDF2:
             logger.warning("pypdf not available, PDF parsing disabled")
@@ -64,11 +64,11 @@ class PDFParser(DocumentParser):
 
     async def parse(
         self,
-        file_path: Union[str, Path],
+        file_path: str | Path,
         extract_metadata: bool = True,
         include_page_numbers: bool = False,
-        max_pages: Optional[int] = None,
-        password: Optional[str] = None,
+        max_pages: int | None = None,
+        password: str | None = None,
         **options,
     ) -> ParsedDocument:
         """
@@ -97,7 +97,7 @@ class PDFParser(DocumentParser):
         file_path = Path(file_path)
         self.validate_file(file_path)
 
-        parsing_info: dict[str, Union[str, int, float]] = {}
+        parsing_info: dict[str, str | int | float] = {}
 
         try:
             with open(file_path, "rb") as pdf_file:
@@ -122,7 +122,7 @@ class PDFParser(DocumentParser):
                 )
 
                 # Extract PDF metadata
-                pdf_metadata: dict[str, Union[str, int, float, bool]] = {}
+                pdf_metadata: dict[str, str | int | float | bool] = {}
                 if extract_metadata:
                     pdf_metadata = await self._extract_pdf_metadata(pdf_reader)
                     parsing_info["has_metadata"] = bool(pdf_metadata)
@@ -165,7 +165,7 @@ class PDFParser(DocumentParser):
                 parsing_info.update(text_stats)
 
                 # Create comprehensive metadata
-                additional_metadata: dict[str, Union[str, int, float, bool]] = {
+                additional_metadata: dict[str, str | int | float | bool] = {
                     "parser": self.format_name,
                     "page_count": pages_processed,
                     "total_pages": num_pages,
@@ -197,7 +197,7 @@ class PDFParser(DocumentParser):
 
     async def _extract_pdf_metadata(
         self, pdf_reader
-    ) -> dict[str, Union[str, int, float, bool]]:
+    ) -> dict[str, str | int | float | bool]:
         """
         Extract metadata from PDF document.
 
@@ -207,7 +207,7 @@ class PDFParser(DocumentParser):
         Returns:
             Dictionary with PDF metadata
         """
-        metadata: dict[str, Union[str, int, float, bool]] = {}
+        metadata: dict[str, str | int | float | bool] = {}
 
         try:
             if hasattr(pdf_reader, "metadata") and pdf_reader.metadata:

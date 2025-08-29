@@ -10,7 +10,7 @@ import asyncio
 import logging
 import sys
 from pathlib import Path
-from typing import Any, Optional
+from typing import Any
 
 import typer
 from rich.console import Console
@@ -68,7 +68,7 @@ def ingest(
     collection: str = typer.Option(
         ..., "--collection", "-c", help="Target collection name"
     ),
-    formats: Optional[list[str]] = typer.Option(
+    formats: list[str] | None = typer.Option(
         None, "--formats", "-f", help="File formats to process (e.g., pdf,md,txt)"
     ),
     concurrency: int = typer.Option(
@@ -86,7 +86,7 @@ def ingest(
     recursive: bool = typer.Option(
         True, "--recursive/--no-recursive", help="Process subdirectories recursively"
     ),
-    exclude: Optional[list[str]] = typer.Option(
+    exclude: list[str] | None = typer.Option(
         None, "--exclude", help="Glob patterns to exclude"
     ),
     progress: bool = typer.Option(
@@ -145,7 +145,7 @@ def formats() -> None:
 @app.command()
 def estimate(
     path: str = typer.Argument(..., help="Path to directory to analyze"),
-    formats: Optional[list[str]] = typer.Option(
+    formats: list[str] | None = typer.Option(
         None, "--formats", "-f", help="File formats to analyze"
     ),
     concurrency: int = typer.Option(
@@ -159,13 +159,13 @@ def estimate(
 async def _run_ingestion(
     path: str,
     collection: str,
-    formats: Optional[list[str]],
+    formats: list[str] | None,
     concurrency: int,
     chunk_size: int,
     chunk_overlap: int,
     dry_run: bool,
     recursive: bool,
-    exclude_patterns: Optional[list[str]],
+    exclude_patterns: list[str] | None,
     show_progress: bool,
     auto_confirm: bool,
 ) -> None:

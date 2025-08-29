@@ -48,7 +48,7 @@ import time
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Optional
+from typing import Any
 
 import typer
 from rich.console import Console
@@ -161,7 +161,7 @@ class DiagnosticTool:
         config: Config,
         verbose: bool = False,
         benchmark: bool = False,
-        component_filter: Optional[str] = None,
+        component_filter: str | None = None,
     ):
         self.config = config
         self.verbose = verbose
@@ -943,7 +943,7 @@ class DiagnosticTool:
 
                 # Insert test points
                 test_points = []
-                for i, (doc, embedding) in enumerate(zip(test_docs, embeddings)):
+                for i, (doc, embedding) in enumerate(zip(test_docs, embeddings, strict=True)):
                     vector_data = {"dense": embedding}
 
                     if (
@@ -1516,7 +1516,7 @@ class DiagnosticTool:
 
 @app.command()
 def main(
-    component: Optional[str] = typer.Option(
+    component: str | None = typer.Option(
         None,
         "--component",
         "-c",
@@ -1529,7 +1529,7 @@ def main(
     report: bool = typer.Option(
         False, "--report", "-r", help="Generate JSON report file"
     ),
-    output: Optional[str] = typer.Option(
+    output: str | None = typer.Option(
         None, "--output", "-o", help="Output file for JSON report"
     ),
 ) -> None:

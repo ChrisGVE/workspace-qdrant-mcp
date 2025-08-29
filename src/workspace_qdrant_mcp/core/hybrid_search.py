@@ -313,7 +313,7 @@ class HybridSearchEngine:
         dense_weight: float = 1.0,
         sparse_weight: float = 1.0,
         fusion_method: str = "rrf",
-        query_filter: Optional[models.Filter] = None,
+        query_filter: models.Filter | None = None,
     ) -> dict:
         """
         Perform comprehensive hybrid search combining dense semantic and sparse keyword vectors.

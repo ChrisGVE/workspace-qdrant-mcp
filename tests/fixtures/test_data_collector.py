@@ -9,7 +9,7 @@ import ast
 import hashlib
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Optional
+from typing import Any
 
 
 @dataclass
@@ -20,10 +20,10 @@ class CodeSymbol:
     type: str  # 'function', 'class', 'method'
     file_path: str
     line_number: int
-    docstring: Optional[str] = None
-    signature: Optional[str] = None
-    source_code: Optional[str] = None
-    parent_class: Optional[str] = None
+    docstring: str | None = None
+    signature: str | None = None
+    source_code: str | None = None
+    parent_class: str | None = None
     metadata: dict[str, Any] = field(default_factory=dict)
 
 
@@ -449,7 +449,7 @@ class PythonSymbolVisitor(ast.NodeVisitor):
         self.file_path = file_path
         self.source_lines = source_code.split("\n")
         self.symbols: list[CodeSymbol] = []
-        self.current_class: Optional[str] = None
+        self.current_class: str | None = None
 
     def visit_ClassDef(self, node: ast.ClassDef) -> None:
         """Visit class definition."""

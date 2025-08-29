@@ -62,7 +62,7 @@ logger = logging.getLogger(__name__)
 async def search_workspace(
     client: QdrantWorkspaceClient,
     query: str,
-    collections: Optional[list[str]] = None,
+    collections: list[str] | None = None,
     mode: str = "hybrid",
     limit: int = 10,
     score_threshold: float = 0.7,

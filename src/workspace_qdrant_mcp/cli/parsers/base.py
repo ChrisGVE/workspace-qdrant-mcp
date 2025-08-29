@@ -12,7 +12,7 @@ from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Optional, Union
+from typing import Any
 
 
 @dataclass
@@ -37,20 +37,20 @@ class ParsedDocument:
     content: str
     file_path: str
     file_type: str
-    metadata: dict[str, Union[str, int, float, bool]]
+    metadata: dict[str, str | int | float | bool]
     content_hash: str
     parsed_at: str
     file_size: int
-    parsing_info: Optional[dict[str, Union[str, int, float]]] = None
+    parsing_info: dict[str, str | int | float] | None = None
 
     @classmethod
     def create(
         cls,
         content: str,
-        file_path: Union[str, Path],
+        file_path: str | Path,
         file_type: str,
-        additional_metadata: Optional[dict[str, Union[str, int, float, bool]]] = None,
-        parsing_info: Optional[dict[str, Union[str, int, float]]] = None,
+        additional_metadata: dict[str, str | int | float | bool] | None = None,
+        parsing_info: dict[str, str | int | float] | None = None,
     ) -> "ParsedDocument":
         """
         Create a ParsedDocument with auto-generated metadata.
@@ -71,7 +71,7 @@ class ParsedDocument:
         content_hash = hashlib.sha256(content.encode("utf-8")).hexdigest()
 
         # Base metadata with explicit typing
-        metadata: dict[str, Union[str, int, float, bool]] = {
+        metadata: dict[str, str | int | float | bool] = {
             "filename": file_path.name,
             "file_extension": file_path.suffix.lower(),
             "content_length": len(content),
@@ -145,7 +145,7 @@ class DocumentParser(ABC):
         """
         pass
 
-    def can_parse(self, file_path: Union[str, Path]) -> bool:
+    def can_parse(self, file_path: str | Path) -> bool:
         """
         Check if this parser can handle the given file.
 
@@ -160,7 +160,7 @@ class DocumentParser(ABC):
 
     @abstractmethod
     async def parse(
-        self, file_path: Union[str, Path], **options: Any
+        self, file_path: str | Path, **options: Any
     ) -> ParsedDocument:
         """
         Parse a document file and extract its text content.
@@ -195,7 +195,7 @@ class DocumentParser(ABC):
         """
         return {}
 
-    def validate_file(self, file_path: Union[str, Path]) -> None:
+    def validate_file(self, file_path: str | Path) -> None:
         """
         Validate that a file can be parsed.
 

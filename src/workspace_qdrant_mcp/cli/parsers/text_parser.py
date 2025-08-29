@@ -69,8 +69,8 @@ class TextParser(DocumentParser):
 
     async def parse(
         self,
-        file_path: Union[str, Path],
-        encoding: Optional[str] = None,
+        file_path: str | Path,
+        encoding: str | None = None,
         detect_encoding: bool = True,
         clean_content: bool = True,
         preserve_whitespace: bool = False,
@@ -98,7 +98,7 @@ class TextParser(DocumentParser):
         file_path = Path(file_path)
         self.validate_file(file_path)
 
-        parsing_info: dict[str, Union[str, int, float]] = {}
+        parsing_info: dict[str, str | int | float] = {}
 
         try:
             # Read file content with encoding detection
@@ -131,7 +131,7 @@ class TextParser(DocumentParser):
             parsing_info.update(text_stats)
 
             # Create metadata
-            additional_metadata: dict[str, Union[str, int, float, bool]] = {
+            additional_metadata: dict[str, str | int | float | bool] = {
                 "parser": self.format_name,
                 "encoding": parsing_info.get("encoding", "utf-8"),
                 "word_count": text_stats.get("word_count", 0),

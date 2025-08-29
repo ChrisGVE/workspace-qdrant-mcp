@@ -47,7 +47,7 @@ import time
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Optional
+from typing import Any
 
 import typer
 from rich.console import Console
@@ -88,7 +88,7 @@ class ResourceStatus:
     disk_used_gb: float
     disk_total_gb: float
     disk_percent: float
-    load_average: Optional[float] = None
+    load_average: float | None = None
 
 
 @dataclass
@@ -105,18 +105,18 @@ class CollectionHealth:
     config_params: dict[str, Any]
     status: str
     optimization_status: str
-    last_optimization: Optional[str] = None
+    last_optimization: str | None = None
 
 
 @dataclass
 class PerformanceMetrics:
     """Performance metrics for the system."""
 
-    embedding_avg_time_ms: Optional[float] = None
-    search_avg_time_ms: Optional[float] = None
-    throughput_docs_per_sec: Optional[float] = None
-    error_rate_percent: Optional[float] = None
-    uptime_hours: Optional[float] = None
+    embedding_avg_time_ms: float | None = None
+    search_avg_time_ms: float | None = None
+    throughput_docs_per_sec: float | None = None
+    error_rate_percent: float | None = None
+    uptime_hours: float | None = None
 
 
 @dataclass
@@ -202,7 +202,7 @@ class HealthMonitor:
         self, config: Config, watch_mode: bool = False, analyze_mode: bool = False
     ):
         self.config = config
-        self.client: Optional[QdrantWorkspaceClient] = None
+        self.client: QdrantWorkspaceClient | None = None
         self.watch_mode = watch_mode
         self.analyze_mode = analyze_mode
         self.console = console
@@ -856,7 +856,7 @@ def main(
     report: bool = typer.Option(
         False, "--report", "-r", help="Generate JSON report file"
     ),
-    output: Optional[str] = typer.Option(
+    output: str | None = typer.Option(
         None, "--output", "-o", help="Output file for JSON report"
     ),
     verbose: bool = typer.Option(False, "--verbose", "-v", help="Verbose output"),

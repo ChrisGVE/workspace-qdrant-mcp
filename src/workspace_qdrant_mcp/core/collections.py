@@ -83,7 +83,7 @@ class CollectionConfig:
     name: str
     description: str
     collection_type: str  # 'scratchbook', 'docs', 'global'
-    project_name: Optional[str] = None
+    project_name: str | None = None
     vector_size: int = 384  # all-MiniLM-L6-v2 dimension
     distance_metric: str = "Cosine"
     enable_sparse_vectors: bool = True
@@ -140,10 +140,10 @@ class WorkspaceCollectionManager:
         """
         self.client = client
         self.config = config
-        self._collections_cache: Optional[dict[str, CollectionConfig]] = None
+        self._collections_cache: dict[str, CollectionConfig] | None = None
 
     async def initialize_workspace_collections(
-        self, project_name: str, subprojects: Optional[list[str]] = None
+        self, project_name: str, subprojects: list[str] | None = None
     ) -> None:
         """
         Initialize all collections for the current workspace based on project structure.

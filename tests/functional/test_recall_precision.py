@@ -492,14 +492,14 @@ class TestRecallPrecision:
         symbol_queries = [
             (q, s, h)
             for (q, qt), s, h in zip(
-                test_queries, mode_results["semantic"], mode_results["hybrid"]
+                test_queries, mode_results["semantic"], mode_results["hybrid"], strict=True
             )
             if qt == "symbol"
         ]
         semantic_queries = [
             (q, s, h)
             for (q, qt), s, h in zip(
-                test_queries, mode_results["semantic"], mode_results["hybrid"]
+                test_queries, mode_results["semantic"], mode_results["hybrid"], strict=True
             )
             if qt == "semantic"
         ]

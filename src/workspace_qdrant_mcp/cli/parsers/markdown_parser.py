@@ -59,7 +59,7 @@ class MarkdownParser(DocumentParser):
 
     async def parse(
         self,
-        file_path: Union[str, Path],
+        file_path: str | Path,
         extract_frontmatter: bool = True,
         preserve_structure: bool = True,
         include_code_blocks: bool = True,
@@ -117,7 +117,7 @@ class MarkdownParser(DocumentParser):
                 parsing_info.update(structure_info)
 
             # Generate comprehensive metadata
-            additional_metadata: dict[str, Union[str, int, float, bool]] = {
+            additional_metadata: dict[str, str | int | float | bool] = {
                 "parser": self.format_name,
                 "heading_count": structure_info.get("heading_count", 0),
                 "code_block_count": structure_info.get("code_block_count", 0),

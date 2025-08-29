@@ -100,7 +100,7 @@ class ProjectDetector:
         ```
     """
 
-    def __init__(self, github_user: Optional[str] = None) -> None:
+    def __init__(self, github_user: str | None = None) -> None:
         """Initialize the project detector with optional GitHub user filtering.
 
         Args:
@@ -206,7 +206,7 @@ class ProjectDetector:
 
     def _analyze_submodule(
         self, submodule: Any, git_root: str
-    ) -> Optional[dict[str, Any]]:
+    ) -> dict[str, Any] | None:
         """Analyze a single submodule and extract information."""
         try:
             submodule_url = submodule.url
@@ -254,7 +254,7 @@ class ProjectDetector:
             logger.error("Failed to analyze submodule %s: %s", submodule.name, e)
             return None
 
-    def _find_git_root(self, path: str) -> Optional[str]:
+    def _find_git_root(self, path: str) -> str | None:
         """
         Find the root directory of a Git repository.
 
@@ -271,7 +271,7 @@ class ProjectDetector:
         except (InvalidGitRepositoryError, GitError):
             return None
 
-    def _get_git_remote_url(self, git_root: str) -> Optional[str]:
+    def _get_git_remote_url(self, git_root: str) -> str | None:
         """
         Get the remote URL for the Git repository.
 
@@ -387,7 +387,7 @@ class ProjectDetector:
             )
             return False
 
-    def _extract_repo_name_from_remote(self, remote_url: str) -> Optional[str]:
+    def _extract_repo_name_from_remote(self, remote_url: str) -> str | None:
         """
         Extract repository name from remote URL.
 

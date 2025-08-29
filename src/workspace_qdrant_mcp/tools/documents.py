@@ -70,8 +70,8 @@ async def add_document(
     client: QdrantWorkspaceClient,
     content: str,
     collection: str,
-    metadata: Optional[dict[str, Any]] = None,
-    document_id: Optional[str] = None,
+    metadata: dict[str, Any] | None = None,
+    document_id: str | None = None,
     chunk_text: bool = True,
 ) -> dict:
     """
@@ -282,8 +282,8 @@ async def update_document(
     client: QdrantWorkspaceClient,
     document_id: str,
     collection: str,
-    content: Optional[str] = None,
-    metadata: Optional[dict[str, Any]] = None,
+    content: str | None = None,
+    metadata: dict[str, Any] | None = None,
 ) -> dict:
     """
     Update an existing document in collection.

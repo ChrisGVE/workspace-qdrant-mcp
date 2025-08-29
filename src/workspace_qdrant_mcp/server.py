@@ -64,7 +64,7 @@ logger = logging.getLogger(__name__)
 app = FastMCP("workspace-qdrant-mcp")
 
 # Global client instance
-workspace_client: Optional[QdrantWorkspaceClient] = None
+workspace_client: QdrantWorkspaceClient | None = None
 
 
 class ServerInfo(BaseModel):
@@ -542,7 +542,7 @@ def run_server(
         "127.0.0.1", help="Host to bind to (for HTTP transports only)"
     ),
     port: int = typer.Option(8000, help="Port to bind to (for HTTP transports only)"),
-    config_file: Optional[str] = typer.Option(None, help="Path to configuration file"),
+    config_file: str | None = typer.Option(None, help="Path to configuration file"),
 ) -> None:
     """Start the workspace-qdrant-mcp MCP server.
 
