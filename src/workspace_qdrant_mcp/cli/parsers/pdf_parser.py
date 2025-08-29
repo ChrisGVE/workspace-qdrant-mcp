@@ -102,7 +102,7 @@ class PDFParser(DocumentParser):
         try:
             with open(file_path, "rb") as pdf_file:
                 # Create PDF reader
-                pdf_reader = pypdf.PdfReader(pdf_file)
+                pdf_reader = PyPDF2.PdfReader(pdf_file)
 
                 # Handle encrypted PDFs
                 if pdf_reader.is_encrypted:
