@@ -408,16 +408,8 @@ class ScratchbookManager:
             # Determine collection name using configured collections
             collection_name = self._get_scratchbook_collection_name(project_name)
 
-            # Validate collection exists
-            collections_result = self.client.list_collections()
-            if hasattr(collections_result, '__await__'):
-                available_collections = await collections_result
-            else:
-                available_collections = collections_result
-            if collection_name not in available_collections:
-                return {
-                    "error": f"Scratchbook collection '{collection_name}' not found"
-                }
+            # Skip collection validation for search - allows flexible cross-project search
+            # This enables search functionality even when specific project collection doesn't exist
 
             # Generate embeddings for query
             embedding_service = self.client.get_embedding_service()
