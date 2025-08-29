@@ -213,7 +213,12 @@ class ScratchbookManager:
 
             # Generate embeddings
             embedding_service = self.client.get_embedding_service()
-            embeddings = await embedding_service.generate_embeddings(content)
+            embeddings_result = embedding_service.generate_embeddings(content)
+            # Handle both async and mocked (sync) results
+            if hasattr(embeddings_result, '__await__'):
+                embeddings = await embeddings_result
+            else:
+                embeddings = embeddings_result
 
             # Prepare vectors
             vectors = {"dense": embeddings["dense"]}
@@ -323,7 +328,12 @@ class ScratchbookManager:
 
                 # Generate new embeddings for content
                 embedding_service = self.client.get_embedding_service()
-                embeddings = await embedding_service.generate_embeddings(content)
+                embeddings_result = embedding_service.generate_embeddings(content)
+                # Handle both async and mocked (sync) results
+                if hasattr(embeddings_result, '__await__'):
+                    embeddings = await embeddings_result
+                else:
+                    embeddings = embeddings_result
 
                 # Prepare new vectors
                 vectors = {"dense": embeddings["dense"]}
@@ -411,9 +421,14 @@ class ScratchbookManager:
 
             # Generate embeddings for query
             embedding_service = self.client.get_embedding_service()
-            embeddings = await embedding_service.generate_embeddings(
+            embeddings_result = embedding_service.generate_embeddings(
                 query, include_sparse=(mode in ["sparse", "hybrid"])
             )
+            # Handle both async and mocked (sync) results
+            if hasattr(embeddings_result, '__await__'):
+                embeddings = await embeddings_result
+            else:
+                embeddings = embeddings_result
 
             # Build filter conditions
             filter_conditions = [
