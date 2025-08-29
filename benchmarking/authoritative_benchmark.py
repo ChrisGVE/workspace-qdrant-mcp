@@ -24,26 +24,26 @@ import subprocess
 import sys
 import tempfile
 import time
-from pathlib import Path
-from typing import Any, Dict, List, Tuple
 import urllib.request
 import zipfile
+from pathlib import Path
+from typing import Any
 
 # Rich for beautiful output
 from rich.console import Console
-from rich.progress import Progress, SpinnerColumn, TextColumn, BarColumn
-from rich.table import Table
 from rich.panel import Panel
+from rich.progress import BarColumn, Progress, SpinnerColumn, TextColumn
+from rich.table import Table
 
 # Add project root to path for imports
 project_root = Path(__file__).parent.parent
 sys.path.insert(0, str(project_root))
 
 try:
-    from src.workspace_qdrant_mcp.core.config import Config
     from src.workspace_qdrant_mcp.core.client import QdrantWorkspaceClient
+    from src.workspace_qdrant_mcp.core.config import Config
     from tests.fixtures.test_data_collector import TestDataCollector
-    from tests.utils.metrics import SearchMetrics, RecallPrecisionMeter
+    from tests.utils.metrics import RecallPrecisionMeter, SearchMetrics
 except ImportError as e:
     print(f"❌ Import error: {e}")
     print(
@@ -96,7 +96,7 @@ class AuthoritativeBenchmark:
 
         # Test scenarios
         self.chunk_sizes = [500, 1000, 2000, 4000]
-        self.scenarios: List[BenchmarkScenario] = []
+        self.scenarios: list[BenchmarkScenario] = []
 
         # OSS projects for realistic mixed testing
         self.oss_projects = [
@@ -377,7 +377,7 @@ class AuthoritativeBenchmark:
             # Store results
             self.benchmark_results["scenarios"][scenario.name] = scenario_results
 
-    def _generate_test_queries(self) -> List[Dict[str, Any]]:
+    def _generate_test_queries(self) -> list[dict[str, Any]]:
         """Generate realistic test queries."""
         queries = []
 
@@ -435,8 +435,8 @@ class AuthoritativeBenchmark:
         self,
         scenario: BenchmarkScenario,
         search_type: str,
-        queries: List[Dict[str, Any]],
-    ) -> Dict[str, Any]:
+        queries: list[dict[str, Any]],
+    ) -> dict[str, Any]:
         """Test a specific search type for a scenario."""
 
         results = {
@@ -497,7 +497,7 @@ class AuthoritativeBenchmark:
 
     async def _perform_search(
         self, collection: str, query: str, search_type: str
-    ) -> List[Dict[str, Any]]:
+    ) -> list[dict[str, Any]]:
         """Perform actual search using Qdrant client."""
         if not self.client:
             raise RuntimeError("Client not initialized")
@@ -525,8 +525,8 @@ class AuthoritativeBenchmark:
             return []
 
     def _calculate_search_quality(
-        self, query: Dict[str, Any], results: List[Dict[str, Any]]
-    ) -> Tuple[float, float, float]:
+        self, query: dict[str, Any], results: list[dict[str, Any]]
+    ) -> tuple[float, float, float]:
         """Calculate precision, recall, F1 for search results."""
         if not results:
             return 0.0, 0.0, 0.0
@@ -570,7 +570,7 @@ class AuthoritativeBenchmark:
 
         return precision, recall, f1
 
-    def _percentile(self, data: List[float], percentile: float) -> float:
+    def _percentile(self, data: list[float], percentile: float) -> float:
         """Calculate percentile of data."""
         if not data:
             return 0.0
@@ -584,8 +584,8 @@ class AuthoritativeBenchmark:
             return lower + (upper - lower) * (index - int(index))
 
     def _calculate_confidence_interval(
-        self, data: List[float], confidence: float = 0.95
-    ) -> Tuple[float, float]:
+        self, data: list[float], confidence: float = 0.95
+    ) -> tuple[float, float]:
         """Calculate confidence interval."""
         if len(data) < 2:
             return (0.0, 0.0)
@@ -759,11 +759,6 @@ class AuthoritativeBenchmark:
             if chunk_analysis
             else 0
         )
-        best_recall = (
-            max(chunk_analysis.values(), key=lambda x: x["recall"])["recall"]
-            if chunk_analysis
-            else 0
-        )
         best_speed = (
             min(
                 (v for v in chunk_analysis.values() if v["response_time"] > 0),
@@ -811,10 +806,10 @@ class AuthoritativeBenchmark:
                 * chunk_analysis[k]["recall"],
             )
             console.print(f"  🎯 Recommended chunk size: {best_chunk_size} characters")
-            console.print(f"  📊 Balance of search quality and performance")
-            console.print(f"  ⚖️  Consider project size and use case requirements")
+            console.print("  📊 Balance of search quality and performance")
+            console.print("  ⚖️  Consider project size and use case requirements")
 
-    def _get_avg_metric(self, scenario_data: Dict[str, Any], metric: str) -> float:
+    def _get_avg_metric(self, scenario_data: dict[str, Any], metric: str) -> float:
         """Get average metric across search types."""
         search_types = scenario_data.get("search_types", {})
         if not search_types:

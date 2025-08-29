@@ -6,16 +6,16 @@ Orchestrates the complete test suite including data ingestion, search functional
 MCP integration, performance benchmarking, and recall/precision measurements.
 """
 
-import asyncio
 import argparse
+import asyncio
 import json
-import sys
-import time
-import subprocess
-from pathlib import Path
-from typing import Dict, List, Any
-import tempfile
 import logging
+import subprocess
+import sys
+import tempfile
+import time
+from pathlib import Path
+from typing import Any
 
 # Setup logging
 logging.basicConfig(
@@ -63,7 +63,7 @@ class ComprehensiveTestRunner:
             },
         }
 
-    async def run_all_tests(self, categories: List[str] = None, verbose: bool = True):
+    async def run_all_tests(self, categories: list[str] = None, verbose: bool = True):
         """Run all or specified test categories."""
         categories = categories or list(self.test_categories.keys())
 
@@ -240,27 +240,27 @@ class ComprehensiveTestRunner:
             f.write(self._generate_markdown_report(summary_report))
 
         # Print console summary
-        print(f"📊 Test Run Summary:")
+        print("📊 Test Run Summary:")
         print(f"  Duration: {total_duration:.1f} seconds")
         print(f"  Categories: {successful_categories}/{total_categories} passed")
         print(
             f"  Success Rate: {(successful_categories / total_categories * 100):.1f}%"
         )
 
-        print(f"\n📁 Generated Reports:")
+        print("\n📁 Generated Reports:")
         print(f"  Summary: {summary_file}")
         print(f"  Readable: {readme_file}")
         print(f"  All outputs: {self.output_dir}/")
 
         # Category details
-        print(f"\n📈 Category Results:")
+        print("\n📈 Category Results:")
         for category, result in self.test_results.items():
             status = "✅" if result["success"] else "❌"
             duration = result["duration"]
             print(f"  {status} {category}: {duration:.1f}s")
 
         if successful_categories == total_categories:
-            print(f"\n🎉 ALL TESTS PASSED! Comprehensive testing successful.")
+            print("\n🎉 ALL TESTS PASSED! Comprehensive testing successful.")
         else:
             print(
                 f"\n⚠️  {total_categories - successful_categories} test categories failed."
@@ -271,7 +271,7 @@ class ComprehensiveTestRunner:
 
     def _extract_metrics_from_output(
         self, output: str, category: str
-    ) -> Dict[str, Any]:
+    ) -> dict[str, Any]:
         """Extract key metrics from test output."""
         metrics = {}
 
@@ -328,7 +328,7 @@ class ComprehensiveTestRunner:
 
         return metrics
 
-    def _generate_markdown_report(self, summary: Dict[str, Any]) -> str:
+    def _generate_markdown_report(self, summary: dict[str, Any]) -> str:
         """Generate human-readable markdown report."""
         report = []
 
