@@ -6,6 +6,7 @@
 [![License](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
 [![Qdrant](https://img.shields.io/badge/Qdrant-1.7%2B-red.svg)](https://qdrant.tech)
 [![FastMCP](https://img.shields.io/badge/FastMCP-0.3%2B-orange.svg)](https://github.com/jlowin/fastmcp)
+[![Verified on MseeP](https://mseep.ai/badge.svg)](https://mseep.ai/app/a89078ec-2323-4d6c-b93b-a9e2eace96f2)
 
 **Project-scoped Qdrant MCP server with hybrid search and configurable collections**
 
