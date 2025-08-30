@@ -5,6 +5,7 @@ unified wqm CLI, handling various file formats and ingestion workflows.
 """
 
 import asyncio
+import logging
 from pathlib import Path
 from typing import List, Optional
 
@@ -16,9 +17,11 @@ from rich.table import Table
 
 from ...core.config import Config
 from ...core.client import create_qdrant_client
+from ...core.yaml_metadata import YamlMetadataWorkflow
 from ...cli.ingestion_engine import DocumentIngestionEngine, IngestionResult
 
 console = Console()
+logger = logging.getLogger(__name__)
 
 # Create the ingest app
 ingest_app = typer.Typer(help="📁 Manual document processing")
@@ -73,6 +76,17 @@ def ingest_yaml_metadata(
 ):
     """📋 Process completed YAML metadata file."""
     handle_async(_ingest_yaml_metadata(path, dry_run, force))
+
+@ingest_app.command("generate-yaml")
+def generate_yaml_metadata(
+    library_path: str = typer.Argument(..., help="Path to library folder"),
+    collection: str = typer.Option(..., "--collection", "-c", help="Target library collection name"),
+    output: Optional[str] = typer.Option(None, "--output", "-o", help="Output YAML file path"),
+    formats: Optional[List[str]] = typer.Option(None, "--format", "-f", help="File formats to process (e.g. pdf,md,txt)"),
+    force: bool = typer.Option(False, "--force", help="Overwrite existing YAML file"),
+):
+    """📋 Generate YAML metadata file for library documents."""
+    handle_async(_generate_yaml_metadata(library_path, collection, output, formats, force))
 
 @ingest_app.command("web")
 def ingest_web_pages(
@@ -342,6 +356,89 @@ async def _ingest_folder(
         console.print(f"[red]❌ Folder ingestion failed: {e}[/red]")
         raise typer.Exit(1)
 
+async def _generate_yaml_metadata(
+    library_path: str, 
+    collection: str,
+    output: Optional[str],
+    formats: Optional[List[str]],
+    force: bool
+):
+    """Generate YAML metadata file for library documents."""
+    try:
+        lib_path = Path(library_path)
+        
+        if not lib_path.exists():
+            console.print(f"[red]❌ Library path not found: {library_path}[/red]")
+            raise typer.Exit(1)
+        
+        if not lib_path.is_dir():
+            console.print(f"[red]❌ Path is not a directory: {library_path}[/red]")
+            raise typer.Exit(1)
+        
+        # Validate collection name (should start with _)
+        if not collection.startswith('_'):
+            console.print(f"[red]❌ Library collection name must start with '_': {collection}[/red]")
+            raise typer.Exit(1)
+        
+        # Check output path
+        output_path = Path(output) if output else lib_path / 'metadata_completion.yaml'
+        
+        if output_path.exists() and not force:
+            console.print(f"[red]❌ Output file exists (use --force to overwrite): {output_path}[/red]")
+            raise typer.Exit(1)
+        
+        console.print(f"[bold blue]📋 Generating YAML Metadata for Library[/bold blue]")
+        console.print(f"  Library Path: {lib_path}")
+        console.print(f"  Collection: {collection}")
+        console.print(f"  Output: {output_path}")
+        
+        # Create workflow
+        config = Config()
+        client = create_qdrant_client(config.qdrant_client_config)
+        workflow = YamlMetadataWorkflow(client)
+        
+        # Generate YAML file
+        with Progress(
+            SpinnerColumn(),
+            TextColumn("[progress.description]{task.description}"),
+            console=console,
+        ) as progress:
+            task = progress.add_task("Analyzing documents and extracting metadata...", total=100)
+            
+            result_path = await workflow.generate_yaml_file(
+                library_path=lib_path,
+                library_collection=collection,
+                output_path=output_path,
+                formats=formats
+            )
+            
+            progress.update(task, completed=100)
+        
+        if result_path:
+            result_panel = Panel(
+                f"""[green]✅ YAML metadata file generated successfully![/green]
+
+📁 Location: {result_path}
+📋 Next steps:
+  1. Review and complete the metadata in the YAML file
+  2. Fill in fields marked with '?' 
+  3. Run: wqm ingest yaml {result_path}
+
+💡 The file contains:
+  • Detected metadata from document analysis
+  • Required fields for each document type
+  • Processing instructions and examples""",
+                title="🎉 YAML Generation Complete",
+                border_style="green"
+            )
+            console.print(result_panel)
+        else:
+            console.print("[yellow]⚠️ No documents found to process[/yellow]")
+        
+    except Exception as e:
+        console.print(f"[red]❌ YAML generation failed: {e}[/red]")
+        raise typer.Exit(1)
+
 async def _ingest_yaml_metadata(path: str, dry_run: bool, force: bool):
     """Process completed YAML metadata file."""
     try:
@@ -353,18 +450,77 @@ async def _ingest_yaml_metadata(path: str, dry_run: bool, force: bool):
         
         console.print(f"[bold blue]📋 Processing YAML Metadata: {yaml_path.name}[/bold blue]")
         
-        # TODO: Implement YAML metadata processing
-        # This will be part of Task 11: YAML metadata workflow integration
+        # Create workflow
+        config = Config()
+        client = create_qdrant_client(config.qdrant_client_config)
+        workflow = YamlMetadataWorkflow(client)
+        
+        # Process YAML file
+        with Progress(
+            SpinnerColumn(),
+            TextColumn("[progress.description]{task.description}"),
+            console=console,
+        ) as progress:
+            task = progress.add_task("Processing documents with metadata...", total=100)
+            
+            results = await workflow.process_yaml_file(
+                yaml_path=yaml_path,
+                dry_run=dry_run
+            )
+            
+            progress.update(task, completed=100)
+        
+        # Display results
+        processed = results['processed']
+        skipped = results['skipped']
+        errors = results['errors']
+        remaining = results['remaining']
         
         if dry_run:
-            console.print("[yellow]📋 YAML metadata processing (dry run)[/yellow]")
-            console.print("This feature will be implemented in Task 11: YAML metadata workflow integration")
+            result_panel = Panel(
+                f"""[blue]📋 YAML Metadata Analysis (Dry Run)[/blue]
+
+📊 Processing Summary:
+  • Ready to process: {processed} documents
+  • Missing metadata: {skipped} documents  
+  • Errors found: {len(errors)} documents
+  • Remaining in YAML: {remaining} documents
+
+{"✅ All documents ready for processing!" if remaining == 0 else "⚠️ Complete remaining metadata and run again"}
+
+{chr(10).join(f"  ❌ {error}" for error in errors[:5]) if errors else ""}
+{"  ... and more errors" if len(errors) > 5 else ""}""",
+                title="🔍 Dry Run Results",
+                border_style="blue"
+            )
         else:
-            console.print("[yellow]📋 YAML metadata processing[/yellow]")
-            console.print("This feature will be implemented in Task 11: YAML metadata workflow integration")
+            result_panel = Panel(
+                f"""[green]✅ YAML Metadata Processing Complete![/green]
+
+📊 Processing Summary:
+  • Successfully processed: {processed} documents
+  • Skipped (incomplete metadata): {skipped} documents
+  • Errors encountered: {len(errors)} documents
+  • Remaining in YAML file: {remaining} documents
+
+{"🎉 All documents processed successfully!" if remaining == 0 else f"📝 {remaining} documents still need metadata completion"}
+
+{chr(10).join(f"  ❌ {error}" for error in errors[:3]) if errors else ""}
+{"  ... and more errors" if len(errors) > 3 else ""}""",
+                title="🎉 Processing Complete",
+                border_style="green"
+            )
+        
+        console.print(result_panel)
+        
+        # Show guidance for next steps
+        if remaining > 0 and not dry_run:
+            console.print(f"\n[dim]💡 The YAML file has been updated with {remaining} remaining documents.[/dim]")
+            console.print(f"[dim]   Complete their metadata and run 'wqm ingest yaml {yaml_path}' again.[/dim]")
         
     except Exception as e:
         console.print(f"[red]❌ YAML processing failed: {e}[/red]")
+        logger.exception("YAML metadata processing error")
         raise typer.Exit(1)
 
 async def _ingest_web_pages(
