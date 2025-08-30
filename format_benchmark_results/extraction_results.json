@@ -1,0 +1,126 @@
+[
+  {
+    "format": "txt",
+    "success": true,
+    "content": "# Document Format Extraction Test\n\n## Introduction\nThis document contains various types of content to test text extraction quality across different formats.\n\n### Text Formatting\nThis paragraph contains **bold text**, *italic text*, and `inline code`.\n\n### Code Block\n```python\ndef hello_world():\n    print(\"Hello, World!\")\n    return 42\n```\n\n### Lists\nUnordered list:\n- Item 1\n- Item 2\n  - Nested item A\n  - Nested item B\n- Item 3\n\nOrdered list:\n1. First item\n2. Second item\n3. Third item\n\n### Table\n| Format | Extraction Quality | Processing Speed |\n|--------|-------------------|------------------|\n| PDF    | Good              | Medium           |\n| EPUB   | Excellent         | Fast             |\n| HTML   | Very Good         | Fast             |\n\n### Special Characters\nUnicode test: caf\u00e9, na\u00efve, r\u00e9sum\u00e9, \u4e2d\u6587, \u65e5\u672c\u8a9e, \u0627\u0644\u0639\u0631\u0628\u064a\u0629\n\nMathematical notation: E = mc\u00b2, \u2211, \u222b, \u221a, \u2264, \u2265\n\n### Conclusion\nThis document tests various formatting elements to evaluate extraction quality.\n",
+    "extraction_time": 8.511543273925781e-05,
+    "content_length": 970,
+    "word_count": 145,
+    "metadata": {
+      "encoding": "utf-8",
+      "file_size": 1002
+    },
+    "error": null,
+    "completeness": 1.0,
+    "accuracy": 1.0,
+    "similarity": 1.0
+  },
+  {
+    "format": "md",
+    "success": true,
+    "content": "# Document Format Extraction Test\n\n## Introduction\nThis document contains various types of content to test text extraction quality across different formats.\n\n### Text Formatting\nThis paragraph contains **bold text**, *italic text*, and `inline code`.\n\n### Code Block\n```python\ndef hello_world():\n    print(\"Hello, World!\")\n    return 42\n```\n\n### Lists\nUnordered list:\n- Item 1\n- Item 2\n  - Nested item A\n  - Nested item B\n- Item 3\n\nOrdered list:\n1. First item\n2. Second item\n3. Third item\n\n### Table\n| Format | Extraction Quality | Processing Speed |\n|--------|-------------------|------------------|\n| PDF    | Good              | Medium           |\n| EPUB   | Excellent         | Fast             |\n| HTML   | Very Good         | Fast             |\n\n### Special Characters\nUnicode test: caf\u00e9, na\u00efve, r\u00e9sum\u00e9, \u4e2d\u6587, \u65e5\u672c\u8a9e, \u0627\u0644\u0639\u0631\u0628\u064a\u0629\n\nMathematical notation: E = mc\u00b2, \u2211, \u222b, \u221a, \u2264, \u2265\n\n### Conclusion\nThis document tests various formatting elements to evaluate extraction quality.\n",
+    "extraction_time": 5.888938903808594e-05,
+    "content_length": 970,
+    "word_count": 145,
+    "metadata": {
+      "encoding": "utf-8",
+      "file_size": 1002
+    },
+    "error": null,
+    "completeness": 1.0,
+    "accuracy": 1.0,
+    "similarity": 1.0
+  },
+  {
+    "format": "html",
+    "success": true,
+    "content": "Document Format Extraction Test\nDocument Format Extraction Test\nIntroduction\nThis document contains various types of content to test text extraction quality across different formats.\nText Formatting\nThis paragraph contains bold text, italic text, and inline code.\nCode Block\npython\ndef hello_world():\nprint(\"Hello, World!\")\nreturn 42\nLists\nUnordered list:\n- Item 1\n- Item 2\n- Nested item A\n- Nested item B\n- Item 3\nOrdered list:\n1. First item\n2. Second item\n3. Third item\nTable\nFormat\nExtraction Quality\nProcessing Speed\nPDF\nGood\nMedium\nEPUB\nExcellent\nFast\nHTML\nVery Good\nFast\nSpecial Characters\nUnicode test: caf\u00e9, na\u00efve, r\u00e9sum\u00e9, \u4e2d\u6587, \u65e5\u672c\u8a9e, \u0627\u0644\u0639\u0631\u0628\u064a\u0629\nMathematical notation: E = mc\u00b2, \u2211, \u222b, \u221a, \u2264, \u2265\nConclusion\nThis document tests various formatting elements to evaluate extraction quality.",
+    "extraction_time": 0.0026590824127197266,
+    "content_length": 784,
+    "word_count": 123,
+    "metadata": {
+      "title": "Document Format Extraction Test",
+      "meta_tags": 1,
+      "links": 0,
+      "images": 0
+    },
+    "error": null,
+    "completeness": 0.8631578947368421,
+    "accuracy": 0.9318181818181818,
+    "similarity": 0.9375
+  },
+  {
+    "format": "pdf_pypdf",
+    "success": true,
+    "content": "Document Format Extraction Test\nIntroduction\nThis document contains various types of content to test text extraction quality across different formats.\nText Formatting\nThis paragraph contains bold text, italic text, and inline code.\nCode Block\ndef hello_world():\n    print(\"Hello, World!\")\n    return 42\nLists\nUnordered list:\n\u007f Item 1\n\u007f Item 2\n    \u007f Nested item A\n    \u007f Nested item B\n\u007f Item 3\nOrdered list:\n1. First item\n2. Second item\n3. Third item\nTable\nFormat\nExtraction Quality\nProcessing Speed\nPDF\nGood\nMedium\nEPUB\nExcellent\nFast\nHTML\nVery Good\nFast\nSpecial Characters\nUnicode test: caf\u00e9, na\u00efve, r\u00e9sum\u00e9, \u25a0\u25a0, \u25a0\u25a0\u25a0, \u25a0\u25a0\u25a0\u25a0\u25a0\u25a0\u25a0\nMathematical notation: E = mc\u00b2, \u2211, \u222b, \u221a, \u2264, \u2265\nConclusion\n\n\nThis document tests various formatting elements to evaluate extraction quality.\n",
+    "extraction_time": 0.009560823440551758,
+    "content_length": 764,
+    "word_count": 118,
+    "metadata": {
+      "pages": 2,
+      "encrypted": false,
+      "Author": "(anonymous)",
+      "CreationDate": "D:20250830195524+02'00'",
+      "Creator": "(unspecified)",
+      "Keywords": "",
+      "ModDate": "D:20250830195524+02'00'",
+      "Producer": "ReportLab PDF Library - www.reportlab.com",
+      "Subject": "(unspecified)",
+      "Title": "(anonymous)",
+      "Trapped": "/False"
+    },
+    "error": null,
+    "completeness": 0.8210526315789474,
+    "accuracy": 0.896551724137931,
+    "similarity": 0.7121212121212122
+  },
+  {
+    "format": "pdf_pdfplumber",
+    "success": true,
+    "content": "Document Format Extraction Test\nIntroduction\nThis document contains various types of content to test text extraction quality across different formats.\nText Formatting\nThis paragraph contains bold text, italic text, and inline code.\nCode Block\ndef hello_world():\nprint(\"Hello, World!\")\nreturn 42\nLists\nUnordered list:\n(cid:127) Item 1\n(cid:127) Item 2\n(cid:127) Nested item A\n(cid:127) Nested item B\n(cid:127) Item 3\nOrdered list:\n1. First item\n2. Second item\n3. Third item\nTable\nFormat Extraction Quality Processing Speed\nPDF Good Medium\nEPUB Excellent Fast\nHTML Very Good Fast\nSpecial Characters\nUnicode test: caf\u00e9, na\u00efve, r\u00e9sum\u00e9, nn, nnn, nnnnnnn\nMathematical notation: E = mc\u00b2, (cid:229), (cid:242), (cid:214), \u00a3, \u2021\nConclusion\n\nThis document tests various formatting elements to evaluate extraction quality.",
+    "extraction_time": 0.03828096389770508,
+    "content_length": 810,
+    "word_count": 118,
+    "metadata": {
+      "pages": 2,
+      "metadata": {
+        "Author": "(anonymous)",
+        "CreationDate": "D:20250830195524+02'00'",
+        "Creator": "(unspecified)",
+        "Keywords": "",
+        "ModDate": "D:20250830195524+02'00'",
+        "Producer": "ReportLab PDF Library - www.reportlab.com",
+        "Subject": "(unspecified)",
+        "Title": "(anonymous)",
+        "Trapped": "False"
+      }
+    },
+    "error": null,
+    "completeness": 0.7684210526315789,
+    "accuracy": 0.8390804597701149,
+    "similarity": 0.6176470588235294
+  },
+  {
+    "format": "pdf_pymupdf",
+    "success": false,
+    "content": "",
+    "extraction_time": 0,
+    "error": "pymupdf not available"
+  },
+  {
+    "format": "epub",
+    "success": true,
+    "content": "Document Format Extraction Test\nIntroduction\nThis document contains various types of content to test text extraction quality across different formats.\nText Formatting\nThis paragraph contains bold text, italic text, and inline code.\nCode Block\npython\ndef hello_world():\n    print(\"Hello, World!\")\n    return 42\nLists\nUnordered list:\n- Item 1\n- Item 2\n  - Nested item A\n  - Nested item B\n- Item 3\nOrdered list:\n1. First item\n2. Second item\n3. Third item\nTable\n\n\n\nFormat\nExtraction Quality\nProcessing Speed\n\n\n\n\nPDF\nGood\nMedium\n\n\nEPUB\nExcellent\nFast\n\n\nHTML\nVery Good\nFast\n\n\n\nSpecial Characters\nUnicode test: caf\u00e9, na\u00efve, r\u00e9sum\u00e9, \u4e2d\u6587, \u65e5\u672c\u8a9e, \u0627\u0644\u0639\u0631\u0628\u064a\u0629\nMathematical notation: E = mc\u00b2, \u2211, \u222b, \u221a, \u2264, \u2265\nConclusion\nThis document tests various formatting elements to evaluate extraction quality.\n\nDocument Format Extraction Test\n\n\nTest Content",
+    "extraction_time": 0.004445075988769531,
+    "content_length": 826,
+    "word_count": 125,
+    "metadata": {
+      "title": "Document Format Extraction Test",
+      "language": "en"
+    },
+    "error": null,
+    "completeness": 0.8631578947368421,
+    "accuracy": 0.9318181818181818,
+    "similarity": 0.9375
+  }
+]

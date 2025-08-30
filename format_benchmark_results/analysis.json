@@ -1,0 +1,79 @@
+{
+  "total_formats_tested": 7,
+  "successful_extractions": 6,
+  "failed_extractions": 1,
+  "average_metrics": {
+    "avg_completeness": 0.8859649122807017,
+    "max_completeness": 1.0,
+    "min_completeness": 0.7684210526315789,
+    "avg_accuracy": 0.9332114245907349,
+    "max_accuracy": 1.0,
+    "min_accuracy": 0.8390804597701149,
+    "avg_similarity": 0.8674613784907903,
+    "max_similarity": 1.0,
+    "min_similarity": 0.6176470588235294,
+    "avg_extraction_time": 0.009181658426920572,
+    "max_extraction_time": 0.03828096389770508,
+    "min_extraction_time": 5.888938903808594e-05
+  },
+  "format_rankings": [
+    {
+      "format": "txt",
+      "quality_score": 1.0,
+      "extraction_time": 8.511543273925781e-05,
+      "completeness": 1.0,
+      "accuracy": 1.0,
+      "similarity": 1.0
+    },
+    {
+      "format": "md",
+      "quality_score": 1.0,
+      "extraction_time": 5.888938903808594e-05,
+      "completeness": 1.0,
+      "accuracy": 1.0,
+      "similarity": 1.0
+    },
+    {
+      "format": "html",
+      "quality_score": 0.9060586124401915,
+      "extraction_time": 0.0026590824127197266,
+      "completeness": 0.8631578947368421,
+      "accuracy": 0.9318181818181818,
+      "similarity": 0.9375
+    },
+    {
+      "format": "epub",
+      "quality_score": 0.9060586124401915,
+      "extraction_time": 0.004445075988769531,
+      "completeness": 0.8631578947368421,
+      "accuracy": 0.9318181818181818,
+      "similarity": 0.9375
+    },
+    {
+      "format": "pdf_pypdf",
+      "quality_score": 0.8110229335093219,
+      "extraction_time": 0.009560823440551758,
+      "completeness": 0.8210526315789474,
+      "accuracy": 0.896551724137931,
+      "similarity": 0.7121212121212122
+    },
+    {
+      "format": "pdf_pdfplumber",
+      "quality_score": 0.7443866766307249,
+      "extraction_time": 0.03828096389770508,
+      "completeness": 0.7684210526315789,
+      "accuracy": 0.8390804597701149,
+      "similarity": 0.6176470588235294
+    }
+  ],
+  "library_availability": {
+    "pypdf": "6.0.0",
+    "pdfplumber": "0.11.7",
+    "pymupdf": null,
+    "ebooklib": "available",
+    "beautifulsoup4": "4.13.5",
+    "textract": null,
+    "markdown": "3.8.2",
+    "python-docx": "available"
+  }
+}
