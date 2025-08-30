@@ -73,15 +73,16 @@ class EmbeddingConfig(BaseModel):
         batch_size: Number of documents to process simultaneously (affects memory)
 
     Performance Notes:
-        - Larger chunk_size improves context but increases memory usage
+        - Optimal chunk_size (800) balances context and all-MiniLM-L6-v2 model efficiency
+        - 15% overlap (120 chars) provides optimal boundary preservation
         - Higher batch_size improves throughput but requires more memory
         - Sparse vectors add ~30% processing time but significantly improve search quality
     """
 
     model: str = "sentence-transformers/all-MiniLM-L6-v2"
     enable_sparse_vectors: bool = True
-    chunk_size: int = 1000
-    chunk_overlap: int = 200
+    chunk_size: int = 800
+    chunk_overlap: int = 120
     batch_size: int = 50
 
 
