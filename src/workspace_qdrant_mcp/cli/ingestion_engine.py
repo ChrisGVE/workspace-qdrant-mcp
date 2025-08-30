@@ -259,9 +259,20 @@ class DocumentIngestionEngine:
         format_filter = set(formats) if formats else None
 
         for parser in self.parsers:
-            if not format_filter or any(
-                fmt in parser.format_name.lower() for fmt in format_filter
-            ):
+            # Check if parser should be included based on format filter
+            include_parser = False
+            if not format_filter:
+                include_parser = True
+            else:
+                # Check format name matches
+                parser_name_lower = parser.format_name.lower()
+                if any(fmt.lower() in parser_name_lower for fmt in format_filter):
+                    include_parser = True
+                # Also check if any requested formats match parser extensions
+                elif any(f".{fmt.lower()}" in parser.supported_extensions for fmt in format_filter):
+                    include_parser = True
+            
+            if include_parser:
                 supported_extensions.update(parser.supported_extensions)
 
         # Search for files
