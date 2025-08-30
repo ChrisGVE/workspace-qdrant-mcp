@@ -191,7 +191,7 @@
   "retrieve-audit": {
     "tasks": [
       {
-        "id": "1",
+        "id": 1,
         "title": "Security and Code Audit of mcp-server-qdrant-retrieve",
         "description": "Conduct comprehensive security review of the TypeScript codebase in external/mcp-server-qdrant-retrieve",
         "status": "pending",
@@ -201,56 +201,56 @@
         "dependencies": [],
         "subtasks": [
           {
-            "id": "1.1",
+            "id": 1,
             "title": "Code Structure and Entry Point Analysis",
             "description": "Analyze the project structure, entry points, and overall architecture for security implications",
             "status": "pending",
             "details": "- Examine package.json structure and scripts\n- Review main entry points and initialization code\n- Analyze module exports and imports\n- Check for hardcoded credentials or sensitive data\n- Review build and deployment configurations"
           },
           {
-            "id": "1.2",
+            "id": 2,
             "title": "Input Validation and Sanitization Review",
             "description": "Examine all user input handling for proper validation and sanitization",
             "status": "pending",
             "details": "- Review MCP tool parameter validation\n- Check query string processing\n- Analyze collection name validation\n- Examine file path handling\n- Review configuration input validation\n- Test for injection vulnerabilities"
           },
           {
-            "id": "1.3",
+            "id": 3,
             "title": "File System and Network Security Analysis",
             "description": "Analyze file system access patterns and network communications for security issues",
             "status": "pending",
             "details": "- Review file read/write operations\n- Check directory traversal protections\n- Analyze network request handling\n- Review model download mechanisms\n- Check temporary file handling\n- Examine permission requirements"
           },
           {
-            "id": "1.4",
+            "id": 4,
             "title": "Error Handling and Information Disclosure Review",
             "description": "Examine error handling patterns for potential information disclosure",
             "status": "pending",
             "details": "- Review error message content\n- Check for stack trace exposure\n- Analyze logging practices\n- Review exception handling patterns\n- Check for debugging information leakage"
           },
           {
-            "id": "1.5",
+            "id": 5,
             "title": "Authentication and Authorization Assessment",
             "description": "Evaluate authentication and authorization mechanisms if present",
             "status": "pending",
             "details": "- Review Qdrant connection authentication\n- Check MCP protocol security\n- Analyze access control patterns\n- Review API key handling\n- Check for privilege escalation risks"
           },
           {
-            "id": "1.6",
+            "id": 6,
             "title": "Memory Management and Resource Usage Review",
             "description": "Analyze memory management and resource usage patterns for security implications",
             "status": "pending",
             "details": "- Review memory allocation patterns\n- Check for memory leaks\n- Analyze resource cleanup\n- Review buffer handling\n- Check for denial of service vulnerabilities"
           },
           {
-            "id": "1.7",
+            "id": 7,
             "title": "Third-Party Integration Security Analysis",
             "description": "Examine security of integrations with Qdrant and embedding models",
             "status": "pending",
             "details": "- Review Qdrant client usage\n- Analyze embedding model integration\n- Check external API communications\n- Review data serialization/deserialization\n- Examine trust boundaries"
           },
           {
-            "id": "1.8",
+            "id": 8,
             "title": "Security Testing and Vulnerability Assessment",
             "description": "Conduct practical security testing and document findings",
             "status": "pending",
@@ -260,7 +260,7 @@
         "createdAt": "2025-08-29T19:35:48.777Z"
       },
       {
-        "id": "2",
+        "id": 2,
         "title": "Dependency Vulnerability Assessment",
         "description": "Analyze all dependencies for known security vulnerabilities and compatibility issues",
         "status": "pending",
@@ -271,132 +271,149 @@
         "createdAt": "2025-08-29T19:35:48.777Z"
       },
       {
-        "id": "3",
+        "id": 3,
         "title": "MCP Protocol Implementation Verification",
         "description": "Verify that the MCP protocol implementation complies with official standards",
         "status": "pending",
         "priority": "high",
         "details": "- Review MCP protocol implementation against official spec\n- Verify JSON-RPC 2.0 compliance\n- Check tool registration and metadata formats\n- Validate error response formats\n- Test protocol message handling\n- Verify resource management compliance",
         "testStrategy": "Protocol compliance testing, message format validation, error handling verification",
-        "dependencies": ["1"],
+        "dependencies": [
+          "1"
+        ],
         "createdAt": "2025-08-29T19:35:48.777Z"
       },
       {
-        "id": "4",
+        "id": 4,
         "title": "Embedding Model Download Security Analysis",
         "description": "Analyze the security of embedding model download and caching behavior",
         "status": "pending",
         "priority": "high",
         "details": "- Review model download mechanisms\n- Check file integrity verification\n- Analyze caching behavior and security\n- Verify download source authenticity\n- Check for potential supply chain attacks\n- Review file permissions and storage locations",
         "testStrategy": "Download process testing, integrity verification, file system security analysis",
-        "dependencies": ["1"],
+        "dependencies": [
+          "1"
+        ],
         "createdAt": "2025-08-29T19:35:48.777Z"
       },
       {
-        "id": "5",
+        "id": 5,
         "title": "Functional Testing - Semantic Search Capabilities",
         "description": "Comprehensively test all semantic search functionality",
         "status": "pending",
         "priority": "medium",
         "details": "- Test basic semantic search queries\n- Validate similarity score accuracy\n- Test various query types and formats\n- Verify search result ranking\n- Test edge cases (empty queries, special characters)\n- Performance testing with different query loads",
         "testStrategy": "Functional test suite, edge case testing, performance benchmarks",
-        "dependencies": ["2", "3"],
+        "dependencies": [
+          "2",
+          "3"
+        ],
         "createdAt": "2025-08-29T19:35:48.777Z"
       },
       {
-        "id": "6",
+        "id": 6,
         "title": "Multi-Collection Search Testing",
         "description": "Test and validate multi-collection search functionality",
         "status": "pending",
         "priority": "medium",
         "details": "- Test searches across multiple collections simultaneously\n- Verify collection filtering works correctly\n- Test collection permission handling\n- Validate result aggregation across collections\n- Test collection-specific metadata handling\n- Performance testing with multiple large collections",
         "testStrategy": "Multi-collection test scenarios, permission testing, performance analysis",
-        "dependencies": ["5"],
+        "dependencies": [
+          "5"
+        ],
         "createdAt": "2025-08-29T19:35:48.777Z"
       },
       {
-        "id": "7",
+        "id": 7,
         "title": "Multi-Query Support Verification",
         "description": "Test multi-query support and batch processing capabilities",
         "status": "pending",
         "priority": "medium",
         "details": "- Test batch query processing\n- Verify query result correlation\n- Test concurrent query handling\n- Validate timeout and error handling for batch queries\n- Performance testing with large query batches\n- Test query prioritization if implemented",
         "testStrategy": "Batch processing tests, concurrency testing, error handling validation",
-        "dependencies": ["5"],
+        "dependencies": [
+          "5"
+        ],
         "createdAt": "2025-08-29T19:35:48.777Z"
       },
       {
-        "id": "8",
+        "id": 8,
         "title": "Result Formatting and Metadata Validation",
         "description": "Validate result formatting, metadata accuracy, and data integrity",
         "status": "pending",
         "priority": "medium",
         "details": "- Test result format consistency\n- Verify metadata accuracy and completeness\n- Test result serialization/deserialization\n- Validate score normalization\n- Test result filtering and sorting\n- Check for data leakage between results",
         "testStrategy": "Data validation tests, format verification, metadata accuracy checks",
-        "dependencies": ["5"],
+        "dependencies": [
+          "5"
+        ],
         "createdAt": "2025-08-29T19:35:48.777Z"
       },
       {
-        "id": "9",
+        "id": 9,
         "title": "Performance Testing with Various Collection Sizes",
         "description": "Conduct comprehensive performance testing across different collection sizes",
         "status": "pending",
         "priority": "medium",
         "details": "- Test with small collections (< 1k documents)\n- Test with medium collections (1k-10k documents)\n- Test with large collections (> 10k documents)\n- Measure query latency and throughput\n- Test memory usage patterns\n- Identify performance bottlenecks\n- Compare with baseline performance metrics",
         "testStrategy": "Performance benchmarking, load testing, resource monitoring",
-        "dependencies": ["6", "7", "8"],
+        "dependencies": [
+          "6",
+          "7",
+          "8"
+        ],
         "subtasks": [
           {
-            "id": "9.1",
+            "id": 1,
             "title": "Performance Testing Infrastructure Setup",
             "description": "Set up performance testing environment and monitoring tools",
             "status": "pending",
             "details": "- Install performance monitoring tools\n- Set up test Qdrant instances with different sizes\n- Create test data sets (small, medium, large)\n- Configure resource monitoring\n- Set up automated test scripts\n- Establish baseline measurements"
           },
           {
-            "id": "9.2",
+            "id": 2,
             "title": "Small Collection Performance Testing (< 1k documents)",
             "description": "Comprehensive performance testing with small document collections",
             "status": "pending",
             "details": "- Test query latency with various query types\n- Measure memory usage during operations\n- Test concurrent query handling\n- Monitor CPU utilization\n- Test startup and initialization time\n- Document baseline performance metrics"
           },
           {
-            "id": "9.3",
+            "id": 3,
             "title": "Medium Collection Performance Testing (1k-10k documents)",
             "description": "Performance testing with medium-sized document collections",
             "status": "pending",
             "details": "- Measure query performance degradation\n- Test memory scaling patterns\n- Evaluate caching effectiveness\n- Test batch query performance\n- Monitor resource usage over time\n- Compare with small collection metrics"
           },
           {
-            "id": "9.4",
+            "id": 4,
             "title": "Large Collection Performance Testing (> 10k documents)",
             "description": "Performance testing with large document collections",
             "status": "pending",
             "details": "- Test query performance with large datasets\n- Measure memory usage and potential limits\n- Test system stability under load\n- Evaluate performance bottlenecks\n- Test timeout and error handling\n- Document performance limitations"
           },
           {
-            "id": "9.5",
+            "id": 5,
             "title": "Multi-Collection Performance Analysis",
             "description": "Test performance when querying across multiple collections simultaneously",
             "status": "pending",
             "details": "- Test cross-collection query performance\n- Measure resource usage with multiple collections\n- Test concurrent access to different collections\n- Evaluate collection filtering performance\n- Compare single vs multi-collection query costs"
           },
           {
-            "id": "9.6",
+            "id": 6,
             "title": "Stress Testing and Load Testing",
             "description": "Conduct stress testing and evaluate system limits",
             "status": "pending",
             "details": "- Test with high query concurrency\n- Evaluate system behavior at resource limits\n- Test recovery from resource exhaustion\n- Measure maximum sustainable throughput\n- Test long-running performance stability"
           },
           {
-            "id": "9.7",
+            "id": 7,
             "title": "Performance Comparison with Workspace MCP",
             "description": "Compare performance characteristics with existing workspace-qdrant-mcp",
             "status": "pending",
             "details": "- Run equivalent tests on workspace MCP\n- Compare query latency patterns\n- Analyze memory usage differences\n- Compare feature performance trade-offs\n- Document performance comparison results"
           },
           {
-            "id": "9.8",
+            "id": 8,
             "title": "Performance Report and Recommendations",
             "description": "Compile comprehensive performance analysis and optimization recommendations",
             "status": "pending",
@@ -406,66 +423,68 @@
         "createdAt": "2025-08-29T19:35:48.777Z"
       },
       {
-        "id": "10",
+        "id": 10,
         "title": "Integration Compatibility Analysis",
         "description": "Analyze compatibility with existing workspace-qdrant-mcp implementation",
         "status": "pending",
         "priority": "high",
         "details": "- Compare configuration requirements\n- Test simultaneous operation with workspace MCP\n- Check for resource conflicts (ports, collections, etc.)\n- Verify Qdrant instance sharing capabilities\n- Test collection naming convention compatibility\n- Identify potential integration issues",
         "testStrategy": "Integration testing, resource conflict analysis, compatibility verification",
-        "dependencies": ["4"],
+        "dependencies": [
+          "4"
+        ],
         "subtasks": [
           {
-            "id": "10.1",
+            "id": 1,
             "title": "Configuration Requirements Comparison",
             "description": "Compare configuration requirements between both MCP servers",
             "status": "pending",
             "details": "- Compare environment variable requirements\n- Analyze configuration file formats\n- Check for conflicting configuration options\n- Document shared configuration parameters\n- Identify configuration optimization opportunities"
           },
           {
-            "id": "10.2",
+            "id": 2,
             "title": "Qdrant Instance Sharing Compatibility",
             "description": "Test and verify that both MCPs can share the same Qdrant instance safely",
             "status": "pending",
             "details": "- Test concurrent connections to same Qdrant instance\n- Verify collection isolation and security\n- Test resource sharing and contention\n- Check for connection pooling conflicts\n- Document shared instance best practices"
           },
           {
-            "id": "10.3",
+            "id": 3,
             "title": "Collection Naming Convention Analysis",
             "description": "Analyze collection naming conventions and potential conflicts",
             "status": "pending",
             "details": "- Compare collection naming patterns\n- Check for naming convention conflicts\n- Test collection isolation between MCPs\n- Verify no accidental collection access\n- Document collection organization strategy"
           },
           {
-            "id": "10.4",
+            "id": 4,
             "title": "Resource Conflict Detection",
             "description": "Identify and test for resource conflicts between both MCP servers",
             "status": "pending",
             "details": "- Check for port conflicts\n- Test memory usage when running simultaneously\n- Check for file system conflicts\n- Test CPU resource contention\n- Monitor network resource usage"
           },
           {
-            "id": "10.5",
+            "id": 5,
             "title": "Simultaneous Operation Testing",
             "description": "Test running both MCP servers simultaneously in various scenarios",
             "status": "pending",
             "details": "- Test startup sequence and initialization\n- Test concurrent operations\n- Verify independent operation\n- Test graceful shutdown procedures\n- Monitor system stability during dual operation"
           },
           {
-            "id": "10.6",
+            "id": 6,
             "title": "Feature Overlap and Complementarity Analysis",
             "description": "Analyze feature overlap and complementary capabilities between MCPs",
             "status": "pending",
             "details": "- Map feature overlap between MCPs\n- Identify complementary use cases\n- Document when to use which MCP\n- Analyze potential feature conflicts\n- Create usage decision framework"
           },
           {
-            "id": "10.7",
+            "id": 7,
             "title": "Integration Issues Identification",
             "description": "Identify and document potential integration issues and their solutions",
             "status": "pending",
             "details": "- Test edge cases and error scenarios\n- Identify potential race conditions\n- Document failure modes and recovery\n- Create troubleshooting guide\n- Develop integration best practices"
           },
           {
-            "id": "10.8",
+            "id": 8,
             "title": "Compatibility Report and Recommendations",
             "description": "Compile comprehensive compatibility analysis and integration recommendations",
             "status": "pending",
@@ -475,47 +494,57 @@
         "createdAt": "2025-08-29T19:35:48.777Z"
       },
       {
-        "id": "11",
+        "id": 11,
         "title": "User Workflow Enhancement Evaluation",
         "description": "Evaluate how the retrieve MCP enhances existing user workflows",
         "status": "pending",
         "priority": "medium",
         "details": "- Identify complementary use cases with workspace MCP\n- Test combined workflow scenarios\n- Evaluate user experience improvements\n- Assess learning curve and complexity\n- Document optimal usage patterns\n- Identify workflow optimization opportunities",
         "testStrategy": "User workflow testing, usability analysis, documentation review",
-        "dependencies": ["10"],
+        "dependencies": [
+          "10"
+        ],
         "createdAt": "2025-08-29T19:35:48.777Z"
       },
       {
-        "id": "12",
+        "id": 12,
         "title": "Documentation Updates for Dual MCP Setup",
         "description": "Create comprehensive documentation for using both MCPs together",
         "status": "pending",
         "priority": "medium",
         "details": "- Add section about complementary retrieve MCP\n- Create installation guide for both MCPs\n- Document configuration for simultaneous use\n- Create usage examples showing both MCPs\n- Add troubleshooting section for dual setup\n- Update existing documentation with retrieve capabilities",
         "testStrategy": "Documentation completeness review, example validation, user feedback",
-        "dependencies": ["11"],
+        "dependencies": [
+          "11"
+        ],
         "createdAt": "2025-08-29T19:35:48.777Z"
       },
       {
-        "id": "13",
+        "id": 13,
         "title": "Cross-Collection Search Capabilities Documentation",
         "description": "Document advanced search capabilities across collections",
         "status": "pending",
         "priority": "medium",
         "details": "- Document cross-collection search patterns\n- Create examples of federated search\n- Document collection filtering strategies\n- Show metadata aggregation techniques\n- Create best practices guide\n- Add performance considerations documentation",
         "testStrategy": "Documentation accuracy validation, example testing",
-        "dependencies": ["6", "12"],
+        "dependencies": [
+          "6",
+          "12"
+        ],
         "createdAt": "2025-08-29T19:35:48.777Z"
       },
       {
-        "id": "14",
+        "id": 14,
         "title": "Final Integration Recommendation Report",
         "description": "Compile comprehensive report with recommendations for adopting the retrieve MCP",
         "status": "pending",
         "priority": "high",
         "details": "- Summarize security audit findings\n- Compile performance test results\n- Document integration compatibility assessment\n- Provide adoption recommendations\n- Identify risks and mitigation strategies\n- Create implementation roadmap if recommended\n- Document ongoing maintenance requirements",
         "testStrategy": "Report completeness review, stakeholder feedback, recommendation validation",
-        "dependencies": ["9", "13"],
+        "dependencies": [
+          "9",
+          "13"
+        ],
         "createdAt": "2025-08-29T19:35:48.777Z"
       }
     ],
@@ -523,6 +552,180 @@
       "created": "2025-08-29T19:35:48.776Z",
       "updated": "2025-08-29T19:35:48.777Z",
       "description": "Audit and integration tasks for mcp-server-qdrant-retrieve submodule"
+    }
+  },
+  "development": {
+    "tasks": [
+      {
+        "id": 1,
+        "title": "Clean up benchmark/performance test organization",
+        "description": "Consolidate benchmark/ and performance_results/ folders, ensure all test artifacts stay outside repository (add to .gitignore), establish clear separation between development benchmarks and production code",
+        "details": "- Move all benchmark files to single organized structure\n- Add benchmark artifacts to .gitignore  \n- Keep development tests separate from production code\n- Prevent repository clutter from test files",
+        "testStrategy": "",
+        "status": "pending",
+        "dependencies": [],
+        "priority": "high",
+        "subtasks": []
+      },
+      {
+        "id": 2,
+        "title": "Fix minor performance issues identified in benchmarks",
+        "description": "Address specific issues flagged during performance testing: concurrent search testing problems and ingestion CLI file detection issues",
+        "details": "- Fix concurrent search testing functionality\n- Resolve ingestion CLI file detection problems  \n- Complete performance optimization work\n- Maintain excellent performance metrics (2.18ms avg, 669+ QPS)",
+        "testStrategy": "",
+        "status": "pending",
+        "dependencies": [],
+        "priority": "high",
+        "subtasks": []
+      },
+      {
+        "id": 3,
+        "title": "Implement comprehensive recall and precision testing",
+        "description": "Develop comprehensive testing suite to measure both performance and search quality (recall/precision) with real-world datasets at scale",
+        "details": "Phase A: Ingest entire project (src + all files) as baseline test dataset\nPhase B: Add large external projects to database \nPhase C: Test performance AND recall/precision metrics on both datasets\nGoal: Validate search accuracy scales properly with database size\nMeasure search quality alongside performance metrics",
+        "testStrategy": "",
+        "status": "pending",
+        "dependencies": [],
+        "priority": "high",
+        "subtasks": []
+      },
+      {
+        "id": 4,
+        "title": "Rename CLI commands with 'wq' prefix",
+        "description": "Improve terminal usability by shortening CLI command names with consistent 'wq' prefix without dashes or underscores",
+        "details": "Current: Long command names (workspace-qdrant-*)\nTarget: wqadmin, wqingest, wqsearch, etc. (no dashes/underscores)\nGoal: Better terminal usability and faster typing\nUpdate all CLI entry points and documentation",
+        "testStrategy": "",
+        "status": "cancelled",
+        "dependencies": [],
+        "priority": "medium",
+        "subtasks": []
+      },
+      {
+        "id": 5,
+        "title": "Research and set optimal chunk size defaults",
+        "description": "Determine optimal chunk size for embeddings through research and testing, then set intelligent defaults while preserving user configurability",
+        "details": "Research optimal chunk sizes for embedding quality vs performance\nTest different chunk sizes with real-world documents\nAnalyze trade-offs between accuracy and processing speed\nSet sensible defaults that work well out-of-box\nMaintain user ability to override defaults\nDocument recommendations and reasoning",
+        "testStrategy": "",
+        "status": "pending",
+        "dependencies": [],
+        "priority": "medium",
+        "subtasks": []
+      },
+      {
+        "id": 6,
+        "title": "Research optimal document format precedence for text extraction",
+        "description": "Research which document formats (PDF vs EPUB vs MOBI vs others) provide better text extraction quality and establish precedence rules for when multiple formats of same content exist",
+        "details": "- Compare text extraction quality across formats\n- Test with real-world documents (technical books, articles)\n- Consider metadata preservation differences\n- Establish format precedence rules for version management\n- Document findings for implementation in Rust engine",
+        "testStrategy": "",
+        "status": "pending",
+        "dependencies": [],
+        "priority": "medium",
+        "subtasks": []
+      },
+      {
+        "id": 7,
+        "title": "Design and implement Rust ingestion engine architecture",
+        "description": "Create the foundational Rust engine for v0.2.0 with gRPC communication, file processing, and embedded deployment in Python package",
+        "details": "- Design gRPC protocol for Python MCP ↔ Rust engine communication\n- Implement embedded Rust engine deployment (maturin/setuptools-rust)\n- Create engine lifecycle management (start, graceful shutdown, reconnection)\n- Build basic file conversion system (text, PDF, code with LSP auto-detection)\n- Implement graceful shutdown with work completion logic\n- Set up platform distribution for Tier 1 platforms (macOS, Linux, Windows Intel/ARM)",
+        "testStrategy": "",
+        "status": "pending",
+        "dependencies": [],
+        "priority": "high",
+        "subtasks": []
+      },
+      {
+        "id": 8,
+        "title": "Implement memory system with Claude Code SDK integration",
+        "description": "Build the memory collection system for storing user preferences and LLM behavioral rules with automatic Claude Code integration",
+        "details": "- Create memory collection schema (preferences, behaviors, agent library)\n- Implement authority levels (absolute vs default rules)\n- Build conflict detection using Claude/Sonnet semantic analysis\n- Create session initialization with memory rule injection via Claude Code SDK\n- Implement conversational memory updates (\"Note: call me Chris\")\n- Build token counting and memory optimization tools\n- Create CLI commands for memory management (wqm memory)",
+        "testStrategy": "",
+        "status": "pending",
+        "dependencies": [],
+        "priority": "high",
+        "subtasks": []
+      },
+      {
+        "id": 9,
+        "title": "Implement reserved collection naming system",
+        "description": "Create the reserved collection naming architecture with memory collection, underscore-prefixed libraries, and project collections",
+        "details": "- Implement memory collection as pure knowledge graph\n- Create underscore-prefixed library collections (_name pattern)\n- Prevent MCP server modification of library collections (readonly from MCP)\n- Build collection conflict prevention (hard error for naming conflicts)\n- Display library collections without underscore prefix to users\n- Implement project collection auto-creation based on directory detection\n- Add collection validation and error handling",
+        "testStrategy": "",
+        "status": "pending",
+        "dependencies": [],
+        "priority": "high",
+        "subtasks": []
+      },
+      {
+        "id": 10,
+        "title": "Design unified CLI with wqm command structure",
+        "description": "Replace current CLI commands with unified wqm interface covering all domains (memory, admin, ingest, search, library, watch)",
+        "details": "- Design complete wqm command structure with domains\n- Implement wqm memory (rule management, tokens, trim, future --web)\n- Implement wqm admin (status, config, engine lifecycle)\n- Implement wqm ingest (file, folder, yaml, web processing)\n- Implement wqm search (project, collection, global, all contexts)\n- Implement wqm library (readonly collection management)\n- Implement wqm watch (library folder watching, NOT projects)\n- Update all documentation and help systems",
+        "testStrategy": "",
+        "status": "pending",
+        "dependencies": [],
+        "priority": "high",
+        "subtasks": []
+      },
+      {
+        "id": 11,
+        "title": "Implement YAML metadata workflow for library ingestion",
+        "description": "Build the YAML-based metadata completion system for library documents with incomplete metadata",
+        "details": "- Create YAML file generation for incomplete metadata\n- Implement document type detection (book, article, webpage, etc.)\n- Build metadata extraction from files (titles, authors, editions when possible)\n- Create user-friendly YAML structure with detected vs required fields\n- Implement iterative YAML processing (process complete, update with remaining)\n- Add validation and error handling for YAML processing\n- Document metadata schemas for different document types",
+        "testStrategy": "",
+        "status": "pending",
+        "dependencies": [],
+        "priority": "high",
+        "subtasks": []
+      },
+      {
+        "id": 12,
+        "title": "Implement version-aware document management",
+        "description": "Build intelligent document versioning with type-based precedence rules and conflict resolution",
+        "details": "- Create document type schemas (book, article, code_file, webpage)\n- Implement version precedence rules per document type\n- Build version detection and relationship tracking\n- Create version conflict resolution (latest edition wins, user responsibility for metadata)\n- Implement version chain tracking (supersedes relationships)  \n- Add retention policies (latest only vs archive collections)\n- Build version metadata schema with authority sources",
+        "testStrategy": "",
+        "status": "pending",
+        "dependencies": [],
+        "priority": "medium",
+        "subtasks": []
+      },
+      {
+        "id": 13,
+        "title": "Implement four-mode research interface",
+        "description": "Build the advanced search interface with project, collection, global, and all-collections research modes",
+        "details": "- Implement project-only search (current project collections)\n- Implement single collection targeted search  \n- Implement global collections search (user-configured)\n- Implement all-collections search (replaces qdrant-retrieve functionality)\n- Add version preference handling (latest, all, specific)\n- Implement relationship inclusion for knowledge graph queries\n- Build search result formatting and ranking\n- Add archived collection search capability",
+        "testStrategy": "",
+        "status": "pending",
+        "dependencies": [],
+        "priority": "medium",
+        "subtasks": []
+      },
+      {
+        "id": 14,
+        "title": "Implement library folder watching system",
+        "description": "Build user-configurable folder watching for library collections with automatic ingestion and metadata workflows",
+        "details": "- Create wqm watch commands (add, list, remove, status, pause, resume)\n- Implement folder monitoring for library collections only (NOT projects)\n- Build automatic file detection and routing to appropriate collections\n- Integrate with YAML metadata workflow for incomplete metadata\n- Add ignore patterns and file filtering\n- Create watch status reporting and activity logs\n- Implement watch configuration persistence",
+        "testStrategy": "",
+        "status": "pending",
+        "dependencies": [],
+        "priority": "medium",
+        "subtasks": []
+      },
+      {
+        "id": 15,
+        "title": "Implement web interface for memory curation",
+        "description": "Create web-based interface for visual memory rule management accessible via wqm memory --web command",
+        "details": "- Design web interface for memory rule visualization and editing\n- Implement wqm memory --web command to launch local web server\n- Create forms for rule creation, editing, and conflict resolution\n- Build visual representation of rule authority levels and scopes\n- Add token usage visualization and trim recommendations\n- Implement drag-and-drop rule prioritization\n- Create export/import functionality for rule sets",
+        "testStrategy": "",
+        "status": "pending",
+        "dependencies": [],
+        "priority": "low",
+        "subtasks": []
+      }
+    ],
+    "metadata": {
+      "created": "2025-08-30T10:40:15.806Z",
+      "updated": "2025-08-30T17:00:28.634Z",
+      "description": "Main development and performance optimization tasks"
     }
   }
 }
