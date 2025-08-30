@@ -148,8 +148,10 @@ async def search_workspace(
         )
 
         # Get collections to search
+        display_collections = collections  # Keep original for user reference
         if collections is None:
-            collections = await client.list_collections()
+            display_collections = await client.list_collections()
+            collections = display_collections
         else:
             # Validate collections exist
             available_collections = await client.list_collections()
@@ -164,6 +166,12 @@ async def search_workspace(
         # Check if we have any collections to search
         if not collections:
             return {"error": "No collections available for search"}
+            
+        # Resolve display names to actual collection names for Qdrant operations
+        actual_collections = []
+        for display_name in collections:
+            actual_name, _ = client.collection_manager.resolve_collection_name(display_name)
+            actual_collections.append(actual_name)
 
         # Validate sparse mode has sparse embeddings
         if mode == "sparse" and "sparse" not in embeddings:
@@ -172,25 +180,26 @@ async def search_workspace(
         # Search each collection
         all_results = []
 
-        for collection_name in collections:
+        for i, display_name in enumerate(collections):
+            actual_name = actual_collections[i]
             try:
                 collection_results = await _search_collection(
                     client.client,
-                    collection_name,
+                    actual_name,  # Use actual name for Qdrant operations
                     embeddings,
                     mode,
                     limit,
                     score_threshold,
                 )
 
-                # Add collection info to results
+                # Add display name to results for user-facing response
                 for result in collection_results:
-                    result["collection"] = collection_name
+                    result["collection"] = display_name
 
                 all_results.extend(collection_results)
 
             except Exception as e:
-                logger.warning("Failed to search collection %s: %s", collection_name, e)
+                logger.warning("Failed to search collection %s (actual: %s): %s", display_name, actual_name, e)
                 continue
 
         # Sort by score and limit results
@@ -372,13 +381,16 @@ async def search_collection_by_metadata(
         available_collections = await client.list_collections()
         if collection not in available_collections:
             return {"error": f"Collection '{collection}' not found"}
+            
+        # Resolve display name to actual collection name
+        actual_collection, _ = client.collection_manager.resolve_collection_name(collection)
 
         # Build Qdrant filter
         qdrant_filter = _build_metadata_filter(metadata_filter)
 
         # Search with metadata filter
         results = client.client.scroll(
-            collection_name=collection,
+            collection_name=actual_collection,
             scroll_filter=qdrant_filter,
             limit=limit,
             with_payload=True,

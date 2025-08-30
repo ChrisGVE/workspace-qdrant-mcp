@@ -77,10 +77,9 @@ class CollectionNamingManager:
     4. Legacy collections: Existing collections that don't match new patterns
     """
     
-    # Reserved collection names that cannot be used for user collections
+    # Reserved collection names that cannot be used for user collections (excluding 'memory')
     RESERVED_NAMES = {
-        "memory",           # Core memory system
-        "_memory",          # Prevent confusion
+        "_memory",          # Prevent confusion with memory
         "system",           # Reserved for future system use
         "_system",          # Reserved for future system use
         "admin",            # Reserved for future admin use
@@ -93,11 +92,11 @@ class CollectionNamingManager:
         "docs",             # Documentation (not code - reserved for memexd)
     }
     
-    # Pattern for valid library names (after underscore)
-    LIBRARY_NAME_PATTERN = re.compile(r'^[a-z][a-z0-9_-]*[a-z0-9]$')
+    # Pattern for valid library names (after underscore) - must be at least 2 chars
+    LIBRARY_NAME_PATTERN = re.compile(r'^[a-z][a-z0-9_-]*[a-z0-9]$|^[a-z]$')
     
-    # Pattern for valid project names
-    PROJECT_NAME_PATTERN = re.compile(r'^[a-z][a-z0-9_-]*[a-z0-9]$')
+    # Pattern for valid project names - must be at least 2 chars
+    PROJECT_NAME_PATTERN = re.compile(r'^[a-z][a-z0-9_-]*[a-z0-9]$|^[a-z]$')
     
     def __init__(self, global_collections: List[str] = None):
         """
@@ -121,11 +120,14 @@ class CollectionNamingManager:
             NamingValidationResult with validation status and details
         """
         # Basic name validation
-        if not name:
+        if not name or not name.strip():
             return NamingValidationResult(
                 is_valid=False,
                 error_message="Collection name cannot be empty"
             )
+            
+        # Normalize name (strip whitespace)
+        name = name.strip()
             
         if len(name) > 100:
             return NamingValidationResult(
@@ -152,39 +154,81 @@ class CollectionNamingManager:
                 )
         
         elif collection_info.collection_type == CollectionType.LIBRARY:
-            # Validate library name format
-            library_name = name[1:]  # Remove underscore prefix
-            if not self.LIBRARY_NAME_PATTERN.match(library_name):
+            # Library classification handles validation internally
+            if not collection_info.library_name:  # Invalid library name
+                library_name = name[1:]  # Remove underscore prefix
                 return NamingValidationResult(
                     is_valid=False,
                     error_message=f"Library name '{library_name}' must start with a letter, "
                                   f"contain only lowercase letters, numbers, hyphens, and underscores, "
-                                  f"and end with a letter or number"
+                                  f"and end with a letter or number (or be a single letter)"
                 )
                 
         elif collection_info.collection_type == CollectionType.PROJECT:
-            # Validate project collection format
+            # Project classification handles validation internally
             if not collection_info.project_name or not collection_info.collection_suffix:
+                # Check if it's a project pattern but invalid suffix
+                parts = name.split('-')
+                if len(parts) >= 2:
+                    potential_suffix = parts[-1]
+                    return NamingValidationResult(
+                        is_valid=False,
+                        error_message=f"Invalid project collection suffix '{potential_suffix}'. "
+                                      f"Valid suffixes: {', '.join(self.VALID_PROJECT_SUFFIXES)}"
+                    )
+                else:
+                    return NamingValidationResult(
+                        is_valid=False,
+                        error_message=f"Invalid project collection format: '{name}'. "
+                                      f"Expected: 'project-name-suffix'"
+                    )
+        
+        elif collection_info.collection_type == CollectionType.LEGACY:
+            # For legacy collections, check if they look like invalid patterns
+            if name.startswith('_'):
+                # This is an invalid library name
+                library_name = name[1:]  # Remove underscore prefix
+                if not library_name:  # Just underscore
+                    return NamingValidationResult(
+                        is_valid=False,
+                        error_message="Library name cannot be empty after underscore"
+                    )
                 return NamingValidationResult(
                     is_valid=False,
-                    error_message=f"Invalid project collection format: '{name}'. "
-                                  f"Expected: 'project-name-suffix'"
-                )
-                
-            if collection_info.collection_suffix not in self.VALID_PROJECT_SUFFIXES:
-                return NamingValidationResult(
-                    is_valid=False,
-                    error_message=f"Invalid project collection suffix '{collection_info.collection_suffix}'. "
-                                  f"Valid suffixes: {', '.join(self.VALID_PROJECT_SUFFIXES)}"
-                )
-                
-            if not self.PROJECT_NAME_PATTERN.match(collection_info.project_name):
-                return NamingValidationResult(
-                    is_valid=False,
-                    error_message=f"Project name '{collection_info.project_name}' must start with a letter, "
+                    error_message=f"Library name '{library_name}' must start with a letter, "
                                   f"contain only lowercase letters, numbers, hyphens, and underscores, "
-                                  f"and end with a letter or number"
+                                  f"and end with a letter or number (or be a single letter)"
                 )
+            
+            # Check for malformed patterns
+            if name.endswith('-'):
+                return NamingValidationResult(
+                    is_valid=False,
+                    error_message="Collection names cannot end with a hyphen"
+                )
+            
+            if name.startswith('-'):
+                return NamingValidationResult(
+                    is_valid=False,
+                    error_message="Collection names cannot start with a hyphen"
+                )
+            
+            # Check if it looks like invalid project collection
+            parts = name.split('-')
+            if len(parts) >= 2:
+                potential_suffix = parts[-1]
+                if potential_suffix not in self.VALID_PROJECT_SUFFIXES:
+                    # Only flag as error if it looks like it's trying to be a project collection
+                    suspicious_suffixes = {
+                        'code', 'test', 'tests', 'build', 'dist', 'lib', 'src',
+                        'invalid', 'temp', 'tmp', 'cache', 'config', 'data'
+                    }
+                    if potential_suffix in suspicious_suffixes:
+                        return NamingValidationResult(
+                            is_valid=False,
+                            error_message=f"Invalid project collection suffix '{potential_suffix}'. "
+                                          f"Valid suffixes: {', '.join(self.VALID_PROJECT_SUFFIXES)}"
+                        )
         
         # Check type consistency if intended type was provided
         if intended_type and intended_type != collection_info.collection_type:
@@ -389,13 +433,15 @@ class CollectionNamingManager:
         # Library collections (underscore-prefixed)
         if name.startswith('_') and len(name) > 1:
             library_name = name[1:]
-            return CollectionNameInfo(
-                name=name,
-                display_name=library_name,
-                collection_type=CollectionType.LIBRARY,
-                is_readonly_from_mcp=True,
-                library_name=library_name
-            )
+            # Validate library name format
+            if self.LIBRARY_NAME_PATTERN.match(library_name):
+                return CollectionNameInfo(
+                    name=name,
+                    display_name=library_name,
+                    collection_type=CollectionType.LIBRARY,
+                    is_readonly_from_mcp=True,
+                    library_name=library_name
+                )
         
         # Project collections (project-name-suffix)
         parts = name.split('-')
@@ -403,14 +449,16 @@ class CollectionNamingManager:
             potential_suffix = parts[-1]
             if potential_suffix in self.VALID_PROJECT_SUFFIXES:
                 project_name = '-'.join(parts[:-1])
-                return CollectionNameInfo(
-                    name=name,
-                    display_name=name,
-                    collection_type=CollectionType.PROJECT,
-                    is_readonly_from_mcp=False,
-                    project_name=project_name,
-                    collection_suffix=potential_suffix
-                )
+                # Validate project name format
+                if self.PROJECT_NAME_PATTERN.match(project_name):
+                    return CollectionNameInfo(
+                        name=name,
+                        display_name=name,
+                        collection_type=CollectionType.PROJECT,
+                        is_readonly_from_mcp=False,
+                        project_name=project_name,
+                        collection_suffix=potential_suffix
+                    )
         
         # Legacy/unknown collections
         return CollectionNameInfo(
