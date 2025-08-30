@@ -42,7 +42,7 @@ sys.path.insert(0, str(project_root))
 try:
     from src.workspace_qdrant_mcp.core.client import QdrantWorkspaceClient
     from src.workspace_qdrant_mcp.core.config import Config
-    from tests.fixtures.test_data_collector import TestDataCollector
+    from tests.fixtures.test_data_collector import DataCollector
     from tests.utils.metrics import RecallPrecisionMeter, SearchMetrics
 except ImportError as e:
     print(f"❌ Import error: {e}")
