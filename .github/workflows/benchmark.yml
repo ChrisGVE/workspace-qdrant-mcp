@@ -45,7 +45,7 @@ jobs:
     - name: Run authoritative benchmark
       run: |
         . .venv/bin/activate
-        python benchmarking/authoritative_benchmark.py --skip-oss --chunk-sizes 1000 | tee simple_benchmark_output.txt
+        python dev/benchmarks/tools/authoritative_benchmark.py --skip-oss --chunk-sizes 1000 | tee simple_benchmark_output.txt
 
     - name: Parse and validate simple benchmark results
       run: |
@@ -131,7 +131,7 @@ jobs:
       timeout-minutes: 15
       run: |
         . .venv/bin/activate
-        python benchmarking/authoritative_benchmark.py --chunk-sizes 1000,2000 | tee comprehensive_benchmark_output.txt
+        python dev/benchmarks/tools/authoritative_benchmark.py --chunk-sizes 1000,2000 | tee comprehensive_benchmark_output.txt
 
     - name: Validate comprehensive benchmark thresholds
       run: |
@@ -220,7 +220,7 @@ jobs:
         echo "Commit: ${{ github.sha }}" >> large_benchmark_output.txt
         echo "=" >> large_benchmark_output.txt
         
-        python benchmarking/authoritative_benchmark.py --chunk-sizes 500,1000,2000,5000 >> large_benchmark_output.txt
+        python dev/benchmarks/tools/authoritative_benchmark.py --chunk-sizes 500,1000,2000,5000 >> large_benchmark_output.txt
 
     - name: Memory and performance profiling
       env:
@@ -228,7 +228,7 @@ jobs:
       run: |
         . .venv/bin/activate
         echo "## Memory Profile" >> large_benchmark_output.txt
-        python -m memory_profiler benchmarking/authoritative_benchmark.py --chunk-sizes 1000 >> large_benchmark_output.txt || echo "Memory profiling failed" >> large_benchmark_output.txt
+        python -m memory_profiler dev/benchmarks/tools/authoritative_benchmark.py --chunk-sizes 1000 >> large_benchmark_output.txt || echo "Memory profiling failed" >> large_benchmark_output.txt
 
     - name: System resource monitoring
       run: |
