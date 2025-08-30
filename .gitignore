@@ -76,9 +76,24 @@ test_data/
 .venv/
 venv/
 
-# Benchmark results
+# Benchmark and Performance Test Artifacts
+# All benchmark/performance results should stay out of git
+dev/benchmarks/results/
+dev/benchmarks/data/
 .benchmarks/
+benchmark_results/
 benchmarking_results/
+performance_results/
+*.benchmark.json
+*.benchmark.log
+*_benchmark_*.json
+*_benchmark_*.md
+*_performance_*.json
+*_performance_*.md
+simple_benchmark_*.json
+simple_benchmark_*.md
+performance_baseline_*.json
+performance_baseline_*.md
 
 # Editor specific
 .cursor/
