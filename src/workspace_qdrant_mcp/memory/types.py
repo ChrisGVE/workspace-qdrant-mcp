@@ -30,26 +30,20 @@ class MemoryCategory(Enum):
 class MemoryRule:
     """A single memory rule for LLM behavior management."""
     
-    # Unique identifier
-    id: str = field(default_factory=lambda: str(uuid.uuid4()))
-    
-    # Rule content
+    # Rule content (required fields first)
     rule: str                                    # The actual rule text
     category: MemoryCategory                     # Rule category
     authority: AuthorityLevel                    # Authority level
     
-    # Scope and context
+    # Optional fields with defaults
+    id: str = field(default_factory=lambda: str(uuid.uuid4()))
     scope: List[str] = field(default_factory=list)  # Contexts where rule applies (empty = global)
     tags: List[str] = field(default_factory=list)   # Tags for organization and search
-    
-    # Metadata
     source: str = "user_cli"                     # Where rule came from (user_cli, conversation, etc.)
     created_at: datetime = field(default_factory=datetime.utcnow)
     updated_at: Optional[datetime] = None
     last_used: Optional[datetime] = None
     use_count: int = 0                          # How many times rule has been applied
-    
-    # Additional data
     metadata: Dict[str, Any] = field(default_factory=dict)  # Extended metadata
     
     def __post_init__(self):
