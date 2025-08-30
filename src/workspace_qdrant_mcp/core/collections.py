@@ -47,7 +47,11 @@ from qdrant_client.http import models
 from qdrant_client.http.exceptions import ResponseHandlingException
 
 from .config import Config
-from .collection_naming import CollectionNamingManager, CollectionPermissionError, CollectionType
+from .collection_naming import (
+    CollectionNamingManager,
+    CollectionPermissionError,
+    CollectionType,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -487,6 +491,76 @@ class WorkspaceCollectionManager:
                 return True
 
         return False
+    
+    def resolve_collection_name(self, display_name: str) -> tuple[str, bool]:
+        """
+        Resolve a display name to the actual collection name and permission info.
+        
+        This handles the mapping from user-facing display names to actual Qdrant
+        collection names, particularly for library collections that use underscore prefixes.
+        
+        Args:
+            display_name: The collection name as shown to users
+            
+        Returns:
+            Tuple of (actual_collection_name, is_readonly_from_mcp)
+            
+        Example:
+            ```python
+            # Library collection
+            actual, readonly = manager.resolve_collection_name("mylib")
+            # Returns: ("_mylib", True)
+            
+            # Project collection
+            actual, readonly = manager.resolve_collection_name("my-project-docs")
+            # Returns: ("my-project-docs", False)
+            ```
+        """
+        # First, check if this display name corresponds to a library collection
+        potential_library_name = f"_{display_name}"
+        
+        try:
+            all_collections = self.client.get_collections()
+            all_collection_names = [col.name for col in all_collections.collections]
+            
+            if potential_library_name in all_collection_names:
+                # This is a library collection
+                return potential_library_name, True
+            elif display_name in all_collection_names:
+                # This is a regular collection, check if it's readonly
+                info = self.naming_manager.get_collection_info(display_name)
+                return display_name, info.is_readonly_from_mcp
+            else:
+                # Collection doesn't exist - return the display name as-is for error handling
+                return display_name, False
+                
+        except Exception as e:
+            logger.error(f"Failed to resolve collection name '{display_name}': {e}")
+            return display_name, False
+    
+    def validate_mcp_write_access(self, display_name: str) -> None:
+        """
+        Validate that the MCP server can write to a collection.
+        
+        Args:
+            display_name: The collection display name
+            
+        Raises:
+            CollectionPermissionError: If the collection is readonly from MCP
+        """
+        actual_name, is_readonly = self.resolve_collection_name(display_name)
+        
+        if is_readonly:
+            info = self.naming_manager.get_collection_info(actual_name)
+            if info.collection_type == CollectionType.LIBRARY:
+                raise CollectionPermissionError(
+                    f"Library collection '{display_name}' is readonly from MCP server. "
+                    f"Use the CLI/Rust engine to modify library collections."
+                )
+            else:
+                raise CollectionPermissionError(
+                    f"Collection '{display_name}' is readonly from MCP server."
+                )
     
     def get_naming_manager(self) -> CollectionNamingManager:
         """
