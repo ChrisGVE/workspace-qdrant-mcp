@@ -1,6 +1,8 @@
-# Benchmarking Suite
+# Benchmark Tools
 
-Authoritative performance benchmarks for workspace-qdrant-mcp with realistic, end-to-end testing.
+Performance benchmarking tools for workspace-qdrant-mcp with realistic, end-to-end testing.
+
+> **Note**: This directory contains benchmark tools only. Results are stored in `../results/` and are gitignored to keep the repository clean.
 
 ## Overview
 
@@ -34,12 +36,38 @@ The benchmarking suite has been consolidated into a single, comprehensive tool t
   - Pytest integration for functional tests
   - Different purpose from benchmark (test validation vs performance measurement)
 
+## Available Tools
+
+### performance_baseline_test.py
+- **Purpose**: Real-world baseline performance testing
+- **Features**: Tests against actual Qdrant instances with real collections
+- **Output**: Performance metrics and regression detection data
+- **Usage**: `python performance_baseline_test.py`
+
+### simple_performance_benchmark.py  
+- **Purpose**: Quick performance testing using existing collections
+- **Features**: Lightweight testing for rapid feedback loops
+- **Output**: Simple performance metrics and timing data
+- **Usage**: `python simple_performance_benchmark.py`
+
+### authoritative_benchmark.py
+- **Purpose**: Comprehensive benchmark suite with large OSS projects
+- **Features**: Full ingestion and search testing at scale
+- **Output**: Detailed performance analysis and optimization recommendations
+- **Usage**: `python authoritative_benchmark.py`
+
+### run_comprehensive_tests.py
+- **Purpose**: Test orchestration and CI/CD integration
+- **Features**: Coordinates multiple test scenarios and reporting
+- **Output**: Comprehensive test reports across configurations
+- **Usage**: `python run_comprehensive_tests.py`
+
 ## Running Benchmarks
 
 ### Prerequisites
 
 ```bash
-# Ensure development environment is set up
+# From project root, ensure development environment is set up
 pip install -e .[dev]
 
 # Start Qdrant server
@@ -47,6 +75,21 @@ docker run -p 6333:6333 qdrant/qdrant
 
 # Validate configuration (optional)
 workspace-qdrant-validate
+```
+
+### Quick Start
+
+```bash
+# From project root
+cd dev/benchmarks/tools
+
+# Run simple benchmark
+python simple_performance_benchmark.py
+
+# Run comprehensive baseline test
+python performance_baseline_test.py
+
+# Results will be automatically saved to ../results/
 ```
 
 ### Authoritative Benchmark
