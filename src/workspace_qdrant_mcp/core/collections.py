@@ -47,6 +47,7 @@ from qdrant_client.http import models
 from qdrant_client.http.exceptions import ResponseHandlingException
 
 from .config import Config
+from .collection_naming import CollectionNamingManager, CollectionPermissionError, CollectionType
 
 logger = logging.getLogger(__name__)
 
@@ -141,6 +142,8 @@ class WorkspaceCollectionManager:
         self.client = client
         self.config = config
         self._collections_cache: dict[str, CollectionConfig] | None = None
+        # Initialize the naming manager with legacy global collections for compatibility
+        self.naming_manager = CollectionNamingManager(global_collections=self.config.workspace.global_collections)
 
     async def initialize_workspace_collections(
         self, project_name: str, subprojects: list[str] | None = None
@@ -484,6 +487,15 @@ class WorkspaceCollectionManager:
                 return True
 
         return False
+    
+    def get_naming_manager(self) -> CollectionNamingManager:
+        """
+        Get the collection naming manager for direct access.
+        
+        Returns:
+            The CollectionNamingManager instance used by this manager
+        """
+        return self.naming_manager
 
     def _get_vector_size(self) -> int:
         """

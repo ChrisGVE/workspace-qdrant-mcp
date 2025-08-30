@@ -62,6 +62,7 @@ from qdrant_client.http import models
 
 from ..core.client import QdrantWorkspaceClient
 from ..core.sparse_vectors import create_qdrant_sparse_vector
+from ..core.collection_naming import CollectionPermissionError
 
 logger = logging.getLogger(__name__)
 
@@ -157,6 +158,15 @@ async def add_document(
         available_collections = await client.list_collections()
         if collection not in available_collections:
             return {"error": f"Collection '{collection}' not found"}
+            
+        # Check if MCP server can write to this collection
+        try:
+            client.collection_manager.validate_mcp_write_access(collection)
+        except CollectionPermissionError as e:
+            return {"error": str(e)}
+            
+        # Resolve display name to actual collection name
+        actual_collection, _ = client.collection_manager.resolve_collection_name(collection)
 
         # Store original document ID for metadata
         original_document_id = document_id
@@ -261,10 +271,10 @@ async def _add_single_document(
         # Create point
         point = models.PointStruct(id=point_id, vector=vectors, payload=payload)
 
-        # Insert into Qdrant
-        client.client.upsert(collection_name=collection, points=[point])
+        # Insert into Qdrant (use actual collection name)
+        client.client.upsert(collection_name=actual_collection, points=[point])
 
-        logger.debug("Added document point %s to collection %s", point_id, collection)
+        logger.debug("Added document point %s to collection %s (actual: %s)", point_id, collection, actual_collection)
         return True
 
     except Exception as e:
@@ -453,10 +463,13 @@ async def get_document(
         available_collections = await client.list_collections()
         if collection not in available_collections:
             return {"error": f"Collection '{collection}' not found"}
+            
+        # Resolve display name to actual collection name
+        actual_collection, _ = client.collection_manager.resolve_collection_name(collection)
 
         # Find document points
         points = client.client.scroll(
-            collection_name=collection,
+            collection_name=actual_collection,
             scroll_filter=models.Filter(
                 must=[
                     models.FieldCondition(
