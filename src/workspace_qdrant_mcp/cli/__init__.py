@@ -1,27 +1,6 @@
 """
-Command-line interface for workspace-qdrant-mcp batch operations.
+CLI commands for workspace-qdrant-mcp.
 
-This module provides CLI tools for batch document ingestion and management
-operations that complement the MCP server functionality.
-
-Available commands:
-    - workspace-qdrant-ingest: Batch document ingestion from directories
-    - Format detection and processing for various document types
-    - Progress tracking and error handling for large ingestion operations
-
-The CLI tools integrate with the existing workspace collection system and
-provide the missing batch processing capabilities identified in the feature
-gap analysis.
+This package provides command-line interfaces for managing memory rules,
+administering the system, and other workspace operations.
 """
-
-from . import parsers
-from .ingest import main as ingest_main
-from .ingestion_engine import DocumentIngestionEngine, IngestionResult, IngestionStats
-
-__all__ = [
-    "ingest_main",
-    "DocumentIngestionEngine",
-    "IngestionResult",
-    "IngestionStats",
-    "parsers",
-]

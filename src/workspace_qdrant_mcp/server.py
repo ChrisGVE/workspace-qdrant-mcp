@@ -55,6 +55,7 @@ from .tools.documents import (
 )
 from .tools.scratchbook import ScratchbookManager, update_scratchbook
 from .tools.search import search_collection_by_metadata, search_workspace
+from .tools.memory import register_memory_tools
 from .utils.config_validator import ConfigValidator
 
 # Initialize logging
@@ -532,6 +533,9 @@ async def initialize_workspace() -> None:
 
     # Initialize collections for current project
     await workspace_client.initialize()
+
+    # Register memory tools with the MCP app
+    register_memory_tools(app)
 
 
 def run_server(
