@@ -118,8 +118,12 @@ class TestPerformance:
         mock_embedding_service = AsyncMock()
         mock_embedding_service.generate_embeddings = mock_embedding_generation
 
+        # Create nested client mock for qdrant operations
+        nested_client_mock = AsyncMock()
+        
         # Assign mock methods
         mock_client.initialized = True
+        mock_client.client = nested_client_mock  # Add nested client for qdrant operations
         mock_client.search_workspace = mock_search_with_latency
         mock_client.add_document = mock_add_document_with_latency
         mock_client.get_embedding_service.return_value = mock_embedding_service
