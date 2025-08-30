@@ -323,3 +323,26 @@ class QdrantWorkspaceClient:
             self.client.close()
             self.client = None
         self.initialized = False
+
+
+def create_qdrant_client(config_data) -> QdrantWorkspaceClient:
+    """Create a QdrantWorkspaceClient instance from configuration data.
+    
+    This is a factory function that creates and initializes a workspace client
+    from configuration data. It's used throughout the CLI and tools for
+    consistent client creation.
+    
+    Args:
+        config_data: Configuration data that should be compatible with Config.qdrant_client_config
+    
+    Returns:
+        QdrantWorkspaceClient: Initialized client instance
+    """
+    from .config import Config
+    
+    # Create config instance
+    config = Config()
+    
+    # Create and return the client
+    client = QdrantWorkspaceClient(config)
+    return client
