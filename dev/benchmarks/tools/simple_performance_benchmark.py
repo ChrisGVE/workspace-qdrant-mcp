@@ -186,9 +186,11 @@ class SimplePerformanceBenchmark:
             print(f"  📈 {concurrency} concurrent searches...")
             
             def single_search():
+                from qdrant_client.models import NamedVector
+                # Use dense vector for concurrent search (since named vectors are required)
                 return self.client.search(
                     collection_name=collection_name,
-                    query_vector=sample_vector,
+                    query_vector=NamedVector(name="dense", vector=sample_vector),
                     limit=10
                 )
             
