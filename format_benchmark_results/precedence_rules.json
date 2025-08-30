@@ -1,0 +1,56 @@
+{
+  "primary_criteria": "quality_score",
+  "secondary_criteria": "extraction_speed",
+  "format_precedence": [
+    {
+      "rank": 1,
+      "format": "txt",
+      "quality_score": 1.0,
+      "extraction_time": 8.511543273925781e-05,
+      "recommended": true
+    },
+    {
+      "rank": 2,
+      "format": "md",
+      "quality_score": 1.0,
+      "extraction_time": 5.888938903808594e-05,
+      "recommended": true
+    },
+    {
+      "rank": 3,
+      "format": "html",
+      "quality_score": 0.9060586124401915,
+      "extraction_time": 0.0026590824127197266,
+      "recommended": true
+    },
+    {
+      "rank": 4,
+      "format": "epub",
+      "quality_score": 0.9060586124401915,
+      "extraction_time": 0.004445075988769531,
+      "recommended": true
+    },
+    {
+      "rank": 5,
+      "format": "pdf_pypdf",
+      "quality_score": 0.8110229335093219,
+      "extraction_time": 0.009560823440551758,
+      "recommended": true
+    },
+    {
+      "rank": 6,
+      "format": "pdf_pdfplumber",
+      "quality_score": 0.7443866766307249,
+      "extraction_time": 0.03828096389770508,
+      "recommended": true
+    }
+  ],
+  "thresholds": {
+    "minimum_quality": 0.7,
+    "maximum_extraction_time": 10.0
+  },
+  "recommendations": [
+    "Primary recommendation: txt (quality: 1.000)",
+    "Fastest extraction: txt (0.000s)"
+  ]
+}

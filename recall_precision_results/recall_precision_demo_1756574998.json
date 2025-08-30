@@ -1,0 +1,849 @@
+{
+  "metadata": {
+    "timestamp": 1756574998.086554,
+    "duration_seconds": 0.0010492801666259766,
+    "total_tests": 30,
+    "total_documents": 11,
+    "total_queries": 10,
+    "search_modes": [
+      "exact",
+      "semantic",
+      "hybrid"
+    ]
+  },
+  "raw_results": [
+    {
+      "query": "Python function documentation",
+      "query_type": "exact",
+      "difficulty": "easy",
+      "search_mode": "exact",
+      "expected_min_precision_at_5": 0.8,
+      "metrics": {
+        "precision_at_1": 0.0,
+        "precision_at_5": 0.5,
+        "precision_at_10": 0.5,
+        "recall_at_1": 0.0,
+        "recall_at_5": 1.0,
+        "recall_at_10": 1.0,
+        "f1_at_1": 0.0,
+        "f1_at_5": 0.6666666666666666,
+        "f1_at_10": 0.6666666666666666,
+        "average_precision": 0.5,
+        "mean_reciprocal_rank": 0.5,
+        "search_time_ms": 3.557707193831535,
+        "total_relevant": 1,
+        "total_retrieved": 2,
+        "meets_target": false
+      }
+    },
+    {
+      "query": "Python function documentation",
+      "query_type": "exact",
+      "difficulty": "easy",
+      "search_mode": "semantic",
+      "expected_min_precision_at_5": 0.8,
+      "metrics": {
+        "precision_at_1": 1.0,
+        "precision_at_5": 0.3333333333333333,
+        "precision_at_10": 0.3333333333333333,
+        "recall_at_1": 1.0,
+        "recall_at_5": 1.0,
+        "recall_at_10": 1.0,
+        "f1_at_1": 1.0,
+        "f1_at_5": 0.5,
+        "f1_at_10": 0.5,
+        "average_precision": 1.0,
+        "mean_reciprocal_rank": 1.0,
+        "search_time_ms": 1.5581517141005756,
+        "total_relevant": 1,
+        "total_retrieved": 3,
+        "meets_target": false
+      }
+    },
+    {
+      "query": "Python function documentation",
+      "query_type": "exact",
+      "difficulty": "easy",
+      "search_mode": "hybrid",
+      "expected_min_precision_at_5": 0.8,
+      "metrics": {
+        "precision_at_1": 1.0,
+        "precision_at_5": 1.0,
+        "precision_at_10": 1.0,
+        "recall_at_1": 1.0,
+        "recall_at_5": 1.0,
+        "recall_at_10": 1.0,
+        "f1_at_1": 1.0,
+        "f1_at_5": 1.0,
+        "f1_at_10": 1.0,
+        "average_precision": 1.0,
+        "mean_reciprocal_rank": 1.0,
+        "search_time_ms": 1.1271307179271344,
+        "total_relevant": 1,
+        "total_retrieved": 1,
+        "meets_target": true
+      }
+    },
+    {
+      "query": "Docker configuration",
+      "query_type": "exact",
+      "difficulty": "easy",
+      "search_mode": "exact",
+      "expected_min_precision_at_5": 0.8,
+      "metrics": {
+        "precision_at_1": 1.0,
+        "precision_at_5": 1.0,
+        "precision_at_10": 1.0,
+        "recall_at_1": 1.0,
+        "recall_at_5": 1.0,
+        "recall_at_10": 1.0,
+        "f1_at_1": 1.0,
+        "f1_at_5": 1.0,
+        "f1_at_10": 1.0,
+        "average_precision": 1.0,
+        "mean_reciprocal_rank": 1.0,
+        "search_time_ms": 3.0214211524134496,
+        "total_relevant": 1,
+        "total_retrieved": 1,
+        "meets_target": true
+      }
+    },
+    {
+      "query": "Docker configuration",
+      "query_type": "exact",
+      "difficulty": "easy",
+      "search_mode": "semantic",
+      "expected_min_precision_at_5": 0.8,
+      "metrics": {
+        "precision_at_1": 1.0,
+        "precision_at_5": 0.5,
+        "precision_at_10": 0.5,
+        "recall_at_1": 1.0,
+        "recall_at_5": 1.0,
+        "recall_at_10": 1.0,
+        "f1_at_1": 1.0,
+        "f1_at_5": 0.6666666666666666,
+        "f1_at_10": 0.6666666666666666,
+        "average_precision": 1.0,
+        "mean_reciprocal_rank": 1.0,
+        "search_time_ms": 3.864078451689614,
+        "total_relevant": 1,
+        "total_retrieved": 2,
+        "meets_target": false
+      }
+    },
+    {
+      "query": "Docker configuration",
+      "query_type": "exact",
+      "difficulty": "easy",
+      "search_mode": "hybrid",
+      "expected_min_precision_at_5": 0.8,
+      "metrics": {
+        "precision_at_1": 1.0,
+        "precision_at_5": 1.0,
+        "precision_at_10": 1.0,
+        "recall_at_1": 1.0,
+        "recall_at_5": 1.0,
+        "recall_at_10": 1.0,
+        "f1_at_1": 1.0,
+        "f1_at_5": 1.0,
+        "f1_at_10": 1.0,
+        "average_precision": 1.0,
+        "mean_reciprocal_rank": 1.0,
+        "search_time_ms": 3.357062735503635,
+        "total_relevant": 1,
+        "total_retrieved": 1,
+        "meets_target": true
+      }
+    },
+    {
+      "query": "search algorithms and vector embeddings",
+      "query_type": "semantic",
+      "difficulty": "medium",
+      "search_mode": "exact",
+      "expected_min_precision_at_5": 0.6,
+      "metrics": {
+        "precision_at_1": 0.0,
+        "precision_at_5": 0.4,
+        "precision_at_10": 0.4,
+        "recall_at_1": 0.0,
+        "recall_at_5": 1.0,
+        "recall_at_10": 1.0,
+        "f1_at_1": 0.0,
+        "f1_at_5": 0.5714285714285715,
+        "f1_at_10": 0.5714285714285715,
+        "average_precision": 0.5,
+        "mean_reciprocal_rank": 0.5,
+        "search_time_ms": 12.105688405557206,
+        "total_relevant": 2,
+        "total_retrieved": 5,
+        "meets_target": false
+      }
+    },
+    {
+      "query": "search algorithms and vector embeddings",
+      "query_type": "semantic",
+      "difficulty": "medium",
+      "search_mode": "semantic",
+      "expected_min_precision_at_5": 0.6,
+      "metrics": {
+        "precision_at_1": 0.0,
+        "precision_at_5": 0.5,
+        "precision_at_10": 0.5,
+        "recall_at_1": 0.0,
+        "recall_at_5": 0.5,
+        "recall_at_10": 0.5,
+        "f1_at_1": 0.0,
+        "f1_at_5": 0.5,
+        "f1_at_10": 0.5,
+        "average_precision": 0.25,
+        "mean_reciprocal_rank": 0.5,
+        "search_time_ms": 4.160596522001568,
+        "total_relevant": 2,
+        "total_retrieved": 2,
+        "meets_target": false
+      }
+    },
+    {
+      "query": "search algorithms and vector embeddings",
+      "query_type": "semantic",
+      "difficulty": "medium",
+      "search_mode": "hybrid",
+      "expected_min_precision_at_5": 0.6,
+      "metrics": {
+        "precision_at_1": 0.0,
+        "precision_at_5": 0.2,
+        "precision_at_10": 0.2857142857142857,
+        "recall_at_1": 0.0,
+        "recall_at_5": 0.5,
+        "recall_at_10": 1.0,
+        "f1_at_1": 0.0,
+        "f1_at_5": 0.28571428571428575,
+        "f1_at_10": 0.4444444444444445,
+        "average_precision": 0.29166666666666663,
+        "mean_reciprocal_rank": 0.25,
+        "search_time_ms": 14.677389167752448,
+        "total_relevant": 2,
+        "total_retrieved": 7,
+        "meets_target": false
+      }
+    },
+    {
+      "query": "setup installation guide",
+      "query_type": "semantic",
+      "difficulty": "medium",
+      "search_mode": "exact",
+      "expected_min_precision_at_5": 0.6,
+      "metrics": {
+        "precision_at_1": 1.0,
+        "precision_at_5": 0.5,
+        "precision_at_10": 0.5,
+        "recall_at_1": 0.5,
+        "recall_at_5": 1.0,
+        "recall_at_10": 1.0,
+        "f1_at_1": 0.6666666666666666,
+        "f1_at_5": 0.6666666666666666,
+        "f1_at_10": 0.6666666666666666,
+        "average_precision": 0.75,
+        "mean_reciprocal_rank": 1.0,
+        "search_time_ms": 7.561514700469994,
+        "total_relevant": 2,
+        "total_retrieved": 4,
+        "meets_target": false
+      }
+    },
+    {
+      "query": "setup installation guide",
+      "query_type": "semantic",
+      "difficulty": "medium",
+      "search_mode": "semantic",
+      "expected_min_precision_at_5": 0.6,
+      "metrics": {
+        "precision_at_1": 1.0,
+        "precision_at_5": 0.5,
+        "precision_at_10": 0.5,
+        "recall_at_1": 0.5,
+        "recall_at_5": 1.0,
+        "recall_at_10": 1.0,
+        "f1_at_1": 0.6666666666666666,
+        "f1_at_5": 0.6666666666666666,
+        "f1_at_10": 0.6666666666666666,
+        "average_precision": 0.75,
+        "mean_reciprocal_rank": 1.0,
+        "search_time_ms": 11.421843761502616,
+        "total_relevant": 2,
+        "total_retrieved": 4,
+        "meets_target": false
+      }
+    },
+    {
+      "query": "setup installation guide",
+      "query_type": "semantic",
+      "difficulty": "medium",
+      "search_mode": "hybrid",
+      "expected_min_precision_at_5": 0.6,
+      "metrics": {
+        "precision_at_1": 0.0,
+        "precision_at_5": 0.3333333333333333,
+        "precision_at_10": 0.3333333333333333,
+        "recall_at_1": 0.0,
+        "recall_at_5": 0.5,
+        "recall_at_10": 0.5,
+        "f1_at_1": 0.0,
+        "f1_at_5": 0.4,
+        "f1_at_10": 0.4,
+        "average_precision": 0.16666666666666666,
+        "mean_reciprocal_rank": 0.3333333333333333,
+        "search_time_ms": 6.239373921411335,
+        "total_relevant": 2,
+        "total_retrieved": 3,
+        "meets_target": false
+      }
+    },
+    {
+      "query": "performance testing benchmarks",
+      "query_type": "semantic",
+      "difficulty": "medium",
+      "search_mode": "exact",
+      "expected_min_precision_at_5": 0.6,
+      "metrics": {
+        "precision_at_1": 0.0,
+        "precision_at_5": 0.4,
+        "precision_at_10": 0.2857142857142857,
+        "recall_at_1": 0.0,
+        "recall_at_5": 1.0,
+        "recall_at_10": 1.0,
+        "f1_at_1": 0.0,
+        "f1_at_5": 0.5714285714285715,
+        "f1_at_10": 0.4444444444444445,
+        "average_precision": 0.3666666666666667,
+        "mean_reciprocal_rank": 0.3333333333333333,
+        "search_time_ms": 12.660549609254572,
+        "total_relevant": 2,
+        "total_retrieved": 7,
+        "meets_target": false
+      }
+    },
+    {
+      "query": "performance testing benchmarks",
+      "query_type": "semantic",
+      "difficulty": "medium",
+      "search_mode": "semantic",
+      "expected_min_precision_at_5": 0.6,
+      "metrics": {
+        "precision_at_1": 0.0,
+        "precision_at_5": 0.2,
+        "precision_at_10": 0.2,
+        "recall_at_1": 0.0,
+        "recall_at_5": 0.5,
+        "recall_at_10": 0.5,
+        "f1_at_1": 0.0,
+        "f1_at_5": 0.28571428571428575,
+        "f1_at_10": 0.28571428571428575,
+        "average_precision": 0.16666666666666666,
+        "mean_reciprocal_rank": 0.3333333333333333,
+        "search_time_ms": 11.93986778509928,
+        "total_relevant": 2,
+        "total_retrieved": 5,
+        "meets_target": false
+      }
+    },
+    {
+      "query": "performance testing benchmarks",
+      "query_type": "semantic",
+      "difficulty": "medium",
+      "search_mode": "hybrid",
+      "expected_min_precision_at_5": 0.6,
+      "metrics": {
+        "precision_at_1": 1.0,
+        "precision_at_5": 0.4,
+        "precision_at_10": 0.3333333333333333,
+        "recall_at_1": 0.5,
+        "recall_at_5": 1.0,
+        "recall_at_10": 1.0,
+        "f1_at_1": 0.6666666666666666,
+        "f1_at_5": 0.5714285714285715,
+        "f1_at_10": 0.5,
+        "average_precision": 1.0,
+        "mean_reciprocal_rank": 1.0,
+        "search_time_ms": 13.33323491599999,
+        "total_relevant": 2,
+        "total_retrieved": 6,
+        "meets_target": false
+      }
+    },
+    {
+      "query": "API authentication database optimization",
+      "query_type": "complex",
+      "difficulty": "hard",
+      "search_mode": "exact",
+      "expected_min_precision_at_5": 0.4,
+      "metrics": {
+        "precision_at_1": 0.0,
+        "precision_at_5": 0.0,
+        "precision_at_10": 0.1111111111111111,
+        "recall_at_1": 0.0,
+        "recall_at_5": 0.0,
+        "recall_at_10": 0.3333333333333333,
+        "f1_at_1": 0.0,
+        "f1_at_5": 0.0,
+        "f1_at_10": 0.16666666666666666,
+        "average_precision": 0.05555555555555555,
+        "mean_reciprocal_rank": 0.16666666666666666,
+        "search_time_ms": 37.21133641026074,
+        "total_relevant": 3,
+        "total_retrieved": 9,
+        "meets_target": false
+      }
+    },
+    {
+      "query": "API authentication database optimization",
+      "query_type": "complex",
+      "difficulty": "hard",
+      "search_mode": "semantic",
+      "expected_min_precision_at_5": 0.4,
+      "metrics": {
+        "precision_at_1": 0.0,
+        "precision_at_5": 0.0,
+        "precision_at_10": 0.0,
+        "recall_at_1": 0.0,
+        "recall_at_5": 0.0,
+        "recall_at_10": 0.0,
+        "f1_at_1": 0.0,
+        "f1_at_5": 0.0,
+        "f1_at_10": 0.0,
+        "average_precision": 0.0,
+        "mean_reciprocal_rank": 0.0,
+        "search_time_ms": 40.500432003006054,
+        "total_relevant": 3,
+        "total_retrieved": 2,
+        "meets_target": false
+      }
+    },
+    {
+      "query": "API authentication database optimization",
+      "query_type": "complex",
+      "difficulty": "hard",
+      "search_mode": "hybrid",
+      "expected_min_precision_at_5": 0.4,
+      "metrics": {
+        "precision_at_1": 0.0,
+        "precision_at_5": 0.25,
+        "precision_at_10": 0.25,
+        "recall_at_1": 0.0,
+        "recall_at_5": 0.3333333333333333,
+        "recall_at_10": 0.3333333333333333,
+        "f1_at_1": 0.0,
+        "f1_at_5": 0.28571428571428575,
+        "f1_at_10": 0.28571428571428575,
+        "average_precision": 0.08333333333333333,
+        "mean_reciprocal_rank": 0.25,
+        "search_time_ms": 14.474709012835802,
+        "total_relevant": 3,
+        "total_retrieved": 4,
+        "meets_target": false
+      }
+    },
+    {
+      "query": "testing documentation with examples",
+      "query_type": "complex",
+      "difficulty": "hard",
+      "search_mode": "exact",
+      "expected_min_precision_at_5": 0.5,
+      "metrics": {
+        "precision_at_1": 1.0,
+        "precision_at_5": 0.4,
+        "precision_at_10": 0.25,
+        "recall_at_1": 0.25,
+        "recall_at_5": 0.5,
+        "recall_at_10": 0.5,
+        "f1_at_1": 0.4,
+        "f1_at_5": 0.4444444444444445,
+        "f1_at_10": 0.3333333333333333,
+        "average_precision": 0.5,
+        "mean_reciprocal_rank": 1.0,
+        "search_time_ms": 42.64093013680354,
+        "total_relevant": 4,
+        "total_retrieved": 8,
+        "meets_target": false
+      }
+    },
+    {
+      "query": "testing documentation with examples",
+      "query_type": "complex",
+      "difficulty": "hard",
+      "search_mode": "semantic",
+      "expected_min_precision_at_5": 0.5,
+      "metrics": {
+        "precision_at_1": 1.0,
+        "precision_at_5": 0.4,
+        "precision_at_10": 0.5,
+        "recall_at_1": 0.25,
+        "recall_at_5": 0.5,
+        "recall_at_10": 0.75,
+        "f1_at_1": 0.4,
+        "f1_at_5": 0.4444444444444445,
+        "f1_at_10": 0.6,
+        "average_precision": 0.475,
+        "mean_reciprocal_rank": 1.0,
+        "search_time_ms": 14.840167834730629,
+        "total_relevant": 4,
+        "total_retrieved": 6,
+        "meets_target": false
+      }
+    },
+    {
+      "query": "testing documentation with examples",
+      "query_type": "complex",
+      "difficulty": "hard",
+      "search_mode": "hybrid",
+      "expected_min_precision_at_5": 0.5,
+      "metrics": {
+        "precision_at_1": 1.0,
+        "precision_at_5": 0.4,
+        "precision_at_10": 0.3333333333333333,
+        "recall_at_1": 0.25,
+        "recall_at_5": 0.5,
+        "recall_at_10": 0.75,
+        "f1_at_1": 0.4,
+        "f1_at_5": 0.4444444444444445,
+        "f1_at_10": 0.46153846153846156,
+        "average_precision": 0.4333333333333333,
+        "mean_reciprocal_rank": 1.0,
+        "search_time_ms": 30.566244792343564,
+        "total_relevant": 4,
+        "total_retrieved": 9,
+        "meets_target": false
+      }
+    },
+    {
+      "query": "nonexistent topic xyz123",
+      "query_type": "edge_case",
+      "difficulty": "hard",
+      "search_mode": "exact",
+      "expected_min_precision_at_5": 0.0,
+      "metrics": {
+        "precision_at_1": 0.0,
+        "precision_at_5": 0.0,
+        "precision_at_10": 0.0,
+        "recall_at_1": 0.0,
+        "recall_at_5": 0.0,
+        "recall_at_10": 0.0,
+        "f1_at_1": 0.0,
+        "f1_at_5": 0.0,
+        "f1_at_10": 0.0,
+        "average_precision": 0.0,
+        "mean_reciprocal_rank": 0.0,
+        "search_time_ms": 44.55346993478413,
+        "total_relevant": 0,
+        "total_retrieved": 2,
+        "meets_target": true
+      }
+    },
+    {
+      "query": "nonexistent topic xyz123",
+      "query_type": "edge_case",
+      "difficulty": "hard",
+      "search_mode": "semantic",
+      "expected_min_precision_at_5": 0.0,
+      "metrics": {
+        "precision_at_1": 0.0,
+        "precision_at_5": 0.0,
+        "precision_at_10": 0.0,
+        "recall_at_1": 0.0,
+        "recall_at_5": 0.0,
+        "recall_at_10": 0.0,
+        "f1_at_1": 0.0,
+        "f1_at_5": 0.0,
+        "f1_at_10": 0.0,
+        "average_precision": 0.0,
+        "mean_reciprocal_rank": 0.0,
+        "search_time_ms": 26.10485128409075,
+        "total_relevant": 0,
+        "total_retrieved": 4,
+        "meets_target": true
+      }
+    },
+    {
+      "query": "nonexistent topic xyz123",
+      "query_type": "edge_case",
+      "difficulty": "hard",
+      "search_mode": "hybrid",
+      "expected_min_precision_at_5": 0.0,
+      "metrics": {
+        "precision_at_1": 0.0,
+        "precision_at_5": 0.0,
+        "precision_at_10": 0.0,
+        "recall_at_1": 0.0,
+        "recall_at_5": 0.0,
+        "recall_at_10": 0.0,
+        "f1_at_1": 0.0,
+        "f1_at_5": 0.0,
+        "f1_at_10": 0.0,
+        "average_precision": 0.0,
+        "mean_reciprocal_rank": 0.0,
+        "search_time_ms": 17.33952143148933,
+        "total_relevant": 0,
+        "total_retrieved": 5,
+        "meets_target": true
+      }
+    },
+    {
+      "query": "@#$%^&*()",
+      "query_type": "edge_case",
+      "difficulty": "hard",
+      "search_mode": "exact",
+      "expected_min_precision_at_5": 0.2,
+      "metrics": {
+        "precision_at_1": 0.0,
+        "precision_at_5": 0.0,
+        "precision_at_10": 0.0,
+        "recall_at_1": 0.0,
+        "recall_at_5": 0.0,
+        "recall_at_10": 0.0,
+        "f1_at_1": 0.0,
+        "f1_at_5": 0.0,
+        "f1_at_10": 0.0,
+        "average_precision": 0.0,
+        "mean_reciprocal_rank": 0.0,
+        "search_time_ms": 16.65244442415656,
+        "total_relevant": 1,
+        "total_retrieved": 3,
+        "meets_target": false
+      }
+    },
+    {
+      "query": "@#$%^&*()",
+      "query_type": "edge_case",
+      "difficulty": "hard",
+      "search_mode": "semantic",
+      "expected_min_precision_at_5": 0.2,
+      "metrics": {
+        "precision_at_1": 0.0,
+        "precision_at_5": 0.0,
+        "precision_at_10": 0.0,
+        "recall_at_1": 0.0,
+        "recall_at_5": 0.0,
+        "recall_at_10": 0.0,
+        "f1_at_1": 0.0,
+        "f1_at_5": 0.0,
+        "f1_at_10": 0.0,
+        "average_precision": 0.0,
+        "mean_reciprocal_rank": 0.0,
+        "search_time_ms": 49.41235375118904,
+        "total_relevant": 1,
+        "total_retrieved": 8,
+        "meets_target": false
+      }
+    },
+    {
+      "query": "@#$%^&*()",
+      "query_type": "edge_case",
+      "difficulty": "hard",
+      "search_mode": "hybrid",
+      "expected_min_precision_at_5": 0.2,
+      "metrics": {
+        "precision_at_1": 0.0,
+        "precision_at_5": 0.0,
+        "precision_at_10": 0.0,
+        "recall_at_1": 0.0,
+        "recall_at_5": 0.0,
+        "recall_at_10": 0.0,
+        "f1_at_1": 0.0,
+        "f1_at_5": 0.0,
+        "f1_at_10": 0.0,
+        "average_precision": 0.0,
+        "mean_reciprocal_rank": 0.0,
+        "search_time_ms": 12.286610916299324,
+        "total_relevant": 1,
+        "total_retrieved": 6,
+        "meets_target": false
+      }
+    },
+    {
+      "query": "a",
+      "query_type": "edge_case",
+      "difficulty": "hard",
+      "search_mode": "exact",
+      "expected_min_precision_at_5": 0.0,
+      "metrics": {
+        "precision_at_1": 0.0,
+        "precision_at_5": 0.0,
+        "precision_at_10": 0.0,
+        "recall_at_1": 0.0,
+        "recall_at_5": 0.0,
+        "recall_at_10": 0.0,
+        "f1_at_1": 0.0,
+        "f1_at_5": 0.0,
+        "f1_at_10": 0.0,
+        "average_precision": 0.0,
+        "mean_reciprocal_rank": 0.0,
+        "search_time_ms": 26.1510220527311,
+        "total_relevant": 0,
+        "total_retrieved": 6,
+        "meets_target": true
+      }
+    },
+    {
+      "query": "a",
+      "query_type": "edge_case",
+      "difficulty": "hard",
+      "search_mode": "semantic",
+      "expected_min_precision_at_5": 0.0,
+      "metrics": {
+        "precision_at_1": 0.0,
+        "precision_at_5": 0.0,
+        "precision_at_10": 0.0,
+        "recall_at_1": 0.0,
+        "recall_at_5": 0.0,
+        "recall_at_10": 0.0,
+        "f1_at_1": 0.0,
+        "f1_at_5": 0.0,
+        "f1_at_10": 0.0,
+        "average_precision": 0.0,
+        "mean_reciprocal_rank": 0.0,
+        "search_time_ms": 36.789038990793166,
+        "total_relevant": 0,
+        "total_retrieved": 4,
+        "meets_target": true
+      }
+    },
+    {
+      "query": "a",
+      "query_type": "edge_case",
+      "difficulty": "hard",
+      "search_mode": "hybrid",
+      "expected_min_precision_at_5": 0.0,
+      "metrics": {
+        "precision_at_1": 0.0,
+        "precision_at_5": 0.0,
+        "precision_at_10": 0.0,
+        "recall_at_1": 0.0,
+        "recall_at_5": 0.0,
+        "recall_at_10": 0.0,
+        "f1_at_1": 0.0,
+        "f1_at_5": 0.0,
+        "f1_at_10": 0.0,
+        "average_precision": 0.0,
+        "mean_reciprocal_rank": 0.0,
+        "search_time_ms": 47.16073326822057,
+        "total_relevant": 0,
+        "total_retrieved": 2,
+        "meets_target": true
+      }
+    }
+  ],
+  "analysis": {
+    "overall_statistics": {
+      "avg_precision_at_1": 0.36666666666666664,
+      "avg_precision_at_5": 0.30722222222222223,
+      "avg_precision_at_10": 0.30386243386243383,
+      "avg_recall_at_5": 0.49444444444444446,
+      "avg_f1_at_5": 0.3657142857142857,
+      "avg_search_time_ms": 18.90898256660831,
+      "quality_target_success_rate": 0.3
+    },
+    "by_query_type": {
+      "exact": {
+        "count": 6,
+        "avg_precision_at_5": 0.7222222222222222,
+        "avg_recall_at_5": 1.0,
+        "avg_f1_at_5": 0.8055555555555556,
+        "success_rate": 0.5
+      },
+      "semantic": {
+        "count": 9,
+        "avg_precision_at_5": 0.3814814814814815,
+        "avg_recall_at_5": 0.7777777777777778,
+        "avg_f1_at_5": 0.5021164021164022,
+        "success_rate": 0.0
+      },
+      "complex": {
+        "count": 6,
+        "avg_precision_at_5": 0.24166666666666667,
+        "avg_recall_at_5": 0.3055555555555556,
+        "avg_f1_at_5": 0.2698412698412699,
+        "success_rate": 0.0
+      },
+      "edge_case": {
+        "count": 9,
+        "avg_precision_at_5": 0.0,
+        "avg_recall_at_5": 0.0,
+        "avg_f1_at_5": 0.0,
+        "success_rate": 0.6666666666666666
+      }
+    },
+    "by_search_mode": {
+      "exact": {
+        "count": 10,
+        "avg_precision_at_5": 0.32,
+        "avg_recall_at_5": 0.55,
+        "avg_f1_at_5": 0.39206349206349206,
+        "avg_search_time_ms": 20.611608402026285,
+        "success_rate": 0.3
+      },
+      "semantic": {
+        "count": 10,
+        "avg_precision_at_5": 0.24333333333333335,
+        "avg_recall_at_5": 0.45,
+        "avg_f1_at_5": 0.30634920634920637,
+        "avg_search_time_ms": 20.05913820982033,
+        "success_rate": 0.2
+      },
+      "hybrid": {
+        "count": 10,
+        "avg_precision_at_5": 0.35833333333333334,
+        "avg_recall_at_5": 0.48333333333333334,
+        "avg_f1_at_5": 0.39873015873015877,
+        "avg_search_time_ms": 16.056201087978312,
+        "success_rate": 0.4
+      }
+    },
+    "by_difficulty": {
+      "easy": {
+        "count": 6,
+        "avg_precision_at_5": 0.7222222222222222,
+        "avg_recall_at_5": 1.0,
+        "success_rate": 0.5
+      },
+      "medium": {
+        "count": 9,
+        "avg_precision_at_5": 0.3814814814814815,
+        "avg_recall_at_5": 0.7777777777777778,
+        "success_rate": 0.0
+      },
+      "hard": {
+        "count": 15,
+        "avg_precision_at_5": 0.09666666666666666,
+        "avg_recall_at_5": 0.12222222222222222,
+        "success_rate": 0.4
+      }
+    },
+    "best_performers": {
+      "best_precision": {
+        "query": "Python function documentation",
+        "search_mode": "hybrid",
+        "precision_at_5": 1.0
+      },
+      "worst_precision": {
+        "query": "API authentication database optimization",
+        "search_mode": "exact",
+        "precision_at_5": 0.0
+      },
+      "fastest_search": {
+        "query": "Python function documentation",
+        "search_mode": "hybrid",
+        "search_time_ms": 1.1271307179271344
+      }
+    },
+    "recommendations": [
+      "Low precision detected: 0.307@5. Consider improving relevance ranking.",
+      "Quality targets not met: 30.0% success rate. Review expectations or improve search.",
+      "Best performing search mode: 'hybrid' (F1@5: 0.399)",
+      "'semantic' queries underperforming: 0.0% success rate",
+      "'complex' queries underperforming: 0.0% success rate",
+      "Easy queries should perform better: 50.0% success rate",
+      "Hard queries performing well: 40.0% success rate"
+    ]
+  }
+}
