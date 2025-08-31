@@ -105,6 +105,14 @@ def parse_conversational(
     """🔍 Parse conversational memory update."""
     handle_async(_parse_conversational_update(message))
 
+@memory_app.command("web")
+def start_web_interface(
+    port: int = typer.Option(8000, "--port", "-p", help="Port to run web server on"),
+    host: str = typer.Option("127.0.0.1", "--host", help="Host to bind web server to"),
+):
+    """🌐 Start web interface for memory curation."""
+    handle_async(_start_web_interface(port, host))
+
 # Async implementation functions (reuse from existing memory.py)
 async def _list_memory_rules(
     category: Optional[str], 
@@ -552,6 +560,29 @@ async def _parse_conversational_update(message: str):
     except Exception as e:
         console.print(f"[red]Error parsing conversational update: {e}[/red]")
         raise typer.Exit(1)
+
+async def _start_web_interface(port: int, host: str):
+    """Start the web interface for memory curation."""
+    try:
+        from ..web.server import start_web_server
+        
+        config = Config()
+        
+        console.print(f"[bold blue]🌐 Starting Memory Curation Web Interface[/bold blue]")
+        console.print(f"Server: http://{host}:{port}")
+        console.print(f"[dim]Press Ctrl+C to stop the server[/dim]\n")
+        
+        # Start the web server
+        await start_web_server(config, port, host)
+        
+    except ImportError:
+        console.print("[red]Web interface dependencies not installed.[/red]")
+        console.print("Please install with: pip install fastapi uvicorn jinja2")
+        raise typer.Exit(1)
+    except Exception as e:
+        console.print(f"[red]Error starting web server: {e}[/red]")
+        raise typer.Exit(1)
+
 
 def _generate_name_from_rule(rule: str) -> str:
     """Generate a short name from a rule text."""
