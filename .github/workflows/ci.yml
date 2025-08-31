@@ -183,7 +183,7 @@ jobs:
         QDRANT_URL: http://localhost:6333
       run: |
         . .venv/bin/activate
-        python benchmarking/authoritative_benchmark.py --skip-oss --chunk-sizes 1000 > authoritative_benchmark_results.txt
+        python dev/benchmarks/tools/authoritative_benchmark.py --skip-oss --chunk-sizes 1000 > authoritative_benchmark_results.txt
 
     - name: Validate performance against evidence-based thresholds
       run: |
