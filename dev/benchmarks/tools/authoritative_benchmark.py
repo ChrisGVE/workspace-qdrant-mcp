@@ -35,8 +35,11 @@ from rich.panel import Panel
 from rich.progress import BarColumn, Progress, SpinnerColumn, TextColumn
 from rich.table import Table
 
-# Add project root to path for imports
-project_root = Path(__file__).parent.parent
+# Add project root to path for imports  
+# Current file: dev/benchmarks/tools/authoritative_benchmark.py
+# We need to go up 4 levels to get to the project root: tools -> benchmarks -> dev -> workspace-qdrant-mcp
+script_path = Path(__file__)
+project_root = script_path.parent.parent.parent.parent
 sys.path.insert(0, str(project_root))
 
 try:
@@ -90,7 +93,8 @@ class AuthoritativeBenchmark:
 
     def __init__(self):
         self.console = Console()
-        self.project_root = Path(__file__).parent.parent
+        # Go up 4 levels: tools -> benchmarks -> dev -> workspace-qdrant-mcp
+        self.project_root = Path(__file__).parent.parent.parent.parent
         self.test_data_dir = self.project_root / "test_data"
         self.results_dir = self.project_root / "benchmark_results"
 
