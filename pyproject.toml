@@ -168,8 +168,7 @@ dev = [
 # Maturin configuration for Rust integration
 [tool.maturin]
 module-name = "workspace_qdrant_mcp._rust_engine"
-manifest-path = "rust-engine/Cargo.toml"
-features = ["python-bindings"]
+manifest-path = "rust-engine/python-bindings/Cargo.toml"
 python-source = "src"
 
 # Platform-specific optimizations
