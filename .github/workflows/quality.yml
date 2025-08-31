@@ -308,14 +308,125 @@ jobs:
         python -c "
         import pkgutil
         import importlib
+        import inspect
         import workspace_qdrant_mcp
+        from typing import get_type_hints
         
-        print('### Available Modules')
+        def get_clean_docstring(obj):
+            '''Extract and clean docstring for documentation.'''
+            doc = inspect.getdoc(obj)
+            if doc:
+                # Clean up docstring formatting
+                lines = doc.split('\n')
+                if len(lines) > 1 and lines[0].strip() and not lines[1].strip():
+                    # Remove empty line after first line if present
+                    lines = [lines[0]] + [line for line in lines[2:] if line.strip()]
+                return '\n'.join(lines).strip()
+            return 'No documentation available.'
+        
+        def document_module(module_name):
+            '''Generate documentation for a single module.'''
+            try:
+                module = importlib.import_module(module_name)
+                print(f'\n## {module_name}')
+                
+                # Module docstring
+                module_doc = get_clean_docstring(module)
+                if module_doc != 'No documentation available.':
+                    print(f'{module_doc}\n')
+                
+                # Get all public items
+                public_items = [(name, getattr(module, name)) for name in dir(module) 
+                               if not name.startswith('_') and hasattr(module, name)]
+                
+                # Sort by type: classes first, then functions, then others
+                classes = [(n, o) for n, o in public_items if inspect.isclass(o)]
+                functions = [(n, o) for n, o in public_items if inspect.isfunction(o)]
+                others = [(n, o) for n, o in public_items 
+                         if not inspect.isclass(o) and not inspect.isfunction(o) 
+                         and not inspect.ismodule(o)]
+                
+                # Document classes
+                if classes:
+                    print('### Classes\n')
+                    for name, cls in sorted(classes):
+                        try:
+                            print(f'#### {name}')
+                            print(f'```python\nclass {name}\n```')
+                            doc = get_clean_docstring(cls)
+                            print(f'{doc}\n')
+                            
+                            # Document public methods
+                            methods = [(n, m) for n, m in inspect.getmembers(cls, inspect.isfunction)
+                                     if not n.startswith('_')]
+                            if methods:
+                                print('**Methods:**')
+                                for method_name, method in sorted(methods):
+                                    try:
+                                        sig = inspect.signature(method)
+                                        print(f'- `{method_name}{sig}`: {get_clean_docstring(method).split(\".\")[0]}.')
+                                    except Exception:
+                                        print(f'- `{method_name}()`: {get_clean_docstring(method).split(\".\")[0]}.')
+                                print()
+                        except Exception as e:
+                            print(f'Error documenting class {name}: {e}\n')
+                
+                # Document functions
+                if functions:
+                    print('### Functions\n')
+                    for name, func in sorted(functions):
+                        try:
+                            sig = inspect.signature(func)
+                            print(f'#### {name}{sig}')
+                            print(f'```python\ndef {name}{sig}\n```')
+                            doc = get_clean_docstring(func)
+                            print(f'{doc}\n')
+                        except Exception as e:
+                            print(f'Error documenting function {name}: {e}\n')
+                
+                # Document other public items (constants, variables)
+                if others:
+                    print('### Constants & Variables\n')
+                    for name, obj in sorted(others):
+                        try:
+                            obj_type = type(obj).__name__
+                            print(f'- **{name}** ({obj_type}): {str(obj)[:100]}')
+                        except Exception:
+                            print(f'- **{name}**: Available')
+                    print()
+                        
+            except Exception as e:
+                print(f'Error documenting module {module_name}: {e}')
+        
+        print('# API Documentation')
+        print('Generated automatically from source code docstrings.\n')
+        
+        # Document key modules in logical order
+        key_modules = [
+            'workspace_qdrant_mcp.server',
+            'workspace_qdrant_mcp.tools',
+            'workspace_qdrant_mcp.core.config', 
+            'workspace_qdrant_mcp.core.hybrid_search',
+            'workspace_qdrant_mcp.core.memory',
+            'workspace_qdrant_mcp.core.collection_naming'
+        ]
+        
+        print('## Core API Modules\n')
+        for module_name in key_modules:
+            try:
+                document_module(module_name)
+            except Exception as e:
+                print(f'Could not document {module_name}: {e}')
+        
+        # Document all other modules
+        print('\n## Additional Modules\n')
+        documented_modules = set(key_modules)
         for importer, modname, ispkg in pkgutil.walk_packages(
             workspace_qdrant_mcp.__path__, 
             workspace_qdrant_mcp.__name__ + '.'
         ):
-            print(f'- {modname}')
+            if modname not in documented_modules and not modname.endswith('__'):
+                document_module(modname)
         " >> doc-report.md
 
     - name: Upload documentation reports
