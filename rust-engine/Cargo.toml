@@ -35,9 +35,9 @@ tokio-util = { version = "0.7", features = ["codec", "time"] }
 tokio-stream = "0.1"
 
 # gRPC and networking
-tonic = { version = "0.10", features = ["tls", "tls-roots", "compression"] }
-prost = "0.12"
-prost-types = "0.12"
+tonic = { version = "0.12", features = ["tls", "tls-roots", "compression"] }
+prost = "0.13"
+prost-types = "0.13"
 
 # Serialization and configuration
 serde = { version = "1.0", features = ["derive", "rc"] }
@@ -53,8 +53,8 @@ anyhow = "1.0"
 tracing = { version = "0.1", features = ["log", "attributes", "std"] }
 
 # Python integration
-pyo3 = { version = "0.20", features = ["extension-module", "abi3"] }
-pyo3-asyncio = { version = "0.20", features = ["tokio-runtime"] }
+pyo3 = { version = "0.24", features = ["extension-module", "abi3"] }
+pyo3-asyncio = { version = "0.21", features = ["tokio-runtime"] }
 
 [workspace.metadata.docs.rs]
 all-features = true
