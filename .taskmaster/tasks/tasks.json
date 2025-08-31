@@ -716,15 +716,103 @@
         "description": "Create web-based interface for visual memory rule management accessible via wqm memory --web command",
         "details": "- Design web interface for memory rule visualization and editing\n- Implement wqm memory --web command to launch local web server\n- Create forms for rule creation, editing, and conflict resolution\n- Build visual representation of rule authority levels and scopes\n- Add token usage visualization and trim recommendations\n- Implement drag-and-drop rule prioritization\n- Create export/import functionality for rule sets",
         "testStrategy": "",
-        "status": "pending",
+        "status": "in-progress",
         "dependencies": [],
         "priority": "low",
-        "subtasks": []
+        "subtasks": [
+          {
+            "id": 1,
+            "title": "Create web interface architecture design",
+            "description": "Design the overall web application structure including routing, components, and state management for the memory curation interface",
+            "dependencies": [],
+            "details": "- Design component hierarchy for memory rule visualization\n- Plan state management for rule data and user interactions\n- Create wireframes for main interface screens\n- Define API endpoints needed for frontend-backend communication\n- Choose web framework (React, Vue, or vanilla JS) based on project needs\n<info added on 2025-08-31T12:38:35.517Z>\nArchitecture Design Completed:\n\nFramework Selection: FastAPI chosen for web server (leveraging existing fastmcp dependency)\nProject Structure: New web module located at src/workspace_qdrant_mcp/web/\nAPI Design: RESTful endpoints planned for complete memory rule management operations\nFrontend Approach: Static HTML/CSS/JS implementation to minimize dependencies\nBackend Integration: Direct integration with existing MemoryManager class for all memory operations\nUI Framework: Bootstrap CSS framework via CDN for responsive design components\nArchitecture Benefits: Minimal dependency footprint while maintaining full functionality and responsive user experience\n</info added on 2025-08-31T12:38:35.517Z>",
+            "status": "done",
+            "testStrategy": "Create design mockups and validate with stakeholders, ensure responsive design works on different screen sizes"
+          },
+          {
+            "id": 2,
+            "title": "Implement web server foundation",
+            "description": "Create the web server infrastructure to serve the memory curation interface and handle API requests",
+            "dependencies": [],
+            "details": "- Add web server dependency (Flask/FastAPI) to project requirements\n- Create web server module in src/workspace_qdrant_mcp/web/\n- Implement basic server setup with static file serving\n- Add CORS handling for development\n- Create basic health check endpoints\n- Integrate with existing Config system",
+            "status": "in-progress",
+            "testStrategy": "Unit tests for server initialization, integration tests for basic HTTP responses, verify server can start and stop cleanly"
+          },
+          {
+            "id": 3,
+            "title": "Add --web command to memory CLI",
+            "description": "Extend the wqm memory command to include a --web flag that launches the local web server",
+            "dependencies": [
+              "15.2"
+            ],
+            "details": "- Modify memory_app in src/workspace_qdrant_mcp/cli/commands/memory.py\n- Add web command with optional port parameter\n- Integrate web server startup with existing memory manager\n- Handle graceful shutdown on Ctrl+C\n- Add logging for web server status\n- Support custom port configuration",
+            "status": "pending",
+            "testStrategy": "CLI integration tests for web command, verify server starts correctly from command line, test graceful shutdown"
+          },
+          {
+            "id": 4,
+            "title": "Build memory rule visualization components",
+            "description": "Create frontend components for displaying memory rules with visual hierarchy and filtering capabilities",
+            "dependencies": [
+              "15.1"
+            ],
+            "details": "- Create rule list component with search and filtering\n- Build rule detail view component\n- Implement authority level visual indicators (colors/badges)\n- Add scope visualization with tags/chips\n- Create rule hierarchy display for related rules\n- Add sorting options (authority, category, date)\n- Implement responsive table/card layout",
+            "status": "pending",
+            "testStrategy": "Component unit tests, visual regression tests, test with different data sizes and rule types"
+          },
+          {
+            "id": 5,
+            "title": "Implement rule editing and creation forms",
+            "description": "Build interactive forms for creating new memory rules and editing existing ones with validation",
+            "dependencies": [
+              "15.1",
+              "15.4"
+            ],
+            "details": "- Create rule creation form with all required fields\n- Build rule editing interface with pre-populated data\n- Add client-side validation for rule fields\n- Implement category and authority dropdowns\n- Add scope management with tag input\n- Create conflict preview during editing\n- Add form state management and error handling",
+            "status": "pending",
+            "testStrategy": "Form validation tests, integration tests with backend APIs, test edge cases and error conditions"
+          },
+          {
+            "id": 6,
+            "title": "Create conflict resolution interface",
+            "description": "Build interactive UI for detecting, displaying, and resolving memory rule conflicts",
+            "dependencies": [
+              "15.4",
+              "15.5"
+            ],
+            "details": "- Create conflict detection dashboard\n- Build conflict comparison view showing conflicting rules side-by-side\n- Implement resolution action buttons (merge, prioritize, delete)\n- Add bulk conflict resolution capabilities\n- Create conflict severity visual indicators\n- Implement resolution preview before applying changes\n- Add conflict resolution history tracking",
+            "status": "pending",
+            "testStrategy": "Integration tests with conflict detector, test various conflict scenarios, validate resolution actions work correctly"
+          },
+          {
+            "id": 7,
+            "title": "Add token usage visualization and optimization",
+            "description": "Create visual components for displaying memory token usage and providing optimization recommendations",
+            "dependencies": [
+              "15.4"
+            ],
+            "details": "- Build token usage dashboard with charts and metrics\n- Create visual token limit indicators and warnings\n- Implement optimization suggestion display\n- Add interactive token trimming interface\n- Create before/after optimization preview\n- Build rule priority drag-and-drop interface\n- Add token usage history tracking",
+            "status": "pending",
+            "testStrategy": "Integration tests with TokenCounter, test optimization recommendations accuracy, validate drag-and-drop functionality"
+          },
+          {
+            "id": 8,
+            "title": "Implement export/import functionality",
+            "description": "Build web interface for exporting and importing memory rule sets with validation and preview",
+            "dependencies": [
+              "15.5",
+              "15.6"
+            ],
+            "details": "- Create export functionality with format options (JSON, YAML)\n- Build import interface with file upload and drag-drop\n- Add import preview with conflict detection\n- Implement selective import with rule filtering\n- Create backup/restore functionality\n- Add import validation and error reporting\n- Build rule set sharing capabilities",
+            "status": "pending",
+            "testStrategy": "Test export/import round-trip accuracy, validate import error handling, test with various file formats and sizes"
+          }
+        ]
       }
     ],
     "metadata": {
       "created": "2025-08-30T10:40:15.806Z",
-      "updated": "2025-08-31T12:34:04.455Z",
+      "updated": "2025-08-31T12:38:42.256Z",
       "description": "Main development and performance optimization tasks"
     }
   }
