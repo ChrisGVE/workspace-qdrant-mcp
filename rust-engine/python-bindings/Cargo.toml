@@ -17,8 +17,8 @@ workspace-qdrant-core = { path = "../core" }
 workspace-qdrant-grpc = { path = "../grpc" }
 
 # Python bindings
-pyo3 = { version = "0.20", features = ["extension-module", "abi3"] }
-pyo3-asyncio = { version = "0.20", features = ["tokio-runtime"] }
+pyo3 = { version = "0.22", features = ["extension-module", "abi3"] }
+# Note: pyo3-asyncio removed as it's not used in current implementation
 
 # Async runtime
 tokio = { version = "1.35", features = ["rt-multi-thread", "macros"] }
@@ -33,4 +33,4 @@ anyhow = "1.0"
 tracing = "0.1"
 
 [build-dependencies]
-pyo3-build-config = "0.20"
+pyo3-build-config = "0.22"
