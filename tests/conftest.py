@@ -235,6 +235,7 @@ async def mock_workspace_client(
     collection_manager = MagicMock()
     collection_manager.list_collections = AsyncMock(return_value=["test_collection"])
     collection_manager.collection_exists = AsyncMock(return_value=True)
+    collection_manager.resolve_collection_name = MagicMock(return_value=("test_collection", True))
     client.collection_manager = collection_manager
 
     # Mock async methods
