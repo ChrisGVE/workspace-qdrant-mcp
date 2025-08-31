@@ -643,7 +643,7 @@ class TestFullWorkflowE2E:
         }
 
         # Benchmark different fusion methods
-        benchmark_result = engine.benchmark_fusion_methods(
+        benchmark_result = await engine.benchmark_fusion_methods(
             collection_name="test_collection",
             query_embeddings=query_embeddings,
             limit=20,
