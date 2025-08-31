@@ -661,7 +661,7 @@
         "description": "Replace current CLI commands with unified wqm interface covering all domains (memory, admin, ingest, search, library, watch)",
         "details": "- Design complete wqm command structure with domains\n- Implement wqm memory (rule management, tokens, trim, future --web)\n- Implement wqm admin (status, config, engine lifecycle)\n- Implement wqm ingest (file, folder, yaml, web processing)\n- Implement wqm search (project, collection, global, all contexts)\n- Implement wqm library (readonly collection management)\n- Implement wqm watch (library folder watching, NOT projects)\n- Update all documentation and help systems",
         "testStrategy": "",
-        "status": "pending",
+        "status": "done",
         "dependencies": [],
         "priority": "high",
         "subtasks": []
@@ -724,7 +724,7 @@
     ],
     "metadata": {
       "created": "2025-08-30T10:40:15.806Z",
-      "updated": "2025-08-30T21:03:32.718Z",
+      "updated": "2025-08-30T21:05:13.457Z",
       "description": "Main development and performance optimization tasks"
     }
   }
