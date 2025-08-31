@@ -131,7 +131,7 @@ class TestServerIntegration:
         }
         mock_workspace_client_initialized.get_status.return_value = expected_status
 
-        result = await server.workspace_status()
+        result = await server.workspace_status.fn()
 
         assert result == expected_status
         mock_workspace_client_initialized.get_status.assert_called_once()
@@ -141,7 +141,7 @@ class TestServerIntegration:
         """Test workspace_status tool when client is not initialized."""
         server.workspace_client = None
 
-        result = await server.workspace_status()
+        result = await server.workspace_status.fn()
 
         assert result == {"error": "Workspace client not initialized"}
 
@@ -157,7 +157,7 @@ class TestServerIntegration:
             expected_collections
         )
 
-        result = await server.list_workspace_collections()
+        result = await server.list_workspace_collections.fn()
 
         assert result == expected_collections
         mock_workspace_client_initialized.list_collections.assert_called_once()
@@ -167,7 +167,7 @@ class TestServerIntegration:
         """Test list_workspace_collections tool when client is not initialized."""
         server.workspace_client = None
 
-        result = await server.list_workspace_collections()
+        result = await server.list_workspace_collections.fn()
 
         assert result == []
 
