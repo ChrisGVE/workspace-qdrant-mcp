@@ -8,17 +8,17 @@ import asyncio
 import json
 import sys
 from pathlib import Path
-from typing import Dict, Any, Optional
+from typing import Any, Dict, Optional
 
+import psutil
 import typer
 from rich.console import Console
-from rich.table import Table
 from rich.panel import Panel
 from rich.progress import Progress, SpinnerColumn, TextColumn
-import psutil
+from rich.table import Table
 
+from ...core.client import QdrantWorkspaceClient, create_qdrant_client
 from ...core.config import Config
-from ...core.client import create_qdrant_client, QdrantWorkspaceClient
 from ...utils.project_detection import ProjectDetector
 
 console = Console()
@@ -53,7 +53,7 @@ def system_status(
 def config_management(
     show: bool = typer.Option(False, "--show", help="Show current configuration"),
     validate: bool = typer.Option(False, "--validate", help="Validate configuration"),
-    path: Optional[str] = typer.Option(None, "--path", help="Configuration file path"),
+    path: str | None = typer.Option(None, "--path", help="Configuration file path"),
 ):
     """⚙️ Configuration management."""
     handle_async(_config_management(show, validate, path))
@@ -61,12 +61,12 @@ def config_management(
 @admin_app.command("start-engine")
 def start_engine(
     force: bool = typer.Option(False, "--force", help="Force start even if already running"),
-    config_path: Optional[str] = typer.Option(None, "--config", help="Custom config path"),
+    config_path: str | None = typer.Option(None, "--config", help="Custom config path"),
 ):
     """🚀 Start the Rust processing engine."""
     handle_async(_start_engine(force, config_path))
 
-@admin_app.command("stop-engine")  
+@admin_app.command("stop-engine")
 def stop_engine(
     force: bool = typer.Option(False, "--force", help="Force stop without graceful shutdown"),
     timeout: int = typer.Option(30, "--timeout", help="Shutdown timeout in seconds"),
@@ -76,14 +76,14 @@ def stop_engine(
 
 @admin_app.command("restart-engine")
 def restart_engine(
-    config_path: Optional[str] = typer.Option(None, "--config", help="Custom config path"),
+    config_path: str | None = typer.Option(None, "--config", help="Custom config path"),
 ):
     """🔄 Restart engine with new configuration."""
     handle_async(_restart_engine(config_path))
 
 @admin_app.command("collections")
 def list_collections(
-    project: Optional[str] = typer.Option(None, "--project", help="Filter by project"),
+    project: str | None = typer.Option(None, "--project", help="Filter by project"),
     stats: bool = typer.Option(False, "--stats", help="Include collection statistics"),
     library: bool = typer.Option(False, "--library", help="Show only library collections (_prefixed)"),
 ):
@@ -104,13 +104,13 @@ async def _system_status(verbose: bool, json_output: bool):
     try:
         config = Config()
         status_data = await _collect_status_data(config)
-        
+
         if json_output:
             print(json.dumps(status_data, indent=2, default=str))
             return
-        
+
         _display_status_panel(status_data, verbose)
-        
+
     except Exception as e:
         console.print(f"[red]Error getting system status: {e}[/red]")
         raise typer.Exit(1)
@@ -118,30 +118,30 @@ async def _system_status(verbose: bool, json_output: bool):
 async def _watch_status(verbose: bool):
     """Watch system status with continuous refresh."""
     import time
-    
+
     console.print("[bold blue]🔍 Watching system status (Ctrl+C to stop)[/bold blue]\n")
-    
+
     try:
         while True:
             # Clear screen
             console.clear()
-            
+
             config = Config()
             status_data = await _collect_status_data(config)
             _display_status_panel(status_data, verbose)
-            
+
             console.print(f"\n[dim]Last updated: {status_data['timestamp']} | Press Ctrl+C to stop[/dim]")
-            
+
             # Wait 5 seconds
             await asyncio.sleep(5)
-            
+
     except KeyboardInterrupt:
         console.print("\n[yellow]Status monitoring stopped[/yellow]")
 
-async def _collect_status_data(config: Config) -> Dict[str, Any]:
+async def _collect_status_data(config: Config) -> dict[str, Any]:
     """Collect comprehensive status information."""
     from datetime import datetime
-    
+
     status_data = {
         "timestamp": datetime.now().isoformat(),
         "config_valid": True,
@@ -151,7 +151,7 @@ async def _collect_status_data(config: Config) -> Dict[str, Any]:
         "project": {},
         "collections": {}
     }
-    
+
     # Test Qdrant connectivity
     try:
         client = create_qdrant_client(config.qdrant_client_config)
@@ -169,7 +169,7 @@ async def _collect_status_data(config: Config) -> Dict[str, Any]:
             "error": str(e),
             "url": config.qdrant.url if hasattr(config, 'qdrant') else "unknown"
         }
-    
+
     # Check Rust Engine (placeholder - will be implemented with Rust integration)
     try:
         # TODO: Implement actual Rust engine status check
@@ -182,7 +182,7 @@ async def _collect_status_data(config: Config) -> Dict[str, Any]:
             "status": "error",
             "error": str(e)
         }
-    
+
     # System resources
     try:
         status_data["system"] = {
@@ -200,7 +200,7 @@ async def _collect_status_data(config: Config) -> Dict[str, Any]:
         }
     except Exception as e:
         status_data["system"] = {"error": str(e)}
-    
+
     # Project detection
     try:
         detector = ProjectDetector(config.workspace.github_user if hasattr(config, 'workspace') else None)
@@ -212,21 +212,21 @@ async def _collect_status_data(config: Config) -> Dict[str, Any]:
         }
     except Exception as e:
         status_data["project"] = {"error": str(e)}
-    
+
     return status_data
 
-def _display_status_panel(status_data: Dict[str, Any], verbose: bool):
+def _display_status_panel(status_data: dict[str, Any], verbose: bool):
     """Display status in rich panel format."""
-    
+
     # Overall health assessment
     qdrant_healthy = status_data["qdrant"]["status"] == "healthy"
     rust_healthy = status_data["rust_engine"]["status"] in ["healthy", "not_implemented"]
     overall_healthy = qdrant_healthy and rust_healthy
-    
+
     health_color = "green" if overall_healthy else "red"
     health_icon = "🟢" if overall_healthy else "🔴"
     health_text = f"{health_icon} {'HEALTHY' if overall_healthy else 'UNHEALTHY'}"
-    
+
     # Main status panel
     status_panel = Panel(
         f"[{health_color}]{health_text}[/{health_color}]",
@@ -234,13 +234,13 @@ def _display_status_panel(status_data: Dict[str, Any], verbose: bool):
         border_style=health_color,
     )
     console.print(status_panel)
-    
+
     # Component status table
     table = Table(title="📊 Component Status")
     table.add_column("Component", style="cyan", width=20)
     table.add_column("Status", justify="center", width=15)
     table.add_column("Details", style="dim")
-    
+
     # Qdrant Database
     qdrant = status_data["qdrant"]
     if qdrant["status"] == "healthy":
@@ -255,7 +255,7 @@ def _display_status_panel(status_data: Dict[str, Any], verbose: bool):
             "[red]ERROR[/red]",
             str(qdrant.get("error", "Connection failed"))
         )
-    
+
     # Rust Engine
     rust_engine = status_data["rust_engine"]
     if rust_engine["status"] == "healthy":
@@ -276,7 +276,7 @@ def _display_status_panel(status_data: Dict[str, Any], verbose: bool):
             "[red]ERROR[/red]",
             str(rust_engine.get("error", "Unknown error"))
         )
-    
+
     # Project Context
     project = status_data["project"]
     if "error" not in project:
@@ -291,18 +291,18 @@ def _display_status_panel(status_data: Dict[str, Any], verbose: bool):
             "[yellow]WARNING[/yellow]",
             str(project.get("error", "Detection failed"))
         )
-    
+
     console.print(table)
-    
+
     # System resources (if verbose)
     if verbose and "error" not in status_data["system"]:
         system = status_data["system"]
-        
+
         resource_table = Table(title="💻 System Resources")
         resource_table.add_column("Resource", style="cyan")
         resource_table.add_column("Usage", justify="center")
         resource_table.add_column("Details", style="dim")
-        
+
         # CPU
         cpu_color = "red" if system["cpu_percent"] > 80 else "yellow" if system["cpu_percent"] > 60 else "green"
         resource_table.add_row(
@@ -310,7 +310,7 @@ def _display_status_panel(status_data: Dict[str, Any], verbose: bool):
             f"[{cpu_color}]{system['cpu_percent']:.1f}%[/{cpu_color}]",
             "System load"
         )
-        
+
         # Memory
         mem = system["memory"]
         mem_color = "red" if mem["percent"] > 90 else "yellow" if mem["percent"] > 70 else "green"
@@ -319,7 +319,7 @@ def _display_status_panel(status_data: Dict[str, Any], verbose: bool):
             f"[{mem_color}]{mem['percent']:.1f}%[/{mem_color}]",
             f"{mem['used_gb']:.1f}GB / {mem['total_gb']:.1f}GB"
         )
-        
+
         # Disk
         disk = system["disk"]
         disk_color = "red" if disk["percent"] > 95 else "yellow" if disk["percent"] > 80 else "green"
@@ -328,22 +328,22 @@ def _display_status_panel(status_data: Dict[str, Any], verbose: bool):
             f"[{disk_color}]{disk['percent']:.1f}%[/{disk_color}]",
             f"{disk['free_gb']:.1f}GB free / {disk['total_gb']:.1f}GB total"
         )
-        
+
         console.print(resource_table)
 
-async def _config_management(show: bool, validate: bool, path: Optional[str]):
+async def _config_management(show: bool, validate: bool, path: str | None):
     """Configuration management operations."""
     try:
         config = Config()
-        
+
         if show:
             console.print("[bold blue]📋 Current Configuration[/bold blue]")
-            
+
             # Basic config info
             config_table = Table(title="Configuration Settings")
             config_table.add_column("Setting", style="cyan")
             config_table.add_column("Value", style="white")
-            
+
             # Add key configuration values
             if hasattr(config, 'qdrant'):
                 config_table.add_row("Qdrant URL", str(config.qdrant.url))
@@ -351,14 +351,14 @@ async def _config_management(show: bool, validate: bool, path: Optional[str]):
                 config_table.add_row("Embedding Model", str(config.embedding.model))
             if hasattr(config, 'workspace'):
                 config_table.add_row("Collection Prefix", str(config.workspace.collection_prefix))
-            
+
             console.print(config_table)
-        
+
         if validate:
             console.print("[bold blue]✅ Configuration Validation[/bold blue]")
-            
+
             validation_results = []
-            
+
             # Validate Qdrant connection
             try:
                 client = create_qdrant_client(config.qdrant_client_config)
@@ -366,37 +366,37 @@ async def _config_management(show: bool, validate: bool, path: Optional[str]):
                 validation_results.append(("Qdrant Connection", "✅ Valid", "green"))
             except Exception as e:
                 validation_results.append(("Qdrant Connection", f"❌ Failed: {e}", "red"))
-            
+
             # Display validation results
             for setting, result, color in validation_results:
                 console.print(f"  {setting}: [{color}]{result}[/{color}]")
-        
+
         if not show and not validate:
             console.print("[yellow]Use --show or --validate flags to perform operations[/yellow]")
-            
+
     except Exception as e:
         console.print(f"[red]Configuration error: {e}[/red]")
         raise typer.Exit(1)
 
-async def _start_engine(force: bool, config_path: Optional[str]):
+async def _start_engine(force: bool, config_path: str | None):
     """Start the Rust processing engine."""
     console.print("[bold blue]🚀 Starting Rust Engine[/bold blue]")
-    
+
     with Progress(
         SpinnerColumn(),
         TextColumn("[progress.description]{task.description}"),
         console=console,
     ) as progress:
         task = progress.add_task("Starting engine...", total=None)
-        
+
         try:
             # TODO: Implement actual Rust engine startup
             await asyncio.sleep(2)  # Simulate startup time
-            
+
             progress.update(task, description="Engine started successfully")
             console.print("[green]✅ Rust engine started successfully[/green]")
             console.print("[dim]Note: Full Rust engine integration will be implemented in Task 11[/dim]")
-            
+
         except Exception as e:
             console.print(f"[red]❌ Failed to start engine: {e}[/red]")
             raise typer.Exit(1)
@@ -404,66 +404,66 @@ async def _start_engine(force: bool, config_path: Optional[str]):
 async def _stop_engine(force: bool, timeout: int):
     """Stop the Rust processing engine."""
     console.print("[bold yellow]🛑 Stopping Rust Engine[/bold yellow]")
-    
+
     try:
         # TODO: Implement actual Rust engine shutdown
         if force:
             console.print("[yellow]Force stopping engine...[/yellow]")
         else:
             console.print(f"[yellow]Graceful shutdown (timeout: {timeout}s)...[/yellow]")
-        
+
         await asyncio.sleep(1)  # Simulate shutdown time
         console.print("[green]✅ Rust engine stopped[/green]")
-        
+
     except Exception as e:
         console.print(f"[red]❌ Failed to stop engine: {e}[/red]")
         raise typer.Exit(1)
 
-async def _restart_engine(config_path: Optional[str]):
+async def _restart_engine(config_path: str | None):
     """Restart engine with new configuration."""
     console.print("[bold blue]🔄 Restarting Rust Engine[/bold blue]")
-    
+
     try:
         await _stop_engine(False, 30)
         await asyncio.sleep(1)
         await _start_engine(False, config_path)
-        
+
     except Exception as e:
         console.print(f"[red]❌ Failed to restart engine: {e}[/red]")
         raise typer.Exit(1)
 
-async def _list_collections(project: Optional[str], stats: bool, library: bool):
+async def _list_collections(project: str | None, stats: bool, library: bool):
     """List and manage collections."""
     try:
         config = Config()
         client = create_qdrant_client(config.qdrant_client_config)
         collections = await client.list_collections()
-        
+
         # Filter collections
         if library:
             collections = [col for col in collections if col.get("name", "").startswith("_")]
         elif project:
             prefix = f"{config.workspace.collection_prefix}{project}_" if hasattr(config, 'workspace') else f"{project}_"
             collections = [col for col in collections if col.get("name", "").startswith(prefix)]
-        
+
         if not collections:
             filter_desc = "library " if library else f"project '{project}' " if project else ""
             console.print(f"[yellow]No {filter_desc}collections found.[/yellow]")
             return
-        
+
         # Display collections table
         table = Table(title=f"📁 Collections ({len(collections)} found)")
         table.add_column("Name", style="cyan")
         table.add_column("Type", style="white")
-        
+
         if stats:
             table.add_column("Points", justify="right")
             table.add_column("Vectors", justify="right")
-        
+
         for col in collections:
             name = col.get("name", "unknown")
             col_type = "Library" if name.startswith("_") else "Project"
-            
+
             if stats:
                 try:
                     info = await client.get_collection_info(name)
@@ -474,9 +474,9 @@ async def _list_collections(project: Optional[str], stats: bool, library: bool):
                     table.add_row(name, col_type, "?", "?")
             else:
                 table.add_row(name, col_type)
-        
+
         console.print(table)
-        
+
     except Exception as e:
         console.print(f"[red]Error listing collections: {e}[/red]")
         raise typer.Exit(1)
@@ -484,15 +484,15 @@ async def _list_collections(project: Optional[str], stats: bool, library: bool):
 async def _health_check(deep: bool, timeout: int):
     """Comprehensive health check."""
     console.print("[bold blue]🏥 System Health Check[/bold blue]")
-    
+
     health_results = []
-    
+
     with Progress(
         SpinnerColumn(),
         TextColumn("[progress.description]{task.description}"),
         console=console,
     ) as progress:
-        
+
         # Basic connectivity
         task = progress.add_task("Testing Qdrant connectivity...", total=None)
         try:
@@ -504,8 +504,8 @@ async def _health_check(deep: bool, timeout: int):
             health_results.append(("Qdrant Connectivity", "⏰ Timeout", "yellow"))
         except Exception as e:
             health_results.append(("Qdrant Connectivity", f"❌ Error: {e}", "red"))
-        
-        # Memory usage check  
+
+        # Memory usage check
         progress.update(task, description="Checking memory usage...")
         try:
             memory = psutil.virtual_memory()
@@ -517,7 +517,7 @@ async def _health_check(deep: bool, timeout: int):
                 health_results.append(("Memory Usage", f"❌ {memory.percent:.1f}%", "red"))
         except Exception as e:
             health_results.append(("Memory Usage", f"❌ Error: {e}", "red"))
-        
+
         # Disk space check
         if deep:
             progress.update(task, description="Checking disk space...")
@@ -531,16 +531,16 @@ async def _health_check(deep: bool, timeout: int):
                     health_results.append(("Disk Space", f"❌ {disk.percent:.1f}%", "red"))
             except Exception as e:
                 health_results.append(("Disk Space", f"❌ Error: {e}", "red"))
-    
+
     # Display results
     console.print("\n[bold]Health Check Results:[/bold]")
     for component, status, color in health_results:
         console.print(f"  {component}: [{color}]{status}[/{color}]")
-    
+
     # Overall assessment
     errors = sum(1 for _, status, _ in health_results if status.startswith("❌"))
     warnings = sum(1 for _, status, _ in health_results if status.startswith("⚠️"))
-    
+
     if errors == 0:
         if warnings == 0:
             console.print("\n[green]🎉 System is healthy![/green]")

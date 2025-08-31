@@ -32,7 +32,7 @@ logger = logging.getLogger(__name__)
 async def research_workspace(
     client: QdrantWorkspaceClient,
     query: str,
-    mode: str = "project", 
+    mode: str = "project",
     target_collection: str = None,
     include_relationships: bool = False,
     version_preference: str = "latest",
@@ -42,11 +42,11 @@ async def research_workspace(
 ) -> dict:
     """
     Four-mode research interface for workspace collections.
-    
+
     Provides comprehensive search capabilities across different contexts
     within the workspace, with version-aware filtering and relationship
     tracking as specified in PRD v2.0.
-    
+
     Args:
         client: Initialized workspace client
         query: Natural language search query
@@ -57,62 +57,62 @@ async def research_workspace(
         include_archived: Include archived collections in 'all' mode
         limit: Maximum number of results to return
         score_threshold: Minimum relevance score threshold
-        
+
     Returns:
         Dict containing:
         - results: List of search results with relevance scores
         - total_results: Number of results returned
         - research_context: Context information about the search
         - error: Error message if search failed
-        
+
     Raises:
         None - All errors are captured and returned in the response dict
     """
-    
+
     # Validate client initialization
     if not client or not client.initialized:
         return {"error": "Workspace client not initialized"}
-    
+
     # Validate query
     if not query or not query.strip():
         return {"error": "Query cannot be empty"}
-        
+
     # Validate mode
     valid_modes = ["project", "collection", "global", "all"]
     if mode not in valid_modes:
         return {"error": f"Invalid mode '{mode}'. Must be one of: {valid_modes}"}
-        
+
     # Validate collection mode requirements
     if mode == "collection" and not target_collection:
         return {"error": "target_collection required for collection mode"}
-    
+
     try:
         # Determine collections to search based on mode
         collections = []
-        
+
         if mode == "project":
             # Search current project and subprojects
             project_info = getattr(client, 'project_info', {})
             main_project = project_info.get('main_project', 'default')
             subprojects = project_info.get('subprojects', [])
-            
+
             # Add main project collections
             collections.extend([
                 f"{main_project}-scratchbook",
                 f"{main_project}-docs"
             ])
-            
+
             # Add subproject collections
             for subproject in subprojects:
                 collections.extend([
-                    f"{subproject}-scratchbook", 
+                    f"{subproject}-scratchbook",
                     f"{subproject}-docs"
                 ])
-                
+
         elif mode == "collection":
             # Search specific collection only
             collections = [target_collection]
-            
+
         elif mode == "global":
             # Search global knowledge collections
             workspace_config = getattr(client.config, 'workspace', None)
@@ -125,15 +125,15 @@ async def research_workspace(
                     collections = ["memory", "_technical-books", "_standards"]
             else:
                 collections = ["memory", "_technical-books", "_standards"]
-                
+
         elif mode == "all":
             # Search all available collections
             collections = await client.list_collections()
-            
+
             # Optionally filter out archived collections
             if not include_archived:
                 collections = [c for c in collections if not c.endswith("_archive")]
-        
+
         # Perform the search
         search_results = await search_workspace(
             client=client,
@@ -143,13 +143,13 @@ async def research_workspace(
             limit=limit,
             score_threshold=score_threshold
         )
-        
+
         # Check for search errors
         if "error" in search_results:
             return {"error": f"Search failed: {search_results['error']}"}
-            
+
         results = search_results.get("results", [])
-        
+
         # Apply version filtering if requested
         if version_preference == "latest":
             filtered_results = []
@@ -160,13 +160,13 @@ async def research_workspace(
                 if is_latest:
                     filtered_results.append(result)
             results = filtered_results
-        
+
         # Add relationship information if requested
         if include_relationships:
             for result in results:
                 payload = result.get("payload", {})
                 version_info = {}
-                
+
                 # Extract version-related metadata
                 if "version" in payload:
                     version_info["version"] = payload["version"]
@@ -176,10 +176,10 @@ async def research_workspace(
                     version_info["supersedes"] = payload["supersedes"]
                 if "document_type" in payload:
                     version_info["document_type"] = payload["document_type"]
-                    
+
                 if version_info:
                     result["version_info"] = version_info
-        
+
         # Build research context
         research_context = {
             "mode": mode,
@@ -187,10 +187,10 @@ async def research_workspace(
             "version_preference": version_preference,
             "include_archived": include_archived,
         }
-        
+
         if mode == "collection":
             research_context["target_collection"] = target_collection
-            
+
         return {
             "results": results,
             "total_results": len(results),
@@ -202,7 +202,7 @@ async def research_workspace(
                 "include_relationships": include_relationships
             }
         }
-        
+
     except Exception as e:
         logger.error("Research failed: %s", e)
         return {"error": f"Research failed: {str(e)}"}

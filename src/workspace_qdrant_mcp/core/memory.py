@@ -7,7 +7,7 @@ persistent context that automatically integrates with Claude Code sessions.
 
 Memory Categories:
 1. User Preferences: Personal preferences like "Use uv for Python"
-2. LLM Behavioral Rules: Behavioral instructions like "Always make atomic commits"  
+2. LLM Behavioral Rules: Behavioral instructions like "Always make atomic commits"
 3. Agent Library: Available agent definitions with capabilities and costs
 
 Authority Levels:
@@ -36,12 +36,12 @@ from qdrant_client import QdrantClient
 from qdrant_client.models import (
     CollectionInfo,
     Distance,
-    PointStruct,
-    VectorParams,
-    Filter,
     FieldCondition,
+    Filter,
     MatchValue,
+    PointStruct,
     SearchRequest,
+    VectorParams,
 )
 
 from .collection_naming import CollectionNamingManager, CollectionType
@@ -53,7 +53,7 @@ logger = logging.getLogger(__name__)
 class MemoryCategory(Enum):
     """Categories of memory entries."""
     PREFERENCE = "preference"
-    BEHAVIOR = "behavior" 
+    BEHAVIOR = "behavior"
     AGENT = "agent"
 
 
@@ -67,7 +67,7 @@ class AuthorityLevel(Enum):
 class MemoryRule:
     """
     A memory rule storing user preferences or LLM behavioral instructions.
-    
+
     Attributes:
         id: Unique identifier for the rule
         category: Type of memory entry (preference, behavior, agent)
@@ -87,13 +87,13 @@ class MemoryRule:
     name: str
     rule: str
     authority: AuthorityLevel
-    scope: List[str]
+    scope: list[str]
     source: str = "user_explicit"
-    conditions: Optional[Dict[str, Any]] = None
-    replaces: Optional[List[str]] = None
-    created_at: Optional[datetime] = None
-    updated_at: Optional[datetime] = None
-    metadata: Optional[Dict[str, Any]] = None
+    conditions: dict[str, Any] | None = None
+    replaces: list[str] | None = None
+    created_at: datetime | None = None
+    updated_at: datetime | None = None
+    metadata: dict[str, Any] | None = None
 
     def __post_init__(self):
         """Initialize timestamps if not provided."""
@@ -107,7 +107,7 @@ class MemoryRule:
 class AgentDefinition:
     """
     Definition of an available agent for deployment decisions.
-    
+
     Attributes:
         id: Unique identifier for the agent
         name: Agent name (e.g., "python-pro")
@@ -120,17 +120,17 @@ class AgentDefinition:
     id: str
     name: str
     description: str
-    capabilities: List[str]
+    capabilities: list[str]
     deploy_cost: str = "medium"
-    last_used: Optional[datetime] = None
-    metadata: Optional[Dict[str, Any]] = None
+    last_used: datetime | None = None
+    metadata: dict[str, Any] | None = None
 
 
 @dataclass
 class MemoryConflict:
     """
     Represents a conflict between memory rules.
-    
+
     Attributes:
         conflict_type: Type of conflict detected
         rule1: First conflicting rule
@@ -144,14 +144,14 @@ class MemoryConflict:
     rule2: MemoryRule
     confidence: float
     description: str
-    resolution_options: List[str]
+    resolution_options: list[str]
 
 
 @dataclass
 class MemoryStats:
     """
     Statistics about memory usage and performance.
-    
+
     Attributes:
         total_rules: Total number of memory rules
         rules_by_category: Breakdown by category
@@ -160,20 +160,20 @@ class MemoryStats:
         last_optimization: When memory was last optimized
     """
     total_rules: int
-    rules_by_category: Dict[MemoryCategory, int]
-    rules_by_authority: Dict[AuthorityLevel, int]
+    rules_by_category: dict[MemoryCategory, int]
+    rules_by_authority: dict[AuthorityLevel, int]
     estimated_tokens: int
-    last_optimization: Optional[datetime] = None
+    last_optimization: datetime | None = None
 
 
 class MemoryManager:
     """
     Manages the memory collection system for persistent LLM context.
-    
+
     This class provides the core functionality for storing, retrieving, and
     managing memory rules that control LLM behavior. It integrates with the
     reserved collection naming system and provides conflict detection.
-    
+
     Features:
     - CRUD operations for memory rules
     - Authority level enforcement
@@ -182,19 +182,19 @@ class MemoryManager:
     - Session initialization support
     - Conversational memory updates
     """
-    
+
     MEMORY_COLLECTION = "memory"
-    
+
     def __init__(
-        self, 
-        qdrant_client: QdrantClient, 
+        self,
+        qdrant_client: QdrantClient,
         naming_manager: CollectionNamingManager,
         embedding_dim: int = 384,
-        sparse_vector_generator: Optional[BM25SparseEncoder] = None
+        sparse_vector_generator: BM25SparseEncoder | None = None
     ):
         """
         Initialize the memory manager.
-        
+
         Args:
             qdrant_client: Qdrant client for vector operations
             naming_manager: Collection naming manager
@@ -205,14 +205,14 @@ class MemoryManager:
         self.naming_manager = naming_manager
         self.embedding_dim = embedding_dim
         self.sparse_generator = sparse_vector_generator
-        
+
         # Rule ID tracking
         self._rule_id_counter = 0
-        
+
     async def initialize_memory_collection(self) -> bool:
         """
         Initialize the memory collection in Qdrant.
-        
+
         Returns:
             True if collection was created or already exists, False on error
         """
@@ -220,11 +220,11 @@ class MemoryManager:
             # Check if collection already exists
             collections = self.client.get_collections()
             collection_names = {col.name for col in collections.collections}
-            
+
             if self.MEMORY_COLLECTION in collection_names:
                 logger.info(f"Memory collection '{self.MEMORY_COLLECTION}' already exists")
                 return True
-            
+
             # Create collection with named vectors for hybrid search
             vector_config = {
                 "dense": VectorParams(
@@ -232,42 +232,42 @@ class MemoryManager:
                     distance=Distance.COSINE
                 )
             }
-            
+
             # Add sparse vector config if generator available
             if self.sparse_generator:
                 vector_config["sparse"] = VectorParams(
                     size=self.sparse_generator.vector_size,
                     distance=Distance.DOT
                 )
-            
+
             self.client.create_collection(
                 collection_name=self.MEMORY_COLLECTION,
                 vectors_config=vector_config
             )
-            
+
             logger.info(f"Created memory collection '{self.MEMORY_COLLECTION}'")
             return True
-            
+
         except Exception as e:
             logger.error(f"Failed to initialize memory collection: {e}")
             return False
-    
+
     async def add_memory_rule(
-        self, 
+        self,
         category: MemoryCategory,
         name: str,
         rule: str,
         authority: AuthorityLevel = AuthorityLevel.DEFAULT,
-        scope: Optional[List[str]] = None,
+        scope: list[str] | None = None,
         source: str = "user_explicit",
-        conditions: Optional[Dict[str, Any]] = None,
-        replaces: Optional[List[str]] = None,
-        metadata: Optional[Dict[str, Any]] = None,
-        embedding_vector: Optional[List[float]] = None
+        conditions: dict[str, Any] | None = None,
+        replaces: list[str] | None = None,
+        metadata: dict[str, Any] | None = None,
+        embedding_vector: list[float] | None = None
     ) -> str:
         """
         Add a new memory rule to the collection.
-        
+
         Args:
             category: Category of memory rule
             name: Short name for the rule
@@ -279,16 +279,16 @@ class MemoryManager:
             replaces: Rules this supersedes
             metadata: Additional metadata
             embedding_vector: Pre-computed embedding (optional)
-            
+
         Returns:
             The ID of the created rule
-            
+
         Raises:
             Exception: If rule creation fails
         """
         # Generate unique ID
         rule_id = self._generate_rule_id()
-        
+
         # Create memory rule
         memory_rule = MemoryRule(
             id=rule_id,
@@ -302,19 +302,19 @@ class MemoryManager:
             replaces=replaces,
             metadata=metadata
         )
-        
+
         # Generate embedding if not provided
         if embedding_vector is None:
             # For now, create a placeholder embedding
             # In full implementation, this would use the embedding service
             embedding_vector = [0.0] * self.embedding_dim
-        
+
         # Prepare vectors
         vectors = {"dense": embedding_vector}
         if self.sparse_generator:
             sparse_vector = self.sparse_generator.generate_sparse_vector(rule)
             vectors["sparse"] = sparse_vector
-        
+
         # Create point
         point = PointStruct(
             id=rule_id,
@@ -333,27 +333,27 @@ class MemoryManager:
                 "metadata": metadata or {}
             }
         )
-        
+
         # Upsert to collection
         self.client.upsert(
             collection_name=self.MEMORY_COLLECTION,
             points=[point]
         )
-        
+
         # Handle rule replacement if specified
         if replaces:
             await self._handle_rule_replacement(rule_id, replaces)
-        
+
         logger.info(f"Added memory rule '{name}' with ID {rule_id}")
         return rule_id
-    
-    async def get_memory_rule(self, rule_id: str) -> Optional[MemoryRule]:
+
+    async def get_memory_rule(self, rule_id: str) -> MemoryRule | None:
         """
         Retrieve a specific memory rule by ID.
-        
+
         Args:
             rule_id: The ID of the rule to retrieve
-            
+
         Returns:
             MemoryRule if found, None otherwise
         """
@@ -363,56 +363,56 @@ class MemoryManager:
                 ids=[rule_id],
                 with_payload=True
             )
-            
+
             if not points:
                 return None
-                
+
             point = points[0]
             return self._point_to_memory_rule(point)
-            
+
         except Exception as e:
             logger.error(f"Failed to retrieve memory rule {rule_id}: {e}")
             return None
-    
+
     async def list_memory_rules(
         self,
-        category: Optional[MemoryCategory] = None,
-        authority: Optional[AuthorityLevel] = None,
-        scope: Optional[str] = None
-    ) -> List[MemoryRule]:
+        category: MemoryCategory | None = None,
+        authority: AuthorityLevel | None = None,
+        scope: str | None = None
+    ) -> list[MemoryRule]:
         """
         List memory rules with optional filtering.
-        
+
         Args:
             category: Filter by category
             authority: Filter by authority level
             scope: Filter by scope containing this value
-            
+
         Returns:
             List of matching memory rules
         """
         try:
             # Build filter conditions
             conditions = []
-            
+
             if category:
                 conditions.append(
                     FieldCondition(key="category", match=MatchValue(value=category.value))
                 )
-            
+
             if authority:
                 conditions.append(
                     FieldCondition(key="authority", match=MatchValue(value=authority.value))
                 )
-            
+
             if scope:
                 conditions.append(
                     FieldCondition(key="scope", match=MatchValue(value=scope))
                 )
-            
+
             # Create filter if we have conditions
             search_filter = Filter(must=conditions) if conditions else None
-            
+
             # Scroll through all points
             points, _ = self.client.scroll(
                 collection_name=self.MEMORY_COLLECTION,
@@ -420,36 +420,36 @@ class MemoryManager:
                 limit=1000,  # Adjust based on expected memory rule count
                 with_payload=True
             )
-            
+
             # Convert points to memory rules
             memory_rules = []
             for point in points:
                 rule = self._point_to_memory_rule(point)
                 if rule:
                     memory_rules.append(rule)
-            
+
             # Sort by created_at
             memory_rules.sort(key=lambda r: r.created_at)
             return memory_rules
-            
+
         except Exception as e:
             logger.error(f"Failed to list memory rules: {e}")
             return []
-    
+
     async def update_memory_rule(
         self,
         rule_id: str,
-        updates: Dict[str, Any],
-        embedding_vector: Optional[List[float]] = None
+        updates: dict[str, Any],
+        embedding_vector: list[float] | None = None
     ) -> bool:
         """
         Update an existing memory rule.
-        
+
         Args:
             rule_id: ID of the rule to update
             updates: Dictionary of field updates
             embedding_vector: New embedding if rule text changed
-            
+
         Returns:
             True if update successful, False otherwise
         """
@@ -459,27 +459,27 @@ class MemoryManager:
             if not existing_rule:
                 logger.error(f"Memory rule {rule_id} not found for update")
                 return False
-            
+
             # Apply updates
             for key, value in updates.items():
                 if hasattr(existing_rule, key):
                     setattr(existing_rule, key, value)
-            
+
             # Update timestamp
             existing_rule.updated_at = datetime.utcnow()
-            
+
             # Generate new embedding if rule text changed
             if "rule" in updates and embedding_vector is None:
                 # Placeholder for embedding generation
                 embedding_vector = [0.0] * self.embedding_dim
-            
+
             # Prepare vectors (keep existing if not regenerating)
             vectors = {}
             if embedding_vector:
                 vectors["dense"] = embedding_vector
                 if self.sparse_generator:
                     vectors["sparse"] = self.sparse_generator.generate_sparse_vector(existing_rule.rule)
-            
+
             # Create updated point
             point = PointStruct(
                 id=rule_id,
@@ -498,27 +498,27 @@ class MemoryManager:
                     "metadata": existing_rule.metadata or {}
                 }
             )
-            
+
             # Update in collection
             self.client.upsert(
                 collection_name=self.MEMORY_COLLECTION,
                 points=[point]
             )
-            
+
             logger.info(f"Updated memory rule {rule_id}")
             return True
-            
+
         except Exception as e:
             logger.error(f"Failed to update memory rule {rule_id}: {e}")
             return False
-    
+
     async def delete_memory_rule(self, rule_id: str) -> bool:
         """
         Delete a memory rule.
-        
+
         Args:
             rule_id: ID of the rule to delete
-            
+
         Returns:
             True if deletion successful, False otherwise
         """
@@ -527,52 +527,52 @@ class MemoryManager:
                 collection_name=self.MEMORY_COLLECTION,
                 points_selector=[rule_id]
             )
-            
+
             logger.info(f"Deleted memory rule {rule_id}")
             return True
-            
+
         except Exception as e:
             logger.error(f"Failed to delete memory rule {rule_id}: {e}")
             return False
-    
+
     async def search_memory_rules(
         self,
         query: str,
         limit: int = 10,
-        category: Optional[MemoryCategory] = None,
-        authority: Optional[AuthorityLevel] = None
-    ) -> List[Tuple[MemoryRule, float]]:
+        category: MemoryCategory | None = None,
+        authority: AuthorityLevel | None = None
+    ) -> list[tuple[MemoryRule, float]]:
         """
         Search memory rules by semantic similarity.
-        
+
         Args:
             query: Search query
             limit: Maximum number of results
             category: Filter by category
             authority: Filter by authority level
-            
+
         Returns:
             List of (MemoryRule, score) tuples sorted by relevance
         """
         try:
             # Generate query embedding (placeholder)
             query_vector = [0.0] * self.embedding_dim
-            
+
             # Build filter conditions
             conditions = []
-            
+
             if category:
                 conditions.append(
                     FieldCondition(key="category", match=MatchValue(value=category.value))
                 )
-            
+
             if authority:
                 conditions.append(
                     FieldCondition(key="authority", match=MatchValue(value=authority.value))
                 )
-            
+
             search_filter = Filter(must=conditions) if conditions else None
-            
+
             # Search using dense vectors
             search_result = self.client.search(
                 collection_name=self.MEMORY_COLLECTION,
@@ -581,40 +581,40 @@ class MemoryManager:
                 limit=limit,
                 with_payload=True
             )
-            
+
             # Convert to memory rules with scores
             results = []
             for scored_point in search_result:
                 rule = self._point_to_memory_rule(scored_point)
                 if rule:
                     results.append((rule, scored_point.score))
-            
+
             return results
-            
+
         except Exception as e:
             logger.error(f"Failed to search memory rules: {e}")
             return []
-    
+
     async def detect_conflicts(
-        self, 
-        rules: Optional[List[MemoryRule]] = None,
+        self,
+        rules: list[MemoryRule] | None = None,
         semantic_analysis: bool = True
-    ) -> List[MemoryConflict]:
+    ) -> list[MemoryConflict]:
         """
         Detect conflicts between memory rules.
-        
+
         Args:
             rules: Specific rules to check (default: all rules)
             semantic_analysis: Whether to use semantic analysis (placeholder)
-            
+
         Returns:
             List of detected conflicts
         """
         if rules is None:
             rules = await self.list_memory_rules()
-        
+
         conflicts = []
-        
+
         # Rule-based conflict detection
         for i, rule1 in enumerate(rules):
             for rule2 in rules[i+1:]:
@@ -633,80 +633,80 @@ class MemoryManager:
                         ]
                     )
                     conflicts.append(conflict)
-        
+
         # Semantic analysis (placeholder for future LLM integration)
         if semantic_analysis:
             # This would integrate with Claude/Sonnet for semantic conflict detection
             pass
-        
+
         return conflicts
-    
+
     async def get_memory_stats(self) -> MemoryStats:
         """
         Get statistics about memory usage.
-        
+
         Returns:
             MemoryStats with usage information
         """
         rules = await self.list_memory_rules()
-        
+
         # Count by category
         by_category = {}
         for category in MemoryCategory:
             by_category[category] = len([r for r in rules if r.category == category])
-        
+
         # Count by authority
         by_authority = {}
         for authority in AuthorityLevel:
             by_authority[authority] = len([r for r in rules if r.authority == authority])
-        
+
         # Estimate token count (rough approximation)
         total_text = " ".join([r.rule for r in rules])
         estimated_tokens = len(total_text.split()) * 1.3  # Rough token estimation
-        
+
         return MemoryStats(
             total_rules=len(rules),
             rules_by_category=by_category,
             rules_by_authority=by_authority,
             estimated_tokens=int(estimated_tokens)
         )
-    
-    async def optimize_memory(self, max_tokens: int = 2000) -> Tuple[int, List[str]]:
+
+    async def optimize_memory(self, max_tokens: int = 2000) -> tuple[int, list[str]]:
         """
         Optimize memory usage by removing or consolidating rules.
-        
+
         Args:
             max_tokens: Maximum allowed token count
-            
+
         Returns:
             Tuple of (tokens_saved, list_of_optimization_actions)
         """
         stats = await self.get_memory_stats()
-        
+
         if stats.estimated_tokens <= max_tokens:
             return 0, ["Memory already within token limit"]
-        
+
         # Placeholder optimization logic
         actions = [
             "Identified redundant rules for consolidation",
             "Suggested merging similar preference rules",
             "Recommended archiving unused agent definitions"
         ]
-        
+
         tokens_saved = stats.estimated_tokens - max_tokens
         return tokens_saved, actions
-    
+
     def _generate_rule_id(self) -> str:
         """Generate a unique rule ID."""
         self._rule_id_counter += 1
         timestamp = int(time.time() * 1000)  # Millisecond timestamp
         return f"rule_{timestamp}_{self._rule_id_counter}"
-    
-    def _point_to_memory_rule(self, point) -> Optional[MemoryRule]:
+
+    def _point_to_memory_rule(self, point) -> MemoryRule | None:
         """Convert a Qdrant point to a MemoryRule object."""
         try:
             payload = point.payload
-            
+
             return MemoryRule(
                 id=str(point.id),
                 category=MemoryCategory(payload["category"]),
@@ -724,15 +724,15 @@ class MemoryManager:
         except (KeyError, ValueError) as e:
             logger.error(f"Failed to convert point to memory rule: {e}")
             return None
-    
+
     def _rules_conflict(self, rule1: MemoryRule, rule2: MemoryRule) -> bool:
         """
         Check if two rules conflict using simple heuristics.
-        
+
         Args:
             rule1: First rule to check
             rule2: Second rule to check
-            
+
         Returns:
             True if rules appear to conflict
         """
@@ -744,24 +744,24 @@ class MemoryManager:
             (["uv"], ["pip"]),
             (["pytest"], ["unittest"]),
         ]
-        
+
         rule1_lower = rule1.rule.lower()
         rule2_lower = rule2.rule.lower()
-        
+
         for keywords1, keywords2 in conflicting_pairs:
-            if (all(kw in rule1_lower for kw in keywords1) and 
+            if (all(kw in rule1_lower for kw in keywords1) and
                 all(kw in rule2_lower for kw in keywords2)):
                 return True
-            if (all(kw in rule2_lower for kw in keywords1) and 
+            if (all(kw in rule2_lower for kw in keywords1) and
                 all(kw in rule1_lower for kw in keywords2)):
                 return True
-        
+
         return False
-    
-    async def _handle_rule_replacement(self, new_rule_id: str, replaced_rule_ids: List[str]):
+
+    async def _handle_rule_replacement(self, new_rule_id: str, replaced_rule_ids: list[str]):
         """
         Handle replacement of old rules by a new rule.
-        
+
         Args:
             new_rule_id: ID of the new rule
             replaced_rule_ids: IDs of rules being replaced
@@ -777,17 +777,17 @@ def create_memory_manager(
     qdrant_client: QdrantClient,
     naming_manager: CollectionNamingManager,
     embedding_dim: int = 384,
-    sparse_vector_generator: Optional[BM25SparseEncoder] = None
+    sparse_vector_generator: BM25SparseEncoder | None = None
 ) -> MemoryManager:
     """
     Factory function to create a memory manager.
-    
+
     Args:
         qdrant_client: Qdrant client instance
         naming_manager: Collection naming manager
         embedding_dim: Embedding dimension
         sparse_vector_generator: Optional sparse vector generator
-        
+
     Returns:
         Configured MemoryManager instance
     """
@@ -799,23 +799,23 @@ def create_memory_manager(
     )
 
 
-def parse_conversational_memory_update(message: str) -> Optional[Dict[str, Any]]:
+def parse_conversational_memory_update(message: str) -> dict[str, Any] | None:
     """
     Parse conversational memory updates from chat messages.
-    
+
     Detects patterns like:
-    - "Note: call me Chris" 
+    - "Note: call me Chris"
     - "For future reference, always use TypeScript strict mode"
     - "Remember that I prefer uv for Python package management"
-    
+
     Args:
         message: The conversational message to parse
-        
+
     Returns:
         Dictionary with parsed memory update or None if no update detected
     """
     message = message.strip()
-    
+
     # Pattern: "Note: <preference>"
     note_match = re.match(r"^(?:note|reminder?):\s*(.+)$", message, re.IGNORECASE)
     if note_match:
@@ -826,7 +826,7 @@ def parse_conversational_memory_update(message: str) -> Optional[Dict[str, Any]]
             "source": "conversational_note",
             "authority": AuthorityLevel.DEFAULT
         }
-    
+
     # Pattern: "For future reference, <instruction>"
     future_match = re.match(r"^for future reference,?\s*(.+)$", message, re.IGNORECASE)
     if future_match:
@@ -837,7 +837,7 @@ def parse_conversational_memory_update(message: str) -> Optional[Dict[str, Any]]
             "source": "conversational_future",
             "authority": AuthorityLevel.DEFAULT
         }
-    
+
     # Pattern: "Remember (that) I <preference>"
     remember_match = re.match(r"^remember (?:that )?i (.+)$", message, re.IGNORECASE)
     if remember_match:
@@ -848,7 +848,7 @@ def parse_conversational_memory_update(message: str) -> Optional[Dict[str, Any]]
             "source": "conversational_remember",
             "authority": AuthorityLevel.DEFAULT
         }
-    
+
     # Pattern: "Always <behavior>" or "Never <behavior>"
     behavior_match = re.match(r"^(always|never) (.+)$", message, re.IGNORECASE)
     if behavior_match:
@@ -860,5 +860,5 @@ def parse_conversational_memory_update(message: str) -> Optional[Dict[str, Any]]
             "source": "conversational_behavior",
             "authority": AuthorityLevel.ABSOLUTE
         }
-    
+
     return None

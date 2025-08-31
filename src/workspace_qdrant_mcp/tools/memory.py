@@ -11,16 +11,16 @@ from typing import Any, Dict, List, Optional
 
 from mcp.server.fastmcp import FastMCP
 
-from ..core.config import Config
 from ..core.client import create_qdrant_client
 from ..core.collection_naming import create_naming_manager
+from ..core.config import Config
 from ..core.memory import (
-    MemoryManager,
-    MemoryCategory,
     AuthorityLevel,
+    MemoryCategory,
+    MemoryManager,
     MemoryRule,
     create_memory_manager,
-    parse_conversational_memory_update
+    parse_conversational_memory_update,
 )
 
 logger = logging.getLogger(__name__)
@@ -30,13 +30,13 @@ def register_memory_tools(server: FastMCP):
     """Register memory management tools with the MCP server."""
 
     @server.tool()
-    async def initialize_memory_session() -> Dict[str, Any]:
+    async def initialize_memory_session() -> dict[str, Any]:
         """
         Initialize memory system for Claude Code session.
-        
+
         Loads all memory rules, detects conflicts, and prepares rule injection.
         This is typically called at Claude Code startup.
-        
+
         Returns:
             Dictionary with session initialization status and memory rules
         """
@@ -45,23 +45,23 @@ def register_memory_tools(server: FastMCP):
             client = create_qdrant_client(config.qdrant_client_config)
             naming_manager = create_naming_manager(config.workspace.global_collections)
             memory_manager = create_memory_manager(client, naming_manager)
-            
+
             # Ensure memory collection exists
             await memory_manager.initialize_memory_collection()
-            
+
             # Load all memory rules
             rules = await memory_manager.list_memory_rules()
-            
+
             # Detect conflicts
             conflicts = await memory_manager.detect_conflicts(rules)
-            
+
             # Get memory statistics
             stats = await memory_manager.get_memory_stats()
-            
+
             # Format rules for Claude Code injection
             absolute_rules = [r for r in rules if r.authority == AuthorityLevel.ABSOLUTE]
             default_rules = [r for r in rules if r.authority == AuthorityLevel.DEFAULT]
-            
+
             # Prepare session data
             session_data = {
                 "status": "ready",
@@ -91,7 +91,7 @@ def register_memory_tools(server: FastMCP):
                     ]
                 }
             }
-            
+
             # Include conflict information if any
             if conflicts:
                 session_data["conflicts"] = [
@@ -106,10 +106,10 @@ def register_memory_tools(server: FastMCP):
                     for conflict in conflicts
                 ]
                 session_data["status"] = "conflicts_require_resolution"
-            
+
             logger.info(f"Memory session initialized: {len(rules)} rules loaded, {len(conflicts)} conflicts")
             return session_data
-            
+
         except Exception as e:
             logger.error(f"Failed to initialize memory session: {e}")
             return {
@@ -124,12 +124,12 @@ def register_memory_tools(server: FastMCP):
         name: str,
         rule: str,
         authority: str = "default",
-        scope: Optional[List[str]] = None,
+        scope: list[str] | None = None,
         source: str = "mcp_user"
-    ) -> Dict[str, Any]:
+    ) -> dict[str, Any]:
         """
         Add a new memory rule.
-        
+
         Args:
             category: Memory category (preference, behavior, agent)
             name: Short name for the rule
@@ -137,7 +137,7 @@ def register_memory_tools(server: FastMCP):
             authority: Authority level (absolute, default)
             scope: List of contexts where rule applies
             source: Source of the rule creation
-            
+
         Returns:
             Result of rule creation with ID
         """
@@ -146,7 +146,7 @@ def register_memory_tools(server: FastMCP):
             client = create_qdrant_client(config.qdrant_client_config)
             naming_manager = create_naming_manager(config.workspace.global_collections)
             memory_manager = create_memory_manager(client, naming_manager)
-            
+
             # Validate inputs
             try:
                 category_enum = MemoryCategory(category)
@@ -156,10 +156,10 @@ def register_memory_tools(server: FastMCP):
                     "success": False,
                     "error": f"Invalid parameter: {e}"
                 }
-            
+
             # Ensure memory collection exists
             await memory_manager.initialize_memory_collection()
-            
+
             # Add the rule
             rule_id = await memory_manager.add_memory_rule(
                 category=category_enum,
@@ -169,14 +169,14 @@ def register_memory_tools(server: FastMCP):
                 scope=scope or [],
                 source=source
             )
-            
+
             logger.info(f"Added memory rule via MCP: {rule_id}")
             return {
                 "success": True,
                 "rule_id": rule_id,
                 "message": f"Added memory rule '{name}'"
             }
-            
+
         except Exception as e:
             logger.error(f"Failed to add memory rule: {e}")
             return {
@@ -185,44 +185,44 @@ def register_memory_tools(server: FastMCP):
             }
 
     @server.tool()
-    async def update_memory_from_conversation(message: str) -> Dict[str, Any]:
+    async def update_memory_from_conversation(message: str) -> dict[str, Any]:
         """
         Parse conversational message for memory updates.
-        
+
         Detects patterns like "Note: call me Chris" and automatically
         adds them as memory rules.
-        
+
         Args:
             message: The conversational message to parse
-            
+
         Returns:
             Result of parsing and optional rule creation
         """
         try:
             # Parse the conversational update
             parsed = parse_conversational_memory_update(message)
-            
+
             if not parsed:
                 return {
                     "detected": False,
                     "message": "No memory update pattern detected"
                 }
-            
+
             # If update detected, add it as a memory rule
             config = Config()
             client = create_qdrant_client(config.qdrant_client_config)
             naming_manager = create_naming_manager(config.workspace.global_collections)
             memory_manager = create_memory_manager(client, naming_manager)
-            
+
             # Ensure memory collection exists
             await memory_manager.initialize_memory_collection()
-            
+
             # Generate name from rule
             name_words = parsed["rule"].lower().split()[:2]
             stop_words = {"the", "a", "an", "and", "or", "but", "in", "on", "at", "to", "for", "of", "with", "by"}
             name_words = [w for w in name_words if w not in stop_words]
             name = "-".join(name_words) if name_words else "conversational-rule"
-            
+
             # Add the rule
             rule_id = await memory_manager.add_memory_rule(
                 category=parsed["category"],
@@ -231,7 +231,7 @@ def register_memory_tools(server: FastMCP):
                 authority=parsed["authority"],
                 source=parsed["source"]
             )
-            
+
             logger.info(f"Added conversational memory rule: {rule_id}")
             return {
                 "detected": True,
@@ -242,7 +242,7 @@ def register_memory_tools(server: FastMCP):
                 "authority": parsed["authority"].value,
                 "message": f"Added memory rule from conversation: '{parsed['rule']}'"
             }
-            
+
         except Exception as e:
             logger.error(f"Failed to process conversational memory update: {e}")
             return {
@@ -254,19 +254,19 @@ def register_memory_tools(server: FastMCP):
     @server.tool()
     async def search_memory_rules(
         query: str,
-        category: Optional[str] = None,
-        authority: Optional[str] = None,
+        category: str | None = None,
+        authority: str | None = None,
         limit: int = 5
-    ) -> Dict[str, Any]:
+    ) -> dict[str, Any]:
         """
         Search memory rules by semantic similarity.
-        
+
         Args:
             query: Search query
             category: Filter by category (optional)
             authority: Filter by authority level (optional)
             limit: Maximum number of results
-            
+
         Returns:
             List of matching memory rules with relevance scores
         """
@@ -275,11 +275,11 @@ def register_memory_tools(server: FastMCP):
             client = create_qdrant_client(config.qdrant_client_config)
             naming_manager = create_naming_manager(config.workspace.global_collections)
             memory_manager = create_memory_manager(client, naming_manager)
-            
+
             # Validate optional parameters
             category_enum = None
             authority_enum = None
-            
+
             if category:
                 try:
                     category_enum = MemoryCategory(category)
@@ -288,7 +288,7 @@ def register_memory_tools(server: FastMCP):
                         "success": False,
                         "error": f"Invalid category: {category}"
                     }
-            
+
             if authority:
                 try:
                     authority_enum = AuthorityLevel(authority)
@@ -297,7 +297,7 @@ def register_memory_tools(server: FastMCP):
                         "success": False,
                         "error": f"Invalid authority: {authority}"
                     }
-            
+
             # Search memory rules
             results = await memory_manager.search_memory_rules(
                 query=query,
@@ -305,7 +305,7 @@ def register_memory_tools(server: FastMCP):
                 category=category_enum,
                 authority=authority_enum
             )
-            
+
             # Format results
             formatted_results = []
             for rule, score in results:
@@ -319,7 +319,7 @@ def register_memory_tools(server: FastMCP):
                     "relevance_score": score,
                     "created_at": rule.created_at.isoformat() if rule.created_at else None
                 })
-            
+
             logger.info(f"Memory search returned {len(results)} results for query: {query}")
             return {
                 "success": True,
@@ -327,7 +327,7 @@ def register_memory_tools(server: FastMCP):
                 "results": formatted_results,
                 "total_found": len(results)
             }
-            
+
         except Exception as e:
             logger.error(f"Failed to search memory rules: {e}")
             return {
@@ -336,10 +336,10 @@ def register_memory_tools(server: FastMCP):
             }
 
     @server.tool()
-    async def get_memory_stats() -> Dict[str, Any]:
+    async def get_memory_stats() -> dict[str, Any]:
         """
         Get memory usage statistics.
-        
+
         Returns:
             Statistics about memory rules and token usage
         """
@@ -348,9 +348,9 @@ def register_memory_tools(server: FastMCP):
             client = create_qdrant_client(config.qdrant_client_config)
             naming_manager = create_naming_manager(config.workspace.global_collections)
             memory_manager = create_memory_manager(client, naming_manager)
-            
+
             stats = await memory_manager.get_memory_stats()
-            
+
             return {
                 "total_rules": stats.total_rules,
                 "rules_by_category": {k.value: v for k, v in stats.rules_by_category.items()},
@@ -363,7 +363,7 @@ def register_memory_tools(server: FastMCP):
                     else "high"
                 )
             }
-            
+
         except Exception as e:
             logger.error(f"Failed to get memory stats: {e}")
             return {
@@ -371,10 +371,10 @@ def register_memory_tools(server: FastMCP):
             }
 
     @server.tool()
-    async def detect_memory_conflicts() -> Dict[str, Any]:
+    async def detect_memory_conflicts() -> dict[str, Any]:
         """
         Detect conflicts between memory rules.
-        
+
         Returns:
             List of detected conflicts with resolution options
         """
@@ -383,9 +383,9 @@ def register_memory_tools(server: FastMCP):
             client = create_qdrant_client(config.qdrant_client_config)
             naming_manager = create_naming_manager(config.workspace.global_collections)
             memory_manager = create_memory_manager(client, naming_manager)
-            
+
             conflicts = await memory_manager.detect_conflicts()
-            
+
             formatted_conflicts = []
             for conflict in conflicts:
                 formatted_conflicts.append({
@@ -406,13 +406,13 @@ def register_memory_tools(server: FastMCP):
                     },
                     "resolution_options": conflict.resolution_options
                 })
-            
+
             logger.info(f"Detected {len(conflicts)} memory conflicts")
             return {
                 "conflicts_found": len(conflicts),
                 "conflicts": formatted_conflicts
             }
-            
+
         except Exception as e:
             logger.error(f"Failed to detect memory conflicts: {e}")
             return {
@@ -421,18 +421,18 @@ def register_memory_tools(server: FastMCP):
 
     @server.tool()
     async def list_memory_rules(
-        category: Optional[str] = None,
-        authority: Optional[str] = None,
+        category: str | None = None,
+        authority: str | None = None,
         limit: int = 50
-    ) -> Dict[str, Any]:
+    ) -> dict[str, Any]:
         """
         List memory rules with optional filtering.
-        
+
         Args:
             category: Filter by category (optional)
             authority: Filter by authority level (optional)
             limit: Maximum number of rules to return
-            
+
         Returns:
             List of memory rules matching the criteria
         """
@@ -441,11 +441,11 @@ def register_memory_tools(server: FastMCP):
             client = create_qdrant_client(config.qdrant_client_config)
             naming_manager = create_naming_manager(config.workspace.global_collections)
             memory_manager = create_memory_manager(client, naming_manager)
-            
+
             # Validate optional parameters
             category_enum = None
             authority_enum = None
-            
+
             if category:
                 try:
                     category_enum = MemoryCategory(category)
@@ -454,7 +454,7 @@ def register_memory_tools(server: FastMCP):
                         "success": False,
                         "error": f"Invalid category: {category}"
                     }
-            
+
             if authority:
                 try:
                     authority_enum = AuthorityLevel(authority)
@@ -463,16 +463,16 @@ def register_memory_tools(server: FastMCP):
                         "success": False,
                         "error": f"Invalid authority: {authority}"
                     }
-            
+
             # List memory rules
             rules = await memory_manager.list_memory_rules(
                 category=category_enum,
                 authority=authority_enum
             )
-            
+
             # Apply limit
             rules = rules[:limit]
-            
+
             # Format results
             formatted_rules = []
             for rule in rules:
@@ -487,14 +487,14 @@ def register_memory_tools(server: FastMCP):
                     "created_at": rule.created_at.isoformat() if rule.created_at else None,
                     "updated_at": rule.updated_at.isoformat() if rule.updated_at else None
                 })
-            
+
             logger.info(f"Listed {len(rules)} memory rules")
             return {
                 "success": True,
                 "total_returned": len(rules),
                 "rules": formatted_rules
             }
-            
+
         except Exception as e:
             logger.error(f"Failed to list memory rules: {e}")
             return {

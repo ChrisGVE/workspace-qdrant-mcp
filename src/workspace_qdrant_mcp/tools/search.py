@@ -166,7 +166,7 @@ async def search_workspace(
         # Check if we have any collections to search
         if not collections:
             return {"error": "No collections available for search"}
-            
+
         # Resolve display names to actual collection names for Qdrant operations
         actual_collections = []
         for display_name in collections:
@@ -261,7 +261,7 @@ async def _search_collection(
                 limit=limit,
                 score_threshold=score_threshold,
             )
-            
+
             # Handle both real async calls and mocked synchronous returns
             if hasattr(result_or_awaitable, '__await__'):
                 result = await result_or_awaitable
@@ -381,7 +381,7 @@ async def search_collection_by_metadata(
         available_collections = await client.list_collections()
         if collection not in available_collections:
             return {"error": f"Collection '{collection}' not found"}
-            
+
         # Resolve display name to actual collection name
         actual_collection, _ = client.collection_manager.resolve_collection_name(collection)
 

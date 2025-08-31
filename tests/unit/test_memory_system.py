@@ -5,21 +5,22 @@ This module tests the comprehensive memory collection system including
 memory rules, authority levels, conflict detection, and Claude Code integration.
 """
 
-import pytest
 from datetime import datetime
-from unittest.mock import Mock, AsyncMock, patch
+from unittest.mock import AsyncMock, Mock, patch
 
+import pytest
+
+from workspace_qdrant_mcp.core.claude_integration import ClaudeIntegrationManager
+from workspace_qdrant_mcp.core.collection_naming import CollectionNamingManager
 from workspace_qdrant_mcp.core.memory import (
+    AuthorityLevel,
+    MemoryCategory,
+    MemoryConflict,
     MemoryManager,
     MemoryRule,
-    MemoryCategory,
-    AuthorityLevel,
-    MemoryConflict,
     create_memory_manager,
-    parse_conversational_memory_update
+    parse_conversational_memory_update,
 )
-from workspace_qdrant_mcp.core.collection_naming import CollectionNamingManager
-from workspace_qdrant_mcp.core.claude_integration import ClaudeIntegrationManager
 
 
 class TestMemoryRule:
@@ -35,7 +36,7 @@ class TestMemoryRule:
             authority=AuthorityLevel.DEFAULT,
             scope=["python", "development"]
         )
-        
+
         assert rule.id == "test-rule-1"
         assert rule.category == MemoryCategory.PREFERENCE
         assert rule.name == "python-tool"
@@ -59,7 +60,7 @@ class TestMemoryRule:
         )
         assert rule1.created_at is not None
         assert rule1.updated_at == rule1.created_at
-        
+
         # With custom timestamps
         custom_time = datetime(2023, 1, 1, 12, 0, 0)
         rule2 = MemoryRule(
@@ -102,12 +103,12 @@ class TestMemoryManager:
         mock_collections = Mock()
         mock_collections.collections = []
         self.mock_client.get_collections.return_value = mock_collections
-        
+
         result = await self.memory_manager.initialize_memory_collection()
-        
+
         assert result is True
         self.mock_client.create_collection.assert_called_once()
-        
+
         # Verify collection was created with correct parameters
         call_args = self.mock_client.create_collection.call_args
         assert call_args[1]["collection_name"] == "memory"
@@ -122,9 +123,9 @@ class TestMemoryManager:
         mock_collections = Mock()
         mock_collections.collections = [mock_collection]
         self.mock_client.get_collections.return_value = mock_collections
-        
+
         result = await self.memory_manager.initialize_memory_collection()
-        
+
         assert result is True
         self.mock_client.create_collection.assert_not_called()
 
@@ -133,7 +134,7 @@ class TestMemoryManager:
         """Test adding a memory rule."""
         # Mock successful upsert
         self.mock_client.upsert.return_value = None
-        
+
         rule_id = await self.memory_manager.add_memory_rule(
             category=MemoryCategory.PREFERENCE,
             name="test-rule",
@@ -141,15 +142,15 @@ class TestMemoryManager:
             authority=AuthorityLevel.DEFAULT,
             scope=["test"]
         )
-        
+
         assert rule_id is not None
         assert rule_id.startswith("rule_")
-        
+
         # Verify upsert was called with correct parameters
         self.mock_client.upsert.assert_called_once()
         call_args = self.mock_client.upsert.call_args
         assert call_args[1]["collection_name"] == "memory"
-        
+
         point = call_args[1]["points"][0]
         assert point.payload["name"] == "test-rule"
         assert point.payload["rule"] == "Test rule content"
@@ -175,11 +176,11 @@ class TestMemoryManager:
             "updated_at": datetime.utcnow().isoformat(),
             "metadata": {}
         }
-        
+
         self.mock_client.retrieve.return_value = [mock_point]
-        
+
         rule = await self.memory_manager.get_memory_rule("test-rule-1")
-        
+
         assert rule is not None
         assert rule.id == "test-rule-1"
         assert rule.name == "test-rule"
@@ -191,9 +192,9 @@ class TestMemoryManager:
     async def test_get_memory_rule_not_found(self):
         """Test retrieving a non-existent memory rule."""
         self.mock_client.retrieve.return_value = []
-        
+
         rule = await self.memory_manager.get_memory_rule("non-existent")
-        
+
         assert rule is None
 
     @pytest.mark.asyncio
@@ -215,7 +216,7 @@ class TestMemoryManager:
             "updated_at": datetime.utcnow().isoformat(),
             "metadata": {}
         }
-        
+
         mock_point2 = Mock()
         mock_point2.id = "rule-2"
         mock_point2.payload = {
@@ -231,11 +232,11 @@ class TestMemoryManager:
             "updated_at": datetime.utcnow().isoformat(),
             "metadata": {}
         }
-        
+
         self.mock_client.scroll.return_value = ([mock_point1, mock_point2], None)
-        
+
         rules = await self.memory_manager.list_memory_rules()
-        
+
         assert len(rules) == 2
         assert rules[0].name == "rule-1"
         assert rules[1].name == "rule-2"
@@ -245,11 +246,11 @@ class TestMemoryManager:
         """Test listing memory rules with category filter."""
         # Mock scroll response with filter
         self.mock_client.scroll.return_value = ([], None)
-        
-        rules = await self.memory_manager.list_memory_rules(
+
+        await self.memory_manager.list_memory_rules(
             category=MemoryCategory.PREFERENCE
         )
-        
+
         # Verify filter was applied
         call_args = self.mock_client.scroll.call_args
         assert call_args[1]["scroll_filter"] is not None
@@ -267,16 +268,16 @@ class TestMemoryManager:
             scope=[],
             created_at=datetime(2023, 1, 1)
         )
-        
+
         with patch.object(self.memory_manager, 'get_memory_rule', return_value=existing_rule):
             result = await self.memory_manager.update_memory_rule(
                 "test-rule-1",
                 {"name": "new-name", "rule": "new rule"}
             )
-        
+
         assert result is True
         self.mock_client.upsert.assert_called_once()
-        
+
         # Verify the updated payload
         point = self.mock_client.upsert.call_args[1]["points"][0]
         assert point.payload["name"] == "new-name"
@@ -290,7 +291,7 @@ class TestMemoryManager:
                 "non-existent",
                 {"name": "new-name"}
             )
-        
+
         assert result is False
         self.mock_client.upsert.assert_not_called()
 
@@ -298,7 +299,7 @@ class TestMemoryManager:
     async def test_delete_memory_rule(self):
         """Test deleting a memory rule."""
         result = await self.memory_manager.delete_memory_rule("test-rule-1")
-        
+
         assert result is True
         self.mock_client.delete.assert_called_once_with(
             collection_name="memory",
@@ -325,11 +326,11 @@ class TestMemoryManager:
             "updated_at": datetime.utcnow().isoformat(),
             "metadata": {}
         }
-        
+
         self.mock_client.search.return_value = [mock_scored_point]
-        
+
         results = await self.memory_manager.search_memory_rules("test query")
-        
+
         assert len(results) == 1
         rule, score = results[0]
         assert rule.name == "rule-1"
@@ -347,7 +348,7 @@ class TestMemoryManager:
             authority=AuthorityLevel.DEFAULT,
             scope=[]
         )
-        
+
         rule2 = MemoryRule(
             id="rule-2",
             category=MemoryCategory.PREFERENCE,
@@ -356,10 +357,10 @@ class TestMemoryManager:
             authority=AuthorityLevel.DEFAULT,
             scope=[]
         )
-        
+
         rules = [rule1, rule2]
         conflicts = await self.memory_manager.detect_conflicts(rules)
-        
+
         # This should detect a conflict based on our simple heuristics
         assert len(conflicts) >= 0  # May or may not detect conflict with simple rules
 
@@ -375,7 +376,7 @@ class TestMemoryManager:
             authority=AuthorityLevel.DEFAULT,
             scope=[]
         )
-        
+
         rule2 = MemoryRule(
             id="rule-2",
             category=MemoryCategory.BEHAVIOR,
@@ -384,10 +385,10 @@ class TestMemoryManager:
             authority=AuthorityLevel.ABSOLUTE,
             scope=[]
         )
-        
+
         with patch.object(self.memory_manager, 'list_memory_rules', return_value=[rule1, rule2]):
             stats = await self.memory_manager.get_memory_stats()
-        
+
         assert stats.total_rules == 2
         assert stats.rules_by_category[MemoryCategory.PREFERENCE] == 1
         assert stats.rules_by_category[MemoryCategory.BEHAVIOR] == 1
@@ -403,7 +404,7 @@ class TestConversationalParsing:
         """Test parsing 'Note:' patterns."""
         message = "Note: call me Chris"
         result = parse_conversational_memory_update(message)
-        
+
         assert result is not None
         assert result["category"] == MemoryCategory.PREFERENCE
         assert result["rule"] == "call me Chris"
@@ -414,7 +415,7 @@ class TestConversationalParsing:
         """Test parsing 'For future reference' patterns."""
         message = "For future reference, always use TypeScript strict mode"
         result = parse_conversational_memory_update(message)
-        
+
         assert result is not None
         assert result["category"] == MemoryCategory.BEHAVIOR
         assert result["rule"] == "always use TypeScript strict mode"
@@ -425,7 +426,7 @@ class TestConversationalParsing:
         """Test parsing 'Remember that I' patterns."""
         message = "Remember that I prefer uv for Python package management"
         result = parse_conversational_memory_update(message)
-        
+
         assert result is not None
         assert result["category"] == MemoryCategory.PREFERENCE
         assert result["rule"] == "User prefer uv for Python package management"
@@ -436,7 +437,7 @@ class TestConversationalParsing:
         """Test parsing 'Always' behavior patterns."""
         message = "Always make atomic commits"
         result = parse_conversational_memory_update(message)
-        
+
         assert result is not None
         assert result["category"] == MemoryCategory.BEHAVIOR
         assert result["rule"] == "Always make atomic commits"
@@ -447,7 +448,7 @@ class TestConversationalParsing:
         """Test parsing 'Never' behavior patterns."""
         message = "Never batch commits together"
         result = parse_conversational_memory_update(message)
-        
+
         assert result is not None
         assert result["category"] == MemoryCategory.BEHAVIOR
         assert result["rule"] == "Never batch commits together"
@@ -458,14 +459,14 @@ class TestConversationalParsing:
         """Test that non-memory messages return None."""
         message = "This is just a regular message"
         result = parse_conversational_memory_update(message)
-        
+
         assert result is None
 
     def test_parse_case_insensitive(self):
         """Test that pattern matching is case-insensitive."""
         message = "NOTE: use lowercase for patterns"
         result = parse_conversational_memory_update(message)
-        
+
         assert result is not None
         assert result["rule"] == "use lowercase for patterns"
 
@@ -485,7 +486,7 @@ class TestClaudeIntegration:
         self.mock_memory_manager.initialize_memory_collection = AsyncMock(return_value=True)
         self.mock_memory_manager.list_memory_rules = AsyncMock(return_value=[])
         self.mock_memory_manager.detect_conflicts = AsyncMock(return_value=[])
-        
+
         # Mock memory stats
         mock_stats = Mock()
         mock_stats.total_rules = 0
@@ -493,9 +494,9 @@ class TestClaudeIntegration:
         mock_stats.rules_by_category = {cat: 0 for cat in MemoryCategory}
         mock_stats.rules_by_authority = {auth: 0 for auth in AuthorityLevel}
         self.mock_memory_manager.get_memory_stats = AsyncMock(return_value=mock_stats)
-        
+
         session_data = await self.claude_integration.initialize_session()
-        
+
         assert session_data["status"] == "ready"
         assert "memory_stats" in session_data
         assert "system_context" in session_data
@@ -513,7 +514,7 @@ class TestClaudeIntegration:
             authority=AuthorityLevel.DEFAULT,
             scope=[]
         )
-        
+
         rule2 = MemoryRule(
             id="rule-2",
             category=MemoryCategory.PREFERENCE,
@@ -522,7 +523,7 @@ class TestClaudeIntegration:
             authority=AuthorityLevel.DEFAULT,
             scope=[]
         )
-        
+
         mock_conflict = MemoryConflict(
             conflict_type="direct_contradiction",
             rule1=rule1,
@@ -531,12 +532,12 @@ class TestClaudeIntegration:
             description="Rules conflict about Python package manager",
             resolution_options=["Keep higher authority", "Merge rules"]
         )
-        
+
         # Mock memory manager responses
         self.mock_memory_manager.initialize_memory_collection = AsyncMock(return_value=True)
         self.mock_memory_manager.list_memory_rules = AsyncMock(return_value=[rule1, rule2])
         self.mock_memory_manager.detect_conflicts = AsyncMock(return_value=[mock_conflict])
-        
+
         # Mock memory stats
         mock_stats = Mock()
         mock_stats.total_rules = 2
@@ -544,9 +545,9 @@ class TestClaudeIntegration:
         mock_stats.rules_by_category = {MemoryCategory.PREFERENCE: 2}
         mock_stats.rules_by_authority = {AuthorityLevel.DEFAULT: 2}
         self.mock_memory_manager.get_memory_stats = AsyncMock(return_value=mock_stats)
-        
+
         session_data = await self.claude_integration.initialize_session()
-        
+
         assert session_data["status"] == "conflicts_detected"
         assert session_data["conflicts_detected"] == 1
         assert "conflicts" in session_data
@@ -564,7 +565,7 @@ class TestClaudeIntegration:
             authority=AuthorityLevel.ABSOLUTE,
             scope=["development"]
         )
-        
+
         default_rule = MemoryRule(
             id="rule-2",
             category=MemoryCategory.PREFERENCE,
@@ -573,10 +574,10 @@ class TestClaudeIntegration:
             authority=AuthorityLevel.DEFAULT,
             scope=["python"]
         )
-        
+
         rules = [absolute_rule, default_rule]
         context = await self.claude_integration.format_system_rules_for_injection(rules)
-        
+
         assert "User Memory Rules" in context
         assert "Loaded 2 rules" in context
         assert "Absolute Rules" in context
@@ -586,17 +587,17 @@ class TestClaudeIntegration:
         assert "Always make atomic commits" in context
         assert "Use uv for Python" in context
 
-    @pytest.mark.asyncio 
+    @pytest.mark.asyncio
     async def test_handle_conversational_update_success(self):
         """Test handling successful conversational update."""
         message = "Note: call me Chris"
-        
+
         # Mock memory manager
         self.mock_memory_manager.add_memory_rule = AsyncMock(return_value="new-rule-id")
         self.mock_memory_manager.list_memory_rules = AsyncMock(return_value=[])
-        
+
         result = await self.claude_integration.handle_conversational_update(message)
-        
+
         assert result["detected"] is True
         assert result["rule_added"] is True
         assert result["rule_id"] == "new-rule-id"
@@ -608,9 +609,9 @@ class TestClaudeIntegration:
     async def test_handle_conversational_update_no_pattern(self):
         """Test handling message with no conversational pattern."""
         message = "This is just a regular message"
-        
+
         result = await self.claude_integration.handle_conversational_update(message)
-        
+
         assert result["detected"] is False
         assert "No memory update pattern detected" in result["message"]
 
@@ -622,13 +623,13 @@ class TestMemoryFactory:
         """Test factory function for creating memory manager."""
         mock_client = Mock()
         mock_naming_manager = Mock(spec=CollectionNamingManager)
-        
+
         manager = create_memory_manager(
             qdrant_client=mock_client,
             naming_manager=mock_naming_manager,
             embedding_dim=768
         )
-        
+
         assert isinstance(manager, MemoryManager)
         assert manager.client == mock_client
         assert manager.naming_manager == mock_naming_manager

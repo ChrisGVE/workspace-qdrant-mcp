@@ -305,7 +305,7 @@ class ScratchbookManager:
             new_payload = old_payload.copy()
             new_payload["updated_at"] = datetime.utcnow().isoformat()
             new_payload["version"] = old_payload.get("version", 1) + 1
-            
+
             # Ensure required fields exist
             if "title" not in new_payload:
                 new_payload["title"] = ""
@@ -347,7 +347,7 @@ class ScratchbookManager:
             else:
                 # Update only payload, preserve existing vector
                 updated_point = models.PointStruct(
-                    id=note_id, 
+                    id=note_id,
                     vector=existing_point.vector,  # Preserve existing vector
                     payload=new_payload
                 )
@@ -466,7 +466,7 @@ class ScratchbookManager:
                     limit=limit,
                     query_filter=search_filter,  # For real implementation
                 )
-            
+
             # Handle both async and mocked (sync) results
             if hasattr(search_result, '__await__'):
                 search_result = await search_result

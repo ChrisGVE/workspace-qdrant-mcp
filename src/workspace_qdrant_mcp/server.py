@@ -53,10 +53,10 @@ from .tools.documents import (
     add_document,
     get_document,
 )
-from .tools.scratchbook import ScratchbookManager, update_scratchbook
-from .tools.search import search_collection_by_metadata, search_workspace
 from .tools.memory import register_memory_tools
 from .tools.research import research_workspace as research_workspace_impl
+from .tools.scratchbook import ScratchbookManager, update_scratchbook
+from .tools.search import search_collection_by_metadata, search_workspace
 from .utils.config_validator import ConfigValidator
 
 # Initialize logging
@@ -404,13 +404,13 @@ async def research_workspace(
 ) -> dict:
     """
     Advanced semantic research with context control and version awareness.
-    
+
     Implements the four-mode research interface from PRD v2.0:
     1. "project" - Search current project collections only (default)
-    2. "collection" - Search specific target collection  
+    2. "collection" - Search specific target collection
     3. "global" - Search user-configured global collections
     4. "all" - Search all collections in workspace
-    
+
     Args:
         query: Natural language research query
         mode: Search context - "project", "collection", "global", or "all"
@@ -420,7 +420,7 @@ async def research_workspace(
         include_archived: Include archived collections (_*_archive patterns)
         limit: Maximum results to return
         score_threshold: Minimum relevance score (0.0-1.0)
-        
+
     Returns:
         dict: Research results with context-aware collection filtering
     """

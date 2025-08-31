@@ -133,7 +133,7 @@ class EmbeddingService:
                     max_length=512,  # Reasonable limit for document chunks
                 ),
             )
-            
+
             # Handle both real futures and mocked return values
             try:
                 self.dense_model = await executor_result
@@ -417,7 +417,7 @@ class EmbeddingService:
                     if sep_pos > start:
                         best_break = sep_pos + len(separator)
                         break
-                
+
                 if best_break > start:
                     end = best_break
                 else:
@@ -451,19 +451,19 @@ class EmbeddingService:
         """Preprocess text by normalizing whitespace and cleaning up."""
         if not text:
             return ""
-        
+
         # Normalize whitespace
         text = re.sub(r'\s+', ' ', text)
         # Remove non-breaking spaces and other unicode whitespace
         text = re.sub(r'[\u00a0\u2000-\u200f\u2028-\u202f]', ' ', text)
-        
+
         return text.strip()
 
     def _get_vector_size(self) -> int | None:
         """Get the vector size of the dense embedding model."""
         if not self.dense_model:
             return None
-        
+
         try:
             # Generate a test embedding to determine size
             test_embedding = list(self.dense_model.embed(["test"]))[0]

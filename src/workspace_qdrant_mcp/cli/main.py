@@ -19,16 +19,17 @@ from pathlib import Path
 from typing import Optional
 
 import typer
+from rich import print as rprint
 from rich.console import Console
 from rich.panel import Panel
-from rich import print as rprint
+
+from .commands.admin import admin_app
+from .commands.ingest import ingest_app
+from .commands.library import library_app
 
 # Import command modules
 from .commands.memory import memory_app
-from .commands.admin import admin_app
-from .commands.ingest import ingest_app
 from .commands.search import search_app
-from .commands.library import library_app
 from .commands.watch import watch_app
 
 # Initialize main app and console
@@ -43,7 +44,7 @@ console = Console()
 
 # Add subcommand groups
 app.add_typer(memory_app, name="memory", help="🧠 Memory rules and LLM behavior management")
-app.add_typer(admin_app, name="admin", help="⚙️  System administration and configuration")  
+app.add_typer(admin_app, name="admin", help="⚙️  System administration and configuration")
 app.add_typer(ingest_app, name="ingest", help="📁 Manual document processing")
 app.add_typer(search_app, name="search", help="🔍 Command-line search interface")
 app.add_typer(library_app, name="library", help="📚 Library collection management")
@@ -53,14 +54,14 @@ app.add_typer(watch_app, name="watch", help="👀 Folder watching configuration"
 def main(
     ctx: typer.Context,
     version: bool = typer.Option(False, "--version", "-v", help="Show version information"),
-    config_path: Optional[str] = typer.Option(None, "--config", "-c", help="Custom configuration file"),
+    config_path: str | None = typer.Option(None, "--config", "-c", help="Custom configuration file"),
 ) -> None:
     """
     🚀 Workspace Qdrant MCP - Unified semantic workspace management
-    
+
     A comprehensive semantic workspace platform with memory-driven LLM behavior,
     automated document ingestion, and advanced search capabilities.
-    
+
     Examples:
         wqm admin status                    # Check system status
         wqm memory add "Use uv for Python"  # Add memory rule
@@ -72,11 +73,11 @@ def main(
     if version:
         show_version()
         return
-    
+
     if config_path:
         # TODO: Load custom config
         pass
-    
+
     if ctx.invoked_subcommand is None:
         show_welcome()
 
@@ -87,10 +88,10 @@ def show_version() -> None:
         version_str = __version__
     except ImportError:
         version_str = "0.2.0"  # Fallback version
-    
+
     version_info = Panel.fit(
         f"""[bold blue]Workspace Qdrant MCP[/bold blue]
-        
+
 Version: [green]{version_str}[/green]
 Engine: [yellow]Rust v2.0[/yellow]
 Python: [cyan]{sys.version.split()[0]}[/cyan]
@@ -110,7 +111,7 @@ def show_welcome() -> None:
         """[bold blue]Welcome to Workspace Qdrant MCP v2.0![/bold blue]
 
 🧠 [yellow]Memory System:[/yellow] Personalize LLM behavior with persistent rules
-📁 [yellow]Document Processing:[/yellow] Ingest text, PDF, EPUB, and code files  
+📁 [yellow]Document Processing:[/yellow] Ingest text, PDF, EPUB, and code files
 🔍 [yellow]Semantic Search:[/yellow] Find content across your entire workspace
 📚 [yellow]Library Management:[/yellow] Organize and auto-watch document collections
 ⚡ [yellow]High Performance:[/yellow] Rust-powered processing engine

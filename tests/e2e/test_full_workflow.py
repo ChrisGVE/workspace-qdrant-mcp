@@ -253,15 +253,15 @@ class TestFullWorkflowE2E:
         mock_collection_manager.get_collection_name.return_value = "test_scratchbook"
         mock_collection_manager.ensure_collection_exists = AsyncMock()
         mock_workspace_client.collection_manager = mock_collection_manager
-        
+
         # Mock the client-level ensure_collection_exists method
         mock_workspace_client.ensure_collection_exists = AsyncMock()
 
         # Mock Qdrant client operations
         mock_qdrant_client = MagicMock()
         mock_qdrant_client.upsert = AsyncMock(return_value=None)
-        
-        # Mock scroll method for list operations 
+
+        # Mock scroll method for list operations
         mock_qdrant_client.scroll = AsyncMock(
             return_value=[
                 [  # First element: list of records
@@ -269,7 +269,7 @@ class TestFullWorkflowE2E:
                         id="note1",
                         payload={
                             "title": "Python Tips",
-                            "content": "Use list comprehensions", 
+                            "content": "Use list comprehensions",
                             "note_type": "tip",
                             "tags": ["python", "programming"],
                             "is_scratchbook_note": True,
@@ -412,7 +412,7 @@ class TestFullWorkflowE2E:
                 # Clear environment variables so they don't override .env file
                 env_keys_to_clear = [
                     "WORKSPACE_QDRANT_HOST",
-                    "WORKSPACE_QDRANT_PORT", 
+                    "WORKSPACE_QDRANT_PORT",
                     "WORKSPACE_QDRANT_DEBUG",
                     "WORKSPACE_QDRANT_QDRANT__URL",
                     "WORKSPACE_QDRANT_WORKSPACE__GITHUB_USER"
@@ -422,13 +422,13 @@ class TestFullWorkflowE2E:
                     original_values[key] = os.environ.get(key)
                     if key in os.environ:
                         del os.environ[key]
-                
+
                 try:
                     config_from_file = Config()
 
                     assert config_from_file.host == "file.host"
                     assert config_from_file.port == 7777
-                    assert config_from_file.debug == False  # Test that .env file loading works
+                    assert not config_from_file.debug  # Test that .env file loading works
                 finally:
                     # Restore environment variables
                     for key, value in original_values.items():
@@ -465,7 +465,7 @@ class TestFullWorkflowE2E:
             # Mock all necessary components
             client.initialized = True
             client.client = mock_qdrant_client
-            
+
             # Mock list_collections to return "docs" collection
             client.list_collections = AsyncMock(return_value=["docs", "test_collection"])
 
@@ -530,7 +530,7 @@ class TestFullWorkflowE2E:
             real_loop = asyncio.get_event_loop()
             failed_future = real_loop.create_future()
             failed_future.set_exception(Exception("Connection failed"))
-            
+
             with patch.object(real_loop, 'run_in_executor', return_value=failed_future):
                 # Should raise exception on initialization failure
                 with pytest.raises(Exception, match="Connection failed"):
@@ -718,7 +718,7 @@ class TestFullWorkflowE2E:
                 real_loop = asyncio.get_event_loop()
                 success_future = real_loop.create_future()
                 success_future.set_result(MagicMock(collections=[]))
-                
+
                 with patch.object(real_loop, 'run_in_executor', return_value=success_future):
                     await client.initialize()
                     assert client.initialized
