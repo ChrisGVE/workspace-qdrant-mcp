@@ -275,7 +275,7 @@ async def _add_single_document(
         point = models.PointStruct(id=point_id, vector=vectors, payload=payload)
 
         # Insert into Qdrant (use actual collection name)
-        client.client.upsert(collection_name=actual_collection, points=[point])
+        await client.client.upsert(collection_name=actual_collection, points=[point])
 
         logger.debug("Added document point %s to collection %s (actual: %s)", point_id, collection, actual_collection)
         return True
