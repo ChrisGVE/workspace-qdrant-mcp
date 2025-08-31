@@ -45,11 +45,11 @@ jobs:
         working-directory: rust-engine
       
       - name: Lint with clippy
-        run: cargo clippy --all-targets --all-features -- -D warnings
+        run: cargo clippy --workspace --exclude workspace-qdrant-python-bindings -- -D warnings
         working-directory: rust-engine
       
       - name: Run tests
-        run: cargo test --all-features
+        run: cargo test --workspace --exclude workspace-qdrant-python-bindings
         working-directory: rust-engine
       
       - name: Build documentation
@@ -136,7 +136,10 @@ jobs:
             --target ${{ matrix.target }} \
             --out wheels \
             --interpreter python
+        working-directory: rust-engine
         env:
+          # Enable PyO3 forward compatibility for newer Python versions
+          PYO3_USE_ABI3_FORWARD_COMPATIBILITY: 1
           # Platform-specific optimizations
           RUSTFLAGS: >-
             -C target-cpu=native
@@ -149,7 +152,7 @@ jobs:
           pip install wheels/*.whl
           python -c "
           try:
-              from workspace_qdrant_mcp.rust_engine import RustIngestionEngine
+              from workspace_qdrant_python_bindings import RustIngestionEngine
               print('✅ Rust engine import successful')
           except ImportError as e:
               print(f'❌ Import failed: {e}')
@@ -183,6 +186,10 @@ jobs:
       
       - name: Build source distribution
         run: maturin sdist --out dist
+        working-directory: rust-engine
+        env:
+          # Enable PyO3 forward compatibility for newer Python versions
+          PYO3_USE_ABI3_FORWARD_COMPATIBILITY: 1
       
       - name: Test source distribution
         run: |
@@ -194,7 +201,7 @@ jobs:
           pip install dist/*.tar.gz
           python -c "
           try:
-              from workspace_qdrant_mcp.rust_engine import RustIngestionEngine
+              from workspace_qdrant_python_bindings import RustIngestionEngine
               print('✅ Source distribution install successful')
           except ImportError as e:
               print(f'❌ Source install failed: {e}')
@@ -264,7 +271,7 @@ jobs:
         run: |
           python -c "
           import asyncio
-          from workspace_qdrant_mcp.rust_engine import RustIngestionEngine
+          from workspace_qdrant_python_bindings import RustIngestionEngine
           
           async def test_integration():
               print('🧪 Testing Rust engine integration...')

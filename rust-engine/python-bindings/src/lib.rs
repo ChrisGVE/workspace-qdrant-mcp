@@ -4,62 +4,63 @@
 //! with the Rust ingestion engine.
 
 use pyo3::prelude::*;
+use pyo3::types::PyModule;
+use pyo3::Bound;
 use std::collections::HashMap;
 use std::sync::Arc;
 use tokio::sync::Mutex;
-use workspace_qdrant_core::{DocumentProcessor, DocumentResult, ProcessingError};
-use workspace_qdrant_grpc::{GrpcServer, ServerConfig};
+use workspace_qdrant_core::DocumentProcessor;
+use workspace_qdrant_grpc::GrpcServer;
 
 /// Python-accessible ingestion engine
 #[pyclass]
 pub struct RustIngestionEngine {
-    processor: Arc<DocumentProcessor>,
-    grpc_server: Option<Arc<Mutex<GrpcServer>>>,
+    // Note: These fields will be used when actual functionality is implemented
+    _processor: Arc<DocumentProcessor>,
+    _grpc_server: Option<Arc<Mutex<GrpcServer>>>,
     grpc_port: u16,
 }
 
 #[pymethods]
 impl RustIngestionEngine {
     #[new]
-    fn new(config: HashMap<String, PyObject>) -> PyResult<Self> {
+    fn new(_config: HashMap<String, PyObject>) -> PyResult<Self> {
         // Initialize with default configuration for now
         // In future: parse config dict into proper configuration
         Ok(Self {
-            processor: Arc::new(DocumentProcessor::new()),
-            grpc_server: None,
+            _processor: Arc::new(DocumentProcessor::new()),
+            _grpc_server: None,
             grpc_port: 0,
         })
     }
 
-    fn start(&mut self, py: Python<'_>) -> PyResult<()> {
+    fn start(&mut self, _py: Python<'_>) {
         // Placeholder for engine startup
         // In future: start actual gRPC server and return port
         self.grpc_port = 50051; // Default port for testing
-        Ok(())
     }
 
-    fn stop(&mut self, py: Python<'_>) -> PyResult<()> {
+    fn stop(&mut self, _py: Python<'_>) {
         // Placeholder for engine shutdown
         // In future: gracefully stop gRPC server
         self.grpc_port = 0;
-        Ok(())
     }
 
     fn grpc_port(&self) -> u16 {
         self.grpc_port
     }
 
-    fn get_state(&self) -> PyResult<String> {
-        Ok("RUNNING".to_string())
+    fn get_state(&self) -> String {
+        "RUNNING".to_string()
     }
 
-    fn process_document(&self, file_path: String, collection: String) -> PyResult<String> {
+    fn process_document(&self, file_path: String, collection: String) -> String {
         // Placeholder for document processing
         // In future: actual async processing with proper error handling
-        Ok(format!(
+        format!(
             "Processed {} into collection {}",
             file_path, collection
-        ))
+        )
     }
 }
 
@@ -71,7 +72,7 @@ fn health_check() -> bool {
 
 /// Module initialization for Python
 #[pymodule]
-fn workspace_qdrant_python_bindings(_py: Python<'_>, m: &PyModule) -> PyResult<()> {
+fn workspace_qdrant_python_bindings(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<RustIngestionEngine>()?;
     m.add_function(wrap_pyfunction!(health_check, m)?)?;
     Ok(())
