@@ -52,6 +52,7 @@ logger = logging.getLogger(__name__)
 
 class MemoryCategory(Enum):
     """Categories of memory entries."""
+
     PREFERENCE = "preference"
     BEHAVIOR = "behavior"
     AGENT = "agent"
@@ -59,6 +60,7 @@ class MemoryCategory(Enum):
 
 class AuthorityLevel(Enum):
     """Authority levels for memory rules."""
+
     ABSOLUTE = "absolute"  # Non-negotiable, always follow
     DEFAULT = "default"    # Follow unless explicitly overridden
 
@@ -82,6 +84,7 @@ class MemoryRule:
         updated_at: Timestamp when rule was last modified
         metadata: Additional metadata for the rule
     """
+
     id: str
     category: MemoryCategory
     name: str
@@ -117,6 +120,7 @@ class AgentDefinition:
         last_used: Last time this agent was deployed
         metadata: Additional agent metadata
     """
+
     id: str
     name: str
     description: str
@@ -139,6 +143,7 @@ class MemoryConflict:
         description: Human-readable description of the conflict
         resolution_options: Possible resolution strategies
     """
+
     conflict_type: str
     rule1: MemoryRule
     rule2: MemoryRule
@@ -159,6 +164,7 @@ class MemoryStats:
         estimated_tokens: Estimated token count for all rules
         last_optimization: When memory was last optimized
     """
+
     total_rules: int
     rules_by_category: dict[MemoryCategory, int]
     rules_by_authority: dict[AuthorityLevel, int]
@@ -780,7 +786,7 @@ def create_memory_manager(
     sparse_vector_generator: BM25SparseEncoder | None = None
 ) -> MemoryManager:
     """
-    Factory function to create a memory manager.
+    Create a memory manager instance.
 
     Args:
         qdrant_client: Qdrant client instance
