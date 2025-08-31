@@ -117,6 +117,7 @@ exclude = [".venv/", "build/", "dist/"]
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
 testpaths = ["tests"]
+pythonpath = ["."]
 addopts = "-v --tb=short --cov=src/workspace_qdrant_mcp --cov-report=term-missing --cov-report=html --cov-fail-under=80"
 markers = [
   "unit: Unit tests",
