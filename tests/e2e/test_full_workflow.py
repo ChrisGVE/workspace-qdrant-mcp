@@ -253,10 +253,33 @@ class TestFullWorkflowE2E:
         mock_collection_manager.get_collection_name.return_value = "test_scratchbook"
         mock_collection_manager.ensure_collection_exists = AsyncMock()
         mock_workspace_client.collection_manager = mock_collection_manager
+        
+        # Mock the client-level ensure_collection_exists method
+        mock_workspace_client.ensure_collection_exists = AsyncMock()
 
         # Mock Qdrant client operations
         mock_qdrant_client = MagicMock()
-        mock_qdrant_client.upsert = AsyncMock()
+        mock_qdrant_client.upsert = AsyncMock(return_value=None)
+        
+        # Mock scroll method for list operations 
+        mock_qdrant_client.scroll = AsyncMock(
+            return_value=[
+                [  # First element: list of records
+                    MagicMock(
+                        id="note1",
+                        payload={
+                            "title": "Python Tips",
+                            "content": "Use list comprehensions", 
+                            "note_type": "tip",
+                            "tags": ["python", "programming"],
+                            "is_scratchbook_note": True,
+                        },
+                        vector=None,
+                    )
+                ],
+                "next_page_offset",  # Second element: next page offset
+            ]
+        )
         mock_qdrant_client.search = AsyncMock(
             return_value=[
                 MagicMock(
@@ -273,37 +296,63 @@ class TestFullWorkflowE2E:
         )
         mock_workspace_client.client = mock_qdrant_client
 
-        # Test adding a note
-        add_result = await manager.add_note(
-            content="Use list comprehensions for better performance",
-            title="Python Tips",
-            note_type="tip",
-            tags=["python", "programming"],
-            project_name="test-project",
-        )
+        # Mock HybridSearchEngine for scratchbook search
+        with patch('workspace_qdrant_mcp.tools.scratchbook.HybridSearchEngine') as mock_hybrid_engine_class:
+            # Create a mock engine instance
+            mock_hybrid_engine = MagicMock()
+            mock_hybrid_engine.hybrid_search = AsyncMock(
+                return_value={
+                    "results": [
+                        {
+                            "id": "note1",
+                            "score": 0.9,
+                            "payload": {
+                                "title": "Python Tips",
+                                "content": "Use list comprehensions for better performance",
+                                "note_type": "tip",
+                                "tags": ["python", "programming"],
+                            },
+                        }
+                    ],
+                    "total": 1,
+                    "fusion_method": "rrf",
+                    "total_results": 1,
+                }
+            )
+            mock_hybrid_engine_class.return_value = mock_hybrid_engine
 
-        assert "error" not in add_result
-        assert "note_id" in add_result
+            # Test adding a note
+            add_result = await manager.add_note(
+                content="Use list comprehensions for better performance",
+                title="Python Tips",
+                note_type="tip",
+                tags=["python", "programming"],
+                project_name="test-project",
+            )
 
-        # Test searching notes
-        search_result = await manager.search_notes(
-            query="python performance",
-            note_types=["tip"],
-            tags=["python"],
-            project_name="test-project",
-            limit=10,
-        )
+            assert "error" not in add_result
+            assert "note_id" in add_result
 
-        assert "results" in search_result
-        assert len(search_result["results"]) > 0
-        assert search_result["results"][0]["payload"]["title"] == "Python Tips"
+            # Test searching notes
+            search_result = await manager.search_notes(
+                query="python performance",
+                note_types=["tip"],
+                tags=["python"],
+                project_name="test-project",
+                limit=10,
+            )
 
-        # Test listing notes
-        list_result = await manager.list_notes(
-            project_name="test-project", note_type="tip", limit=50
-        )
+            assert "results" in search_result
+            assert len(search_result["results"]) > 0
+            assert search_result["results"][0]["payload"]["title"] == "Python Tips"
 
-        assert "results" in list_result
+            # Test listing notes
+            list_result = await manager.list_notes(
+                project_name="test-project", note_type="tip", limit=50
+            )
+
+            assert "notes" in list_result
+            assert len(list_result["notes"]) > 0
 
     @pytest.mark.e2e
     async def test_configuration_and_validation_workflow(self, environment_variables):
