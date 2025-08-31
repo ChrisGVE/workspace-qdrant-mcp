@@ -221,7 +221,7 @@ def mock_project_detector():
 
 
 @pytest.fixture
-async def mock_workspace_client(
+def mock_workspace_client(
     mock_config, mock_qdrant_client, mock_embedding_service
 ):
     """Create a mock workspace client."""
