@@ -217,24 +217,44 @@ class WatchService:
         try:
             logger.info(f"Auto-ingesting file: {file_path} -> {collection}")
             
-            # Use the ingestion engine to process the single file
-            # We'll process it as a directory containing just this file
-            file_dir = Path(file_path).parent
-            file_name = Path(file_path).name
+            # Create a temporary directory with just this file for processing
+            import tempfile
+            import shutil
+            from pathlib import Path
             
-            result = await self.ingestion_engine.process_directory(
-                directory_path=file_dir,
-                collection=collection,
-                formats=None,  # Let the engine determine format
-                dry_run=False,
-                recursive=False,  # Don't process other files in directory
-                exclude_patterns=[f"!{file_name}", "*"],  # Include only this file
-            )
+            file_path_obj = Path(file_path)
             
-            if result.success:
-                logger.info(f"Successfully ingested {file_path}: {result.message}")
-            else:
-                logger.error(f"Failed to ingest {file_path}: {result.message}")
+            # Verify the file still exists and is readable
+            if not file_path_obj.exists():
+                logger.warning(f"File no longer exists, skipping ingestion: {file_path}")
+                return
+                
+            if not file_path_obj.is_file():
+                logger.warning(f"Path is not a file, skipping ingestion: {file_path}")
+                return
+            
+            # Use a temporary directory approach
+            with tempfile.TemporaryDirectory() as temp_dir:
+                temp_dir_path = Path(temp_dir)
+                temp_file_path = temp_dir_path / file_path_obj.name
+                
+                # Copy the file to temp directory
+                shutil.copy2(file_path_obj, temp_file_path)
+                
+                # Process the temp directory (which contains only our file)
+                result = await self.ingestion_engine.process_directory(
+                    directory_path=temp_dir_path,
+                    collection=collection,
+                    formats=None,  # Let the engine determine format
+                    dry_run=False,
+                    recursive=False,  # Only process this directory level
+                    exclude_patterns=None,  # No exclusions needed
+                )
+                
+                if result.success:
+                    logger.info(f"Successfully ingested {file_path}: {result.message}")
+                else:
+                    logger.error(f"Failed to ingest {file_path}: {result.message}")
                 
         except Exception as e:
             logger.error(f"Error during automatic ingestion of {file_path}: {e}")
