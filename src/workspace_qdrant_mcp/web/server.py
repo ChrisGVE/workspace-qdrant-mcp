@@ -321,6 +321,87 @@ def create_web_app(memory_manager: MemoryManager) -> FastAPI:
             "authorities": [auth.value for auth in AuthorityLevel]
         }
     
+    @app.get("/api/optimize/suggestions")
+    async def get_optimization_suggestions(
+        target_tokens: int = 2000
+    ):
+        """Get memory optimization suggestions."""
+        try:
+            # Get all rules
+            rules = await memory_manager.list_memory_rules()
+            
+            # Get optimization suggestions
+            suggestions = memory_manager.token_counter.suggest_memory_optimizations(
+                rules, target_tokens
+            )
+            
+            return suggestions
+        
+        except Exception as e:
+            raise HTTPException(status_code=500, detail=str(e))
+    
+    @app.post("/api/optimize/preview")
+    async def preview_optimization(
+        target_tokens: int = Form(...),
+        preserve_absolute: bool = Form(True)
+    ):
+        """Preview rule optimization without applying changes."""
+        try:
+            # Get all rules
+            rules = await memory_manager.list_memory_rules()
+            
+            # Get optimized rules
+            optimized_rules, token_usage = memory_manager.token_counter.optimize_rules_for_context(
+                rules, target_tokens, preserve_absolute
+            )
+            
+            # Convert to JSON-serializable format
+            optimized_data = []
+            removed_data = []
+            
+            optimized_ids = {rule.id for rule in optimized_rules}
+            
+            for rule in rules:
+                rule_dict = {
+                    "id": rule.id,
+                    "name": rule.name,
+                    "rule": rule.rule,
+                    "authority": rule.authority.value,
+                    "category": rule.category.value,
+                    "tokens": memory_manager.token_counter.count_rule_tokens(rule)
+                }
+                
+                if rule.id in optimized_ids:
+                    optimized_data.append(rule_dict)
+                else:
+                    removed_data.append(rule_dict)
+            
+            return {
+                "current_tokens": memory_manager.token_counter.count_rules_tokens(rules).total_tokens,
+                "target_tokens": target_tokens,
+                "optimized_tokens": token_usage.total_tokens,
+                "rules_kept": len(optimized_rules),
+                "rules_removed": len(rules) - len(optimized_rules),
+                "optimized_rules": optimized_data,
+                "removed_rules": removed_data
+            }
+        
+        except Exception as e:
+            raise HTTPException(status_code=500, detail=str(e))
+    
+    @app.post("/api/rules/reorder")
+    async def reorder_rules(
+        rule_ids: List[str] = Form(...)
+    ):
+        """Reorder rules by priority (drag and drop)."""
+        try:
+            # This would need to be implemented with rule priority updates
+            # For now, return success
+            return {"message": "Rule reordering not yet implemented"}
+        
+        except Exception as e:
+            raise HTTPException(status_code=500, detail=str(e))
+    
     return app
 
 

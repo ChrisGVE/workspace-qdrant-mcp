@@ -124,6 +124,11 @@ class MemoryCurationApp {
         document.getElementById('import-rules-btn').addEventListener('click', () => this.showImportDialog());
         document.getElementById('export-rules-btn').addEventListener('click', () => this.exportRules());
         
+        // Optimization actions
+        document.getElementById('get-suggestions-btn').addEventListener('click', () => this.getOptimizationSuggestions());
+        document.getElementById('preview-optimization-btn').addEventListener('click', () => this.previewOptimization());
+        document.getElementById('apply-optimization-btn').addEventListener('click', () => this.applyOptimization());
+        
         // Rule form
         document.getElementById('rule-form').addEventListener('submit', (e) => this.handleRuleSubmit(e));
     }
@@ -733,6 +738,157 @@ class MemoryCurationApp {
         };
         
         input.click();
+    }
+    
+    async getOptimizationSuggestions() {
+        try {
+            const targetTokens = parseInt(document.getElementById('target-tokens').value);
+            const response = await fetch(`/api/optimize/suggestions?target_tokens=${targetTokens}`);
+            const data = await response.json();
+            
+            this.displayOptimizationSuggestions(data);
+        } catch (error) {
+            this.showError('Failed to get optimization suggestions');
+        }
+    }
+    
+    async previewOptimization() {
+        try {
+            const targetTokens = parseInt(document.getElementById('target-tokens').value);
+            const preserveAbsolute = document.getElementById('preserve-absolute').checked;
+            
+            const formData = new FormData();
+            formData.append('target_tokens', targetTokens);
+            formData.append('preserve_absolute', preserveAbsolute);
+            
+            const response = await fetch('/api/optimize/preview', {
+                method: 'POST',
+                body: formData
+            });
+            
+            const data = await response.json();
+            this.displayOptimizationPreview(data);
+            
+            // Enable apply button
+            document.getElementById('apply-optimization-btn').disabled = false;
+            this.optimizationData = data;
+        } catch (error) {
+            this.showError('Failed to preview optimization');
+        }
+    }
+    
+    async applyOptimization() {
+        if (!this.optimizationData) {
+            this.showError('No optimization data available');
+            return;
+        }
+        
+        if (!confirm(`This will remove ${this.optimizationData.rules_removed} rules. Are you sure?`)) {
+            return;
+        }
+        
+        try {
+            // Delete rules that should be removed
+            for (const rule of this.optimizationData.removed_rules) {
+                await fetch(`/api/rules/${rule.id}`, { method: 'DELETE' });
+            }
+            
+            // Reload data
+            await this.loadRules();
+            await this.loadStats();
+            
+            this.showSuccess(`Optimization applied: Removed ${this.optimizationData.rules_removed} rules, saved ${this.optimizationData.current_tokens - this.optimizationData.optimized_tokens} tokens`);
+            
+            // Reset optimization interface
+            document.getElementById('optimization-results').style.display = 'none';
+            document.getElementById('apply-optimization-btn').disabled = true;
+            this.optimizationData = null;
+            
+        } catch (error) {
+            this.showError('Failed to apply optimization');
+        }
+    }
+    
+    displayOptimizationSuggestions(data) {
+        const resultsDiv = document.getElementById('optimization-results');
+        const suggestionsDiv = document.getElementById('optimization-suggestions');
+        const suggestionsList = document.getElementById('suggestions-list');
+        
+        resultsDiv.style.display = 'block';
+        suggestionsDiv.style.display = 'block';
+        
+        // Clear previous suggestions
+        suggestionsList.innerHTML = '';
+        
+        if (!data.optimization_needed) {
+            suggestionsList.innerHTML = '<li class="text-success">Memory usage is already within target</li>';
+            return;
+        }
+        
+        // Display suggestions
+        if (data.suggestions && data.suggestions.length > 0) {
+            data.suggestions.forEach(suggestion => {
+                const li = document.createElement('li');
+                li.textContent = suggestion;
+                suggestionsList.appendChild(li);
+            });
+        } else {
+            suggestionsList.innerHTML = '<li>No specific suggestions available</li>';
+        }
+    }
+    
+    displayOptimizationPreview(data) {
+        const resultsDiv = document.getElementById('optimization-results');
+        const previewDiv = document.getElementById('optimization-preview');
+        
+        resultsDiv.style.display = 'block';
+        previewDiv.style.display = 'block';
+        
+        // Update stats
+        document.getElementById('preview-current-tokens').textContent = data.current_tokens;
+        document.getElementById('preview-optimized-tokens').textContent = data.optimized_tokens;
+        document.getElementById('preview-rules-kept').textContent = data.rules_kept;
+        document.getElementById('preview-rules-removed').textContent = data.rules_removed;
+        
+        // Display rules to keep
+        const keepContainer = document.getElementById('rules-to-keep');
+        keepContainer.innerHTML = '';
+        
+        if (data.optimized_rules.length === 0) {
+            keepContainer.innerHTML = '<p class="text-muted">No rules would be kept</p>';
+        } else {
+            data.optimized_rules.forEach(rule => {
+                const item = document.createElement('div');
+                item.className = 'rule-preview-item';
+                item.innerHTML = `
+                    <div class="rule-preview-name">${this.escapeHtml(rule.name)}</div>
+                    <span class="rule-preview-tokens">${rule.tokens} tokens</span>
+                    <div class="text-muted small">${this.capitalizeFirst(rule.authority)} • ${this.capitalizeFirst(rule.category)}</div>
+                    <div class="text-truncate-2 mt-1">${this.escapeHtml(rule.rule)}</div>
+                `;
+                keepContainer.appendChild(item);
+            });
+        }
+        
+        // Display rules to remove
+        const removeContainer = document.getElementById('rules-to-remove');
+        removeContainer.innerHTML = '';
+        
+        if (data.removed_rules.length === 0) {
+            removeContainer.innerHTML = '<p class="text-muted">No rules would be removed</p>';
+        } else {
+            data.removed_rules.forEach(rule => {
+                const item = document.createElement('div');
+                item.className = 'rule-preview-item';
+                item.innerHTML = `
+                    <div class="rule-preview-name">${this.escapeHtml(rule.name)}</div>
+                    <span class="rule-preview-tokens">${rule.tokens} tokens</span>
+                    <div class="text-muted small">${this.capitalizeFirst(rule.authority)} • ${this.capitalizeFirst(rule.category)}</div>
+                    <div class="text-truncate-2 mt-1">${this.escapeHtml(rule.rule)}</div>
+                `;
+                removeContainer.appendChild(item);
+            });
+        }
     }
     
     // Utility functions
