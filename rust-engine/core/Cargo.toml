@@ -1,0 +1,68 @@
+[package]
+name = "workspace-qdrant-core"
+version = "0.2.0"
+edition = "2021"
+authors = ["Christian C. Berclaz <christian.berclaz@mac.com>"]
+description = "Core processing engine for workspace-qdrant-mcp"
+license = "MIT"
+repository = "https://github.com/ChrisGVE/workspace-qdrant-mcp"
+
+[dependencies]
+# Async runtime
+tokio = { version = "1.35", features = [
+    "rt-multi-thread", "macros", "time", "fs", "process", "signal",
+    "sync", "io-std", "io-util", "net", "parking_lot"
+]}
+tokio-util = { version = "0.7", features = ["codec", "time"] }
+tokio-stream = "0.1"
+
+# Document processing
+pdf = "0.8"
+epub = "2.0"
+zip = "0.6"
+encoding_rs = "0.8"
+chardet = "0.2"
+mime_guess = "2.0"
+
+# Code parsing and analysis
+tree-sitter = "0.20"
+tree-sitter-rust = "0.20"
+tree-sitter-python = "0.20" 
+tree-sitter-javascript = "0.20"
+tree-sitter-json = "0.20"
+
+# File watching and system integration
+notify = "6.1"
+walkdir = "2.4"
+glob = "0.3"
+
+# Vector database client  
+qdrant-client = "1.7"
+
+# Serialization
+serde = { version = "1.0", features = ["derive", "rc"] }
+serde_json = "1.0"
+serde_yaml = "0.9"
+toml = "0.8"
+
+# Utilities
+uuid = { version = "1.6", features = ["v4", "serde"] }
+chrono = { version = "0.4", features = ["serde", "clock"] }
+url = { version = "2.5", features = ["serde"] }
+bytes = "1.5"
+dashmap = "5.5" 
+parking_lot = "0.12"
+crossbeam = "0.8"
+rayon = "1.8"
+once_cell = "1.19"
+regex = "1.10"
+ahash = "0.8"
+
+# Error handling and logging
+thiserror = "1.0"
+anyhow = "1.0"
+tracing = { version = "0.1", features = ["log", "attributes", "std"] }
+tracing-subscriber = { version = "0.3", features = ["env-filter", "json", "registry"] }
+
+[target.'cfg(target_os = "windows")'.dependencies]
+winapi = { version = "0.3", features = ["winnt", "processthreadsapi"] }
