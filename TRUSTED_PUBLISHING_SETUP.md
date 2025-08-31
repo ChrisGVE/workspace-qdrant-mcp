@@ -55,16 +55,47 @@ The workflow provides these claims for trusted publishing:
 
 These values must match exactly in the PyPI trusted publisher configuration.
 
+## Workflow Fallback Options
+
+The enhanced workflow supports multiple publishing strategies:
+
+### Option 1: Trusted Publishing (Recommended)
+Complete the setup steps above for both TestPyPI and PyPI.
+
+### Option 2: Token Fallback (Immediate Solution)
+If trusted publishing setup is not possible immediately:
+
+1. Go to repository Settings > Variables and secrets > Variables
+2. Add repository variable: `USE_TOKEN_FALLBACK` = `true`  
+3. Go to repository Settings > Variables and secrets > Secrets
+4. Add these secrets:
+   - `TEST_PYPI_API_TOKEN` - Token from https://test.pypi.org/manage/account/token/
+   - `PYPI_API_TOKEN` - Token from https://pypi.org/manage/account/token/
+
+### Option 3: Hybrid Approach
+Configure both trusted publishing AND token fallback. The workflow will:
+1. Try trusted publishing first (preferred)
+2. Fall back to tokens if trusted publishing fails
+3. Provide clear status reporting
+
 ## Testing the Setup
 
-1. Once trusted publishers are configured on both PyPI services
-2. Push a commit to the main branch 
-3. The workflow should succeed in uploading to TestPyPI
-4. Tag a version (e.g., `v0.2.1`) to trigger PyPI upload
+1. Push a commit to the main branch to test TestPyPI upload
+2. Tag a version (e.g., `v0.2.1`) to test PyPI upload 
+3. Check workflow logs for publishing status messages
+4. Verify packages appear on PyPI/TestPyPI
 
-## Alternative: Manual Upload
+## Status Messages
 
-If trusted publishing setup is not possible immediately, packages can be manually uploaded:
+The workflow provides clear feedback:
+
+- ✅ **Success**: "Successfully published to [TestPyPI/PyPI] using trusted publishing"
+- ⚠️ **Fallback**: "Trusted publishing failed, attempted token fallback"
+- ❌ **Failed**: "Trusted publishing failed" with setup instructions
+
+## Manual Upload (Development/Testing)
+
+For local testing or one-off uploads:
 
 ```bash
 # Build packages locally (requires Rust and maturin)
@@ -80,4 +111,9 @@ python -m twine upload --repository testpypi dist/*
 python -m twine upload dist/*
 ```
 
-Note: Manual uploads require API tokens to be configured in repository secrets.
+## Troubleshooting
+
+- **Build failures**: Ensure Rust toolchain is available
+- **Publishing failures**: Check trusted publisher configuration matches exactly
+- **Token issues**: Verify tokens have correct scope and are not expired
+- **Environment issues**: Ensure GitHub environments exist and are accessible
