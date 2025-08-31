@@ -402,6 +402,159 @@ def create_web_app(memory_manager: MemoryManager) -> FastAPI:
         except Exception as e:
             raise HTTPException(status_code=500, detail=str(e))
     
+    @app.post("/api/import/preview")
+    async def preview_import(file: bytes = Form(...), filename: str = Form(...)):
+        """Preview imported rules without applying them."""
+        try:
+            # Parse the imported file
+            if filename.endswith('.json'):
+                import_data = json.loads(file.decode('utf-8'))
+            else:
+                raise HTTPException(status_code=400, detail="Only JSON files are supported")
+            
+            # Validate the data structure
+            if not isinstance(import_data, list):
+                raise HTTPException(status_code=400, detail="Expected an array of rules")
+            
+            # Get current rules for conflict detection
+            current_rules = await memory_manager.list_memory_rules()
+            current_rule_names = {rule.name.lower() for rule in current_rules}
+            
+            # Analyze imported rules
+            valid_rules = []
+            invalid_rules = []
+            conflicts = []
+            
+            for i, rule_data in enumerate(import_data):
+                try:
+                    # Basic validation
+                    required_fields = ['name', 'rule', 'category', 'authority']
+                    if not all(field in rule_data for field in required_fields):
+                        invalid_rules.append({
+                            "index": i,
+                            "rule": rule_data,
+                            "error": f"Missing required fields. Expected: {required_fields}"
+                        })
+                        continue
+                    
+                    # Validate enum values
+                    if rule_data['category'] not in [cat.value for cat in MemoryCategory]:
+                        invalid_rules.append({
+                            "index": i,
+                            "rule": rule_data,
+                            "error": f"Invalid category: {rule_data['category']}"
+                        })
+                        continue
+                    
+                    if rule_data['authority'] not in [auth.value for auth in AuthorityLevel]:
+                        invalid_rules.append({
+                            "index": i,
+                            "rule": rule_data,
+                            "error": f"Invalid authority: {rule_data['authority']}"
+                        })
+                        continue
+                    
+                    # Check for name conflicts
+                    if rule_data['name'].lower() in current_rule_names:
+                        conflicts.append({
+                            "index": i,
+                            "rule": rule_data,
+                            "conflict_type": "name_duplicate"
+                        })
+                    
+                    valid_rules.append({
+                        "index": i,
+                        "rule": rule_data
+                    })
+                
+                except Exception as e:
+                    invalid_rules.append({
+                        "index": i,
+                        "rule": rule_data,
+                        "error": str(e)
+                    })
+            
+            return {
+                "total_rules": len(import_data),
+                "valid_rules": valid_rules,
+                "invalid_rules": invalid_rules,
+                "conflicts": conflicts,
+                "can_import": len(valid_rules) > 0
+            }
+        
+        except json.JSONDecodeError:
+            raise HTTPException(status_code=400, detail="Invalid JSON format")
+        except Exception as e:
+            raise HTTPException(status_code=500, detail=str(e))
+    
+    @app.post("/api/import/apply")
+    async def apply_import(
+        rules_to_import: str = Form(...),
+        conflict_resolution: str = Form("skip")
+    ):
+        """Apply the import of selected rules."""
+        try:
+            # Parse the rules to import
+            rules_data = json.loads(rules_to_import)
+            
+            imported_count = 0
+            errors = []
+            
+            for rule_data in rules_data:
+                try:
+                    # Parse scope
+                    scope_list = []
+                    if 'scope' in rule_data and rule_data['scope']:
+                        if isinstance(rule_data['scope'], list):
+                            scope_list = rule_data['scope']
+                        else:
+                            scope_list = [s.strip() for s in str(rule_data['scope']).split(",") if s.strip()]
+                    
+                    # Convert to enums
+                    category_enum = MemoryCategory(rule_data['category'])
+                    authority_enum = AuthorityLevel(rule_data['authority'])
+                    
+                    # Check if rule already exists
+                    existing_rules = await memory_manager.list_memory_rules()
+                    existing_names = [rule.name.lower() for rule in existing_rules]
+                    
+                    if rule_data['name'].lower() in existing_names:
+                        if conflict_resolution == "skip":
+                            continue
+                        elif conflict_resolution == "overwrite":
+                            # Find and delete existing rule
+                            for existing_rule in existing_rules:
+                                if existing_rule.name.lower() == rule_data['name'].lower():
+                                    await memory_manager.delete_memory_rule(existing_rule.id)
+                                    break
+                    
+                    # Add the rule
+                    await memory_manager.add_memory_rule(
+                        category=category_enum,
+                        name=rule_data['name'],
+                        rule=rule_data['rule'],
+                        authority=authority_enum,
+                        scope=scope_list,
+                        source="web_import"
+                    )
+                    
+                    imported_count += 1
+                
+                except Exception as e:
+                    errors.append({
+                        "rule_name": rule_data.get('name', 'Unknown'),
+                        "error": str(e)
+                    })
+            
+            return {
+                "imported_count": imported_count,
+                "errors": errors,
+                "message": f"Successfully imported {imported_count} rules"
+            }
+        
+        except Exception as e:
+            raise HTTPException(status_code=500, detail=str(e))
+    
     return app
 
 
