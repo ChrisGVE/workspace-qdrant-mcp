@@ -18,14 +18,24 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.x"
+      - name: Set up Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: stable
       - name: Install build tooling
         run: |
           python -m pip install --upgrade pip
-          python -m pip install --upgrade build twine
+          python -m pip install --upgrade maturin[patchelf]
       - name: Build distributions
-        run: python -m build
-      - name: Verify metadata
-        run: python -m twine check dist/*
+        run: |
+          # Build using maturin for Rust integration
+          python -m maturin build --release --out dist
+          # Also create source distribution
+          python -m maturin sdist --out dist
+      - name: Install twine and verify metadata
+        run: |
+          python -m pip install --upgrade twine
+          python -m twine check dist/*
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
@@ -50,11 +60,16 @@ jobs:
         with:
           name: dist-${{ github.sha }}
           path: dist/
+      - name: List distribution files
+        run: |
+          echo "Distribution files to upload:"
+          ls -la dist/
       - name: Publish to TestPyPI (OIDC)
         uses: pypa/gh-action-pypi-publish@release/v1
         with:
           repository-url: https://test.pypi.org/legacy/
           skip-existing: true   # convenient for CI reruns on TestPyPI
+          verbose: true         # more detailed output for debugging
 
   publish-to-pypi:
     name: Publish to PyPI
