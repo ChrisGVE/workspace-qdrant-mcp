@@ -578,7 +578,7 @@ class HybridSearchEngine:
 
         return results
 
-    def benchmark_fusion_methods(
+    async def benchmark_fusion_methods(
         self, collection_name: str, query_embeddings: dict, limit: int = 10
     ) -> dict:
         """
@@ -652,7 +652,7 @@ class HybridSearchEngine:
 
         for method in methods:
             try:
-                result = self.hybrid_search(
+                result = await self.hybrid_search(
                     collection_name=collection_name,
                     query_embeddings=query_embeddings,
                     limit=limit,
