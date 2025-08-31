@@ -248,7 +248,7 @@ class TestQdrantWorkspaceClient:
 
         # Mock collection manager to raise exception
         mock_collection_manager = MagicMock()
-        mock_collection_manager.list_workspace_collections = AsyncMock(
+        mock_collection_manager.list_workspace_collections = MagicMock(
             side_effect=Exception("Collection error")
         )
         client.collection_manager = mock_collection_manager
