@@ -45,7 +45,7 @@ from qdrant_client.models import (
 )
 
 from .collection_naming import CollectionNamingManager, CollectionType
-from .sparse_vectors import SparseVectorGenerator
+from .sparse_vectors import BM25SparseEncoder
 
 logger = logging.getLogger(__name__)
 
