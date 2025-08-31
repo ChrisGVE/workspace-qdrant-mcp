@@ -57,10 +57,7 @@ impl RustIngestionEngine {
     fn process_document(&self, file_path: String, collection: String) -> String {
         // Placeholder for document processing
         // In future: actual async processing with proper error handling
-        format!(
-            "Processed {} into collection {}",
-            file_path, collection
-        )
+        format!("Processed {} into collection {}", file_path, collection)
     }
 }
 
