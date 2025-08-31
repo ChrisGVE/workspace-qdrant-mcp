@@ -300,7 +300,7 @@ jobs:
         . .venv/bin/activate
         echo "## Documentation Quality Report" > doc-report.md
         echo "### Docstring Analysis" >> doc-report.md
-        pydocstyle src/workspace_qdrant_mcp/ >> doc-report.md || true
+        pydocstyle src/workspace_qdrant_mcp/ >> doc-report.md
 
     - name: Generate API documentation
       run: |
