@@ -88,12 +88,12 @@ try:
     from sklearn.feature_extraction.text import TfidfVectorizer
 except ImportError:
     TfidfVectorizer = None
-    
+
 try:
     import rank_bm25
 except ImportError:
     rank_bm25 = None
-    
+
 # Use simple tokenizer to avoid NLTK data dependency issues
 def word_tokenize(text: str) -> list[str]:
     """Simple word tokenizer for BM25 processing."""
@@ -147,7 +147,7 @@ class BM25SparseEncoder:
         min_df (int): Minimum document frequency threshold
         max_df (float): Maximum document frequency ratio threshold
         sparse_model (Optional[SparseTextEmbedding]): FastEmbed model instance (test attribute)
-        vectorizer (Optional[TfidfVectorizer]): Sklearn vectorizer (test attribute)  
+        vectorizer (Optional[TfidfVectorizer]): Sklearn vectorizer (test attribute)
         bm25_model: BM25 model instance (test attribute)
         vocabulary (Optional[List[str]]): Vocabulary terms (test attribute)
         initialized (bool): Whether encoder has been initialized
@@ -220,14 +220,14 @@ class BM25SparseEncoder:
         self.min_df = min_df
         self.max_df = max_df
 
-        # Test-expected attributes  
-        self.sparse_model: Optional[SparseTextEmbedding] = None
-        self.vectorizer: Optional[TfidfVectorizer] = None
+        # Test-expected attributes
+        self.sparse_model: SparseTextEmbedding | None = None
+        self.vectorizer: TfidfVectorizer | None = None
         self.bm25_model = None
-        self.vocabulary: Optional[list[str]] = None
-        
+        self.vocabulary: list[str] | None = None
+
         # Internal state
-        self.fastembed_model: Optional[SparseTextEmbedding] = None
+        self.fastembed_model: SparseTextEmbedding | None = None
         self.vocab: dict[str, int] = {}  # term -> index mapping
         self.idf_scores: dict[str, float] = {}  # term -> IDF score
         self.doc_lengths: list[int] = []  # document lengths for corpus
@@ -235,7 +235,7 @@ class BM25SparseEncoder:
         self.corpus_size: int = 0  # number of documents in corpus
         self.initialized = False  # initialization status
 
-    async def initialize(self, training_corpus: Optional[list[str]] = None) -> None:
+    async def initialize(self, training_corpus: list[str] | None = None) -> None:
         """
         Initialize the sparse vector encoder and load required models.
 
@@ -275,7 +275,7 @@ class BM25SparseEncoder:
                 executor_result = asyncio.get_event_loop().run_in_executor(
                     None, lambda: SparseTextEmbedding(model_name="Qdrant/bm25", max_length=512)
                 )
-                
+
                 # Handle both real futures and mocked return values
                 try:
                     self.sparse_model = await executor_result
@@ -290,7 +290,7 @@ class BM25SparseEncoder:
                 )
                 self.use_fastembed = False
                 raise RuntimeError(f"Failed to initialize BM25 sparse encoder: {e}")
-        
+
         # Initialize basic encoder with optional corpus
         if not self.use_fastembed and training_corpus:
             # Import sklearn at runtime to allow mocking
@@ -298,19 +298,19 @@ class BM25SparseEncoder:
                 from sklearn.feature_extraction.text import TfidfVectorizer
             except ImportError:
                 raise ImportError("sklearn is required for basic BM25 initialization")
-            
+
             try:
                 import rank_bm25
             except ImportError:
                 raise ImportError("rank_bm25 is required for basic BM25 initialization")
-                
+
             # Initialize vectorizer
             self.vectorizer = TfidfVectorizer()
             self.vectorizer.fit_transform(training_corpus)
             feature_names = self.vectorizer.get_feature_names_out()
             # Convert to list if it's a numpy array, otherwise use as-is (for mocking)
             self.vocabulary = feature_names.tolist() if hasattr(feature_names, 'tolist') else list(feature_names)
-            
+
             # Initialize BM25 model
             tokenized_corpus = [word_tokenize(doc) for doc in training_corpus]
             self.bm25_model = rank_bm25.BM25Okapi(tokenized_corpus)
@@ -370,7 +370,7 @@ class BM25SparseEncoder:
                 embeddings = list(self.sparse_model.embed([text]))
                 if not embeddings:
                     return {"indices": [], "values": []}
-                    
+
                 embedding = embeddings[0]
                 # Handle both tuple format (for tests) and object format (real FastEmbed)
                 if isinstance(embedding, tuple):
@@ -388,7 +388,7 @@ class BM25SparseEncoder:
             if self.bm25_model and self.vocabulary:
                 tokens = word_tokenize(text)
                 scores = self.bm25_model.get_scores(tokens)
-                
+
                 # Filter non-zero scores
                 indices = []
                 values = []
@@ -396,21 +396,21 @@ class BM25SparseEncoder:
                     if score > 0:
                         indices.append(i)
                         values.append(float(score))
-                        
+
                 return {"indices": indices, "values": values}
             else:
                 # Simple term frequency fallback
                 tokens = word_tokenize(text)
                 term_freq = Counter(tokens)
-                
+
                 indices = []
                 values = []
-                for i, (term, freq) in enumerate(term_freq.items()):
+                for i, (_term, freq) in enumerate(term_freq.items()):
                     indices.append(i)
                     values.append(float(freq))
-                    
+
                 return {"indices": indices, "values": values}
-                
+
     async def encode_single(self, text: str) -> dict:
         """Async wrapper for encode method."""
         return self.encode(text)
@@ -614,14 +614,14 @@ class BM25SparseEncoder:
 
         return tokens
 
-    def get_vocabulary(self) -> Optional[list[str]]:
+    def get_vocabulary(self) -> list[str] | None:
         """Get vocabulary terms."""
         if not self.initialized:
             return None
         if self.use_fastembed:
             return None  # FastEmbed doesn't expose vocabulary
         return self.vocabulary
-    
+
     def get_vocab_size(self) -> int:
         """Get vocabulary size."""
         return len(self.vocab)

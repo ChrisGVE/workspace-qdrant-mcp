@@ -465,7 +465,7 @@ async def _estimate_processing(
                 # Also check if any requested formats match parser extensions
                 elif any(f".{fmt.lower()}" in parser.supported_extensions for fmt in format_filter):
                     include_parser = True
-            
+
             if include_parser:
                 supported_extensions.update(parser.supported_extensions)
 

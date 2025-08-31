@@ -11,19 +11,19 @@ from typing import List, Optional
 
 import typer
 from rich.console import Console
-from rich.table import Table
-from rich.prompt import Prompt, Confirm
 from rich.panel import Panel
+from rich.prompt import Confirm, Prompt
+from rich.table import Table
 
-from ...core.config import Config
 from ...core.client import create_qdrant_client
 from ...core.collection_naming import create_naming_manager
+from ...core.config import Config
 from ...core.memory import (
-    MemoryManager,
-    MemoryCategory,
     AuthorityLevel,
+    MemoryCategory,
+    MemoryManager,
     create_memory_manager,
-    parse_conversational_memory_update
+    parse_conversational_memory_update,
 )
 
 console = Console()
@@ -44,9 +44,9 @@ def handle_async(coro):
 
 @memory_app.command("list")
 def list_rules(
-    category: Optional[str] = typer.Option(None, "--category", "-c", help="Filter by category"),
-    authority: Optional[str] = typer.Option(None, "--authority", "-a", help="Filter by authority level"),
-    scope: Optional[str] = typer.Option(None, "--scope", "-s", help="Filter by scope containing this value"),
+    category: str | None = typer.Option(None, "--category", "-c", help="Filter by category"),
+    authority: str | None = typer.Option(None, "--authority", "-a", help="Filter by authority level"),
+    scope: str | None = typer.Option(None, "--scope", "-s", help="Filter by scope containing this value"),
     json_output: bool = typer.Option(False, "--json", help="Output as JSON"),
 ):
     """📋 Show all memory rules."""
@@ -54,10 +54,10 @@ def list_rules(
 
 @memory_app.command("add")
 def add_rule(
-    rule: Optional[str] = typer.Argument(None, help="The memory rule to add"),
-    category: Optional[str] = typer.Option(None, "--category", "-c", help="Category of the rule"),
+    rule: str | None = typer.Argument(None, help="The memory rule to add"),
+    category: str | None = typer.Option(None, "--category", "-c", help="Category of the rule"),
     authority: str = typer.Option("default", "--authority", "-a", help="Authority level (default: default)"),
-    scope: Optional[str] = typer.Option(None, "--scope", "-s", help="Comma-separated list of scopes"),
+    scope: str | None = typer.Option(None, "--scope", "-s", help="Comma-separated list of scopes"),
     interactive: bool = typer.Option(False, "--interactive", "-i", help="Interactive mode"),
 ):
     """➕ Add new memory rule (preference or behavior)."""
@@ -115,9 +115,9 @@ def start_web_interface(
 
 # Async implementation functions (reuse from existing memory.py)
 async def _list_memory_rules(
-    category: Optional[str], 
-    authority: Optional[str], 
-    scope: Optional[str], 
+    category: str | None,
+    authority: str | None,
+    scope: str | None,
     output_json: bool
 ):
     """List memory rules with optional filtering."""
@@ -126,18 +126,18 @@ async def _list_memory_rules(
         client = create_qdrant_client(config.qdrant_client_config)
         naming_manager = create_naming_manager(config.workspace.global_collections)
         memory_manager = create_memory_manager(client, naming_manager)
-        
+
         # Convert string parameters to enums
         category_enum = MemoryCategory(category) if category else None
         authority_enum = AuthorityLevel(authority) if authority else None
-        
+
         # List rules
         rules = await memory_manager.list_memory_rules(
             category=category_enum,
             authority=authority_enum,
             scope=scope
         )
-        
+
         if output_json:
             # Output as JSON
             rules_data = []
@@ -154,14 +154,14 @@ async def _list_memory_rules(
                     "updated_at": rule.updated_at.isoformat() if rule.updated_at else None
                 }
                 rules_data.append(rule_dict)
-            
+
             print(json.dumps(rules_data, indent=2))
         else:
             # Display in table format
             if not rules:
                 console.print("[yellow]No memory rules found.[/yellow]")
                 return
-            
+
             table = Table(title=f"💭 Memory Rules ({len(rules)} found)")
             table.add_column("ID", style="cyan", width=12)
             table.add_column("Category", width=10)
@@ -169,11 +169,11 @@ async def _list_memory_rules(
             table.add_column("Authority", width=10)
             table.add_column("Rule", width=50)
             table.add_column("Scope", width=15)
-            
+
             for rule in rules:
                 authority_style = "red" if rule.authority == AuthorityLevel.ABSOLUTE else "yellow"
                 scope_text = ", ".join(rule.scope) if rule.scope else "-"
-                
+
                 table.add_row(
                     rule.id[-8:],  # Show last 8 chars of ID
                     rule.category.value,
@@ -182,22 +182,22 @@ async def _list_memory_rules(
                     rule.rule[:47] + "..." if len(rule.rule) > 50 else rule.rule,
                     scope_text
                 )
-            
+
             console.print(table)
-            
+
             # Show summary
             stats = await memory_manager.get_memory_stats()
             console.print(f"\n[dim]Total: {stats.total_rules} rules, ~{stats.estimated_tokens} tokens[/dim]")
-    
+
     except Exception as e:
         console.print(f"[red]Error listing memory rules: {e}[/red]")
         raise typer.Exit(1)
 
 async def _add_memory_rule(
-    rule: Optional[str],
-    category: Optional[str], 
-    authority: str, 
-    scope: Optional[str],
+    rule: str | None,
+    category: str | None,
+    authority: str,
+    scope: str | None,
     interactive: bool
 ):
     """Add a new memory rule."""
@@ -206,18 +206,18 @@ async def _add_memory_rule(
         client = create_qdrant_client(config.qdrant_client_config)
         naming_manager = create_naming_manager(config.workspace.global_collections)
         memory_manager = create_memory_manager(client, naming_manager)
-        
+
         # Ensure memory collection exists
         await memory_manager.initialize_memory_collection()
-        
+
         # Interactive mode or collect missing parameters
         if interactive or not rule:
             console.print("[bold blue]Add Memory Rule[/bold blue]")
             console.print("Enter details for the new memory rule.\n")
-            
+
             if not rule:
                 rule = Prompt.ask("Rule text")
-            
+
             if not category:
                 category_choices = [c.value for c in MemoryCategory]
                 category = Prompt.ask(
@@ -225,33 +225,33 @@ async def _add_memory_rule(
                     choices=category_choices,
                     default="preference"
                 )
-            
+
             # Generate name from rule if not provided
             name = Prompt.ask("Short name", default=_generate_name_from_rule(rule))
-            
+
             if authority not in [a.value for a in AuthorityLevel]:
                 authority_choices = [a.value for a in AuthorityLevel]
                 authority = Prompt.ask(
-                    "Authority level", 
+                    "Authority level",
                     choices=authority_choices,
                     default="default"
                 )
-            
+
             if not scope:
                 scope_input = Prompt.ask("Scope (comma-separated, optional)", default="")
                 scope = scope_input if scope_input else None
         else:
             name = _generate_name_from_rule(rule)
-        
+
         # Parse scope
         scope_list = []
         if scope:
             scope_list = [s.strip() for s in scope.split(",") if s.strip()]
-        
+
         # Convert to enums
         category_enum = MemoryCategory(category or "preference")
         authority_enum = AuthorityLevel(authority)
-        
+
         # Add the rule
         rule_id = await memory_manager.add_memory_rule(
             category=category_enum,
@@ -261,14 +261,14 @@ async def _add_memory_rule(
             scope=scope_list,
             source="cli_user"
         )
-        
+
         console.print(f"[green]✅[/green] Added memory rule with ID: [cyan]{rule_id}[/cyan]")
         console.print(f"  Name: {name}")
         console.print(f"  Category: {category_enum.value}")
         console.print(f"  Authority: {authority_enum.value}")
         if scope_list:
             console.print(f"  Scope: {', '.join(scope_list)}")
-    
+
     except Exception as e:
         console.print(f"[red]Error adding memory rule: {e}[/red]")
         raise typer.Exit(1)
@@ -280,27 +280,27 @@ async def _edit_memory_rule(rule_id: str):
         client = create_qdrant_client(config.qdrant_client_config)
         naming_manager = create_naming_manager(config.workspace.global_collections)
         memory_manager = create_memory_manager(client, naming_manager)
-        
+
         # Get existing rule
         rule = await memory_manager.get_memory_rule(rule_id)
         if not rule:
             console.print(f"[red]Memory rule {rule_id} not found.[/red]")
             raise typer.Exit(1)
-        
+
         console.print(f"[bold blue]Edit Memory Rule: {rule.name}[/bold blue]")
         console.print(f"Current rule: {rule.rule}\n")
-        
+
         # Collect updates
         updates = {}
-        
+
         new_rule = Prompt.ask("New rule text", default=rule.rule)
         if new_rule != rule.rule:
             updates["rule"] = new_rule
-        
+
         new_name = Prompt.ask("New name", default=rule.name)
         if new_name != rule.name:
             updates["name"] = new_name
-        
+
         authority_choices = [a.value for a in AuthorityLevel]
         new_authority = Prompt.ask(
             "Authority level",
@@ -309,34 +309,34 @@ async def _edit_memory_rule(rule_id: str):
         )
         if new_authority != rule.authority.value:
             updates["authority"] = AuthorityLevel(new_authority)
-        
+
         scope_str = ", ".join(rule.scope) if rule.scope else ""
         new_scope = Prompt.ask("Scope (comma-separated)", default=scope_str)
         new_scope_list = [s.strip() for s in new_scope.split(",") if s.strip()] if new_scope else []
         if new_scope_list != rule.scope:
             updates["scope"] = new_scope_list
-        
+
         if not updates:
             console.print("[yellow]No changes made.[/yellow]")
             return
-        
+
         # Confirm changes
         console.print("\n[bold]Proposed changes:[/bold]")
         for key, value in updates.items():
             console.print(f"  {key}: {getattr(rule, key)} → {value}")
-        
+
         if not Confirm.ask("\nApply changes?"):
             console.print("[yellow]Changes cancelled.[/yellow]")
             return
-        
+
         # Apply updates
         success = await memory_manager.update_memory_rule(rule_id, updates)
-        
+
         if success:
             console.print(f"[green]✅[/green] Updated memory rule {rule_id}")
         else:
             console.print(f"[red]Failed to update memory rule {rule_id}[/red]")
-    
+
     except Exception as e:
         console.print(f"[red]Error editing memory rule: {e}[/red]")
         raise typer.Exit(1)
@@ -348,33 +348,33 @@ async def _remove_memory_rule(rule_id: str, force: bool):
         client = create_qdrant_client(config.qdrant_client_config)
         naming_manager = create_naming_manager(config.workspace.global_collections)
         memory_manager = create_memory_manager(client, naming_manager)
-        
+
         # Get rule details for confirmation
         rule = await memory_manager.get_memory_rule(rule_id)
         if not rule:
             console.print(f"[red]Memory rule {rule_id} not found.[/red]")
             raise typer.Exit(1)
-        
+
         # Confirm deletion
         if not force:
-            console.print(f"[bold red]Remove Memory Rule[/bold red]")
+            console.print("[bold red]Remove Memory Rule[/bold red]")
             console.print(f"ID: {rule.id}")
             console.print(f"Name: {rule.name}")
             console.print(f"Rule: {rule.rule}")
             console.print(f"Authority: {rule.authority.value}")
-            
+
             if not Confirm.ask("\n[red]Are you sure you want to delete this rule?[/red]"):
                 console.print("[yellow]Deletion cancelled.[/yellow]")
                 return
-        
+
         # Delete the rule
         success = await memory_manager.delete_memory_rule(rule_id)
-        
+
         if success:
             console.print(f"[green]✅[/green] Deleted memory rule {rule_id}")
         else:
             console.print(f"[red]Failed to delete memory rule {rule_id}[/red]")
-    
+
     except Exception as e:
         console.print(f"[red]Error removing memory rule: {e}[/red]")
         raise typer.Exit(1)
@@ -386,9 +386,9 @@ async def _show_token_usage():
         client = create_qdrant_client(config.qdrant_client_config)
         naming_manager = create_naming_manager(config.workspace.global_collections)
         memory_manager = create_memory_manager(client, naming_manager)
-        
+
         stats = await memory_manager.get_memory_stats()
-        
+
         # Create usage panel
         usage_text = f"""Total Rules: {stats.total_rules}
 Estimated Tokens: {stats.estimated_tokens}
@@ -397,11 +397,11 @@ By Category:
 """
         for category, count in stats.rules_by_category.items():
             usage_text += f"  {category.value}: {count}\n"
-        
+
         usage_text += "\nBy Authority:\n"
         for authority, count in stats.rules_by_authority.items():
             usage_text += f"  {authority.value}: {count}\n"
-        
+
         # Token usage assessment
         if stats.estimated_tokens < 1000:
             token_status = "[green]Low usage[/green]"
@@ -409,15 +409,15 @@ By Category:
             token_status = "[yellow]Moderate usage[/yellow]"
         else:
             token_status = "[red]High usage - consider optimization[/red]"
-        
+
         usage_text += f"\nToken Status: {token_status}"
-        
+
         if stats.last_optimization:
             usage_text += f"\nLast Optimized: {stats.last_optimization.strftime('%Y-%m-%d %H:%M:%S')}"
-        
+
         panel = Panel(usage_text.strip(), title="📊 Memory Token Usage", title_align="left")
         console.print(panel)
-    
+
     except Exception as e:
         console.print(f"[red]Error getting token usage: {e}[/red]")
         raise typer.Exit(1)
@@ -429,38 +429,38 @@ async def _trim_memory(max_tokens: int, dry_run: bool):
         client = create_qdrant_client(config.qdrant_client_config)
         naming_manager = create_naming_manager(config.workspace.global_collections)
         memory_manager = create_memory_manager(client, naming_manager)
-        
+
         stats = await memory_manager.get_memory_stats()
-        
-        console.print(f"[bold blue]✂️ Memory Optimization[/bold blue]")
+
+        console.print("[bold blue]✂️ Memory Optimization[/bold blue]")
         console.print(f"Current usage: {stats.estimated_tokens} tokens")
         console.print(f"Target: {max_tokens} tokens")
-        
+
         if stats.estimated_tokens <= max_tokens:
             console.print("[green]✅ Memory already within token limit.[/green]")
             return
-        
+
         excess_tokens = stats.estimated_tokens - max_tokens
         console.print(f"Need to reduce by: [red]{excess_tokens}[/red] tokens\n")
-        
+
         if dry_run:
             console.print("[yellow]DRY RUN - No changes will be made[/yellow]\n")
-        
+
         # Get optimization suggestions
         tokens_saved, actions = await memory_manager.optimize_memory(max_tokens)
-        
+
         console.print("[bold]Optimization Suggestions:[/bold]")
         for i, action in enumerate(actions, 1):
             console.print(f"  {i}. {action}")
-        
+
         console.print(f"\nEstimated tokens saved: [green]{tokens_saved}[/green]")
-        
+
         if not dry_run:
             if Confirm.ask("\nApply optimizations?"):
                 console.print("[green]✅[/green] Memory optimization applied")
             else:
                 console.print("[yellow]Optimization cancelled.[/yellow]")
-    
+
     except Exception as e:
         console.print(f"[red]Error optimizing memory: {e}[/red]")
         raise typer.Exit(1)
@@ -472,30 +472,30 @@ async def _detect_conflicts(auto_resolve: bool):
         client = create_qdrant_client(config.qdrant_client_config)
         naming_manager = create_naming_manager(config.workspace.global_collections)
         memory_manager = create_memory_manager(client, naming_manager)
-        
+
         console.print("[bold blue]⚠️ Conflict Detection[/bold blue]")
         console.print("Analyzing memory rules for conflicts...\n")
-        
+
         conflicts = await memory_manager.detect_conflicts()
-        
+
         if not conflicts:
             console.print("[green]✅ No conflicts detected.[/green]")
             return
-        
+
         console.print(f"[red]Found {len(conflicts)} conflict(s):[/red]\n")
-        
+
         for i, conflict in enumerate(conflicts, 1):
             console.print(f"[bold]Conflict {i}: {conflict.conflict_type}[/bold]")
             console.print(f"Confidence: {conflict.confidence:.1%}")
             console.print(f"Description: {conflict.description}")
             console.print(f"Rule 1: {conflict.rule1.name} - {conflict.rule1.rule}")
             console.print(f"Rule 2: {conflict.rule2.name} - {conflict.rule2.rule}")
-            
+
             console.print("Resolution options:")
             for j, option in enumerate(conflict.resolution_options, 1):
                 console.print(f"  {j}. {option}")
             console.print()
-            
+
             if auto_resolve:
                 console.print(f"[yellow]Auto-resolving conflict {i}...[/yellow]")
                 # Placeholder for auto-resolution logic
@@ -511,7 +511,7 @@ async def _detect_conflicts(auto_resolve: bool):
                     console.print(f"[green]✅ Applied resolution option {choice}[/green]\n")
                 else:
                     console.print("[yellow]Conflict skipped[/yellow]\n")
-    
+
     except Exception as e:
         console.print(f"[red]Error detecting conflicts: {e}[/red]")
         raise typer.Exit(1)
@@ -520,23 +520,23 @@ async def _parse_conversational_update(message: str):
     """Parse a conversational memory update."""
     try:
         result = parse_conversational_memory_update(message)
-        
+
         if result:
             console.print("[green]✅ Parsed conversational memory update:[/green]")
             console.print(f"  Category: {result['category'].value}")
             console.print(f"  Rule: {result['rule']}")
             console.print(f"  Authority: {result['authority'].value}")
             console.print(f"  Source: {result['source']}")
-            
+
             if Confirm.ask("\nAdd this as a memory rule?"):
                 config = Config()
                 client = create_qdrant_client(config.qdrant_client_config)
                 naming_manager = create_naming_manager(config.workspace.global_collections)
                 memory_manager = create_memory_manager(client, naming_manager)
-                
+
                 # Ensure memory collection exists
                 await memory_manager.initialize_memory_collection()
-                
+
                 # Add the rule
                 rule_id = await memory_manager.add_memory_rule(
                     category=result["category"],
@@ -545,7 +545,7 @@ async def _parse_conversational_update(message: str):
                     authority=result["authority"],
                     source=result["source"]
                 )
-                
+
                 console.print(f"[green]✅ Added memory rule with ID: {rule_id}[/green]")
             else:
                 console.print("[yellow]Memory rule not added.[/yellow]")
@@ -556,7 +556,7 @@ async def _parse_conversational_update(message: str):
             console.print("  - 'For future reference, <instruction>'")
             console.print("  - 'Remember that I <preference>'")
             console.print("  - 'Always <behavior>' or 'Never <behavior>'")
-    
+
     except Exception as e:
         console.print(f"[red]Error parsing conversational update: {e}[/red]")
         raise typer.Exit(1)
@@ -565,16 +565,16 @@ async def _start_web_interface(port: int, host: str):
     """Start the web interface for memory curation."""
     try:
         from ..web.server import start_web_server
-        
+
         config = Config()
-        
-        console.print(f"[bold blue]🌐 Starting Memory Curation Web Interface[/bold blue]")
+
+        console.print("[bold blue]🌐 Starting Memory Curation Web Interface[/bold blue]")
         console.print(f"Server: http://{host}:{port}")
-        console.print(f"[dim]Press Ctrl+C to stop the server[/dim]\n")
-        
+        console.print("[dim]Press Ctrl+C to stop the server[/dim]\n")
+
         # Start the web server
         await start_web_server(config, port, host)
-        
+
     except ImportError:
         console.print("[red]Web interface dependencies not installed.[/red]")
         console.print("Please install with: pip install fastapi uvicorn jinja2")

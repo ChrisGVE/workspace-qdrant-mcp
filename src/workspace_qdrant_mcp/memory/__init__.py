@@ -10,16 +10,16 @@ This module implements the memory-driven LLM behavior system including:
 - Token counting and optimization
 """
 
-from .types import MemoryRule, AuthorityLevel, MemoryCategory, MemoryRuleConflict
+from .claude_integration import ClaudeCodeIntegration
+from .conflict_detector import ConflictDetector
 from .manager import MemoryManager
 from .schema import MemoryCollectionSchema
-from .conflict_detector import ConflictDetector
 from .token_counter import TokenCounter, TokenUsage
-from .claude_integration import ClaudeCodeIntegration
+from .types import AuthorityLevel, MemoryCategory, MemoryRule, MemoryRuleConflict
 
 __all__ = [
     "MemoryRule",
-    "AuthorityLevel", 
+    "AuthorityLevel",
     "MemoryCategory",
     "MemoryRuleConflict",
     "MemoryManager",

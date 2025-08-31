@@ -5,13 +5,14 @@ This module tests the comprehensive collection naming architecture including
 validation, conflict prevention, display name mapping, and MCP permission enforcement.
 """
 
-import pytest
 from unittest.mock import Mock
+
+import pytest
 
 from workspace_qdrant_mcp.core.collection_naming import (
     CollectionNamingManager,
-    CollectionType,
     CollectionPermissionError,
+    CollectionType,
     NamingValidationResult,
 )
 
@@ -32,7 +33,7 @@ class TestCollectionNamingManager:
         assert result.is_valid
         assert result.collection_info.collection_type == CollectionType.MEMORY
         assert not result.collection_info.is_readonly_from_mcp
-        
+
         # Other names starting with memory are allowed (they become legacy collections)
         result = self.naming_manager.validate_collection_name("memory2")
         assert result.is_valid  # This should be allowed as a legacy collection
@@ -47,14 +48,14 @@ class TestCollectionNamingManager:
             "_data_processing",
             "_core"
         ]
-        
+
         for name in test_cases:
             result = self.naming_manager.validate_collection_name(name)
             assert result.is_valid, f"Failed for {name}: {result.error_message}"
             assert result.collection_info.collection_type == CollectionType.LIBRARY
             assert result.collection_info.is_readonly_from_mcp
             assert result.collection_info.display_name == name[1:]  # Without underscore
-            
+
         # Invalid library collections
         invalid_cases = [
             "_",           # Empty after underscore
@@ -64,7 +65,7 @@ class TestCollectionNamingManager:
             "_Test",       # Contains uppercase
             "_test.lib",   # Contains period
         ]
-        
+
         for name in invalid_cases:
             result = self.naming_manager.validate_collection_name(name)
             assert not result.is_valid, f"Should be invalid: {name}"
@@ -78,13 +79,13 @@ class TestCollectionNamingManager:
             "frontend-docs",
             "api-gateway-scratchbook"
         ]
-        
+
         for name in valid_cases:
             result = self.naming_manager.validate_collection_name(name)
             assert result.is_valid, f"Failed for {name}: {result.error_message}"
             assert result.collection_info.collection_type == CollectionType.PROJECT
             assert not result.collection_info.is_readonly_from_mcp
-            
+
         # Invalid project collections
         invalid_cases = [
             "my-project-code",       # Invalid suffix
@@ -92,7 +93,7 @@ class TestCollectionNamingManager:
             "project-",             # Missing suffix
             "-docs",                # Missing project name
         ]
-        
+
         for name in invalid_cases:
             result = self.naming_manager.validate_collection_name(name)
             assert not result.is_valid, f"Should be invalid: {name}"
@@ -101,13 +102,13 @@ class TestCollectionNamingManager:
         """Test reserved name validation."""
         reserved_names = [
             "memory",
-            "_memory", 
+            "_memory",
             "system",
             "_system",
             "admin",
             "_admin"
         ]
-        
+
         for name in reserved_names[1:]:  # Skip 'memory' since it's valid
             result = self.naming_manager.validate_collection_name(name)
             if name != "memory":
@@ -116,21 +117,21 @@ class TestCollectionNamingManager:
     def test_naming_conflicts(self):
         """Test naming conflict detection."""
         existing_collections = ["docs", "_mylib", "project-docs"]
-        
+
         # Test library/display conflicts
         result = self.naming_manager.check_naming_conflicts("mylib", existing_collections)
         assert not result.is_valid
         assert "library collection '_mylib' already exists" in result.error_message
-        
+
         result = self.naming_manager.check_naming_conflicts("_docs", existing_collections)
         assert not result.is_valid
         assert "collection 'docs' already exists" in result.error_message
-        
+
         # Test direct conflicts
         result = self.naming_manager.check_naming_conflicts("docs", existing_collections)
         assert not result.is_valid
         assert "already exists" in result.error_message
-        
+
         # Test valid new collection
         result = self.naming_manager.check_naming_conflicts("newlib", existing_collections)
         assert result.is_valid
@@ -139,11 +140,11 @@ class TestCollectionNamingManager:
         """Test display name mapping for user interfaces."""
         test_cases = [
             ("_mylib", "mylib"),           # Library collection
-            ("memory", "memory"),           # Memory collection  
+            ("memory", "memory"),           # Memory collection
             ("project-docs", "project-docs"),  # Project collection
             ("docs", "docs"),              # Legacy global collection
         ]
-        
+
         for actual_name, expected_display in test_cases:
             display_name = self.naming_manager.get_display_name(actual_name)
             assert display_name == expected_display
@@ -155,7 +156,7 @@ class TestCollectionNamingManager:
             ("memory", CollectionType.MEMORY, "memory"),
             ("project-docs", CollectionType.PROJECT, "project-docs"),
         ]
-        
+
         for display_name, collection_type, expected_actual in test_cases:
             actual_name = self.naming_manager.get_actual_name(display_name, collection_type)
             assert actual_name == expected_actual
@@ -168,7 +169,7 @@ class TestCollectionNamingManager:
             ("project-docs", False),    # Project collection - read/write
             ("docs", False),           # Legacy global - read/write
         ]
-        
+
         for collection_name, expected_readonly in test_cases:
             is_readonly = self.naming_manager.is_mcp_readonly(collection_name)
             assert is_readonly == expected_readonly
@@ -184,7 +185,7 @@ class TestCollectionNamingManager:
             "memexd-project-code", # Exclude - daemon collection
             "unknown-collection",  # Exclude - doesn't match patterns
         ]
-        
+
         workspace_collections = self.naming_manager.filter_workspace_collections(all_collections)
         expected = ["docs", "memory", "_mylib", "project-docs", "project-scratchbook"]
         assert sorted(workspace_collections) == sorted(expected)
@@ -204,7 +205,7 @@ class TestCollectionNamingManager:
             ("project-docs", CollectionType.PROJECT),
             ("random-name", CollectionType.LEGACY),
         ]
-        
+
         for name, expected_type in test_cases:
             info = self.naming_manager.get_collection_info(name)
             assert info.collection_type == expected_type
@@ -216,13 +217,13 @@ class TestCollectionNamingManager:
         result = self.naming_manager.validate_collection_name("")
         assert not result.is_valid
         assert "cannot be empty" in result.error_message
-        
+
         # Too long name
         long_name = "x" * 101
         result = self.naming_manager.validate_collection_name(long_name)
         assert not result.is_valid
         assert "cannot exceed 100 characters" in result.error_message
-        
+
         # Whitespace handling
         result = self.naming_manager.validate_collection_name("  ")
         assert not result.is_valid

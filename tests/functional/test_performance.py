@@ -120,7 +120,7 @@ class TestPerformance:
 
         # Create nested client mock for qdrant operations
         nested_client_mock = AsyncMock()
-        
+
         # Assign mock methods
         mock_client.initialized = True
         mock_client.client = nested_client_mock  # Add nested client for qdrant operations
@@ -254,8 +254,8 @@ class TestPerformance:
         # Get single concurrent performance (throughput for concurrency=1)
         single_concurrent = concurrent_benchmarks[1]
         single_throughput = 1 / (single_concurrent.mean_time_ms / 1000)  # 1 request / time_per_request
-        
-        # Calculate best concurrent throughput 
+
+        # Calculate best concurrent throughput
         max_throughput = 0
         best_concurrency = 1
         for concurrency in concurrency_levels:

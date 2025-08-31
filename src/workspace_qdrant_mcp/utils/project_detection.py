@@ -217,7 +217,7 @@ class ProjectDetector:
 
             # Check if this submodule belongs to the configured user
             user_owned = self._belongs_to_user(submodule_url)
-            
+
             # If github_user is configured, only include user-owned subprojects
             # If no github_user is configured, include all subprojects (no filtering)
             if self.github_user and not user_owned:

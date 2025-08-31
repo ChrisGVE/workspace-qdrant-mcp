@@ -61,8 +61,8 @@ from typing import Any, Optional
 from qdrant_client.http import models
 
 from ..core.client import QdrantWorkspaceClient
-from ..core.sparse_vectors import create_qdrant_sparse_vector
 from ..core.collection_naming import CollectionPermissionError
+from ..core.sparse_vectors import create_qdrant_sparse_vector
 
 logger = logging.getLogger(__name__)
 
@@ -158,13 +158,13 @@ async def add_document(
         available_collections = await client.list_collections()
         if collection not in available_collections:
             return {"error": f"Collection '{collection}' not found"}
-            
+
         # Check if MCP server can write to this collection
         try:
             client.collection_manager.validate_mcp_write_access(collection)
         except CollectionPermissionError as e:
             return {"error": str(e)}
-            
+
         # Resolve display name to actual collection name
         actual_collection, _ = client.collection_manager.resolve_collection_name(collection)
 
@@ -254,7 +254,7 @@ async def _add_single_document(
     try:
         # Resolve display name to actual collection name
         actual_collection, _ = client.collection_manager.resolve_collection_name(collection)
-        
+
         # Generate embeddings
         embedding_service = client.get_embedding_service()
         embeddings = await embedding_service.generate_embeddings(content)
@@ -466,7 +466,7 @@ async def get_document(
         available_collections = await client.list_collections()
         if collection not in available_collections:
             return {"error": f"Collection '{collection}' not found"}
-            
+
         # Resolve display name to actual collection name
         actual_collection, _ = client.collection_manager.resolve_collection_name(collection)
 
@@ -526,13 +526,13 @@ async def find_document_versions(
 ) -> list[dict]:
     """
     Find all versions of a document based on document_id pattern.
-    
+
     According to PRD v2.0, documents with same base document_id but different
     versions should be detected and managed with precedence rules.
     """
     if not client.initialized:
         return []
-    
+
     try:
         # Search for documents with matching document_id pattern
         points, _ = await client.client.scroll(
@@ -548,7 +548,7 @@ async def find_document_versions(
             with_payload=True,
             limit=100  # Should be enough for version chains
         )
-        
+
         versions = []
         for point in points:
             version_info = {
@@ -561,9 +561,9 @@ async def find_document_versions(
                 "payload": point.payload
             }
             versions.append(version_info)
-            
+
         return versions
-        
+
     except Exception as e:
         logger.error("Failed to find document versions: %s", e)
         return []
@@ -581,7 +581,7 @@ async def ingest_new_version(
 ) -> dict:
     """
     Ingest a new version of a document with version-aware management.
-    
+
     Implements the PRD v2.0 version management system:
     1. Detect existing versions
     2. De-prioritize old versions (is_latest=False, search_priority=0.1)
@@ -590,18 +590,18 @@ async def ingest_new_version(
     """
     if not client.initialized:
         return {"error": "Workspace client not initialized"}
-        
+
     if not content or not content.strip():
         return {"error": "Content cannot be empty"}
-    
+
     try:
         # Generate document_id if not provided
         if document_id is None:
             document_id = str(uuid.uuid4())
-            
+
         # Find existing versions of this document
         existing_versions = await find_document_versions(client, document_id, collection)
-        
+
         # Prepare version metadata according to PRD schema
         version_metadata = {
             "document_id": document_id,
@@ -618,11 +618,11 @@ async def ingest_new_version(
                 "file_hash": f"sha256:{hash(content)}"  # Simple hash for now
             }
         }
-        
+
         # Merge with user metadata
         if metadata:
             version_metadata.update(metadata)
-            
+
         # Step 1: De-prioritize all existing versions
         for existing_version in existing_versions:
             try:
@@ -638,7 +638,7 @@ async def ingest_new_version(
                 logger.debug("De-prioritized version %s", existing_version["point_id"])
             except Exception as e:
                 logger.warning("Failed to de-prioritize version %s: %s", existing_version["point_id"], e)
-        
+
         # Step 2: Add the new version as latest
         result = await add_document(
             client=client,
@@ -648,13 +648,13 @@ async def ingest_new_version(
             document_id=document_id,
             chunk_text=chunk_text
         )
-        
+
         if "error" not in result:
             result["versions_superseded"] = len(existing_versions)
             result["is_new_version"] = len(existing_versions) > 0
-            
+
         return result
-        
+
     except Exception as e:
         logger.error("Failed to ingest new version: %s", e)
         return {"error": f"Failed to ingest new version: {e}"}
@@ -668,7 +668,7 @@ def get_document_type_config(document_type: str) -> dict:
     configs = {
         "book": {
             "primary_version": "edition",
-            "secondary_version": "date", 
+            "secondary_version": "date",
             "required_metadata": ["title", "author", "edition"],
             "optional_metadata": ["isbn", "publisher", "draft_status"],
             "retention_policy": "latest_only"
@@ -676,7 +676,7 @@ def get_document_type_config(document_type: str) -> dict:
         "scientific_article": {
             "primary_version": "publication_date",
             "required_metadata": ["title", "authors", "journal", "publication_date"],
-            "optional_metadata": ["doi", "volume", "issue"], 
+            "optional_metadata": ["doi", "volume", "issue"],
             "retention_policy": "latest_only"
         },
         "code_file": {
@@ -696,5 +696,5 @@ def get_document_type_config(document_type: str) -> dict:
             "retention_policy": "latest_only"
         }
     }
-    
+
     return configs.get(document_type, configs["generic"])

@@ -808,12 +808,286 @@
             "testStrategy": "Test export/import round-trip accuracy, validate import error handling, test with various file formats and sizes"
           }
         ]
+      },
+      {
+        "id": 16,
+        "title": "Fix Quality Assurance Workflow Issues",
+        "description": "Resolve failing Quality Assurance CI workflow by fixing ruff linting, format checking, security analysis, and test coverage issues",
+        "details": "The Quality Assurance workflow (quality.yml) is failing due to multiple issues:\n1. Fix ruff format and linting issues in src/ and tests/ directories\n2. Ensure bandit security scanning passes without critical issues\n3. Verify safety dependency checks pass\n4. Fix test coverage to meet minimum 5% threshold requirement\n5. Address any code complexity or dead code issues found by radon and vulture\n6. Ensure pydocstyle documentation standards are met\n7. The workflow expects comprehensive analysis including cyclomatic complexity, maintainability index, and Halstead complexity metrics\nImplementation approach:\n- Run ruff check/format locally first to identify issues\n- Address security vulnerabilities found by bandit/safety\n- Add missing test coverage where needed\n- Update docstrings to meet pydocstyle requirements\n- Ensure all quality tools run successfully in CI environment",
+        "testStrategy": "Run the quality.yml workflow locally using act or similar tool to validate fixes. Execute each quality check command individually: ruff check/format, bandit security scan, safety check, pytest with coverage, pydocstyle validation. Verify all artifacts are generated correctly and no critical issues remain.",
+        "priority": "high",
+        "dependencies": [],
+        "status": "in-progress",
+        "subtasks": []
+      },
+      {
+        "id": 17,
+        "title": "Fix Documentation Workflow Build Issues",
+        "description": "Resolve failing Documentation CI workflow by ensuring proper documentation generation and deployment pipeline",
+        "details": "The Documentation workflow is failing, likely due to missing documentation tooling or configuration issues. Based on quality.yml analysis, the workflow should:\n1. Install proper documentation generation tools (Sphinx/MkDocs)\n2. Fix any missing documentation dependencies in pyproject.toml\n3. Ensure API documentation generates correctly from docstrings\n4. Create or fix documentation configuration files (conf.py, mkdocs.yml, etc.)\n5. Verify documentation builds without errors\n6. Test documentation deployment pipeline\n7. Add any missing README or documentation files that may be referenced\nImplementation approach:\n- Identify the specific documentation tool being used\n- Add missing documentation dependencies to dev requirements\n- Create/fix documentation configuration files\n- Ensure all modules have proper docstrings for API doc generation\n- Test documentation build process locally before CI",
+        "testStrategy": "Manually test documentation build process locally. Run documentation generation commands to identify specific errors. Verify all documentation dependencies are properly installed. Test that generated documentation includes all expected modules and functions. Validate documentation deployment process works correctly.",
+        "priority": "high",
+        "dependencies": [],
+        "status": "in-progress",
+        "subtasks": [
+          {
+            "id": 1,
+            "title": "Analyze current documentation workflow failures",
+            "description": "Examine the documentation-check job in quality.yml workflow to identify specific failure points and missing dependencies",
+            "dependencies": [],
+            "details": "Review the documentation-check job in .github/workflows/quality.yml (lines 275-325) to understand what documentation tools are expected and why they might be failing. Check CI logs to identify specific error messages and missing components.",
+            "status": "pending",
+            "testStrategy": "Run the documentation-check workflow locally using act or similar tool to reproduce the exact failure conditions"
+          },
+          {
+            "id": 2,
+            "title": "Add missing documentation dependencies to pyproject.toml",
+            "description": "Install required documentation generation tools (Sphinx, MkDocs, or pydocstyle) in the dev dependencies",
+            "dependencies": [
+              "17.1"
+            ],
+            "details": "Based on the quality.yml workflow, add pydocstyle and docstring-parser to the dev dependencies in pyproject.toml. The workflow already tries to install these packages, so ensure they are properly declared in the project dependencies.",
+            "status": "pending",
+            "testStrategy": "Verify that all documentation dependencies install correctly with 'uv pip install -e \".[dev]\"' and that pydocstyle runs without import errors"
+          },
+          {
+            "id": 3,
+            "title": "Fix pydocstyle docstring quality issues",
+            "description": "Resolve pydocstyle violations in src/workspace_qdrant_mcp/ to meet documentation standards",
+            "dependencies": [
+              "17.2"
+            ],
+            "details": "Run pydocstyle on the source code and fix any docstring format violations. The quality.yml workflow expects clean docstring standards for all modules in src/workspace_qdrant_mcp/.",
+            "status": "pending",
+            "testStrategy": "Execute 'pydocstyle src/workspace_qdrant_mcp/' and verify it passes without errors. Check that all public functions and classes have proper docstrings."
+          },
+          {
+            "id": 4,
+            "title": "Enhance API documentation generation",
+            "description": "Improve the Python script in quality.yml that generates API documentation from package modules",
+            "dependencies": [
+              "17.3"
+            ],
+            "details": "The current API documentation generation script (lines 308-319 in quality.yml) only lists available modules. Enhance it to extract and document actual API functions, classes, and their docstrings for comprehensive API documentation.",
+            "status": "pending",
+            "testStrategy": "Run the enhanced API documentation script and verify it generates complete documentation for all public APIs in the workspace_qdrant_mcp package"
+          },
+          {
+            "id": 5,
+            "title": "Create proper documentation configuration files",
+            "description": "Add conf.py for Sphinx or mkdocs.yml for MkDocs to enable proper documentation building",
+            "dependencies": [
+              "17.1",
+              "17.2"
+            ],
+            "details": "Based on the chosen documentation tool, create the appropriate configuration file. If using Sphinx, create docs/conf.py with proper settings for the project. If using MkDocs, create mkdocs.yml with navigation and theme configuration.",
+            "status": "pending",
+            "testStrategy": "Verify documentation builds successfully with the chosen tool (sphinx-build or mkdocs build) and generates complete HTML documentation"
+          },
+          {
+            "id": 6,
+            "title": "Establish documentation source structure",
+            "description": "Create docs/ directory with proper structure for documentation source files",
+            "dependencies": [
+              "17.5"
+            ],
+            "details": "Create a docs/ directory with index files, API reference pages, and user guides. Structure should include index.rst/md, api.rst/md, and any additional documentation referenced by the project.",
+            "status": "pending",
+            "testStrategy": "Verify that all documentation source files are properly structured and can be processed by the documentation build system"
+          },
+          {
+            "id": 7,
+            "title": "Fix module docstring coverage issues",
+            "description": "Ensure all modules in src/workspace_qdrant_mcp/ have proper module-level docstrings",
+            "dependencies": [
+              "17.3"
+            ],
+            "details": "Review all Python modules and add missing module-level docstrings. The pydocstyle checker expects comprehensive docstring coverage for maintainable code documentation.",
+            "status": "pending",
+            "testStrategy": "Run pydocstyle with verbose output to verify all modules have proper docstrings and meet the project's documentation standards"
+          },
+          {
+            "id": 8,
+            "title": "Implement documentation build verification",
+            "description": "Add proper error handling and build verification to the documentation workflow",
+            "dependencies": [
+              "17.4",
+              "17.5",
+              "17.6"
+            ],
+            "details": "Modify the quality.yml workflow to properly build documentation and fail if the build process encounters errors. Currently the workflow uses '|| true' which masks build failures.",
+            "status": "pending",
+            "testStrategy": "Run the modified workflow and verify it properly reports documentation build failures and succeeds only when documentation builds without errors"
+          },
+          {
+            "id": 9,
+            "title": "Test documentation deployment pipeline",
+            "description": "Verify documentation can be properly built and deployed in the CI environment",
+            "dependencies": [
+              "17.8"
+            ],
+            "details": "Test the complete documentation build process in a CI-like environment to ensure all dependencies are available and the build succeeds. This includes testing artifact upload for documentation reports.",
+            "status": "pending",
+            "testStrategy": "Run the complete quality.yml workflow locally and verify that documentation artifacts are properly generated and can be uploaded without errors"
+          },
+          {
+            "id": 10,
+            "title": "Update documentation workflow to fail on errors",
+            "description": "Remove '|| true' error suppression from documentation steps to ensure proper CI failure reporting",
+            "dependencies": [
+              "17.9"
+            ],
+            "details": "Modify the quality.yml workflow to properly propagate documentation build failures instead of suppressing them with '|| true'. This ensures the Documentation workflow properly reports failures when documentation cannot be built.",
+            "status": "pending",
+            "testStrategy": "Test that the modified workflow correctly fails when documentation has errors and passes when documentation builds successfully"
+          }
+        ]
+      },
+      {
+        "id": 18,
+        "title": "Fix Integration Tests Environment Setup",
+        "description": "Resolve failing Integration Tests CI workflow by fixing environment setup, service dependencies, and test execution issues",
+        "details": "The Integration Tests workflow is failing, likely due to:\n1. Qdrant service connection issues in CI environment\n2. Environment variable configuration problems (QDRANT_URL, etc.)\n3. Service readiness timing issues\n4. Integration test dependencies or setup problems\n5. Database/collection initialization failures\n6. Network connectivity or port binding issues in CI\nBased on ci.yml, integration tests run with Qdrant service and use tests/functional/ directory.\nImplementation approach:\n- Review integration test failures in GitHub Actions logs\n- Fix Qdrant service connectivity and health check timing\n- Ensure proper test environment setup in tests/conftest.py\n- Add retry logic for service dependency connections\n- Fix any hardcoded URLs or configuration that doesn't work in CI\n- Validate all integration test markers and fixtures work correctly",
+        "testStrategy": "Run integration tests locally with Docker Qdrant service to reproduce CI environment. Test service connection and health check logic. Verify all integration test fixtures work correctly. Run pytest tests/functional/ with proper environment variables set. Validate test isolation and cleanup between test runs.",
+        "priority": "high",
+        "dependencies": [],
+        "status": "in-progress",
+        "subtasks": []
+      },
+      {
+        "id": 19,
+        "title": "Fix Performance Tests Benchmark Execution",
+        "description": "Resolve failing Performance Tests CI workflow by fixing benchmark execution, timeout issues, and result validation",
+        "details": "The Performance Tests workflow (benchmark.yml) is failing due to benchmark execution issues:\n1. Fix authoritative_benchmark.py execution in CI environment\n2. Resolve timeout issues in comprehensive benchmarks (15-minute limit)\n3. Fix benchmark result parsing and validation logic\n4. Ensure performance thresholds are properly validated\n5. Fix memory profiling execution issues\n6. Address any missing benchmark dependencies or data files\n7. Ensure benchmark artifacts are properly generated and uploaded\nThe workflow runs three types of benchmarks: simple (skip-oss), comprehensive (with Qdrant), and large-scale (scheduled only).\nImplementation approach:\n- Test benchmark scripts locally to identify execution issues\n- Fix any missing dependencies for benchmark tools\n- Optimize benchmark execution time to fit within CI limits\n- Fix benchmark result parsing and validation code\n- Ensure proper error handling and graceful degradation for timeouts\n- Validate benchmark threshold comparison logic works correctly",
+        "testStrategy": "Run benchmark scripts locally to identify specific failure points. Test simple benchmark (skip-oss mode) first, then comprehensive with local Qdrant. Validate benchmark result parsing and threshold validation logic. Test timeout handling and graceful failure scenarios. Verify all benchmark artifacts are generated correctly and contain expected data.",
+        "priority": "high",
+        "dependencies": [],
+        "status": "in-progress",
+        "subtasks": [
+          {
+            "id": 1,
+            "title": "Fix authoritative_benchmark.py import and path resolution issues",
+            "description": "Resolve import errors in the authoritative benchmark script that prevent it from loading project modules in CI environment",
+            "dependencies": [],
+            "details": "The benchmark script fails with 'No module named src' errors due to incorrect path calculation. Fix the path traversal logic in dev/benchmarks/tools/authoritative_benchmark.py to properly resolve project root for module imports. Ensure sys.path.insert works correctly in CI environment.",
+            "status": "pending",
+            "testStrategy": "Run the benchmark script locally and in CI environment. Verify all imports resolve correctly and no ImportError exceptions occur during script initialization."
+          },
+          {
+            "id": 2,
+            "title": "Fix benchmark execution timeout handling and optimization",
+            "description": "Optimize benchmark execution time to fit within CI timeout limits (15 minutes for comprehensive, 30 minutes for large-scale)",
+            "dependencies": [
+              "19.1"
+            ],
+            "details": "The comprehensive benchmark has a 15-minute timeout but may be running too slowly. Optimize the benchmark execution by reducing test query counts, limiting OSS project downloads, or implementing smart sampling. Ensure graceful handling when timeouts occur.",
+            "status": "pending",
+            "testStrategy": "Run comprehensive benchmarks locally with timing measurements. Verify execution completes within 12-13 minutes to provide buffer. Test timeout scenarios to ensure graceful failure handling."
+          },
+          {
+            "id": 3,
+            "title": "Fix benchmark result parsing and validation logic",
+            "description": "Resolve issues with parsing benchmark output and validating results against performance thresholds",
+            "dependencies": [
+              "19.1"
+            ],
+            "details": "The benchmark.yml workflow has Python code that parses benchmark output to validate completion and extract metrics. Fix the regex patterns and text parsing logic to correctly identify benchmark completion markers and extract performance metrics for threshold validation.",
+            "status": "pending",
+            "testStrategy": "Run benchmarks and capture output. Test the parsing logic separately with actual benchmark outputs. Verify all expected patterns are found and metrics are correctly extracted."
+          },
+          {
+            "id": 4,
+            "title": "Fix performance threshold validation against evidence-based standards",
+            "description": "Ensure benchmark results are properly validated against the defined performance thresholds in workflow environment variables",
+            "dependencies": [
+              "19.3"
+            ],
+            "details": "The workflow defines performance thresholds (90% precision/recall for symbol/exact search, 84%/70% for semantic search) but the validation logic may not be correctly comparing actual results against these thresholds. Fix the threshold comparison logic in the workflow validation steps.",
+            "status": "pending",
+            "testStrategy": "Run benchmarks with known results and verify threshold validation correctly passes/fails based on actual vs expected performance. Test edge cases near threshold boundaries."
+          },
+          {
+            "id": 5,
+            "title": "Fix memory profiling execution issues",
+            "description": "Resolve memory profiling failures in the large-scale benchmark job",
+            "dependencies": [
+              "19.1",
+              "19.2"
+            ],
+            "details": "The large-scale benchmark uses 'python -m memory_profiler' but this may fail due to missing dependencies or incorrect usage. Add memory-profiler to dev dependencies in pyproject.toml and fix the memory profiling command execution in benchmark.yml.",
+            "status": "pending",
+            "testStrategy": "Install memory-profiler and test memory profiling commands locally. Verify memory profiling runs without errors and produces meaningful output. Test fallback behavior when memory profiling fails."
+          },
+          {
+            "id": 6,
+            "title": "Fix missing benchmark dependencies and data file issues",
+            "description": "Ensure all required dependencies for benchmark execution are available in CI environment",
+            "dependencies": [
+              "19.5"
+            ],
+            "details": "Benchmarks may fail due to missing dependencies like memory-profiler, psutil, or issues with test data file access. Review pyproject.toml dev dependencies and benchmark script requirements. Fix any missing packages or data file access issues.",
+            "status": "pending",
+            "testStrategy": "Create fresh virtual environment and install only project dependencies. Run benchmarks to identify missing packages. Verify all test data files are accessible and properly configured."
+          },
+          {
+            "id": 7,
+            "title": "Fix benchmark artifact generation and upload issues",
+            "description": "Ensure benchmark results are properly generated and uploaded as CI artifacts",
+            "dependencies": [
+              "19.3",
+              "19.4"
+            ],
+            "details": "The workflow should generate benchmark output files and upload them as artifacts, but this may be failing due to missing files or incorrect paths. Fix the artifact paths and ensure all expected output files are generated correctly.",
+            "status": "pending",
+            "testStrategy": "Run benchmarks and verify all expected output files are created. Test artifact upload paths and ensure files exist at expected locations. Verify artifact downloads work correctly."
+          },
+          {
+            "id": 8,
+            "title": "Fix Qdrant service connectivity and health check issues",
+            "description": "Resolve Qdrant service connection and health check failures in CI environment",
+            "dependencies": [],
+            "details": "Based on BENCHMARK_CI_FIXES.md, health check endpoint was fixed from /health to /healthz, but there may be additional connectivity issues. Ensure Qdrant service starts correctly, health checks pass, and benchmark can connect to the service.",
+            "status": "pending",
+            "testStrategy": "Test Qdrant service startup in Docker locally. Verify health check endpoint responds correctly. Test benchmark connection to Qdrant service and ensure all database operations work properly."
+          },
+          {
+            "id": 9,
+            "title": "Fix benchmark error handling and graceful degradation",
+            "description": "Implement proper error handling for benchmark failures and timeout scenarios",
+            "dependencies": [
+              "19.2",
+              "19.3"
+            ],
+            "details": "Benchmarks should handle errors gracefully and provide meaningful failure information. Add try-catch blocks around critical operations, implement timeout handling, and ensure partial results can be reported even when some benchmark components fail.",
+            "status": "pending",
+            "testStrategy": "Simulate various failure scenarios (Qdrant unavailable, timeouts, missing data). Verify error messages are helpful and benchmark provides partial results when possible. Test recovery from transient failures."
+          },
+          {
+            "id": 10,
+            "title": "Validate and test complete benchmark workflow end-to-end",
+            "description": "Perform comprehensive testing of the entire benchmark workflow to ensure all issues are resolved",
+            "dependencies": [
+              "19.1",
+              "19.2",
+              "19.3",
+              "19.4",
+              "19.5",
+              "19.6",
+              "19.7",
+              "19.8",
+              "19.9"
+            ],
+            "details": "Run the complete benchmark workflow locally and verify it works end-to-end. Test all three benchmark types (simple, comprehensive, large-scale) and ensure results are properly generated, validated, and artifacts uploaded. Confirm the workflow meets all CI requirements.",
+            "status": "pending",
+            "testStrategy": "Execute complete benchmark workflow locally. Run simple and comprehensive benchmarks to verify all components work together. Check generated reports, artifact outputs, and validation logic. Verify workflow completes within expected time limits."
+          }
+        ]
       }
     ],
     "metadata": {
       "created": "2025-08-30T10:40:15.806Z",
-      "updated": "2025-08-31T12:55:06.149Z",
-      "description": "Main development and performance optimization tasks"
+      "updated": "2025-08-31T13:18:50.358Z",
+      "description": "Tasks for development context"
     }
   }
 }
