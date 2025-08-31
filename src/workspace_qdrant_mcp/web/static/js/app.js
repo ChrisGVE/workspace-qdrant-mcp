@@ -121,7 +121,7 @@ class MemoryCurationApp {
         
         // Actions
         document.getElementById('add-rule-btn').addEventListener('click', () => this.showRuleModal());
-        document.getElementById('import-rules-btn').addEventListener('click', () => this.showImportDialog());
+        document.getElementById('import-rules-btn').addEventListener('click', () => this.showImportModal());
         document.getElementById('export-rules-btn').addEventListener('click', () => this.exportRules());
         
         // Optimization actions
@@ -131,6 +131,29 @@ class MemoryCurationApp {
         
         // Rule form
         document.getElementById('rule-form').addEventListener('submit', (e) => this.handleRuleSubmit(e));
+        
+        // Import functionality
+        document.getElementById('file-input').addEventListener('change', (e) => this.handleFileSelect(e));
+        document.getElementById('import-back-btn').addEventListener('click', () => this.showImportStep(1));
+        document.getElementById('import-apply-btn').addEventListener('click', () => this.applyImport());
+        
+        // Drag and drop for file upload
+        const uploadArea = document.getElementById('file-upload-area');
+        uploadArea.addEventListener('dragover', (e) => {
+            e.preventDefault();
+            uploadArea.classList.add('dragover');
+        });
+        uploadArea.addEventListener('dragleave', () => {
+            uploadArea.classList.remove('dragover');
+        });
+        uploadArea.addEventListener('drop', (e) => {
+            e.preventDefault();
+            uploadArea.classList.remove('dragover');
+            const files = e.dataTransfer.files;
+            if (files.length > 0) {
+                this.handleFileSelect({target: {files}});
+            }
+        });
     }
     
     initializeView() {
@@ -712,32 +735,172 @@ class MemoryCurationApp {
         }
     }
     
-    showImportDialog() {
-        // Create a file input dialog
-        const input = document.createElement('input');
-        input.type = 'file';
-        input.accept = '.json';
+    showImportModal() {
+        const modal = new bootstrap.Modal(document.getElementById('import-modal'));
+        this.showImportStep(1);
+        modal.show();
+    }
+    
+    showImportStep(step) {
+        if (step === 1) {
+            document.getElementById('import-step-1').style.display = 'block';
+            document.getElementById('import-step-2').style.display = 'none';
+            document.getElementById('import-back-btn').style.display = 'none';
+            document.getElementById('import-apply-btn').style.display = 'none';
+        } else if (step === 2) {
+            document.getElementById('import-step-1').style.display = 'none';
+            document.getElementById('import-step-2').style.display = 'block';
+            document.getElementById('import-back-btn').style.display = 'inline-block';
+            document.getElementById('import-apply-btn').style.display = 'inline-block';
+        }
+    }
+    
+    async handleFileSelect(e) {
+        const file = e.target.files[0];
+        if (!file) return;
         
-        input.onchange = async (e) => {
-            const file = e.target.files[0];
-            if (!file) return;
+        if (!file.name.endsWith('.json')) {
+            this.showError('Please select a JSON file');
+            return;
+        }
+        
+        try {
+            const fileContent = await file.arrayBuffer();
+            const formData = new FormData();
+            formData.append('file', new Uint8Array(fileContent));
+            formData.append('filename', file.name);
             
-            try {
-                const text = await file.text();
-                const rules = JSON.parse(text);
-                
-                // Validate the imported data
-                if (!Array.isArray(rules)) {
-                    throw new Error('Invalid file format: Expected an array of rules');
-                }
-                
-                this.showInfo(`Found ${rules.length} rules. Import functionality not yet implemented.`);
-            } catch (error) {
-                this.showError('Failed to parse import file: ' + error.message);
-            }
-        };
+            const response = await fetch('/api/import/preview', {
+                method: 'POST',
+                body: formData
+            });
+            
+            const data = await response.json();
+            this.displayImportPreview(data);
+            this.importPreviewData = data;
+            this.showImportStep(2);
+            
+        } catch (error) {
+            this.showError('Failed to process import file: ' + error.message);
+        }
+    }
+    
+    displayImportPreview(data) {
+        // Update stats
+        document.getElementById('import-total-rules').textContent = data.total_rules;
+        document.getElementById('import-valid-rules').textContent = data.valid_rules.length;
+        document.getElementById('import-conflicts').textContent = data.conflicts.length;
+        document.getElementById('import-invalid-rules').textContent = data.invalid_rules.length;
         
-        input.click();
+        // Enable/disable import button
+        const importBtn = document.getElementById('import-apply-btn');
+        importBtn.disabled = !data.can_import;
+        
+        // Display valid rules
+        const validList = document.getElementById('import-valid-list');
+        validList.innerHTML = '';
+        if (data.valid_rules.length === 0) {
+            validList.innerHTML = '<p class="text-muted">No valid rules</p>';
+        } else {
+            data.valid_rules.forEach(item => {
+                const rule = item.rule;
+                const div = document.createElement('div');
+                div.className = 'rule-preview-item';
+                div.innerHTML = `
+                    <div class="rule-preview-name">${this.escapeHtml(rule.name)}</div>
+                    <div class="text-muted small">${this.capitalizeFirst(rule.authority)} • ${this.capitalizeFirst(rule.category)}</div>
+                    <div class="text-truncate-2 mt-1">${this.escapeHtml(rule.rule)}</div>
+                `;
+                validList.appendChild(div);
+            });
+        }
+        
+        // Display conflicts
+        const conflictsList = document.getElementById('import-conflicts-list');
+        conflictsList.innerHTML = '';
+        if (data.conflicts.length === 0) {
+            conflictsList.innerHTML = '<p class="text-muted">No conflicts</p>';
+        } else {
+            data.conflicts.forEach(item => {
+                const rule = item.rule;
+                const div = document.createElement('div');
+                div.className = 'rule-preview-item border-warning';
+                div.innerHTML = `
+                    <div class="rule-preview-name">${this.escapeHtml(rule.name)}</div>
+                    <div class="text-warning small">Duplicate name</div>
+                    <div class="text-muted small">${this.capitalizeFirst(rule.authority)} • ${this.capitalizeFirst(rule.category)}</div>
+                    <div class="text-truncate-2 mt-1">${this.escapeHtml(rule.rule)}</div>
+                `;
+                conflictsList.appendChild(div);
+            });
+        }
+        
+        // Display invalid rules
+        const invalidList = document.getElementById('import-invalid-list');
+        invalidList.innerHTML = '';
+        if (data.invalid_rules.length === 0) {
+            invalidList.innerHTML = '<p class="text-muted">No invalid rules</p>';
+        } else {
+            data.invalid_rules.forEach(item => {
+                const rule = item.rule;
+                const div = document.createElement('div');
+                div.className = 'rule-preview-item border-danger';
+                div.innerHTML = `
+                    <div class="rule-preview-name">${this.escapeHtml(rule.name || 'Unnamed')}</div>
+                    <div class="text-danger small">${this.escapeHtml(item.error)}</div>
+                    <div class="text-muted small">Index: ${item.index}</div>
+                `;
+                invalidList.appendChild(div);
+            });
+        }
+    }
+    
+    async applyImport() {
+        if (!this.importPreviewData) {
+            this.showError('No import data available');
+            return;
+        }
+        
+        const conflictResolution = document.getElementById('conflict-resolution').value;
+        const validRules = this.importPreviewData.valid_rules.map(item => item.rule);
+        
+        if (validRules.length === 0) {
+            this.showError('No valid rules to import');
+            return;
+        }
+        
+        try {
+            const formData = new FormData();
+            formData.append('rules_to_import', JSON.stringify(validRules));
+            formData.append('conflict_resolution', conflictResolution);
+            
+            const response = await fetch('/api/import/apply', {
+                method: 'POST',
+                body: formData
+            });
+            
+            const result = await response.json();
+            
+            if (result.errors && result.errors.length > 0) {
+                let errorMessage = `Imported ${result.imported_count} rules with ${result.errors.length} errors:\n`;
+                result.errors.forEach(error => {
+                    errorMessage += `- ${error.rule_name}: ${error.error}\n`;
+                });
+                this.showError(errorMessage);
+            } else {
+                this.showSuccess(result.message);
+            }
+            
+            // Close modal and refresh data
+            const modal = bootstrap.Modal.getInstance(document.getElementById('import-modal'));
+            modal.hide();
+            
+            await this.loadRules();
+            await this.loadStats();
+            
+        } catch (error) {
+            this.showError('Failed to import rules: ' + error.message);
+        }
     }
     
     async getOptimizationSuggestions() {
