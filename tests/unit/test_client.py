@@ -230,7 +230,7 @@ class TestQdrantWorkspaceClient:
 
         # Mock collection manager
         mock_collection_manager = MagicMock()
-        mock_collection_manager.list_workspace_collections = AsyncMock(
+        mock_collection_manager.list_workspace_collections = MagicMock(
             return_value=["collection1", "collection2", "collection3"]
         )
         client.collection_manager = mock_collection_manager
