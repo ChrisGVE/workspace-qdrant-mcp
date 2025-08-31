@@ -316,7 +316,7 @@ class TestMCPIntegration:
     async def test_workspace_status_tool(self):
         """Test workspace status MCP tool."""
         async with AsyncTimedOperation(self.benchmarker, "workspace_status"):
-            result = await workspace_status()
+            result = await workspace_status.fn()
 
         assert isinstance(result, dict)
         assert result.get("connected") is True
@@ -345,7 +345,7 @@ class TestMCPIntegration:
     async def test_list_workspace_collections_tool(self):
         """Test listing workspace collections."""
         async with AsyncTimedOperation(self.benchmarker, "list_collections"):
-            collections = await list_workspace_collections()
+            collections = await list_workspace_collections.fn()
 
         assert isinstance(collections, list)
         assert len(collections) > 0
@@ -389,7 +389,7 @@ class TestMCPIntegration:
 
         for i, doc_data in enumerate(test_documents):
             async with AsyncTimedOperation(self.benchmarker, f"add_document_{i}"):
-                result = await add_document_tool(**doc_data)
+                result = await add_document_tool.fn(**doc_data)
 
             assert result.get("success") is True
             assert "document_id" in result
@@ -406,7 +406,7 @@ class TestMCPIntegration:
     async def test_get_document_tool(self):
         """Test document retrieval functionality."""
         # Add a test document first
-        add_result = await add_document_tool(
+        add_result = await add_document_tool.fn(
             content="Test content for retrieval",
             collection="test_workspace_docs",
             metadata={"test": True},
@@ -417,7 +417,7 @@ class TestMCPIntegration:
 
         # Test retrieval without vectors
         async with AsyncTimedOperation(self.benchmarker, "get_document_basic"):
-            get_result = await get_document_tool(
+            get_result = await get_document_tool.fn(
                 document_id="retrieval_test_doc",
                 collection="test_workspace_docs",
                 include_vectors=False,
@@ -431,7 +431,7 @@ class TestMCPIntegration:
         assert "vectors" not in document
 
         # Test retrieval with vectors
-        get_result_with_vectors = await get_document_tool(
+        get_result_with_vectors = await get_document_tool.fn(
             document_id="retrieval_test_doc",
             collection="test_workspace_docs",
             include_vectors=True,
@@ -443,7 +443,7 @@ class TestMCPIntegration:
         assert "sparse" in document_with_vectors["vectors"]
 
         # Test non-existent document
-        missing_result = await get_document_tool(
+        missing_result = await get_document_tool.fn(
             document_id="non_existent_doc", collection="test_workspace_docs"
         )
 
@@ -480,7 +480,7 @@ class TestMCPIntegration:
         ]
 
         for content, collection, metadata in test_docs:
-            await add_document_tool(
+            await add_document_tool.fn(
                 content=content,
                 collection=collection,
                 metadata=metadata,
@@ -516,7 +516,7 @@ class TestMCPIntegration:
             async with AsyncTimedOperation(
                 self.benchmarker, f"search_{search_params['mode']}"
             ):
-                search_result = await search_workspace_tool(**search_params)
+                search_result = await search_workspace_tool.fn(**search_params)
 
             assert isinstance(search_result, dict)
             assert "results" in search_result
@@ -566,7 +566,7 @@ class TestMCPIntegration:
         ]
 
         for content, metadata in metadata_test_docs:
-            await add_document_tool(
+            await add_document_tool.fn(
                 content=content, collection="test_workspace_docs", metadata=metadata
             )
 
@@ -730,7 +730,7 @@ class TestMCPIntegration:
             async with AsyncTimedOperation(
                 self.benchmarker, f"hybrid_search_{search_params['fusion_method']}"
             ):
-                result = await hybrid_search_advanced_tool(**search_params)
+                result = await hybrid_search_advanced_tool.fn(**search_params)
 
             # Note: In mock environment, we may get error responses
             assert isinstance(result, dict)
@@ -790,10 +790,10 @@ class TestMCPIntegration:
         # Test concurrent operations
         async def concurrent_operations():
             tasks = [
-                workspace_status(),
-                list_workspace_collections(),
-                search_workspace_tool(query="concurrent test", limit=3),
-                add_document_tool(
+                workspace_status.fn(),
+                list_workspace_collections.fn(),
+                search_workspace_tool.fn(query="concurrent test", limit=3),
+                add_document_tool.fn(
                     content="Concurrent test document",
                     collection="test_workspace_docs",
                     metadata={"concurrent": True},
@@ -817,12 +817,12 @@ class TestMCPIntegration:
 
         # Test with uninitialized client (temporarily patch to None)
         with patch("workspace_qdrant_mcp.server.workspace_client", None):
-            error_result = await workspace_status()
+            error_result = await workspace_status.fn()
             assert "error" in error_result
             assert error_result["error"] == "Workspace client not initialized"
 
         # Test document operations with invalid parameters
-        invalid_add_result = await add_document_tool(
+        invalid_add_result = await add_document_tool.fn(
             content="",  # Empty content
             collection="non_existent_collection",
             metadata=None,
@@ -831,18 +831,18 @@ class TestMCPIntegration:
         assert isinstance(invalid_add_result, dict)
 
         # Test get document with non-existent ID
-        missing_doc_result = await get_document_tool(
+        missing_doc_result = await get_document_tool.fn(
             document_id="definitely_does_not_exist", collection="test_workspace_docs"
         )
         assert missing_doc_result.get("success") is False
 
         # Test search with empty query
-        empty_search_result = await search_workspace_tool(query="", limit=5)
+        empty_search_result = await search_workspace_tool.fn(query="", limit=5)
         assert isinstance(empty_search_result, dict)
         # Empty query might still return results in mock environment
 
         # Test search with very large limit
-        large_limit_result = await search_workspace_tool(query="test", limit=1000)
+        large_limit_result = await search_workspace_tool.fn(query="test", limit=1000)
         assert isinstance(large_limit_result, dict)
 
         # Test metadata search with empty filter
@@ -868,7 +868,7 @@ class TestMCPIntegration:
         test_doc_id = "consistency_test_doc"
 
         # Add document
-        add_result = await add_document_tool(
+        add_result = await add_document_tool.fn(
             content=test_doc_content,
             collection="test_workspace_docs",
             metadata={
@@ -882,7 +882,7 @@ class TestMCPIntegration:
         assert add_result.get("success") is True
 
         # Retrieve document
-        get_result = await get_document_tool(
+        get_result = await get_document_tool.fn(
             document_id=test_doc_id, collection="test_workspace_docs"
         )
 
@@ -895,7 +895,7 @@ class TestMCPIntegration:
         )
 
         # Search for document by content
-        search_result = await search_workspace_tool(
+        search_result = await search_workspace_tool.fn(
             query="CONSISTENCY_TEST_12345", collections=["test_workspace_docs"], limit=5
         )
 
