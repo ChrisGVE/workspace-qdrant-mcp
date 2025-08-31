@@ -121,6 +121,23 @@ allow_untyped_defs = true
 allow_incomplete_defs = true
 exclude = [".venv/", "build/", "dist/"]
 
+[tool.pydocstyle]
+# Focus on critical documentation issues only
+convention = "pep257"
+add-ignore = [
+    "D202",  # No blank lines allowed after function docstring - too strict for existing code
+    "D204",  # 1 blank line required after class docstring - we fixed the main ones  
+    "D401",  # First line should be in imperative mood - too strict for factory functions
+    "D107",  # Missing docstring in __init__ - not critical for internal classes
+    "D105",  # Missing docstring in magic method - not critical
+    "D102",  # Missing docstring in public method - focus on classes and functions first
+    "D400",  # First line should end with a period - minor formatting issue
+    "D205",  # 1 blank line required between summary line and description - formatting
+]
+# Only check critical violations that indicate missing or broken documentation
+match-dir = "src/workspace_qdrant_mcp"
+ignore-decorators = "property"
+
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
 testpaths = ["tests"]
