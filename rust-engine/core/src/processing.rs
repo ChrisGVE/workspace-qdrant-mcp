@@ -1,5 +1,5 @@
 //! Document processing pipeline
-//! 
+//!
 //! This module will contain the document processing pipeline implementation
 
 /// Processing pipeline configuration
