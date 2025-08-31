@@ -37,7 +37,7 @@ walkdir = "2.4"
 glob = "0.3"
 
 # Vector database client  
-qdrant-client = "1.7"
+qdrant-client = "1.15"
 
 # Serialization
 serde = { version = "1.0", features = ["derive", "rc"] }
