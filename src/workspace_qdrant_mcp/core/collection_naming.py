@@ -31,6 +31,7 @@ logger = logging.getLogger(__name__)
 
 class CollectionType(Enum):
     """Types of collections in the naming system."""
+
     MEMORY = "memory"
     LIBRARY = "library"
     PROJECT = "project"
@@ -476,7 +477,7 @@ class CollectionPermissionError(Exception):
 
 def create_naming_manager(global_collections: list[str] = None) -> CollectionNamingManager:
     """
-    Factory function to create a collection naming manager.
+    Create a collection naming manager instance.
 
     Args:
         global_collections: Legacy global collection names for compatibility
