@@ -526,14 +526,12 @@ class TestFullWorkflowE2E:
                 "Connection failed"
             )
 
-            with patch("asyncio.get_event_loop") as mock_get_loop:
-                mock_loop = MagicMock()
-                mock_get_loop.return_value = mock_loop
-                loop = asyncio.get_event_loop()
-                future = loop.create_future()
-                future.set_exception(Exception("Connection failed"))
-                mock_loop.run_in_executor.return_value = future
-
+            # Mock the run_in_executor call directly
+            real_loop = asyncio.get_event_loop()
+            failed_future = real_loop.create_future()
+            failed_future.set_exception(Exception("Connection failed"))
+            
+            with patch.object(real_loop, 'run_in_executor', return_value=failed_future):
                 # Should raise exception on initialization failure
                 with pytest.raises(Exception, match="Connection failed"):
                     await client.initialize()
@@ -709,31 +707,33 @@ class TestFullWorkflowE2E:
             # Initialize client
             with (
                 patch.object(client.project_detector, "get_project_info"),
-                patch("workspace_qdrant_mcp.core.client.WorkspaceCollectionManager"),
+                patch("workspace_qdrant_mcp.core.client.WorkspaceCollectionManager") as mock_collection_manager_class,
                 patch.object(client.embedding_service, "initialize"),
-                patch("asyncio.get_event_loop") as mock_get_loop,
             ):
-                mock_loop = MagicMock()
-                mock_get_loop.return_value = mock_loop
-                loop = asyncio.get_event_loop()
-                future = loop.create_future()
-                future.set_result(MagicMock(collections=[]))
-                mock_loop.run_in_executor.return_value = future
+                # Mock the collection manager instance methods
+                mock_collection_manager = MagicMock()
+                mock_collection_manager.initialize_workspace_collections = AsyncMock()
+                mock_collection_manager_class.return_value = mock_collection_manager
+                # Mock the run_in_executor call directly for successful initialization
+                real_loop = asyncio.get_event_loop()
+                success_future = real_loop.create_future()
+                success_future.set_result(MagicMock(collections=[]))
+                
+                with patch.object(real_loop, 'run_in_executor', return_value=success_future):
+                    await client.initialize()
+                    assert client.initialized
 
-                await client.initialize()
-                assert client.initialized
+                    # Mock embedding service close
+                    client.embedding_service.close = AsyncMock()
 
-                # Mock embedding service close
-                client.embedding_service.close = AsyncMock()
+                    # Test cleanup
+                    await client.close()
 
-                # Test cleanup
-                await client.close()
-
-                # Verify cleanup was performed
-                client.embedding_service.close.assert_called_once()
-                mock_qdrant_client.close.assert_called_once()
-                assert client.client is None
-                assert client.initialized is False
+                    # Verify cleanup was performed
+                    client.embedding_service.close.assert_called_once()
+                    mock_qdrant_client.close.assert_called_once()
+                    assert client.client is None
+                    assert client.initialized is False
 
                 # Multiple close calls should be safe
                 await client.close()
