@@ -391,6 +391,158 @@ async def delete_scratchbook_note_tool(note_id: str, project_name: str = None) -
 
 
 @app.tool()
+async def research_workspace(
+    query: str,
+    mode: str = "project",
+    target_collection: str = None,
+    include_relationships: bool = False,
+    version_preference: str = "latest",
+    include_archived: bool = False,
+    limit: int = 10,
+    score_threshold: float = 0.7,
+) -> dict:
+    """
+    Advanced semantic research with context control and version awareness.
+    
+    Implements the four-mode research interface from PRD v2.0:
+    1. "project" - Search current project collections only (default)
+    2. "collection" - Search specific target collection  
+    3. "global" - Search user-configured global collections
+    4. "all" - Search all collections in workspace
+    
+    Args:
+        query: Natural language research query
+        mode: Search context - "project", "collection", "global", or "all"
+        target_collection: Required when mode="collection", ignored otherwise
+        include_relationships: Include related documents and version chains
+        version_preference: "latest", "all", or "specific" version handling
+        include_archived: Include archived collections (_*_archive patterns)
+        limit: Maximum results to return
+        score_threshold: Minimum relevance score (0.0-1.0)
+        
+    Returns:
+        dict: Research results with context-aware collection filtering
+    """
+    if not workspace_client:
+        return {"error": "Workspace client not initialized"}
+        
+    if mode == "collection" and not target_collection:
+        return {"error": "target_collection required when mode='collection'"}
+        
+    try:
+        # Determine collections to search based on mode
+        collections_to_search = []
+        
+        if mode == "project":
+            # Search current project collections only
+            project_info = workspace_client.project_info
+            if project_info:
+                main_project = project_info.get("main_project", "")
+                subprojects = project_info.get("subprojects", [])
+                
+                # Add main project collections
+                if main_project:
+                    collections_to_search.extend([
+                        f"{main_project}-scratchbook",
+                        f"{main_project}-docs"
+                    ])
+                    
+                # Add subproject collections
+                for subproject in subprojects:
+                    collections_to_search.extend([
+                        f"{subproject}-scratchbook", 
+                        f"{subproject}-docs"
+                    ])
+                    
+        elif mode == "collection":
+            # Search specific target collection
+            collections_to_search = [target_collection]
+            
+        elif mode == "global":
+            # Search user-configured global collections from config
+            config = workspace_client.config
+            global_collections = getattr(config.workspace, 'global_collections', [])
+            if global_collections:
+                collections_to_search = global_collections
+            else:
+                # Default global collections if not configured
+                collections_to_search = ["memory", "_technical-books", "_standards"]
+                
+        elif mode == "all":
+            # Search all workspace collections
+            all_collections = await workspace_client.list_collections()
+            collections_to_search = all_collections
+            
+            if include_archived:
+                # Include archived collections (*_archive pattern)
+                archived_collections = [c for c in all_collections if c.endswith("_archive")]
+                collections_to_search.extend(archived_collections)
+        else:
+            return {"error": f"Invalid mode '{mode}'. Must be one of: project, collection, global, all"}
+            
+        # Filter collections based on version preference
+        if version_preference == "latest":
+            # Filter to only search latest versions (is_latest=true in metadata)
+            # This will be handled by the search_workspace function's scoring
+            pass
+        elif version_preference == "all":
+            # Search all versions
+            pass
+        # "specific" version would require additional version parameter
+        
+        # Perform the search using existing search_workspace function
+        from .tools.search import search_workspace
+        
+        results = await search_workspace(
+            client=workspace_client,
+            query=query,
+            collections=collections_to_search,
+            mode="hybrid",  # Always use hybrid for best results
+            limit=limit,
+            score_threshold=score_threshold,
+        )
+        
+        # Enhance results with research context information
+        if "error" not in results:
+            results["research_context"] = {
+                "mode": mode,
+                "target_collection": target_collection,
+                "collections_searched": collections_to_search,
+                "version_preference": version_preference,
+                "include_relationships": include_relationships,
+                "include_archived": include_archived
+            }
+            
+            # Filter for latest versions if requested
+            if version_preference == "latest" and "results" in results:
+                filtered_results = []
+                for result in results["results"]:
+                    payload = result.get("payload", {})
+                    is_latest = payload.get("is_latest", True)  # Default to true for non-versioned docs
+                    if is_latest:
+                        filtered_results.append(result)
+                results["results"] = filtered_results
+                results["total_results"] = len(filtered_results)
+                
+            # Add relationship information if requested
+            if include_relationships and "results" in results:
+                for result in results["results"]:
+                    payload = result.get("payload", {})
+                    if "supersedes" in payload or "version" in payload:
+                        result["version_info"] = {
+                            "version": payload.get("version"),
+                            "is_latest": payload.get("is_latest"),
+                            "supersedes": payload.get("supersedes", []),
+                            "document_type": payload.get("document_type")
+                        }
+        
+        return results
+        
+    except Exception as e:
+        return {"error": f"Research query failed: {str(e)}"}
+
+
+@app.tool()
 async def hybrid_search_advanced_tool(
     query: str,
     collection: str,
