@@ -70,6 +70,28 @@ jobs:
           repository-url: https://test.pypi.org/legacy/
           skip-existing: true   # convenient for CI reruns on TestPyPI
           verbose: true         # more detailed output for debugging
+        continue-on-error: true # Don't fail if trusted publishing not configured
+        id: testpypi-publish
+      - name: Publish to TestPyPI (Fallback with Token)
+        if: steps.testpypi-publish.outcome == 'failure' && vars.USE_TOKEN_FALLBACK == 'true'
+        uses: pypa/gh-action-pypi-publish@release/v1
+        with:
+          repository-url: https://test.pypi.org/legacy/
+          skip-existing: true
+          verbose: true
+          password: ${{ secrets.TEST_PYPI_API_TOKEN }}
+      - name: Publishing Status
+        if: always()
+        run: |
+          if [[ "${{ steps.testpypi-publish.outcome }}" == "success" ]]; then
+            echo "✅ Successfully published to TestPyPI using trusted publishing"
+          elif [[ "${{ vars.USE_TOKEN_FALLBACK }}" == "true" ]]; then
+            echo "⚠️ Trusted publishing failed, attempted token fallback"
+          else
+            echo "❌ Trusted publishing failed. Please configure trusted publishing:"
+            echo "📖 See TRUSTED_PUBLISHING_SETUP.md for setup instructions"
+            echo "🔧 Or set repository variable USE_TOKEN_FALLBACK=true and configure secrets"
+          fi
 
   publish-to-pypi:
     name: Publish to PyPI
@@ -90,4 +112,24 @@ jobs:
           path: dist/
       - name: Publish to PyPI (OIDC)
         uses: pypa/gh-action-pypi-publish@release/v1
+        continue-on-error: true # Don't fail if trusted publishing not configured
+        id: pypi-publish
         # By default, the action runs `twine check`, uploads all files, and (since v1.11) emits PEP 740 attestations.
+      - name: Publish to PyPI (Fallback with Token)
+        if: steps.pypi-publish.outcome == 'failure' && vars.USE_TOKEN_FALLBACK == 'true'
+        uses: pypa/gh-action-pypi-publish@release/v1
+        with:
+          password: ${{ secrets.PYPI_API_TOKEN }}
+          verbose: true
+      - name: PyPI Publishing Status
+        if: always()
+        run: |
+          if [[ "${{ steps.pypi-publish.outcome }}" == "success" ]]; then
+            echo "✅ Successfully published to PyPI using trusted publishing"
+          elif [[ "${{ vars.USE_TOKEN_FALLBACK }}" == "true" ]]; then
+            echo "⚠️ Trusted publishing failed, attempted token fallback"
+          else
+            echo "❌ Trusted publishing failed. Please configure trusted publishing:"
+            echo "📖 See TRUSTED_PUBLISHING_SETUP.md for setup instructions"
+            echo "🔧 Or set repository variable USE_TOKEN_FALLBACK=true and configure secrets"
+          fi
