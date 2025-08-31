@@ -48,8 +48,8 @@ def mock_config() -> Config:
         embedding=EmbeddingConfig(
             model="sentence-transformers/all-MiniLM-L6-v2",
             enable_sparse_vectors=True,
-            chunk_size=1000,
-            chunk_overlap=200,
+            chunk_size=800,
+            chunk_overlap=120,
             batch_size=50,
         ),
         workspace=WorkspaceConfig(
@@ -113,8 +113,8 @@ def mock_embedding_service():
         "sparse_enabled": True,
     }
     # Mock config for chunk_text
-    service.config.embedding.chunk_size = 1000
-    service.config.embedding.chunk_overlap = 200
+    service.config.embedding.chunk_size = 800
+    service.config.embedding.chunk_overlap = 120
     # Mock chunk_text as a regular (non-async) method
     from unittest.mock import MagicMock
     service.chunk_text = MagicMock(return_value=["chunk1", "chunk2", "chunk3"])
@@ -230,6 +230,12 @@ async def mock_workspace_client(
     client.client = mock_qdrant_client
     client.embedding_service = mock_embedding_service
     client.initialized = True
+
+    # Mock collection manager
+    collection_manager = MagicMock()
+    collection_manager.list_collections = AsyncMock(return_value=["test_collection"])
+    collection_manager.collection_exists = AsyncMock(return_value=True)
+    client.collection_manager = collection_manager
 
     # Mock async methods
     client.initialize = AsyncMock()
