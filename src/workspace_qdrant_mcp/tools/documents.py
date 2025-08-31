@@ -516,3 +516,185 @@ async def get_document(
     except Exception as e:
         logger.error("Failed to get document: %s", e)
         return {"error": f"Failed to get document: {e}"}
+
+
+# Version Management Functions
+async def find_document_versions(
+    client: QdrantWorkspaceClient,
+    document_id: str,
+    collection: str
+) -> list[dict]:
+    """
+    Find all versions of a document based on document_id pattern.
+    
+    According to PRD v2.0, documents with same base document_id but different
+    versions should be detected and managed with precedence rules.
+    """
+    if not client.initialized:
+        return []
+    
+    try:
+        # Search for documents with matching document_id pattern
+        points, _ = await client.client.scroll(
+            collection_name=collection,
+            scroll_filter=models.Filter(
+                must=[
+                    models.FieldCondition(
+                        key="document_id",
+                        match=models.MatchValue(value=document_id)
+                    )
+                ]
+            ),
+            with_payload=True,
+            limit=100  # Should be enough for version chains
+        )
+        
+        versions = []
+        for point in points:
+            version_info = {
+                "point_id": point.id,
+                "document_id": point.payload.get("document_id"),
+                "version": point.payload.get("version"),
+                "is_latest": point.payload.get("is_latest", False),
+                "timestamp": point.payload.get("added_at"),
+                "supersedes": point.payload.get("supersedes", []),
+                "payload": point.payload
+            }
+            versions.append(version_info)
+            
+        return versions
+        
+    except Exception as e:
+        logger.error("Failed to find document versions: %s", e)
+        return []
+
+
+async def ingest_new_version(
+    client: QdrantWorkspaceClient,
+    content: str,
+    collection: str,
+    metadata: dict[str, Any] | None = None,
+    document_id: str | None = None,
+    version: str | None = None,
+    document_type: str = "generic",
+    chunk_text: bool = True,
+) -> dict:
+    """
+    Ingest a new version of a document with version-aware management.
+    
+    Implements the PRD v2.0 version management system:
+    1. Detect existing versions
+    2. De-prioritize old versions (is_latest=False, search_priority=0.1)
+    3. Set new version as latest (is_latest=True, search_priority=1.0)
+    4. Update version chain for tracking
+    """
+    if not client.initialized:
+        return {"error": "Workspace client not initialized"}
+        
+    if not content or not content.strip():
+        return {"error": "Content cannot be empty"}
+    
+    try:
+        # Generate document_id if not provided
+        if document_id is None:
+            document_id = str(uuid.uuid4())
+            
+        # Find existing versions of this document
+        existing_versions = await find_document_versions(client, document_id, collection)
+        
+        # Prepare version metadata according to PRD schema
+        version_metadata = {
+            "document_id": document_id,
+            "version": version or datetime.utcnow().isoformat(),
+            "timestamp": datetime.utcnow().isoformat(),
+            "version_type": "timestamp" if not version else "semantic",
+            "document_type": document_type,
+            "is_latest": True,
+            "search_priority": 1.0,
+            "supersedes": [v["point_id"] for v in existing_versions] if existing_versions else [],
+            "authority_source": "user_provided" if version else "auto_detected",
+            "source_info": {
+                "ingestion_date": datetime.utcnow().isoformat(),
+                "file_hash": f"sha256:{hash(content)}"  # Simple hash for now
+            }
+        }
+        
+        # Merge with user metadata
+        if metadata:
+            version_metadata.update(metadata)
+            
+        # Step 1: De-prioritize all existing versions
+        for existing_version in existing_versions:
+            try:
+                # Update existing version to mark as non-latest
+                await client.client.set_payload(
+                    collection_name=collection,
+                    points=[existing_version["point_id"]],
+                    payload={
+                        "is_latest": False,
+                        "search_priority": 0.1
+                    }
+                )
+                logger.debug("De-prioritized version %s", existing_version["point_id"])
+            except Exception as e:
+                logger.warning("Failed to de-prioritize version %s: %s", existing_version["point_id"], e)
+        
+        # Step 2: Add the new version as latest
+        result = await add_document(
+            client=client,
+            content=content,
+            collection=collection,
+            metadata=version_metadata,
+            document_id=document_id,
+            chunk_text=chunk_text
+        )
+        
+        if "error" not in result:
+            result["versions_superseded"] = len(existing_versions)
+            result["is_new_version"] = len(existing_versions) > 0
+            
+        return result
+        
+    except Exception as e:
+        logger.error("Failed to ingest new version: %s", e)
+        return {"error": f"Failed to ingest new version: {e}"}
+
+
+def get_document_type_config(document_type: str) -> dict:
+    """
+    Get version management configuration for different document types.
+    Based on PRD v2.0 document type specifications.
+    """
+    configs = {
+        "book": {
+            "primary_version": "edition",
+            "secondary_version": "date", 
+            "required_metadata": ["title", "author", "edition"],
+            "optional_metadata": ["isbn", "publisher", "draft_status"],
+            "retention_policy": "latest_only"
+        },
+        "scientific_article": {
+            "primary_version": "publication_date",
+            "required_metadata": ["title", "authors", "journal", "publication_date"],
+            "optional_metadata": ["doi", "volume", "issue"], 
+            "retention_policy": "latest_only"
+        },
+        "code_file": {
+            "primary_version": "git_tag",
+            "secondary_version": "modification_date",
+            "auto_metadata": True,
+            "retention_policy": "current_state_only"
+        },
+        "webpage": {
+            "primary_version": "ingestion_date",
+            "required_metadata": ["title", "url", "ingestion_date"],
+            "retention_policy": "latest_only"
+        },
+        "generic": {
+            "primary_version": "timestamp",
+            "required_metadata": ["title"],
+            "retention_policy": "latest_only"
+        }
+    }
+    
+    return configs.get(document_type, configs["generic"])
