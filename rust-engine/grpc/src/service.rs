@@ -1,5 +1,5 @@
 //! gRPC service implementation
-//! 
+//!
 //! This module contains the actual service implementations
 
 use workspace_qdrant_core::DocumentProcessor;

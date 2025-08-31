@@ -1,5 +1,5 @@
 //! File watching system
-//! 
+//!
 //! This module will contain the cross-platform file watching implementation
 
 /// File watcher configuration

@@ -1,5 +1,5 @@
 //! Storage abstraction layer
-//! 
+//!
 //! This module will contain the Qdrant storage interface implementation
 
 /// Storage client configuration

@@ -1,5 +1,5 @@
 //! Configuration management
-//! 
+//!
 //! This module will contain the configuration management implementation
 
 use serde::{Deserialize, Serialize};
