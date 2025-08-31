@@ -190,7 +190,7 @@ class MemoryManager:
         qdrant_client: QdrantClient, 
         naming_manager: CollectionNamingManager,
         embedding_dim: int = 384,
-        sparse_vector_generator: Optional[SparseVectorGenerator] = None
+        sparse_vector_generator: Optional[BM25SparseEncoder] = None
     ):
         """
         Initialize the memory manager.
@@ -777,7 +777,7 @@ def create_memory_manager(
     qdrant_client: QdrantClient,
     naming_manager: CollectionNamingManager,
     embedding_dim: int = 384,
-    sparse_vector_generator: Optional[SparseVectorGenerator] = None
+    sparse_vector_generator: Optional[BM25SparseEncoder] = None
 ) -> MemoryManager:
     """
     Factory function to create a memory manager.
