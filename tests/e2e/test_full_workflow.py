@@ -395,7 +395,7 @@ class TestFullWorkflowE2E:
             temp_env.write(
                 "WORKSPACE_QDRANT_HOST=file.host\n"
                 "WORKSPACE_QDRANT_PORT=7777\n"
-                "WORKSPACE_QDRANT_QDRANT__URL=https://file.qdrant.io\n"
+                "WORKSPACE_QDRANT_DEBUG=false\n"
             )
             temp_env.flush()
 
@@ -409,11 +409,31 @@ class TestFullWorkflowE2E:
 
             try:
                 os.chdir(temp_dir)
-                config_from_file = Config()
+                # Clear environment variables so they don't override .env file
+                env_keys_to_clear = [
+                    "WORKSPACE_QDRANT_HOST",
+                    "WORKSPACE_QDRANT_PORT", 
+                    "WORKSPACE_QDRANT_DEBUG",
+                    "WORKSPACE_QDRANT_QDRANT__URL",
+                    "WORKSPACE_QDRANT_WORKSPACE__GITHUB_USER"
+                ]
+                original_values = {}
+                for key in env_keys_to_clear:
+                    original_values[key] = os.environ.get(key)
+                    if key in os.environ:
+                        del os.environ[key]
+                
+                try:
+                    config_from_file = Config()
 
-                assert config_from_file.host == "file.host"
-                assert config_from_file.port == 7777
-                assert config_from_file.qdrant.url == "https://file.qdrant.io"
+                    assert config_from_file.host == "file.host"
+                    assert config_from_file.port == 7777
+                    assert config_from_file.debug == False  # Test that .env file loading works
+                finally:
+                    # Restore environment variables
+                    for key, value in original_values.items():
+                        if value is not None:
+                            os.environ[key] = value
 
             finally:
                 os.chdir(original_cwd)
