@@ -28,6 +28,7 @@ dependencies = [
   "tqdm>=4.67.1",
   "grpcio>=1.60.0",
   "grpcio-tools>=1.60.0",
+  "watchfiles>=0.21.0",
 ]
 
 [project.optional-dependencies]
