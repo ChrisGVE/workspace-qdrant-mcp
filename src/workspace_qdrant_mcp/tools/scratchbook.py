@@ -176,15 +176,12 @@ class ScratchbookManager:
             # Determine collection name using configured collections
             collection_name = self._get_scratchbook_collection_name(project_name)
 
-            # Validate collection exists
-            collections_result = self.client.list_collections()
-            if hasattr(collections_result, '__await__'):
-                available_collections = await collections_result
-            else:
-                available_collections = collections_result
-            if collection_name not in available_collections:
+            # Ensure collection exists (create automatically if needed)
+            try:
+                await self.client.ensure_collection_exists(collection_name)
+            except Exception as e:
                 return {
-                    "error": f"Scratchbook collection '{collection_name}' not found"
+                    "error": f"Failed to ensure scratchbook collection exists: {str(e)}"
                 }
 
             # Generate note ID and title
@@ -236,7 +233,7 @@ class ScratchbookManager:
             point = models.PointStruct(id=note_id, vector=vectors, payload=payload)
 
             # Insert into Qdrant
-            self.client.client.upsert(collection_name=collection_name, points=[point])
+            await self.client.client.upsert(collection_name=collection_name, points=[point])
 
             logger.info("Added note %s to scratchbook %s", note_id, collection_name)
 
@@ -355,7 +352,7 @@ class ScratchbookManager:
                     payload=new_payload
                 )
 
-            self.client.client.upsert(
+            await self.client.client.upsert(
                 collection_name=collection_name, points=[updated_point]
             )
 
@@ -408,18 +405,14 @@ class ScratchbookManager:
             # Determine collection name using configured collections
             collection_name = self._get_scratchbook_collection_name(project_name)
 
-            # Validate collection exists for default project searches
-            # Allow flexible cross-project search when custom project is specified
-            if not project_name:  # Default project search needs validation
-                collections_result = self.client.list_collections()
-                if hasattr(collections_result, '__await__'):
-                    available_collections = await collections_result
-                else:
-                    available_collections = collections_result
-                if collection_name not in available_collections:
-                    return {
-                        "error": f"Scratchbook collection '{collection_name}' not found"
-                    }
+            # Ensure collection exists (create automatically if needed)
+            try:
+                await self.client.ensure_collection_exists(collection_name)
+            except Exception as e:
+                # For search, if collection can't be created, return empty results
+                # rather than hard error (graceful degradation)
+                logger.warning("Failed to ensure scratchbook collection exists: %s", e)
+                return {"results": [], "total": 0, "message": "No scratchbook found"}
 
             # Generate embeddings for query
             embedding_service = self.client.get_embedding_service()
@@ -538,7 +531,7 @@ class ScratchbookManager:
             scroll_filter = models.Filter(must=filter_conditions)
 
             # Get notes
-            points, _ = self.client.client.scroll(
+            points, _ = await self.client.client.scroll(
                 collection_name=collection_name,
                 scroll_filter=scroll_filter,
                 limit=limit,
