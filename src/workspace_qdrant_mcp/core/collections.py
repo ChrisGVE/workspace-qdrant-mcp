@@ -357,7 +357,7 @@ class WorkspaceCollectionManager:
 
         Example:
             ```python
-            collections = await manager.list_workspace_collections()
+            collections = manager.list_workspace_collections()
             # Example return: ['my-project-docs', 'my-project-scratchbook', 'scratchbook']
 
             for collection in collections:
