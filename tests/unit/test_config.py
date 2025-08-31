@@ -28,8 +28,8 @@ class TestEmbeddingConfig:
 
         assert config.model == "sentence-transformers/all-MiniLM-L6-v2"
         assert config.enable_sparse_vectors is True
-        assert config.chunk_size == 1000
-        assert config.chunk_overlap == 200
+        assert config.chunk_size == 800
+        assert config.chunk_overlap == 120
         assert config.batch_size == 50
 
     def test_custom_values(self):
