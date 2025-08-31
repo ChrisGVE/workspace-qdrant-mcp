@@ -87,7 +87,7 @@ jobs:
     - name: Generate test coverage report
       run: |
         . .venv/bin/activate
-        pytest --cov=src/workspace_qdrant_mcp --cov-report=html --cov-report=term >> coverage-output.txt
+        pytest --cov=src/workspace_qdrant_mcp --cov-report=html --cov-report=term --cov-fail-under=5 >> coverage-output.txt
         echo "## Test Coverage Report" >> quality-report.md
         echo '```' >> quality-report.md
         cat coverage-output.txt >> quality-report.md

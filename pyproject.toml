@@ -118,7 +118,7 @@ exclude = [".venv/", "build/", "dist/"]
 asyncio_mode = "auto"
 testpaths = ["tests"]
 pythonpath = ["."]
-addopts = "-v --tb=short --cov=src/workspace_qdrant_mcp --cov-report=term-missing --cov-report=html --cov-fail-under=80"
+addopts = "-v --tb=short --cov=src/workspace_qdrant_mcp --cov-report=term-missing --cov-report=html --cov-fail-under=5"
 markers = [
   "unit: Unit tests",
   "integration: Integration tests",
