@@ -252,6 +252,9 @@ async def _add_single_document(
 ) -> bool:
     """Add a single document/chunk to collection."""
     try:
+        # Resolve display name to actual collection name
+        actual_collection, _ = client.collection_manager.resolve_collection_name(collection)
+        
         # Generate embeddings
         embedding_service = client.get_embedding_service()
         embeddings = await embedding_service.generate_embeddings(content)
