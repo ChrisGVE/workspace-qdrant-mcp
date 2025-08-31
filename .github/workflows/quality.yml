@@ -243,12 +243,12 @@ jobs:
         
         echo "## Simple Benchmark" >> performance-report.md
         echo '```' >> performance-report.md
-        python benchmarking/authoritative_benchmark.py --skip-oss --chunk-sizes 1000 >> performance-report.md
+        python dev/benchmarks/tools/authoritative_benchmark.py --skip-oss --chunk-sizes 1000 >> performance-report.md
         echo '```' >> performance-report.md
         
         echo "## Comprehensive Benchmark" >> performance-report.md  
         echo '```' >> performance-report.md
-        timeout 300s python benchmarking/authoritative_benchmark.py --chunk-sizes 1000,2000 >> performance-report.md || echo "Benchmark timed out after 5 minutes" >> performance-report.md
+        timeout 300s python dev/benchmarks/tools/authoritative_benchmark.py --chunk-sizes 1000,2000 >> performance-report.md || echo "Benchmark timed out after 5 minutes" >> performance-report.md
         echo '```' >> performance-report.md
 
     - name: Memory profiling
@@ -256,7 +256,7 @@ jobs:
         . .venv/bin/activate
         echo "## Memory Usage Profile" >> performance-report.md
         echo '```' >> performance-report.md
-        python -m memory_profiler benchmarking/authoritative_benchmark.py --skip-oss --chunk-sizes 1000 >> performance-report.md || echo "Memory profiling failed" >> performance-report.md
+        python -m memory_profiler dev/benchmarks/tools/authoritative_benchmark.py --skip-oss --chunk-sizes 1000 >> performance-report.md || echo "Memory profiling failed" >> performance-report.md
         echo '```' >> performance-report.md
 
     - name: Upload performance reports
