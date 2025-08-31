@@ -5,19 +5,23 @@ enabling automatic ingestion of files into library collections.
 """
 
 import asyncio
+import json
 from pathlib import Path
 from typing import List, Optional, Dict, Any
 
 import typer
 from rich.console import Console
-from rich.table import Table
 from rich.panel import Panel
 from rich.prompt import Confirm
+
+from ...core.client import QdrantWorkspaceClient
+from ..watch_service import WatchService, create_status_table, create_watches_table
 
 console = Console()
 
 # Create the watch app
 watch_app = typer.Typer(help="👀 Folder watching configuration")
+
 
 def handle_async(coro):
     """Helper to run async commands."""
@@ -30,19 +34,28 @@ def handle_async(coro):
         console.print(f"[red]Error: {e}[/red]")
         raise typer.Exit(1)
 
+
+async def _get_watch_service() -> WatchService:
+    """Get an initialized watch service."""
+    client = await QdrantWorkspaceClient.create()
+    service = WatchService(client)
+    await service.initialize()
+    return service
+
+
 @watch_app.command("add")
 def add_watch(
     path: str = typer.Argument(..., help="Path to watch"),
     collection: str = typer.Option(..., "--collection", "-c", help="Target collection (must start with _)"),
     patterns: Optional[List[str]] = typer.Option(
-        ["*.pdf", "*.epub", "*.txt", "*.md"],
+        None,
         "--pattern", "-p",
-        help="File patterns to watch"
+        help="File patterns to watch (default: *.pdf, *.epub, *.txt, *.md)"
     ),
     ignore: Optional[List[str]] = typer.Option(
-        [".git/*", "node_modules/*", "__pycache__/*", ".DS_Store"],
+        None,
         "--ignore", "-i",
-        help="Ignore patterns"
+        help="Ignore patterns (default: .git/*, node_modules/*, __pycache__/*, .DS_Store)"
     ),
     auto_ingest: bool = typer.Option(True, "--auto/--no-auto", help="Enable automatic ingestion"),
     recursive: bool = typer.Option(True, "--recursive/--no-recursive", help="Watch subdirectories"),
@@ -50,6 +63,7 @@ def add_watch(
 ):
     """➕ Add a folder to watch for automatic ingestion."""
     handle_async(_add_watch(path, collection, patterns, ignore, auto_ingest, recursive, debounce))
+
 
 @watch_app.command("list")
 def list_watches(
@@ -59,6 +73,7 @@ def list_watches(
 ):
     """📋 Show all active watches."""
     handle_async(_list_watches(active_only, collection, format))
+
 
 @watch_app.command("remove")
 def remove_watch(
@@ -70,6 +85,7 @@ def remove_watch(
     """🗑️ Stop watching folder."""
     handle_async(_remove_watch(path, collection, all, force))
 
+
 @watch_app.command("status")
 def watch_status(
     detailed: bool = typer.Option(False, "--detailed", "-d", help="Show detailed statistics"),
@@ -77,6 +93,7 @@ def watch_status(
 ):
     """📊 Watch activity and statistics."""
     handle_async(_watch_status(detailed, recent))
+
 
 @watch_app.command("pause")
 def pause_watches(
@@ -87,6 +104,7 @@ def pause_watches(
     """⏸️ Pause all or specific watches."""
     handle_async(_pause_watches(path, collection, all))
 
+
 @watch_app.command("resume")
 def resume_watches(
     path: Optional[str] = typer.Argument(None, help="Specific path to resume (or watch ID)"),
@@ -96,6 +114,7 @@ def resume_watches(
     """▶️ Resume paused watches."""
     handle_async(_resume_watches(path, collection, all))
 
+
 @watch_app.command("sync")
 def sync_watched_folders(
     path: Optional[str] = typer.Argument(None, help="Specific path to sync"),
@@ -104,6 +123,7 @@ def sync_watched_folders(
 ):
     """🔄 Sync watched folders manually."""
     handle_async(_sync_watched_folders(path, dry_run, force))
+
 
 # Async implementation functions
 async def _add_watch(
@@ -119,34 +139,36 @@ async def _add_watch(
     try:
         watch_path = Path(path).resolve()
         
-        # Validate path
-        if not watch_path.exists():
-            console.print(f"[red]❌ Path does not exist: {path}[/red]")
-            raise typer.Exit(1)
-        
-        if not watch_path.is_dir():
-            console.print(f"[red]❌ Path is not a directory: {path}[/red]")
-            raise typer.Exit(1)
-        
-        # Validate collection name (must be library collection)
-        if not collection.startswith('_'):
-            console.print(f"[red]❌ Collection must start with underscore (library collection): {collection}[/red]")
-            console.print("[dim]Library collections are used for reference materials and watched folders[/dim]")
-            console.print(f"[dim]Create it first with: wqm library create {collection[1:] if collection.startswith('_') else collection}[/dim]")
-            raise typer.Exit(1)
-        
         console.print(f"[bold blue]👀 Adding watch configuration[/bold blue]")
         console.print(f"Path: [cyan]{watch_path}[/cyan]")
         console.print(f"Collection: [cyan]{collection}[/cyan]")
         
-        # TODO: Implement actual watch management with Rust engine
-        # This will be part of Task 14: Library folder watching system
+        # Get watch service
+        service = await _get_watch_service()
         
-        # For now, show what would be configured
+        # Set defaults if not provided
+        if patterns is None:
+            patterns = ["*.pdf", "*.epub", "*.txt", "*.md"]
+        if ignore is None:
+            ignore = [".git/*", "node_modules/*", "__pycache__/*", ".DS_Store"]
+        
+        # Add the watch
+        watch_id = await service.add_watch(
+            path=str(watch_path),
+            collection=collection,
+            patterns=patterns,
+            ignore_patterns=ignore,
+            auto_ingest=auto_ingest,
+            recursive=recursive,
+            debounce_seconds=debounce,
+        )
+        
+        # Show configuration
         config_info = f"""[bold]Watch Configuration[/bold]
 
 📁 [cyan]Path:[/cyan] {watch_path}
 📚 [cyan]Collection:[/cyan] {collection}
+🆔 [cyan]Watch ID:[/cyan] {watch_id}
 🔄 [cyan]Auto-ingest:[/cyan] {'✅ Enabled' if auto_ingest else '❌ Disabled'}
 📂 [cyan]Recursive:[/cyan] {'✅ Yes' if recursive else '❌ No'}
 ⏱️  [cyan]Debounce:[/cyan] {debounce} seconds
@@ -159,60 +181,69 @@ async def _add_watch(
         
         config_panel = Panel(
             config_info,
-            title="⚙️ Watch Configuration",
-            border_style="blue"
+            title="⚙️ Watch Configuration Added",
+            border_style="green"
         )
         console.print(config_panel)
         
-        console.print("\n[yellow]🚧 File watching is not yet implemented[/yellow]")
-        console.print("This feature will be implemented in Task 14: Library folder watching system")
-        console.print("\n[dim]The watch configuration shown above will be used when the feature is ready.[/dim]")
-        
-        # Show current workaround
-        console.print(f"\n[bold blue]💡 Current Alternative[/bold blue]")
-        console.print("For now, you can manually process folders:")
-        console.print(f"  [green]wqm ingest folder \"{watch_path}\" --collection={collection} --recursive[/green]")
+        # Start monitoring if auto-ingest is enabled
+        if auto_ingest:
+            await service.start_all_watches()
+            console.print(f"\n[green]✅ File monitoring started for {watch_path}[/green]")
+            console.print("[dim]New files will be automatically ingested into the collection[/dim]")
+        else:
+            console.print(f"\n[yellow]⚠️ Auto-ingest is disabled[/yellow]")
+            console.print("[dim]Files will be detected but not automatically processed[/dim]")
+            console.print("Enable with: [green]wqm watch resume[/green]")
         
     except Exception as e:
         console.print(f"[red]❌ Failed to add watch: {e}[/red]")
         raise typer.Exit(1)
 
+
 async def _list_watches(active_only: bool, collection: Optional[str], format: str):
     """List all watch configurations."""
     try:
-        console.print("[bold blue]📋 Active Watches[/bold blue]")
+        service = await _get_watch_service()
+        watches = await service.list_watches(active_only, collection)
         
-        # TODO: Implement actual watch listing
-        # This will be part of Task 14: Library folder watching system
+        if format == "json":
+            # JSON output
+            output = [watch.to_dict() for watch in watches]
+            console.print(json.dumps(output, indent=2))
+            return
         
-        console.print("[yellow]🚧 File watching is not yet implemented[/yellow]")
-        console.print("This feature will be implemented in Task 14: Library folder watching system")
+        # Table output
+        if not watches:
+            console.print("[yellow]No watches found[/yellow]")
+            if not active_only:
+                console.print("Add a watch with: [green]wqm watch add <path> --collection=<library>[/green]")
+            return
         
-        # Show placeholder table structure
-        console.print("\n[dim]When implemented, this will show:[/dim]")
+        # Get status information
+        status_data = await service.get_watch_status()
+        watches_status = status_data['watches']
         
-        table = Table(title="👀 Watch Configurations")
-        table.add_column("ID", style="cyan", width=8)
-        table.add_column("Path", style="white", width=30)
-        table.add_column("Collection", style="blue", width=20)
-        table.add_column("Status", justify="center", width=10)
-        table.add_column("Files", justify="right", width=8)
-        table.add_column("Last Activity", width=15)
+        console.print(f"[bold blue]📋 Watch Configurations ({len(watches)} found)[/bold blue]\n")
         
-        # Example rows
-        table.add_row("1", "[dim]~/Documents/Books[/dim]", "[dim]_technical-books[/dim]", "[dim]ACTIVE[/dim]", "[dim]42[/dim]", "[dim]2 hours ago[/dim]")
-        table.add_row("2", "[dim]~/Papers[/dim]", "[dim]_research[/dim]", "[dim]PAUSED[/dim]", "[dim]128[/dim]", "[dim]1 day ago[/dim]")
-        
+        # Show summary table
+        table = create_watches_table(watches_status)
         console.print(table)
-        console.print("[dim]^ Example of what the interface will look like[/dim]")
+        
+        # Show tips
+        console.print(f"\n[dim]💡 Use 'wqm watch status --detailed' for more information[/dim]")
+        console.print(f"[dim]💡 Use 'wqm watch sync' to manually process watched directories[/dim]")
         
     except Exception as e:
         console.print(f"[red]❌ Failed to list watches: {e}[/red]")
         raise typer.Exit(1)
 
+
 async def _remove_watch(path: Optional[str], collection: Optional[str], all: bool, force: bool):
     """Remove watch configurations."""
     try:
+        service = await _get_watch_service()
+        
         if all:
             console.print("[bold red]🗑️ Remove All Watches[/bold red]")
         elif collection:
@@ -220,124 +251,230 @@ async def _remove_watch(path: Optional[str], collection: Optional[str], all: boo
         elif path:
             console.print(f"[bold red]🗑️ Remove Watch: {path}[/bold red]")
         else:
-            console.print("[red]❌ Must specify --all, --collection, or a path[/red]")
+            console.print("[red]❌ Must specify --all, --collection, or a path/watch ID[/red]")
             raise typer.Exit(1)
         
+        # Find watches to remove
+        watches_to_remove = []
+        all_watches = await service.list_watches()
+        
+        if all:
+            watches_to_remove = all_watches
+        elif collection:
+            watches_to_remove = [w for w in all_watches if w.collection == collection]
+        elif path:
+            # Try as watch ID first, then as path
+            matches = [w for w in all_watches if w.id == path or Path(w.path) == Path(path).resolve()]
+            if matches:
+                watches_to_remove = matches
+            else:
+                console.print(f"[red]❌ No watch found for: {path}[/red]")
+                raise typer.Exit(1)
+        
+        if not watches_to_remove:
+            console.print("[yellow]No matching watches found[/yellow]")
+            return
+        
+        # Show what will be removed
+        console.print(f"\n[yellow]Found {len(watches_to_remove)} watch(es) to remove:[/yellow]")
+        for watch in watches_to_remove:
+            console.print(f"  • {watch.path} -> {watch.collection} ({watch.id})")
+        
+        # Confirm removal
         if not force:
             action = "all watches" if all else f"watches for {collection}" if collection else f"watch for {path}"
-            if not Confirm.ask(f"[red]Are you sure you want to remove {action}?[/red]"):
+            if not Confirm.ask(f"\n[red]Are you sure you want to remove {action}?[/red]"):
                 console.print("[yellow]Operation cancelled[/yellow]")
                 return
         
-        console.print("[yellow]🚧 Watch removal is not yet implemented[/yellow]")
-        console.print("This feature will be implemented in Task 14: Library folder watching system")
+        # Remove watches
+        removed_count = 0
+        for watch in watches_to_remove:
+            if await service.remove_watch(watch.id):
+                removed_count += 1
+                console.print(f"[green]✅ Removed watch: {watch.path}[/green]")
+            else:
+                console.print(f"[red]❌ Failed to remove watch: {watch.path}[/red]")
+        
+        console.print(f"\n[green]Successfully removed {removed_count} watch(es)[/green]")
         
     except Exception as e:
         console.print(f"[red]❌ Failed to remove watches: {e}[/red]")
         raise typer.Exit(1)
 
+
 async def _watch_status(detailed: bool, recent: bool):
     """Show watch activity and statistics."""
     try:
-        console.print("[bold blue]📊 Watch System Status[/bold blue]")
+        service = await _get_watch_service()
+        status_data = await service.get_watch_status()
         
-        # TODO: Implement actual watch status
-        # This will be part of Task 14: Library folder watching system
+        console.print("[bold blue]📊 Watch System Status[/bold blue]\n")
         
-        console.print("[yellow]🚧 Watch status is not yet implemented[/yellow]")
-        console.print("This feature will be implemented in Task 14: Library folder watching system")
+        # System status overview
+        table = create_status_table(status_data)
+        console.print(table)
         
-        # Show what the status would look like
-        console.print("\n[dim]When implemented, this will show:[/dim]")
-        
-        # System status
-        status_panel = Panel(
-            """[bold]Watch System Status[/bold]
-
-🔍 [cyan]Active Watches:[/cyan] 0
-⏸️  [cyan]Paused Watches:[/cyan] 0
-📁 [cyan]Monitored Directories:[/cyan] 0
-📄 [cyan]Files Tracked:[/cyan] 0
-⚡ [cyan]Processing Queue:[/cyan] 0
-
-[bold]Recent Activity (24h)[/bold]
-📥 [cyan]Files Added:[/cyan] 0
-📝 [cyan]Files Modified:[/cyan] 0
-🗑️  [cyan]Files Removed:[/cyan] 0
-⚠️  [cyan]Errors:[/cyan] 0""",
-            title="📈 System Overview",
-            border_style="blue"
-        )
-        console.print(status_panel)
-        
-        if detailed:
-            console.print("\n[dim]Detailed statistics would include:[/dim]")
-            console.print("• Per-collection processing statistics")
-            console.print("• File type breakdown")
-            console.print("• Processing performance metrics")
-            console.print("• Error logs and resolution suggestions")
+        if detailed and status_data['watches']:
+            console.print("\n")
+            watches_table = create_watches_table(status_data['watches'])
+            console.print(watches_table)
         
         if recent:
-            console.print("\n[dim]Recent activity would show:[/dim]")
-            console.print("• Timeline of file changes")
-            console.print("• Processing results")
-            console.print("• Auto-ingestion outcomes")
+            console.print(f"\n[bold]📋 Recent Activity[/bold]")
+            recent_events = service.get_recent_activity(limit=20)
+            
+            if not recent_events:
+                console.print("[dim]No recent activity[/dim]")
+            else:
+                from rich.table import Table
+                activity_table = Table(title=f"Last {len(recent_events)} Events")
+                activity_table.add_column("Time", style="dim", width=20)
+                activity_table.add_column("Event", width=15)
+                activity_table.add_column("File", style="cyan", width=35)
+                activity_table.add_column("Collection", style="blue", width=20)
+                
+                for event in reversed(recent_events[-20:]):
+                    # Format timestamp
+                    from datetime import datetime
+                    try:
+                        ts = datetime.fromisoformat(event.timestamp.replace('Z', '+00:00'))
+                        time_str = ts.strftime("%H:%M:%S")
+                    except:
+                        time_str = event.timestamp[:8]
+                    
+                    # Color code event type
+                    event_display = event.change_type
+                    if event.change_type == "added":
+                        event_display = f"[green]{event.change_type}[/green]"
+                    elif event.change_type == "modified":
+                        event_display = f"[yellow]{event.change_type}[/yellow]"
+                    elif event.change_type == "deleted":
+                        event_display = f"[red]{event.change_type}[/red]"
+                    
+                    # Shorten file path
+                    file_path = event.file_path
+                    if len(file_path) > 30:
+                        file_path = "..." + file_path[-27:]
+                    
+                    activity_table.add_row(
+                        time_str,
+                        event_display,
+                        file_path,
+                        event.collection,
+                    )
+                
+                console.print(activity_table)
+        
+        # Show tips
+        if status_data['total_watches'] == 0:
+            console.print(f"\n[yellow]💡 No watches configured yet[/yellow]")
+            console.print("Add one with: [green]wqm watch add <path> --collection=<library>[/green]")
+        elif status_data['running_watches'] == 0:
+            console.print(f"\n[yellow]💡 No watches are currently running[/yellow]")
+            console.print("Start them with: [green]wqm watch resume --all[/green]")
         
     except Exception as e:
         console.print(f"[red]❌ Failed to get watch status: {e}[/red]")
         raise typer.Exit(1)
 
+
 async def _pause_watches(path: Optional[str], collection: Optional[str], all: bool):
     """Pause watch configurations."""
     try:
+        service = await _get_watch_service()
+        
         if all:
             console.print("[bold yellow]⏸️ Pausing All Watches[/bold yellow]")
+            await service.stop_all_watches()
+            console.print("[green]✅ All watches paused[/green]")
+            
         elif collection:
             console.print(f"[bold yellow]⏸️ Pausing Watches for Collection: {collection}[/bold yellow]")
+            watches = await service.list_watches(collection=collection)
+            paused_count = 0
+            for watch in watches:
+                if await service.pause_watch(watch.id):
+                    paused_count += 1
+            console.print(f"[green]✅ Paused {paused_count} watch(es)[/green]")
+            
         elif path:
             console.print(f"[bold yellow]⏸️ Pausing Watch: {path}[/bold yellow]")
+            # Find watch by path or ID
+            all_watches = await service.list_watches()
+            matches = [w for w in all_watches if w.id == path or Path(w.path) == Path(path).resolve()]
+            
+            if not matches:
+                console.print(f"[red]❌ No watch found for: {path}[/red]")
+                raise typer.Exit(1)
+            
+            for watch in matches:
+                if await service.pause_watch(watch.id):
+                    console.print(f"[green]✅ Paused watch: {watch.path}[/green]")
+                else:
+                    console.print(f"[red]❌ Failed to pause watch: {watch.path}[/red]")
         else:
-            console.print("[red]❌ Must specify --all, --collection, or a path[/red]")
+            console.print("[red]❌ Must specify --all, --collection, or a path/watch ID[/red]")
             raise typer.Exit(1)
         
-        console.print("[yellow]🚧 Watch pausing is not yet implemented[/yellow]")
-        console.print("This feature will be implemented in Task 14: Library folder watching system")
-        
-        # Show what would happen
-        action = "All watches" if all else f"Watches for {collection}" if collection else f"Watch for {path}"
-        console.print(f"\n[dim]{action} would be paused (file monitoring stopped but configuration preserved)[/dim]")
+        console.print("\n[dim]File monitoring is stopped but configurations are preserved[/dim]")
+        console.print("Resume with: [green]wqm watch resume[/green]")
         
     except Exception as e:
         console.print(f"[red]❌ Failed to pause watches: {e}[/red]")
         raise typer.Exit(1)
 
+
 async def _resume_watches(path: Optional[str], collection: Optional[str], all: bool):
     """Resume watch configurations."""
     try:
+        service = await _get_watch_service()
+        
         if all:
             console.print("[bold green]▶️ Resuming All Watches[/bold green]")
+            await service.start_all_watches()
+            console.print("[green]✅ All watches resumed[/green]")
+            
         elif collection:
             console.print(f"[bold green]▶️ Resuming Watches for Collection: {collection}[/bold green]")
+            watches = await service.list_watches(collection=collection)
+            resumed_count = 0
+            for watch in watches:
+                if await service.resume_watch(watch.id):
+                    resumed_count += 1
+            console.print(f"[green]✅ Resumed {resumed_count} watch(es)[/green]")
+            
         elif path:
             console.print(f"[bold green]▶️ Resuming Watch: {path}[/bold green]")
+            # Find watch by path or ID
+            all_watches = await service.list_watches()
+            matches = [w for w in all_watches if w.id == path or Path(w.path) == Path(path).resolve()]
+            
+            if not matches:
+                console.print(f"[red]❌ No watch found for: {path}[/red]")
+                raise typer.Exit(1)
+            
+            for watch in matches:
+                if await service.resume_watch(watch.id):
+                    console.print(f"[green]✅ Resumed watch: {watch.path}[/green]")
+                else:
+                    console.print(f"[red]❌ Failed to resume watch: {watch.path}[/red]")
         else:
-            console.print("[red]❌ Must specify --all, --collection, or a path[/red]")
+            console.print("[red]❌ Must specify --all, --collection, or a path/watch ID[/red]")
             raise typer.Exit(1)
         
-        console.print("[yellow]🚧 Watch resuming is not yet implemented[/yellow]")
-        console.print("This feature will be implemented in Task 14: Library folder watching system")
-        
-        # Show what would happen
-        action = "All watches" if all else f"Watches for {collection}" if collection else f"Watch for {path}"
-        console.print(f"\n[dim]{action} would be resumed (file monitoring restarted)[/dim]")
+        console.print("\n[green]File monitoring restarted - new files will be automatically ingested[/green]")
         
     except Exception as e:
         console.print(f"[red]❌ Failed to resume watches: {e}[/red]")
         raise typer.Exit(1)
 
+
 async def _sync_watched_folders(path: Optional[str], dry_run: bool, force: bool):
     """Manually sync watched folders."""
     try:
+        service = await _get_watch_service()
+        
         if path:
             console.print(f"[bold blue]🔄 Syncing Watch: {path}[/bold blue]")
         else:
@@ -346,26 +483,45 @@ async def _sync_watched_folders(path: Optional[str], dry_run: bool, force: bool)
         if dry_run:
             console.print("[yellow]DRY RUN - No files will be processed[/yellow]")
         
-        console.print("[yellow]🚧 Watch syncing is not yet implemented[/yellow]")
-        console.print("This feature will be implemented in Task 14: Library folder watching system")
+        # Perform sync
+        results = await service.sync_watched_folders(path=path, dry_run=dry_run, force=force)
         
-        # Show what would happen
-        console.print("\n[dim]When implemented, sync will:[/dim]")
-        console.print("• Scan all watched directories for changes")
-        console.print("• Process new and modified files")
-        console.print("• Update collection indexes")
-        console.print("• Report processing results")
+        if 'error' in results:
+            console.print(f"[red]❌ {results['error']}[/red]")
+            raise typer.Exit(1)
         
-        if force:
-            console.print("• Re-process all files (not just changes)")
+        # Show results
+        total_processed = 0
+        total_errors = 0
         
-        # Current alternative
-        console.print(f"\n[bold blue]💡 Current Alternative[/bold blue]")
-        console.print("Use manual folder ingestion:")
-        if path:
-            console.print(f"  [green]wqm ingest folder \"{path}\" --collection=<library> --force[/green]")
+        for watch_id, result in results.items():
+            if result['success']:
+                stats = result['stats']
+                console.print(f"\n[green]✅ Watch {watch_id}:[/green] {result['message']}")
+                if stats:
+                    total_processed += stats.get('files_processed', 0)
+                    if stats.get('files_failed', 0) > 0:
+                        console.print(f"  [yellow]⚠️ {stats['files_failed']} files failed[/yellow]")
+                        total_errors += stats['files_failed']
+            else:
+                console.print(f"\n[red]❌ Watch {watch_id}:[/red] {result['message']}")
+                total_errors += 1
+        
+        # Summary
+        if dry_run:
+            console.print(f"\n[bold]📊 Sync Preview Summary[/bold]")
+            console.print(f"Would process {total_processed} files")
         else:
-            console.print("  [green]wqm ingest folder <path> --collection=<library> --force[/green]")
+            console.print(f"\n[bold]📊 Sync Summary[/bold]")
+            console.print(f"Processed {total_processed} files")
+        
+        if total_errors > 0:
+            console.print(f"Errors: {total_errors}")
+        
+        # Current alternative note
+        if not results:
+            console.print(f"\n[yellow]No watched folders found to sync[/yellow]")
+            console.print("Add watches with: [green]wqm watch add <path> --collection=<library>[/green]")
         
     except Exception as e:
         console.print(f"[red]❌ Failed to sync watches: {e}[/red]")
