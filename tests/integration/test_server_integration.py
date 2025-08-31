@@ -183,7 +183,7 @@ class TestServerIntegration:
             }
             mock_search.return_value = expected_result
 
-            result = await server.search_workspace_tool(
+            result = await server.search_workspace_tool.fn(
                 query="test query",
                 collections=["docs"],
                 mode="hybrid",
@@ -214,7 +214,7 @@ class TestServerIntegration:
             }
             mock_add_document.return_value = expected_result
 
-            result = await server.add_document_tool(
+            result = await server.add_document_tool.fn(
                 content="Test document content",
                 collection="docs",
                 metadata={"source": "test"},
@@ -245,7 +245,7 @@ class TestServerIntegration:
             }
             mock_get_document.return_value = expected_result
 
-            result = await server.get_document_tool(
+            result = await server.get_document_tool.fn(
                 document_id="doc123", collection="docs", include_vectors=False
             )
 
@@ -268,7 +268,7 @@ class TestServerIntegration:
             }
             mock_search_metadata.return_value = expected_result
 
-            result = await server.search_by_metadata_tool(
+            result = await server.search_by_metadata_tool.fn(
                 collection="docs", metadata_filter={"category": "python"}, limit=10
             )
 
@@ -292,7 +292,7 @@ class TestServerIntegration:
             }
             mock_update_scratchbook.return_value = expected_result
 
-            result = await server.update_scratchbook_tool(
+            result = await server.update_scratchbook_tool.fn(
                 content="Test note content",
                 note_id="note123",
                 title="Test Note",
@@ -327,7 +327,7 @@ class TestServerIntegration:
             )
             mock_scratchbook_manager_class.return_value = mock_manager
 
-            result = await server.search_scratchbook_tool(
+            result = await server.search_scratchbook_tool.fn(
                 query="python",
                 note_types=["note"],
                 tags=["programming"],
@@ -377,7 +377,7 @@ class TestServerIntegration:
             )
             mock_hybrid_engine_class.return_value = mock_engine
 
-            result = await server.hybrid_search_advanced_tool(
+            result = await server.hybrid_search_advanced_tool.fn(
                 query="test query",
                 collection="test_collection",
                 fusion_method="rrf",
@@ -414,7 +414,7 @@ class TestServerIntegration:
             "other_collection"
         ]
 
-        result = await server.hybrid_search_advanced_tool(
+        result = await server.hybrid_search_advanced_tool.fn(
             query="test query", collection="nonexistent_collection", limit=10
         )
 
@@ -428,19 +428,19 @@ class TestServerIntegration:
 
         # Test all tools that should return error when client not initialized
         tools_and_args = [
-            (server.search_workspace_tool, {"query": "test"}),
-            (server.add_document_tool, {"content": "test", "collection": "docs"}),
-            (server.get_document_tool, {"document_id": "doc1", "collection": "docs"}),
+            (server.search_workspace_tool.fn, {"query": "test"}),
+            (server.add_document_tool.fn, {"content": "test", "collection": "docs"}),
+            (server.get_document_tool.fn, {"document_id": "doc1", "collection": "docs"}),
             (
-                server.search_by_metadata_tool,
+                server.search_by_metadata_tool.fn,
                 {"collection": "docs", "metadata_filter": {}},
             ),
-            (server.update_scratchbook_tool, {"content": "test"}),
-            (server.search_scratchbook_tool, {"query": "test"}),
+            (server.update_scratchbook_tool.fn, {"content": "test"}),
+            (server.search_scratchbook_tool.fn, {"query": "test"}),
             (server.list_scratchbook_notes_tool, {}),
             (server.delete_scratchbook_note_tool, {"note_id": "note1"}),
             (
-                server.hybrid_search_advanced_tool,
+                server.hybrid_search_advanced_tool.fn,
                 {"query": "test", "collection": "docs"},
             ),
         ]
@@ -522,7 +522,7 @@ class TestServerIntegration:
             # The tool should catch and handle the exception gracefully
             # (This depends on implementation - some tools might let exceptions bubble up)
             try:
-                result = await server.search_workspace_tool(query="test")
+                result = await server.search_workspace_tool.fn(query="test")
                 # If the tool handles exceptions internally, check for error in result
                 if isinstance(result, dict) and "error" in result:
                     assert "error" in result
