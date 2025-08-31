@@ -6,13 +6,14 @@ use workspace_qdrant_core::DocumentProcessor;
 
 /// Ingestion service implementation
 pub struct IngestionService {
-    processor: DocumentProcessor,
+    // Note: processor will be used once gRPC methods are implemented
+    _processor: DocumentProcessor,
 }
 
 impl IngestionService {
     pub fn new() -> Self {
         Self {
-            processor: DocumentProcessor::new(),
+            _processor: DocumentProcessor::new(),
         }
     }
 }
