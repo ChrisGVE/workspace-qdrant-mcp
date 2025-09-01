@@ -1,18 +1,65 @@
-[![MseeP.ai Security Assessment Badge](https://mseep.net/pr/chrisgve-workspace-qdrant-mcp-badge.png)](https://mseep.ai/app/chrisgve-workspace-qdrant-mcp)
-
 # workspace-qdrant-mcp
 
-[![Python](https://img.shields.io/badge/Python-3.9%2B-blue.svg)](https://www.python.org/downloads/)
-[![License](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
-[![Qdrant](https://img.shields.io/badge/Qdrant-1.7%2B-red.svg)](https://qdrant.tech)
-[![FastMCP](https://img.shields.io/badge/FastMCP-0.3%2B-orange.svg)](https://github.com/jlowin/fastmcp)
-[![Verified on MseeP](https://mseep.ai/badge.svg)](https://mseep.ai/app/a89078ec-2323-4d6c-b93b-a9e2eace96f2)
+<div align="center">
 
 **Project-scoped Qdrant MCP server with hybrid search and configurable collections**
+
+[![PyPI version](https://badge.fury.io/py/workspace-qdrant-mcp.svg)](https://pypi.org/project/workspace-qdrant-mcp/)
+[![Python 3.10+](https://img.shields.io/badge/Python-3.10%2B-blue.svg)](https://www.python.org/downloads/)
+[![Downloads](https://pepy.tech/badge/workspace-qdrant-mcp)](https://pepy.tech/project/workspace-qdrant-mcp)
+[![License](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
+
+[![CI/CD Pipeline](https://github.com/ChrisGVE/workspace-qdrant-mcp/actions/workflows/ci.yml/badge.svg)](https://github.com/ChrisGVE/workspace-qdrant-mcp/actions/workflows/ci.yml)
+[![Quality Assurance](https://github.com/ChrisGVE/workspace-qdrant-mcp/actions/workflows/quality.yml/badge.svg)](https://github.com/ChrisGVE/workspace-qdrant-mcp/actions/workflows/quality.yml)
+[![Security Scan](https://github.com/ChrisGVE/workspace-qdrant-mcp/actions/workflows/security.yml/badge.svg)](https://github.com/ChrisGVE/workspace-qdrant-mcp/actions/workflows/security.yml)
+[![Codecov](https://codecov.io/gh/ChrisGVE/workspace-qdrant-mcp/branch/main/graph/badge.svg)](https://codecov.io/gh/ChrisGVE/workspace-qdrant-mcp)
+
+[![Qdrant](https://img.shields.io/badge/Qdrant-1.7%2B-red.svg)](https://qdrant.tech)
+[![FastMCP](https://img.shields.io/badge/FastMCP-0.3%2B-orange.svg)](https://github.com/jlowin/fastmcp)
+[![GitHub stars](https://img.shields.io/github/stars/ChrisGVE/workspace-qdrant-mcp.svg?style=social&label=Stars)](https://github.com/ChrisGVE/workspace-qdrant-mcp/stargazers)
+
+[![MseeP.ai Security Assessment](https://mseep.net/pr/chrisgve-workspace-qdrant-mcp-badge.png)](https://mseep.ai/app/chrisgve-workspace-qdrant-mcp)
+
+</div>
+
+---
 
 *Inspired by [claude-qdrant-mcp](https://github.com/marlian/claude-qdrant-mcp) with enhanced project detection, Python implementation, and flexible collection management.*
 
 workspace-qdrant-mcp provides intelligent vector database operations through the Model Context Protocol (MCP), featuring automatic project detection, hybrid search capabilities, and configurable collection management for seamless integration with Claude Desktop and Claude Code.
+
+## ✨ Key Features
+
+- 🏗️ **Auto Project Detection** - Smart workspace-scoped collections with Git repository awareness
+- 🔍 **Hybrid Search** - Combines semantic and keyword search with reciprocal rank fusion
+- 📝 **Scratchbook Collections** - Personal development journals for each project  
+- 🎯 **Subproject Support** - Git submodules with user-filtered collection creation
+- ⚙️ **Interactive Setup** - Guided configuration wizard with health checks
+- 🚀 **High Performance** - Rust-powered components with evidence-based benchmarks
+- 🛡️ **Enterprise Ready** - Comprehensive security scanning and quality assurance
+
+## Table of Contents
+
+- [✨ Key Features](#-key-features)
+- [Quick Start](#quick-start)
+- [Prerequisites](#prerequisites)  
+- [Installation](#installation)
+- [MCP Integration](#mcp-integration)
+- [Configuration](#configuration)
+- [Usage](#usage)
+- [CLI Tools](#cli-tools)
+- [Documentation](#documentation)
+- [Troubleshooting](#troubleshooting)
+- [Contributing](#contributing)
+- [License](#license)
+
+## Quick Start
+
+Get up and running in just a few minutes:
+
+1. **Install the package**: `uv tool install workspace-qdrant-mcp`
+2. **Run the setup wizard**: `workspace-qdrant-setup`
+3. **Start using with Claude**: The wizard configures everything automatically
 
 ## Prerequisites
 
@@ -363,6 +410,17 @@ wqutil workspace-status
 ```
 
 For detailed troubleshooting, see [API.md](API.md#troubleshooting).
+
+## Contributing
+
+We welcome contributions! Please see [CONTRIBUTING.md](CONTRIBUTING.md) for guidelines on:
+
+- Setting up the development environment
+- Running tests and benchmarks
+- Code style and quality requirements
+- Submitting pull requests
+
+For questions or discussions, please open an issue on GitHub.
 
 ## License
 
