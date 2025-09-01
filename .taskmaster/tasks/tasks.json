@@ -1390,7 +1390,7 @@
         "testStrategy": "Test ingestion of each supported file type. Verify metadata extraction works correctly. Compare CLI and MCP interface capabilities. Test error handling for corrupted files.",
         "priority": "high",
         "dependencies": [],
-        "status": "in-progress",
+        "status": "done",
         "subtasks": [
           {
             "id": 1,
@@ -1428,7 +1428,7 @@
             "title": "Implement ebook format support (EPUB/MOBI)",
             "description": "Create parsers for ebook formats (EPUB and MOBI) with metadata and content extraction capabilities.",
             "details": "Implement epub_parser.py and mobi_parser.py using ebooklib and other appropriate libraries. Extract book metadata (title, author, ISBN, publisher), chapter structure, and full text content. Handle different ebook versions and DRM-free content only.",
-            "status": "pending",
+            "status": "done",
             "dependencies": [
               "28.2"
             ],
@@ -1439,7 +1439,7 @@
             "title": "Implement code file support for programming languages",
             "description": "Create comprehensive parser for code files across all major programming languages with syntax detection and metadata extraction.",
             "details": "Implement code_parser.py with support for Python, JavaScript, Java, C++, Go, Rust, and other languages. Include syntax highlighting detection, function/class extraction, comment parsing, and file structure analysis. Use file extensions and content analysis for language detection.",
-            "status": "pending",
+            "status": "done",
             "dependencies": [
               "28.2"
             ],
@@ -1475,7 +1475,7 @@
             "title": "Testing and validation of all file type parsers",
             "description": "Comprehensive testing of all implemented file type parsers, error scenarios, and metadata extraction functionality.",
             "details": "Create test suite with sample files for each supported format (DOCX, PPTX, EPUB, MOBI, code files, HTML). Test metadata extraction accuracy, error handling for corrupted files, performance with large files, and CLI vs MCP interface parity. Include integration tests and edge case validation.",
-            "status": "pending",
+            "status": "done",
             "dependencies": [
               "28.7"
             ],
@@ -1619,7 +1619,7 @@
               "30.3"
             ],
             "details": "Replace existing Pipeline struct in processing.rs with PriorityPipeline that uses TaskManager. Refactor document processing methods to work with priority tasks. Add priority-aware batch processing that can be preempted. Implement task progress tracking and status reporting. Create processing context that maintains state during preemption. Add configuration for priority thresholds and preemption policies.",
-            "status": "pending",
+            "status": "in-progress",
             "testStrategy": "Test document processing with different priorities, pipeline preemption during batch operations, and processing state consistency"
           },
           {
@@ -1830,7 +1830,7 @@
     ],
     "metadata": {
       "created": "2025-08-30T10:40:15.806Z",
-      "updated": "2025-09-01T21:26:42.667Z",
+      "updated": "2025-09-01T21:31:37.722Z",
       "description": "Tasks for development context"
     }
   }
