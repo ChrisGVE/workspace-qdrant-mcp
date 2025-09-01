@@ -1,0 +1,128 @@
+name: Documentation Improvement
+description: Report issues or suggest improvements to documentation
+title: "[Docs]: "
+labels: ["documentation", "needs-triage"]
+assignees: []
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for helping improve our documentation! 
+        
+        Good documentation is essential for a great developer experience.
+
+  - type: dropdown
+    id: doc-type
+    attributes:
+      label: Documentation Type
+      description: What type of documentation needs improvement?
+      options:
+        - README.md
+        - API Documentation
+        - Installation Guide
+        - Configuration Guide
+        - Tutorial/Examples
+        - CLI Tool Documentation
+        - Code Comments/Docstrings
+        - Error Messages
+        - Other
+    validations:
+      required: true
+
+  - type: dropdown
+    id: issue-type
+    attributes:
+      label: Issue Type
+      description: What kind of documentation issue is this?
+      options:
+        - Missing information
+        - Incorrect/outdated information
+        - Unclear/confusing explanation
+        - Broken links or formatting
+        - Missing examples
+        - Poor organization/structure
+        - Typo/grammar error
+        - Accessibility issue
+        - Other
+    validations:
+      required: true
+
+  - type: textarea
+    id: current-problem
+    attributes:
+      label: Current Problem
+      description: What specific problem or confusion does the current documentation cause?
+      placeholder: "When I try to follow the documentation, I get confused because..."
+    validations:
+      required: true
+
+  - type: textarea
+    id: suggested-improvement
+    attributes:
+      label: Suggested Improvement
+      description: How could the documentation be improved?
+      placeholder: "The documentation could be improved by..."
+    validations:
+      required: true
+
+  - type: input
+    id: doc-location
+    attributes:
+      label: Document Location
+      description: URL or file path to the problematic documentation
+      placeholder: "https://github.com/user/repo/blob/main/README.md#section or docs/api.md"
+    validations:
+      required: false
+
+  - type: dropdown
+    id: audience
+    attributes:
+      label: Target Audience
+      description: Who would benefit most from this improvement?
+      options:
+        - New users/beginners
+        - Experienced users
+        - Developers integrating the tool
+        - System administrators
+        - All users
+        - Other
+    validations:
+      required: true
+
+  - type: textarea
+    id: context
+    attributes:
+      label: User Context
+      description: What were you trying to accomplish when you encountered this documentation issue?
+      placeholder: "I was trying to set up the MCP server for the first time when..."
+    validations:
+      required: false
+
+  - type: dropdown
+    id: priority
+    attributes:
+      label: Priority
+      description: How important is this improvement?
+      options:
+        - Low - Nice to have
+        - Medium - Somewhat important
+        - High - Blocks users from accomplishing tasks
+    validations:
+      required: true
+
+  - type: textarea
+    id: additional-context
+    attributes:
+      label: Additional Context
+      description: Any other context, screenshots, or examples that would help us understand the issue
+    validations:
+      required: false
+
+  - type: checkboxes
+    id: terms
+    attributes:
+      label: Code of Conduct
+      description: By submitting this issue, you agree to follow our Code of Conduct
+      options:
+        - label: I agree to follow this project's Code of Conduct
+          required: true
