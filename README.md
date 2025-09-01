@@ -10,6 +10,8 @@
 [![License](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
 
 [![CI/CD Pipeline](https://github.com/ChrisGVE/workspace-qdrant-mcp/actions/workflows/ci.yml/badge.svg)](https://github.com/ChrisGVE/workspace-qdrant-mcp/actions/workflows/ci.yml)
+[![Semantic Release](https://github.com/ChrisGVE/workspace-qdrant-mcp/actions/workflows/semantic-release.yml/badge.svg)](https://github.com/ChrisGVE/workspace-qdrant-mcp/actions/workflows/semantic-release.yml)
+[![Release Verification](https://github.com/ChrisGVE/workspace-qdrant-mcp/actions/workflows/release-verification.yml/badge.svg)](https://github.com/ChrisGVE/workspace-qdrant-mcp/actions/workflows/release-verification.yml)
 [![Quality Assurance](https://github.com/ChrisGVE/workspace-qdrant-mcp/actions/workflows/quality.yml/badge.svg)](https://github.com/ChrisGVE/workspace-qdrant-mcp/actions/workflows/quality.yml)
 [![Security Scan](https://github.com/ChrisGVE/workspace-qdrant-mcp/actions/workflows/security.yml/badge.svg)](https://github.com/ChrisGVE/workspace-qdrant-mcp/actions/workflows/security.yml)
 [![Codecov](https://codecov.io/gh/ChrisGVE/workspace-qdrant-mcp/branch/main/graph/badge.svg)](https://codecov.io/gh/ChrisGVE/workspace-qdrant-mcp)
@@ -360,6 +362,8 @@ workspace-qdrant-ingest /path/to/docs -c my-project --dry-run
 
 - **[API Reference](API.md)** - Complete MCP tools documentation
 - **[Contributing Guide](CONTRIBUTING.md)** - Development setup and guidelines
+- **[Release Process](docs/RELEASE_PROCESS.md)** - Automated releases and emergency procedures
+- **[Trusted Publishing Setup](docs/TRUSTED_PUBLISHING_SETUP.md)** - PyPI security configuration
 - **[Benchmarking](benchmarking/README.md)** - Performance testing and metrics
 
 ## Troubleshooting
@@ -410,6 +414,41 @@ wqutil workspace-status
 ```
 
 For detailed troubleshooting, see [API.md](API.md#troubleshooting).
+
+## 🚀 Release Process
+
+This project uses **fully automated semantic versioning** and PyPI publishing. Every commit to the main branch is analyzed for release necessity using conventional commits.
+
+### Automated Release Pipeline
+
+- **Semantic Analysis**: Commits analyzed for version impact (major/minor/patch)
+- **Cross-Platform Builds**: Automatic wheel building for Linux, macOS, Windows
+- **Comprehensive Testing**: TestPyPI validation before production release
+- **Security Scanning**: Dependency and vulnerability analysis
+- **Release Verification**: Multi-platform installation testing
+- **Emergency Rollback**: Automated rollback capabilities for critical issues
+
+### Commit Message Format
+
+```bash
+# Feature releases (minor version bump: 1.0.0 → 1.1.0)
+git commit -m "feat: add new hybrid search algorithm"
+
+# Bug fixes (patch version bump: 1.0.0 → 1.0.1)
+git commit -m "fix: resolve memory leak in document processing"
+
+# Breaking changes (major version bump: 1.0.0 → 2.0.0)
+git commit -m "feat!: redesign MCP tool interface
+
+BREAKING CHANGE: Tool parameters have changed."
+
+# No release (documentation, tests, chores)
+git commit -m "docs: update API examples"
+git commit -m "test: add integration tests"
+git commit -m "chore: update dependencies"
+```
+
+**📚 Documentation**: See [docs/RELEASE_PROCESS.md](docs/RELEASE_PROCESS.md) for complete release documentation and emergency procedures.
 
 ## Contributing
 
