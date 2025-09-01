@@ -1,0 +1,11 @@
+# Task ID: 34
+# Title: Create Docker publishing and deployment guides
+# Status: pending
+# Dependencies: None
+# Priority: medium
+# Description: Add Docker image publishing to Docker Hub with comprehensive deployment documentation
+# Details:
+Create Dockerfile for workspace-qdrant-mcp with multi-stage build: base image with Python/Rust, build stage for compilation, runtime stage minimal. Add docker-compose.yml examples for different scenarios: development (with Qdrant), production (external Qdrant), full stack (Qdrant + app). Implement Docker Hub publishing in GitHub Actions. Create deployment guides: Docker deployment with compose files, cloud deployment patterns (AWS ECS, GCP Cloud Run, Azure Container Instances), Kubernetes manifests, scaling guidance for large document sets. Include monitoring, backup, and recovery procedures.
+
+# Test Strategy:
+Build and test Docker images locally. Verify docker-compose examples work end-to-end. Test deployment guides on at least one cloud platform.

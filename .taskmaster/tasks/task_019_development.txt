@@ -1,0 +1,88 @@
+# Task ID: 19
+# Title: Fix Performance Tests Benchmark Execution
+# Status: done
+# Dependencies: None
+# Priority: high
+# Description: Resolve failing Performance Tests CI workflow by fixing benchmark execution, timeout issues, and result validation
+# Details:
+The Performance Tests workflow (benchmark.yml) is failing due to benchmark execution issues:
+1. Fix authoritative_benchmark.py execution in CI environment
+2. Resolve timeout issues in comprehensive benchmarks (15-minute limit)
+3. Fix benchmark result parsing and validation logic
+4. Ensure performance thresholds are properly validated
+5. Fix memory profiling execution issues
+6. Address any missing benchmark dependencies or data files
+7. Ensure benchmark artifacts are properly generated and uploaded
+The workflow runs three types of benchmarks: simple (skip-oss), comprehensive (with Qdrant), and large-scale (scheduled only).
+Implementation approach:
+- Test benchmark scripts locally to identify execution issues
+- Fix any missing dependencies for benchmark tools
+- Optimize benchmark execution time to fit within CI limits
+- Fix benchmark result parsing and validation code
+- Ensure proper error handling and graceful degradation for timeouts
+- Validate benchmark threshold comparison logic works correctly
+
+# Test Strategy:
+Run benchmark scripts locally to identify specific failure points. Test simple benchmark (skip-oss mode) first, then comprehensive with local Qdrant. Validate benchmark result parsing and threshold validation logic. Test timeout handling and graceful failure scenarios. Verify all benchmark artifacts are generated correctly and contain expected data.
+
+# Subtasks:
+## 1. Fix authoritative_benchmark.py import and path resolution issues [done]
+### Dependencies: None
+### Description: Resolve import errors in the authoritative benchmark script that prevent it from loading project modules in CI environment
+### Details:
+The benchmark script fails with 'No module named src' errors due to incorrect path calculation. Fix the path traversal logic in dev/benchmarks/tools/authoritative_benchmark.py to properly resolve project root for module imports. Ensure sys.path.insert works correctly in CI environment.
+
+## 2. Fix benchmark execution timeout handling and optimization [done]
+### Dependencies: 19.1
+### Description: Optimize benchmark execution time to fit within CI timeout limits (15 minutes for comprehensive, 30 minutes for large-scale)
+### Details:
+The comprehensive benchmark has a 15-minute timeout but may be running too slowly. Optimize the benchmark execution by reducing test query counts, limiting OSS project downloads, or implementing smart sampling. Ensure graceful handling when timeouts occur.
+
+## 3. Fix benchmark result parsing and validation logic [done]
+### Dependencies: 19.1
+### Description: Resolve issues with parsing benchmark output and validating results against performance thresholds
+### Details:
+The benchmark.yml workflow has Python code that parses benchmark output to validate completion and extract metrics. Fix the regex patterns and text parsing logic to correctly identify benchmark completion markers and extract performance metrics for threshold validation.
+
+## 4. Fix performance threshold validation against evidence-based standards [done]
+### Dependencies: 19.3
+### Description: Ensure benchmark results are properly validated against the defined performance thresholds in workflow environment variables
+### Details:
+The workflow defines performance thresholds (90% precision/recall for symbol/exact search, 84%/70% for semantic search) but the validation logic may not be correctly comparing actual results against these thresholds. Fix the threshold comparison logic in the workflow validation steps.
+
+## 5. Fix memory profiling execution issues [done]
+### Dependencies: 19.1, 19.2
+### Description: Resolve memory profiling failures in the large-scale benchmark job
+### Details:
+The large-scale benchmark uses 'python -m memory_profiler' but this may fail due to missing dependencies or incorrect usage. Add memory-profiler to dev dependencies in pyproject.toml and fix the memory profiling command execution in benchmark.yml.
+
+## 6. Fix missing benchmark dependencies and data file issues [done]
+### Dependencies: 19.5
+### Description: Ensure all required dependencies for benchmark execution are available in CI environment
+### Details:
+Benchmarks may fail due to missing dependencies like memory-profiler, psutil, or issues with test data file access. Review pyproject.toml dev dependencies and benchmark script requirements. Fix any missing packages or data file access issues.
+
+## 7. Fix benchmark artifact generation and upload issues [done]
+### Dependencies: 19.3, 19.4
+### Description: Ensure benchmark results are properly generated and uploaded as CI artifacts
+### Details:
+The workflow should generate benchmark output files and upload them as artifacts, but this may be failing due to missing files or incorrect paths. Fix the artifact paths and ensure all expected output files are generated correctly.
+
+## 8. Fix Qdrant service connectivity and health check issues [done]
+### Dependencies: None
+### Description: Resolve Qdrant service connection and health check failures in CI environment
+### Details:
+Based on BENCHMARK_CI_FIXES.md, health check endpoint was fixed from /health to /healthz, but there may be additional connectivity issues. Ensure Qdrant service starts correctly, health checks pass, and benchmark can connect to the service.
+
+## 9. Fix benchmark error handling and graceful degradation [done]
+### Dependencies: 19.2, 19.3
+### Description: Implement proper error handling for benchmark failures and timeout scenarios
+### Details:
+Benchmarks should handle errors gracefully and provide meaningful failure information. Add try-catch blocks around critical operations, implement timeout handling, and ensure partial results can be reported even when some benchmark components fail.
+
+## 10. Validate and test complete benchmark workflow end-to-end [done]
+### Dependencies: 19.1, 19.2, 19.3, 19.4, 19.5, 19.6, 19.7, 19.8, 19.9
+### Description: Perform comprehensive testing of the entire benchmark workflow to ensure all issues are resolved
+### Details:
+Run the complete benchmark workflow locally and verify it works end-to-end. Test all three benchmark types (simple, comprehensive, large-scale) and ensure results are properly generated, validated, and artifacts uploaded. Confirm the workflow meets all CI requirements.
+

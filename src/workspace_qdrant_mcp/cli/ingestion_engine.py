@@ -19,6 +19,7 @@ from ..core.client import QdrantWorkspaceClient
 from ..tools.documents import add_document
 from .parsers import (
     DocumentParser,
+    HtmlParser,
     MarkdownParser,
     PDFParser,
     TextParser,
@@ -122,6 +123,7 @@ class DocumentIngestionEngine:
             TextParser(),
             MarkdownParser(),
             PDFParser(),
+            HtmlParser(),
         ]
 
         # Content hash tracking for deduplication

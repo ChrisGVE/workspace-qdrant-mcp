@@ -1,0 +1,11 @@
+# Task ID: 37
+# Title: Implement environment-based configuration management
+# Status: pending
+# Dependencies: None
+# Priority: medium
+# Description: Add robust configuration system supporting multiple deployment environments with validation
+# Details:
+Enhance existing pydantic-settings configuration in src/workspace_qdrant_mcp/core/config.py. Add environment-specific configurations: development.env, staging.env, production.env. Implement configuration validation with clear error messages. Add configuration templates for different deployment scenarios: local development, cloud deployment, enterprise setup. Implement configuration hot-reload where safe. Add secrets management guidance using environment variables, HashiCorp Vault integration example, Kubernetes secrets patterns. Create configuration documentation with security best practices.
+
+# Test Strategy:
+Test configuration loading from different sources. Verify validation catches common errors. Test hot-reload functionality doesn't break running services.

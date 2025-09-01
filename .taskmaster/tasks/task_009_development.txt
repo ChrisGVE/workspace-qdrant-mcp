@@ -1,0 +1,17 @@
+# Task ID: 9
+# Title: Implement reserved collection naming system
+# Status: done
+# Dependencies: None
+# Priority: high
+# Description: Create the reserved collection naming architecture with memory collection, underscore-prefixed libraries, and project collections
+# Details:
+- Implement memory collection as pure knowledge graph
+- Create underscore-prefixed library collections (_name pattern)
+- Prevent MCP server modification of library collections (readonly from MCP)
+- Build collection conflict prevention (hard error for naming conflicts)
+- Display library collections without underscore prefix to users
+- Implement project collection auto-creation based on directory detection
+- Add collection validation and error handling
+
+# Test Strategy:
+

@@ -1,0 +1,18 @@
+# Task ID: 10
+# Title: Design unified CLI with wqm command structure
+# Status: done
+# Dependencies: None
+# Priority: high
+# Description: Replace current CLI commands with unified wqm interface covering all domains (memory, admin, ingest, search, library, watch)
+# Details:
+- Design complete wqm command structure with domains
+- Implement wqm memory (rule management, tokens, trim, future --web)
+- Implement wqm admin (status, config, engine lifecycle)
+- Implement wqm ingest (file, folder, yaml, web processing)
+- Implement wqm search (project, collection, global, all contexts)
+- Implement wqm library (readonly collection management)
+- Implement wqm watch (library folder watching, NOT projects)
+- Update all documentation and help systems
+
+# Test Strategy:
+

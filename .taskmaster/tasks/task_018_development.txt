@@ -1,0 +1,70 @@
+# Task ID: 18
+# Title: Fix Integration Tests Environment Setup
+# Status: done
+# Dependencies: None
+# Priority: high
+# Description: Resolve failing Integration Tests CI workflow by fixing FastMCP FunctionTool integration issues, service connectivity problems, and test execution failures
+# Details:
+Root cause analysis revealed specific integration test failures:
+
+**PRIMARY ISSUE - FastMCP FunctionTool Integration:**
+1. Tests importing @app.tool() decorated functions receive FunctionTool objects, not callable functions
+2. Need to use `.fn` attribute to access original function: `await workspace_status.fn()` instead of `await workspace_status()`
+3. All MCP integration tests affected by this pattern
+
+**SECONDARY ISSUES:**
+4. Empty result sets - Tests expect meaningful data but getting 0 results from service calls
+5. Performance benchmark failures - Timing-based tests failing due to mocked services not behaving realistically
+6. Service connectivity and data setup problems in CI environment
+7. Environment variable configuration issues (QDRANT_URL, etc.)
+8. Service readiness timing issues
+
+**SYSTEMATIC FIX APPROACH:**
+- Fix all FastMCP FunctionTool calls to use .fn attribute
+- Review and fix service connectivity and health check timing
+- Ensure proper test environment setup and data initialization
+- Add retry logic for service dependency connections
+- Validate all integration test markers and fixtures work correctly
+
+# Test Strategy:
+Run integration tests locally with Docker Qdrant service to reproduce CI environment. Test FastMCP FunctionTool calls with .fn attribute access. Verify service connection and health check logic works correctly. Test meaningful data setup and result validation. Run pytest tests/functional/ with proper environment variables. Validate test isolation and cleanup between test runs.
+
+# Subtasks:
+## 1. Fix FastMCP FunctionTool integration pattern [done]
+### Dependencies: None
+### Description: Update all integration tests to properly call FastMCP @app.tool() decorated functions using .fn attribute
+### Details:
+<info added on 2025-08-31T17:36:47.659Z>
+Successfully fixed the primary FastMCP FunctionTool integration issue in all affected test files. Updated all MCP tool calls to use .fn attribute including workspace_status.fn(), list_workspace_collections.fn(), add_document_tool.fn(), get_document_tool.fn(), search_workspace_tool.fn(), and hybrid_search_advanced_tool.fn(). This resolves the main 'FunctionTool object is not callable' errors that were blocking integration test execution.
+</info added on 2025-08-31T17:36:47.659Z>
+
+## 2. Audit and fix workspace_status function calls [done]
+### Dependencies: None
+### Description: Change all instances of 'await workspace_status()' to 'await workspace_status.fn()' in integration tests
+### Details:
+
+
+## 3. Fix other MCP tool function calls [done]
+### Dependencies: None
+### Description: Identify and fix all other FastMCP tool function calls that need .fn attribute access pattern
+### Details:
+
+
+## 4. Resolve empty result set issues [done]
+### Dependencies: None
+### Description: Debug and fix why tests are getting 0 results instead of meaningful data from service calls
+### Details:
+
+
+## 5. Fix performance benchmark test failures [done]
+### Dependencies: None
+### Description: Address timing-based test failures caused by mocked services not behaving realistically
+### Details:
+
+
+## 6. Validate service connectivity in CI [done]
+### Dependencies: None
+### Description: Ensure Qdrant service connectivity and health checks work properly in CI environment
+### Details:
+
+

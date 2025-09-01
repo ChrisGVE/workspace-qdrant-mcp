@@ -1,0 +1,11 @@
+# Task ID: 22
+# Title: Create SECURITY.md file
+# Status: done
+# Dependencies: None
+# Priority: high
+# Description: Add security policy file with vulnerability reporting process and security guidelines
+# Details:
+Create SECURITY.md following GitHub security advisory format. Include: vulnerability reporting process with contact email, supported versions policy, security best practices for users, handling of security issues, response timeline commitments. Reference existing security workflow at .github/workflows/security.yml. Include guidance on secure deployment configurations, API key management, and network security. Add links to security scanning reports and MseeP.ai badge already present in README.
+
+# Test Strategy:
+Verify SECURITY.md renders properly on GitHub. Confirm all contact methods work. Test link references to security workflows are valid.
