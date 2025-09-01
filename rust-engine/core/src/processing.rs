@@ -294,7 +294,7 @@ impl Pipeline {
             lock.take().expect("Task receiver should be available")
         };
         
-        let mut cleanup_interval = tokio::time::interval(Duration::from_secs(1));
+        let mut cleanup_interval = tokio::time::interval(Duration::from_millis(100));
         
         loop {
             tokio::select! {
@@ -323,9 +323,15 @@ impl Pipeline {
                     }
                 }
                 
-                // Periodic cleanup of completed tasks
+                // Periodic cleanup and task starting
                 _ = cleanup_interval.tick() => {
                     Self::cleanup_completed_tasks(&running_tasks).await;
+                    // Try to start more tasks after cleanup
+                    Self::try_start_queued_tasks(
+                        &task_queue,
+                        &running_tasks,
+                        max_concurrent,
+                    ).await;
                 }
             }
         }
@@ -435,6 +441,9 @@ impl Pipeline {
         let payload = task.payload;
         let result_sender = task.result_sender;
         
+        let running_tasks_clone = Arc::clone(running_tasks);
+        let task_id_for_cleanup = task_id;
+        
         let handle = tokio::spawn(async move {
             let start_time = Instant::now();
             
@@ -467,6 +476,12 @@ impl Pipeline {
             
             // Send result back to caller
             let _ = result_sender.send(result.clone());
+            
+            // Remove from running tasks when complete
+            {
+                let mut running_lock = running_tasks_clone.write().await;
+                running_lock.remove(&task_id_for_cleanup);
+            }
             
             result
         });
