@@ -61,11 +61,11 @@ pub enum TaskSource {
 }
 
 /// Task execution result
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum TaskResult {
     /// Task completed successfully
     Success { 
-        execution_time: Duration,
+        execution_time_ms: u64,
         data: TaskResultData,
     },
     /// Task was cancelled/preempted
@@ -73,10 +73,10 @@ pub enum TaskResult {
     /// Task failed with error
     Error { 
         error: String,
-        execution_time: Duration,
+        execution_time_ms: u64,
     },
     /// Task timed out
-    Timeout { timeout_duration: Duration },
+    Timeout { timeout_duration_ms: u64 },
 }
 
 /// Specific data returned by task execution
@@ -137,7 +137,7 @@ pub struct PriorityTask {
 }
 
 /// The actual work to be performed by a task
-#[derive(Debug)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum TaskPayload {
     /// Process a document file
     ProcessDocument {
@@ -521,12 +521,12 @@ impl Pipeline {
                 result = Self::execute_task_payload(payload, &context_for_task) => {
                     match result {
                         Ok(data) => TaskResult::Success {
-                            execution_time: start_time.elapsed(),
+                            execution_time_ms: start_time.elapsed().as_millis() as u64,
                             data,
                         },
                         Err(error) => TaskResult::Error {
                             error: error.to_string(),
-                            execution_time: start_time.elapsed(),
+                            execution_time_ms: start_time.elapsed().as_millis() as u64,
                         },
                     }
                 }
@@ -537,9 +537,7 @@ impl Pipeline {
                 }
                 _ = Self::timeout_future(&context_for_task) => {
                     TaskResult::Timeout {
-                        timeout_duration: Duration::from_millis(
-                            context_for_task.timeout_ms.unwrap_or(30_000)
-                        ),
+                        timeout_duration_ms: context_for_task.timeout_ms.unwrap_or(30_000),
                     }
                 }
             };
