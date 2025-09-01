@@ -18,6 +18,11 @@ from ..core.watch_config import (
     WatchConfigurationPersistent,
 )
 from ..core.persistent_file_watcher import PersistentWatchManager
+from ..core.watch_validation import (
+    WatchPathValidator,
+    WatchErrorRecovery,
+    WatchHealthMonitor,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -35,6 +40,8 @@ class WatchToolsManager:
         self.workspace_client = workspace_client
         self.config_manager = PersistentWatchConfigManager()
         self.persistent_watch_manager = PersistentWatchManager(self.config_manager)
+        self.error_recovery = WatchErrorRecovery()
+        self.health_monitor = WatchHealthMonitor(self.error_recovery)
         self._initialized = False
     
     async def initialize(self) -> Dict[str, Any]:
@@ -82,6 +89,13 @@ class WatchToolsManager:
             # Initialize the persistent watch manager
             init_results = await self.persistent_watch_manager.initialize()
             
+            # Start health monitoring
+            try:
+                await self.health_monitor.start_monitoring()
+                logger.info("Started watch health monitoring")
+            except Exception as e:
+                logger.error(f"Failed to start health monitoring: {e}")
+            
             self._initialized = True
             return init_results
             
@@ -121,29 +135,21 @@ class WatchToolsManager:
             dict: Result of the add operation with success status and details
         """
         try:
-            # Validate path
+            # Comprehensive path validation
             watch_path = Path(path).resolve()
-            if not watch_path.exists():
+            validation_result = WatchPathValidator.validate_watch_path(watch_path)
+            
+            if not validation_result.valid:
                 return {
                     "success": False,
-                    "error": f"Path does not exist: {path}",
-                    "error_type": "path_not_found"
+                    "error": validation_result.error_message,
+                    "error_type": validation_result.error_code,
+                    "validation_details": validation_result.to_dict()
                 }
             
-            if not watch_path.is_dir():
-                return {
-                    "success": False,
-                    "error": f"Path is not a directory: {path}",
-                    "error_type": "invalid_path_type"
-                }
-            
-            # Check if path is readable
-            if not watch_path.is_readable():
-                return {
-                    "success": False,
-                    "error": f"Path is not readable: {path}",
-                    "error_type": "permission_denied"
-                }
+            # Log any validation warnings
+            if validation_result.warnings:
+                logger.warning(f"Validation warnings for path {path}: {', '.join(validation_result.warnings)}")
             
             # Validate collection exists
             available_collections = await self.workspace_client.list_collections()
@@ -221,6 +227,9 @@ class WatchToolsManager:
                     "error_type": "save_error"
                 }
             
+            # Register with health monitor
+            self.health_monitor.register_watch(watch_id, watch_path)
+            
             # Start the watch if auto_ingest is enabled
             if auto_ingest and self._initialized:
                 try:
@@ -229,6 +238,7 @@ class WatchToolsManager:
                 except Exception as e:
                     logger.warning(f"Failed to start watch {watch_id}: {e}")
                     # Don't fail the add operation if starting fails
+                    # Let error recovery handle this later
             
             return {
                 "success": True,
@@ -648,5 +658,14 @@ class WatchToolsManager:
     async def cleanup(self) -> None:
         """Clean up resources."""
         if self._initialized:
+            # Stop health monitoring
+            try:
+                await self.health_monitor.stop_monitoring()
+                logger.info("Stopped watch health monitoring")
+            except Exception as e:
+                logger.error(f"Error stopping health monitoring: {e}")
+            
+            # Clean up watch manager
             await self.persistent_watch_manager.cleanup()
+        
         self._initialized = False
