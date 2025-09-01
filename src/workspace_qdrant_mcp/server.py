@@ -57,6 +57,7 @@ from .tools.memory import register_memory_tools
 from .tools.research import research_workspace as research_workspace_impl
 from .tools.scratchbook import ScratchbookManager, update_scratchbook
 from .tools.search import search_collection_by_metadata, search_workspace
+from .tools.watch_management import WatchToolsManager
 from .utils.config_validator import ConfigValidator
 
 # Initialize logging
@@ -67,6 +68,7 @@ app = FastMCP("workspace-qdrant-mcp")
 
 # Global client instance
 workspace_client: QdrantWorkspaceClient | None = None
+watch_tools_manager: WatchToolsManager | None = None
 
 
 class ServerInfo(BaseModel):
@@ -482,6 +484,247 @@ async def hybrid_search_advanced_tool(
         return {"error": f"Advanced hybrid search failed: {e}"}
 
 
+@app.tool()
+async def add_watch_folder(
+    path: str,
+    collection: str,
+    patterns: list[str] = None,
+    ignore_patterns: list[str] = None,
+    auto_ingest: bool = True,
+    recursive: bool = True,
+    recursive_depth: int = -1,
+    debounce_seconds: int = 5,
+    update_frequency: int = 1000,
+    watch_id: str = None,
+) -> dict:
+    """
+    Add a persistent folder watch for automatic document ingestion.
+    
+    Creates a persistent watch configuration that survives server restarts.
+    The watch monitors the specified directory for file changes and automatically
+    ingests matching documents into the target collection.
+    
+    Args:
+        path: Directory path to watch (must exist and be readable)
+        collection: Target Qdrant collection for ingested files
+        patterns: File patterns to include (default: ["*.pdf", "*.epub", "*.txt", "*.md", "*.docx", "*.rtf"])
+        ignore_patterns: File patterns to ignore (default: common system files)
+        auto_ingest: Enable automatic ingestion of matched files
+        recursive: Watch subdirectories recursively
+        recursive_depth: Maximum depth for recursive watching (-1 for unlimited)
+        debounce_seconds: Delay before processing file changes (1-300 seconds)
+        update_frequency: File system check frequency in milliseconds (100-10000)
+        watch_id: Custom watch identifier (auto-generated if not provided)
+        
+    Returns:
+        dict: Result with success status, watch configuration, and error details if failed
+            
+    Example:
+        ```python
+        # Add watch for documents folder
+        result = await add_watch_folder(
+            path="/home/user/Documents",
+            collection="my-project",
+            patterns=["*.pdf", "*.docx"],
+            recursive=True,
+            debounce_seconds=10
+        )
+        
+        # Add watch with custom settings
+        result = await add_watch_folder(
+            path="/project/research",
+            collection="research-docs",
+            recursive_depth=2,
+            auto_ingest=True,
+            watch_id="research-watch"
+        )
+        ```
+    """
+    if not workspace_client or not watch_tools_manager:
+        return {"error": "Watch management not initialized"}
+        
+    return await watch_tools_manager.add_watch_folder(
+        path=path,
+        collection=collection,
+        patterns=patterns,
+        ignore_patterns=ignore_patterns,
+        auto_ingest=auto_ingest,
+        recursive=recursive,
+        recursive_depth=recursive_depth,
+        debounce_seconds=debounce_seconds,
+        update_frequency=update_frequency,
+        watch_id=watch_id,
+    )
+
+
+@app.tool()
+async def remove_watch_folder(watch_id: str) -> dict:
+    """
+    Remove a persistent folder watch configuration.
+    
+    Permanently removes the specified watch configuration from persistent storage.
+    Any active file watching for this configuration will be stopped.
+    
+    Args:
+        watch_id: Unique identifier of the watch to remove
+        
+    Returns:
+        dict: Result with success status and removed watch details
+        
+    Example:
+        ```python
+        # Remove a specific watch
+        result = await remove_watch_folder("research-watch")
+        if result["success"]:
+            print(f"Removed watch for: {result['removed_path']}")
+        ```
+    """
+    if not workspace_client or not watch_tools_manager:
+        return {"error": "Watch management not initialized"}
+        
+    return await watch_tools_manager.remove_watch_folder(watch_id)
+
+
+@app.tool()
+async def list_watched_folders(
+    active_only: bool = False,
+    collection: str = None,
+    include_stats: bool = True,
+) -> dict:
+    """
+    List all configured persistent folder watches.
+    
+    Returns detailed information about all watch configurations including
+    status, statistics, validation results, and configuration details.
+    
+    Args:
+        active_only: Only return active watches (exclude paused/error/disabled)
+        collection: Filter by specific collection name
+        include_stats: Include processing statistics (files processed, errors)
+        
+    Returns:
+        dict: List of watches with summary statistics and configuration details
+        
+    Example:
+        ```python
+        # List all watches
+        result = await list_watched_folders()
+        print(f"Total watches: {result['summary']['total_watches']}")
+        
+        # List only active watches for specific collection
+        result = await list_watched_folders(
+            active_only=True,
+            collection="my-project"
+        )
+        ```
+    """
+    if not workspace_client or not watch_tools_manager:
+        return {"error": "Watch management not initialized"}
+        
+    return await watch_tools_manager.list_watched_folders(
+        active_only=active_only,
+        collection=collection,
+        include_stats=include_stats,
+    )
+
+
+@app.tool()
+async def configure_watch_settings(
+    watch_id: str,
+    patterns: list[str] = None,
+    ignore_patterns: list[str] = None,
+    auto_ingest: bool = None,
+    recursive: bool = None,
+    recursive_depth: int = None,
+    debounce_seconds: int = None,
+    update_frequency: int = None,
+    status: str = None,
+) -> dict:
+    """
+    Configure settings for an existing persistent folder watch.
+    
+    Updates configuration for an existing watch with validation and persistence.
+    Only specified parameters are updated; others remain unchanged.
+    
+    Args:
+        watch_id: Unique identifier of the watch to configure
+        patterns: New file patterns to include (optional)
+        ignore_patterns: New file patterns to ignore (optional)
+        auto_ingest: Enable/disable automatic ingestion (optional)
+        recursive: Enable/disable recursive watching (optional)
+        recursive_depth: Set maximum recursive depth (optional)
+        debounce_seconds: Set debounce delay in seconds (optional)
+        update_frequency: Set check frequency in milliseconds (optional)
+        status: Set watch status: 'active', 'paused', 'disabled' (optional)
+        
+    Returns:
+        dict: Result with success status, changes made, and updated configuration
+        
+    Example:
+        ```python
+        # Pause a watch
+        result = await configure_watch_settings(
+            watch_id="research-watch",
+            status="paused"
+        )
+        
+        # Update patterns and debounce settings
+        result = await configure_watch_settings(
+            watch_id="docs-watch",
+            patterns=["*.pdf", "*.epub"],
+            debounce_seconds=15
+        )
+        ```
+    """
+    if not workspace_client or not watch_tools_manager:
+        return {"error": "Watch management not initialized"}
+        
+    return await watch_tools_manager.configure_watch_settings(
+        watch_id=watch_id,
+        patterns=patterns,
+        ignore_patterns=ignore_patterns,
+        auto_ingest=auto_ingest,
+        recursive=recursive,
+        recursive_depth=recursive_depth,
+        debounce_seconds=debounce_seconds,
+        update_frequency=update_frequency,
+        status=status,
+    )
+
+
+@app.tool()
+async def get_watch_status(watch_id: str = None) -> dict:
+    """
+    Get detailed status information for folder watches.
+    
+    Provides comprehensive status including configuration validation,
+    path existence checks, and runtime information for watches.
+    
+    Args:
+        watch_id: Specific watch ID to get status for (optional, gets all if None)
+        
+    Returns:
+        dict: Detailed status information with validation and runtime data
+        
+    Example:
+        ```python
+        # Get status for all watches
+        result = await get_watch_status()
+        
+        # Get status for specific watch
+        result = await get_watch_status("research-watch")
+        if result["success"]:
+            status = result["status"]
+            print(f"Valid config: {status['validation']['valid']}")
+            print(f"Path exists: {status['path_exists']}")
+        ```
+    """
+    if not workspace_client or not watch_tools_manager:
+        return {"error": "Watch management not initialized"}
+        
+    return await watch_tools_manager.get_watch_status(watch_id)
+
+
 async def cleanup_workspace() -> None:
     """Clean up workspace resources on server shutdown.
 
@@ -554,7 +797,7 @@ async def initialize_workspace() -> None:
         await initialize_workspace()
         ```
     """
-    global workspace_client
+    global workspace_client, watch_tools_manager
 
     # Load configuration
     config = Config()
@@ -581,6 +824,9 @@ async def initialize_workspace() -> None:
     # Initialize collections for current project
     await workspace_client.initialize()
 
+    # Initialize watch tools manager
+    watch_tools_manager = WatchToolsManager(workspace_client)
+    
     # Register memory tools with the MCP app
     register_memory_tools(app)
 
