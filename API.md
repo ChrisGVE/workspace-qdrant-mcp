@@ -1406,3 +1406,504 @@ GET /openapi.json
 ```
 
 This specification can be used to generate client libraries in any language or imported into API testing tools like Postman or Insomnia.
+
+## Troubleshooting and FAQ
+
+Comprehensive solutions for common issues and deployment challenges.
+
+### Installation and Setup Issues
+
+#### Q: Qdrant connection fails with "Connection refused" error
+**Problem:** Cannot connect to Qdrant server
+```bash
+QdrantConnectionError: Connection refused at http://localhost:6333
+```
+
+**Solutions:**
+1. **Check Qdrant Server Status**
+   ```bash
+   # Using Docker (recommended)
+   docker run -p 6333:6333 -p 6334:6334 qdrant/qdrant
+   
+   # Or check if running
+   curl http://localhost:6333/health
+   ```
+
+2. **Verify Configuration**
+   ```python
+   # Check environment variables
+   import os
+   print(f"QDRANT_URL: {os.getenv('QDRANT_URL', 'http://localhost:6333')}")
+   print(f"QDRANT_API_KEY: {'SET' if os.getenv('QDRANT_API_KEY') else 'NOT_SET'}")
+   ```
+
+3. **Network Troubleshooting**
+   ```bash
+   # Check port availability
+   netstat -an | grep 6333
+   
+   # Test with telnet
+   telnet localhost 6333
+   ```
+
+#### Q: MCP server fails to start with import errors
+**Problem:** Missing dependencies or incorrect Python environment
+```bash
+ModuleNotFoundError: No module named 'sentence_transformers'
+```
+
+**Solutions:**
+1. **Virtual Environment Setup**
+   ```bash
+   python -m venv workspace-qdrant-env
+   source workspace-qdrant-env/bin/activate  # Linux/Mac
+   # or
+   workspace-qdrant-env\Scripts\activate     # Windows
+   
+   pip install workspace-qdrant-mcp
+   ```
+
+2. **Dependency Resolution**
+   ```bash
+   # Install with all optional dependencies
+   pip install "workspace-qdrant-mcp[full]"
+   
+   # Or specific components
+   pip install "workspace-qdrant-mcp[parsers,web]"
+   ```
+
+3. **Claude Desktop Configuration**
+   ```json
+   {
+     "mcpServers": {
+       "workspace-qdrant-mcp": {
+         "command": "/path/to/workspace-qdrant-env/bin/python",
+         "args": ["-m", "workspace_qdrant_mcp"],
+         "env": {
+           "PYTHONPATH": "/path/to/workspace-qdrant-env/lib/python3.11/site-packages"
+         }
+       }
+     }
+   }
+   ```
+
+### Performance Issues
+
+#### Q: Search queries are slow (>5 seconds)
+**Problem:** Poor search performance, especially with large collections
+
+**Diagnostic Steps:**
+```python
+# Check collection statistics
+result = await mcp_call("workspace_status")
+for collection in result["collections"]:
+    print(f"Collection: {collection['name']}")
+    print(f"  Documents: {collection.get('document_count', 'unknown')}")
+    print(f"  Size: {collection.get('size_mb', 'unknown')} MB")
+```
+
+**Solutions:**
+1. **Collection Optimization**
+   ```python
+   # Split large collections
+   if collection_size > 100000:
+       # Split by date, category, or content type
+       await split_collection_by_metadata("large-collection", "created_year")
+   ```
+
+2. **Index Configuration**
+   ```python
+   # Optimize HNSW parameters for your data
+   hnsw_config = {
+       "m": 16,  # Number of bi-directional links for each node
+       "ef_construct": 200,  # Size of dynamic candidate list
+       "full_scan_threshold": 10000
+   }
+   ```
+
+3. **Hardware Scaling**
+   ```bash
+   # Monitor resource usage
+   top -p $(pgrep -f qdrant)
+   iostat -x 1
+   
+   # Scale Qdrant resources
+   docker run -p 6333:6333 --memory=8g --cpus=4 qdrant/qdrant
+   ```
+
+#### Q: High memory usage during document ingestion
+**Problem:** Memory consumption spikes when processing large documents
+
+**Solutions:**
+1. **Batch Processing Configuration**
+   ```python
+   # Reduce batch size for large documents
+   ingestion_config = {
+       "batch_size": 10,  # Default: 50
+       "chunk_size": 500,  # Default: 1000
+       "chunk_overlap": 50,  # Default: 100
+       "max_file_size_mb": 25  # Default: 50
+   }
+   ```
+
+2. **Memory-Efficient Processing**
+   ```python
+   # Process documents sequentially for large files
+   for large_document in large_documents:
+       await mcp_call("add_document", {
+           "content": large_document,
+           "collection": "large-docs",
+           "metadata": {"processing_mode": "sequential"}
+       })
+       # Allow garbage collection between documents
+       import gc
+       gc.collect()
+   ```
+
+3. **Streaming Ingestion**
+   ```python
+   # Use streaming for very large files
+   async def stream_large_document(file_path, collection):
+       with open(file_path, 'rb') as f:
+           chunk_size = 1024 * 1024  # 1MB chunks
+           document_id = None
+           
+           while chunk := f.read(chunk_size):
+               if document_id is None:
+                   # Create document with first chunk
+                   result = await mcp_call("add_document", {
+                       "content": chunk,
+                       "collection": collection
+                   })
+                   document_id = result["document_id"]
+               else:
+                   # Append to existing document
+                   await mcp_call("update_document", {
+                       "document_id": document_id,
+                       "content": chunk,
+                       "collection": collection,
+                       "append": True
+                   })
+   ```
+
+### File Processing Issues
+
+#### Q: PDF parsing fails with "Unsupported format" error
+**Problem:** Some PDF files cannot be processed
+
+**Solutions:**
+1. **PDF Format Validation**
+   ```python
+   # Check PDF integrity
+   import PyPDF2
+   try:
+       with open("problem.pdf", "rb") as f:
+           reader = PyPDF2.PdfReader(f)
+           print(f"Pages: {len(reader.pages)}")
+           print(f"Encrypted: {reader.is_encrypted}")
+   except Exception as e:
+       print(f"PDF issue: {e}")
+   ```
+
+2. **Alternative Parsing Methods**
+   ```python
+   # Configure fallback parsers
+   parser_config = {
+       "pdf_parser": "pymupdf",  # Try: "pdfplumber", "pymupdf", "pypdf2"
+       "fallback_enabled": True,
+       "ocr_enabled": True,  # For scanned PDFs
+       "extract_images": False  # Disable for faster processing
+   }
+   ```
+
+3. **Manual Processing**
+   ```python
+   # Extract text manually and add
+   import fitz  # PyMuPDF
+   doc = fitz.open("problem.pdf")
+   text = ""
+   for page in doc:
+       text += page.get_text()
+   
+   await mcp_call("add_document", {
+       "content": text,
+       "collection": "manual-pdfs",
+       "metadata": {"source": "manual_extraction"}
+   })
+   ```
+
+#### Q: Code files not properly parsed or indexed
+**Problem:** Programming language files missing functions/classes
+
+**Solutions:**
+1. **Verify Language Support**
+   ```python
+   # Check supported extensions
+   supported_extensions = [
+       ".py", ".js", ".ts", ".java", ".cpp", ".c",
+       ".go", ".rs", ".rb", ".php", ".css", ".sql"
+   ]
+   ```
+
+2. **Enhanced Code Parsing**
+   ```python
+   # Enable advanced code analysis
+   code_config = {
+       "extract_functions": True,
+       "extract_classes": True,
+       "extract_docstrings": True,
+       "analyze_imports": True,
+       "include_comments": False
+   }
+   
+   await mcp_call("add_document", {
+       "content": code_content,
+       "collection": "codebase",
+       "metadata": {"parser_config": code_config}
+   })
+   ```
+
+### Search and Query Issues
+
+#### Q: Search returns no results for known content
+**Problem:** Documents exist but queries return empty results
+
+**Diagnostic Steps:**
+```python
+# Verify document existence
+result = await mcp_call("search_collection_by_metadata", {
+    "collection": "my-collection",
+    "metadata_filter": {},
+    "limit": 5
+})
+print(f"Total documents in collection: {result.get('total_found', 0)}")
+
+# Test different search modes
+modes = ["exact", "semantic", "hybrid", "symbol"]
+for mode in modes:
+    result = await mcp_call("search_workspace", {
+        "query": "your search term",
+        "mode": mode,
+        "collections": ["my-collection"]
+    })
+    print(f"{mode}: {len(result.get('results', []))} results")
+```
+
+**Solutions:**
+1. **Embedding Model Issues**
+   ```python
+   # Check embedding model status
+   result = await mcp_call("workspace_status")
+   print(f"Embedding model: {result.get('embedding_model', 'unknown')}")
+   
+   # Regenerate embeddings if needed
+   await mcp_call("admin_tools", {
+       "action": "regenerate_embeddings",
+       "collection": "problematic-collection"
+   })
+   ```
+
+2. **Query Reformulation**
+   ```python
+   # Try variations of your search
+   search_variations = [
+       "exact phrase from document",
+       "key concepts only",
+       "broader topic area",
+       "specific technical terms"
+   ]
+   ```
+
+3. **Index Corruption Recovery**
+   ```python
+   # Rebuild collection if corrupted
+   await mcp_call("admin_tools", {
+       "action": "rebuild_collection",
+       "collection": "corrupted-collection",
+       "preserve_metadata": True
+   })
+   ```
+
+### File Watching Issues
+
+#### Q: File watcher not detecting changes
+**Problem:** Added/modified files not automatically processed
+
+**Solutions:**
+1. **Watch Status Verification**
+   ```python
+   # Check active watches
+   result = await mcp_call("watch_management", {
+       "action": "list_watches"
+   })
+   
+   for watch in result["watches"]:
+       print(f"Watch {watch['id']}: {watch['status']}")
+       print(f"  Path: {watch['path']}")
+       print(f"  Last activity: {watch.get('last_activity', 'never')}")
+   ```
+
+2. **Permission and Path Issues**
+   ```bash
+   # Check directory permissions
+   ls -la /path/to/watched/directory
+   
+   # Verify path accessibility
+   python -c "import os; print(os.path.exists('/path/to/watched/directory'))"
+   ```
+
+3. **Pattern Matching Debug**
+   ```python
+   # Test file patterns
+   import fnmatch
+   
+   patterns = ["*.pdf", "*.md", "*.docx"]
+   test_file = "document.pdf"
+   
+   matches = any(fnmatch.fnmatch(test_file, pattern) for pattern in patterns)
+   print(f"File {test_file} matches patterns: {matches}")
+   ```
+
+### Migration and Integration Issues
+
+#### Q: Migrating from other MCP servers
+**Problem:** Moving data from existing knowledge management systems
+
+**Migration Strategies:**
+1. **From Obsidian/Logseq**
+   ```python
+   # Bulk import markdown files with metadata preservation
+   import os
+   from pathlib import Path
+   
+   async def migrate_obsidian_vault(vault_path, collection_name):
+       vault = Path(vault_path)
+       
+       for md_file in vault.rglob("*.md"):
+           with open(md_file, 'r', encoding='utf-8') as f:
+               content = f.read()
+           
+           # Extract frontmatter if present
+           metadata = extract_frontmatter(content)
+           metadata.update({
+               "source": "obsidian_migration",
+               "original_path": str(md_file.relative_to(vault)),
+               "migration_date": datetime.now().isoformat()
+           })
+           
+           await mcp_call("add_document", {
+               "content": content,
+               "collection": collection_name,
+               "metadata": metadata
+           })
+   ```
+
+2. **From Vector Database Systems**
+   ```python
+   # Import from Pinecone, Weaviate, etc.
+   async def migrate_vector_database(source_client, collection_mapping):
+       # Fetch vectors and metadata
+       for namespace, target_collection in collection_mapping.items():
+           vectors = source_client.fetch_all(namespace=namespace)
+           
+           for vector in vectors:
+               await mcp_call("add_document", {
+                   "content": vector.metadata.get("text", ""),
+                   "collection": target_collection,
+                   "metadata": {
+                       **vector.metadata,
+                       "source": "vector_db_migration",
+                       "original_id": vector.id
+                   }
+               })
+   ```
+
+### Best Practices and Optimization
+
+#### Collection Organization Strategy
+```python
+# Recommended collection structure
+collection_strategy = {
+    "by_project": {
+        "naming": "project-{project_name}",
+        "benefits": "Clear separation, easy management",
+        "use_case": "Software development teams"
+    },
+    "by_content_type": {
+        "naming": "{type}-documents",  # code-documents, research-documents
+        "benefits": "Optimized search, consistent metadata",
+        "use_case": "Content-focused organizations"
+    },
+    "by_domain": {
+        "naming": "{domain}-knowledge",  # ml-knowledge, business-knowledge
+        "benefits": "Subject matter expertise, specialized search",
+        "use_case": "Research and consulting"
+    }
+}
+```
+
+#### Metadata Design Patterns
+```python
+# Standardized metadata schemas
+metadata_schemas = {
+    "document_common": {
+        "required": ["source", "created_date", "content_type"],
+        "optional": ["author", "tags", "version", "project"],
+        "indexed": ["source", "content_type", "tags", "project"]
+    },
+    "code_files": {
+        "required": ["file_path", "language", "repository"],
+        "optional": ["module", "functions", "classes", "dependencies"],
+        "indexed": ["language", "repository", "module"]
+    },
+    "research_papers": {
+        "required": ["title", "authors", "publication_date"],
+        "optional": ["journal", "doi", "keywords", "methodology"],
+        "indexed": ["authors", "journal", "keywords"]
+    }
+}
+```
+
+#### Security Considerations
+```python
+# Security best practices
+security_config = {
+    "api_access": {
+        "enable_cors": False,  # Disable for production
+        "allowed_hosts": ["localhost", "127.0.0.1"],
+        "max_request_size": "50MB",
+        "rate_limiting": True
+    },
+    "data_privacy": {
+        "anonymize_paths": True,  # Remove user paths from metadata
+        "encrypt_sensitive": True,  # Encrypt API keys, passwords in docs
+        "audit_logging": True,  # Log all operations
+        "data_retention": "2_years"
+    },
+    "authentication": {
+        "qdrant_api_key": "required_in_production",
+        "mcp_auth": "consider_for_team_deployments",
+        "network_security": "vpn_or_private_network"
+    }
+}
+```
+
+### Getting Additional Help
+
+#### Community Resources
+- **Documentation**: [Full tutorial series](./tutorials/README.md)
+- **Examples**: [Real-world use cases](./examples/README.md)
+- **GitHub Issues**: Report bugs and request features
+- **Discord Community**: Real-time help and discussions
+
+#### Professional Support
+- **Enterprise Consulting**: Custom deployment and optimization
+- **Training Workshops**: Team onboarding and best practices
+- **Priority Support**: SLA-backed technical assistance
+
+#### Contributing and Development
+- **Fork and Contribute**: Help improve the project
+- **Custom Parsers**: Add support for new file types
+- **Performance Testing**: Share benchmarks and optimizations
+
+For issues not covered here, please check our comprehensive [troubleshooting guide](./tutorials/troubleshooting/01-common-issues.md) or create a detailed issue report with your configuration and error logs.
