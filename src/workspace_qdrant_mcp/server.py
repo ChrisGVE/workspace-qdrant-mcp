@@ -58,6 +58,14 @@ from .tools.research import research_workspace as research_workspace_impl
 from .tools.scratchbook import ScratchbookManager, update_scratchbook
 from .tools.search import search_collection_by_metadata, search_workspace
 from .tools.watch_management import WatchToolsManager
+from .core.advanced_watch_config import (
+    AdvancedWatchConfig,
+    FileFilterConfig,
+    RecursiveConfig,
+    PerformanceConfig,
+    CollectionTargeting,
+    AdvancedConfigValidator,
+)
 from .utils.config_validator import ConfigValidator
 
 # Initialize logging
@@ -723,6 +731,361 @@ async def get_watch_status(watch_id: str = None) -> dict:
         return {"error": "Watch management not initialized"}
         
     return await watch_tools_manager.get_watch_status(watch_id)
+
+
+@app.tool()
+async def configure_advanced_watch(
+    watch_id: str,
+    file_filters: dict = None,
+    recursive_config: dict = None,
+    performance_config: dict = None,
+    collection_config: dict = None,
+    auto_ingest: bool = None,
+    preserve_timestamps: bool = None,
+    tags: list[str] = None,
+) -> dict:
+    """
+    Configure advanced watch settings with comprehensive filtering and performance options.
+    
+    Provides fine-grained control over file filtering, recursion behavior, performance tuning,
+    and collection routing for sophisticated watch configurations.
+    
+    Args:
+        watch_id: Unique identifier of the watch to configure
+        file_filters: Advanced file filtering options:
+            {
+                "include_patterns": ["*.pdf", "*.txt"],  # Glob patterns for included files
+                "exclude_patterns": ["*.tmp", "*~"],     # Glob patterns for excluded files
+                "mime_types": ["text/plain"],           # MIME types to include
+                "size_limits": {"min_bytes": 1024, "max_bytes": 10485760},  # Size constraints
+                "regex_patterns": {"include": ".*\\.log$", "exclude": "temp.*"}  # Regex patterns
+            }
+        recursive_config: Directory recursion settings:
+            {
+                "enabled": true,              # Enable recursive scanning
+                "max_depth": 5,               # Maximum recursion depth (-1 for unlimited)
+                "follow_symlinks": false,     # Follow symbolic links
+                "skip_hidden": true,          # Skip hidden directories
+                "exclude_dirs": [".git", "node_modules"]  # Directories to exclude
+            }
+        performance_config: Performance and resource tuning:
+            {
+                "update_frequency_ms": 2000,      # File system check frequency
+                "debounce_seconds": 10,           # Debounce delay before processing
+                "batch_processing": true,         # Process files in batches
+                "batch_size": 5,                 # Files per batch
+                "memory_limit_mb": 512,          # Memory usage limit
+                "max_concurrent_ingestions": 3   # Max concurrent file processing
+            }
+        collection_config: Collection targeting and routing:
+            {
+                "default_collection": "documents",
+                "routing_rules": [
+                    {"pattern": "*.pdf", "collection": "pdf-docs", "type": "glob"},
+                    {"pattern": ".*\\.log$", "collection": "logs", "type": "regex"},
+                    {"pattern": ".md", "collection": "markdown", "type": "extension"}
+                ],
+                "collection_prefixes": {"extension": "ext-", "directory": "dir-"}
+            }
+        auto_ingest: Enable automatic file ingestion
+        preserve_timestamps: Preserve original file timestamps in metadata
+        tags: List of tags to associate with the watch configuration
+        
+    Returns:
+        dict: Configuration result with validation details and applied settings
+        
+    Example:
+        ```python
+        # Configure advanced filtering for PDF documents
+        result = await configure_advanced_watch(
+            watch_id="pdf-watch",
+            file_filters={
+                "include_patterns": ["*.pdf"],
+                "size_limits": {"max_bytes": 50 * 1024 * 1024}  # 50MB limit
+            },
+            performance_config={
+                "debounce_seconds": 15,
+                "max_concurrent_ingestions": 2
+            },
+            collection_config={
+                "default_collection": "research-pdfs",
+                "routing_rules": [
+                    {"pattern": "*research*", "collection": "research-docs", "type": "glob"}
+                ]
+            }
+        )
+        ```
+    """
+    if not workspace_client or not watch_tools_manager:
+        return {"error": "Watch management not initialized"}
+    
+    try:
+        # Get existing configuration
+        existing_config = await watch_tools_manager.config_manager.get_watch_config(watch_id)
+        if not existing_config:
+            return {
+                "success": False,
+                "error": f"Watch not found: {watch_id}",
+                "error_type": "watch_not_found"
+            }
+        
+        # Build advanced configuration from current settings
+        advanced_config = AdvancedWatchConfig(
+            id=existing_config.id,
+            path=existing_config.path,
+            enabled=(existing_config.status == "active")
+        )
+        
+        # Update file filters if provided
+        if file_filters:
+            try:
+                advanced_config.file_filters = FileFilterConfig(**file_filters)
+            except Exception as e:
+                return {
+                    "success": False,
+                    "error": f"Invalid file filter configuration: {e}",
+                    "error_type": "validation_error"
+                }
+        
+        # Update recursive configuration if provided
+        if recursive_config:
+            try:
+                advanced_config.recursive = RecursiveConfig(**recursive_config)
+            except Exception as e:
+                return {
+                    "success": False,
+                    "error": f"Invalid recursive configuration: {e}",
+                    "error_type": "validation_error"
+                }
+        
+        # Update performance configuration if provided
+        if performance_config:
+            try:
+                advanced_config.performance = PerformanceConfig(**performance_config)
+            except Exception as e:
+                return {
+                    "success": False,
+                    "error": f"Invalid performance configuration: {e}",
+                    "error_type": "validation_error"
+                }
+        
+        # Update collection configuration if provided
+        if collection_config:
+            try:
+                # Ensure default_collection is provided
+                if "default_collection" not in collection_config:
+                    collection_config["default_collection"] = existing_config.collection
+                advanced_config.collection_config = CollectionTargeting(**collection_config)
+            except Exception as e:
+                return {
+                    "success": False,
+                    "error": f"Invalid collection configuration: {e}",
+                    "error_type": "validation_error"
+                }
+        
+        # Update other settings
+        if auto_ingest is not None:
+            advanced_config.auto_ingest = auto_ingest
+        if preserve_timestamps is not None:
+            advanced_config.preserve_timestamps = preserve_timestamps
+        if tags is not None:
+            advanced_config.tags = tags
+        
+        # Validate complete configuration
+        validation_issues = advanced_config.validate()
+        if validation_issues:
+            return {
+                "success": False,
+                "error": f"Configuration validation failed: {'; '.join(validation_issues)}",
+                "error_type": "validation_error",
+                "validation_issues": validation_issues
+            }
+        
+        # Convert back to persistent configuration format
+        include_patterns, exclude_patterns = advanced_config.get_effective_patterns()
+        
+        # Update the persistent configuration with advanced settings
+        existing_config.patterns = include_patterns
+        existing_config.ignore_patterns = exclude_patterns
+        existing_config.recursive = advanced_config.recursive.enabled
+        existing_config.recursive_depth = advanced_config.recursive.max_depth
+        existing_config.debounce_seconds = advanced_config.performance.debounce_seconds
+        existing_config.update_frequency = advanced_config.performance.update_frequency_ms
+        existing_config.auto_ingest = advanced_config.auto_ingest
+        existing_config.collection = advanced_config.collection_config.default_collection
+        
+        # Save updated configuration
+        success = await watch_tools_manager.config_manager.update_watch_config(existing_config)
+        if not success:
+            return {
+                "success": False,
+                "error": "Failed to save advanced configuration",
+                "error_type": "save_error"
+            }
+        
+        return {
+            "success": True,
+            "watch_id": watch_id,
+            "advanced_config": advanced_config.to_dict(),
+            "message": f"Advanced watch configuration updated: {watch_id}"
+        }
+        
+    except Exception as e:
+        logger.error(f"Failed to configure advanced watch: {e}")
+        return {
+            "success": False,
+            "error": f"Unexpected error: {str(e)}",
+            "error_type": "internal_error"
+        }
+
+
+@app.tool()
+async def validate_watch_configuration(
+    file_filters: dict = None,
+    recursive_config: dict = None,
+    performance_config: dict = None,
+    collection_config: dict = None,
+) -> dict:
+    """
+    Validate advanced watch configuration options without applying them.
+    
+    Performs comprehensive validation of configuration components to help
+    identify issues before applying settings to actual watches.
+    
+    Args:
+        file_filters: File filtering configuration to validate
+        recursive_config: Recursive scanning configuration to validate
+        performance_config: Performance settings to validate  
+        collection_config: Collection routing configuration to validate
+        
+    Returns:
+        dict: Validation results with detailed feedback on each component
+        
+    Example:
+        ```python
+        # Validate complex filtering rules before applying
+        result = await validate_watch_configuration(
+            file_filters={
+                "include_patterns": ["*.pdf", "[invalid pattern"],
+                "regex_patterns": {"include": "[invalid regex"}
+            },
+            performance_config={
+                "debounce_seconds": 500  # Invalid: exceeds maximum
+            }
+        )
+        
+        if not result["valid"]:
+            for issue in result["issues"]:
+                print(f"Validation issue: {issue}")
+        ```
+    """
+    validation_results = {
+        "valid": True,
+        "issues": [],
+        "warnings": [],
+        "component_results": {}
+    }
+    
+    try:
+        # Validate file filters
+        if file_filters:
+            try:
+                filter_config = FileFilterConfig(**file_filters)
+                validation_results["component_results"]["file_filters"] = {
+                    "valid": True,
+                    "config": filter_config.dict()
+                }
+                
+                # Additional pattern validation
+                pattern_issues = AdvancedConfigValidator.validate_patterns(
+                    filter_config.include_patterns + filter_config.exclude_patterns
+                )
+                if pattern_issues:
+                    validation_results["issues"].extend(pattern_issues)
+                    validation_results["valid"] = False
+                
+            except Exception as e:
+                validation_results["issues"].append(f"File filters validation failed: {e}")
+                validation_results["valid"] = False
+                validation_results["component_results"]["file_filters"] = {
+                    "valid": False,
+                    "error": str(e)
+                }
+        
+        # Validate recursive configuration
+        if recursive_config:
+            try:
+                recursive_cfg = RecursiveConfig(**recursive_config)
+                validation_results["component_results"]["recursive_config"] = {
+                    "valid": True,
+                    "config": recursive_cfg.dict()
+                }
+            except Exception as e:
+                validation_results["issues"].append(f"Recursive configuration validation failed: {e}")
+                validation_results["valid"] = False
+                validation_results["component_results"]["recursive_config"] = {
+                    "valid": False,
+                    "error": str(e)
+                }
+        
+        # Validate performance configuration
+        if performance_config:
+            try:
+                perf_config = PerformanceConfig(**performance_config)
+                validation_results["component_results"]["performance_config"] = {
+                    "valid": True,
+                    "config": perf_config.dict()
+                }
+                
+                # Check for performance warnings
+                perf_issues = AdvancedConfigValidator.validate_performance_settings(perf_config)
+                if perf_issues:
+                    validation_results["warnings"].extend(perf_issues)
+                
+            except Exception as e:
+                validation_results["issues"].append(f"Performance configuration validation failed: {e}")
+                validation_results["valid"] = False
+                validation_results["component_results"]["performance_config"] = {
+                    "valid": False,
+                    "error": str(e)
+                }
+        
+        # Validate collection configuration
+        if collection_config:
+            try:
+                collection_cfg = CollectionTargeting(**collection_config)
+                validation_results["component_results"]["collection_config"] = {
+                    "valid": True,
+                    "config": collection_cfg.dict()
+                }
+                
+                # Validate routing rules
+                if collection_cfg.routing_rules:
+                    routing_issues = AdvancedConfigValidator.validate_collection_routing(
+                        collection_cfg.routing_rules
+                    )
+                    if routing_issues:
+                        validation_results["issues"].extend(routing_issues)
+                        validation_results["valid"] = False
+                
+            except Exception as e:
+                validation_results["issues"].append(f"Collection configuration validation failed: {e}")
+                validation_results["valid"] = False
+                validation_results["component_results"]["collection_config"] = {
+                    "valid": False,
+                    "error": str(e)
+                }
+        
+        return validation_results
+        
+    except Exception as e:
+        return {
+            "valid": False,
+            "issues": [f"Validation error: {str(e)}"],
+            "warnings": [],
+            "component_results": {},
+            "error_type": "internal_error"
+        }
 
 
 async def cleanup_workspace() -> None:
