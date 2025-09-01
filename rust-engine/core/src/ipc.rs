@@ -348,6 +348,7 @@ impl IpcServer {
                                 data: crate::processing::TaskResultData::Generic {
                                     message: "Task completed via IPC".to_string(),
                                     data: serde_json::json!({}),
+                                    checkpoint_id: None,
                                 },
                             },
                             request_id,
