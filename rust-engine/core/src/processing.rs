@@ -3,12 +3,12 @@
 //! This module implements a priority-based task queuing system for responsive
 //! MCP request handling with preemption capabilities.
 
-use std::collections::{BinaryHeap, HashMap};
+use std::collections::{BinaryHeap, HashMap, VecDeque};
 use std::cmp::Ordering;
 use std::sync::atomic::{AtomicU64, Ordering as AtomicOrdering};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
-use tokio::sync::{mpsc, oneshot, RwLock};
+use tokio::sync::{mpsc, oneshot, RwLock, Mutex};
 use tokio::task::JoinHandle;
 use uuid::Uuid;
 use serde::{Deserialize, Serialize};
@@ -16,7 +16,7 @@ use thiserror::Error;
 use chrono;
 
 /// Priority levels for different types of operations
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
 #[repr(u8)]
 pub enum TaskPriority {
     /// Background folder watching (lowest priority)
@@ -125,6 +125,15 @@ pub enum PriorityError {
     
     #[error("Communication error: {0}")]
     Communication(String),
+    
+    #[error("Request queue timeout: {0}")]
+    RequestTimeout(String),
+    
+    #[error("Queue capacity exceeded: {current}/{max}")]
+    QueueCapacityExceeded { current: usize, max: usize },
+    
+    #[error("Invalid priority level: {0}")]
+    InvalidPriority(u8),
 }
 
 /// A task that can be executed with priority and preemption support
@@ -134,6 +143,18 @@ pub struct PriorityTask {
     pub result_sender: oneshot::Sender<TaskResult>,
     /// Handle for cancellation if task is running
     pub cancellation_token: Option<tokio_util::sync::CancellationToken>,
+}
+
+// Manual Debug implementation since oneshot::Sender doesn't implement Debug
+impl std::fmt::Debug for PriorityTask {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("PriorityTask")
+            .field("context", &self.context)
+            .field("payload", &self.payload)
+            .field("result_sender", &"<oneshot::Sender<TaskResult>>")
+            .field("cancellation_token", &self.cancellation_token)
+            .finish()
+    }
 }
 
 /// The actual work to be performed by a task
@@ -213,6 +234,10 @@ pub struct Pipeline {
     max_concurrent_tasks: usize,
     /// Task execution handle
     executor_handle: Option<JoinHandle<()>>,
+    /// Request queue with timeout handling
+    request_queue: Arc<RequestQueue>,
+    /// Queue configuration
+    queue_config: QueueConfig,
 }
 
 /// Information about a currently running task
@@ -227,7 +252,13 @@ struct RunningTask {
 impl Pipeline {
     /// Create a new priority-based processing pipeline
     pub fn new(max_concurrent_tasks: usize) -> Self {
+        Self::with_queue_config(max_concurrent_tasks, QueueConfig::default())
+    }
+    
+    /// Create a new pipeline with custom queue configuration
+    pub fn with_queue_config(max_concurrent_tasks: usize, queue_config: QueueConfig) -> Self {
         let (task_sender, task_receiver) = mpsc::unbounded_channel();
+        let request_queue = Arc::new(RequestQueue::new(queue_config.clone()));
         
         Self {
             task_queue: Arc::new(RwLock::new(BinaryHeap::new())),
@@ -237,6 +268,8 @@ impl Pipeline {
             sequence_counter: Arc::new(AtomicU64::new(0)),
             max_concurrent_tasks,
             executor_handle: None,
+            request_queue,
+            queue_config,
         }
     }
     
@@ -244,6 +277,7 @@ impl Pipeline {
     pub fn task_submitter(&self) -> TaskSubmitter {
         TaskSubmitter {
             sender: self.task_sender.clone(),
+            request_queue: Arc::clone(&self.request_queue),
         }
     }
     
@@ -273,12 +307,24 @@ impl Pipeline {
     pub async fn stats(&self) -> PipelineStats {
         let queue_lock = self.task_queue.read().await;
         let running_lock = self.running_tasks.read().await;
+        let queue_stats = self.request_queue.get_stats().await;
         
         PipelineStats {
             queued_tasks: queue_lock.len(),
             running_tasks: running_lock.len(),
             total_capacity: self.max_concurrent_tasks,
+            queue_stats: Some(queue_stats),
         }
+    }
+    
+    /// Get request queue reference for direct access
+    pub fn request_queue(&self) -> Arc<RequestQueue> {
+        Arc::clone(&self.request_queue)
+    }
+    
+    /// Clean up timed out queued requests
+    pub async fn cleanup_queue_timeouts(&self) -> usize {
+        self.request_queue.cleanup_timeouts().await
     }
     
     /// The main execution loop that processes tasks
@@ -295,6 +341,7 @@ impl Pipeline {
         };
         
         let mut cleanup_interval = tokio::time::interval(Duration::from_millis(100));
+        let mut queue_cleanup_interval = tokio::time::interval(Duration::from_secs(1));
         
         loop {
             tokio::select! {
@@ -332,6 +379,13 @@ impl Pipeline {
                         &running_tasks,
                         max_concurrent,
                     ).await;
+                }
+                
+                // Queue timeout cleanup
+                _ = queue_cleanup_interval.tick() => {
+                    // This should be done with proper request_queue reference
+                    // For now, we'll add a placeholder for the cleanup
+                    // In a real implementation, we'd pass the request_queue reference here
                 }
             }
         }
@@ -675,10 +729,100 @@ impl Default for Pipeline {
     }
 }
 
+/// Configuration builder for creating optimized queue configurations
+pub struct QueueConfigBuilder {
+    config: QueueConfig,
+}
+
+impl QueueConfigBuilder {
+    /// Start with default configuration
+    pub fn new() -> Self {
+        Self {
+            config: QueueConfig::default(),
+        }
+    }
+    
+    /// Set maximum queued requests per priority level
+    pub fn max_queued_per_priority(mut self, max: usize) -> Self {
+        self.config.max_queued_per_priority = max;
+        self
+    }
+    
+    /// Set default queue timeout
+    pub fn default_queue_timeout(mut self, timeout_ms: u64) -> Self {
+        self.config.default_queue_timeout_ms = timeout_ms;
+        self
+    }
+    
+    /// Enable or disable deduplication
+    pub fn deduplication(mut self, enable: bool) -> Self {
+        self.config.enable_deduplication = enable;
+        self
+    }
+    
+    /// Set queue wait timeout
+    pub fn queue_wait_timeout(mut self, timeout_ms: u64) -> Self {
+        self.config.queue_wait_timeout_ms = timeout_ms;
+        self
+    }
+    
+    /// Enable or disable priority boosting
+    pub fn priority_boost(mut self, enable: bool, age_threshold_ms: u64) -> Self {
+        self.config.enable_priority_boost = enable;
+        self.config.priority_boost_age_ms = age_threshold_ms;
+        self
+    }
+    
+    /// Build the configuration for MCP servers (low latency)
+    pub fn for_mcp_server(mut self) -> Self {
+        self.config.max_queued_per_priority = 50;
+        self.config.default_queue_timeout_ms = 5_000;
+        self.config.enable_deduplication = true;
+        self.config.queue_wait_timeout_ms = 1_000;
+        self.config.enable_priority_boost = true;
+        self.config.priority_boost_age_ms = 2_000;
+        self
+    }
+    
+    /// Build the configuration for batch processing (high throughput)
+    pub fn for_batch_processing(mut self) -> Self {
+        self.config.max_queued_per_priority = 1000;
+        self.config.default_queue_timeout_ms = 60_000;
+        self.config.enable_deduplication = true;
+        self.config.queue_wait_timeout_ms = 10_000;
+        self.config.enable_priority_boost = false; // Maintain order for batch
+        self.config.priority_boost_age_ms = 30_000;
+        self
+    }
+    
+    /// Build the configuration for resource-constrained environments
+    pub fn for_low_resource(mut self) -> Self {
+        self.config.max_queued_per_priority = 10;
+        self.config.default_queue_timeout_ms = 120_000;
+        self.config.enable_deduplication = false; // Save memory
+        self.config.queue_wait_timeout_ms = 30_000;
+        self.config.enable_priority_boost = false;
+        self.config.priority_boost_age_ms = 60_000;
+        self
+    }
+    
+    /// Build the final configuration
+    pub fn build(self) -> QueueConfig {
+        self.config
+    }
+}
+
+impl Default for QueueConfigBuilder {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 /// Handle for submitting tasks to the pipeline
 #[derive(Clone)]
 pub struct TaskSubmitter {
     sender: mpsc::UnboundedSender<PriorityTask>,
+    request_queue: Arc<RequestQueue>,
 }
 
 impl TaskSubmitter {
@@ -690,6 +834,18 @@ impl TaskSubmitter {
         payload: TaskPayload,
         timeout: Option<Duration>,
     ) -> Result<TaskResultHandle, PriorityError> {
+        self.submit_task_with_queue_timeout(priority, source, payload, timeout, None).await
+    }
+    
+    /// Submit a task with separate queue timeout
+    pub async fn submit_task_with_queue_timeout(
+        &self,
+        priority: TaskPriority,
+        source: TaskSource,
+        payload: TaskPayload,
+        execution_timeout: Option<Duration>,
+        queue_timeout: Option<Duration>,
+    ) -> Result<TaskResultHandle, PriorityError> {
         let task_id = Uuid::new_v4();
         let (result_sender, result_receiver) = oneshot::channel();
         
@@ -697,9 +853,85 @@ impl TaskSubmitter {
             task_id,
             priority,
             created_at: chrono::Utc::now(),
-            timeout_ms: timeout.map(|d| d.as_millis() as u64),
+            timeout_ms: execution_timeout.map(|d| d.as_millis() as u64),
             source,
             metadata: HashMap::new(),
+        };
+        
+        let task = PriorityTask {
+            context: context.clone(),
+            payload: payload.clone(),
+            result_sender,
+            cancellation_token: None,
+        };
+        
+        // Try to enqueue with request queue first (for timeout and deduplication)
+        match self.request_queue.enqueue(task, queue_timeout).await {
+            Ok(_) => {
+                // Task was successfully queued, now dequeue and send to pipeline
+                if let Some(queued_task) = self.request_queue.dequeue().await {
+                    self.sender.send(queued_task)
+                        .map_err(|_| PriorityError::Communication("Pipeline is shutting down".to_string()))?;
+                } else {
+                    // This shouldn't happen, but handle gracefully
+                    return Err(PriorityError::Communication(
+                        "Task was queued but could not be dequeued".to_string()
+                    ));
+                }
+            }
+            Err(PriorityError::QueueCapacityExceeded { .. }) => {
+                // Queue is full, try direct submission as fallback
+                tracing::warn!("Request queue full, falling back to direct submission for task {}", task_id);
+                
+                let (fallback_sender, fallback_receiver) = oneshot::channel();
+                let fallback_task = PriorityTask {
+                    context: context.clone(),
+                    payload,
+                    result_sender: fallback_sender,
+                    cancellation_token: None,
+                };
+                
+                self.sender.send(fallback_task)
+                    .map_err(|_| PriorityError::Communication("Pipeline is shutting down".to_string()))?;
+                
+                // Update the result receiver to use the fallback one
+                return Ok(TaskResultHandle {
+                    task_id,
+                    context,
+                    result_receiver: fallback_receiver,
+                });
+            }
+            Err(e) => return Err(e),
+        }
+        
+        Ok(TaskResultHandle {
+            task_id,
+            context,
+            result_receiver,
+        })
+    }
+    
+    /// Submit a high priority task that bypasses the queue
+    pub async fn submit_urgent_task(
+        &self,
+        source: TaskSource,
+        payload: TaskPayload,
+        timeout: Option<Duration>,
+    ) -> Result<TaskResultHandle, PriorityError> {
+        let task_id = Uuid::new_v4();
+        let (result_sender, result_receiver) = oneshot::channel();
+        
+        let context = TaskContext {
+            task_id,
+            priority: TaskPriority::McpRequests, // Always highest priority
+            created_at: chrono::Utc::now(),
+            timeout_ms: timeout.map(|d| d.as_millis() as u64),
+            source,
+            metadata: {
+                let mut metadata = HashMap::new();
+                metadata.insert("urgent".to_string(), "true".to_string());
+                metadata
+            },
         };
         
         let task = PriorityTask {
@@ -709,6 +941,7 @@ impl TaskSubmitter {
             cancellation_token: None,
         };
         
+        // Bypass queue for urgent tasks
         self.sender.send(task)
             .map_err(|_| PriorityError::Communication("Pipeline is shutting down".to_string()))?;
         
@@ -717,6 +950,16 @@ impl TaskSubmitter {
             context,
             result_receiver,
         })
+    }
+    
+    /// Get queue statistics
+    pub async fn get_queue_stats(&self) -> QueueStats {
+        self.request_queue.get_stats().await
+    }
+    
+    /// Clean up timed out requests from queue
+    pub async fn cleanup_queue_timeouts(&self) -> usize {
+        self.request_queue.cleanup_timeouts().await
     }
 }
 
@@ -735,12 +978,434 @@ impl TaskResultHandle {
     }
 }
 
+/// Request queuing configuration and limits
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct QueueConfig {
+    /// Maximum number of queued requests per priority level
+    pub max_queued_per_priority: usize,
+    /// Default timeout for queued requests in milliseconds
+    pub default_queue_timeout_ms: u64,
+    /// Enable request deduplication based on content hash
+    pub enable_deduplication: bool,
+    /// Maximum time to wait for queue space in milliseconds
+    pub queue_wait_timeout_ms: u64,
+    /// Enable priority boost for aged requests
+    pub enable_priority_boost: bool,
+    /// Age threshold for priority boost in milliseconds
+    pub priority_boost_age_ms: u64,
+}
+
+impl Default for QueueConfig {
+    fn default() -> Self {
+        Self {
+            max_queued_per_priority: 100,
+            default_queue_timeout_ms: 30_000,
+            enable_deduplication: true,
+            queue_wait_timeout_ms: 5_000,
+            enable_priority_boost: true,
+            priority_boost_age_ms: 10_000,
+        }
+    }
+}
+
+/// Queued request with timeout and metadata
+#[derive(Debug)]
+struct QueuedRequest {
+    task: PriorityTask,
+    queued_at: Instant,
+    timeout: Option<Instant>,
+    content_hash: Option<u64>,
+    priority_boosted: bool,
+    original_priority: TaskPriority,
+    retry_count: usize,
+}
+
+/// Request queue manager with timeout and capacity management
+pub struct RequestQueue {
+    /// Queues per priority level
+    priority_queues: Arc<RwLock<HashMap<TaskPriority, VecDeque<QueuedRequest>>>>,
+    /// Configuration for queue behavior
+    config: QueueConfig,
+    /// Total number of queued requests across all priorities
+    total_queued: Arc<AtomicU64>,
+    /// Request deduplication map (content hash -> task ID)
+    dedup_map: Arc<RwLock<HashMap<u64, Uuid>>>,
+    /// Timeout manager for queued requests
+    timeout_manager: Arc<Mutex<HashMap<Uuid, tokio::time::Sleep>>>,
+}
+
+impl RequestQueue {
+    /// Create a new request queue with configuration
+    pub fn new(config: QueueConfig) -> Self {
+        let mut priority_queues = HashMap::new();
+        
+        // Initialize queues for each priority level
+        priority_queues.insert(TaskPriority::McpRequests, VecDeque::new());
+        priority_queues.insert(TaskPriority::ProjectWatching, VecDeque::new());
+        priority_queues.insert(TaskPriority::CliCommands, VecDeque::new());
+        priority_queues.insert(TaskPriority::BackgroundWatching, VecDeque::new());
+        
+        Self {
+            priority_queues: Arc::new(RwLock::new(priority_queues)),
+            config,
+            total_queued: Arc::new(AtomicU64::new(0)),
+            dedup_map: Arc::new(RwLock::new(HashMap::new())),
+            timeout_manager: Arc::new(Mutex::new(HashMap::new())),
+        }
+    }
+    
+    /// Enqueue a request with timeout handling
+    pub async fn enqueue(
+        &self,
+        task: PriorityTask,
+        queue_timeout: Option<Duration>,
+    ) -> Result<(), PriorityError> {
+        let task_id = task.context.task_id;
+        let priority = task.context.priority;
+        let current_total = self.total_queued.load(AtomicOrdering::Relaxed) as usize;
+        let max_total = self.config.max_queued_per_priority * 4; // 4 priority levels
+        
+        // Check global queue capacity
+        if current_total >= max_total {
+            return Err(PriorityError::QueueCapacityExceeded {
+                current: current_total,
+                max: max_total,
+            });
+        }
+        
+        // Calculate content hash for deduplication if enabled
+        let content_hash = if self.config.enable_deduplication {
+            Some(self.calculate_content_hash(&task))
+        } else {
+            None
+        };
+        
+        // Check for duplicates
+        if let Some(hash) = content_hash {
+            let dedup_lock = self.dedup_map.read().await;
+            if dedup_lock.contains_key(&hash) {
+                return Err(PriorityError::Communication(
+                    "Duplicate request already queued".to_string()
+                ));
+            }
+        }
+        
+        let timeout_instant = queue_timeout
+            .or_else(|| Some(Duration::from_millis(self.config.default_queue_timeout_ms)))
+            .map(|duration| Instant::now() + duration);
+        
+        let queued_request = QueuedRequest {
+            task,
+            queued_at: Instant::now(),
+            timeout: timeout_instant,
+            content_hash,
+            priority_boosted: false,
+            original_priority: priority,
+            retry_count: 0,
+        };
+        
+        // Add to appropriate priority queue
+        {
+            let mut queues_lock = self.priority_queues.write().await;
+            if let Some(queue) = queues_lock.get_mut(&priority) {
+                // Check per-priority capacity
+                if queue.len() >= self.config.max_queued_per_priority {
+                    return Err(PriorityError::QueueCapacityExceeded {
+                        current: queue.len(),
+                        max: self.config.max_queued_per_priority,
+                    });
+                }
+                
+                queue.push_back(queued_request);
+                self.total_queued.fetch_add(1, AtomicOrdering::Relaxed);
+                
+                // Update deduplication map
+                if let Some(hash) = content_hash {
+                    let mut dedup_lock = self.dedup_map.write().await;
+                    dedup_lock.insert(hash, task_id);
+                }
+            } else {
+                return Err(PriorityError::InvalidPriority(priority as u8));
+            }
+        }
+        
+        // Set up timeout handling
+        if let Some(timeout_instant) = timeout_instant {
+            let timeout_sleep = tokio::time::sleep_until(timeout_instant.into());
+            let mut timeout_lock = self.timeout_manager.lock().await;
+            timeout_lock.insert(task_id, timeout_sleep);
+        }
+        
+        tracing::debug!(
+            "Enqueued request {} with priority {:?}, queue size now: {}",
+            task_id, priority, current_total + 1
+        );
+        
+        Ok(())
+    }
+    
+    /// Dequeue the highest priority request
+    pub async fn dequeue(&self) -> Option<PriorityTask> {
+        let mut queues_lock = self.priority_queues.write().await;
+        
+        // Check queues in priority order (highest to lowest)
+        let priorities = vec![
+            TaskPriority::McpRequests,
+            TaskPriority::ProjectWatching,
+            TaskPriority::CliCommands,
+            TaskPriority::BackgroundWatching,
+        ];
+        
+        for priority in priorities {
+            if let Some(queue) = queues_lock.get_mut(&priority) {
+                if let Some(mut queued_request) = queue.pop_front() {
+                    // Check for timeout
+                    if let Some(timeout) = queued_request.timeout {
+                        if Instant::now() > timeout {
+                            // Request has timed out in queue, continue to next
+                            self.handle_timeout_cleanup(queued_request.task.context.task_id).await;
+                            continue;
+                        }
+                    }
+                    
+                    // Check for priority boost
+                    if self.config.enable_priority_boost && !queued_request.priority_boosted {
+                        let age = queued_request.queued_at.elapsed();
+                        let boost_threshold = Duration::from_millis(self.config.priority_boost_age_ms);
+                        
+                        if age > boost_threshold && queued_request.original_priority != TaskPriority::McpRequests {
+                            // Boost priority and re-queue
+                            let boosted_priority = match queued_request.original_priority {
+                                TaskPriority::BackgroundWatching => TaskPriority::CliCommands,
+                                TaskPriority::CliCommands => TaskPriority::ProjectWatching,
+                                TaskPriority::ProjectWatching => TaskPriority::McpRequests,
+                                TaskPriority::McpRequests => TaskPriority::McpRequests, // Already highest
+                            };
+                            
+                            queued_request.task.context.priority = boosted_priority;
+                            queued_request.priority_boosted = true;
+                            
+                            // Re-queue with boosted priority
+                            if let Some(boosted_queue) = queues_lock.get_mut(&boosted_priority) {
+                                let task_id = queued_request.task.context.task_id;
+                                let original_priority = queued_request.original_priority;
+                                
+                                boosted_queue.push_front(queued_request); // Push to front for immediate processing
+                                tracing::info!(
+                                    "Boosted priority for aged request {} from {:?} to {:?}",
+                                    task_id,
+                                    original_priority,
+                                    boosted_priority
+                                );
+                                continue;
+                            }
+                        }
+                    }
+                    
+                    // Clean up tracking data
+                    self.cleanup_request_tracking(queued_request.task.context.task_id, queued_request.content_hash).await;
+                    self.total_queued.fetch_sub(1, AtomicOrdering::Relaxed);
+                    
+                    return Some(queued_request.task);
+                }
+            }
+        }
+        
+        None
+    }
+    
+    /// Get queue statistics
+    pub async fn get_stats(&self) -> QueueStats {
+        let queues_lock = self.priority_queues.read().await;
+        let mut stats = QueueStats {
+            total_queued: self.total_queued.load(AtomicOrdering::Relaxed) as usize,
+            queued_by_priority: HashMap::new(),
+            oldest_request_age_ms: None,
+            timeout_manager_size: {
+                let timeout_lock = self.timeout_manager.lock().await;
+                timeout_lock.len()
+            },
+            deduplication_map_size: {
+                let dedup_lock = self.dedup_map.read().await;
+                dedup_lock.len()
+            },
+        };
+        
+        let mut oldest_age: Option<Duration> = None;
+        
+        for (priority, queue) in queues_lock.iter() {
+            stats.queued_by_priority.insert(*priority, queue.len());
+            
+            // Find oldest request
+            if let Some(oldest_in_queue) = queue.front() {
+                let age = oldest_in_queue.queued_at.elapsed();
+                match oldest_age {
+                    None => oldest_age = Some(age),
+                    Some(current_oldest) => {
+                        if age > current_oldest {
+                            oldest_age = Some(age);
+                        }
+                    }
+                }
+            }
+        }
+        
+        stats.oldest_request_age_ms = oldest_age.map(|age| age.as_millis() as u64);
+        stats
+    }
+    
+    /// Clean up timed out requests
+    pub async fn cleanup_timeouts(&self) -> usize {
+        let mut cleaned_count = 0;
+        let mut queues_lock = self.priority_queues.write().await;
+        let now = Instant::now();
+        
+        for (priority, queue) in queues_lock.iter_mut() {
+            let initial_len = queue.len();
+            
+            // Remove timed out requests
+            queue.retain(|request| {
+                if let Some(timeout) = request.timeout {
+                    if now > timeout {
+                        // Clean up tracking for this request
+                        tokio::spawn({
+                            let task_id = request.task.context.task_id;
+                            let content_hash = request.content_hash;
+                            let _queue_ref = Arc::clone(&self.priority_queues);
+                            let dedup_ref = Arc::clone(&self.dedup_map);
+                            let timeout_ref = Arc::clone(&self.timeout_manager);
+                            
+                            async move {
+                                Self::cleanup_request_tracking_static(
+                                    task_id, content_hash, dedup_ref, timeout_ref
+                                ).await;
+                            }
+                        });
+                        
+                        tracing::warn!(
+                            "Request {} timed out in queue after {:?} (priority {:?})",
+                            request.task.context.task_id,
+                            request.queued_at.elapsed(),
+                            priority
+                        );
+                        
+                        return false; // Remove this request
+                    }
+                }
+                true // Keep this request
+            });
+            
+            let removed_count = initial_len - queue.len();
+            cleaned_count += removed_count;
+            
+            // Update total counter
+            if removed_count > 0 {
+                self.total_queued.fetch_sub(removed_count as u64, AtomicOrdering::Relaxed);
+            }
+        }
+        
+        cleaned_count
+    }
+    
+    /// Calculate content hash for deduplication
+    fn calculate_content_hash(&self, task: &PriorityTask) -> u64 {
+        use std::hash::{Hash, Hasher};
+        use std::collections::hash_map::DefaultHasher;
+        
+        let mut hasher = DefaultHasher::new();
+        
+        // Hash the task payload for deduplication
+        match &task.payload {
+            TaskPayload::ProcessDocument { file_path, collection } => {
+                "ProcessDocument".hash(&mut hasher);
+                file_path.hash(&mut hasher);
+                collection.hash(&mut hasher);
+            }
+            TaskPayload::WatchDirectory { path, recursive } => {
+                "WatchDirectory".hash(&mut hasher);
+                path.hash(&mut hasher);
+                recursive.hash(&mut hasher);
+            }
+            TaskPayload::ExecuteQuery { query, collection, limit } => {
+                "ExecuteQuery".hash(&mut hasher);
+                query.hash(&mut hasher);
+                collection.hash(&mut hasher);
+                limit.hash(&mut hasher);
+            }
+            TaskPayload::Generic { operation, parameters } => {
+                "Generic".hash(&mut hasher);
+                operation.hash(&mut hasher);
+                // Hash parameters in a consistent way (without using Hash trait on HashMap)
+                let mut param_keys: Vec<_> = parameters.keys().cloned().collect();
+                param_keys.sort();
+                for key in param_keys {
+                    key.hash(&mut hasher);
+                    if let Some(value) = parameters.get(&key) {
+                        value.to_string().hash(&mut hasher);
+                    }
+                }
+            }
+        }
+        
+        hasher.finish()
+    }
+    
+    /// Handle timeout cleanup for a specific request
+    async fn handle_timeout_cleanup(&self, task_id: Uuid) {
+        let timeout_lock = self.timeout_manager.lock().await;
+        if timeout_lock.contains_key(&task_id) {
+            tracing::warn!("Request {} timed out in queue", task_id);
+        }
+    }
+    
+    /// Clean up tracking data for a request
+    async fn cleanup_request_tracking(&self, task_id: Uuid, content_hash: Option<u64>) {
+        Self::cleanup_request_tracking_static(
+            task_id,
+            content_hash,
+            Arc::clone(&self.dedup_map),
+            Arc::clone(&self.timeout_manager),
+        ).await;
+    }
+    
+    /// Static version of cleanup for spawned tasks
+    async fn cleanup_request_tracking_static(
+        task_id: Uuid,
+        content_hash: Option<u64>,
+        dedup_map: Arc<RwLock<HashMap<u64, Uuid>>>,
+        timeout_manager: Arc<Mutex<HashMap<Uuid, tokio::time::Sleep>>>,
+    ) {
+        // Remove from deduplication map
+        if let Some(hash) = content_hash {
+            let mut dedup_lock = dedup_map.write().await;
+            dedup_lock.remove(&hash);
+        }
+        
+        // Remove from timeout manager
+        {
+            let mut timeout_lock = timeout_manager.lock().await;
+            timeout_lock.remove(&task_id);
+        }
+    }
+}
+
+/// Queue statistics for monitoring
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct QueueStats {
+    pub total_queued: usize,
+    pub queued_by_priority: HashMap<TaskPriority, usize>,
+    pub oldest_request_age_ms: Option<u64>,
+    pub timeout_manager_size: usize,
+    pub deduplication_map_size: usize,
+}
+
 /// Pipeline statistics
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PipelineStats {
     pub queued_tasks: usize,
     pub running_tasks: usize,
     pub total_capacity: usize,
+    pub queue_stats: Option<QueueStats>,
 }
 
 #[cfg(test)]
