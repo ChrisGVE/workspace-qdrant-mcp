@@ -17,6 +17,7 @@ from ..core.watch_config import (
     PersistentWatchConfigManager,
     WatchConfigurationPersistent,
 )
+from ..core.persistent_file_watcher import PersistentWatchManager
 
 logger = logging.getLogger(__name__)
 
@@ -33,6 +34,60 @@ class WatchToolsManager:
         """
         self.workspace_client = workspace_client
         self.config_manager = PersistentWatchConfigManager()
+        self.persistent_watch_manager = PersistentWatchManager(self.config_manager)
+        self._initialized = False
+    
+    async def initialize(self) -> Dict[str, Any]:
+        """Initialize the watch tools manager and recover persistent state."""
+        if self._initialized:
+            return {"status": "already_initialized"}
+        
+        try:
+            # Set up ingestion callback
+            async def ingestion_callback(file_path: str, collection: str):
+                """Callback for file ingestion."""
+                try:
+                    # Read file content
+                    with open(file_path, 'r', encoding='utf-8', errors='ignore') as f:
+                        content = f.read()
+                    
+                    # Add document to collection
+                    from ..tools.documents import add_document
+                    result = await add_document(
+                        self.workspace_client,
+                        content=content,
+                        collection=collection,
+                        metadata={
+                            "file_path": file_path,
+                            "file_name": Path(file_path).name,
+                            "ingestion_source": "file_watcher",
+                            "ingestion_time": datetime.now(timezone.utc).isoformat(),
+                        },
+                        chunk_text=True
+                    )
+                    
+                    if not result.get("success"):
+                        logger.error(f"Failed to ingest file {file_path}: {result.get('error')}")
+                        raise RuntimeError(f"Ingestion failed: {result.get('error')}")
+                    
+                    logger.info(f"Successfully ingested file: {file_path} -> {collection}")
+                    
+                except Exception as e:
+                    logger.error(f"Error in ingestion callback for {file_path}: {e}")
+                    raise
+            
+            # Set callbacks
+            self.persistent_watch_manager.set_ingestion_callback(ingestion_callback)
+            
+            # Initialize the persistent watch manager
+            init_results = await self.persistent_watch_manager.initialize()
+            
+            self._initialized = True
+            return init_results
+            
+        except Exception as e:
+            logger.error(f"Failed to initialize watch tools manager: {e}")
+            return {"status": "error", "error": str(e)}
     
     async def add_watch_folder(
         self,
@@ -153,6 +208,10 @@ class WatchToolsManager:
                     "validation_issues": validation_issues
                 }
             
+            # Initialize if not already done
+            if not self._initialized:
+                await self.initialize()
+            
             # Save configuration
             success = await self.config_manager.add_watch_config(watch_config)
             if not success:
@@ -161,6 +220,15 @@ class WatchToolsManager:
                     "error": "Failed to save watch configuration",
                     "error_type": "save_error"
                 }
+            
+            # Start the watch if auto_ingest is enabled
+            if auto_ingest and self._initialized:
+                try:
+                    await self.persistent_watch_manager.start_watch(watch_id)
+                    logger.info(f"Started active watch: {watch_id}")
+                except Exception as e:
+                    logger.warning(f"Failed to start watch {watch_id}: {e}")
+                    # Don't fail the add operation if starting fails
             
             return {
                 "success": True,
@@ -538,3 +606,47 @@ class WatchToolsManager:
                 "error": f"Unexpected error: {str(e)}",
                 "error_type": "internal_error"
             }
+    
+    def _get_runtime_info(self, watch_id: str) -> Dict[str, Any]:
+        """Get runtime information for a specific watch."""
+        if not self._initialized:
+            return {"status": "manager_not_initialized"}
+        
+        runtime_status = self.persistent_watch_manager.get_watch_runtime_status()
+        if watch_id in runtime_status:
+            return runtime_status[watch_id]
+        else:
+            return {
+                "is_running": False,
+                "reason": "not_loaded_in_manager"
+            }
+    
+    async def start_all_active_watches(self) -> Dict[str, Any]:
+        """Start all watches that should be active."""
+        if not self._initialized:
+            init_result = await self.initialize()
+            if init_result.get("status") != "initialized" and init_result.get("status") != "already_initialized":
+                return {"success": False, "error": "Failed to initialize watch manager"}
+        
+        try:
+            results = await self.persistent_watch_manager.start_all_active_watches()
+            return {"success": True, "results": results}
+        except Exception as e:
+            return {"success": False, "error": str(e)}
+    
+    async def stop_all_watches(self) -> Dict[str, Any]:
+        """Stop all running watches."""
+        if not self._initialized:
+            return {"success": True, "message": "No watches to stop"}
+        
+        try:
+            results = await self.persistent_watch_manager.stop_all_watches()
+            return {"success": True, "results": results}
+        except Exception as e:
+            return {"success": False, "error": str(e)}
+    
+    async def cleanup(self) -> None:
+        """Clean up resources."""
+        if self._initialized:
+            await self.persistent_watch_manager.cleanup()
+        self._initialized = False
