@@ -1,0 +1,14 @@
+# Task ID: 4
+# Title: Rename CLI commands with 'wq' prefix
+# Status: cancelled
+# Dependencies: None
+# Priority: medium
+# Description: Improve terminal usability by shortening CLI command names with consistent 'wq' prefix without dashes or underscores
+# Details:
+Current: Long command names (workspace-qdrant-*)
+Target: wqadmin, wqingest, wqsearch, etc. (no dashes/underscores)
+Goal: Better terminal usability and faster typing
+Update all CLI entry points and documentation
+
+# Test Strategy:
+

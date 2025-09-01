@@ -1,0 +1,11 @@
+# Task ID: 30
+# Title: Implement Rust engine priority system
+# Status: pending
+# Dependencies: None
+# Priority: high
+# Description: Add priority-based task queuing and preemption in Rust ingestion engine for responsive MCP requests
+# Details:
+Enhance rust-engine/ with priority queue system. Priority levels: 1) MCP requests (highest, preempt lower), 2) Project watching/ingestion (high), 3) CLI commands (normal), 4) Background folder watching (low). Implement in rust-engine/core/src/processing.rs: task queue with priority ordering, graceful preemption for lower priority tasks, request queuing with timeout handling. Add inter-process communication between Python MCP server and Rust engine. Use tokio for async task management and cancellation. Ensure data consistency during preemption.
+
+# Test Strategy:
+Test MCP requests preempt lower priority operations. Verify graceful task cancellation without data corruption. Measure response time improvements for high-priority requests.

@@ -1183,11 +1183,654 @@
             "testStrategy": "Execute complete benchmark workflow locally. Run simple and comprehensive benchmarks to verify all components work together. Check generated reports, artifact outputs, and validation logic. Verify workflow completes within expected time limits."
           }
         ]
+      },
+      {
+        "id": 20,
+        "title": "Clean development artifacts from repository",
+        "description": "Remove development-specific directories and files that shouldn't be tracked in production",
+        "details": "Remove the following directories and files: `.claude/`, `.taskmaster/`, `.benchmarks/`, `benchmark_results/`, `chunk_empirical_results/`, `htmlcov/`, `performance_results/`, `recall_precision_results/`, `bandit-report.json`, `.releaserc.json`, `.mcp.json`. Update .gitignore to prevent future tracking of these artifacts. Move `document_format_research.md` to .gitignore but preserve file. Evaluate and potentially remove `.env.example`, `.bandit/` and other unexpected development folders. Use git rm --cached to untrack files while preserving local copies where needed.",
+        "testStrategy": "Verify git status shows no development artifacts tracked. Ensure .gitignore prevents re-tracking. Confirm essential files like CONTRIBUTING.md and LICENSE remain.",
+        "priority": "high",
+        "dependencies": [],
+        "status": "done",
+        "subtasks": []
+      },
+      {
+        "id": 21,
+        "title": "Clean ANSI color codes from git commit history",
+        "description": "Scan and clean all commit messages containing ANSI color escape sequences to maintain professional git history",
+        "details": "Use git log --grep with regex to find commits containing ANSI escape sequences like `[38;2;127;132;156m`, `[0m`, etc. Create a backup branch before modification. Use git filter-branch or git rebase --root -i with a script to clean commit messages while preserving all functional changes. Test approach on a copy of repository first. Sequences to clean: \\[\\d+;\\d+;\\d+;\\d+;\\d+m, \\[0m, and other ANSI color codes. Ensure commit graph integrity is maintained.",
+        "testStrategy": "Run git log --oneline --color=never | grep -E '\\[[0-9;]+m' to verify no color codes remain. Test git log --graph shows clean history. Verify all commits still reference correct file changes.",
+        "priority": "high",
+        "dependencies": [],
+        "status": "pending",
+        "subtasks": [
+          {
+            "id": 1,
+            "title": "Create backup branch before git history modification",
+            "description": "Create a backup branch to preserve current state before attempting any git history modifications",
+            "dependencies": [],
+            "details": "Create a backup branch named 'backup-before-ansi-cleanup' or similar to ensure we can restore the repository if the cleaning process goes wrong. This provides a safety net for the git history modification operations.",
+            "status": "pending",
+            "testStrategy": "Verify backup branch exists and contains all commits from main branch. Test that backup branch can be checked out and works normally."
+          },
+          {
+            "id": 2,
+            "title": "Identify all commits containing ANSI escape sequences",
+            "description": "Scan the entire git history to find all commits with ANSI color codes in their messages",
+            "dependencies": [
+              "21.1"
+            ],
+            "details": "Use git log commands with grep patterns to identify commits containing ANSI escape sequences. Based on the analysis, we found commits with patterns like [38;2;127;132;156m, [0m, and other ANSI color codes. Create a comprehensive list of affected commit SHAs.",
+            "status": "pending",
+            "testStrategy": "Run git log --all --oneline | grep -E '\\[.*m' to verify identification. Cross-check with git log --grep patterns to ensure complete coverage."
+          },
+          {
+            "id": 3,
+            "title": "Analyze ANSI escape sequence patterns",
+            "description": "Document all ANSI escape sequence patterns found in commit messages for comprehensive cleaning",
+            "dependencies": [
+              "21.2"
+            ],
+            "details": "Analyze the found commit messages to identify all ANSI escape sequence patterns including: \\[38;2;\\d+;\\d+;\\d+m (RGB color codes), \\[0m (reset codes), \\[\\d+;\\d+;\\d+;\\d+;\\d+m (complex sequences), and any other color/formatting codes present.",
+            "status": "pending",
+            "testStrategy": "Verify regex patterns match all identified ANSI codes. Test patterns against sample commit messages to ensure complete coverage without false positives."
+          },
+          {
+            "id": 4,
+            "title": "Create test repository copy for safe experimentation",
+            "description": "Create a complete copy of the repository to test the cleaning approach without affecting the main repository",
+            "dependencies": [
+              "21.1"
+            ],
+            "details": "Clone the repository to a temporary location or create a test worktree to experiment with git filter-branch or interactive rebase approaches. This ensures we can test the cleaning process thoroughly before applying to the main repository.",
+            "status": "pending",
+            "testStrategy": "Verify test copy contains all branches and commits. Test that cleaning operations work correctly on the copy before applying to main repository."
+          },
+          {
+            "id": 5,
+            "title": "Develop ANSI cleaning script",
+            "description": "Create a script to remove ANSI escape sequences from commit messages while preserving message content",
+            "dependencies": [
+              "21.3"
+            ],
+            "details": "Develop a script (shell, Python, or other) that can process commit messages and remove all identified ANSI escape sequences while preserving the actual commit message content. The script should handle all patterns found in step 3 and maintain readability.",
+            "status": "pending",
+            "testStrategy": "Test script on sample commit messages. Verify it removes all ANSI codes while preserving meaningful content. Ensure no corruption of commit message structure."
+          },
+          {
+            "id": 6,
+            "title": "Test cleaning approach on repository copy",
+            "description": "Apply the cleaning script using git filter-branch or interactive rebase on the test repository",
+            "dependencies": [
+              "21.4",
+              "21.5"
+            ],
+            "details": "Test the cleaning approach using either git filter-branch --msg-filter or git rebase --root -i with the cleaning script. Verify that the process successfully removes ANSI codes while maintaining commit graph integrity and preserving all file changes.",
+            "status": "pending",
+            "testStrategy": "After cleaning, run git log --oneline --color=never | grep -E '\\[.*m' to verify no ANSI codes remain. Check git log --graph to ensure commit history structure is intact. Verify file changes are preserved."
+          },
+          {
+            "id": 7,
+            "title": "Verify commit graph integrity after cleaning",
+            "description": "Ensure the git commit graph remains intact and all relationships are preserved after ANSI cleaning",
+            "dependencies": [
+              "21.6"
+            ],
+            "details": "After the cleaning process, thoroughly verify that the commit graph structure is maintained, all branches point to correct commits, tags are preserved, and the repository state is consistent. Check for any corruption or missing references.",
+            "status": "pending",
+            "testStrategy": "Run git fsck to check repository integrity. Verify git log --graph shows proper structure. Test that all branches are accessible and contain expected commits."
+          },
+          {
+            "id": 8,
+            "title": "Apply cleaning process to main repository",
+            "description": "Apply the tested and verified cleaning process to the main repository",
+            "dependencies": [
+              "21.7"
+            ],
+            "details": "After successful testing, apply the same cleaning process to the main repository. Use the exact same method that was verified to work in the test repository. Ensure backup branch exists before proceeding.",
+            "status": "pending",
+            "testStrategy": "Monitor the cleaning process for any errors. After completion, verify that the main repository has clean commit messages and maintains full functionality."
+          },
+          {
+            "id": 9,
+            "title": "Validate cleaned git history",
+            "description": "Perform comprehensive validation that all ANSI codes are removed and repository functions correctly",
+            "dependencies": [
+              "21.8"
+            ],
+            "details": "Run comprehensive checks to ensure all ANSI escape sequences are removed from commit messages throughout the entire git history. Verify that the repository functions normally and all references are intact.",
+            "status": "pending",
+            "testStrategy": "Run git log --oneline --color=never | grep -E '\\[.*m' to confirm no ANSI codes remain. Test git log --graph shows clean history. Verify git status, git diff, and other operations work normally."
+          },
+          {
+            "id": 10,
+            "title": "Document cleaning process and cleanup",
+            "description": "Document the cleaning process, remove temporary files, and finalize the professional git history",
+            "dependencies": [
+              "21.9"
+            ],
+            "details": "Document the cleaning process used, remove any temporary scripts or test repositories, and verify the final state of the professional git history. Consider updating any documentation that references the cleaning process.",
+            "status": "pending",
+            "testStrategy": "Verify documentation is complete and accurate. Confirm all temporary files are cleaned up. Test that the git repository presents a professional appearance in all viewing contexts."
+          }
+        ]
+      },
+      {
+        "id": 22,
+        "title": "Create SECURITY.md file",
+        "description": "Add security policy file with vulnerability reporting process and security guidelines",
+        "details": "Create SECURITY.md following GitHub security advisory format. Include: vulnerability reporting process with contact email, supported versions policy, security best practices for users, handling of security issues, response timeline commitments. Reference existing security workflow at .github/workflows/security.yml. Include guidance on secure deployment configurations, API key management, and network security. Add links to security scanning reports and MseeP.ai badge already present in README.",
+        "testStrategy": "Verify SECURITY.md renders properly on GitHub. Confirm all contact methods work. Test link references to security workflows are valid.",
+        "priority": "high",
+        "dependencies": [],
+        "status": "done",
+        "subtasks": []
+      },
+      {
+        "id": 23,
+        "title": "Create CODE_OF_CONDUCT.md file",
+        "description": "Add community code of conduct to establish behavioral standards for contributors",
+        "details": "Create CODE_OF_CONDUCT.md using GitHub's Contributor Covenant template v2.1. Customize for the workspace-qdrant-mcp project context. Include: expected behavior standards, unacceptable behavior examples, enforcement responsibilities, reporting process, consequences for violations. Ensure consistency with existing contributing guidelines in CONTRIBUTING.md. Add contact information for reporting issues. Include scope covering project spaces, public spaces when representing project.",
+        "testStrategy": "Verify file renders correctly on GitHub. Ensure reporting mechanisms are functional. Cross-reference with CONTRIBUTING.md for consistency.",
+        "priority": "high",
+        "dependencies": [],
+        "status": "done",
+        "subtasks": []
+      },
+      {
+        "id": 24,
+        "title": "Enhance GitHub issue templates",
+        "description": "Improve existing issue templates with better guidance and comprehensive options",
+        "details": "Enhance existing templates in .github/ISSUE_TEMPLATE/: bug_report.yml, feature_request.yml, security.yml. Add new templates: documentation_improvement.yml for docs issues, performance_issue.yml for performance problems. Include environment details collection (Python version, Qdrant version, OS), steps to reproduce, expected vs actual behavior, logs/error messages. Add links to diagnostic commands (workspace-qdrant-test, workspace-qdrant-health). Ensure templates guide users to provide actionable information.",
+        "testStrategy": "Test template rendering in GitHub interface. Verify all form fields work correctly. Ensure templates collect sufficient information for triage.",
+        "priority": "medium",
+        "dependencies": [],
+        "status": "done",
+        "subtasks": []
+      },
+      {
+        "id": 25,
+        "title": "Create comprehensive pull request template",
+        "description": "Add PR template with checklist to ensure consistent contribution quality",
+        "details": "Create .github/pull_request_template.md with sections: Description (what/why), Changes Made (technical details), Testing Done (unit/integration/manual), Documentation Updated (if applicable), Breaking Changes (if any), Checklist (tests pass, docs updated, follows code style, no debug code). Include references to CONTRIBUTING.md guidelines, links to CI checks, reminder about conventional commits. Add guidelines for performance-sensitive changes and security considerations.",
+        "testStrategy": "Verify template appears when creating PRs. Test that all checklist items are relevant and actionable. Ensure template encourages good practices.",
+        "priority": "medium",
+        "dependencies": [],
+        "status": "done",
+        "subtasks": []
+      },
+      {
+        "id": 26,
+        "title": "Create comprehensive tutorials directory",
+        "description": "Build step-by-step learning path with progressive tutorials from basic to advanced usage",
+        "details": "Create tutorials/ directory structure: getting-started/, basic-usage/, advanced-features/, integrations/, troubleshooting/. Getting Started: installation through first search with real examples. Basic Usage: collections, documents, search with CLI and MCP examples. Advanced Features: memory system, web interface, performance tuning, custom embeddings. Integrations: Claude Desktop, Claude Code, VS Code, Cursor IDE setups with working configurations. Troubleshooting: common issues, diagnostic commands, performance optimization. Use real-world scenarios and include copy-pasteable commands.",
+        "testStrategy": "Follow each tutorial step-by-step in clean environment. Verify all commands work as documented. Ensure progressive difficulty and logical flow between tutorials.",
+        "priority": "high",
+        "dependencies": [],
+        "status": "done",
+        "subtasks": []
+      },
+      {
+        "id": 27,
+        "title": "Create comprehensive examples suite",
+        "description": "Build diverse examples across different domains and use cases beyond current single demo",
+        "details": "Expand examples/ directory with: software_development/ (code documentation workflow, project onboarding, architecture decisions), research/ (academic papers, citation management, literature reviews), business/ (meeting notes, knowledge base, document management), personal/ (personal wiki, learning notes, idea management). Add integrations/: vscode/ (workspace setup, task integration), cursor/ (IDE configuration), automation/ (CLI scripts, batch processing). Include real sample data, complete configuration files, and working scripts. Each example should be self-contained and immediately usable.",
+        "testStrategy": "Test each example in isolation. Verify all configuration files work. Ensure sample data is representative and useful. Test automation scripts execute successfully.",
+        "priority": "high",
+        "dependencies": [],
+        "status": "done",
+        "subtasks": []
+      },
+      {
+        "id": 28,
+        "title": "Audit and complete CLI file type support",
+        "description": "Ensure CLI ingestion supports all intended file types with parity to MCP interface",
+        "details": "Audit current file type support in CLI vs MCP interface by examining parsers in src/workspace_qdrant_mcp/cli/parsers/. Currently supports: PDF (pypdf), Markdown, Text. Research and implement missing formats: EPUB, MOBI, DOCX, PPTX, code files (all programming languages), web content. Use libraries: python-docx for DOCX, python-pptx for PPTX, ebooklib for EPUB, python-markdown for enhanced MD. Add file type detection, error handling, and progress reporting. Ensure consistent metadata extraction across formats.",
+        "testStrategy": "Test ingestion of each supported file type. Verify metadata extraction works correctly. Compare CLI and MCP interface capabilities. Test error handling for corrupted files.",
+        "priority": "high",
+        "dependencies": [],
+        "status": "pending",
+        "subtasks": [
+          {
+            "id": 1,
+            "title": "Audit current CLI parser support and compare with MCP interface",
+            "description": "Systematically audit existing CLI parsers in src/workspace_qdrant_mcp/cli/parsers/ and document supported file types. Compare this against MCP server capabilities to identify gaps.",
+            "details": "Review all parser files in the CLI directory, create a matrix of supported formats (PDF, Markdown, Text, etc.), compare with MCP interface capabilities, and document missing file types that need implementation. Create a comprehensive gap analysis report.\n<info added on 2025-09-01T20:18:50.144Z>\nAUDIT COMPLETE - CLI File Type Support Gap Analysis\n\n**Current CLI Support Status:**\n✅ PDF (.pdf) - PDFParser implemented and working\n✅ Plain text (.txt) - TextParser implemented and working  \n✅ Markdown (.md) - MarkdownParser implemented and working\n❌ EPUB (.epub) - Listed in CLI supported formats but NO implementation found\n\n**Missing File Types (HIGH PRIORITY):**\n❌ EPUB (.epub) - No parser exists, but format listed as supported in CLI\n❌ MOBI (.mobi) - No parser exists \n❌ DOCX (.docx) - Mentioned as \"optional\" in parsers/__init__.py but not implemented\n❌ PPTX (.pptx) - No parser exists\n❌ Code files - No parser for programming languages (Python, JS, Java, C++, Go, Rust, etc.)\n❌ HTML/Web content - CLI has web ingest command but NOT IMPLEMENTED (shows \"will be implemented in future task\")\n\n**MCP vs CLI Parity:**\n- MCP interface focuses on search/document management with add_document_tool for pre-processed text\n- CLI provides file parsing capabilities that feed the MCP interface\n- Gap: CLI cannot parse 6 major file types that users need for comprehensive document ingestion\n\n**Implementation Priority:**\n1. EPUB parser (listed as supported but missing)\n2. DOCX parser (most common office format)  \n3. Code file parser (critical for developer workflows)\n4. HTML parser (web content ingestion)\n5. PPTX parser (presentation content)\n6. MOBI parser (legacy ebook format)\n\nProceeding to implement missing parsers with required dependencies.\n</info added on 2025-09-01T20:18:50.144Z>",
+            "status": "done",
+            "dependencies": [],
+            "parentTaskId": 28
+          },
+          {
+            "id": 2,
+            "title": "Research and evaluate required libraries",
+            "description": "Research and evaluate python-docx, python-pptx, ebooklib, python-markdown and other libraries needed for missing file type support.",
+            "details": "Investigate library capabilities, installation requirements, API compatibility, performance characteristics, and licensing. Create implementation recommendations for each file type including preferred libraries and fallback options.",
+            "status": "done",
+            "dependencies": [
+              "28.1"
+            ],
+            "parentTaskId": 28
+          },
+          {
+            "id": 3,
+            "title": "Implement document format support (DOCX/PPTX)",
+            "description": "Create parsers for Microsoft Office document formats (DOCX and PPTX) with comprehensive metadata extraction.",
+            "details": "Implement docx_parser.py and pptx_parser.py in the parsers directory. Extract text content, metadata (author, title, creation date, etc.), and handle embedded objects. Include error handling for corrupted files and progress reporting for large documents.",
+            "status": "pending",
+            "dependencies": [
+              "28.2"
+            ],
+            "parentTaskId": 28
+          },
+          {
+            "id": 4,
+            "title": "Implement ebook format support (EPUB/MOBI)",
+            "description": "Create parsers for ebook formats (EPUB and MOBI) with metadata and content extraction capabilities.",
+            "details": "Implement epub_parser.py and mobi_parser.py using ebooklib and other appropriate libraries. Extract book metadata (title, author, ISBN, publisher), chapter structure, and full text content. Handle different ebook versions and DRM-free content only.",
+            "status": "pending",
+            "dependencies": [
+              "28.2"
+            ],
+            "parentTaskId": 28
+          },
+          {
+            "id": 5,
+            "title": "Implement code file support for programming languages",
+            "description": "Create comprehensive parser for code files across all major programming languages with syntax detection and metadata extraction.",
+            "details": "Implement code_parser.py with support for Python, JavaScript, Java, C++, Go, Rust, and other languages. Include syntax highlighting detection, function/class extraction, comment parsing, and file structure analysis. Use file extensions and content analysis for language detection.",
+            "status": "pending",
+            "dependencies": [
+              "28.2"
+            ],
+            "parentTaskId": 28
+          },
+          {
+            "id": 6,
+            "title": "Implement web content support (HTML/web)",
+            "description": "Create parser for HTML and web content with metadata extraction and content cleaning capabilities.",
+            "details": "Implement html_parser.py using BeautifulSoup or similar libraries. Extract clean text content, HTML metadata (title, description, keywords), handle different encodings, and remove unnecessary elements (scripts, styles). Include support for parsing saved web pages and HTML files.",
+            "status": "in-progress",
+            "dependencies": [
+              "28.2"
+            ],
+            "parentTaskId": 28
+          },
+          {
+            "id": 7,
+            "title": "Add file type detection and error handling infrastructure",
+            "description": "Implement robust file type detection, comprehensive error handling, and progress reporting for all parsers.",
+            "details": "Create file_detector.py with MIME type detection, magic number checking, and extension-based fallbacks. Implement unified error handling across all parsers with specific error types for different failure modes. Add progress reporting for large file processing and batch operations.",
+            "status": "pending",
+            "dependencies": [
+              "28.3",
+              "28.4",
+              "28.5",
+              "28.6"
+            ],
+            "parentTaskId": 28
+          },
+          {
+            "id": 8,
+            "title": "Testing and validation of all file type parsers",
+            "description": "Comprehensive testing of all implemented file type parsers, error scenarios, and metadata extraction functionality.",
+            "details": "Create test suite with sample files for each supported format (DOCX, PPTX, EPUB, MOBI, code files, HTML). Test metadata extraction accuracy, error handling for corrupted files, performance with large files, and CLI vs MCP interface parity. Include integration tests and edge case validation.",
+            "status": "pending",
+            "dependencies": [
+              "28.7"
+            ],
+            "parentTaskId": 28
+          }
+        ]
+      },
+      {
+        "id": 29,
+        "title": "Implement persistent folder watching via MCP",
+        "description": "Add MCP tools for declaring and managing persistent watched folders with configuration persistence",
+        "details": "Add new MCP tools: add_watch_folder, remove_watch_folder, list_watched_folders, configure_watch_settings. Implement persistence mechanism using JSON config file in user's config directory or project .workspace-qdrant/ folder. Integrate with existing file watcher in src/workspace_qdrant_mcp/core/file_watcher.py. Add watch configuration management: recursive depth, file filters, update frequency, collection targeting. Ensure watch state survives server restarts. Handle watch folder validation and error recovery.",
+        "testStrategy": "Test folder watch persistence across server restarts. Verify watch configuration changes take effect immediately. Test error handling for invalid paths and permissions issues.",
+        "priority": "high",
+        "dependencies": [],
+        "status": "pending",
+        "subtasks": [
+          {
+            "id": 1,
+            "title": "Create persistent watch configuration storage system",
+            "description": "Implement JSON config file management for storing watch settings in user config directory with proper schema validation and atomic file operations",
+            "details": "Create config schema for watch folder settings including path, recursive depth, filters, update frequency, and collection targeting. Implement config file management functions with validation, atomic writes, and backup recovery. Store in ~/.workspace-qdrant/watch-config.json or similar location.",
+            "status": "pending",
+            "dependencies": [],
+            "parentTaskId": 29
+          },
+          {
+            "id": 2,
+            "title": "Implement core MCP tools for watch management",
+            "description": "Create MCP tools: add_watch_folder, remove_watch_folder, list_watched_folders, configure_watch_settings with proper parameter validation and error handling",
+            "details": "Add new MCP tool functions to server.py with JSON schema validation for parameters. Include path validation, configuration options validation, and proper error responses. Each tool should interact with the persistent configuration system from subtask 29.1.",
+            "status": "pending",
+            "dependencies": [],
+            "parentTaskId": 29
+          },
+          {
+            "id": 3,
+            "title": "Extend file watcher with persistent state management",
+            "description": "Modify existing file_watcher.py to load/save watch configurations and implement watch state recovery on server startup",
+            "details": "Integrate the persistent configuration system with the existing FileWatcher class. Add methods to load watch configurations on startup, save state changes, and recover from interrupted watch operations. Ensure backward compatibility with existing file watching functionality.",
+            "status": "pending",
+            "dependencies": [],
+            "parentTaskId": 29
+          },
+          {
+            "id": 4,
+            "title": "Add advanced watch configuration options",
+            "description": "Implement recursive depth control, file pattern filters, update frequency settings, and collection targeting configuration with validation",
+            "details": "Add configuration options for: recursive depth (integer 0-10), file filters using glob patterns, update frequency in seconds, target collection selection. Include validation functions for each configuration type and default value handling. Update the configuration schema from 29.1 to support these options.",
+            "status": "pending",
+            "dependencies": [],
+            "parentTaskId": 29
+          },
+          {
+            "id": 5,
+            "title": "Implement watch folder validation and error recovery",
+            "description": "Add path validation, permission checks, graceful handling of missing/invalid folders, and automatic retry mechanisms",
+            "details": "Create validation functions for: path existence and accessibility, permission checks for read access, handling of symlinks and network paths. Implement error recovery mechanisms for temporary network issues, permission changes, and folder deletion/recreation. Add logging for validation failures and recovery attempts.",
+            "status": "pending",
+            "dependencies": [],
+            "parentTaskId": 29
+          },
+          {
+            "id": 6,
+            "title": "Add watch state synchronization and persistence",
+            "description": "Ensure configuration changes take effect immediately, handle concurrent access to config file, and implement proper locking mechanisms",
+            "details": "Implement real-time synchronization between configuration changes and active watchers. Add file locking mechanisms to prevent corruption during concurrent config updates. Create event system to notify active watchers of configuration changes. Handle race conditions and ensure atomic operations for config updates.",
+            "status": "pending",
+            "dependencies": [],
+            "parentTaskId": 29
+          },
+          {
+            "id": 7,
+            "title": "Create comprehensive testing for persistent watching",
+            "description": "Test persistence across server restarts, configuration validation, error recovery scenarios, and concurrent access handling",
+            "details": "Create test suite covering: server restart persistence, config file corruption recovery, invalid path handling, permission change scenarios, concurrent MCP tool usage, file filter validation, recursive depth limits, and update frequency changes. Include integration tests with existing file watcher functionality.",
+            "status": "pending",
+            "dependencies": [],
+            "parentTaskId": 29
+          }
+        ]
+      },
+      {
+        "id": 30,
+        "title": "Implement Rust engine priority system",
+        "description": "Add priority-based task queuing and preemption in Rust ingestion engine for responsive MCP requests",
+        "details": "Enhance rust-engine/ with priority queue system. Priority levels: 1) MCP requests (highest, preempt lower), 2) Project watching/ingestion (high), 3) CLI commands (normal), 4) Background folder watching (low). Implement in rust-engine/core/src/processing.rs: task queue with priority ordering, graceful preemption for lower priority tasks, request queuing with timeout handling. Add inter-process communication between Python MCP server and Rust engine. Use tokio for async task management and cancellation. Ensure data consistency during preemption.",
+        "testStrategy": "Test MCP requests preempt lower priority operations. Verify graceful task cancellation without data corruption. Measure response time improvements for high-priority requests.",
+        "priority": "high",
+        "dependencies": [],
+        "status": "in-progress",
+        "subtasks": [
+          {
+            "id": 1,
+            "title": "Define priority task types and queue structures",
+            "description": "Define priority levels (MCP, Project watching, CLI commands, Background watching) and create async-compatible task queue structures in Rust",
+            "dependencies": [],
+            "details": "Create enum TaskPriority with levels 1-4. Define Task struct with priority, payload, cancellation token. Implement PriorityQueue using std::collections::BinaryHeap with priority ordering. Add TaskQueue trait for async operations including enqueue, dequeue, and cancellation methods. Create task types for each priority level with specific payload structures.",
+            "status": "done",
+            "testStrategy": "Unit tests for priority ordering in queue, task creation with different priorities, and queue operations"
+          },
+          {
+            "id": 2,
+            "title": "Implement tokio-based async task manager",
+            "description": "Build the core async task execution engine using tokio for concurrent task processing with cancellation support",
+            "dependencies": [
+              "30.1"
+            ],
+            "details": "Implement TaskManager struct using tokio::sync::Mutex for thread safety. Create async spawn_task method that returns JoinHandle for cancellation. Add task state tracking (Running, Cancelled, Completed). Implement graceful cancellation using tokio::task::spawn and CancellationToken. Create task timeout handling using tokio::time::timeout. Add concurrent task limit configuration.",
+            "status": "done",
+            "testStrategy": "Test task spawning, cancellation during execution, timeout handling, and concurrent task limits"
+          },
+          {
+            "id": 3,
+            "title": "Create preemption logic for lower priority tasks",
+            "description": "Implement task preemption system that can gracefully cancel lower priority tasks when higher priority requests arrive",
+            "dependencies": [
+              "30.1",
+              "30.2"
+            ],
+            "details": "Add preemption checking in TaskManager::enqueue method. Implement graceful task cancellation with data consistency checks. Create PreemptionPolicy trait with strategies (immediate, at_checkpoint, delay). Add task checkpoint system for safe cancellation points. Implement rollback mechanisms for partially completed operations. Track preempted tasks for potential retry.",
+            "status": "done",
+            "testStrategy": "Test preemption of running tasks, data consistency after preemption, checkpoint-based cancellation, and retry of preempted tasks"
+          },
+          {
+            "id": 4,
+            "title": "Implement inter-process communication channel",
+            "description": "Create communication channel between Python MCP server and Rust engine for priority task submission",
+            "dependencies": [],
+            "details": "Extend existing gRPC service in rust-engine/grpc/src/service.rs to include priority task submission methods. Add TaskRequest and TaskResponse protobuf definitions. Implement async RPC methods submit_priority_task, cancel_task, get_task_status. Create Python client wrapper in python-bindings to interface with MCP server. Add connection pooling and error handling for IPC failures.",
+            "status": "done",
+            "testStrategy": "Test gRPC communication from Python to Rust, task submission with different priorities, connection failure handling, and concurrent requests"
+          },
+          {
+            "id": 5,
+            "title": "Integrate priority system into processing pipeline",
+            "description": "Modify the existing processing.rs Pipeline struct to use the new priority-based task management",
+            "dependencies": [
+              "30.1",
+              "30.2",
+              "30.3"
+            ],
+            "details": "Replace existing Pipeline struct in processing.rs with PriorityPipeline that uses TaskManager. Refactor document processing methods to work with priority tasks. Add priority-aware batch processing that can be preempted. Implement task progress tracking and status reporting. Create processing context that maintains state during preemption. Add configuration for priority thresholds and preemption policies.",
+            "status": "pending",
+            "testStrategy": "Test document processing with different priorities, pipeline preemption during batch operations, and processing state consistency"
+          },
+          {
+            "id": 6,
+            "title": "Add request queuing with timeout handling",
+            "description": "Implement request queuing system with configurable timeouts for different priority levels",
+            "dependencies": [
+              "30.1",
+              "30.4"
+            ],
+            "details": "Create RequestQueue with priority-based timeout configuration. Implement async timeout handling using tokio::time::timeout. Add request retry logic for timed-out operations. Create queue backpressure handling to prevent memory exhaustion. Implement queue metrics collection (queue depth, wait times, timeout rates). Add graceful degradation when queues are full.",
+            "status": "pending",
+            "testStrategy": "Test timeout behavior for different priority levels, queue backpressure handling, retry logic, and metrics accuracy"
+          },
+          {
+            "id": 7,
+            "title": "Implement data consistency mechanisms during preemption",
+            "description": "Add safeguards to ensure data integrity when tasks are preempted mid-execution",
+            "dependencies": [
+              "30.3",
+              "30.5"
+            ],
+            "details": "Implement transaction-like semantics for document processing operations. Add checkpoint/rollback system for partially completed ingestions. Create atomic operation boundaries that cannot be preempted. Implement state recovery mechanisms for interrupted tasks. Add consistency validation after preemption events. Create operation logs for debugging preemption issues.",
+            "status": "pending",
+            "testStrategy": "Test data consistency after preemption at various processing stages, rollback functionality, and recovery from interrupted operations"
+          },
+          {
+            "id": 8,
+            "title": "Add monitoring and metrics for priority system performance",
+            "description": "Implement comprehensive monitoring and metrics collection for the priority system performance analysis",
+            "dependencies": [
+              "30.2",
+              "30.6"
+            ],
+            "details": "Add metrics collection using tokio-metrics for task execution times by priority. Implement queue depth and wait time tracking. Create preemption frequency and success rate metrics. Add performance comparison metrics (before/after priority system). Implement health check endpoints for priority system status. Create performance dashboards and alerting thresholds. Add logging for priority decisions and preemption events.",
+            "status": "pending",
+            "testStrategy": "Test metrics accuracy, performance impact of monitoring overhead, health check responsiveness, and metric aggregation over time"
+          }
+        ]
+      },
+      {
+        "id": 31,
+        "title": "Implement web ingestion with security hardening",
+        "description": "Add secure web content ingestion with malware protection and access controls",
+        "details": "Implement web ingestion features: single page ingestion, recursive crawling with depth/domain limits, robots.txt compliance. Add security hardening: malware scanning using clamav-python or similar, URL validation and whitelist/blacklist, content sanitization, size limits (max file size, max pages per domain), rate limiting with respectful crawling delays. Use requests-html or scrapy for crawling, beautifulsoup4 for content extraction. Implement sandboxed processing for untrusted content. Add audit logging for all web ingestion activities.",
+        "testStrategy": "Test single page and recursive crawling. Verify security controls block malicious content. Test rate limiting respects server resources. Validate robots.txt compliance.",
+        "priority": "medium",
+        "dependencies": [],
+        "status": "pending",
+        "subtasks": []
+      },
+      {
+        "id": 32,
+        "title": "Complete PyPI automated publishing setup",
+        "description": "Finalize automated PyPI releases with semantic versioning and comprehensive verification",
+        "details": "Complete existing .github/workflows/publish-to-pypi.yml setup. Implement semantic release automation using python-semantic-release or similar. Add automated changelog generation from conventional commits. Ensure wheel building works for all platforms (review .github/workflows/rust-wheels.yml). Add release verification: install from PyPI in clean environment, run basic functionality tests, verify CLI commands work. Implement staged rollout capability and rollback mechanisms for failed releases. Add release notifications via GitHub releases and tags.",
+        "testStrategy": "Test automated release process in test environment. Verify wheels build correctly for all platforms. Test PyPI installation and basic functionality post-release.",
+        "priority": "high",
+        "dependencies": [],
+        "status": "done",
+        "subtasks": []
+      },
+      {
+        "id": 33,
+        "title": "Add structured logging and observability",
+        "description": "Implement comprehensive logging, metrics collection, and monitoring capabilities for production deployments",
+        "details": "Add structured logging using Python structlog throughout application. Replace print statements with proper logging calls. Implement log levels: DEBUG (development), INFO (operational events), WARNING (performance issues), ERROR (failures), CRITICAL (system failures). Add metrics collection compatible with Prometheus: request counts, response times, error rates, queue lengths, memory usage. Create health check endpoints for monitoring. Add performance monitoring dashboards using Grafana templates. Implement log rotation and retention policies.",
+        "testStrategy": "Verify structured logs contain useful context. Test metrics collection accuracy. Validate health check endpoints return correct status. Test dashboard templates with sample data.",
+        "priority": "medium",
+        "dependencies": [],
+        "status": "pending",
+        "subtasks": []
+      },
+      {
+        "id": 34,
+        "title": "Create Docker publishing and deployment guides",
+        "description": "Add Docker image publishing to Docker Hub with comprehensive deployment documentation",
+        "details": "Create Dockerfile for workspace-qdrant-mcp with multi-stage build: base image with Python/Rust, build stage for compilation, runtime stage minimal. Add docker-compose.yml examples for different scenarios: development (with Qdrant), production (external Qdrant), full stack (Qdrant + app). Implement Docker Hub publishing in GitHub Actions. Create deployment guides: Docker deployment with compose files, cloud deployment patterns (AWS ECS, GCP Cloud Run, Azure Container Instances), Kubernetes manifests, scaling guidance for large document sets. Include monitoring, backup, and recovery procedures.",
+        "testStrategy": "Build and test Docker images locally. Verify docker-compose examples work end-to-end. Test deployment guides on at least one cloud platform.",
+        "priority": "medium",
+        "dependencies": [],
+        "status": "pending",
+        "subtasks": []
+      },
+      {
+        "id": 35,
+        "title": "Create professional logo and branding assets",
+        "description": "Design professional logo that reflects technical nature while remaining approachable for business use",
+        "details": "Create AI image generation prompt for professional logo: technical but approachable aesthetic, incorporate vector/search symbolism (perhaps magnifying glass over geometric vectors), color scheme working on light/dark backgrounds (primary: deep blue/teal, secondary: orange/gold), scalable design for various uses, professional enough for business presentations. Generate logo in multiple formats: SVG (scalable), PNG (web), ICO (favicon), high-resolution versions. Create logo usage guidelines: minimum sizes, spacing requirements, color variations, acceptable modifications. Add logos to README.md, documentation, and web interface.",
+        "testStrategy": "Test logo visibility at different sizes. Verify color schemes work on various backgrounds. Ensure professional appearance across all applications.",
+        "priority": "medium",
+        "dependencies": [],
+        "status": "done",
+        "subtasks": []
+      },
+      {
+        "id": 36,
+        "title": "Enhance README with professional badges and structure",
+        "description": "Improve README visual hierarchy and add comprehensive project status badges without overwhelming content",
+        "details": "Add professional badge collection: PyPI version/downloads (pypi.org badges), GitHub stars/forks (shields.io), CI/CD status (from .github/workflows/), security scan status (from existing security.yml), documentation status, license badge (enhance existing). Improve visual hierarchy: clear section headers, better code block formatting, improved table layouts, logical information flow. Add 'Used by' section placeholder for future adoption. Ensure badges provide value without visual clutter. Update project description to be more compelling for first-time visitors.",
+        "testStrategy": "Verify all badges display correctly and link to appropriate sources. Test README rendering on GitHub, PyPI, and documentation sites. Ensure professional appearance.",
+        "priority": "high",
+        "dependencies": [
+          35
+        ],
+        "status": "done",
+        "subtasks": []
+      },
+      {
+        "id": 37,
+        "title": "Implement environment-based configuration management",
+        "description": "Add robust configuration system supporting multiple deployment environments with validation",
+        "details": "Enhance existing pydantic-settings configuration in src/workspace_qdrant_mcp/core/config.py. Add environment-specific configurations: development.env, staging.env, production.env. Implement configuration validation with clear error messages. Add configuration templates for different deployment scenarios: local development, cloud deployment, enterprise setup. Implement configuration hot-reload where safe. Add secrets management guidance using environment variables, HashiCorp Vault integration example, Kubernetes secrets patterns. Create configuration documentation with security best practices.",
+        "testStrategy": "Test configuration loading from different sources. Verify validation catches common errors. Test hot-reload functionality doesn't break running services.",
+        "priority": "medium",
+        "dependencies": [],
+        "status": "pending",
+        "subtasks": []
+      },
+      {
+        "id": 38,
+        "title": "Create comprehensive API documentation expansion",
+        "description": "Significantly expand API.md with detailed examples, use cases, and integration patterns",
+        "details": "Expand existing API.md with: detailed examples for every MCP tool, step-by-step integration guides for popular editors (VS Code extensions, Cursor IDE, Vim/Neovim), performance optimization strategies (embedding model selection, collection sizing, search optimization), migration guides from other MCP servers, advanced usage patterns (batch operations, custom workflows). Add troubleshooting section with common issues and solutions. Include code examples in multiple languages where applicable. Add performance benchmarking guidance and interpretation.",
+        "testStrategy": "Verify all API examples work as documented. Test integration guides on target platforms. Ensure troubleshooting section covers real user issues.",
+        "priority": "high",
+        "dependencies": [],
+        "status": "pending",
+        "subtasks": []
+      },
+      {
+        "id": 39,
+        "title": "Add alerting and monitoring templates",
+        "description": "Create monitoring configurations, alerting rules, and dashboard templates for production monitoring",
+        "details": "Create monitoring and alerting configurations: Prometheus alerting rules for common issues (high memory usage, slow response times, error rate spikes, queue backlog), Grafana dashboard templates (system overview, performance metrics, error tracking, user activity), health check monitoring scripts. Add monitoring setup documentation: installation guides, configuration examples, best practices. Create alert runbooks: common issues, diagnostic steps, resolution procedures. Include monitoring for both Python application and Rust engine components.",
+        "testStrategy": "Test alerting rules trigger correctly with simulated issues. Verify dashboard templates display meaningful data. Test monitoring scripts detect actual problems.",
+        "priority": "medium",
+        "dependencies": [
+          33
+        ],
+        "status": "pending",
+        "subtasks": []
+      },
+      {
+        "id": 40,
+        "title": "Create video tutorial scripts and interactive documentation",
+        "description": "Develop comprehensive video tutorial scripts and enhance documentation with interactive elements",
+        "details": "Create detailed video tutorial scripts: 5-minute quick start (installation to first successful search), 15-minute comprehensive overview (key features, configuration, common workflows), 30-minute advanced features deep dive (performance optimization, enterprise features, troubleshooting). Scripts should include: exact commands to run, expected outputs, common gotchas, visual elements (screen recordings, diagrams). Enhance documentation with interactive elements: copy-paste code blocks with run buttons, interactive configuration generators, embedded demo environments. Consider asciinema for terminal recordings.",
+        "testStrategy": "Test video scripts by following them exactly. Verify interactive elements work across different browsers. Ensure copy-paste functionality preserves formatting.",
+        "priority": "medium",
+        "dependencies": [
+          26,
+          27
+        ],
+        "status": "pending",
+        "subtasks": []
+      },
+      {
+        "id": 41,
+        "title": "Implement automated release verification and rollback",
+        "description": "Add comprehensive release testing and automated rollback capabilities for failed deployments",
+        "details": "Implement post-release verification: install from PyPI in clean environment, run comprehensive test suite including integration tests, verify CLI commands function correctly, test MCP server startup and basic operations, performance regression testing. Add automated rollback mechanisms: detect failed releases via monitoring, automatic PyPI version retraction if possible, emergency hotfix deployment process, communication templates for users. Implement staged rollout: release to test PyPI first, gradual rollout with monitoring, automated promotion to full release. Add release health monitoring for first 24 hours.",
+        "testStrategy": "Test release verification catches actual problems. Verify rollback procedures work under different failure scenarios. Test staged rollout process end-to-end.",
+        "priority": "medium",
+        "dependencies": [
+          32
+        ],
+        "status": "pending",
+        "subtasks": []
+      },
+      {
+        "id": 42,
+        "title": "Create backup and disaster recovery procedures",
+        "description": "Implement comprehensive backup strategies and disaster recovery procedures for production deployments",
+        "details": "Create backup and recovery documentation: Qdrant collection backup procedures (using Qdrant snapshots), configuration backup strategies, data export/import tools, automated backup scheduling. Implement disaster recovery procedures: system recovery from backups, data integrity verification, service restoration steps, rollback procedures. Add backup testing procedures: regular restore testing, data integrity validation, recovery time measurement. Create recovery automation scripts where possible. Include guidance for different deployment scenarios (local, cloud, enterprise).",
+        "testStrategy": "Test backup procedures create valid, restorable data. Verify disaster recovery procedures work from scratch. Measure and document recovery times.",
+        "priority": "medium",
+        "dependencies": [],
+        "status": "pending",
+        "subtasks": []
+      },
+      {
+        "id": 43,
+        "title": "Add enterprise authentication and multi-tenancy considerations",
+        "description": "Design and document enterprise-grade security features and multi-tenant architecture patterns",
+        "details": "Design enterprise security framework: authentication integration (OAuth2, SAML, LDAP), authorization system (role-based access control, collection-level permissions), audit logging (user actions, data access, administrative changes). Document multi-tenancy patterns: collection isolation strategies, user workspace separation, resource quotas and limits, billing/usage tracking considerations. Create enterprise deployment guides: proxy integration, network security, compliance considerations (GDPR, HIPAA, SOX). Include security hardening checklist and penetration testing guidance.",
+        "testStrategy": "Design review with security experts. Validate authentication integration examples. Test multi-tenancy isolation effectiveness. Review compliance documentation accuracy.",
+        "priority": "low",
+        "dependencies": [
+          22
+        ],
+        "status": "pending",
+        "subtasks": []
+      },
+      {
+        "id": 44,
+        "title": "Implement GitHub Discussions and community features",
+        "description": "Enable and configure GitHub Discussions with appropriate categories for community support and engagement",
+        "details": "Enable GitHub Discussions for the repository. Configure discussion categories: General (questions and chat), Ideas (feature requests and suggestions), Help (troubleshooting and support), Show and Tell (user projects and examples), Development (contributor discussions). Create welcome discussion with community guidelines. Set up discussion templates and moderation policies. Create initial discussions to seed community engagement: welcome post, feature roadmap discussion, use case sharing. Configure notifications for maintainers. Integrate discussions with existing issue templates where appropriate.",
+        "testStrategy": "Verify discussion categories work correctly. Test discussion templates guide good conversations. Ensure moderation tools are accessible to maintainers.",
+        "priority": "medium",
+        "dependencies": [
+          23
+        ],
+        "status": "pending",
+        "subtasks": []
       }
     ],
     "metadata": {
       "created": "2025-08-30T10:40:15.806Z",
-      "updated": "2025-08-31T18:59:10.098Z",
+      "updated": "2025-09-01T20:22:19.751Z",
       "description": "Tasks for development context"
     }
   }

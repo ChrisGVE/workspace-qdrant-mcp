@@ -1,0 +1,11 @@
+# Task ID: 38
+# Title: Create comprehensive API documentation expansion
+# Status: pending
+# Dependencies: None
+# Priority: high
+# Description: Significantly expand API.md with detailed examples, use cases, and integration patterns
+# Details:
+Expand existing API.md with: detailed examples for every MCP tool, step-by-step integration guides for popular editors (VS Code extensions, Cursor IDE, Vim/Neovim), performance optimization strategies (embedding model selection, collection sizing, search optimization), migration guides from other MCP servers, advanced usage patterns (batch operations, custom workflows). Add troubleshooting section with common issues and solutions. Include code examples in multiple languages where applicable. Add performance benchmarking guidance and interpretation.
+
+# Test Strategy:
+Verify all API examples work as documented. Test integration guides on target platforms. Ensure troubleshooting section covers real user issues.

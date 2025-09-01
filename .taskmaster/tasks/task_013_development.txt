@@ -1,0 +1,18 @@
+# Task ID: 13
+# Title: Implement four-mode research interface
+# Status: done
+# Dependencies: None
+# Priority: medium
+# Description: Build the advanced search interface with project, collection, global, and all-collections research modes
+# Details:
+- Implement project-only search (current project collections)
+- Implement single collection targeted search  
+- Implement global collections search (user-configured)
+- Implement all-collections search (replaces qdrant-retrieve functionality)
+- Add version preference handling (latest, all, specific)
+- Implement relationship inclusion for knowledge graph queries
+- Build search result formatting and ranking
+- Add archived collection search capability
+
+# Test Strategy:
+

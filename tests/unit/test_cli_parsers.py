@@ -12,6 +12,7 @@ from unittest.mock import Mock, patch
 import pytest
 
 from workspace_qdrant_mcp.cli.parsers.base import ParsedDocument
+from workspace_qdrant_mcp.cli.parsers.html_parser import HtmlParser
 from workspace_qdrant_mcp.cli.parsers.markdown_parser import MarkdownParser
 from workspace_qdrant_mcp.cli.parsers.pdf_parser import PDFParser
 from workspace_qdrant_mcp.cli.parsers.text_parser import TextParser
@@ -516,3 +517,203 @@ class TestParserErrorHandling:
 
             with pytest.raises(ValueError, match="Path is not a file"):
                 await parser.parse(str(fake_file))
+
+
+class TestHtmlParser:
+    """Test the HTML parser."""
+
+    @pytest.fixture
+    def parser(self):
+        return HtmlParser()
+
+    def test_supported_extensions(self, parser):
+        """Test that parser reports correct supported extensions."""
+        extensions = parser.supported_extensions
+        assert ".html" in extensions
+        assert ".htm" in extensions
+        assert ".xhtml" in extensions
+        assert ".txt" not in extensions  # Should be handled by TextParser
+
+    def test_format_name(self, parser):
+        """Test format name reporting."""
+        assert parser.format_name == "HTML Web Content"
+
+    def test_can_parse(self, parser):
+        """Test file format detection."""
+        assert parser.can_parse("test.html")
+        assert parser.can_parse("page.htm")
+        assert parser.can_parse("doc.xhtml")
+        assert not parser.can_parse("document.pdf")
+
+    @pytest.mark.asyncio
+    async def test_parse_simple_html(self, parser):
+        """Test parsing a simple HTML file."""
+        html_content = """
+        <!DOCTYPE html>
+        <html>
+        <head>
+            <title>Test Page</title>
+            <meta name="description" content="Test description">
+        </head>
+        <body>
+            <h1>Hello World</h1>
+            <p>This is a test paragraph.</p>
+        </body>
+        </html>
+        """
+        
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".html", delete=False) as f:
+            f.write(html_content)
+            f.flush()
+
+            result = await parser.parse(f.name)
+
+            assert isinstance(result, ParsedDocument)
+            assert "Hello World" in result.content
+            assert "This is a test paragraph" in result.content
+            assert result.file_type == "html"
+            assert result.metadata["title"] == "Test Page"
+            assert result.metadata["description"] == "Test description"
+            assert result.metadata["heading_count"] == 1
+            assert result.metadata["paragraph_count"] == 1
+
+            Path(f.name).unlink()  # Cleanup
+
+    @pytest.mark.asyncio
+    async def test_parse_with_scripts_and_styles(self, parser):
+        """Test that scripts and styles are removed by default."""
+        html_content = """
+        <!DOCTYPE html>
+        <html>
+        <head>
+            <title>Test Page</title>
+            <style>body { background: red; }</style>
+        </head>
+        <body>
+            <script>alert('test');</script>
+            <h1>Visible Content</h1>
+            <style>.hidden { display: none; }</style>
+        </body>
+        </html>
+        """
+        
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".html", delete=False) as f:
+            f.write(html_content)
+            f.flush()
+
+            result = await parser.parse(f.name)
+
+            assert "alert" not in result.content
+            assert "background: red" not in result.content
+            assert "display: none" not in result.content
+            assert "Visible Content" in result.content
+
+            Path(f.name).unlink()  # Cleanup
+
+    @pytest.mark.asyncio
+    async def test_parse_with_navigation_removal(self, parser):
+        """Test navigation element removal."""
+        html_content = """
+        <!DOCTYPE html>
+        <html>
+        <body>
+            <nav>
+                <a href="/home">Home</a>
+                <a href="/about">About</a>
+            </nav>
+            <main>
+                <h1>Main Content</h1>
+                <p>This is the main content.</p>
+            </main>
+            <div class="sidebar">
+                <p>Sidebar content</p>
+            </div>
+        </body>
+        </html>
+        """
+        
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".html", delete=False) as f:
+            f.write(html_content)
+            f.flush()
+
+            # Test with navigation removal (default)
+            result = await parser.parse(f.name, remove_navigation=True)
+            assert "Home" not in result.content
+            assert "About" not in result.content
+            assert "Main Content" in result.content
+
+            # Test without navigation removal
+            result = await parser.parse(f.name, remove_navigation=False)
+            assert "Home" in result.content
+            assert "About" in result.content
+            assert "Main Content" in result.content
+
+            Path(f.name).unlink()  # Cleanup
+
+    @pytest.mark.asyncio
+    async def test_parse_with_encoding_detection(self, parser):
+        """Test encoding detection and handling."""
+        html_content = """
+        <!DOCTYPE html>
+        <html>
+        <head>
+            <meta charset="utf-8">
+            <title>UTF-8 Test</title>
+        </head>
+        <body>
+            <p>Special chars: café, naïve, résumé</p>
+        </body>
+        </html>
+        """
+        
+        with tempfile.NamedTemporaryFile(mode="wb", suffix=".html", delete=False) as f:
+            f.write(html_content.encode('utf-8'))
+            f.flush()
+
+            result = await parser.parse(f.name)
+            
+            assert "café" in result.content
+            assert "naïve" in result.content
+            assert "résumé" in result.content
+            assert result.parsing_info["encoding_detected"] == "utf-8"
+
+            Path(f.name).unlink()  # Cleanup
+
+    @pytest.mark.asyncio
+    async def test_parse_options(self, parser):
+        """Test various parsing options."""
+        options = parser.get_parsing_options()
+        
+        assert "remove_navigation" in options
+        assert "remove_ads" in options
+        assert "preserve_links" in options
+        assert "preserve_headings" in options
+        assert "extract_metadata" in options
+        
+        # Check default values
+        assert options["remove_navigation"]["default"] is True
+        assert options["preserve_headings"]["default"] is True
+        assert options["extract_metadata"]["default"] is True
+
+    @pytest.mark.asyncio
+    async def test_file_not_found_error(self, parser):
+        """Test error handling for missing files."""
+        with pytest.raises(FileNotFoundError):
+            await parser.parse("/nonexistent/file.html")
+
+    @pytest.mark.asyncio  
+    async def test_unsupported_format_error(self, parser, tmp_path):
+        """Test error handling for unsupported formats."""
+        # Create a temporary file with unsupported extension
+        test_file = tmp_path / "test.unsupported"
+        test_file.write_text("test content")
+
+        with pytest.raises(ValueError, match="File format not supported"):
+            await parser.parse(str(test_file))
+
+    @pytest.mark.asyncio
+    async def test_availability_check_with_mock(self, parser):
+        """Test that missing libraries are properly detected."""
+        with patch('workspace_qdrant_mcp.cli.parsers.html_parser.BS4_AVAILABLE', False):
+            with pytest.raises(RuntimeError, match="HTML parsing requires"):
+                await parser.parse("test.html")

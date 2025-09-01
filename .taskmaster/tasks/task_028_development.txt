@@ -1,0 +1,61 @@
+# Task ID: 28
+# Title: Audit and complete CLI file type support
+# Status: pending
+# Dependencies: None
+# Priority: high
+# Description: Ensure CLI ingestion supports all intended file types with parity to MCP interface
+# Details:
+Audit current file type support in CLI vs MCP interface by examining parsers in src/workspace_qdrant_mcp/cli/parsers/. Currently supports: PDF (pypdf), Markdown, Text. Research and implement missing formats: EPUB, MOBI, DOCX, PPTX, code files (all programming languages), web content. Use libraries: python-docx for DOCX, python-pptx for PPTX, ebooklib for EPUB, python-markdown for enhanced MD. Add file type detection, error handling, and progress reporting. Ensure consistent metadata extraction across formats.
+
+# Test Strategy:
+Test ingestion of each supported file type. Verify metadata extraction works correctly. Compare CLI and MCP interface capabilities. Test error handling for corrupted files.
+
+# Subtasks:
+## 1. Audit current CLI parser support and compare with MCP interface [pending]
+### Dependencies: None
+### Description: Systematically audit existing CLI parsers in src/workspace_qdrant_mcp/cli/parsers/ and document supported file types. Compare this against MCP server capabilities to identify gaps.
+### Details:
+Review all parser files in the CLI directory, create a matrix of supported formats (PDF, Markdown, Text, etc.), compare with MCP interface capabilities, and document missing file types that need implementation. Create a comprehensive gap analysis report.
+
+## 2. Research and evaluate required libraries [pending]
+### Dependencies: 28.1
+### Description: Research and evaluate python-docx, python-pptx, ebooklib, python-markdown and other libraries needed for missing file type support.
+### Details:
+Investigate library capabilities, installation requirements, API compatibility, performance characteristics, and licensing. Create implementation recommendations for each file type including preferred libraries and fallback options.
+
+## 3. Implement document format support (DOCX/PPTX) [pending]
+### Dependencies: 28.2
+### Description: Create parsers for Microsoft Office document formats (DOCX and PPTX) with comprehensive metadata extraction.
+### Details:
+Implement docx_parser.py and pptx_parser.py in the parsers directory. Extract text content, metadata (author, title, creation date, etc.), and handle embedded objects. Include error handling for corrupted files and progress reporting for large documents.
+
+## 4. Implement ebook format support (EPUB/MOBI) [pending]
+### Dependencies: 28.2
+### Description: Create parsers for ebook formats (EPUB and MOBI) with metadata and content extraction capabilities.
+### Details:
+Implement epub_parser.py and mobi_parser.py using ebooklib and other appropriate libraries. Extract book metadata (title, author, ISBN, publisher), chapter structure, and full text content. Handle different ebook versions and DRM-free content only.
+
+## 5. Implement code file support for programming languages [pending]
+### Dependencies: 28.2
+### Description: Create comprehensive parser for code files across all major programming languages with syntax detection and metadata extraction.
+### Details:
+Implement code_parser.py with support for Python, JavaScript, Java, C++, Go, Rust, and other languages. Include syntax highlighting detection, function/class extraction, comment parsing, and file structure analysis. Use file extensions and content analysis for language detection.
+
+## 6. Implement web content support (HTML/web) [pending]
+### Dependencies: 28.2
+### Description: Create parser for HTML and web content with metadata extraction and content cleaning capabilities.
+### Details:
+Implement html_parser.py using BeautifulSoup or similar libraries. Extract clean text content, HTML metadata (title, description, keywords), handle different encodings, and remove unnecessary elements (scripts, styles). Include support for parsing saved web pages and HTML files.
+
+## 7. Add file type detection and error handling infrastructure [pending]
+### Dependencies: 28.3, 28.4, 28.5, 28.6
+### Description: Implement robust file type detection, comprehensive error handling, and progress reporting for all parsers.
+### Details:
+Create file_detector.py with MIME type detection, magic number checking, and extension-based fallbacks. Implement unified error handling across all parsers with specific error types for different failure modes. Add progress reporting for large file processing and batch operations.
+
+## 8. Testing and validation of all file type parsers [pending]
+### Dependencies: 28.7
+### Description: Comprehensive testing of all implemented file type parsers, error scenarios, and metadata extraction functionality.
+### Details:
+Create test suite with sample files for each supported format (DOCX, PPTX, EPUB, MOBI, code files, HTML). Test metadata extraction accuracy, error handling for corrupted files, performance with large files, and CLI vs MCP interface parity. Include integration tests and edge case validation.
+

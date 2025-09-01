@@ -9,6 +9,7 @@ Supported formats:
     - Markdown (.md, .markdown)
     - PDF (.pdf)
     - Microsoft Word (.docx) - optional
+    - HTML (.html, .htm, .xhtml) - optional
 
 Each parser implements the DocumentParser interface and provides:
     - Format detection and validation
@@ -18,6 +19,7 @@ Each parser implements the DocumentParser interface and provides:
 """
 
 from .base import DocumentParser, ParsedDocument
+from .html_parser import HtmlParser
 from .markdown_parser import MarkdownParser
 from .pdf_parser import PDFParser
 from .text_parser import TextParser
@@ -28,4 +30,5 @@ __all__ = [
     "TextParser",
     "MarkdownParser",
     "PDFParser",
+    "HtmlParser",
 ]
