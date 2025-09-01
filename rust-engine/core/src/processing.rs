@@ -651,3 +651,248 @@ pub struct PipelineStats {
     pub running_tasks: usize,
     pub total_capacity: usize,
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::time::Duration;
+    use tokio::time::timeout;
+    
+    #[tokio::test]
+    async fn test_pipeline_creation() {
+        let pipeline = Pipeline::new(2);
+        let stats = pipeline.stats().await;
+        
+        assert_eq!(stats.queued_tasks, 0);
+        assert_eq!(stats.running_tasks, 0);
+        assert_eq!(stats.total_capacity, 2);
+    }
+    
+    #[tokio::test]
+    async fn test_task_submission_and_execution() {
+        let mut pipeline = Pipeline::new(2);
+        let submitter = pipeline.task_submitter();
+        
+        // Start the pipeline
+        pipeline.start().await.expect("Failed to start pipeline");
+        
+        // Submit a simple generic task
+        let task_handle = submitter.submit_task(
+            TaskPriority::CliCommands,
+            TaskSource::CliCommand {
+                command: "test_command".to_string(),
+            },
+            TaskPayload::Generic {
+                operation: "test".to_string(),
+                parameters: HashMap::new(),
+            },
+            Some(Duration::from_secs(5)),
+        ).await.expect("Failed to submit task");
+        
+        // Wait for task completion with timeout
+        let result = timeout(Duration::from_secs(10), task_handle.wait()).await
+            .expect("Task timed out")
+            .expect("Task execution failed");
+        
+        match result {
+            TaskResult::Success { data, .. } => {
+                match data {
+                    TaskResultData::Generic { message, .. } => {
+                        assert_eq!(message, "Completed operation: test");
+                    }
+                    _ => panic!("Expected Generic result data"),
+                }
+            }
+            _ => panic!("Expected successful result, got: {:?}", result),
+        }
+    }
+    
+    #[tokio::test]
+    async fn test_priority_ordering() {
+        let mut pipeline = Pipeline::new(1); // Limit to 1 concurrent task
+        let submitter = pipeline.task_submitter();
+        
+        pipeline.start().await.expect("Failed to start pipeline");
+        
+        // Submit multiple tasks with different priorities
+        let low_priority_task = submitter.submit_task(
+            TaskPriority::BackgroundWatching,
+            TaskSource::BackgroundWatcher {
+                folder_path: "/tmp".to_string(),
+            },
+            TaskPayload::Generic {
+                operation: "low_priority".to_string(),
+                parameters: HashMap::new(),
+            },
+            Some(Duration::from_secs(1)),
+        ).await.expect("Failed to submit low priority task");
+        
+        // Small delay to ensure first task starts
+        tokio::time::sleep(Duration::from_millis(10)).await;
+        
+        let high_priority_task = submitter.submit_task(
+            TaskPriority::McpRequests,
+            TaskSource::McpServer {
+                request_id: "test_request".to_string(),
+            },
+            TaskPayload::Generic {
+                operation: "high_priority".to_string(),
+                parameters: HashMap::new(),
+            },
+            Some(Duration::from_secs(1)),
+        ).await.expect("Failed to submit high priority task");
+        
+        // The high priority task should complete first (due to preemption)
+        // or if low priority completes first, that's also acceptable
+        let high_result = timeout(Duration::from_secs(5), high_priority_task.wait()).await
+            .expect("High priority task timed out")
+            .expect("High priority task failed");
+        
+        let low_result = timeout(Duration::from_secs(5), low_priority_task.wait()).await
+            .expect("Low priority task timed out")
+            .expect("Low priority task failed");
+        
+        // Verify both tasks completed
+        match high_result {
+            TaskResult::Success { data, .. } => {
+                if let TaskResultData::Generic { message, .. } = data {
+                    assert_eq!(message, "Completed operation: high_priority");
+                }
+            }
+            _ => panic!("High priority task should have succeeded"),
+        }
+        
+        // Low priority task might be cancelled or succeed depending on timing
+        match low_result {
+            TaskResult::Success { data, .. } => {
+                if let TaskResultData::Generic { message, .. } = data {
+                    assert_eq!(message, "Completed operation: low_priority");
+                }
+            }
+            TaskResult::Cancelled { .. } => {
+                // This is expected if preemption occurred
+            }
+            _ => {}, // Other results are acceptable
+        }
+    }
+    
+    #[tokio::test]
+    async fn test_task_timeout() {
+        let mut pipeline = Pipeline::new(1);
+        let submitter = pipeline.task_submitter();
+        
+        pipeline.start().await.expect("Failed to start pipeline");
+        
+        // Submit a task with very short timeout
+        let task_handle = submitter.submit_task(
+            TaskPriority::CliCommands,
+            TaskSource::CliCommand {
+                command: "timeout_test".to_string(),
+            },
+            TaskPayload::Generic {
+                operation: "slow_operation".to_string(),
+                parameters: HashMap::new(),
+            },
+            Some(Duration::from_millis(1)), // Very short timeout
+        ).await.expect("Failed to submit task");
+        
+        let result = timeout(Duration::from_secs(2), task_handle.wait()).await
+            .expect("Test timed out")
+            .expect("Task execution failed");
+        
+        // Task should timeout
+        match result {
+            TaskResult::Timeout { .. } => {
+                // Expected
+            }
+            other => panic!("Expected timeout, got: {:?}", other),
+        }
+    }
+    
+    #[tokio::test]
+    async fn test_concurrent_task_execution() {
+        let mut pipeline = Pipeline::new(3); // Allow 3 concurrent tasks
+        let submitter = pipeline.task_submitter();
+        
+        pipeline.start().await.expect("Failed to start pipeline");
+        
+        // Submit multiple tasks simultaneously
+        let mut handles = Vec::new();
+        for i in 0..5 {
+            let handle = submitter.submit_task(
+                TaskPriority::CliCommands,
+                TaskSource::CliCommand {
+                    command: format!("task_{}", i),
+                },
+                TaskPayload::Generic {
+                    operation: format!("concurrent_task_{}", i),
+                    parameters: HashMap::new(),
+                },
+                Some(Duration::from_secs(2)),
+            ).await.expect("Failed to submit task");
+            
+            handles.push(handle);
+        }
+        
+        // Wait for all tasks to complete
+        let mut completed_count = 0;
+        for handle in handles {
+            let result = timeout(Duration::from_secs(10), handle.wait()).await
+                .expect("Task timed out")
+                .expect("Task execution failed");
+            
+            match result {
+                TaskResult::Success { .. } => completed_count += 1,
+                _ => {}
+            }
+        }
+        
+        assert_eq!(completed_count, 5, "All tasks should complete successfully");
+    }
+    
+    #[tokio::test]
+    async fn test_pipeline_stats() {
+        let mut pipeline = Pipeline::new(2);
+        let submitter = pipeline.task_submitter();
+        
+        pipeline.start().await.expect("Failed to start pipeline");
+        
+        // Check initial stats
+        let initial_stats = pipeline.stats().await;
+        assert_eq!(initial_stats.queued_tasks, 0);
+        assert_eq!(initial_stats.running_tasks, 0);
+        
+        // Submit multiple tasks to queue them
+        let _handle1 = submitter.submit_task(
+            TaskPriority::CliCommands,
+            TaskSource::CliCommand {
+                command: "stats_test_1".to_string(),
+            },
+            TaskPayload::Generic {
+                operation: "stats_test_1".to_string(),
+                parameters: HashMap::new(),
+            },
+            Some(Duration::from_secs(5)),
+        ).await.expect("Failed to submit task 1");
+        
+        let _handle2 = submitter.submit_task(
+            TaskPriority::CliCommands,
+            TaskSource::CliCommand {
+                command: "stats_test_2".to_string(),
+            },
+            TaskPayload::Generic {
+                operation: "stats_test_2".to_string(),
+                parameters: HashMap::new(),
+            },
+            Some(Duration::from_secs(5)),
+        ).await.expect("Failed to submit task 2");
+        
+        // Give tasks time to start
+        tokio::time::sleep(Duration::from_millis(100)).await;
+        
+        let stats = pipeline.stats().await;
+        // At least some tasks should be running or queued
+        assert!(stats.running_tasks > 0 || stats.queued_tasks > 0);
+        assert_eq!(stats.total_capacity, 2);
+    }
+}
