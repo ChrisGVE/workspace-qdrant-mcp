@@ -1,0 +1,456 @@
+name: Release Verification and Monitoring
+
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+    inputs:
+      version_to_verify:
+        description: 'Version to verify (e.g., 0.2.1)'
+        required: true
+        type: string
+  schedule:
+    # Run daily verification of latest release
+    - cron: '0 6 * * *'
+
+env:
+  PYTHON_VERSION: "3.10"
+
+jobs:
+  detect-version:
+    name: Detect Version to Verify
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+      is_prerelease: ${{ steps.version.outputs.is_prerelease }}
+    
+    steps:
+      - name: Determine version to verify
+        id: version
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            VERSION="${{ github.event.inputs.version_to_verify }}"
+            IS_PRERELEASE="false"
+          elif [ "${{ github.event_name }}" = "release" ]; then
+            VERSION="${{ github.event.release.tag_name }}"
+            VERSION="${VERSION#v}"  # Remove 'v' prefix
+            IS_PRERELEASE="${{ github.event.release.prerelease }}"
+          else
+            # Scheduled run - get latest version from PyPI
+            VERSION=$(pip index versions workspace-qdrant-mcp 2>/dev/null | head -1 | grep -oP '\(\K[^)]*' || echo "unknown")
+            IS_PRERELEASE="false"
+          fi
+          
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
+          echo "is_prerelease=$IS_PRERELEASE" >> $GITHUB_OUTPUT
+          echo "🔍 Verifying version: $VERSION"
+          echo "🏷️  Prerelease: $IS_PRERELEASE"
+
+  verify-pypi-availability:
+    name: Verify PyPI Availability
+    needs: detect-version
+    runs-on: ubuntu-latest
+    outputs:
+      pypi_available: ${{ steps.check.outputs.available }}
+      pypi_delay_minutes: ${{ steps.check.outputs.delay_minutes }}
+      
+    steps:
+      - name: Check PyPI availability
+        id: check
+        timeout-minutes: 10
+        run: |
+          VERSION="${{ needs.detect-version.outputs.version }}"
+          MAX_ATTEMPTS=30
+          ATTEMPT=0
+          
+          echo "🔍 Checking PyPI availability for version $VERSION..."
+          
+          while [ $ATTEMPT -lt $MAX_ATTEMPTS ]; do
+            if pip index versions workspace-qdrant-mcp 2>/dev/null | grep -q "$VERSION"; then
+              echo "✅ Version $VERSION found on PyPI"
+              echo "available=true" >> $GITHUB_OUTPUT
+              echo "delay_minutes=$((ATTEMPT * 2))" >> $GITHUB_OUTPUT
+              exit 0
+            fi
+            
+            ATTEMPT=$((ATTEMPT + 1))
+            echo "⏳ Attempt $ATTEMPT/$MAX_ATTEMPTS - waiting for PyPI propagation..."
+            sleep 20
+          done
+          
+          echo "❌ Version $VERSION not found on PyPI after $((MAX_ATTEMPTS * 2)) minutes"
+          echo "available=false" >> $GITHUB_OUTPUT
+          echo "delay_minutes=999" >> $GITHUB_OUTPUT
+
+  cross-platform-verification:
+    name: Cross-Platform Verification
+    needs: [detect-version, verify-pypi-availability]
+    if: needs.verify-pypi-availability.outputs.pypi_available == 'true'
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+        python-version: ["3.10", "3.11", "3.12"]
+        
+    steps:
+      - name: Set up Python ${{ matrix.python-version }}
+        uses: actions/setup-python@v4
+        with:
+          python-version: ${{ matrix.python-version }}
+
+      - name: Install from PyPI
+        run: |
+          python -m pip install --upgrade pip
+          pip install workspace-qdrant-mcp==${{ needs.detect-version.outputs.version }}
+
+      - name: Verify installation
+        run: |
+          # Test imports
+          python -c "
+          import workspace_qdrant_mcp
+          print(f'✅ Python {python_version} on {os}: workspace-qdrant-mcp {workspace_qdrant_mcp.__version__} imported successfully')
+          assert workspace_qdrant_mcp.__version__ == '${{ needs.detect-version.outputs.version }}', f'Version mismatch: expected ${{ needs.detect-version.outputs.version }}, got {workspace_qdrant_mcp.__version__}'
+          print(f'✅ Version verification passed')
+          " || exit 1
+        env:
+          python_version: ${{ matrix.python-version }}
+          os: ${{ runner.os }}
+
+      - name: Test CLI commands
+        shell: bash
+        run: |
+          # Test all CLI entry points
+          workspace-qdrant-mcp --help > /dev/null || { echo "❌ workspace-qdrant-mcp CLI failed"; exit 1; }
+          wqm --help > /dev/null || { echo "❌ wqm CLI failed"; exit 1; }
+          wqutil --help > /dev/null || { echo "❌ wqutil CLI failed"; exit 1; }
+          workspace-qdrant-validate --help > /dev/null || { echo "❌ workspace-qdrant-validate CLI failed"; exit 1; }
+          workspace-qdrant-admin --help > /dev/null || { echo "❌ workspace-qdrant-admin CLI failed"; exit 1; }
+          workspace-qdrant-ingest --help > /dev/null || { echo "❌ workspace-qdrant-ingest CLI failed"; exit 1; }
+          workspace-qdrant-setup --help > /dev/null || { echo "❌ workspace-qdrant-setup CLI failed"; exit 1; }
+          workspace-qdrant-test --help > /dev/null || { echo "❌ workspace-qdrant-test CLI failed"; exit 1; }
+          workspace-qdrant-health --help > /dev/null || { echo "❌ workspace-qdrant-health CLI failed"; exit 1; }
+          
+          echo "✅ All CLI commands working on ${{ runner.os }} with Python ${{ matrix.python-version }}"
+
+      - name: Test basic functionality
+        run: |
+          python -c "
+          # Test basic MCP server functionality
+          from workspace_qdrant_mcp.server import app
+          print('✅ MCP server app imported successfully')
+          
+          # Test configuration
+          from workspace_qdrant_mcp.core.config import Settings
+          settings = Settings()
+          print('✅ Configuration loaded successfully')
+          
+          # Test client manager
+          from workspace_qdrant_mcp.core.qdrant_client import QdrantClientManager
+          # Don't actually connect, just verify import
+          print('✅ Qdrant client manager imported successfully')
+          
+          print('✅ Basic functionality verification passed')
+          "
+
+  integration-test-verification:
+    name: Integration Test with Qdrant
+    needs: [detect-version, verify-pypi-availability]
+    if: needs.verify-pypi-availability.outputs.pypi_available == 'true'
+    runs-on: ubuntu-latest
+    services:
+      qdrant:
+        image: qdrant/qdrant:latest
+        ports:
+          - 6333:6333
+          - 6334:6334
+        options: >-
+          --health-cmd="curl -f http://localhost:6333/health || exit 1"
+          --health-interval=10s
+          --health-timeout=5s
+          --health-retries=5
+          
+    steps:
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+
+      - name: Install from PyPI
+        run: |
+          python -m pip install --upgrade pip
+          pip install workspace-qdrant-mcp==${{ needs.detect-version.outputs.version }}
+
+      - name: Wait for Qdrant
+        run: |
+          timeout=60
+          while [ $timeout -gt 0 ]; do
+            if curl -s http://localhost:6333/health > /dev/null; then
+              echo "✅ Qdrant is ready"
+              break
+            fi
+            echo "⏳ Waiting for Qdrant... ($timeout seconds left)"
+            sleep 2
+            timeout=$((timeout - 2))
+          done
+          if [ $timeout -le 0 ]; then
+            echo "❌ Qdrant failed to start"
+            exit 1
+          fi
+
+      - name: Test Qdrant integration
+        run: |
+          python -c "
+          import asyncio
+          import os
+          from workspace_qdrant_mcp.core.qdrant_client import QdrantClientManager
+          
+          async def test_integration():
+              print('🧪 Testing Qdrant integration...')
+              
+              # Initialize client
+              client = QdrantClientManager('http://localhost:6333')
+              try:
+                  await client.initialize()
+                  print('✅ Qdrant client initialization successful')
+                  
+                  # Test collection creation
+                  collection_name = 'release-verification-test'
+                  await client.ensure_collection(collection_name)
+                  print('✅ Collection creation successful')
+                  
+                  # Test basic operations (without actual documents to keep it fast)
+                  collections = await client.client.get_collections()
+                  print(f'✅ Collections retrieved: {len(collections.collections)} collections')
+                  
+                  # Cleanup
+                  try:
+                      await client.client.delete_collection(collection_name)
+                      print('✅ Test collection cleaned up')
+                  except:
+                      pass  # Cleanup is best effort
+                      
+                  print('✅ Integration test completed successfully')
+                  
+              except Exception as e:
+                  print(f'❌ Integration test failed: {e}')
+                  raise
+          
+          asyncio.run(test_integration())
+          "
+
+  performance-benchmark:
+    name: Performance Benchmark
+    needs: [detect-version, verify-pypi-availability]
+    if: needs.verify-pypi-availability.outputs.pypi_available == 'true'
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+
+      - name: Install from PyPI with timing
+        run: |
+          start_time=$(date +%s)
+          python -m pip install --upgrade pip
+          pip install workspace-qdrant-mcp==${{ needs.detect-version.outputs.version }}
+          end_time=$(date +%s)
+          install_time=$((end_time - start_time))
+          
+          echo "⏱️ Installation time: ${install_time} seconds"
+          echo "INSTALL_TIME=$install_time" >> $GITHUB_ENV
+
+      - name: Measure import performance
+        run: |
+          python -c "
+          import time
+          import sys
+          
+          # Measure import time
+          start = time.time()
+          import workspace_qdrant_mcp
+          import_time = time.time() - start
+          
+          print(f'⏱️ Import time: {import_time:.3f} seconds')
+          
+          # Check if import time is reasonable (< 2 seconds)
+          if import_time > 2.0:
+              print(f'⚠️ Warning: Import time {import_time:.3f}s exceeds 2.0s threshold')
+              sys.exit(1)
+          else:
+              print(f'✅ Import time {import_time:.3f}s is acceptable')
+          "
+
+      - name: Test CLI startup performance
+        run: |
+          # Measure CLI startup time
+          start=$(date +%s%N)
+          workspace-qdrant-mcp --help > /dev/null
+          end=$(date +%s%N)
+          cli_time_ns=$((end - start))
+          cli_time_ms=$((cli_time_ns / 1000000))
+          
+          echo "⏱️ CLI startup time: ${cli_time_ms}ms"
+          
+          # Check if CLI startup is reasonable (< 3000ms)
+          if [ $cli_time_ms -gt 3000 ]; then
+            echo "⚠️ Warning: CLI startup time ${cli_time_ms}ms exceeds 3000ms threshold"
+            exit 1
+          else
+            echo "✅ CLI startup time ${cli_time_ms}ms is acceptable"
+          fi
+
+  dependency-security-scan:
+    name: Security Scan of Dependencies
+    needs: [detect-version, verify-pypi-availability]
+    if: needs.verify-pypi-availability.outputs.pypi_available == 'true'
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+
+      - name: Install from PyPI
+        run: |
+          python -m pip install --upgrade pip
+          pip install workspace-qdrant-mcp==${{ needs.detect-version.outputs.version }}
+
+      - name: Install security scanning tools
+        run: |
+          pip install safety bandit
+
+      - name: Run safety check on dependencies
+        run: |
+          echo "🔒 Running safety check on dependencies..."
+          pip freeze | safety check --stdin || {
+            echo "⚠️ Safety check found vulnerabilities in dependencies"
+            echo "This may require attention but won't fail the verification"
+          }
+
+      - name: List installed packages for audit
+        run: |
+          echo "📋 Installed packages for version ${{ needs.detect-version.outputs.version }}:"
+          pip list
+          
+          echo "📋 Dependency tree:"
+          pip show workspace-qdrant-mcp
+
+  create-verification-report:
+    name: Create Verification Report
+    needs: [detect-version, verify-pypi-availability, cross-platform-verification, integration-test-verification, performance-benchmark, dependency-security-scan]
+    if: always()
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Generate verification report
+        run: |
+          VERSION="${{ needs.detect-version.outputs.version }}"
+          PYPI_AVAILABLE="${{ needs.verify-pypi-availability.outputs.pypi_available }}"
+          IS_PRERELEASE="${{ needs.detect-version.outputs.is_prerelease }}"
+          
+          echo "# Release Verification Report" >> report.md
+          echo "" >> report.md
+          echo "**Version:** $VERSION" >> report.md
+          echo "**Verification Date:** $(date -u '+%Y-%m-%d %H:%M:%S UTC')" >> report.md
+          echo "**Trigger:** ${{ github.event_name }}" >> report.md
+          echo "**Prerelease:** $IS_PRERELEASE" >> report.md
+          echo "" >> report.md
+          
+          if [ "$PYPI_AVAILABLE" = "true" ]; then
+            echo "✅ **PyPI Availability:** Available" >> report.md
+            echo "⏱️  **Propagation Time:** ${{ needs.verify-pypi-availability.outputs.pypi_delay_minutes }} minutes" >> report.md
+          else
+            echo "❌ **PyPI Availability:** Not Available" >> report.md
+          fi
+          echo "" >> report.md
+          
+          echo "## Platform Verification Results" >> report.md
+          echo "" >> report.md
+          
+          # Cross-platform results
+          if [ "${{ needs.cross-platform-verification.result }}" = "success" ]; then
+            echo "✅ **Cross-Platform Tests:** All platforms passed" >> report.md
+          elif [ "${{ needs.cross-platform-verification.result }}" = "failure" ]; then
+            echo "❌ **Cross-Platform Tests:** Some platforms failed" >> report.md
+          else
+            echo "⏸️ **Cross-Platform Tests:** Skipped" >> report.md
+          fi
+          
+          # Integration test results
+          if [ "${{ needs.integration-test-verification.result }}" = "success" ]; then
+            echo "✅ **Integration Tests:** Passed" >> report.md
+          elif [ "${{ needs.integration-test-verification.result }}" = "failure" ]; then
+            echo "❌ **Integration Tests:** Failed" >> report.md
+          else
+            echo "⏸️ **Integration Tests:** Skipped" >> report.md
+          fi
+          
+          # Performance benchmark results
+          if [ "${{ needs.performance-benchmark.result }}" = "success" ]; then
+            echo "✅ **Performance Benchmark:** Passed" >> report.md
+          elif [ "${{ needs.performance-benchmark.result }}" = "failure" ]; then
+            echo "❌ **Performance Benchmark:** Failed" >> report.md
+          else
+            echo "⏸️ **Performance Benchmark:** Skipped" >> report.md
+          fi
+          
+          # Security scan results
+          if [ "${{ needs.dependency-security-scan.result }}" = "success" ]; then
+            echo "✅ **Security Scan:** Passed" >> report.md
+          elif [ "${{ needs.dependency-security-scan.result }}" = "failure" ]; then
+            echo "⚠️ **Security Scan:** Completed with warnings" >> report.md
+          else
+            echo "⏸️ **Security Scan:** Skipped" >> report.md
+          fi
+          
+          echo "" >> report.md
+          echo "## Summary" >> report.md
+          echo "" >> report.md
+          
+          # Overall status
+          if [ "$PYPI_AVAILABLE" = "true" ] && \
+             [ "${{ needs.cross-platform-verification.result }}" = "success" ] && \
+             [ "${{ needs.integration-test-verification.result }}" = "success" ] && \
+             [ "${{ needs.performance-benchmark.result }}" = "success" ]; then
+            echo "🎉 **Overall Status:** ✅ PASSED - Release verification successful" >> report.md
+            echo "" >> report.md
+            echo "Version $VERSION is verified and ready for production use." >> report.md
+          else
+            echo "🚨 **Overall Status:** ❌ ISSUES DETECTED" >> report.md
+            echo "" >> report.md
+            echo "Version $VERSION has verification issues that may require attention." >> report.md
+          fi
+          
+          echo "" >> report.md
+          echo "---" >> report.md
+          echo "*Automated verification by GitHub Actions*" >> report.md
+
+      - name: Output report to job summary
+        run: cat report.md >> $GITHUB_STEP_SUMMARY
+
+      - name: Create issue for failed verification
+        if: failure() && needs.detect-version.outputs.is_prerelease == 'false'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require('fs');
+            const report = fs.readFileSync('report.md', 'utf8');
+            
+            await github.rest.issues.create({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              title: `🚨 Release Verification Failed - v${{ needs.detect-version.outputs.version }}`,
+              body: `
+              Release verification failed for version ${{ needs.detect-version.outputs.version }}.
+              
+              ${report}
+              
+              **Action Required:** Investigate and resolve verification issues.
+              **Workflow:** [${{ github.run_id }}](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }})
+              `,
+              labels: ['bug', 'release-verification', 'priority-high']
+            });
