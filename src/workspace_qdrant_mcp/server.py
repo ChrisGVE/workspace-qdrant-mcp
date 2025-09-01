@@ -66,6 +66,10 @@ from .core.advanced_watch_config import (
     CollectionTargeting,
     AdvancedConfigValidator,
 )
+from .core.watch_validation import (
+    WatchPathValidator,
+    ValidationResult,
+)
 from .utils.config_validator import ConfigValidator
 
 # Initialize logging
@@ -1084,6 +1088,305 @@ async def validate_watch_configuration(
             "issues": [f"Validation error: {str(e)}"],
             "warnings": [],
             "component_results": {},
+            "error_type": "internal_error"
+        }
+
+
+@app.tool()
+async def validate_watch_path(path: str) -> dict:
+    """
+    Validate a directory path for watch suitability with comprehensive checks.
+    
+    Performs extensive validation including path existence, permissions, filesystem
+    compatibility, and potential issues that might affect file watching reliability.
+    
+    Args:
+        path: Directory path to validate for watching capabilities
+        
+    Returns:
+        dict: Comprehensive validation results with detailed feedback
+            {
+                "valid": bool,                    # Overall validation result
+                "path": str,                      # Resolved absolute path
+                "error_code": str,                # Error code if validation failed
+                "error_message": str,             # Human-readable error message
+                "warnings": [str],                # Non-critical issues found
+                "metadata": {                     # Detailed path information
+                    "resolved_path": str,
+                    "permissions": str,
+                    "is_symlink": bool,
+                    "is_network_path": bool,
+                    "free_space_mb": float,
+                    "supports_file_creation": bool
+                },
+                "recommendations": [str]          # Suggested actions for issues
+            }
+            
+    Example:
+        ```python
+        # Validate a local directory
+        result = await validate_watch_path("/home/user/documents")
+        if result["valid"]:
+            print("Path is suitable for watching")
+            if result["warnings"]:
+                print(f"Warnings: {', '.join(result['warnings'])}")
+        else:
+            print(f"Validation failed: {result['error_message']}")
+        
+        # Validate a network path
+        result = await validate_watch_path("//server/share/folder")
+        for warning in result["warnings"]:
+            print(f"Warning: {warning}")
+        ```
+    """
+    try:
+        from pathlib import Path
+        
+        # Validate and resolve path
+        try:
+            watch_path = Path(path).resolve()
+        except Exception as e:
+            return {
+                "valid": False,
+                "path": path,
+                "error_code": "PATH_INVALID",
+                "error_message": f"Invalid path format: {e}",
+                "warnings": [],
+                "metadata": {},
+                "recommendations": ["Check path format and correct any syntax errors"]
+            }
+        
+        # Perform comprehensive validation
+        validation_result = WatchPathValidator.validate_watch_path(watch_path)
+        
+        # Generate recommendations based on issues found
+        recommendations = []
+        if not validation_result.valid:
+            error_code = validation_result.error_code
+            
+            if error_code == "PATH_NOT_EXISTS":
+                recommendations.extend([
+                    "Create the directory if it should exist",
+                    "Check if the path is mounted (for network drives)",
+                    "Verify the path spelling and structure"
+                ])
+            elif error_code == "PATH_ACCESS_DENIED":
+                recommendations.extend([
+                    "Check file permissions on the directory",
+                    "Run with appropriate user privileges",
+                    "Verify directory ownership settings"
+                ])
+            elif error_code == "SYMLINK_BROKEN":
+                recommendations.extend([
+                    "Fix the symbolic link target",
+                    "Replace symlink with direct directory reference",
+                    "Check if symlink target is mounted"
+                ])
+            elif error_code == "FILESYSTEM_CHECK_ERROR":
+                recommendations.extend([
+                    "Check if filesystem is properly mounted",
+                    "Verify network connectivity for remote paths",
+                    "Check disk space and filesystem health"
+                ])
+        
+        # Add recommendations for warnings
+        for warning in validation_result.warnings:
+            if "network" in warning.lower():
+                recommendations.append("Consider using a local path for better reliability")
+            elif "permission" in warning.lower():
+                recommendations.append("Review and adjust directory permissions if needed")
+            elif "disk space" in warning.lower():
+                recommendations.append("Free up disk space to prevent issues")
+            elif "symlink" in warning.lower():
+                recommendations.append("Monitor symbolic link target availability")
+        
+        return {
+            "valid": validation_result.valid,
+            "path": str(watch_path),
+            "error_code": validation_result.error_code,
+            "error_message": validation_result.error_message,
+            "warnings": validation_result.warnings,
+            "metadata": validation_result.metadata,
+            "recommendations": list(set(recommendations))  # Remove duplicates
+        }
+        
+    except Exception as e:
+        return {
+            "valid": False,
+            "path": path,
+            "error_code": "VALIDATION_ERROR",
+            "error_message": f"Unexpected validation error: {str(e)}",
+            "warnings": [],
+            "metadata": {},
+            "recommendations": ["Report this error to support"]
+        }
+
+
+@app.tool()
+async def get_watch_health_status(watch_id: str = None) -> dict:
+    """
+    Get health status and recovery information for folder watches.
+    
+    Provides detailed health monitoring data including validation status,
+    error recovery attempts, and system health metrics for watches.
+    
+    Args:
+        watch_id: Specific watch ID to get status for (optional, gets all if None)
+        
+    Returns:
+        dict: Health status information with monitoring and recovery data
+        
+    Example:
+        ```python
+        # Get health status for all watches
+        result = await get_watch_health_status()
+        for watch_id, health in result["health_status"].items():
+            print(f"Watch {watch_id}: {health['status']}")
+        
+        # Get detailed status for specific watch
+        result = await get_watch_health_status("my-watch")
+        health = result["health_status"]
+        print(f"Status: {health['status']}")
+        print(f"Last check: {health['last_check']}")
+        print(f"Failures: {health['consecutive_failures']}")
+        ```
+    """
+    if not workspace_client or not watch_tools_manager:
+        return {"error": "Watch management not initialized"}
+    
+    try:
+        # Get health status from health monitor
+        health_status = watch_tools_manager.health_monitor.get_health_status(watch_id)
+        
+        # Get recovery history
+        recovery_history = {}
+        if watch_id:
+            recovery_history[watch_id] = watch_tools_manager.error_recovery.get_recovery_history(watch_id)
+        else:
+            # Get recovery history for all watches
+            for wid in health_status.keys():
+                recovery_history[wid] = watch_tools_manager.error_recovery.get_recovery_history(wid)
+        
+        # Calculate summary statistics
+        summary = {
+            "total_watches": len(health_status),
+            "healthy_watches": 0,
+            "unhealthy_watches": 0,
+            "recovering_watches": 0,
+            "unknown_watches": 0,
+            "monitoring_active": watch_tools_manager.health_monitor.is_monitoring()
+        }
+        
+        for health_info in health_status.values():
+            status = health_info.get("status", "unknown")
+            if status == "healthy":
+                summary["healthy_watches"] += 1
+            elif status in ["unhealthy", "recovery_failed"]:
+                summary["unhealthy_watches"] += 1
+            elif status in ["recovered", "recovering"]:
+                summary["recovering_watches"] += 1
+            else:
+                summary["unknown_watches"] += 1
+        
+        return {
+            "success": True,
+            "health_status": health_status,
+            "recovery_history": recovery_history,
+            "summary": summary,
+            "monitoring_info": {
+                "active": summary["monitoring_active"],
+                "interval_seconds": watch_tools_manager.health_monitor.monitoring_interval
+            }
+        }
+        
+    except Exception as e:
+        logger.error(f"Failed to get watch health status: {e}")
+        return {
+            "success": False,
+            "error": f"Unexpected error: {str(e)}",
+            "error_type": "internal_error"
+        }
+
+
+@app.tool()
+async def trigger_watch_recovery(watch_id: str, error_type: str = None) -> dict:
+    """
+    Manually trigger error recovery for a specific watch.
+    
+    Initiates recovery procedures for watches experiencing issues,
+    useful for troubleshooting and manual intervention scenarios.
+    
+    Args:
+        watch_id: Unique identifier of the watch to recover
+        error_type: Specific error type to recover from (optional, auto-detected if None)
+        
+    Returns:
+        dict: Recovery attempt results with success status and details
+        
+    Example:
+        ```python
+        # Trigger automatic recovery
+        result = await trigger_watch_recovery("my-watch")
+        if result["success"]:
+            print(f"Recovery successful: {result['details']}")
+        
+        # Trigger recovery for specific error type
+        result = await trigger_watch_recovery(
+            "network-watch", 
+            error_type="NETWORK_PATH_UNAVAILABLE"
+        )
+        ```
+    """
+    if not workspace_client or not watch_tools_manager:
+        return {"error": "Watch management not initialized"}
+    
+    try:
+        # Get watch configuration to find path
+        watch_config = await watch_tools_manager.config_manager.get_watch_config(watch_id)
+        if not watch_config:
+            return {
+                "success": False,
+                "error": f"Watch not found: {watch_id}",
+                "error_type": "watch_not_found"
+            }
+        
+        # Determine error type if not provided
+        if not error_type:
+            # Validate path to detect current issues
+            from pathlib import Path
+            path = Path(watch_config.path)
+            validation_result = WatchPathValidator.validate_watch_path(path)
+            
+            if not validation_result.valid:
+                error_type = validation_result.error_code
+            else:
+                error_type = "GENERAL_RECOVERY"  # Generic recovery attempt
+        
+        # Attempt recovery
+        success, details = await watch_tools_manager.error_recovery.attempt_recovery(
+            watch_id=watch_id,
+            error_type=error_type,
+            path=Path(watch_config.path),
+            error_details="Manual recovery triggered"
+        )
+        
+        # Get updated recovery history
+        recovery_history = watch_tools_manager.error_recovery.get_recovery_history(watch_id)
+        
+        return {
+            "success": success,
+            "watch_id": watch_id,
+            "error_type": error_type,
+            "details": details,
+            "recovery_history": recovery_history,
+            "message": f"Recovery {'succeeded' if success else 'failed'} for watch {watch_id}"
+        }
+        
+    except Exception as e:
+        logger.error(f"Failed to trigger watch recovery: {e}")
+        return {
+            "success": False,
+            "error": f"Unexpected error: {str(e)}",
             "error_type": "internal_error"
         }
 
