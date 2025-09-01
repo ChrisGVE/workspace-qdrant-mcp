@@ -1643,7 +1643,7 @@
               "30.5"
             ],
             "details": "Implement transaction-like semantics for document processing operations. Add checkpoint/rollback system for partially completed ingestions. Create atomic operation boundaries that cannot be preempted. Implement state recovery mechanisms for interrupted tasks. Add consistency validation after preemption events. Create operation logs for debugging preemption issues.",
-            "status": "in-progress",
+            "status": "done",
             "testStrategy": "Test data consistency after preemption at various processing stages, rollback functionality, and recovery from interrupted operations"
           },
           {
@@ -1655,7 +1655,7 @@
               "30.6"
             ],
             "details": "Add metrics collection using tokio-metrics for task execution times by priority. Implement queue depth and wait time tracking. Create preemption frequency and success rate metrics. Add performance comparison metrics (before/after priority system). Implement health check endpoints for priority system status. Create performance dashboards and alerting thresholds. Add logging for priority decisions and preemption events.",
-            "status": "pending",
+            "status": "in-progress",
             "testStrategy": "Test metrics accuracy, performance impact of monitoring overhead, health check responsiveness, and metric aggregation over time"
           }
         ]
@@ -1830,7 +1830,7 @@
     ],
     "metadata": {
       "created": "2025-08-30T10:40:15.806Z",
-      "updated": "2025-09-01T21:38:40.597Z",
+      "updated": "2025-09-01T21:42:26.783Z",
       "description": "Tasks for development context"
     }
   }

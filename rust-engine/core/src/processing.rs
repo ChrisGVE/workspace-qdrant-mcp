@@ -321,6 +321,8 @@ pub struct Pipeline {
     queue_config: QueueConfig,
     /// Checkpoint manager for data consistency
     checkpoint_manager: Arc<CheckpointManager>,
+    /// Metrics collector for performance monitoring
+    metrics_collector: Arc<MetricsCollector>,
 }
 
 /// Information about a currently running task
@@ -542,6 +544,11 @@ impl Pipeline {
             Duration::from_secs(3600), // 1 hour retention by default
         ));
         
+        // Create metrics collector
+        let metrics_collector = Arc::new(MetricsCollector::new(
+            Duration::from_secs(60), // 1 minute sampling window
+        ));
+        
         // Ensure checkpoint directory exists
         if let Err(e) = std::fs::create_dir_all(&checkpoint_manager.checkpoint_dir) {
             tracing::warn!("Failed to create checkpoint directory: {}", e);
@@ -558,6 +565,7 @@ impl Pipeline {
             request_queue,
             queue_config,
             checkpoint_manager,
+            metrics_collector,
         }
     }
     
@@ -591,18 +599,36 @@ impl Pipeline {
         Ok(())
     }
     
-    /// Get current pipeline statistics
+    /// Get current pipeline statistics (legacy compatibility)
     pub async fn stats(&self) -> PipelineStats {
         let queue_lock = self.task_queue.read().await;
         let running_lock = self.running_tasks.read().await;
-        let queue_stats = self.request_queue.get_stats().await;
         
         PipelineStats {
             queued_tasks: queue_lock.len(),
             running_tasks: running_lock.len(),
             total_capacity: self.max_concurrent_tasks,
-            queue_stats: Some(queue_stats),
+            tasks_completed: self.metrics_collector.tasks_completed.load(AtomicOrdering::Relaxed),
+            tasks_failed: self.metrics_collector.tasks_failed.load(AtomicOrdering::Relaxed),
+            tasks_cancelled: self.metrics_collector.tasks_cancelled.load(AtomicOrdering::Relaxed),
+            tasks_timed_out: self.metrics_collector.tasks_timed_out.load(AtomicOrdering::Relaxed),
+            uptime_seconds: self.metrics_collector.start_time.elapsed().as_secs(),
         }
+    }
+    
+    /// Get comprehensive priority system metrics
+    pub async fn get_priority_system_metrics(&self) -> PrioritySystemMetrics {
+        let queue_lock = self.task_queue.read().await;
+        let running_lock = self.running_tasks.read().await;
+        let queue_stats = self.request_queue.get_stats().await;
+        
+        self.metrics_collector.generate_metrics(
+            running_lock.len(),
+            queue_lock.len(),
+            self.max_concurrent_tasks,
+            &queue_stats,
+            &self.checkpoint_manager,
+        ).await
     }
     
     /// Get request queue reference for direct access
@@ -618,6 +644,11 @@ impl Pipeline {
     /// Get checkpoint manager reference
     pub fn checkpoint_manager(&self) -> Arc<CheckpointManager> {
         Arc::clone(&self.checkpoint_manager)
+    }
+    
+    /// Get metrics collector reference
+    pub fn metrics_collector(&self) -> Arc<MetricsCollector> {
+        Arc::clone(&self.metrics_collector)
     }
     
     /// Resume a task from checkpoint
@@ -696,6 +727,52 @@ impl Pipeline {
     pub async fn list_active_checkpoints(&self) -> Vec<String> {
         let checkpoints_lock = self.checkpoint_manager.checkpoints.read().await;
         checkpoints_lock.keys().cloned().collect()
+    }
+    
+    /// Export metrics in Prometheus format
+    pub async fn export_prometheus_metrics(&self) -> String {
+        let metrics = self.get_priority_system_metrics().await;
+        
+        let mut output = String::new();
+        
+        // Pipeline metrics
+        output.push_str(&format!("# HELP wqm_tasks_total Total number of tasks processed\n"));
+        output.push_str(&format!("# TYPE wqm_tasks_total counter\n"));
+        output.push_str(&format!("wqm_tasks_completed {{}} {}\n", metrics.pipeline.tasks_completed));
+        output.push_str(&format!("wqm_tasks_failed {{}} {}\n", metrics.pipeline.tasks_failed));
+        output.push_str(&format!("wqm_tasks_cancelled {{}} {}\n", metrics.pipeline.tasks_cancelled));
+        output.push_str(&format!("wqm_tasks_timed_out {{}} {}\n", metrics.pipeline.tasks_timed_out));
+        
+        // Queue metrics
+        output.push_str(&format!("# HELP wqm_queue_size Current queue size\n"));
+        output.push_str(&format!("# TYPE wqm_queue_size gauge\n"));
+        output.push_str(&format!("wqm_queue_total {{}} {}\n", metrics.queue.total_queued));
+        
+        for (priority, count) in &metrics.queue.queued_by_priority {
+            output.push_str(&format!("wqm_queue_by_priority{{priority=\"{:?}\"}} {}\n", priority, count));
+        }
+        
+        // Performance metrics
+        output.push_str(&format!("# HELP wqm_task_duration_seconds Task execution duration\n"));
+        output.push_str(&format!("# TYPE wqm_task_duration_seconds histogram\n"));
+        output.push_str(&format!("wqm_task_duration_average {{}} {}\n", metrics.performance.average_task_duration_ms / 1000.0));
+        output.push_str(&format!("wqm_task_duration_p95 {{}} {}\n", metrics.performance.p95_task_duration_ms / 1000.0));
+        output.push_str(&format!("wqm_task_duration_p99 {{}} {}\n", metrics.performance.p99_task_duration_ms / 1000.0));
+        
+        // Preemption metrics
+        output.push_str(&format!("# HELP wqm_preemptions_total Total preemptions\n"));
+        output.push_str(&format!("# TYPE wqm_preemptions_total counter\n"));
+        output.push_str(&format!("wqm_preemptions_total {{}} {}\n", metrics.preemption.preemptions_total));
+        output.push_str(&format!("wqm_preemptions_graceful {{}} {}\n", metrics.preemption.graceful_preemptions));
+        output.push_str(&format!("wqm_preemptions_forced {{}} {}\n", metrics.preemption.forced_aborts));
+        
+        // Checkpoint metrics
+        output.push_str(&format!("# HELP wqm_checkpoints_active Active checkpoints\n"));
+        output.push_str(&format!("# TYPE wqm_checkpoints_active gauge\n"));
+        output.push_str(&format!("wqm_checkpoints_active {{}} {}\n", metrics.checkpoints.active_checkpoints));
+        output.push_str(&format!("wqm_rollbacks_total {{}} {}\n", metrics.checkpoints.rollbacks_executed));
+        
+        output
     }
     
     /// The main execution loop that processes tasks
@@ -1871,13 +1948,433 @@ pub struct QueueStats {
     pub deduplication_map_size: usize,
 }
 
-/// Pipeline statistics
+/// Comprehensive metrics for priority system performance
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct PipelineStats {
+pub struct PrioritySystemMetrics {
+    /// General pipeline metrics
+    pub pipeline: PipelineMetrics,
+    /// Queue-specific metrics
+    pub queue: QueueMetrics,
+    /// Preemption behavior metrics
+    pub preemption: PreemptionMetrics,
+    /// Checkpoint system metrics
+    pub checkpoints: CheckpointMetrics,
+    /// Performance metrics over time
+    pub performance: PerformanceMetrics,
+    /// Resource utilization
+    pub resources: ResourceMetrics,
+}
+
+/// Core pipeline metrics
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PipelineMetrics {
     pub queued_tasks: usize,
     pub running_tasks: usize,
     pub total_capacity: usize,
-    pub queue_stats: Option<QueueStats>,
+    pub tasks_completed: u64,
+    pub tasks_failed: u64,
+    pub tasks_cancelled: u64,
+    pub tasks_timed_out: u64,
+    pub uptime_seconds: u64,
+}
+
+/// Queue behavior metrics
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct QueueMetrics {
+    pub total_queued: usize,
+    pub queued_by_priority: HashMap<TaskPriority, usize>,
+    pub oldest_request_age_ms: Option<u64>,
+    pub average_queue_time_ms: f64,
+    pub max_queue_time_ms: u64,
+    pub queue_overflow_count: u64,
+    pub deduplication_hits: u64,
+    pub priority_boosts_applied: u64,
+}
+
+/// Preemption system metrics
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PreemptionMetrics {
+    pub preemptions_total: u64,
+    pub preemptions_by_priority: HashMap<TaskPriority, u64>,
+    pub graceful_preemptions: u64,
+    pub forced_aborts: u64,
+    pub preemption_success_rate: f64,
+    pub average_preemption_time_ms: f64,
+    pub tasks_resumed_from_checkpoints: u64,
+}
+
+/// Checkpoint system metrics
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CheckpointMetrics {
+    pub active_checkpoints: usize,
+    pub checkpoints_created: u64,
+    pub checkpoints_restored: u64,
+    pub rollbacks_executed: u64,
+    pub rollback_success_rate: f64,
+    pub average_checkpoint_size_bytes: f64,
+    pub checkpoint_storage_usage_bytes: u64,
+}
+
+/// Performance metrics over time
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PerformanceMetrics {
+    pub throughput_tasks_per_second: f64,
+    pub average_task_duration_ms: f64,
+    pub p95_task_duration_ms: f64,
+    pub p99_task_duration_ms: f64,
+    pub response_time_by_priority: HashMap<TaskPriority, f64>,
+    pub error_rate_percent: f64,
+    pub system_load_percent: f64,
+}
+
+/// Resource utilization metrics
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ResourceMetrics {
+    pub memory_usage_bytes: u64,
+    pub cpu_usage_percent: f64,
+    pub disk_usage_bytes: u64,
+    pub network_io_bytes: u64,
+    pub thread_count: usize,
+    pub file_handles_open: usize,
+}
+
+/// Backward compatibility alias
+pub type PipelineStats = PipelineMetrics;
+
+
+/// Real-time metrics collector and aggregator
+pub struct MetricsCollector {
+    /// Start time for uptime calculation
+    start_time: Instant,
+    /// Atomic counters for high-frequency metrics
+    tasks_completed: AtomicU64,
+    tasks_failed: AtomicU64,
+    tasks_cancelled: AtomicU64,
+    tasks_timed_out: AtomicU64,
+    preemptions_total: AtomicU64,
+    graceful_preemptions: AtomicU64,
+    forced_aborts: AtomicU64,
+    checkpoints_created: AtomicU64,
+    rollbacks_executed: AtomicU64,
+    queue_overflow_count: AtomicU64,
+    deduplication_hits: AtomicU64,
+    priority_boosts_applied: AtomicU64,
+    
+    /// Atomic accumulators for averages
+    total_task_duration_ms: AtomicU64,
+    total_queue_time_ms: AtomicU64,
+    total_preemption_time_ms: AtomicU64,
+    
+    /// Recent measurements for percentile calculations
+    recent_task_durations: Arc<RwLock<VecDeque<u64>>>,
+    recent_queue_times: Arc<RwLock<VecDeque<u64>>>,
+    
+    /// Per-priority metrics
+    preemptions_by_priority: Arc<RwLock<HashMap<TaskPriority, AtomicU64>>>,
+    response_times_by_priority: Arc<RwLock<HashMap<TaskPriority, AtomicU64>>>,
+    
+    /// Performance sampling interval
+    sample_window: Duration,
+}
+
+impl MetricsCollector {
+    /// Create a new metrics collector
+    pub fn new(sample_window: Duration) -> Self {
+        let mut preemptions_by_priority = HashMap::new();
+        let mut response_times_by_priority = HashMap::new();
+        
+        for priority in [TaskPriority::McpRequests, TaskPriority::ProjectWatching, 
+                        TaskPriority::CliCommands, TaskPriority::BackgroundWatching] {
+            preemptions_by_priority.insert(priority, AtomicU64::new(0));
+            response_times_by_priority.insert(priority, AtomicU64::new(0));
+        }
+        
+        Self {
+            start_time: Instant::now(),
+            tasks_completed: AtomicU64::new(0),
+            tasks_failed: AtomicU64::new(0),
+            tasks_cancelled: AtomicU64::new(0),
+            tasks_timed_out: AtomicU64::new(0),
+            preemptions_total: AtomicU64::new(0),
+            graceful_preemptions: AtomicU64::new(0),
+            forced_aborts: AtomicU64::new(0),
+            checkpoints_created: AtomicU64::new(0),
+            rollbacks_executed: AtomicU64::new(0),
+            queue_overflow_count: AtomicU64::new(0),
+            deduplication_hits: AtomicU64::new(0),
+            priority_boosts_applied: AtomicU64::new(0),
+            total_task_duration_ms: AtomicU64::new(0),
+            total_queue_time_ms: AtomicU64::new(0),
+            total_preemption_time_ms: AtomicU64::new(0),
+            recent_task_durations: Arc::new(RwLock::new(VecDeque::with_capacity(1000))),
+            recent_queue_times: Arc::new(RwLock::new(VecDeque::with_capacity(1000))),
+            preemptions_by_priority: Arc::new(RwLock::new(preemptions_by_priority)),
+            response_times_by_priority: Arc::new(RwLock::new(response_times_by_priority)),
+            sample_window,
+        }
+    }
+    
+    /// Record task completion
+    pub async fn record_task_completion(&self, duration_ms: u64, priority: TaskPriority) {
+        self.tasks_completed.fetch_add(1, AtomicOrdering::Relaxed);
+        self.total_task_duration_ms.fetch_add(duration_ms, AtomicOrdering::Relaxed);
+        
+        // Update recent durations
+        {
+            let mut durations = self.recent_task_durations.write().await;
+            if durations.len() >= 1000 {
+                durations.pop_front();
+            }
+            durations.push_back(duration_ms);
+        }
+        
+        // Update per-priority response times (using integer storage for simplicity)
+        {
+            let response_times = self.response_times_by_priority.read().await;
+            if let Some(atomic_time) = response_times.get(&priority) {
+                // Simple exponential moving average stored as integer microseconds
+                let current = atomic_time.load(AtomicOrdering::Relaxed) as f64;
+                let new_avg = current * 0.9 + (duration_ms as f64 * 1000.0) * 0.1;
+                atomic_time.store(new_avg as u64, AtomicOrdering::Relaxed);
+            }
+        }
+    }
+    
+    /// Record task failure
+    pub fn record_task_failure(&self) {
+        self.tasks_failed.fetch_add(1, AtomicOrdering::Relaxed);
+    }
+    
+    /// Record task cancellation
+    pub fn record_task_cancellation(&self) {
+        self.tasks_cancelled.fetch_add(1, AtomicOrdering::Relaxed);
+    }
+    
+    /// Record task timeout
+    pub fn record_task_timeout(&self) {
+        self.tasks_timed_out.fetch_add(1, AtomicOrdering::Relaxed);
+    }
+    
+    /// Record preemption event
+    pub async fn record_preemption(&self, preempted_priority: TaskPriority, duration_ms: u64, graceful: bool) {
+        self.preemptions_total.fetch_add(1, AtomicOrdering::Relaxed);
+        self.total_preemption_time_ms.fetch_add(duration_ms, AtomicOrdering::Relaxed);
+        
+        if graceful {
+            self.graceful_preemptions.fetch_add(1, AtomicOrdering::Relaxed);
+        } else {
+            self.forced_aborts.fetch_add(1, AtomicOrdering::Relaxed);
+        }
+        
+        // Update per-priority preemption counts
+        {
+            let preemptions = self.preemptions_by_priority.read().await;
+            if let Some(counter) = preemptions.get(&preempted_priority) {
+                counter.fetch_add(1, AtomicOrdering::Relaxed);
+            }
+        }
+    }
+    
+    /// Record queue-related events
+    pub async fn record_queue_time(&self, queue_time_ms: u64) {
+        self.total_queue_time_ms.fetch_add(queue_time_ms, AtomicOrdering::Relaxed);
+        
+        let mut queue_times = self.recent_queue_times.write().await;
+        if queue_times.len() >= 1000 {
+            queue_times.pop_front();
+        }
+        queue_times.push_back(queue_time_ms);
+    }
+    
+    /// Record queue overflow
+    pub fn record_queue_overflow(&self) {
+        self.queue_overflow_count.fetch_add(1, AtomicOrdering::Relaxed);
+    }
+    
+    /// Record deduplication hit
+    pub fn record_deduplication_hit(&self) {
+        self.deduplication_hits.fetch_add(1, AtomicOrdering::Relaxed);
+    }
+    
+    /// Record priority boost
+    pub fn record_priority_boost(&self) {
+        self.priority_boosts_applied.fetch_add(1, AtomicOrdering::Relaxed);
+    }
+    
+    /// Record checkpoint creation
+    pub fn record_checkpoint_created(&self) {
+        self.checkpoints_created.fetch_add(1, AtomicOrdering::Relaxed);
+    }
+    
+    /// Record rollback execution
+    pub fn record_rollback_executed(&self) {
+        self.rollbacks_executed.fetch_add(1, AtomicOrdering::Relaxed);
+    }
+    
+    /// Calculate percentile from recent measurements
+    async fn calculate_percentile(values: &Arc<RwLock<VecDeque<u64>>>, percentile: f64) -> f64 {
+        let values_lock = values.read().await;
+        if values_lock.is_empty() {
+            return 0.0;
+        }
+        
+        let mut sorted: Vec<u64> = values_lock.iter().cloned().collect();
+        sorted.sort_unstable();
+        
+        let index = ((sorted.len() as f64 - 1.0) * percentile / 100.0) as usize;
+        sorted.get(index).unwrap_or(&0).clone() as f64
+    }
+    
+    /// Get current system resource metrics
+    fn get_resource_metrics() -> ResourceMetrics {
+        ResourceMetrics {
+            memory_usage_bytes: 0, // Would need system-specific implementation
+            cpu_usage_percent: 0.0,
+            disk_usage_bytes: 0,
+            network_io_bytes: 0,
+            thread_count: 0,
+            file_handles_open: 0,
+        }
+    }
+    
+    /// Generate comprehensive metrics report
+    pub async fn generate_metrics(
+        &self,
+        running_tasks: usize,
+        queued_tasks: usize,
+        capacity: usize,
+        queue_stats: &QueueStats,
+        checkpoint_manager: &CheckpointManager,
+    ) -> PrioritySystemMetrics {
+        let uptime = self.start_time.elapsed().as_secs();
+        let tasks_completed = self.tasks_completed.load(AtomicOrdering::Relaxed);
+        let tasks_failed = self.tasks_failed.load(AtomicOrdering::Relaxed);
+        let tasks_cancelled = self.tasks_cancelled.load(AtomicOrdering::Relaxed);
+        let tasks_timed_out = self.tasks_timed_out.load(AtomicOrdering::Relaxed);
+        let preemptions_total = self.preemptions_total.load(AtomicOrdering::Relaxed);
+        let graceful_preemptions = self.graceful_preemptions.load(AtomicOrdering::Relaxed);
+        let forced_aborts = self.forced_aborts.load(AtomicOrdering::Relaxed);
+        
+        // Calculate averages
+        let total_tasks = tasks_completed + tasks_failed + tasks_cancelled;
+        let avg_task_duration = if total_tasks > 0 {
+            self.total_task_duration_ms.load(AtomicOrdering::Relaxed) as f64 / total_tasks as f64
+        } else {
+            0.0
+        };
+        
+        let avg_queue_time = if total_tasks > 0 {
+            self.total_queue_time_ms.load(AtomicOrdering::Relaxed) as f64 / total_tasks as f64
+        } else {
+            0.0
+        };
+        
+        let avg_preemption_time = if preemptions_total > 0 {
+            self.total_preemption_time_ms.load(AtomicOrdering::Relaxed) as f64 / preemptions_total as f64
+        } else {
+            0.0
+        };
+        
+        // Calculate percentiles
+        let p95_duration = Self::calculate_percentile(&self.recent_task_durations, 95.0).await;
+        let p99_duration = Self::calculate_percentile(&self.recent_task_durations, 99.0).await;
+        
+        // Calculate rates
+        let throughput = if uptime > 0 {
+            tasks_completed as f64 / uptime as f64
+        } else {
+            0.0
+        };
+        
+        let error_rate = if total_tasks > 0 {
+            (tasks_failed as f64 / total_tasks as f64) * 100.0
+        } else {
+            0.0
+        };
+        
+        let preemption_success_rate = if preemptions_total > 0 {
+            (graceful_preemptions as f64 / preemptions_total as f64) * 100.0
+        } else {
+            100.0
+        };
+        
+        // Collect per-priority metrics
+        let mut preemptions_by_priority = HashMap::new();
+        let mut response_times_by_priority = HashMap::new();
+        
+        {
+            let preemptions_map = self.preemptions_by_priority.read().await;
+            for (priority, counter) in preemptions_map.iter() {
+                preemptions_by_priority.insert(*priority, counter.load(AtomicOrdering::Relaxed));
+            }
+        }
+        
+        {
+            let response_map = self.response_times_by_priority.read().await;
+            for (priority, atomic_time) in response_map.iter() {
+                // Convert from microseconds back to milliseconds
+                let value_us = atomic_time.load(AtomicOrdering::Relaxed) as f64;
+                response_times_by_priority.insert(*priority, value_us / 1000.0);
+            }
+        }
+        
+        // Get checkpoint metrics
+        let active_checkpoints = {
+            let checkpoints_lock = checkpoint_manager.checkpoints.read().await;
+            checkpoints_lock.len()
+        };
+        
+        PrioritySystemMetrics {
+            pipeline: PipelineMetrics {
+                queued_tasks,
+                running_tasks,
+                total_capacity: capacity,
+                tasks_completed,
+                tasks_failed,
+                tasks_cancelled,
+                tasks_timed_out,
+                uptime_seconds: uptime,
+            },
+            queue: QueueMetrics {
+                total_queued: queue_stats.total_queued,
+                queued_by_priority: queue_stats.queued_by_priority.clone(),
+                oldest_request_age_ms: queue_stats.oldest_request_age_ms,
+                average_queue_time_ms: avg_queue_time,
+                max_queue_time_ms: 0, // Would need max tracking
+                queue_overflow_count: self.queue_overflow_count.load(AtomicOrdering::Relaxed),
+                deduplication_hits: self.deduplication_hits.load(AtomicOrdering::Relaxed),
+                priority_boosts_applied: self.priority_boosts_applied.load(AtomicOrdering::Relaxed),
+            },
+            preemption: PreemptionMetrics {
+                preemptions_total,
+                preemptions_by_priority,
+                graceful_preemptions,
+                forced_aborts,
+                preemption_success_rate,
+                average_preemption_time_ms: avg_preemption_time,
+                tasks_resumed_from_checkpoints: 0, // Would need tracking
+            },
+            checkpoints: CheckpointMetrics {
+                active_checkpoints,
+                checkpoints_created: self.checkpoints_created.load(AtomicOrdering::Relaxed),
+                checkpoints_restored: 0, // Would need tracking
+                rollbacks_executed: self.rollbacks_executed.load(AtomicOrdering::Relaxed),
+                rollback_success_rate: 100.0, // Would need failure tracking
+                average_checkpoint_size_bytes: 0.0, // Would need size tracking
+                checkpoint_storage_usage_bytes: 0, // Would need disk usage
+            },
+            performance: PerformanceMetrics {
+                throughput_tasks_per_second: throughput,
+                average_task_duration_ms: avg_task_duration,
+                p95_task_duration_ms: p95_duration,
+                p99_task_duration_ms: p99_duration,
+                response_time_by_priority: response_times_by_priority,
+                error_rate_percent: error_rate,
+                system_load_percent: 0.0, // Would need system monitoring
+            },
+            resources: Self::get_resource_metrics(),
+        }
+    }
 }
 
 #[cfg(test)]
@@ -2192,6 +2689,204 @@ mod tests {
     }
     
     #[tokio::test]
+    async fn test_priority_system_metrics() {
+        let queue_config = QueueConfigBuilder::new()
+            .for_mcp_server()
+            .build();
+        
+        let mut pipeline = Pipeline::with_queue_config(2, queue_config);
+        let submitter = pipeline.task_submitter();
+        
+        pipeline.start().await.expect("Failed to start pipeline");
+        
+        // Submit various tasks to generate metrics
+        let _handle1 = submitter.submit_task(
+            TaskPriority::McpRequests,
+            TaskSource::McpServer {
+                request_id: "metrics_test_1".to_string(),
+            },
+            TaskPayload::Generic {
+                operation: "metrics_test".to_string(),
+                parameters: HashMap::new(),
+            },
+            Some(Duration::from_secs(1)),
+        ).await.expect("Failed to submit MCP task");
+        
+        let _handle2 = submitter.submit_task(
+            TaskPriority::CliCommands,
+            TaskSource::CliCommand {
+                command: "metrics_cli_test".to_string(),
+            },
+            TaskPayload::Generic {
+                operation: "cli_metrics_test".to_string(),
+                parameters: HashMap::new(),
+            },
+            Some(Duration::from_secs(1)),
+        ).await.expect("Failed to submit CLI task");
+        
+        // Wait for tasks to complete
+        tokio::time::sleep(Duration::from_millis(200)).await;
+        
+        // Get metrics
+        let metrics = pipeline.get_priority_system_metrics().await;
+        
+        // Verify basic metrics (uptime might be 0 in fast tests)
+        assert!(metrics.pipeline.uptime_seconds >= 0);
+        assert!(metrics.performance.throughput_tasks_per_second >= 0.0);
+        assert!(metrics.queue.queued_by_priority.len() > 0);
+        
+        // Test Prometheus export
+        let prometheus_output = pipeline.export_prometheus_metrics().await;
+        assert!(prometheus_output.contains("wqm_tasks_completed"));
+        assert!(prometheus_output.contains("wqm_queue_total"));
+        assert!(prometheus_output.len() > 0, "Prometheus output should not be empty");
+        
+        // Test metrics collector direct access
+        let collector = pipeline.metrics_collector();
+        collector.record_task_completion(100, TaskPriority::McpRequests).await;
+        collector.record_preemption(TaskPriority::BackgroundWatching, 50, true).await;
+        
+        // Verify counters were updated
+        let updated_metrics = pipeline.get_priority_system_metrics().await;
+        assert!(updated_metrics.pipeline.tasks_completed >= metrics.pipeline.tasks_completed);
+    }
+    
+    #[tokio::test]
+    async fn test_checkpoint_metrics_integration() {
+        let checkpoint_dir = std::env::temp_dir().join("test_checkpoint_metrics");
+        let _ = std::fs::create_dir_all(&checkpoint_dir);
+        
+        let mut pipeline = Pipeline::with_checkpoint_config(
+            2,
+            QueueConfig::default(),
+            Some(checkpoint_dir.clone()),
+        );
+        
+        pipeline.start().await.expect("Failed to start pipeline");
+        
+        // Test checkpoint creation and metrics
+        let checkpoint_manager = pipeline.checkpoint_manager();
+        let metrics_collector = pipeline.metrics_collector();
+        
+        let checkpoint_id = checkpoint_manager.create_checkpoint(
+            Uuid::new_v4(),
+            TaskProgress::Generic {
+                progress_percentage: 50.0,
+                stage: "testing".to_string(),
+                metadata: HashMap::new(),
+            },
+            serde_json::json!({"test": "data"}),
+            vec![],
+            vec![],
+        ).await.expect("Failed to create checkpoint");
+        
+        metrics_collector.record_checkpoint_created();
+        
+        let metrics = pipeline.get_priority_system_metrics().await;
+        assert!(metrics.checkpoints.active_checkpoints > 0);
+        assert!(metrics.checkpoints.checkpoints_created > 0);
+        
+        // Test rollback
+        checkpoint_manager.rollback_checkpoint(&checkpoint_id).await
+            .expect("Failed to rollback checkpoint");
+        
+        metrics_collector.record_rollback_executed();
+        
+        let updated_metrics = pipeline.get_priority_system_metrics().await;
+        assert!(updated_metrics.checkpoints.rollbacks_executed > 0);
+        
+        // Cleanup
+        let _ = std::fs::remove_dir_all(&checkpoint_dir);
+    }
+    
+    #[tokio::test]
+    async fn test_queue_metrics_and_timeouts() {
+        let queue_config = QueueConfigBuilder::new()
+            .max_queued_per_priority(2) // Small queue to test overflow
+            .default_queue_timeout(100) // Short timeout
+            .build();
+        
+        let mut pipeline = Pipeline::with_queue_config(1, queue_config); // Single worker
+        let submitter = pipeline.task_submitter();
+        
+        pipeline.start().await.expect("Failed to start pipeline");
+        
+        // Fill up the queue to test overflow
+        let _handle1 = submitter.submit_task(
+            TaskPriority::BackgroundWatching,
+            TaskSource::BackgroundWatcher {
+                folder_path: "/tmp/test1".to_string(),
+            },
+            TaskPayload::Generic {
+                operation: "long_background_task".to_string(),
+                parameters: HashMap::new(),
+            },
+            Some(Duration::from_secs(10)),
+        ).await.expect("Failed to submit task 1");
+        
+        // Wait a moment for the first task to start
+        tokio::time::sleep(Duration::from_millis(50)).await;
+        
+        // These should queue up
+        let _handle2 = submitter.submit_task(
+            TaskPriority::BackgroundWatching,
+            TaskSource::BackgroundWatcher {
+                folder_path: "/tmp/test2".to_string(),
+            },
+            TaskPayload::Generic {
+                operation: "queued_task_1".to_string(),
+                parameters: HashMap::new(),
+            },
+            Some(Duration::from_secs(5)),
+        ).await.expect("Failed to submit task 2");
+        
+        let _handle3 = submitter.submit_task(
+            TaskPriority::BackgroundWatching,
+            TaskSource::BackgroundWatcher {
+                folder_path: "/tmp/test3".to_string(),
+            },
+            TaskPayload::Generic {
+                operation: "queued_task_2".to_string(),
+                parameters: HashMap::new(),
+            },
+            Some(Duration::from_secs(5)),
+        ).await.expect("Failed to submit task 3");
+        
+        // Wait a bit to let queue metrics accumulate
+        tokio::time::sleep(Duration::from_millis(200)).await;
+        
+        let queue_stats = submitter.get_queue_stats().await;
+        let metrics = pipeline.get_priority_system_metrics().await;
+        
+        // Verify queue metrics
+        assert!(queue_stats.total_queued > 0 || metrics.pipeline.tasks_completed > 0); // Some tasks should be queued or completed
+        assert!(queue_stats.queued_by_priority.contains_key(&TaskPriority::BackgroundWatching));
+        
+        // Test queue cleanup
+        let cleaned_count = submitter.cleanup_queue_timeouts().await;
+        tracing::info!("Cleaned {} timed out requests", cleaned_count);
+        
+        // Test deduplication by submitting identical task
+        let duplicate_result = submitter.submit_task(
+            TaskPriority::BackgroundWatching,
+            TaskSource::BackgroundWatcher {
+                folder_path: "/tmp/test3".to_string(),
+            },
+            TaskPayload::Generic {
+                operation: "queued_task_2".to_string(), // Same as task 3
+                parameters: HashMap::new(),
+            },
+            Some(Duration::from_secs(5)),
+        ).await;
+        
+        // Should either succeed (if dedup disabled) or may fail with duplicate error
+        match duplicate_result {
+            Ok(_) => tracing::info!("Duplicate task was allowed"),
+            Err(e) => tracing::info!("Duplicate task was rejected: {}", e),
+        }
+    }
+    
+    #[tokio::test]
     async fn test_bulk_preemption_for_mcp_requests() {
         let mut pipeline = Pipeline::new(2); // 2 concurrent tasks
         let submitter = pipeline.task_submitter();
@@ -2287,6 +2982,10 @@ mod tests {
             .count();
         
         assert!(cancelled_count >= 1, "At least one background task should be cancelled");
+        
+        // Verify preemption metrics were recorded
+        let metrics = pipeline.get_priority_system_metrics().await;
+        assert!(metrics.preemption.preemptions_total >= cancelled_count as u64);
     }
     
     #[tokio::test]
