@@ -1,0 +1,89 @@
+# Core dependencies for workspace-qdrant-mcp examples
+workspace-qdrant-mcp>=0.1.0
+
+# Common dependencies
+click>=8.0.0
+pydantic>=2.0.0
+python-dateutil>=2.8.0
+pyyaml>=6.0
+requests>=2.28.0
+tqdm>=4.64.0
+
+# Software Development Examples
+ast-comments>=0.3.0  # For code analysis
+black>=22.0.0        # Code formatting
+pylint>=2.15.0       # Code linting
+pytest>=7.0.0        # Testing framework
+
+# Research Examples  
+arxiv>=1.4.0         # ArXiv API client
+bibtexparser>=1.4.0  # BibTeX parsing
+scholarly>=1.7.0     # Google Scholar API
+
+# Business Examples
+python-docx>=0.8.11  # DOCX document processing
+openpyxl>=3.1.0      # Excel file processing
+reportlab>=4.0.0     # PDF generation
+
+# Personal Examples
+markdown>=3.4.0      # Markdown processing
+jinja2>=3.1.0        # Template processing
+
+# VS Code Integration
+jsonschema>=4.0.0    # JSON schema validation
+
+# Automation Examples
+psutil>=5.9.0        # System monitoring
+schedule>=1.2.0      # Task scheduling
+watchdog>=3.0.0      # File system monitoring
+rich>=13.0.0         # Rich terminal output
+
+# Performance Optimization
+memory-profiler>=0.61.0  # Memory profiling
+line-profiler>=4.0.0     # Line-by-line profiling
+pympler>=0.9             # Memory analysis
+numpy>=1.24.0            # Numerical operations
+pandas>=2.0.0            # Data analysis
+
+# Optional dependencies for advanced features
+# PDF processing
+PyPDF2>=3.0.0        # PDF text extraction
+pdfplumber>=0.9.0    # Advanced PDF processing
+
+# Machine learning and NLP
+scikit-learn>=1.3.0  # Machine learning utilities
+nltk>=3.8.0          # Natural language processing
+spacy>=3.6.0         # Advanced NLP
+
+# Database and caching
+redis>=4.5.0         # Redis caching
+sqlite3             # Built-in SQLite (no install needed)
+
+# Web scraping and APIs
+beautifulsoup4>=4.12.0  # HTML parsing
+selenium>=4.15.0        # Web automation
+aiohttp>=3.8.0          # Async HTTP client
+
+# Visualization and reporting
+matplotlib>=3.7.0    # Plotting and visualization
+plotly>=5.17.0       # Interactive plots
+jupyter>=1.0.0       # Jupyter notebook support
+
+# Development and testing
+pytest-asyncio>=0.21.0  # Async testing
+pytest-mock>=3.11.0     # Mocking in tests
+coverage>=7.0.0          # Code coverage
+mypy>=1.5.0              # Static type checking
+
+# Docker and containerization
+docker>=6.1.0        # Docker Python API
+
+# Cloud and deployment
+boto3>=1.28.0        # AWS SDK
+azure-storage-blob>=12.17.0  # Azure Blob Storage
+google-cloud-storage>=2.10.0  # Google Cloud Storage
+
+# Monitoring and logging
+prometheus-client>=0.17.0  # Prometheus metrics
+structlog>=23.1.0          # Structured logging
+sentry-sdk>=1.32.0         # Error tracking
