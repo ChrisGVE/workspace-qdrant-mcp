@@ -7,6 +7,7 @@ use std::path::Path;
 use thiserror::Error;
 
 pub mod config;
+pub mod ipc;
 pub mod processing;
 pub mod storage;
 pub mod watching;
