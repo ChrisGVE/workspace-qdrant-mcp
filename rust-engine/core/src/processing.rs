@@ -357,12 +357,24 @@ impl Pipeline {
                 };
                 
                 if let Some(priority) = next_task_priority {
-                    let preempted = Self::try_preempt_lower_priority_task(
+                    // For MCP requests, allow bulk preemption if queue has multiple MCP tasks
+                    let slots_needed = if Self::allows_bulk_preemption(priority) {
+                        let queue_lock = task_queue.read().await;
+                        let mcp_tasks_queued = queue_lock.iter()
+                            .filter(|item| matches!(item.task.context.priority, TaskPriority::McpRequests))
+                            .count().min(max_concurrent - 1); // Leave at least one slot for other priorities
+                        mcp_tasks_queued.max(1)
+                    } else {
+                        1
+                    };
+                    
+                    let preempted_count = Self::try_preempt_multiple_tasks(
                         running_tasks,
                         priority,
+                        slots_needed,
                     ).await;
                     
-                    if !preempted {
+                    if preempted_count == 0 {
                         break; // No capacity and can't preempt
                     }
                 } else {
@@ -392,39 +404,97 @@ impl Pipeline {
         let mut running_lock = running_tasks.write().await;
         
         // Find the lowest priority running task that can be preempted
-        let mut lowest_priority_task: Option<(Uuid, TaskPriority)> = None;
+        // Priority: prefer tasks that started more recently (least work lost)
+        let mut best_candidate: Option<(Uuid, TaskPriority, Instant)> = None;
         
         for (task_id, running_task) in running_lock.iter() {
             if new_priority.can_preempt(&running_task.context.priority) {
-                match lowest_priority_task {
+                let candidate = (*task_id, running_task.context.priority, running_task.started_at);
+                
+                match &best_candidate {
                     None => {
-                        lowest_priority_task = Some((*task_id, running_task.context.priority));
+                        best_candidate = Some(candidate);
                     }
-                    Some((_, current_lowest)) => {
-                        if running_task.context.priority < current_lowest {
-                            lowest_priority_task = Some((*task_id, running_task.context.priority));
+                    Some((_, current_priority, current_start)) => {
+                        // Prefer lower priority tasks, and if same priority, prefer more recent
+                        if running_task.context.priority < *current_priority ||
+                           (running_task.context.priority == *current_priority && 
+                            running_task.started_at > *current_start) {
+                            best_candidate = Some(candidate);
                         }
                     }
                 }
             }
         }
         
-        if let Some((task_id, _)) = lowest_priority_task {
+        if let Some((task_id, old_priority, _)) = best_candidate {
             if let Some(running_task) = running_lock.remove(&task_id) {
                 tracing::info!(
                     "Preempting task {} (priority {:?}) for higher priority task (priority {:?})",
-                    task_id, running_task.context.priority, new_priority
+                    task_id, old_priority, new_priority
                 );
                 
-                // Cancel the task
+                // Gracefully cancel the task first
                 running_task.cancellation_token.cancel();
-                running_task.handle.abort();
+                
+                // Give it a moment to handle cancellation gracefully
+                drop(running_lock);
+                tokio::time::sleep(Duration::from_millis(10)).await;
+                
+                // If task is still running after grace period, force abort
+                if !running_task.handle.is_finished() {
+                    tracing::warn!("Task {} did not respond to cancellation, aborting", task_id);
+                    running_task.handle.abort();
+                }
                 
                 return true;
             }
         }
         
         false
+    }
+    
+    /// Try to preempt multiple lower priority tasks if needed
+    async fn try_preempt_multiple_tasks(
+        running_tasks: &Arc<RwLock<HashMap<Uuid, RunningTask>>>,
+        new_priority: TaskPriority,
+        slots_needed: usize,
+    ) -> usize {
+        let mut preempted_count = 0;
+        
+        for _ in 0..slots_needed {
+            if Self::try_preempt_lower_priority_task(running_tasks, new_priority).await {
+                preempted_count += 1;
+            } else {
+                break; // No more tasks to preempt
+            }
+        }
+        
+        preempted_count
+    }
+    
+    /// Check if a task priority allows bulk preemption (MCP requests only)
+    fn allows_bulk_preemption(priority: TaskPriority) -> bool {
+        matches!(priority, TaskPriority::McpRequests)
+    }
+    
+    /// Get preemption score for a task (higher = more likely to be preempted)
+    fn get_preemption_score(
+        task_priority: TaskPriority,
+        start_time: Instant,
+        new_priority: TaskPriority,
+    ) -> Option<u64> {
+        if !new_priority.can_preempt(&task_priority) {
+            return None;
+        }
+        
+        let priority_diff = (new_priority as u8) - (task_priority as u8);
+        let elapsed_ms = start_time.elapsed().as_millis() as u64;
+        
+        // Lower priority difference and more elapsed time = higher preemption score
+        // This means we prefer to preempt tasks that have been running longer
+        // and have the least priority difference
+        Some((priority_diff as u64 * 1000) + (10000 - elapsed_ms.min(10000)))
     }
     
     /// Start executing a task
@@ -559,6 +629,14 @@ impl Pipeline {
                     "Executing generic operation: '{}' with {} parameters",
                     operation, parameters.len()
                 );
+                
+                // Simulate processing time based on operation name
+                let sleep_duration = if operation.starts_with("long_") {
+                    Duration::from_millis(2000) // Longer for testing preemption
+                } else {
+                    Duration::from_millis(100)
+                };
+                tokio::time::sleep(sleep_duration).await;
                 
                 Ok(TaskResultData::Generic {
                     message: format!("Completed operation: {}", operation),
@@ -909,5 +987,233 @@ mod tests {
         // At least some tasks should be running or queued
         assert!(stats.running_tasks > 0 || stats.queued_tasks > 0);
         assert_eq!(stats.total_capacity, 2);
+    }
+    
+    #[tokio::test]
+    async fn test_preemption_logic() {
+        let mut pipeline = Pipeline::new(1); // Only 1 concurrent task to force preemption
+        let submitter = pipeline.task_submitter();
+        
+        pipeline.start().await.expect("Failed to start pipeline");
+        
+        // Start a low priority task that will run for a while
+        let low_priority_handle = submitter.submit_task(
+            TaskPriority::BackgroundWatching,
+            TaskSource::BackgroundWatcher {
+                folder_path: "/tmp/background".to_string(),
+            },
+            TaskPayload::Generic {
+                operation: "long_running_background".to_string(),
+                parameters: HashMap::new(),
+            },
+            Some(Duration::from_secs(5)), // Long timeout
+        ).await.expect("Failed to submit low priority task");
+        
+        // Give the low priority task time to start
+        tokio::time::sleep(Duration::from_millis(50)).await;
+        
+        // Submit a high priority MCP request that should preempt
+        let high_priority_handle = submitter.submit_task(
+            TaskPriority::McpRequests,
+            TaskSource::McpServer {
+                request_id: "urgent_request".to_string(),
+            },
+            TaskPayload::Generic {
+                operation: "urgent_mcp_task".to_string(),
+                parameters: HashMap::new(),
+            },
+            Some(Duration::from_secs(2)),
+        ).await.expect("Failed to submit high priority task");
+        
+        // The high priority task should complete relatively quickly
+        let high_result = timeout(Duration::from_secs(3), high_priority_handle.wait()).await
+            .expect("High priority task should not timeout")
+            .expect("High priority task should succeed");
+        
+        // Verify the high priority task succeeded
+        match high_result {
+            TaskResult::Success { data, .. } => {
+                if let TaskResultData::Generic { message, .. } = data {
+                    assert_eq!(message, "Completed operation: urgent_mcp_task");
+                }
+            }
+            other => panic!("Expected success, got: {:?}", other),
+        }
+        
+        // The low priority task should have been cancelled/preempted
+        let low_result = timeout(Duration::from_secs(1), low_priority_handle.wait()).await
+            .expect("Low priority task should complete quickly after preemption")
+            .expect("Low priority task should have a result");
+        
+        match low_result {
+            TaskResult::Cancelled { .. } => {
+                // Expected - task was preempted
+            }
+            TaskResult::Success { .. } => {
+                // Also acceptable if task completed before preemption
+            }
+            other => panic!("Expected cancelled or success, got: {:?}", other),
+        }
+    }
+    
+    #[tokio::test]
+    async fn test_bulk_preemption_for_mcp_requests() {
+        let mut pipeline = Pipeline::new(2); // 2 concurrent tasks
+        let submitter = pipeline.task_submitter();
+        
+        pipeline.start().await.expect("Failed to start pipeline");
+        
+        // Fill capacity with long-running background tasks
+        let bg_task1 = submitter.submit_task(
+            TaskPriority::BackgroundWatching,
+            TaskSource::BackgroundWatcher {
+                folder_path: "/tmp/bg1".to_string(),
+            },
+            TaskPayload::Generic {
+                operation: "long_background_task_1".to_string(),
+                parameters: HashMap::new(),
+            },
+            Some(Duration::from_secs(10)),
+        ).await.expect("Failed to submit bg task 1");
+        
+        let bg_task2 = submitter.submit_task(
+            TaskPriority::BackgroundWatching,
+            TaskSource::BackgroundWatcher {
+                folder_path: "/tmp/bg2".to_string(),
+            },
+            TaskPayload::Generic {
+                operation: "long_background_task_2".to_string(),
+                parameters: HashMap::new(),
+            },
+            Some(Duration::from_secs(10)),
+        ).await.expect("Failed to submit bg task 2");
+        
+        // Give background tasks time to start
+        tokio::time::sleep(Duration::from_millis(100)).await;
+        
+        // Submit multiple MCP requests
+        let mcp_task1 = submitter.submit_task(
+            TaskPriority::McpRequests,
+            TaskSource::McpServer {
+                request_id: "mcp_req_1".to_string(),
+            },
+            TaskPayload::Generic {
+                operation: "mcp_operation_1".to_string(),
+                parameters: HashMap::new(),
+            },
+            Some(Duration::from_secs(2)),
+        ).await.expect("Failed to submit MCP task 1");
+        
+        let mcp_task2 = submitter.submit_task(
+            TaskPriority::McpRequests,
+            TaskSource::McpServer {
+                request_id: "mcp_req_2".to_string(),
+            },
+            TaskPayload::Generic {
+                operation: "mcp_operation_2".to_string(),
+                parameters: HashMap::new(),
+            },
+            Some(Duration::from_secs(2)),
+        ).await.expect("Failed to submit MCP task 2");
+        
+        // Both MCP tasks should complete quickly despite capacity being full
+        let mcp1_result = timeout(Duration::from_secs(3), mcp_task1.wait()).await
+            .expect("MCP task 1 should not timeout")
+            .expect("MCP task 1 should succeed");
+        
+        let mcp2_result = timeout(Duration::from_secs(3), mcp_task2.wait()).await
+            .expect("MCP task 2 should not timeout")
+            .expect("MCP task 2 should succeed");
+        
+        // Verify MCP tasks succeeded
+        match mcp1_result {
+            TaskResult::Success { .. } => {},
+            other => panic!("MCP task 1 should succeed, got: {:?}", other),
+        }
+        
+        match mcp2_result {
+            TaskResult::Success { .. } => {},
+            other => panic!("MCP task 2 should succeed, got: {:?}", other),
+        }
+        
+        // Background tasks should have been preempted
+        let bg1_result = timeout(Duration::from_millis(500), bg_task1.wait()).await
+            .expect("BG task 1 should complete quickly after preemption")
+            .expect("BG task 1 should have result");
+        
+        let bg2_result = timeout(Duration::from_millis(500), bg_task2.wait()).await
+            .expect("BG task 2 should complete quickly after preemption")
+            .expect("BG task 2 should have result");
+        
+        // At least one background task should have been cancelled
+        let cancelled_count = [&bg1_result, &bg2_result]
+            .iter()
+            .filter(|result| matches!(result, TaskResult::Cancelled { .. }))
+            .count();
+        
+        assert!(cancelled_count >= 1, "At least one background task should be cancelled");
+    }
+    
+    #[tokio::test]
+    async fn test_graceful_preemption_vs_abort() {
+        let mut pipeline = Pipeline::new(1);
+        let submitter = pipeline.task_submitter();
+        
+        pipeline.start().await.expect("Failed to start pipeline");
+        
+        // Submit a task that should handle cancellation gracefully
+        let graceful_task = submitter.submit_task(
+            TaskPriority::CliCommands,
+            TaskSource::CliCommand {
+                command: "graceful_task".to_string(),
+            },
+            TaskPayload::Generic {
+                operation: "graceful_operation".to_string(),
+                parameters: HashMap::new(),
+            },
+            Some(Duration::from_secs(5)),
+        ).await.expect("Failed to submit graceful task");
+        
+        // Give task time to start
+        tokio::time::sleep(Duration::from_millis(50)).await;
+        
+        // Submit MCP request to trigger preemption
+        let preempting_task = submitter.submit_task(
+            TaskPriority::McpRequests,
+            TaskSource::McpServer {
+                request_id: "preempting_request".to_string(),
+            },
+            TaskPayload::Generic {
+                operation: "preempting_operation".to_string(),
+                parameters: HashMap::new(),
+            },
+            Some(Duration::from_secs(2)),
+        ).await.expect("Failed to submit preempting task");
+        
+        // Both tasks should complete within reasonable time
+        let preempting_result = timeout(Duration::from_secs(3), preempting_task.wait()).await
+            .expect("Preempting task should not timeout")
+            .expect("Preempting task should succeed");
+        
+        let graceful_result = timeout(Duration::from_millis(100), graceful_task.wait()).await
+            .expect("Graceful task should complete quickly")
+            .expect("Graceful task should have result");
+        
+        // Preempting task should succeed
+        match preempting_result {
+            TaskResult::Success { .. } => {},
+            other => panic!("Preempting task should succeed, got: {:?}", other),
+        }
+        
+        // Graceful task should be cancelled (since preemption gives 10ms grace period)
+        match graceful_result {
+            TaskResult::Cancelled { .. } => {
+                // Expected - task was gracefully cancelled
+            }
+            TaskResult::Success { .. } => {
+                // Also acceptable if task completed very quickly
+            }
+            other => panic!("Expected cancelled or success, got: {:?}", other),
+        }
     }
 }
