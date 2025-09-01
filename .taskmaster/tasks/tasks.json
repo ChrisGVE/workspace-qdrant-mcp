@@ -1491,14 +1491,14 @@
         "testStrategy": "Test folder watch persistence across server restarts. Verify watch configuration changes take effect immediately. Test error handling for invalid paths and permissions issues.",
         "priority": "high",
         "dependencies": [],
-        "status": "pending",
+        "status": "done",
         "subtasks": [
           {
             "id": 1,
             "title": "Create persistent watch configuration storage system",
             "description": "Implement JSON config file management for storing watch settings in user config directory with proper schema validation and atomic file operations",
             "details": "Create config schema for watch folder settings including path, recursive depth, filters, update frequency, and collection targeting. Implement config file management functions with validation, atomic writes, and backup recovery. Store in ~/.workspace-qdrant/watch-config.json or similar location.",
-            "status": "pending",
+            "status": "done",
             "dependencies": [],
             "parentTaskId": 29
           },
@@ -1507,7 +1507,7 @@
             "title": "Implement core MCP tools for watch management",
             "description": "Create MCP tools: add_watch_folder, remove_watch_folder, list_watched_folders, configure_watch_settings with proper parameter validation and error handling",
             "details": "Add new MCP tool functions to server.py with JSON schema validation for parameters. Include path validation, configuration options validation, and proper error responses. Each tool should interact with the persistent configuration system from subtask 29.1.",
-            "status": "pending",
+            "status": "done",
             "dependencies": [],
             "parentTaskId": 29
           },
@@ -1516,7 +1516,7 @@
             "title": "Extend file watcher with persistent state management",
             "description": "Modify existing file_watcher.py to load/save watch configurations and implement watch state recovery on server startup",
             "details": "Integrate the persistent configuration system with the existing FileWatcher class. Add methods to load watch configurations on startup, save state changes, and recover from interrupted watch operations. Ensure backward compatibility with existing file watching functionality.",
-            "status": "pending",
+            "status": "done",
             "dependencies": [],
             "parentTaskId": 29
           },
@@ -1525,7 +1525,7 @@
             "title": "Add advanced watch configuration options",
             "description": "Implement recursive depth control, file pattern filters, update frequency settings, and collection targeting configuration with validation",
             "details": "Add configuration options for: recursive depth (integer 0-10), file filters using glob patterns, update frequency in seconds, target collection selection. Include validation functions for each configuration type and default value handling. Update the configuration schema from 29.1 to support these options.",
-            "status": "pending",
+            "status": "done",
             "dependencies": [],
             "parentTaskId": 29
           },
@@ -1534,7 +1534,7 @@
             "title": "Implement watch folder validation and error recovery",
             "description": "Add path validation, permission checks, graceful handling of missing/invalid folders, and automatic retry mechanisms",
             "details": "Create validation functions for: path existence and accessibility, permission checks for read access, handling of symlinks and network paths. Implement error recovery mechanisms for temporary network issues, permission changes, and folder deletion/recreation. Add logging for validation failures and recovery attempts.",
-            "status": "pending",
+            "status": "done",
             "dependencies": [],
             "parentTaskId": 29
           },
@@ -1543,7 +1543,7 @@
             "title": "Add watch state synchronization and persistence",
             "description": "Ensure configuration changes take effect immediately, handle concurrent access to config file, and implement proper locking mechanisms",
             "details": "Implement real-time synchronization between configuration changes and active watchers. Add file locking mechanisms to prevent corruption during concurrent config updates. Create event system to notify active watchers of configuration changes. Handle race conditions and ensure atomic operations for config updates.",
-            "status": "pending",
+            "status": "done",
             "dependencies": [],
             "parentTaskId": 29
           },
@@ -1552,7 +1552,7 @@
             "title": "Create comprehensive testing for persistent watching",
             "description": "Test persistence across server restarts, configuration validation, error recovery scenarios, and concurrent access handling",
             "details": "Create test suite covering: server restart persistence, config file corruption recovery, invalid path handling, permission change scenarios, concurrent MCP tool usage, file filter validation, recursive depth limits, and update frequency changes. Include integration tests with existing file watcher functionality.",
-            "status": "pending",
+            "status": "done",
             "dependencies": [],
             "parentTaskId": 29
           }
@@ -1566,7 +1566,7 @@
         "testStrategy": "Test MCP requests preempt lower priority operations. Verify graceful task cancellation without data corruption. Measure response time improvements for high-priority requests.",
         "priority": "high",
         "dependencies": [],
-        "status": "in-progress",
+        "status": "done",
         "subtasks": [
           {
             "id": 1,
@@ -1655,7 +1655,7 @@
               "30.6"
             ],
             "details": "Add metrics collection using tokio-metrics for task execution times by priority. Implement queue depth and wait time tracking. Create preemption frequency and success rate metrics. Add performance comparison metrics (before/after priority system). Implement health check endpoints for priority system status. Create performance dashboards and alerting thresholds. Add logging for priority decisions and preemption events.",
-            "status": "in-progress",
+            "status": "done",
             "testStrategy": "Test metrics accuracy, performance impact of monitoring overhead, health check responsiveness, and metric aggregation over time"
           }
         ]
@@ -1690,7 +1690,7 @@
         "testStrategy": "Verify structured logs contain useful context. Test metrics collection accuracy. Validate health check endpoints return correct status. Test dashboard templates with sample data.",
         "priority": "medium",
         "dependencies": [],
-        "status": "pending",
+        "status": "in-progress",
         "subtasks": []
       },
       {
@@ -1747,7 +1747,7 @@
         "testStrategy": "Verify all API examples work as documented. Test integration guides on target platforms. Ensure troubleshooting section covers real user issues.",
         "priority": "high",
         "dependencies": [],
-        "status": "pending",
+        "status": "done",
         "subtasks": []
       },
       {
@@ -1830,7 +1830,7 @@
     ],
     "metadata": {
       "created": "2025-08-30T10:40:15.806Z",
-      "updated": "2025-09-01T21:42:26.783Z",
+      "updated": "2025-09-01T22:18:05.497Z",
       "description": "Tasks for development context"
     }
   }
