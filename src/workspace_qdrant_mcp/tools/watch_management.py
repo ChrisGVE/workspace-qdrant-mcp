@@ -23,6 +23,10 @@ from ..core.watch_validation import (
     WatchErrorRecovery,
     WatchHealthMonitor,
 )
+from ..core.watch_sync import (
+    SynchronizedWatchConfigManager,
+    ConfigChangeEvent,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -38,11 +42,14 @@ class WatchToolsManager:
             workspace_client: The workspace client for database operations
         """
         self.workspace_client = workspace_client
-        self.config_manager = PersistentWatchConfigManager()
+        self.config_manager = SynchronizedWatchConfigManager()
         self.persistent_watch_manager = PersistentWatchManager(self.config_manager)
         self.error_recovery = WatchErrorRecovery()
         self.health_monitor = WatchHealthMonitor(self.error_recovery)
         self._initialized = False
+        
+        # Set up event handling for real-time synchronization
+        self.config_manager.subscribe_to_changes(self._handle_config_change)
     
     async def initialize(self) -> Dict[str, Any]:
         """Initialize the watch tools manager and recover persistent state."""
@@ -85,6 +92,9 @@ class WatchToolsManager:
             
             # Set callbacks
             self.persistent_watch_manager.set_ingestion_callback(ingestion_callback)
+            
+            # Initialize the synchronized config manager
+            await self.config_manager.initialize()
             
             # Initialize the persistent watch manager
             init_results = await self.persistent_watch_manager.initialize()
@@ -655,6 +665,41 @@ class WatchToolsManager:
         except Exception as e:
             return {"success": False, "error": str(e)}
     
+    async def _handle_config_change(self, event: ConfigChangeEvent) -> None:
+        """Handle configuration change events for real-time synchronization."""
+        try:
+            logger.info(f"Handling config change: {event.event_type} for {event.watch_id}")
+            
+            if event.event_type == "added":
+                # Start new watch if it should be active
+                if event.new_config and event.new_config.get("status") == "active":
+                    await self.persistent_watch_manager.start_watch(event.watch_id)
+                    
+            elif event.event_type == "removed":
+                # Stop and remove watch
+                await self.persistent_watch_manager.stop_watch(event.watch_id)
+                self.health_monitor.unregister_watch(event.watch_id)
+                
+            elif event.event_type == "modified":
+                # Restart watch with new configuration if it's running
+                if event.watch_id in self.persistent_watch_manager.watchers:
+                    await self.persistent_watch_manager.stop_watch(event.watch_id)
+                    if event.new_config and event.new_config.get("status") == "active":
+                        await self.persistent_watch_manager.start_watch(event.watch_id)
+                        
+            elif event.event_type == "status_changed":
+                # Handle status changes
+                new_status = event.new_config.get("status") if event.new_config else None
+                if new_status == "active":
+                    await self.persistent_watch_manager.resume_watch(event.watch_id)
+                elif new_status == "paused":
+                    await self.persistent_watch_manager.pause_watch(event.watch_id)
+                elif new_status == "disabled":
+                    await self.persistent_watch_manager.stop_watch(event.watch_id)
+                    
+        except Exception as e:
+            logger.error(f"Error handling config change event: {e}")
+    
     async def cleanup(self) -> None:
         """Clean up resources."""
         if self._initialized:
@@ -664,6 +709,13 @@ class WatchToolsManager:
                 logger.info("Stopped watch health monitoring")
             except Exception as e:
                 logger.error(f"Error stopping health monitoring: {e}")
+            
+            # Clean up config manager
+            try:
+                await self.config_manager.cleanup()
+                logger.info("Cleaned up synchronized config manager")
+            except Exception as e:
+                logger.error(f"Error cleaning up config manager: {e}")
             
             # Clean up watch manager
             await self.persistent_watch_manager.cleanup()

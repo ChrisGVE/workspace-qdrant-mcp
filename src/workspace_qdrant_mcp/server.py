@@ -40,6 +40,7 @@ import atexit
 import logging
 import os
 import signal
+from datetime import datetime, timezone
 from typing import Optional
 
 import typer
@@ -1389,6 +1390,273 @@ async def trigger_watch_recovery(watch_id: str, error_type: str = None) -> dict:
             "error": f"Unexpected error: {str(e)}",
             "error_type": "internal_error"
         }
+
+
+@app.tool()
+async def get_watch_sync_status() -> dict:
+    """
+    Get watch configuration synchronization status and event history.
+    
+    Provides information about configuration synchronization, file locking status,
+    and recent configuration change events for monitoring and debugging.
+    
+    Returns:
+        dict: Synchronization status with event history and locking information
+        
+    Example:
+        ```python
+        # Get sync status
+        result = await get_watch_sync_status()
+        print(f"Config file: {result['config_file']}")
+        print(f"Recent changes: {len(result['recent_events'])}")
+        
+        # Check for recent configuration changes
+        for event in result['recent_events'][:5]:
+            print(f"{event['timestamp']}: {event['event_type']} {event['watch_id']}")
+        ```
+    """
+    if not workspace_client or not watch_tools_manager:
+        return {"error": "Watch management not initialized"}
+    
+    try:
+        # Get basic sync information
+        config_file_path = watch_tools_manager.config_manager.get_config_file_path()
+        
+        # Get recent change events
+        recent_events = watch_tools_manager.config_manager.get_change_history(limit=50)
+        
+        # Get event statistics
+        event_stats = {
+            "total_events": len(recent_events),
+            "events_by_type": {},
+            "events_by_source": {},
+            "recent_activity": len([e for e in recent_events if 
+                                   (datetime.now(timezone.utc) - 
+                                    datetime.fromisoformat(e['timestamp'].replace('Z', '+00:00'))
+                                   ).total_seconds() < 3600])  # Last hour
+        }
+        
+        for event in recent_events:
+            event_type = event['event_type']
+            source = event.get('source', 'unknown')
+            
+            event_stats['events_by_type'][event_type] = event_stats['events_by_type'].get(event_type, 0) + 1
+            event_stats['events_by_source'][source] = event_stats['events_by_source'].get(source, 0) + 1
+        
+        return {
+            "success": True,
+            "config_file": str(config_file_path),
+            "config_file_exists": config_file_path.exists(),
+            "recent_events": recent_events,
+            "event_statistics": event_stats,
+            "synchronization": {
+                "cache_enabled": True,
+                "event_notifications_active": watch_tools_manager.config_manager.event_notifier._running,
+                "file_locking_enabled": True
+            }
+        }
+        
+    except Exception as e:
+        logger.error(f"Failed to get sync status: {e}")
+        return {
+            "success": False,
+            "error": f"Unexpected error: {str(e)}",
+            "error_type": "internal_error"
+        }
+
+
+@app.tool()
+async def force_watch_sync() -> dict:
+    """
+    Force synchronization of watch configuration and refresh all cached data.
+    
+    Useful for ensuring consistency after external configuration changes
+    or when debugging synchronization issues.
+    
+    Returns:
+        dict: Synchronization result with updated configuration information
+        
+    Example:
+        ```python
+        # Force sync after external changes
+        result = await force_watch_sync()
+        if result["success"]:
+            print(f"Synchronized {result['watches_count']} watches")
+            print(f"Cache updated at: {result['sync_timestamp']}")
+        ```
+    """
+    if not workspace_client or not watch_tools_manager:
+        return {"error": "Watch management not initialized"}
+    
+    try:
+        # Force synchronization
+        await watch_tools_manager.config_manager.force_sync()
+        
+        # Get updated configuration
+        configs = await watch_tools_manager.config_manager.list_watch_configs()
+        
+        # Get sync timestamp
+        sync_timestamp = datetime.now(timezone.utc).isoformat()
+        
+        return {
+            "success": True,
+            "watches_count": len(configs),
+            "sync_timestamp": sync_timestamp,
+            "message": "Watch configuration synchronized successfully"
+        }
+        
+    except Exception as e:
+        logger.error(f"Failed to force sync: {e}")
+        return {
+            "success": False,
+            "error": f"Unexpected error: {str(e)}",
+            "error_type": "internal_error"
+        }
+
+
+@app.tool()
+async def get_watch_change_history(watch_id: str = None, limit: int = 20) -> dict:
+    """
+    Get detailed configuration change history for watches.
+    
+    Provides comprehensive audit trail of configuration changes including
+    timestamps, sources, and before/after states for debugging and monitoring.
+    
+    Args:
+        watch_id: Specific watch ID to get history for (optional, gets all if None)
+        limit: Maximum number of events to return (default: 20, max: 200)
+        
+    Returns:
+        dict: Change history with detailed event information
+        
+    Example:
+        ```python
+        # Get recent changes for all watches
+        result = await get_watch_change_history(limit=10)
+        for event in result["events"]:
+            print(f"{event['timestamp']}: {event['event_type']} - {event['watch_id']}")
+        
+        # Get full history for specific watch
+        result = await get_watch_change_history("my-watch", limit=50)
+        print(f"Found {len(result['events'])} changes for watch")
+        ```
+    """
+    if not workspace_client or not watch_tools_manager:
+        return {"error": "Watch management not initialized"}
+    
+    try:
+        # Validate limit
+        limit = max(1, min(limit, 200))  # Between 1 and 200
+        
+        # Get change history
+        events = watch_tools_manager.config_manager.get_change_history(watch_id, limit)
+        
+        # Enrich events with additional information
+        enriched_events = []
+        for event in events:
+            enriched_event = event.copy()
+            
+            # Add human-readable timestamps
+            timestamp_dt = datetime.fromisoformat(event['timestamp'].replace('Z', '+00:00'))
+            enriched_event['human_timestamp'] = timestamp_dt.strftime('%Y-%m-%d %H:%M:%S UTC')
+            enriched_event['time_ago'] = _format_time_ago(timestamp_dt)
+            
+            # Add change summary
+            if event['event_type'] == 'modified' and event.get('old_config') and event.get('new_config'):
+                changes = _detect_config_changes(event['old_config'], event['new_config'])
+                enriched_event['changes_summary'] = changes
+            
+            enriched_events.append(enriched_event)
+        
+        # Generate statistics
+        stats = {
+            "total_events": len(enriched_events),
+            "events_by_type": {},
+            "events_by_source": {},
+            "time_range": {}
+        }
+        
+        if enriched_events:
+            # Count by type and source
+            for event in enriched_events:
+                event_type = event['event_type']
+                source = event.get('source', 'unknown')
+                
+                stats['events_by_type'][event_type] = stats['events_by_type'].get(event_type, 0) + 1
+                stats['events_by_source'][source] = stats['events_by_source'].get(source, 0) + 1
+            
+            # Time range
+            first_event = enriched_events[-1]  # Oldest (events are reversed)
+            last_event = enriched_events[0]    # Newest
+            
+            stats['time_range'] = {
+                "first_event": first_event['timestamp'],
+                "last_event": last_event['timestamp'],
+                "span_hours": (datetime.fromisoformat(last_event['timestamp'].replace('Z', '+00:00')) - 
+                              datetime.fromisoformat(first_event['timestamp'].replace('Z', '+00:00'))
+                             ).total_seconds() / 3600
+            }
+        
+        return {
+            "success": True,
+            "watch_id": watch_id,
+            "events": enriched_events,
+            "statistics": stats,
+            "query_info": {
+                "limit_requested": limit,
+                "limit_applied": limit,
+                "filtered_by_watch": watch_id is not None
+            }
+        }
+        
+    except Exception as e:
+        logger.error(f"Failed to get change history: {e}")
+        return {
+            "success": False,
+            "error": f"Unexpected error: {str(e)}",
+            "error_type": "internal_error"
+        }
+
+
+def _format_time_ago(timestamp_dt: datetime) -> str:
+    """Format timestamp as human-readable time ago."""
+    now = datetime.now(timezone.utc)
+    diff = now - timestamp_dt
+    
+    seconds = diff.total_seconds()
+    
+    if seconds < 60:
+        return f"{int(seconds)} seconds ago"
+    elif seconds < 3600:
+        return f"{int(seconds / 60)} minutes ago"
+    elif seconds < 86400:
+        return f"{int(seconds / 3600)} hours ago"
+    else:
+        return f"{int(seconds / 86400)} days ago"
+
+
+def _detect_config_changes(old_config: dict, new_config: dict) -> List[str]:
+    """Detect and summarize configuration changes."""
+    changes = []
+    
+    # Check common fields that might change
+    fields_to_check = [
+        'status', 'patterns', 'ignore_patterns', 'auto_ingest', 
+        'recursive', 'debounce_seconds', 'collection'
+    ]
+    
+    for field in fields_to_check:
+        old_val = old_config.get(field)
+        new_val = new_config.get(field)
+        
+        if old_val != new_val:
+            if isinstance(old_val, list) and isinstance(new_val, list):
+                if set(old_val) != set(new_val):
+                    changes.append(f"{field}: {len(old_val)} -> {len(new_val)} items")
+            else:
+                changes.append(f"{field}: {old_val} -> {new_val}")
+    
+    return changes
 
 
 async def cleanup_workspace() -> None:
