@@ -8,6 +8,8 @@ body:
     attributes:
       value: |
         Thanks for suggesting a new feature!
+        
+        Please provide as much detail as possible to help us understand and prioritize your request.
 
   - type: textarea
     id: problem
@@ -41,11 +43,15 @@ body:
       label: Component
       description: Which component would this feature affect?
       options:
-        - MCP Server
-        - CLI Tools
+        - MCP Server Core
+        - Collection Management
+        - Vector Operations
+        - CLI Tools (workspace-qdrant-*)
         - Admin Interface
         - Qdrant Integration
         - FastEmbed Integration
+        - Authentication/Security
+        - Configuration
         - Documentation
         - Testing
         - Other
@@ -65,10 +71,41 @@ body:
       required: true
 
   - type: textarea
+    id: use-case
+    attributes:
+      label: Use Case
+      description: Describe your specific use case or workflow that would benefit from this feature
+      placeholder: "I'm trying to accomplish..."
+    validations:
+      required: false
+
+  - type: textarea
+    id: implementation-notes
+    attributes:
+      label: Implementation Ideas
+      description: If you have thoughts on how this could be implemented, share them here
+      placeholder: "This could be implemented by..."
+    validations:
+      required: false
+
+  - type: dropdown
+    id: breaking-change
+    attributes:
+      label: Breaking Change
+      description: Would this feature require breaking changes?
+      options:
+        - "No - Backward compatible"
+        - "Maybe - Unsure about compatibility"
+        - "Yes - Breaking change required"
+        - "Don't know"
+    validations:
+      required: true
+
+  - type: textarea
     id: additional-context
     attributes:
       label: Additional context
-      description: Add any other context, screenshots, or examples about the feature request here.
+      description: Add any other context, screenshots, code examples, or links about the feature request here.
 
   - type: checkboxes
     id: terms
