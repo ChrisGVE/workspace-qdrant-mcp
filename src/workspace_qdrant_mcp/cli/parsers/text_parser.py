@@ -171,13 +171,18 @@ class TextParser(DocumentParser):
             else:
                 additional_metadata["content_type"] = "plain_text"
 
-            return ParsedDocument.create(
+            parsed_doc = ParsedDocument.create(
                 content=content,
                 file_path=file_path,
                 file_type="text",
                 additional_metadata=additional_metadata,
                 parsing_info=parsing_info,
             )
+            
+            # Mark progress as completed
+            progress_tracker.set_phase(ProgressPhase.COMPLETED)
+            
+            return parsed_doc
 
         except Exception as e:
             logger.error(f"Failed to parse text file {file_path}: {e}")
