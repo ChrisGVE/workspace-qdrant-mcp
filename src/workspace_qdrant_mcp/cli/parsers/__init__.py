@@ -39,6 +39,10 @@ from .markdown_parser import MarkdownParser
 from .pdf_parser import PDFParser
 from .pptx_parser import PptxParser
 from .text_parser import TextParser
+from .docx_parser import DocxParser
+from .epub_parser import EpubParser
+from .code_parser import CodeParser
+from .mobi_parser import MobiParser
 
 __all__ = [
     # Base classes
@@ -50,6 +54,10 @@ __all__ = [
     "PDFParser",
     "PptxParser",
     "HtmlParser",
+    "DocxParser",
+    "EpubParser",
+    "CodeParser",
+    "MobiParser",
     # Error handling
     "ParsingError",
     "FileAccessError",
