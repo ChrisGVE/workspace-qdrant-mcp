@@ -1631,7 +1631,7 @@
               "30.4"
             ],
             "details": "Create RequestQueue with priority-based timeout configuration. Implement async timeout handling using tokio::time::timeout. Add request retry logic for timed-out operations. Create queue backpressure handling to prevent memory exhaustion. Implement queue metrics collection (queue depth, wait times, timeout rates). Add graceful degradation when queues are full.",
-            "status": "in-progress",
+            "status": "done",
             "testStrategy": "Test timeout behavior for different priority levels, queue backpressure handling, retry logic, and metrics accuracy"
           },
           {
@@ -1643,7 +1643,7 @@
               "30.5"
             ],
             "details": "Implement transaction-like semantics for document processing operations. Add checkpoint/rollback system for partially completed ingestions. Create atomic operation boundaries that cannot be preempted. Implement state recovery mechanisms for interrupted tasks. Add consistency validation after preemption events. Create operation logs for debugging preemption issues.",
-            "status": "pending",
+            "status": "in-progress",
             "testStrategy": "Test data consistency after preemption at various processing stages, rollback functionality, and recovery from interrupted operations"
           },
           {
@@ -1830,7 +1830,7 @@
     ],
     "metadata": {
       "created": "2025-08-30T10:40:15.806Z",
-      "updated": "2025-09-01T21:34:15.339Z",
+      "updated": "2025-09-01T21:38:40.597Z",
       "description": "Tasks for development context"
     }
   }

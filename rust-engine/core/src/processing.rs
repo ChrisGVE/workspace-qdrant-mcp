@@ -14,6 +14,7 @@ use uuid::Uuid;
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 use chrono;
+use std::path::PathBuf;
 
 /// Priority levels for different types of operations
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
@@ -45,6 +46,10 @@ pub struct TaskContext {
     pub timeout_ms: Option<u64>,
     pub source: TaskSource,
     pub metadata: HashMap<String, String>,
+    /// Checkpoint ID for resumable tasks
+    pub checkpoint_id: Option<String>,
+    /// Whether task supports checkpointing
+    pub supports_checkpointing: bool,
 }
 
 /// Source of the task for tracking and debugging
@@ -58,6 +63,8 @@ pub enum TaskSource {
     CliCommand { command: String },
     /// Background folder monitoring
     BackgroundWatcher { folder_path: String },
+    /// Generic task source
+    Generic { operation: String },
 }
 
 /// Task execution result
@@ -69,14 +76,75 @@ pub enum TaskResult {
         data: TaskResultData,
     },
     /// Task was cancelled/preempted
-    Cancelled { reason: String },
+    Cancelled { 
+        reason: String,
+        checkpoint_id: Option<String>,
+        partial_data: Option<TaskResultData>,
+    },
     /// Task failed with error
     Error { 
         error: String,
         execution_time_ms: u64,
+        checkpoint_id: Option<String>,
     },
     /// Task timed out
-    Timeout { timeout_duration_ms: u64 },
+    Timeout { 
+        timeout_duration_ms: u64,
+        checkpoint_id: Option<String>,
+    },
+    /// Task was preempted but can be resumed
+    Preempted {
+        checkpoint_id: String,
+        partial_data: Option<TaskResultData>,
+        preemption_reason: String,
+        resume_priority: TaskPriority,
+    },
+}
+
+/// Checkpoint data for task resumption
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct TaskCheckpoint {
+    pub checkpoint_id: String,
+    pub task_id: Uuid,
+    pub created_at: chrono::DateTime<chrono::Utc>,
+    pub task_progress: TaskProgress,
+    pub state_data: serde_json::Value,
+    pub files_modified: Vec<PathBuf>,
+    pub rollback_actions: Vec<RollbackAction>,
+}
+
+/// Different types of progress tracking for different task types
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub enum TaskProgress {
+    DocumentProcessing {
+        chunks_processed: usize,
+        total_chunks: usize,
+        current_chunk_offset: usize,
+    },
+    FileWatching {
+        files_processed: usize,
+        current_directory: PathBuf,
+        processed_files: Vec<PathBuf>,
+    },
+    QueryExecution {
+        query_stage: String,
+        results_collected: usize,
+    },
+    Generic {
+        progress_percentage: f32,
+        stage: String,
+        metadata: HashMap<String, serde_json::Value>,
+    },
+}
+
+/// Actions needed to rollback changes if task is cancelled
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub enum RollbackAction {
+    DeleteFile { path: PathBuf },
+    RestoreFile { original_path: PathBuf, backup_path: PathBuf },
+    RemoveFromCollection { document_id: String, collection: String },
+    RevertIndexChanges { index_snapshot: serde_json::Value },
+    Custom { action_type: String, data: serde_json::Value },
 }
 
 /// Specific data returned by task execution
@@ -87,21 +155,25 @@ pub enum TaskResultData {
         document_id: String,
         collection: String,
         chunks_created: usize,
+        checkpoint_id: Option<String>,
     },
     /// File watching result
     FileWatching {
         files_processed: usize,
         errors: Vec<String>,
+        checkpoint_id: Option<String>,
     },
     /// Query execution result
     QueryExecution {
         results: Vec<String>,
         total_results: usize,
+        checkpoint_id: Option<String>,
     },
     /// Generic result data
     Generic {
         message: String,
         data: serde_json::Value,
+        checkpoint_id: Option<String>,
     },
 }
 
@@ -134,6 +206,15 @@ pub enum PriorityError {
     
     #[error("Invalid priority level: {0}")]
     InvalidPriority(u8),
+    
+    #[error("Data consistency error: {0}")]
+    DataConsistency(String),
+    
+    #[error("Checkpoint error: {0}")]
+    Checkpoint(String),
+    
+    #[error("Rollback failed: {0}")]
+    RollbackFailed(String),
 }
 
 /// A task that can be executed with priority and preemption support
@@ -238,6 +319,8 @@ pub struct Pipeline {
     request_queue: Arc<RequestQueue>,
     /// Queue configuration
     queue_config: QueueConfig,
+    /// Checkpoint manager for data consistency
+    checkpoint_manager: Arc<CheckpointManager>,
 }
 
 /// Information about a currently running task
@@ -247,6 +330,186 @@ struct RunningTask {
     started_at: Instant,
     handle: JoinHandle<TaskResult>,
     cancellation_token: tokio_util::sync::CancellationToken,
+    /// Current checkpoint if task supports checkpointing
+    current_checkpoint: Option<TaskCheckpoint>,
+    /// Whether the task is in a preemptible state
+    is_preemptible: bool,
+    /// Progress tracking for consistency checks
+    last_progress_update: Instant,
+}
+
+/// Checkpoint manager for handling task state persistence
+pub struct CheckpointManager {
+    /// Storage for active checkpoints
+    checkpoints: Arc<RwLock<HashMap<String, TaskCheckpoint>>>,
+    /// Cleanup interval for old checkpoints
+    checkpoint_retention: Duration,
+    /// Directory for checkpoint file storage
+    checkpoint_dir: PathBuf,
+}
+
+impl CheckpointManager {
+    /// Create new checkpoint manager
+    pub fn new(checkpoint_dir: PathBuf, retention: Duration) -> Self {
+        Self {
+            checkpoints: Arc::new(RwLock::new(HashMap::new())),
+            checkpoint_retention: retention,
+            checkpoint_dir,
+        }
+    }
+    
+    /// Create a checkpoint for a task
+    pub async fn create_checkpoint(
+        &self,
+        task_id: Uuid,
+        progress: TaskProgress,
+        state_data: serde_json::Value,
+        files_modified: Vec<PathBuf>,
+        rollback_actions: Vec<RollbackAction>,
+    ) -> Result<String, PriorityError> {
+        let checkpoint_id = format!("ckpt_{}_{}", task_id, chrono::Utc::now().timestamp());
+        
+        let checkpoint = TaskCheckpoint {
+            checkpoint_id: checkpoint_id.clone(),
+            task_id,
+            created_at: chrono::Utc::now(),
+            task_progress: progress,
+            state_data,
+            files_modified,
+            rollback_actions,
+        };
+        
+        // Store in memory
+        {
+            let mut checkpoints_lock = self.checkpoints.write().await;
+            checkpoints_lock.insert(checkpoint_id.clone(), checkpoint.clone());
+        }
+        
+        // Persist to disk
+        let checkpoint_file = self.checkpoint_dir.join(format!("{}.json", checkpoint_id));
+        let checkpoint_json = serde_json::to_string(&checkpoint)
+            .map_err(|e| PriorityError::Checkpoint(e.to_string()))?;
+        
+        tokio::fs::write(&checkpoint_file, checkpoint_json).await
+            .map_err(|e| PriorityError::Checkpoint(e.to_string()))?;
+        
+        tracing::debug!("Created checkpoint {} for task {}", checkpoint_id, task_id);
+        Ok(checkpoint_id)
+    }
+    
+    /// Retrieve a checkpoint
+    pub async fn get_checkpoint(&self, checkpoint_id: &str) -> Option<TaskCheckpoint> {
+        let checkpoints_lock = self.checkpoints.read().await;
+        checkpoints_lock.get(checkpoint_id).cloned()
+    }
+    
+    /// Delete a checkpoint (task completed successfully)
+    pub async fn delete_checkpoint(&self, checkpoint_id: &str) -> Result<(), PriorityError> {
+        // Remove from memory
+        {
+            let mut checkpoints_lock = self.checkpoints.write().await;
+            checkpoints_lock.remove(checkpoint_id);
+        }
+        
+        // Remove from disk
+        let checkpoint_file = self.checkpoint_dir.join(format!("{}.json", checkpoint_id));
+        if checkpoint_file.exists() {
+            tokio::fs::remove_file(checkpoint_file).await
+                .map_err(|e| PriorityError::Checkpoint(e.to_string()))?;
+        }
+        
+        Ok(())
+    }
+    
+    /// Rollback changes using checkpoint data
+    pub async fn rollback_checkpoint(
+        &self,
+        checkpoint_id: &str,
+    ) -> Result<(), PriorityError> {
+        let checkpoint = self.get_checkpoint(checkpoint_id).await
+            .ok_or_else(|| PriorityError::Checkpoint(format!("Checkpoint {} not found", checkpoint_id)))?;
+        
+        tracing::info!("Rolling back checkpoint {} for task {}", checkpoint_id, checkpoint.task_id);
+        
+        // Execute rollback actions in reverse order
+        for action in checkpoint.rollback_actions.iter().rev() {
+            match self.execute_rollback_action(action).await {
+                Ok(_) => {
+                    tracing::debug!("Successfully executed rollback action: {:?}", action);
+                }
+                Err(e) => {
+                    tracing::error!("Failed to execute rollback action {:?}: {}", action, e);
+                    // Continue with other rollback actions even if one fails
+                }
+            }
+        }
+        
+        // Clean up the checkpoint after rollback
+        self.delete_checkpoint(checkpoint_id).await?;
+        
+        Ok(())
+    }
+    
+    /// Execute a single rollback action
+    async fn execute_rollback_action(
+        &self,
+        action: &RollbackAction,
+    ) -> Result<(), PriorityError> {
+        match action {
+            RollbackAction::DeleteFile { path } => {
+                if path.exists() {
+                    tokio::fs::remove_file(path).await
+                        .map_err(|e| PriorityError::RollbackFailed(e.to_string()))?;
+                }
+            }
+            RollbackAction::RestoreFile { original_path, backup_path } => {
+                if backup_path.exists() {
+                    tokio::fs::copy(backup_path, original_path).await
+                        .map_err(|e| PriorityError::RollbackFailed(e.to_string()))?;
+                    let _ = tokio::fs::remove_file(backup_path).await; // Best effort cleanup
+                }
+            }
+            RollbackAction::RemoveFromCollection { document_id, collection } => {
+                // Placeholder for Qdrant collection removal
+                tracing::warn!("Rollback: Remove document {} from collection {} (not implemented)", document_id, collection);
+            }
+            RollbackAction::RevertIndexChanges { index_snapshot: _ } => {
+                // Placeholder for index reversion
+                tracing::warn!("Rollback: Revert index changes (not implemented)");
+            }
+            RollbackAction::Custom { action_type, data: _ } => {
+                tracing::warn!("Rollback: Custom action type {} (not implemented)", action_type);
+            }
+        }
+        
+        Ok(())
+    }
+    
+    /// Clean up old checkpoints
+    pub async fn cleanup_old_checkpoints(&self) -> usize {
+        let mut cleaned_count = 0;
+        let cutoff_time = chrono::Utc::now() - chrono::Duration::from_std(self.checkpoint_retention).unwrap_or(chrono::Duration::hours(24));
+        
+        let checkpoint_ids_to_remove: Vec<String> = {
+            let checkpoints_lock = self.checkpoints.read().await;
+            checkpoints_lock
+                .iter()
+                .filter(|(_, checkpoint)| checkpoint.created_at < cutoff_time)
+                .map(|(id, _)| id.clone())
+                .collect()
+        };
+        
+        for checkpoint_id in checkpoint_ids_to_remove {
+            if let Err(e) = self.delete_checkpoint(&checkpoint_id).await {
+                tracing::error!("Failed to cleanup checkpoint {}: {}", checkpoint_id, e);
+            } else {
+                cleaned_count += 1;
+            }
+        }
+        
+        tracing::info!("Cleaned up {} old checkpoints", cleaned_count);
+        cleaned_count
+    }
 }
 
 impl Pipeline {
@@ -257,8 +520,32 @@ impl Pipeline {
     
     /// Create a new pipeline with custom queue configuration
     pub fn with_queue_config(max_concurrent_tasks: usize, queue_config: QueueConfig) -> Self {
+        Self::with_checkpoint_config(max_concurrent_tasks, queue_config, None)
+    }
+    
+    /// Create a new pipeline with custom queue and checkpoint configuration
+    pub fn with_checkpoint_config(
+        max_concurrent_tasks: usize, 
+        queue_config: QueueConfig,
+        checkpoint_dir: Option<PathBuf>,
+    ) -> Self {
         let (task_sender, task_receiver) = mpsc::unbounded_channel();
         let request_queue = Arc::new(RequestQueue::new(queue_config.clone()));
+        
+        // Create checkpoint directory if specified, otherwise use temp
+        let checkpoint_path = checkpoint_dir.unwrap_or_else(|| {
+            std::env::temp_dir().join("wqm_checkpoints")
+        });
+        
+        let checkpoint_manager = Arc::new(CheckpointManager::new(
+            checkpoint_path,
+            Duration::from_secs(3600), // 1 hour retention by default
+        ));
+        
+        // Ensure checkpoint directory exists
+        if let Err(e) = std::fs::create_dir_all(&checkpoint_manager.checkpoint_dir) {
+            tracing::warn!("Failed to create checkpoint directory: {}", e);
+        }
         
         Self {
             task_queue: Arc::new(RwLock::new(BinaryHeap::new())),
@@ -270,6 +557,7 @@ impl Pipeline {
             executor_handle: None,
             request_queue,
             queue_config,
+            checkpoint_manager,
         }
     }
     
@@ -327,6 +615,89 @@ impl Pipeline {
         self.request_queue.cleanup_timeouts().await
     }
     
+    /// Get checkpoint manager reference
+    pub fn checkpoint_manager(&self) -> Arc<CheckpointManager> {
+        Arc::clone(&self.checkpoint_manager)
+    }
+    
+    /// Resume a task from checkpoint
+    pub async fn resume_from_checkpoint(
+        &self,
+        checkpoint_id: &str,
+        new_priority: Option<TaskPriority>,
+    ) -> Result<TaskResultHandle, PriorityError> {
+        let checkpoint = self.checkpoint_manager.get_checkpoint(checkpoint_id).await
+            .ok_or_else(|| PriorityError::Checkpoint(format!("Checkpoint {} not found", checkpoint_id)))?;
+        
+        // Reconstruct the task with updated context
+        let task_id = checkpoint.task_id;
+        let (result_sender, result_receiver) = oneshot::channel();
+        
+        // Create a generic payload for resumption (in practice, this would be more specific)
+        let payload = TaskPayload::Generic {
+            operation: "resume_from_checkpoint".to_string(),
+            parameters: {
+                let mut params = HashMap::new();
+                params.insert("checkpoint_id".to_string(), serde_json::Value::String(checkpoint_id.to_string()));
+                params.insert("original_task_id".to_string(), serde_json::Value::String(task_id.to_string()));
+                params.insert("state_data".to_string(), checkpoint.state_data);
+                params
+            },
+        };
+        
+        let context = TaskContext {
+            task_id: Uuid::new_v4(), // New task ID for the resumed task
+            priority: new_priority.unwrap_or(TaskPriority::ProjectWatching), // Default resumed priority
+            created_at: chrono::Utc::now(),
+            timeout_ms: Some(60_000), // Default timeout for resumed tasks
+            source: TaskSource::Generic { operation: "checkpoint_resume".to_string() },
+            metadata: {
+                let mut metadata = HashMap::new();
+                metadata.insert("resumed_from".to_string(), checkpoint_id.to_string());
+                metadata.insert("original_task_id".to_string(), task_id.to_string());
+                metadata
+            },
+            checkpoint_id: Some(checkpoint_id.to_string()),
+            supports_checkpointing: true,
+        };
+        
+        let task = PriorityTask {
+            context: context.clone(),
+            payload,
+            result_sender,
+            cancellation_token: None,
+        };
+        
+        // Submit the resumed task
+        self.task_sender.send(task)
+            .map_err(|_| PriorityError::Communication("Pipeline is shutting down".to_string()))?;
+        
+        tracing::info!("Resumed task from checkpoint {} with new task ID {}", checkpoint_id, context.task_id);
+        
+        Ok(TaskResultHandle {
+            task_id: context.task_id,
+            context,
+            result_receiver,
+        })
+    }
+    
+    /// Clean up old checkpoints
+    pub async fn cleanup_old_checkpoints(&self) -> usize {
+        self.checkpoint_manager.cleanup_old_checkpoints().await
+    }
+    
+    /// Force rollback a checkpoint (for emergency cleanup)
+    pub async fn emergency_rollback(&self, checkpoint_id: &str) -> Result<(), PriorityError> {
+        tracing::warn!("Emergency rollback requested for checkpoint: {}", checkpoint_id);
+        self.checkpoint_manager.rollback_checkpoint(checkpoint_id).await
+    }
+    
+    /// Get all active checkpoints
+    pub async fn list_active_checkpoints(&self) -> Vec<String> {
+        let checkpoints_lock = self.checkpoint_manager.checkpoints.read().await;
+        checkpoints_lock.keys().cloned().collect()
+    }
+    
     /// The main execution loop that processes tasks
     async fn execution_loop(
         task_queue: Arc<RwLock<BinaryHeap<TaskQueueItem>>>,
@@ -342,6 +713,7 @@ impl Pipeline {
         
         let mut cleanup_interval = tokio::time::interval(Duration::from_millis(100));
         let mut queue_cleanup_interval = tokio::time::interval(Duration::from_secs(1));
+        let mut checkpoint_cleanup_interval = tokio::time::interval(Duration::from_secs(300)); // 5 minutes
         
         loop {
             tokio::select! {
@@ -386,6 +758,13 @@ impl Pipeline {
                     // This should be done with proper request_queue reference
                     // For now, we'll add a placeholder for the cleanup
                     // In a real implementation, we'd pass the request_queue reference here
+                }
+                
+                // Checkpoint cleanup
+                _ = checkpoint_cleanup_interval.tick() => {
+                    // This should be done with proper checkpoint_manager reference
+                    // In a real implementation, we'd pass the checkpoint_manager reference here
+                    // For now, this is just a placeholder
                 }
             }
         }
@@ -450,55 +829,99 @@ impl Pipeline {
         }
     }
     
-    /// Try to preempt a lower priority running task
+    /// Try to preempt a lower priority running task with consistency checks
     async fn try_preempt_lower_priority_task(
         running_tasks: &Arc<RwLock<HashMap<Uuid, RunningTask>>>,
+        checkpoint_manager: &Arc<CheckpointManager>,
         new_priority: TaskPriority,
     ) -> bool {
         let mut running_lock = running_tasks.write().await;
         
-        // Find the lowest priority running task that can be preempted
-        // Priority: prefer tasks that started more recently (least work lost)
-        let mut best_candidate: Option<(Uuid, TaskPriority, Instant)> = None;
+        // Find the best candidate for preemption, considering checkpointing support
+        let mut best_candidate: Option<(Uuid, TaskPriority, Instant, bool, bool)> = None;
         
         for (task_id, running_task) in running_lock.iter() {
             if new_priority.can_preempt(&running_task.context.priority) {
-                let candidate = (*task_id, running_task.context.priority, running_task.started_at);
+                let candidate = (
+                    *task_id, 
+                    running_task.context.priority, 
+                    running_task.started_at,
+                    running_task.context.supports_checkpointing,
+                    running_task.is_preemptible,
+                );
                 
                 match &best_candidate {
                     None => {
                         best_candidate = Some(candidate);
                     }
-                    Some((_, current_priority, current_start)) => {
-                        // Prefer lower priority tasks, and if same priority, prefer more recent
-                        if running_task.context.priority < *current_priority ||
-                           (running_task.context.priority == *current_priority && 
-                            running_task.started_at > *current_start) {
+                    Some((_, current_priority, current_start, current_checkpointable, current_preemptible)) => {
+                        // Prefer lower priority tasks first
+                        if running_task.context.priority < *current_priority {
                             best_candidate = Some(candidate);
+                        }
+                        // If same priority, prefer preemptible tasks
+                        else if running_task.context.priority == *current_priority {
+                            if running_task.is_preemptible && !current_preemptible {
+                                best_candidate = Some(candidate);
+                            }
+                            // If both have same preemptibility, prefer checkpointable tasks
+                            else if running_task.is_preemptible == *current_preemptible {
+                                if running_task.context.supports_checkpointing && !current_checkpointable {
+                                    best_candidate = Some(candidate);
+                                }
+                                // Finally, prefer more recent tasks (less work lost)
+                                else if running_task.context.supports_checkpointing == *current_checkpointable
+                                    && running_task.started_at > *current_start {
+                                    best_candidate = Some(candidate);
+                                }
+                            }
                         }
                     }
                 }
             }
         }
         
-        if let Some((task_id, old_priority, _)) = best_candidate {
+        if let Some((task_id, old_priority, _, supports_checkpointing, is_preemptible)) = best_candidate {
             if let Some(running_task) = running_lock.remove(&task_id) {
                 tracing::info!(
                     "Preempting task {} (priority {:?}) for higher priority task (priority {:?})",
                     task_id, old_priority, new_priority
                 );
                 
-                // Gracefully cancel the task first
+                // If task supports checkpointing, try to create checkpoint before preemption
+                if supports_checkpointing && is_preemptible {
+                    // Signal task to create checkpoint
+                    if let Some(checkpoint) = &running_task.current_checkpoint {
+                        tracing::info!("Task {} has existing checkpoint: {}", task_id, checkpoint.checkpoint_id);
+                    } else {
+                        tracing::debug!("Creating checkpoint for preempted task {}", task_id);
+                        // Note: In a full implementation, we would signal the task to create a checkpoint
+                        // For now, we'll just mark that it was preempted with potential for resumption
+                    }
+                }
+                
+                // Gracefully cancel the task
                 running_task.cancellation_token.cancel();
                 
-                // Give it a moment to handle cancellation gracefully
+                // Give it a moment to handle cancellation gracefully and create checkpoint if needed
+                let grace_period = if supports_checkpointing { 100 } else { 10 };
                 drop(running_lock);
-                tokio::time::sleep(Duration::from_millis(10)).await;
+                tokio::time::sleep(Duration::from_millis(grace_period)).await;
                 
                 // If task is still running after grace period, force abort
                 if !running_task.handle.is_finished() {
                     tracing::warn!("Task {} did not respond to cancellation, aborting", task_id);
                     running_task.handle.abort();
+                    
+                    // If we forced abort a checkpointable task, try to rollback
+                    if supports_checkpointing {
+                        if let Some(checkpoint) = &running_task.current_checkpoint {
+                            tracing::warn!("Force aborting checkpointed task {}, attempting rollback", task_id);
+                            if let Err(e) = checkpoint_manager.rollback_checkpoint(&checkpoint.checkpoint_id).await {
+                                tracing::error!("Failed to rollback checkpoint for aborted task {}: {}", task_id, e);
+                            }
+                        }
+                    }
                 }
                 
                 return true;
@@ -517,7 +940,10 @@ impl Pipeline {
         let mut preempted_count = 0;
         
         for _ in 0..slots_needed {
-            if Self::try_preempt_lower_priority_task(running_tasks, new_priority).await {
+            if Self::try_preempt_lower_priority_task(running_tasks, &Arc::new(CheckpointManager::new(
+                std::env::temp_dir().join("temp_checkpoints"),
+                Duration::from_secs(3600),
+            )), new_priority).await {
                 preempted_count += 1;
             } else {
                 break; // No more tasks to preempt
@@ -578,20 +1004,47 @@ impl Pipeline {
                             execution_time_ms: start_time.elapsed().as_millis() as u64,
                             data,
                         },
-                        Err(error) => TaskResult::Error {
-                            error: error.to_string(),
-                            execution_time_ms: start_time.elapsed().as_millis() as u64,
-                        },
+                        Err(error) => {
+                            let checkpoint_id = if context_for_task.supports_checkpointing {
+                                Some(format!("error_{}_{}", context_for_task.task_id, chrono::Utc::now().timestamp()))
+                            } else {
+                                None
+                            };
+                            
+                            TaskResult::Error {
+                                error: error.to_string(),
+                                execution_time_ms: start_time.elapsed().as_millis() as u64,
+                                checkpoint_id,
+                            }
+                        }
                     }
                 }
                 _ = token.cancelled() => {
+                    // Check if task supports checkpointing and create final checkpoint
+                    let checkpoint_id = if context_for_task.supports_checkpointing {
+                        // In a real implementation, we'd get the current state from the task
+                        // For now, we'll create a minimal checkpoint indicator
+                        Some(format!("cancelled_{}_{}", context_for_task.task_id, chrono::Utc::now().timestamp()))
+                    } else {
+                        None
+                    };
+                    
                     TaskResult::Cancelled {
                         reason: "Task was preempted by higher priority task".to_string(),
+                        checkpoint_id,
+                        partial_data: None,
                     }
                 }
                 _ = Self::timeout_future(&context_for_task) => {
+                    let checkpoint_id = if context_for_task.supports_checkpointing {
+                        Some(format!("timeout_{}_{}", context_for_task.task_id, chrono::Utc::now().timestamp()))
+                    } else {
+                        None
+                    };
+                    
                     TaskResult::Timeout {
                         timeout_duration_ms: context_for_task.timeout_ms.unwrap_or(30_000),
+                        checkpoint_id,
                     }
                 }
             };
@@ -613,6 +1066,9 @@ impl Pipeline {
             started_at: Instant::now(),
             handle,
             cancellation_token,
+            current_checkpoint: None,
+            is_preemptible: true, // Most tasks are preemptible by default
+            last_progress_update: Instant::now(),
         };
         
         let mut running_lock = running_tasks.write().await;
@@ -649,6 +1105,7 @@ impl Pipeline {
                     document_id: context.task_id.to_string(),
                     collection,
                     chunks_created: 1,
+                    checkpoint_id: context.checkpoint_id.clone(),
                 })
             }
             
@@ -661,6 +1118,7 @@ impl Pipeline {
                 Ok(TaskResultData::FileWatching {
                     files_processed: 0,
                     errors: vec![],
+                    checkpoint_id: context.checkpoint_id.clone(),
                 })
             }
             
@@ -673,6 +1131,7 @@ impl Pipeline {
                 Ok(TaskResultData::QueryExecution {
                     results: vec![],
                     total_results: 0,
+                    checkpoint_id: context.checkpoint_id.clone(),
                 })
             }
             
@@ -693,6 +1152,7 @@ impl Pipeline {
                 Ok(TaskResultData::Generic {
                     message: format!("Completed operation: {}", operation),
                     data: serde_json::json!(parameters),
+                    checkpoint_id: context.checkpoint_id.clone(),
                 })
             }
         }
@@ -849,6 +1309,14 @@ impl TaskSubmitter {
         let task_id = Uuid::new_v4();
         let (result_sender, result_receiver) = oneshot::channel();
         
+        // Determine if task supports checkpointing based on payload type
+        let supports_checkpointing = match &payload {
+            TaskPayload::ProcessDocument { .. } => true,
+            TaskPayload::WatchDirectory { .. } => true,
+            TaskPayload::ExecuteQuery { .. } => false, // Queries are typically fast
+            TaskPayload::Generic { .. } => true, // Assume generic tasks can be checkpointed
+        };
+        
         let context = TaskContext {
             task_id,
             priority,
@@ -856,6 +1324,8 @@ impl TaskSubmitter {
             timeout_ms: execution_timeout.map(|d| d.as_millis() as u64),
             source,
             metadata: HashMap::new(),
+            checkpoint_id: None,
+            supports_checkpointing,
         };
         
         let task = PriorityTask {
@@ -932,6 +1402,8 @@ impl TaskSubmitter {
                 metadata.insert("urgent".to_string(), "true".to_string());
                 metadata
             },
+            checkpoint_id: None,
+            supports_checkpointing: false, // Urgent tasks don't support checkpointing for speed
         };
         
         let task = PriorityTask {
