@@ -853,6 +853,550 @@ const client = new WorkspaceQdrantClient();
 const results = await client.searchWorkspace('vector similarity search');
 ```
 
+## Integration Patterns
+
+workspace-qdrant-mcp seamlessly integrates with popular development environments and workflows.
+
+### Claude Desktop Integration
+
+The most common integration pattern for individual developers.
+
+#### Configuration Setup
+```json
+{
+  "mcpServers": {
+    "workspace-qdrant-mcp": {
+      "command": "python",
+      "args": ["-m", "workspace_qdrant_mcp"],
+      "env": {
+        "QDRANT_URL": "http://localhost:6333",
+        "QDRANT_API_KEY": "your-api-key-here"
+      }
+    }
+  }
+}
+```
+
+#### Development Workflow Example
+```python
+# 1. Initial project setup through Claude Desktop
+"Initialize a new research project collection for my machine learning papers"
+
+# 2. Bulk document ingestion
+"Add all PDF files from ~/Documents/ML-Papers to the ml-research collection"
+
+# 3. Intelligent querying during work
+"Find papers about transformer attention mechanisms with performance benchmarks"
+
+# 4. Cross-project knowledge management
+"Add this insight to my scratchbook: transformer scaling laws follow power law distribution"
+```
+
+### VS Code Extension Integration
+
+For teams and advanced workflows requiring IDE integration.
+
+#### Extension Configuration (settings.json)
+```json
+{
+  "workspace-qdrant-mcp.server": {
+    "enabled": true,
+    "serverUrl": "http://localhost:8000",
+    "autoIngest": {
+      "enabled": true,
+      "patterns": ["*.md", "*.py", "*.js", "*.ts"],
+      "watchDirectories": ["./docs", "./src"]
+    },
+    "search": {
+      "defaultMode": "hybrid",
+      "maxResults": 20,
+      "showInSidebar": true
+    }
+  }
+}
+```
+
+#### Custom Commands Integration
+```javascript
+// VS Code extension integration example
+const vscode = require('vscode');
+
+class WorkspaceSearchProvider {
+    async provideWorkspaceSearch(query) {
+        const response = await fetch('http://localhost:8000/call', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                tool: 'search_workspace',
+                arguments: { query, mode: 'hybrid', limit: 10 }
+            })
+        });
+        
+        return response.json();
+    }
+}
+
+// Register as search provider
+vscode.window.registerTreeDataProvider('workspaceSearch', new WorkspaceSearchProvider());
+```
+
+### Cursor IDE Integration
+
+Native MCP support makes Cursor integration particularly seamless.
+
+#### Cursor Configuration (.cursor/mcp.json)
+```json
+{
+  "servers": {
+    "workspace-qdrant": {
+      "command": "python",
+      "args": ["-m", "workspace_qdrant_mcp"],
+      "env": {
+        "QDRANT_URL": "http://localhost:6333",
+        "PROJECT_ROOT": "/Users/chris/projects/current-project"
+      }
+    }
+  },
+  "autoFeatures": {
+    "contextualSearch": true,
+    "documentIngestion": true,
+    "crossFileReferences": true
+  }
+}
+```
+
+#### Cursor Workflow Patterns
+```python
+# Natural language commands in Cursor
+"@workspace-qdrant search for authentication implementation examples"
+
+# Contextual file analysis
+"@workspace-qdrant analyze this file and find related documentation"
+
+# Project-wide insights
+"@workspace-qdrant what are the main architectural patterns in this codebase?"
+```
+
+### JetBrains IDEs (IntelliJ, PyCharm)
+
+Integration through HTTP API and custom plugins.
+
+#### Plugin Configuration
+```kotlin
+// IntelliJ plugin integration
+class WorkspaceQdrantAction : AnAction() {
+    override fun actionPerformed(event: AnActionEvent) {
+        val project = event.project ?: return
+        val selectedText = getSelectedText(event)
+        
+        val searchResults = workspaceQdrantClient.search(
+            query = selectedText,
+            mode = "hybrid"
+        )
+        
+        displayResults(searchResults, project)
+    }
+}
+```
+
+### Vim/Neovim Integration
+
+For terminal-based development workflows.
+
+#### Neovim Lua Configuration
+```lua
+-- ~/.config/nvim/lua/workspace-qdrant.lua
+local M = {}
+
+function M.search_workspace(query)
+    local curl = require('plenary.curl')
+    
+    local response = curl.post('http://localhost:8000/call', {
+        headers = { ['Content-Type'] = 'application/json' },
+        body = vim.json.encode({
+            tool = 'search_workspace',
+            arguments = { query = query, mode = 'hybrid', limit = 10 }
+        })
+    })
+    
+    local results = vim.json.decode(response.body)
+    return results.result.results
+end
+
+-- Key mapping
+vim.keymap.set('n', '<leader>ws', function()
+    local query = vim.fn.input('Search: ')
+    local results = M.search_workspace(query)
+    -- Display results in quickfix list
+    vim.fn.setqflist(results, 'r')
+    vim.cmd('copen')
+end)
+```
+
+## Advanced Use Cases
+
+Real-world workflow patterns and integration scenarios.
+
+### Software Development Team Workflow
+
+#### Centralized Documentation Hub
+```python
+# Team lead sets up centralized knowledge base
+collections_setup = [
+    {
+        "name": "team-docs", 
+        "description": "Official team documentation and standards",
+        "access": "team-wide"
+    },
+    {
+        "name": "architecture-decisions",
+        "description": "ADRs and technical decision log", 
+        "access": "tech-leads"
+    },
+    {
+        "name": "project-artifacts",
+        "description": "Requirements, designs, meeting notes",
+        "access": "project-team"
+    }
+]
+
+# Automated ingestion from team repositories
+for repo_path in team_repositories:
+    await setup_watch_for_collection(
+        path=f"{repo_path}/docs",
+        collection="team-docs",
+        patterns=["*.md", "*.rst", "*.pdf"]
+    )
+```
+
+#### Code Review Enhancement
+```python
+# Pre-review context gathering
+async def prepare_code_review(pr_branch, base_branch):
+    # Find related documentation
+    related_docs = await mcp_call("search_workspace", {
+        "query": f"architecture patterns {pr_branch}",
+        "mode": "hybrid",
+        "collections": ["team-docs", "architecture-decisions"]
+    })
+    
+    # Search for similar implementation patterns
+    similar_code = await mcp_call("search_workspace", {
+        "query": "implementation patterns database connection",
+        "mode": "symbol",
+        "collections": ["codebase-main"]
+    })
+    
+    return {
+        "context_docs": related_docs,
+        "similar_implementations": similar_code,
+        "review_checklist": generate_checklist(related_docs)
+    }
+```
+
+### Research and Academic Workflow
+
+#### Literature Review Management
+```python
+# Academic research project setup
+async def setup_research_project(project_name, research_area):
+    # Create specialized collections
+    collections = {
+        "primary-papers": f"{project_name}-primary-literature",
+        "reference-papers": f"{project_name}-references", 
+        "personal-notes": f"{project_name}-notes",
+        "experimental-data": f"{project_name}-experiments"
+    }
+    
+    # Set up automated paper ingestion
+    await mcp_call("watch_management", {
+        "action": "add_watch",
+        "path": f"~/Research/{project_name}/Papers",
+        "collection": collections["primary-papers"],
+        "patterns": ["*.pdf"],
+        "config": {
+            "extract_citations": True,
+            "detect_methodology": True,
+            "auto_tag_keywords": True
+        }
+    })
+    
+    return collections
+
+# Advanced research queries
+research_queries = {
+    "methodology_search": {
+        "query": "transformer architecture attention mechanism",
+        "mode": "semantic",
+        "metadata_filter": {"document_type": "methodology"}
+    },
+    "results_comparison": {
+        "query": "BERT performance benchmarks GLUE dataset",
+        "mode": "hybrid",
+        "metadata_filter": {"section": "results"}
+    },
+    "citation_discovery": {
+        "query": "attention is all you need Vaswani",
+        "mode": "exact",
+        "collections": ["primary-papers", "reference-papers"]
+    }
+}
+```
+
+### Business Intelligence Workflow
+
+#### Document-Driven Analytics
+```python
+# Business document processing pipeline
+async def setup_business_intelligence():
+    document_types = {
+        "contracts": {
+            "collection": "legal-documents",
+            "parser_config": {
+                "extract_parties": True,
+                "detect_obligations": True,
+                "identify_dates": True
+            }
+        },
+        "reports": {
+            "collection": "business-reports", 
+            "parser_config": {
+                "extract_metrics": True,
+                "detect_trends": True,
+                "identify_kpis": True
+            }
+        },
+        "presentations": {
+            "collection": "executive-presentations",
+            "parser_config": {
+                "extract_slide_titles": True,
+                "preserve_structure": True,
+                "include_speaker_notes": True
+            }
+        }
+    }
+    
+    # Advanced business queries
+    business_queries = [
+        "Q4 revenue projections by product line",
+        "contract renewal terms expiring Q1",
+        "customer satisfaction trends across regions",
+        "competitive analysis key findings"
+    ]
+    
+    return document_types, business_queries
+```
+
+### Personal Knowledge Management
+
+#### Lifelong Learning System
+```python
+# Personal knowledge base organization
+knowledge_areas = {
+    "technical-skills": {
+        "collection": "tech-learning",
+        "sources": ["~/Learning/Programming", "~/Bookmarks/Tech"],
+        "auto_tag": ["programming", "frameworks", "tools"]
+    },
+    "professional-development": {
+        "collection": "career-growth",
+        "sources": ["~/Documents/Career", "~/Learning/Business"],
+        "auto_tag": ["management", "leadership", "skills"]
+    },
+    "research-interests": {
+        "collection": "research-notes",
+        "sources": ["~/Research/Personal", "~/Papers/Interesting"],
+        "auto_tag": ["ai", "machine-learning", "nlp"]
+    }
+}
+
+# Intelligent cross-connections
+async def discover_knowledge_connections():
+    # Find connections between different knowledge areas
+    connections = await mcp_call("search_workspace", {
+        "query": "machine learning project management",
+        "mode": "hybrid",
+        "collections": ["tech-learning", "career-growth"]
+    })
+    
+    # Update scratchbook with insights
+    await mcp_call("update_scratchbook", {
+        "content": f"Knowledge connection discovered: {connections}",
+        "metadata": {
+            "type": "cross-domain-insight",
+            "auto_generated": True,
+            "confidence": 0.85
+        }
+    })
+```
+
+## Performance Optimization
+
+Advanced configuration and tuning for high-performance deployments.
+
+### Hardware Configuration Recommendations
+
+#### Development Environment
+```yaml
+# Recommended specs for development usage
+system_requirements:
+  cpu_cores: 4
+  memory_gb: 8
+  disk_space_gb: 50
+  network: "1 Gbps local"
+
+qdrant_config:
+  vector_size: 384  # sentence-transformers default
+  distance: "Cosine"
+  shard_number: 1
+  replication_factor: 1
+```
+
+#### Production Environment
+```yaml
+# Production deployment specifications
+system_requirements:
+  cpu_cores: 16
+  memory_gb: 64
+  disk_space_gb: 1000
+  network: "10 Gbps"
+
+qdrant_config:
+  vector_size: 768  # larger embeddings for better accuracy
+  distance: "Cosine"
+  shard_number: 4
+  replication_factor: 2
+  
+performance_settings:
+  max_concurrent_requests: 100
+  batch_processing_size: 500
+  cache_size_mb: 1024
+```
+
+### Embedding Model Selection
+
+#### Performance vs Accuracy Trade-offs
+```python
+# Model selection based on use case
+embedding_models = {
+    "fast_processing": {
+        "model": "sentence-transformers/all-MiniLM-L6-v2",
+        "dimensions": 384,
+        "speed": "~1000 docs/sec",
+        "accuracy": "Good",
+        "use_case": "Development, rapid prototyping"
+    },
+    "balanced": {
+        "model": "sentence-transformers/all-mpnet-base-v2", 
+        "dimensions": 768,
+        "speed": "~400 docs/sec",
+        "accuracy": "Excellent",
+        "use_case": "Production, general purpose"
+    },
+    "high_accuracy": {
+        "model": "sentence-transformers/all-roberta-large-v1",
+        "dimensions": 1024,
+        "speed": "~100 docs/sec", 
+        "accuracy": "Outstanding",
+        "use_case": "Research, critical applications"
+    }
+}
+
+# Configuration example
+embedding_config = {
+    "model_name": "sentence-transformers/all-mpnet-base-v2",
+    "device": "cuda" if torch.cuda.is_available() else "cpu",
+    "batch_size": 32,
+    "normalize_embeddings": True
+}
+```
+
+### Collection Optimization Strategies
+
+#### Collection Size Management
+```python
+# Optimal collection sizing
+collection_optimization = {
+    "small_collections": {
+        "document_count": "< 10,000",
+        "shard_count": 1,
+        "index_type": "hnsw",
+        "segment_size": 1000000
+    },
+    "medium_collections": {
+        "document_count": "10,000 - 100,000", 
+        "shard_count": 2,
+        "index_type": "hnsw",
+        "segment_size": 5000000
+    },
+    "large_collections": {
+        "document_count": "> 100,000",
+        "shard_count": 4,
+        "index_type": "hnsw", 
+        "segment_size": 10000000
+    }
+}
+
+# Dynamic optimization based on usage patterns
+async def optimize_collection_performance(collection_name):
+    stats = await mcp_call("workspace_status")
+    collection_stats = next(
+        c for c in stats["collections"] 
+        if c["name"] == collection_name
+    )
+    
+    if collection_stats["document_count"] > 50000:
+        # Increase shard count for better parallelism
+        await reconfigure_collection_sharding(collection_name, shard_count=4)
+    
+    if collection_stats["query_frequency"] > 1000:
+        # Enable query caching for high-traffic collections
+        await enable_query_cache(collection_name)
+```
+
+### Search Performance Tuning
+
+#### Query Optimization Patterns
+```python
+# Optimized search configurations
+search_optimizations = {
+    "exact_match": {
+        "mode": "exact",
+        "preprocessing": "minimal",
+        "cache_results": True,
+        "expected_latency": "<10ms"
+    },
+    "semantic_similarity": {
+        "mode": "semantic", 
+        "top_k": 50,  # Pre-filter larger set
+        "score_threshold": 0.7,
+        "rerank": True,
+        "expected_latency": "<30ms"
+    },
+    "hybrid_search": {
+        "mode": "hybrid",
+        "dense_weight": 0.6,
+        "sparse_weight": 0.4,
+        "fusion_method": "rrf",
+        "expected_latency": "<75ms"
+    }
+}
+
+# Adaptive search based on query characteristics
+async def adaptive_search(query: str, context: dict):
+    query_length = len(query.split())
+    
+    if query_length <= 3 and any(char.isupper() for char in query):
+        # Likely a code symbol or exact term
+        return await optimized_exact_search(query)
+    elif query_length > 10:
+        # Natural language query
+        return await optimized_semantic_search(query)
+    else:
+        # Balanced approach
+        return await optimized_hybrid_search(query)
+```
+
 ## OpenAPI Specification
 
 workspace-qdrant-mcp provides an OpenAPI 3.0 specification at:
