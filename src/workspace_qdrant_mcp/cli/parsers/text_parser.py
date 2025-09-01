@@ -13,6 +13,8 @@ from typing import Any, Optional, Union
 import chardet
 
 from .base import DocumentParser, ParsedDocument
+from .exceptions import handle_parsing_error, EncodingError
+from .progress import ProgressTracker, ProgressPhase, ProgressUnit
 
 logger = logging.getLogger(__name__)
 
@@ -70,6 +72,7 @@ class TextParser(DocumentParser):
     async def parse(
         self,
         file_path: str | Path,
+        progress_tracker: Optional[ProgressTracker] = None,
         encoding: str | None = None,
         detect_encoding: bool = True,
         clean_content: bool = True,
@@ -81,6 +84,7 @@ class TextParser(DocumentParser):
 
         Args:
             file_path: Path to the text file
+            progress_tracker: Optional progress tracker for monitoring
             encoding: Specific encoding to use (if None, auto-detect)
             detect_encoding: Whether to auto-detect encoding if not specified
             clean_content: Whether to normalize and clean the text content
@@ -91,44 +95,60 @@ class TextParser(DocumentParser):
             ParsedDocument with extracted text content and metadata
 
         Raises:
-            FileNotFoundError: If the file doesn't exist
-            ValueError: If the file format is not supported
-            RuntimeError: If parsing fails due to encoding or other issues
+            ParsingError: If parsing fails (wraps specific error types)
         """
         file_path = Path(file_path)
         self.validate_file(file_path)
+        
+        # Setup progress tracking
+        if progress_tracker is None:
+            file_size = file_path.stat().st_size if file_path.exists() else 0
+            progress_tracker = ProgressTracker(total=file_size, unit=ProgressUnit.BYTES)
+        
+        progress_tracker.set_file_info(file_path, file_path.stat().st_size)
+        progress_tracker.set_phase(ProgressPhase.DETECTING_TYPE)
 
         parsing_info: dict[str, str | int | float] = {}
 
         try:
+            progress_tracker.set_phase(ProgressPhase.LOADING)
+            
             # Read file content with encoding detection
             if encoding:
-                content = await self._read_with_encoding(file_path, encoding)
+                content = await self._read_with_encoding(file_path, encoding, progress_tracker)
                 parsing_info["encoding"] = encoding
                 parsing_info["encoding_detection"] = "specified"
             elif detect_encoding:
+                progress_tracker.update(0, "Detecting encoding")
                 encoding, confidence = await self._detect_encoding(file_path)
-                content = await self._read_with_encoding(file_path, encoding)
+                content = await self._read_with_encoding(file_path, encoding, progress_tracker)
                 parsing_info["encoding"] = encoding
                 parsing_info["encoding_confidence"] = confidence
                 parsing_info["encoding_detection"] = "auto-detected"
             else:
                 # Fallback to UTF-8
-                content = await self._read_with_encoding(file_path, "utf-8")
+                content = await self._read_with_encoding(file_path, "utf-8", progress_tracker)
                 parsing_info["encoding"] = "utf-8"
                 parsing_info["encoding_detection"] = "default"
 
             # Content processing
+            progress_tracker.set_phase(ProgressPhase.PROCESSING)
             original_length = len(content)
+            progress_tracker.update(progress_tracker.metrics.total // 2, "Processing content")
 
             if clean_content:
+                progress_tracker.update(progress_tracker.metrics.total * 3 // 4, "Cleaning content")
                 content = self._clean_content(content, preserve_whitespace)
                 parsing_info["content_cleaned"] = True
                 parsing_info["size_reduction"] = original_length - len(content)
 
             # Generate text statistics
+            progress_tracker.set_phase(ProgressPhase.ANALYZING)
             text_stats = self._analyze_text(content)
             parsing_info.update(text_stats)
+            
+            progress_tracker.set_phase(ProgressPhase.FINALIZING)
+            progress_tracker.update(progress_tracker.metrics.total, "Creating document")
 
             # Create metadata
             additional_metadata: dict[str, str | int | float | bool] = {
@@ -161,7 +181,10 @@ class TextParser(DocumentParser):
 
         except Exception as e:
             logger.error(f"Failed to parse text file {file_path}: {e}")
-            raise RuntimeError(f"Text parsing failed: {e}") from e
+            if progress_tracker:
+                progress_tracker.set_phase(ProgressPhase.FAILED)
+            # Use error handler for consistent error processing
+            raise handle_parsing_error(e, file_path)
 
     async def _detect_encoding(self, file_path: Path) -> tuple[str, float]:
         """
@@ -197,7 +220,7 @@ class TextParser(DocumentParser):
             logger.warning(f"Encoding detection failed for {file_path}: {e}")
             return "utf-8", 0.0  # Safe fallback
 
-    async def _read_with_encoding(self, file_path: Path, encoding: str) -> str:
+    async def _read_with_encoding(self, file_path: Path, encoding: str, progress_tracker: Optional[ProgressTracker] = None) -> str:
         """
         Read file content with specified encoding.
 
@@ -212,8 +235,14 @@ class TextParser(DocumentParser):
             RuntimeError: If file cannot be read with the specified encoding
         """
         try:
+            if progress_tracker:
+                progress_tracker.update(0, f"Reading with {encoding} encoding")
+                
             with open(file_path, encoding=encoding, errors="replace") as f:
-                return f.read()
+                content = f.read()
+                if progress_tracker:
+                    progress_tracker.update(len(content.encode('utf-8')), "File loaded")
+                return content
         except Exception as e:
             # Try with error handling for corrupted files
             try:
@@ -222,10 +251,17 @@ class TextParser(DocumentParser):
                     logger.warning(
                         f"File {file_path} had encoding errors, some characters were ignored"
                     )
+                    if progress_tracker:
+                        progress_tracker.add_warning()
+                        progress_tracker.update(len(content.encode('utf-8')), "File loaded with warnings")
                     return content
             except Exception as inner_e:
-                raise RuntimeError(
-                    f"Unable to read file {file_path} with encoding {encoding}: {e}"
+                # Raise as EncodingError for proper classification
+                raise EncodingError(
+                    f"Unable to read file {file_path} with encoding {encoding}: {e}",
+                    file_path=file_path,
+                    attempted_encodings=[encoding],
+                    original_exception=inner_e,
                 ) from inner_e
 
     def _clean_content(self, content: str, preserve_whitespace: bool = False) -> str:

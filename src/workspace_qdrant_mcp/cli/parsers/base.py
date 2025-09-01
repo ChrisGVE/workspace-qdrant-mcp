@@ -12,7 +12,11 @@ from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
-from typing import Any
+from typing import Any, Optional, Union
+
+from .exceptions import ParsingError, handle_parsing_error
+from .file_detector import FileDetector, detect_file_type
+from .progress import ProgressTracker, ProgressPhase, ProgressUnit, create_progress_tracker
 
 
 @dataclass
@@ -149,6 +153,8 @@ class DocumentParser(ABC):
         """
         Check if this parser can handle the given file.
 
+        Uses both extension checking and file type detection for accuracy.
+
         Args:
             file_path: Path to the file to check
 
@@ -156,24 +162,68 @@ class DocumentParser(ABC):
             True if this parser can handle the file format
         """
         file_path = Path(file_path)
-        return file_path.suffix.lower() in self.supported_extensions
+        
+        # First check extension (fast)
+        if file_path.suffix.lower() in self.supported_extensions:
+            return True
+        
+        # If extension check fails, try file type detection
+        try:
+            _, parser_type, _ = detect_file_type(file_path)
+            # Check if detected parser type matches this parser's format
+            return self._matches_parser_type(parser_type)
+        except Exception:
+            return False
+    
+    def _matches_parser_type(self, parser_type: str) -> bool:
+        """
+        Check if detected parser type matches this parser.
+        
+        Args:
+            parser_type: Parser type from file detection
+            
+        Returns:
+            True if this parser can handle the detected type
+        """
+        # Default implementation based on format name
+        format_name_lower = self.format_name.lower()
+        if "text" in format_name_lower:
+            return parser_type in ["text", "code"]
+        elif "pdf" in format_name_lower:
+            return parser_type == "pdf"
+        elif "markdown" in format_name_lower:
+            return parser_type == "markdown"
+        elif "html" in format_name_lower:
+            return parser_type == "html"
+        elif "docx" in format_name_lower:
+            return parser_type == "docx"
+        elif "pptx" in format_name_lower:
+            return parser_type == "pptx"
+        elif "epub" in format_name_lower:
+            return parser_type == "epub"
+        else:
+            return False
 
     @abstractmethod
-    async def parse(self, file_path: str | Path, **options: Any) -> ParsedDocument:
+    async def parse(
+        self, 
+        file_path: str | Path, 
+        progress_tracker: Optional[ProgressTracker] = None,
+        **options: Any
+    ) -> ParsedDocument:
         """
         Parse a document file and extract its text content.
 
         Args:
             file_path: Path to the file to parse
+            progress_tracker: Optional progress tracker for monitoring
             **options: Parser-specific options
 
         Returns:
             ParsedDocument with extracted content and metadata
 
         Raises:
-            FileNotFoundError: If the file doesn't exist
-            ValueError: If the file format is not supported
-            RuntimeError: If parsing fails due to file corruption or other issues
+            ParsingError: If parsing fails (wraps specific error types)
         """
         pass
 
@@ -201,19 +251,21 @@ class DocumentParser(ABC):
             file_path: Path to the file to validate
 
         Raises:
-            FileNotFoundError: If file doesn't exist
-            ValueError: If file format is not supported
-            RuntimeError: If file is corrupted or unreadable
+            ParsingError: If file cannot be parsed (wraps specific error types)
         """
         file_path = Path(file_path)
+        
+        try:
+            if not file_path.exists():
+                raise FileNotFoundError(f"File not found: {file_path}")
 
-        if not file_path.exists():
-            raise FileNotFoundError(f"File not found: {file_path}")
+            if not file_path.is_file():
+                raise ValueError(f"Path is not a file: {file_path}")
 
-        if not file_path.is_file():
-            raise ValueError(f"Path is not a file: {file_path}")
-
-        if not self.can_parse(file_path):
-            raise ValueError(
-                f"File format not supported by {self.format_name} parser: {file_path.suffix}"
-            )
+            if not self.can_parse(file_path):
+                raise ValueError(
+                    f"File format not supported by {self.format_name} parser: {file_path.suffix}"
+                )
+        except Exception as e:
+            # Convert to ParsingError for consistent error handling
+            raise handle_parsing_error(e, file_path)
