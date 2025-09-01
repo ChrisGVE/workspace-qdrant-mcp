@@ -20,6 +20,20 @@ Each parser implements the DocumentParser interface and provides:
 """
 
 from .base import DocumentParser, ParsedDocument
+from .exceptions import (
+    ParsingError, FileAccessError, FileFormatError, FileCorruptionError,
+    EncodingError, MemoryError, ValidationError, ParsingTimeout, SystemError,
+    ErrorHandler, handle_parsing_error
+)
+from .file_detector import (
+    FileDetector, FileTypeDetectionError, UnsupportedFileTypeError,
+    detect_file_type, is_supported_file, get_supported_extensions, get_supported_mime_types
+)
+from .progress import (
+    ProgressTracker, BatchProgressTracker, ProgressPhase, ProgressUnit,
+    ProgressCallback, ConsoleProgressCallback, LoggingProgressCallback,
+    create_progress_tracker, create_batch_progress_tracker
+)
 from .html_parser import HtmlParser
 from .markdown_parser import MarkdownParser
 from .pdf_parser import PDFParser
@@ -27,11 +41,43 @@ from .pptx_parser import PptxParser
 from .text_parser import TextParser
 
 __all__ = [
+    # Base classes
     "DocumentParser",
     "ParsedDocument",
+    # Parser implementations
     "TextParser",
     "MarkdownParser",
     "PDFParser",
     "PptxParser",
     "HtmlParser",
+    # Error handling
+    "ParsingError",
+    "FileAccessError",
+    "FileFormatError",
+    "FileCorruptionError",
+    "EncodingError",
+    "MemoryError",
+    "ValidationError",
+    "ParsingTimeout",
+    "SystemError",
+    "ErrorHandler",
+    "handle_parsing_error",
+    # File detection
+    "FileDetector",
+    "FileTypeDetectionError",
+    "UnsupportedFileTypeError",
+    "detect_file_type",
+    "is_supported_file",
+    "get_supported_extensions",
+    "get_supported_mime_types",
+    # Progress tracking
+    "ProgressTracker",
+    "BatchProgressTracker",
+    "ProgressPhase",
+    "ProgressUnit",
+    "ProgressCallback",
+    "ConsoleProgressCallback",
+    "LoggingProgressCallback",
+    "create_progress_tracker",
+    "create_batch_progress_tracker",
 ]
