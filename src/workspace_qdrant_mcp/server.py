@@ -731,7 +731,17 @@ async def cleanup_workspace() -> None:
     Ensures proper cleanup of database connections, embedding models,
     and any other resources to prevent memory leaks and hanging connections.
     """
-    global workspace_client
+    global workspace_client, watch_tools_manager
+    
+    # Clean up watch tools manager first
+    if watch_tools_manager:
+        try:
+            await watch_tools_manager.cleanup()
+            logger.info("Watch tools manager cleaned up successfully")
+        except Exception as e:
+            logger.error("Error during watch cleanup: %s", e)
+    
+    # Clean up workspace client
     if workspace_client:
         try:
             await workspace_client.close()
@@ -826,6 +836,13 @@ async def initialize_workspace() -> None:
 
     # Initialize watch tools manager
     watch_tools_manager = WatchToolsManager(workspace_client)
+    
+    # Initialize persistent watch system and recover state
+    try:
+        init_result = await watch_tools_manager.initialize()
+        logger.info(f"Watch tools manager initialized: {init_result}")
+    except Exception as e:
+        logger.error(f"Failed to initialize watch tools manager: {e}")
     
     # Register memory tools with the MCP app
     register_memory_tools(app)
