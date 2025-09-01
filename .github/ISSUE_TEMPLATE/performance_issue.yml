@@ -1,0 +1,246 @@
+name: Performance Issue
+description: Report performance problems or optimization requests
+title: "[Performance]: "
+labels: ["performance", "needs-triage"]
+assignees: []
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for reporting a performance issue!
+        
+        **Diagnostic Commands**: Before submitting, please run these commands and include their output:
+        - `workspace-qdrant-health` - Check system health and response times
+        - `workspace-qdrant-test` - Run performance benchmarks
+        
+        Include timing information and system resource usage if possible.
+
+  - type: dropdown
+    id: performance-type
+    attributes:
+      label: Performance Issue Type
+      description: What kind of performance problem are you experiencing?
+      options:
+        - Slow response times
+        - High memory usage
+        - High CPU usage
+        - Slow startup time
+        - Slow vector operations
+        - Slow collection operations
+        - Network latency issues
+        - Disk I/O performance
+        - Memory leaks
+        - Other
+    validations:
+      required: true
+
+  - type: dropdown
+    id: operation-type
+    attributes:
+      label: Affected Operation
+      description: Which operations are affected by the performance issue?
+      options:
+        - Vector search/query
+        - Vector insertion/upsert
+        - Collection creation
+        - Collection deletion
+        - Index operations
+        - Data import/export
+        - MCP server startup
+        - CLI tool execution
+        - Administrative operations
+        - All operations
+        - Other
+    validations:
+      required: true
+
+  - type: input
+    id: version
+    attributes:
+      label: Version
+      description: What version of workspace-qdrant-mcp are you running?
+      placeholder: "0.1.0"
+    validations:
+      required: true
+
+  - type: dropdown
+    id: environment
+    attributes:
+      label: Operating System
+      description: What operating system are you using?
+      options:
+        - Linux (specify details below)
+        - macOS
+        - Windows
+        - Docker
+        - Other
+    validations:
+      required: true
+
+  - type: input
+    id: os-details
+    attributes:
+      label: OS Details
+      description: Specify OS version, distribution, or Docker image details
+      placeholder: "Ubuntu 22.04, macOS 14.0, Windows 11, etc."
+    validations:
+      required: false
+
+  - type: input
+    id: python-version
+    attributes:
+      label: Python Version
+      description: What version of Python are you using?
+      placeholder: "3.11.0"
+    validations:
+      required: true
+
+  - type: input
+    id: qdrant-version
+    attributes:
+      label: Qdrant Version
+      description: What version of Qdrant are you using?
+      placeholder: "1.7.0"
+    validations:
+      required: true
+
+  - type: dropdown
+    id: qdrant-deployment
+    attributes:
+      label: Qdrant Deployment
+      description: How is Qdrant deployed?
+      options:
+        - Local installation
+        - Docker container
+        - Qdrant Cloud
+        - Kubernetes
+        - Other
+    validations:
+      required: true
+
+  - type: textarea
+    id: system-specs
+    attributes:
+      label: System Specifications
+      description: Provide details about your system hardware
+      placeholder: |
+        - CPU: 
+        - RAM: 
+        - Storage: 
+        - Network: 
+      value: |
+        - CPU: 
+        - RAM: 
+        - Storage: 
+        - Network: 
+    validations:
+      required: true
+
+  - type: textarea
+    id: data-scale
+    attributes:
+      label: Data Scale
+      description: Describe the size and scale of your data
+      placeholder: |
+        - Number of collections: 
+        - Vectors per collection: 
+        - Vector dimensions: 
+        - Total data size: 
+        - Concurrent operations: 
+      value: |
+        - Number of collections: 
+        - Vectors per collection: 
+        - Vector dimensions: 
+        - Total data size: 
+        - Concurrent operations: 
+    validations:
+      required: true
+
+  - type: textarea
+    id: performance-details
+    attributes:
+      label: Performance Problem Description
+      description: Describe the specific performance issue you're experiencing
+      placeholder: "The operation takes X seconds/minutes when it should take Y, or uses X% CPU/memory..."
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected-performance
+    attributes:
+      label: Expected Performance
+      description: What performance were you expecting?
+      placeholder: "I expected the operation to complete in X seconds with Y% resource usage..."
+    validations:
+      required: true
+
+  - type: textarea
+    id: reproduction-steps
+    attributes:
+      label: Steps to Reproduce
+      description: Provide specific steps to reproduce the performance issue
+      placeholder: |
+        1. Configure the server with...
+        2. Load X vectors...
+        3. Run operation Y...
+        4. Observe performance Z...
+    validations:
+      required: true
+
+  - type: textarea
+    id: timing-data
+    attributes:
+      label: Timing and Resource Usage Data
+      description: Include any timing measurements, resource usage data, or profiling information
+      placeholder: "Include output from time commands, system monitors, or profiling tools"
+      render: shell
+    validations:
+      required: false
+
+  - type: textarea
+    id: diagnostic-output
+    attributes:
+      label: Diagnostic Command Output
+      description: Output from workspace-qdrant-health and workspace-qdrant-test commands
+      placeholder: "Paste output from diagnostic commands here"
+      render: shell
+    validations:
+      required: false
+
+  - type: dropdown
+    id: severity
+    attributes:
+      label: Performance Impact
+      description: How severely does this impact your usage?
+      options:
+        - Low - Minor inconvenience
+        - Medium - Noticeable impact on workflow
+        - High - Significantly impacts productivity
+        - Critical - Blocks usage entirely
+    validations:
+      required: true
+
+  - type: textarea
+    id: workarounds
+    attributes:
+      label: Current Workarounds
+      description: Have you found any workarounds or temporary solutions?
+    validations:
+      required: false
+
+  - type: textarea
+    id: additional-context
+    attributes:
+      label: Additional Context
+      description: Any other context, logs, or information that might help diagnose the performance issue
+    validations:
+      required: false
+
+  - type: checkboxes
+    id: terms
+    attributes:
+      label: Code of Conduct
+      description: By submitting this issue, you agree to follow our Code of Conduct
+      options:
+        - label: I agree to follow this project's Code of Conduct
+          required: true
