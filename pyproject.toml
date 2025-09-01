@@ -42,6 +42,7 @@ dependencies = [
   "lxml>=4.9.0",             # XML/HTML processing
   "markdown>=3.5.0",         # Enhanced markdown support
   "pygments>=2.16.0",        # Code syntax highlighting
+  "structlog>=23.0.0",       # Structured logging support
 ]
 
 [project.optional-dependencies]

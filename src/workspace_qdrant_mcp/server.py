@@ -47,6 +47,18 @@ import typer
 from fastmcp import FastMCP
 from pydantic import BaseModel
 
+# Import observability system
+from .observability import (
+    get_logger,
+    configure_logging,
+    metrics_instance,
+    health_checker_instance,
+    monitor_async,
+    record_operation,
+    LogContext
+)
+from .observability.endpoints import add_observability_routes, setup_observability_middleware
+
 from .core.client import QdrantWorkspaceClient
 from .core.config import Config
 from .core.hybrid_search import HybridSearchEngine
@@ -73,8 +85,8 @@ from .core.watch_validation import (
 )
 from .utils.config_validator import ConfigValidator
 
-# Initialize logging
-logger = logging.getLogger(__name__)
+# Initialize structured logging
+logger = get_logger(__name__)
 
 # Initialize FastMCP application
 app = FastMCP("workspace-qdrant-mcp")
@@ -102,6 +114,7 @@ class ServerInfo(BaseModel):
 
 
 @app.tool()
+@monitor_async("workspace_status", critical=True, timeout_warning=5.0)
 async def workspace_status() -> dict:
     """Get comprehensive workspace and collection status information.
 
@@ -124,15 +137,22 @@ async def workspace_status() -> dict:
     Example:
         ```python
         status = await workspace_status()
-        print(f"Connected: {status['connected']}")
-        print(f"Project: {status['current_project']}")
-        print(f"Collections: {status['workspace_collections']}")
+        logger.info("Workspace status retrieved",
+                   connected=status['connected'],
+                   project=status['current_project'],
+                   collections=status['workspace_collections'])
         ```
     """
     if not workspace_client:
+        logger.error("Workspace status requested but client not initialized")
         return {"error": "Workspace client not initialized"}
 
-    return await workspace_client.get_status()
+    status = await workspace_client.get_status()
+    logger.info("Workspace status retrieved", 
+               connected=status.get("connected", False),
+               collections_count=status.get("collections_count", 0),
+               project=status.get("current_project"))
+    return status
 
 
 @app.tool()
@@ -153,8 +173,9 @@ async def list_workspace_collections() -> list[str]:
     Example:
         ```python
         collections = await list_workspace_collections()
-        for collection in collections:
-            print(f"Available: {collection}")
+        logger.info("Available collections retrieved", 
+                   collections=collections,
+                   count=len(collections))
         ```
     """
     if not workspace_client:
@@ -164,6 +185,7 @@ async def list_workspace_collections() -> list[str]:
 
 
 @app.tool()
+@monitor_async("search_workspace", timeout_warning=2.0, slow_threshold=1.0)
 async def search_workspace_tool(
     query: str,
     collections: list[str] = None,
@@ -216,14 +238,30 @@ async def search_workspace_tool(
         ```
     """
     if not workspace_client:
+        logger.error("Search requested but workspace client not initialized")
         return {"error": "Workspace client not initialized"}
 
-    return await search_workspace(
-        workspace_client, query, collections, mode, limit, score_threshold
-    )
+    logger.debug("Search request received",
+                query_length=len(query),
+                collections=collections,
+                mode=mode,
+                limit=limit,
+                score_threshold=score_threshold)
+
+    with record_operation("search", mode=mode, collections_count=len(collections or [])):
+        result = await search_workspace(
+            workspace_client, query, collections, mode, limit, score_threshold
+        )
+    
+    logger.info("Search completed",
+               results_count=result.get("total_results", 0),
+               collections_searched=len(result.get("collections_searched", [])))
+    
+    return result
 
 
 @app.tool()
+@monitor_async("add_document", timeout_warning=10.0, slow_threshold=5.0)
 async def add_document_tool(
     content: str,
     collection: str,
@@ -276,11 +314,28 @@ async def add_document_tool(
         ```
     """
     if not workspace_client:
+        logger.error("Document add requested but workspace client not initialized")
         return {"error": "Workspace client not initialized"}
 
-    return await add_document(
-        workspace_client, content, collection, metadata, document_id, chunk_text
-    )
+    logger.debug("Document add request received",
+                content_length=len(content),
+                collection=collection,
+                document_id=document_id,
+                chunk_text=chunk_text,
+                metadata_keys=list(metadata.keys()) if metadata else [])
+
+    with record_operation("add_document", collection=collection, chunk_text=chunk_text):
+        result = await add_document(
+            workspace_client, content, collection, metadata, document_id, chunk_text
+        )
+    
+    logger.info("Document added",
+               success=result.get("success", False),
+               document_id=result.get("document_id"),
+               chunks_added=result.get("chunks_added", 0),
+               collection=collection)
+    
+    return result
 
 
 @app.tool()
@@ -589,7 +644,9 @@ async def remove_watch_folder(watch_id: str) -> dict:
         # Remove a specific watch
         result = await remove_watch_folder("research-watch")
         if result["success"]:
-            print(f"Removed watch for: {result['removed_path']}")
+            logger.info("Watch removed", 
+                       watch_id="research-watch", 
+                       path=result['removed_path'])
         ```
     """
     if not workspace_client or not watch_tools_manager:
@@ -622,7 +679,8 @@ async def list_watched_folders(
         ```python
         # List all watches
         result = await list_watched_folders()
-        print(f"Total watches: {result['summary']['total_watches']}")
+        logger.info("Watched folders listed", 
+                   total_watches=result['summary']['total_watches'])
         
         # List only active watches for specific collection
         result = await list_watched_folders(
@@ -1663,9 +1721,18 @@ async def cleanup_workspace() -> None:
     """Clean up workspace resources on server shutdown.
 
     Ensures proper cleanup of database connections, embedding models,
-    and any other resources to prevent memory leaks and hanging connections.
+    observability systems, and any other resources to prevent memory leaks and hanging connections.
     """
     global workspace_client, watch_tools_manager
+    
+    logger.info("Starting graceful shutdown and cleanup")
+    
+    # Stop background health monitoring
+    try:
+        health_checker_instance.stop_background_monitoring()
+        logger.debug("Health monitoring stopped")
+    except Exception as e:
+        logger.error("Error stopping health monitoring", error=str(e))
     
     # Clean up watch tools manager first
     if watch_tools_manager:
@@ -1673,7 +1740,7 @@ async def cleanup_workspace() -> None:
             await watch_tools_manager.cleanup()
             logger.info("Watch tools manager cleaned up successfully")
         except Exception as e:
-            logger.error("Error during watch cleanup: %s", e)
+            logger.error("Error during watch cleanup", error=str(e))
     
     # Clean up workspace client
     if workspace_client:
@@ -1681,7 +1748,19 @@ async def cleanup_workspace() -> None:
             await workspace_client.close()
             logger.info("Workspace client cleaned up successfully")
         except Exception as e:
-            logger.error("Error during workspace cleanup: %s", e)
+            logger.error("Error during workspace cleanup", error=str(e))
+    
+    # Final metrics export
+    try:
+        metrics_summary = metrics_instance.get_metrics_summary()
+        logger.info("Final metrics summary",
+                   counters=len(metrics_summary.get("counters", {})),
+                   gauges=len(metrics_summary.get("gauges", {})),
+                   histograms=len(metrics_summary.get("histograms", {})))
+    except Exception as e:
+        logger.error("Error generating final metrics", error=str(e))
+    
+    logger.info("Graceful shutdown completed")
 
 
 def setup_signal_handlers() -> None:
@@ -1715,6 +1794,7 @@ def setup_signal_handlers() -> None:
     )
 
 
+@monitor_async("initialize_workspace", critical=True, timeout_warning=30.0)
 async def initialize_workspace() -> None:
     """Initialize the workspace client and project-specific collections.
 
@@ -1723,12 +1803,14 @@ async def initialize_workspace() -> None:
     collection creation based on detected project structure.
 
     The initialization process:
-    1. Loads and validates configuration from environment/config files
-    2. Tests Qdrant database connectivity
-    3. Detects current project and subprojects from directory structure
-    4. Initializes embedding models (dense + sparse if enabled)
-    5. Creates workspace-scoped collections for discovered projects
-    6. Sets up global collections (scratchbook, shared resources)
+    1. Sets up observability and logging systems
+    2. Loads and validates configuration from environment/config files
+    3. Tests Qdrant database connectivity
+    4. Detects current project and subprojects from directory structure
+    5. Initializes embedding models (dense + sparse if enabled)
+    6. Creates workspace-scoped collections for discovered projects
+    7. Sets up global collections (scratchbook, shared resources)
+    8. Starts health monitoring and metrics collection
 
     Raises:
         RuntimeError: If configuration validation fails or critical services unavailable
@@ -1742,8 +1824,11 @@ async def initialize_workspace() -> None:
         ```
     """
     global workspace_client, watch_tools_manager
+    
+    logger.info("Starting workspace initialization")
 
     # Load configuration
+    logger.debug("Loading configuration")
     config = Config()
 
     # Validate configuration
@@ -1751,35 +1836,52 @@ async def initialize_workspace() -> None:
     is_valid, validation_results = validator.validate_all()
 
     if not is_valid:
-        print("Configuration validation failed:")
-        for issue in validation_results["issues"]:
-            print(f"  • {issue}")
+        logger.critical("Configuration validation failed",
+                       issues_count=len(validation_results["issues"]),
+                       issues=validation_results["issues"])
         raise RuntimeError("Configuration validation failed")
 
-    # Show warnings if any
+    # Log warnings if any
     if validation_results["warnings"]:
-        print("Configuration warnings:")
-        for warning in validation_results["warnings"]:
-            print(f"  • {warning}")
+        logger.warning("Configuration has warnings",
+                      warnings_count=len(validation_results["warnings"]),
+                      warnings=validation_results["warnings"])
 
     # Initialize Qdrant workspace client
+    logger.info("Initializing Qdrant workspace client", qdrant_url=config.qdrant_url)
     workspace_client = QdrantWorkspaceClient(config)
 
     # Initialize collections for current project
+    logger.debug("Initializing workspace collections")
     await workspace_client.initialize()
+    
+    # Log workspace status after initialization
+    status = await workspace_client.get_status()
+    logger.info("Workspace client initialized successfully",
+               connected=status.get("connected", False),
+               project=status.get("current_project"),
+               collections_count=status.get("collections_count", 0))
 
     # Initialize watch tools manager
+    logger.debug("Initializing watch tools manager")
     watch_tools_manager = WatchToolsManager(workspace_client)
     
     # Initialize persistent watch system and recover state
     try:
         init_result = await watch_tools_manager.initialize()
-        logger.info(f"Watch tools manager initialized: {init_result}")
+        logger.info("Watch tools manager initialized", result=init_result)
     except Exception as e:
-        logger.error(f"Failed to initialize watch tools manager: {e}")
+        logger.error("Failed to initialize watch tools manager", error=str(e), exc_info=True)
     
     # Register memory tools with the MCP app
+    logger.debug("Registering memory tools")
     register_memory_tools(app)
+    
+    # Start background health monitoring
+    logger.debug("Starting background health monitoring")
+    health_checker_instance.start_background_monitoring(interval=60.0)  # Every minute
+    
+    logger.info("Workspace initialization completed successfully")
 
 
 def run_server(
@@ -1825,6 +1927,19 @@ def run_server(
     # Set configuration file if provided
     if config_file:
         os.environ["CONFIG_FILE"] = config_file
+    
+    # Configure logging early
+    configure_logging(
+        level=os.getenv("LOG_LEVEL", "INFO"),
+        json_format=True,
+        console_output=True
+    )
+    
+    logger.info("Starting workspace-qdrant-mcp server",
+               transport=transport,
+               host=host if transport != "stdio" else None,
+               port=port if transport != "stdio" else None,
+               config_file=config_file)
 
     # Set up signal handlers for graceful shutdown
     setup_signal_handlers()
@@ -1835,9 +1950,19 @@ def run_server(
     # Run FastMCP server with appropriate transport
     if transport == "stdio":
         # MCP protocol over stdin/stdout (default for Claude Desktop/Code)
+        logger.info("Starting MCP server with stdio transport")
         app.run(transport="stdio")
     else:
         # HTTP-based transport for web clients
+        logger.info("Starting MCP server with HTTP transport", host=host, port=port)
+        
+        # Add observability routes for HTTP mode
+        if hasattr(app, '_fastapi_app'):
+            add_observability_routes(app._fastapi_app)
+            setup_observability_middleware(app._fastapi_app)
+            logger.info("Observability endpoints enabled", 
+                       endpoints=["/health", "/health/detailed", "/metrics", "/diagnostics"])
+        
         app.run(transport=transport, host=host, port=port)
 
 
