@@ -9,7 +9,7 @@ body:
       value: |
         ## Security Policy
         
-        **IMPORTANT**: For sensitive security issues, please email us directly at chris@example.com instead of filing a public issue.
+        **IMPORTANT**: For sensitive security issues, please email us directly instead of filing a public issue.
         
         This form is for non-sensitive security issues or general security improvements.
 
@@ -69,6 +69,36 @@ body:
       placeholder: "0.1.0"
     validations:
       required: true
+
+  - type: dropdown
+    id: component
+    attributes:
+      label: Affected Component
+      description: Which component has the security issue?
+      options:
+        - MCP Server Core
+        - Authentication/Authorization
+        - Data Handling
+        - Network Communication
+        - Configuration Management
+        - CLI Tools
+        - Dependencies
+        - Other
+    validations:
+      required: true
+
+  - type: textarea
+    id: environment
+    attributes:
+      label: Environment Details
+      description: Provide details about the affected environment
+      placeholder: |
+        - OS: 
+        - Python version:
+        - Qdrant version:
+        - Deployment type: 
+    validations:
+      required: false
 
   - type: checkboxes
     id: responsible-disclosure
