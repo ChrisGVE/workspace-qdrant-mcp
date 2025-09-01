@@ -1619,7 +1619,7 @@
               "30.3"
             ],
             "details": "Replace existing Pipeline struct in processing.rs with PriorityPipeline that uses TaskManager. Refactor document processing methods to work with priority tasks. Add priority-aware batch processing that can be preempted. Implement task progress tracking and status reporting. Create processing context that maintains state during preemption. Add configuration for priority thresholds and preemption policies.",
-            "status": "in-progress",
+            "status": "done",
             "testStrategy": "Test document processing with different priorities, pipeline preemption during batch operations, and processing state consistency"
           },
           {
@@ -1631,7 +1631,7 @@
               "30.4"
             ],
             "details": "Create RequestQueue with priority-based timeout configuration. Implement async timeout handling using tokio::time::timeout. Add request retry logic for timed-out operations. Create queue backpressure handling to prevent memory exhaustion. Implement queue metrics collection (queue depth, wait times, timeout rates). Add graceful degradation when queues are full.",
-            "status": "pending",
+            "status": "in-progress",
             "testStrategy": "Test timeout behavior for different priority levels, queue backpressure handling, retry logic, and metrics accuracy"
           },
           {
@@ -1830,7 +1830,7 @@
     ],
     "metadata": {
       "created": "2025-08-30T10:40:15.806Z",
-      "updated": "2025-09-01T21:31:37.722Z",
+      "updated": "2025-09-01T21:34:15.339Z",
       "description": "Tasks for development context"
     }
   }
