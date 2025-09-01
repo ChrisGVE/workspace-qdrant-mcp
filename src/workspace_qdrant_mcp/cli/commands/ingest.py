@@ -153,7 +153,7 @@ async def _ingest_file(
                 "path": str(file_path),
                 "size_mb": round(file_path.stat().st_size / (1024*1024), 2),
                 "extension": file_path.suffix.lower(),
-                "supported": file_path.suffix.lower() in ['.pdf', '.txt', '.md', '.epub']
+                "supported": file_path.suffix.lower() in ['.pdf', '.txt', '.md', '.epub', '.docx', '.pptx', '.html', '.htm', '.mobi', '.azw', '.py', '.js', '.java', '.cpp', '.go', '.rs', '.rb', '.php']
             }
 
             info_table = Table(title="File Analysis")
@@ -224,7 +224,7 @@ async def _ingest_folder(
 
         # Default formats if not specified
         if not formats:
-            formats = ["pdf", "txt", "md", "epub"]
+            formats = ["pdf", "txt", "md", "epub", "docx", "pptx", "html", "htm", "mobi", "py", "js", "java", "cpp", "go", "rs"]
         else:
             # Clean format specifications
             formats = [f.lower().lstrip('.') for f in formats]

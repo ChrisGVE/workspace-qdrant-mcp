@@ -24,6 +24,10 @@ from .parsers import (
     PDFParser,
     PptxParser,
     TextParser,
+    DocxParser,
+    EpubParser,
+    CodeParser,
+    MobiParser,
 )
 
 logger = logging.getLogger(__name__)
@@ -126,6 +130,10 @@ class DocumentIngestionEngine:
             PDFParser(),
             PptxParser(),
             HtmlParser(),
+            DocxParser(),
+            EpubParser(),
+            CodeParser(),
+            MobiParser(),
         ]
 
         # Content hash tracking for deduplication

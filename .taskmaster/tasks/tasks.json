@@ -1390,7 +1390,7 @@
         "testStrategy": "Test ingestion of each supported file type. Verify metadata extraction works correctly. Compare CLI and MCP interface capabilities. Test error handling for corrupted files.",
         "priority": "high",
         "dependencies": [],
-        "status": "pending",
+        "status": "in-progress",
         "subtasks": [
           {
             "id": 1,
@@ -1417,7 +1417,7 @@
             "title": "Implement document format support (DOCX/PPTX)",
             "description": "Create parsers for Microsoft Office document formats (DOCX and PPTX) with comprehensive metadata extraction.",
             "details": "Implement docx_parser.py and pptx_parser.py in the parsers directory. Extract text content, metadata (author, title, creation date, etc.), and handle embedded objects. Include error handling for corrupted files and progress reporting for large documents.",
-            "status": "in-progress",
+            "status": "done",
             "dependencies": [
               "28.2"
             ],
@@ -1461,7 +1461,7 @@
             "title": "Add file type detection and error handling infrastructure",
             "description": "Implement robust file type detection, comprehensive error handling, and progress reporting for all parsers.",
             "details": "Create file_detector.py with MIME type detection, magic number checking, and extension-based fallbacks. Implement unified error handling across all parsers with specific error types for different failure modes. Add progress reporting for large file processing and batch operations.",
-            "status": "pending",
+            "status": "done",
             "dependencies": [
               "28.3",
               "28.4",
@@ -1830,7 +1830,7 @@
     ],
     "metadata": {
       "created": "2025-08-30T10:40:15.806Z",
-      "updated": "2025-09-01T21:04:10.582Z",
+      "updated": "2025-09-01T21:26:42.667Z",
       "description": "Tasks for development context"
     }
   }
