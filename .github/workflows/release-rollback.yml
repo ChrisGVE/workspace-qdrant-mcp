@@ -1,0 +1,571 @@
+name: Release Rollback and Recovery
+
+on:
+  workflow_dispatch:
+    inputs:
+      rollback_version:
+        description: 'Version to rollback to (e.g., 0.1.9)'
+        required: true
+        type: string
+      rollback_reason:
+        description: 'Reason for rollback'
+        required: true
+        type: string
+      pypi_action:
+        description: 'Action to take on PyPI'
+        required: true
+        default: 'yank'
+        type: choice
+        options:
+          - 'yank'
+          - 'leave-as-is'
+          - 'delete-if-possible'
+
+env:
+  PYTHON_VERSION: "3.10"
+
+jobs:
+  validate-rollback:
+    name: Validate Rollback Request
+    runs-on: ubuntu-latest
+    outputs:
+      rollback_version: ${{ steps.validate.outputs.rollback_version }}
+      current_version: ${{ steps.validate.outputs.current_version }}
+      can_rollback: ${{ steps.validate.outputs.can_rollback }}
+    
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+
+      - name: Validate rollback request
+        id: validate
+        run: |
+          # Get current version
+          CURRENT_VERSION=$(python -c "import src.workspace_qdrant_mcp as pkg; print(pkg.__version__)")
+          echo "current_version=$CURRENT_VERSION" >> $GITHUB_OUTPUT
+          echo "rollback_version=${{ github.event.inputs.rollback_version }}" >> $GITHUB_OUTPUT
+          
+          echo "📋 Rollback Request Validation"
+          echo "Current Version: $CURRENT_VERSION"
+          echo "Rollback Version: ${{ github.event.inputs.rollback_version }}"
+          echo "Reason: ${{ github.event.inputs.rollback_reason }}"
+          
+          # Check if rollback version exists as a git tag
+          if git tag -l | grep -q "^v${{ github.event.inputs.rollback_version }}$"; then
+            echo "✅ Rollback version v${{ github.event.inputs.rollback_version }} exists in git history"
+            echo "can_rollback=true" >> $GITHUB_OUTPUT
+          else
+            echo "❌ Rollback version v${{ github.event.inputs.rollback_version }} not found in git history"
+            echo "Available tags:"
+            git tag -l | sort -V | tail -10
+            echo "can_rollback=false" >> $GITHUB_OUTPUT
+            exit 1
+          fi
+          
+          # Version comparison
+          python -c "
+          from packaging import version
+          current = version.parse('$CURRENT_VERSION')
+          rollback = version.parse('${{ github.event.inputs.rollback_version }}')
+          if rollback >= current:
+              print('❌ Cannot rollback to a version greater than or equal to current')
+              exit(1)
+          else:
+              print('✅ Rollback version is valid (older than current)')
+          "
+
+      - name: Create rollback issue
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const rollbackIssue = await github.rest.issues.create({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              title: `🚨 Release Rollback: v${{ github.event.inputs.rollback_version }}`,
+              body: `
+              ## Release Rollback Initiated
+              
+              **Current Version:** ${{ steps.validate.outputs.current_version }}
+              **Rollback To:** v${{ github.event.inputs.rollback_version }}
+              **Reason:** ${{ github.event.inputs.rollback_reason }}
+              **PyPI Action:** ${{ github.event.inputs.pypi_action }}
+              **Initiated By:** @${{ github.actor }}
+              **Workflow:** [${{ github.run_id }}](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }})
+              
+              ## Rollback Plan
+              
+              - [ ] Validate rollback version exists
+              - [ ] Create emergency hotfix branch
+              - [ ] Revert to rollback version
+              - [ ] Build and test distributions
+              - [ ] Handle PyPI version (${{ github.event.inputs.pypi_action }})
+              - [ ] Update documentation
+              - [ ] Notify stakeholders
+              
+              ---
+              *This issue will be updated with progress and automatically closed when rollback is complete.*
+              `,
+              labels: ['rollback', 'emergency', 'priority-critical']
+            });
+            
+            core.setOutput('issue_number', rollbackIssue.data.number);
+
+  create-hotfix-branch:
+    name: Create Emergency Hotfix Branch
+    needs: validate-rollback
+    if: needs.validate-rollback.outputs.can_rollback == 'true'
+    runs-on: ubuntu-latest
+    outputs:
+      hotfix_branch: ${{ steps.branch.outputs.hotfix_branch }}
+      
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Configure Git
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+      - name: Create hotfix branch
+        id: branch
+        run: |
+          HOTFIX_BRANCH="hotfix/rollback-to-v${{ github.event.inputs.rollback_version }}"
+          echo "hotfix_branch=$HOTFIX_BRANCH" >> $GITHUB_OUTPUT
+          
+          # Check out the rollback version tag
+          git checkout "v${{ github.event.inputs.rollback_version }}"
+          
+          # Create and push hotfix branch
+          git checkout -b "$HOTFIX_BRANCH"
+          git push origin "$HOTFIX_BRANCH"
+          
+          echo "✅ Created hotfix branch: $HOTFIX_BRANCH"
+          echo "📍 Based on tag: v${{ github.event.inputs.rollback_version }}"
+
+  revert-and-build:
+    name: Revert Version and Build
+    needs: [validate-rollback, create-hotfix-branch]
+    runs-on: ubuntu-latest
+    outputs:
+      new_patch_version: ${{ steps.version.outputs.new_patch_version }}
+      
+    steps:
+      - name: Checkout hotfix branch
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.create-hotfix-branch.outputs.hotfix_branch }}
+          fetch-depth: 0
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+
+      - name: Calculate new patch version
+        id: version
+        run: |
+          # Create a new patch version to avoid conflicts
+          ROLLBACK_VERSION="${{ github.event.inputs.rollback_version }}"
+          # Extract version parts
+          IFS='.' read -ra VERSION_PARTS <<< "$ROLLBACK_VERSION"
+          MAJOR="${VERSION_PARTS[0]}"
+          MINOR="${VERSION_PARTS[1]}"
+          PATCH="${VERSION_PARTS[2]}"
+          
+          # Increment patch for emergency release
+          NEW_PATCH=$((PATCH + 1000))  # Use high number to avoid conflicts
+          NEW_VERSION="$MAJOR.$MINOR.$NEW_PATCH"
+          
+          echo "new_patch_version=$NEW_VERSION" >> $GITHUB_OUTPUT
+          echo "🔄 Rollback version: $ROLLBACK_VERSION"
+          echo "🆕 New emergency version: $NEW_VERSION"
+
+      - name: Update version files
+        run: |
+          NEW_VERSION="${{ steps.version.outputs.new_patch_version }}"
+          
+          # Update pyproject.toml
+          sed -i "s/version = \".*\"/version = \"$NEW_VERSION\"/" pyproject.toml
+          
+          # Update __init__.py
+          sed -i "s/__version__ = \".*\"/__version__ = \"$NEW_VERSION\"/" src/workspace_qdrant_mcp/__init__.py
+          
+          echo "📝 Updated version to $NEW_VERSION in:"
+          echo "  - pyproject.toml" 
+          echo "  - src/workspace_qdrant_mcp/__init__.py"
+
+      - name: Set up Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Install build dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install --upgrade build maturin[patchelf]
+          sudo apt-get update
+          sudo apt-get install -y protobuf-compiler
+
+      - name: Build emergency distributions
+        run: |
+          # Build using maturin for Rust integration
+          python -m maturin build --release --out dist
+          python -m maturin sdist --out dist
+          
+          echo "📦 Emergency build completed:"
+          ls -la dist/
+
+      - name: Verify distributions
+        run: |
+          python -m pip install --upgrade twine
+          python -m twine check dist/*
+          
+          # Test installation
+          python -m venv test-emergency
+          source test-emergency/bin/activate
+          pip install dist/*.whl
+          
+          # Verify version
+          python -c "import workspace_qdrant_mcp; print(f'Emergency version: {workspace_qdrant_mcp.__version__}')"
+          
+          echo "✅ Emergency distributions verified"
+
+      - name: Configure Git and commit changes
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          
+          git add pyproject.toml src/workspace_qdrant_mcp/__init__.py
+          git commit -m "fix: Emergency rollback to functionality from v${{ github.event.inputs.rollback_version }}
+
+          Rollback reason: ${{ github.event.inputs.rollback_reason }}
+          
+          - Reverted codebase to v${{ github.event.inputs.rollback_version }} state
+          - Bumped version to ${{ steps.version.outputs.new_patch_version }} for emergency release
+          - Built and verified emergency distributions
+          
+          BREAKING: This is an emergency rollback release"
+
+      - name: Upload emergency distributions
+        uses: actions/upload-artifact@v4
+        with:
+          name: emergency-distributions
+          path: dist/*
+
+  test-emergency-release:
+    name: Test Emergency Release
+    needs: [validate-rollback, revert-and-build]
+    runs-on: ubuntu-latest
+    services:
+      qdrant:
+        image: qdrant/qdrant:latest
+        ports:
+          - 6333:6333
+        options: >-
+          --health-cmd="curl -f http://localhost:6333/health || exit 1"
+          --health-interval=10s
+          --health-timeout=5s
+          --health-retries=5
+          
+    steps:
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+
+      - name: Download emergency distributions
+        uses: actions/download-artifact@v4
+        with:
+          name: emergency-distributions
+          path: dist/
+
+      - name: Test emergency installation
+        run: |
+          python -m venv test-emergency
+          source test-emergency/bin/activate
+          pip install --upgrade pip
+          pip install dist/*.whl
+          
+          # Test CLI functionality
+          workspace-qdrant-mcp --help
+          wqm --help
+          
+          # Test Python imports
+          python -c "
+          import workspace_qdrant_mcp
+          print(f'✅ Emergency version loaded: {workspace_qdrant_mcp.__version__}')
+          "
+          
+          echo "✅ Emergency release testing passed"
+
+  handle-pypi-action:
+    name: Handle PyPI Action
+    needs: [validate-rollback, revert-and-build, test-emergency-release]
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+
+      - name: Handle PyPI yank action
+        if: github.event.inputs.pypi_action == 'yank'
+        run: |
+          pip install --upgrade twine
+          
+          echo "🚫 Yanking problematic version ${{ needs.validate-rollback.outputs.current_version }} from PyPI"
+          echo "⚠️  Note: Automatic yanking requires PyPI API token with yank permissions"
+          echo "⚠️  Manual action may be required at: https://pypi.org/manage/project/workspace-qdrant-mcp/"
+          
+          # Note: Actual yanking would require PyPI API token with appropriate permissions
+          # twine yank workspace-qdrant-mcp ${{ needs.validate-rollback.outputs.current_version }}
+
+      - name: PyPI action: Leave as-is
+        if: github.event.inputs.pypi_action == 'leave-as-is'
+        run: |
+          echo "ℹ️  Leaving version ${{ needs.validate-rollback.outputs.current_version }} on PyPI as-is"
+          echo "ℹ️  Users can still install using: pip install workspace-qdrant-mcp==${{ needs.validate-rollback.outputs.current_version }}"
+
+      - name: PyPI action: Delete if possible
+        if: github.event.inputs.pypi_action == 'delete-if-possible'
+        run: |
+          echo "🗑️  Note: PyPI generally does not allow deletion of published packages"
+          echo "🗑️  Consider yanking instead: https://pypi.org/manage/project/workspace-qdrant-mcp/"
+          echo "🗑️  Manual intervention required for version ${{ needs.validate-rollback.outputs.current_version }}"
+
+  publish-emergency-release:
+    name: Publish Emergency Release
+    needs: [validate-rollback, revert-and-build, test-emergency-release, handle-pypi-action]
+    runs-on: ubuntu-latest
+    environment:
+      name: pypi
+      url: https://pypi.org/p/workspace-qdrant-mcp
+    permissions:
+      id-token: write
+      contents: write
+      
+    steps:
+      - name: Checkout hotfix branch
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.create-hotfix-branch.outputs.hotfix_branch }}
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Download emergency distributions
+        uses: actions/download-artifact@v4
+        with:
+          name: emergency-distributions
+          path: dist/
+
+      - name: Create emergency tag
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          
+          EMERGENCY_TAG="v${{ needs.revert-and-build.outputs.new_patch_version }}"
+          git tag -a "$EMERGENCY_TAG" -m "Emergency rollback release
+
+          Rollback from: v${{ needs.validate-rollback.outputs.current_version }}
+          Rollback to base: v${{ github.event.inputs.rollback_version }}
+          Reason: ${{ github.event.inputs.rollback_reason }}
+          
+          This is an emergency release to address critical issues."
+          
+          git push origin "$EMERGENCY_TAG"
+          echo "🏷️  Created emergency tag: $EMERGENCY_TAG"
+
+      - name: Publish emergency release to PyPI
+        uses: pypa/gh-action-pypi-publish@release/v1
+        with:
+          verbose: true
+          verify-metadata: true
+
+      - name: Create GitHub emergency release
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const release = await github.rest.repos.createRelease({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              tag_name: 'v${{ needs.revert-and-build.outputs.new_patch_version }}',
+              name: '🚨 Emergency Release v${{ needs.revert-and-build.outputs.new_patch_version }}',
+              body: `
+              ## 🚨 Emergency Rollback Release
+              
+              **This is an emergency release that rolls back functionality.**
+              
+              ### Rollback Details
+              - **Rolled back from:** v${{ needs.validate-rollback.outputs.current_version }}
+              - **Rolled back to base:** v${{ github.event.inputs.rollback_version }}
+              - **Emergency version:** v${{ needs.revert-and-build.outputs.new_patch_version }}
+              - **Reason:** ${{ github.event.inputs.rollback_reason }}
+              - **Initiated by:** @${{ github.actor }}
+              
+              ### Installation
+              \`\`\`bash
+              pip install workspace-qdrant-mcp==${{ needs.revert-and-build.outputs.new_patch_version }}
+              \`\`\`
+              
+              ### PyPI Action Taken
+              **Action:** ${{ github.event.inputs.pypi_action }}
+              
+              ### What This Means
+              - ✅ This version restores functionality from v${{ github.event.inputs.rollback_version }}
+              - ⚠️  This is a temporary measure while issues are resolved
+              - 🔄 A proper forward-fix should follow soon
+              
+              ### Next Steps
+              1. Investigate root cause of issues in v${{ needs.validate-rollback.outputs.current_version }}
+              2. Develop and test proper fix
+              3. Release forward-fix version
+              4. Update documentation and notify users
+              
+              ---
+              *This emergency release was automatically generated by the rollback workflow.*
+              `,
+              draft: false,
+              prerelease: true  // Mark as prerelease since it's emergency
+            });
+
+  finalize-rollback:
+    name: Finalize Rollback Process
+    needs: [validate-rollback, create-hotfix-branch, revert-and-build, test-emergency-release, handle-pypi-action, publish-emergency-release]
+    if: always()
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Merge hotfix to main
+        if: success()
+        uses: actions/github-script@v7
+        with:
+          script: |
+            // Create PR for hotfix merge
+            const pr = await github.rest.pulls.create({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              title: `🚨 Emergency Rollback: Merge hotfix for v${{ needs.revert-and-build.outputs.new_patch_version }}`,
+              head: '${{ needs.create-hotfix-branch.outputs.hotfix_branch }}',
+              base: 'main',
+              body: `
+              ## Emergency Rollback Merge
+              
+              This PR merges the emergency rollback to main branch.
+              
+              **Emergency Version:** v${{ needs.revert-and-build.outputs.new_patch_version }}
+              **Based On:** v${{ github.event.inputs.rollback_version }}
+              **Reason:** ${{ github.event.inputs.rollback_reason }}
+              
+              ### Changes
+              - Rolled back codebase to v${{ github.event.inputs.rollback_version }} state
+              - Updated version to ${{ needs.revert-and-build.outputs.new_patch_version }}
+              - Published emergency release to PyPI
+              
+              **⚠️ Auto-merging due to emergency status**
+              `
+            });
+            
+            // Auto-merge the PR
+            await github.rest.pulls.merge({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              pull_number: pr.data.number,
+              commit_title: 'chore: Emergency rollback merge [skip ci]',
+              merge_method: 'squash'
+            });
+
+      - name: Update rollback issue
+        if: always()
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const issues = await github.rest.issues.listForRepo({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              labels: 'rollback',
+              state: 'open'
+            });
+            
+            const rollbackIssue = issues.data.find(issue => 
+              issue.title.includes('${{ github.event.inputs.rollback_version }}')
+            );
+            
+            if (rollbackIssue) {
+              const success = '${{ job.status }}' === 'success';
+              const status = success ? '✅ COMPLETED' : '❌ FAILED';
+              const body = rollbackIssue.body + `\n\n## ${status} - Rollback Process ${success ? 'Completed' : 'Failed'}\n\n`;
+              
+              if (success) {
+                await github.rest.issues.update({
+                  owner: context.repo.owner,
+                  repo: context.repo.repo,
+                  issue_number: rollbackIssue.number,
+                  body: body + `
+                **Emergency Release:** v${{ needs.revert-and-build.outputs.new_patch_version }}
+                **PyPI Status:** Published and available
+                **Installation:** \`pip install workspace-qdrant-mcp==${{ needs.revert-and-build.outputs.new_patch_version }}\`
+                
+                ### Post-Rollback Checklist
+                - [ ] Monitor for stability
+                - [ ] Investigate original issue
+                - [ ] Develop forward fix
+                - [ ] Update documentation
+                - [ ] Notify stakeholders
+                `,
+                  state: 'closed',
+                  labels: [...rollbackIssue.labels.map(l => l.name), 'completed']
+                });
+              } else {
+                await github.rest.issues.update({
+                  owner: context.repo.owner,
+                  repo: context.repo.repo,
+                  issue_number: rollbackIssue.number,
+                  body: body + `
+                **Status:** Rollback process failed
+                **Manual intervention required**
+                **Workflow:** [${{ github.run_id }}](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }})
+                `,
+                  labels: [...rollbackIssue.labels.map(l => l.name), 'needs-attention']
+                });
+              }
+            }
+
+      - name: Cleanup artifacts
+        if: always()
+        uses: geekyeggo/delete-artifact@v2
+        with:
+          name: emergency-distributions
+          failOnError: false
+
+      - name: Generate rollback summary
+        if: always()
+        run: |
+          echo "## 🚨 Rollback Process Summary" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**Rollback Status:** ${{ job.status }}" >> $GITHUB_STEP_SUMMARY
+          echo "**Original Version:** ${{ needs.validate-rollback.outputs.current_version }}" >> $GITHUB_STEP_SUMMARY
+          echo "**Rollback Base:** v${{ github.event.inputs.rollback_version }}" >> $GITHUB_STEP_SUMMARY
+          
+          if [ "${{ job.status }}" = "success" ]; then
+            echo "**Emergency Version:** v${{ needs.revert-and-build.outputs.new_patch_version }}" >> $GITHUB_STEP_SUMMARY
+            echo "**PyPI Status:** Published ✅" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "### Next Steps:" >> $GITHUB_STEP_SUMMARY
+            echo "1. Monitor emergency release stability" >> $GITHUB_STEP_SUMMARY
+            echo "2. Investigate original issue cause" >> $GITHUB_STEP_SUMMARY
+            echo "3. Develop proper forward-fix" >> $GITHUB_STEP_SUMMARY
+            echo "4. Coordinate new stable release" >> $GITHUB_STEP_SUMMARY
+          else
+            echo "**Status:** FAILED ❌" >> $GITHUB_STEP_SUMMARY
+            echo "**Action Required:** Manual rollback needed" >> $GITHUB_STEP_SUMMARY
+          fi
