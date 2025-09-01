@@ -450,6 +450,254 @@ Specialized search for code symbols (functions, classes, variables).
 
 **Performance:** 100% precision, 78.3% recall, <20ms response time
 
+## File Type Support
+
+workspace-qdrant-mcp provides comprehensive parsing support for 15+ file formats through intelligent type detection and specialized parsers.
+
+### Supported File Types
+
+#### Document Formats
+- **PDF** (.pdf) - Full text extraction with metadata preservation
+- **Microsoft Word** (.docx) - Complete document structure including headers, tables
+- **PowerPoint** (.pptx) - Slide content extraction with speaker notes
+- **EPUB** (.epub) - E-book format with chapter-aware parsing
+- **MOBI** (.mobi) - Amazon Kindle format support
+- **HTML** (.html, .htm, .xhtml) - Web page content with clean text extraction
+
+#### Text Formats
+- **Markdown** (.md, .markdown) - Full syntax support with metadata extraction
+- **Plain Text** (.txt, .text) - UTF-8, UTF-16 with BOM detection
+- **reStructuredText** (.rst) - Documentation format parsing
+
+#### Structured Data
+- **JSON** (.json) - Structured data with schema detection
+- **YAML** (.yaml, .yml) - Configuration files with frontmatter support
+- **XML** (.xml) - Structured markup with content extraction
+- **CSV** (.csv) - Tabular data with header detection
+
+#### Programming Languages
+- **Python** (.py) - Code structure analysis with docstring extraction
+- **JavaScript** (.js) - Function and module detection
+- **CSS** (.css) - Style rules and selector extraction
+- **SQL** (.sql) - Query structure and schema analysis
+- **Shell Scripts** (.sh, .bash) - Command extraction and documentation
+
+### File Processing Examples
+
+#### Automatic Type Detection
+```python
+# Files are automatically processed based on content and extension
+result = await mcp_call("add_document", {
+    "content": open("research_paper.pdf", "rb").read(),
+    "collection": "research-docs",
+    "metadata": {
+        "source": "academic_paper",
+        "auto_detect": True
+    }
+})
+```
+
+#### Batch Processing Multiple Types
+```python
+# Process an entire directory with mixed file types
+import os
+from pathlib import Path
+
+documents_dir = Path("./documents")
+for file_path in documents_dir.rglob("*"):
+    if file_path.is_file():
+        with open(file_path, "rb") as f:
+            content = f.read()
+        
+        result = await mcp_call("add_document", {
+            "content": content,
+            "collection": "mixed-documents",
+            "metadata": {
+                "file_path": str(file_path),
+                "file_type": file_path.suffix,
+                "size_bytes": len(content),
+                "auto_parsed": True
+            }
+        })
+```
+
+#### Code Repository Ingestion
+```python
+# Ingest entire codebases with intelligent parsing
+code_extensions = [".py", ".js", ".css", ".sql", ".md"]
+for ext in code_extensions:
+    for code_file in Path("./src").rglob(f"*{ext}"):
+        with open(code_file) as f:
+            result = await mcp_call("add_document", {
+                "content": f.read(),
+                "collection": "codebase-docs",
+                "metadata": {
+                    "file_path": str(code_file.relative_to(".")),
+                    "language": ext[1:],  # Remove the dot
+                    "module_type": "source_code"
+                }
+            })
+```
+
+### Parser Configuration
+
+Each parser can be configured for optimal results:
+
+#### PDF Parser Options
+```python
+# Configure PDF parsing behavior
+result = await mcp_call("add_document", {
+    "content": pdf_content,
+    "collection": "documents",
+    "metadata": {
+        "parser_config": {
+            "extract_images": False,
+            "preserve_layout": True,
+            "include_metadata": True
+        }
+    }
+})
+```
+
+#### Code Parser Enhancement
+```python
+# Enable enhanced code analysis
+result = await mcp_call("add_document", {
+    "content": python_code,
+    "collection": "codebase",
+    "metadata": {
+        "parser_config": {
+            "extract_docstrings": True,
+            "analyze_imports": True,
+            "detect_functions": True,
+            "include_comments": False
+        }
+    }
+})
+```
+
+## Persistent File Watching
+
+workspace-qdrant-mcp includes sophisticated file watching capabilities that monitor directories and automatically process changes in real-time.
+
+### Watch Configuration
+
+#### Basic Directory Watching
+```python
+# Start watching a directory for automatic ingestion
+result = await mcp_call("watch_management", {
+    "action": "add_watch",
+    "path": "/Users/chris/Documents/research",
+    "collection": "research-library",
+    "patterns": ["*.pdf", "*.md", "*.docx"],
+    "ignore_patterns": ["*.tmp", "*~", ".DS_Store"]
+})
+```
+
+#### Advanced Watch Settings
+```python
+# Configure sophisticated watching with priorities
+result = await mcp_call("watch_management", {
+    "action": "add_watch",
+    "path": "/Users/chris/projects/active-research",
+    "collection": "active-research",
+    "config": {
+        "recursive": True,
+        "priority": "high",
+        "batch_processing": True,
+        "conflict_resolution": "timestamp_newer",
+        "retry_failed": True,
+        "max_file_size_mb": 50
+    }
+})
+```
+
+### Watch Management Operations
+
+#### List Active Watches
+```python
+# View all configured watches
+result = await mcp_call("watch_management", {
+    "action": "list_watches"
+})
+
+# Response shows active configurations
+{
+    "watches": [
+        {
+            "id": "watch_001",
+            "path": "/Users/chris/Documents/research",
+            "collection": "research-library",
+            "status": "active",
+            "files_processed": 142,
+            "last_activity": "2024-08-28T15:30:00Z"
+        }
+    ]
+}
+```
+
+#### Watch Status and Metrics
+```python
+# Get detailed watch performance metrics
+result = await mcp_call("watch_management", {
+    "action": "get_watch_status",
+    "watch_id": "watch_001"
+})
+
+# Detailed metrics response
+{
+    "watch_id": "watch_001",
+    "status": "active",
+    "performance_metrics": {
+        "files_processed": 142,
+        "processing_rate_per_hour": 25.5,
+        "average_processing_time_ms": 180,
+        "failed_files": 2,
+        "success_rate": 98.6
+    },
+    "recent_activity": [
+        {
+            "timestamp": "2024-08-28T15:30:00Z",
+            "event": "file_added",
+            "file": "new_research_paper.pdf",
+            "status": "processed"
+        }
+    ]
+}
+```
+
+### Conflict Resolution
+
+The file watching system includes intelligent conflict resolution:
+
+#### Duplicate Detection
+```python
+# Configure duplicate handling strategies
+result = await mcp_call("watch_management", {
+    "action": "configure_watch",
+    "watch_id": "watch_001",
+    "conflict_resolution": {
+        "strategy": "content_hash",  # or "timestamp", "user_prompt"
+        "duplicate_action": "skip",  # or "update", "version"
+        "hash_algorithm": "sha256"
+    }
+})
+```
+
+#### Version Management
+```python
+# Enable document versioning for watched files
+result = await mcp_call("watch_management", {
+    "action": "configure_watch", 
+    "watch_id": "watch_001",
+    "versioning": {
+        "enabled": True,
+        "max_versions": 5,
+        "version_metadata": True
+    }
+})
+```
+
 ## Error Handling
 
 All API endpoints return structured error responses:
