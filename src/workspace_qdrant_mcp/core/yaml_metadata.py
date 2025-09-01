@@ -28,6 +28,7 @@ from ..cli.parsers import (
     MarkdownParser,
     ParsedDocument,
     PDFParser,
+    PptxParser,
     TextParser,
 )
 from ..core.client import QdrantWorkspaceClient
@@ -320,7 +321,8 @@ class MetadataExtractor:
         self.parsers = {
             '.pdf': PDFParser(),
             '.md': MarkdownParser(),
-            '.txt': TextParser()
+            '.txt': TextParser(),
+            '.pptx': PptxParser()
         }
 
     async def extract_enhanced_metadata(

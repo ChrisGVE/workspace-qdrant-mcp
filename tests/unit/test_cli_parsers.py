@@ -15,6 +15,7 @@ from workspace_qdrant_mcp.cli.parsers.base import ParsedDocument
 from workspace_qdrant_mcp.cli.parsers.html_parser import HtmlParser
 from workspace_qdrant_mcp.cli.parsers.markdown_parser import MarkdownParser
 from workspace_qdrant_mcp.cli.parsers.pdf_parser import PDFParser
+from workspace_qdrant_mcp.cli.parsers.pptx_parser import PptxParser
 from workspace_qdrant_mcp.cli.parsers.text_parser import TextParser
 
 
@@ -717,3 +718,60 @@ class TestHtmlParser:
         with patch('workspace_qdrant_mcp.cli.parsers.html_parser.BS4_AVAILABLE', False):
             with pytest.raises(RuntimeError, match="HTML parsing requires"):
                 await parser.parse("test.html")
+
+
+class TestPptxParser:
+    """Test the PowerPoint PPTX parser."""
+
+    @pytest.fixture
+    def parser(self):
+        return PptxParser()
+
+    def test_format_properties(self, parser):
+        """Test basic format properties."""
+        assert parser.supported_extensions == [".pptx"]
+        assert parser.format_name == "Microsoft PowerPoint PPTX"
+        assert parser.can_parse(Path("test.pptx"))
+        assert not parser.can_parse(Path("test.txt"))
+
+    @pytest.mark.asyncio
+    async def test_file_not_found_error(self, parser):
+        """Test error handling for missing files."""
+        with patch('workspace_qdrant_mcp.cli.parsers.pptx_parser.PPTX_AVAILABLE', True):
+            with pytest.raises(FileNotFoundError):
+                await parser.parse("/nonexistent/file.pptx")
+
+    @pytest.mark.asyncio  
+    async def test_unsupported_format_error(self, parser, tmp_path):
+        """Test error handling for unsupported formats."""
+        test_file = tmp_path / "test.unsupported"
+        test_file.write_text("test content")
+
+        with patch('workspace_qdrant_mcp.cli.parsers.pptx_parser.PPTX_AVAILABLE', True):
+            with pytest.raises(ValueError, match="File format not supported"):
+                await parser.parse(str(test_file))
+
+    @pytest.mark.asyncio
+    async def test_availability_check_with_mock(self, parser):
+        """Test that missing libraries are properly detected."""
+        with patch('workspace_qdrant_mcp.cli.parsers.pptx_parser.PPTX_AVAILABLE', False):
+            with pytest.raises(RuntimeError, match="PPTX parsing requires"):
+                await parser.parse("test.pptx")
+
+    @pytest.mark.asyncio
+    async def test_parse_options(self, parser):
+        """Test various parsing options."""
+        options = parser.get_parsing_options()
+        
+        assert "include_speaker_notes" in options
+        assert "include_slide_numbers" in options
+        assert "slide_separator" in options
+        assert "extract_table_content" in options
+        assert "extract_chart_titles" in options
+        assert "include_hidden_slides" in options
+        
+        # Check default values
+        assert options["include_speaker_notes"]["default"] is True
+        assert options["include_slide_numbers"]["default"] is True
+        assert options["extract_table_content"]["default"] is True
+        assert options["include_hidden_slides"]["default"] is False
