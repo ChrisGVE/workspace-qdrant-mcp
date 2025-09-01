@@ -7,7 +7,13 @@ body:
   - type: markdown
     attributes:
       value: |
-        Thanks for taking the time to fill out this bug report!
+        Thanks for taking the time to fill out this bug report! 
+        
+        **Diagnostic Commands**: Before submitting, please try running:
+        - `workspace-qdrant-health` - Check Qdrant connection and health
+        - `workspace-qdrant-test` - Run basic functionality tests
+        
+        Include the output of these commands in your bug report if relevant.
 
   - type: input
     id: version
@@ -21,16 +27,25 @@ body:
   - type: dropdown
     id: environment
     attributes:
-      label: Environment
+      label: Operating System
       description: What operating system are you using?
       options:
-        - Linux
+        - Linux (specify distribution below)
         - macOS
         - Windows
         - Docker
         - Other
     validations:
       required: true
+
+  - type: input
+    id: os-details
+    attributes:
+      label: OS Details
+      description: Specify OS version, distribution, or Docker image details
+      placeholder: "Ubuntu 22.04, macOS 14.0, Windows 11, etc."
+    validations:
+      required: false
 
   - type: input
     id: python-version
@@ -47,6 +62,29 @@ body:
       label: Qdrant Version
       description: What version of Qdrant are you using?
       placeholder: "1.7.0"
+    validations:
+      required: true
+
+  - type: dropdown
+    id: qdrant-deployment
+    attributes:
+      label: Qdrant Deployment Type
+      description: How is Qdrant deployed?
+      options:
+        - Local installation
+        - Docker container
+        - Qdrant Cloud
+        - Kubernetes
+        - Other
+    validations:
+      required: true
+
+  - type: input
+    id: mcp-client
+    attributes:
+      label: MCP Client
+      description: Which MCP client are you using?
+      placeholder: "Claude Desktop, custom client, etc."
     validations:
       required: true
 
@@ -76,8 +114,18 @@ body:
     id: logs
     attributes:
       label: Relevant log output
-      description: Please copy and paste any relevant log output. This will be automatically formatted into code, so no need for backticks.
+      description: Please copy and paste any relevant log output. Include output from diagnostic commands if you ran them. This will be automatically formatted into code, so no need for backticks.
       render: shell
+
+  - type: textarea
+    id: diagnostic-output
+    attributes:
+      label: Diagnostic Command Output
+      description: If you ran workspace-qdrant-health or workspace-qdrant-test, paste the output here
+      placeholder: "Paste output from workspace-qdrant-health and/or workspace-qdrant-test"
+      render: shell
+    validations:
+      required: false
 
   - type: checkboxes
     id: terms
