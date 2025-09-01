@@ -1417,7 +1417,7 @@
             "title": "Implement document format support (DOCX/PPTX)",
             "description": "Create parsers for Microsoft Office document formats (DOCX and PPTX) with comprehensive metadata extraction.",
             "details": "Implement docx_parser.py and pptx_parser.py in the parsers directory. Extract text content, metadata (author, title, creation date, etc.), and handle embedded objects. Include error handling for corrupted files and progress reporting for large documents.",
-            "status": "pending",
+            "status": "in-progress",
             "dependencies": [
               "28.2"
             ],
@@ -1450,7 +1450,7 @@
             "title": "Implement web content support (HTML/web)",
             "description": "Create parser for HTML and web content with metadata extraction and content cleaning capabilities.",
             "details": "Implement html_parser.py using BeautifulSoup or similar libraries. Extract clean text content, HTML metadata (title, description, keywords), handle different encodings, and remove unnecessary elements (scripts, styles). Include support for parsing saved web pages and HTML files.",
-            "status": "in-progress",
+            "status": "done",
             "dependencies": [
               "28.2"
             ],
@@ -1830,7 +1830,7 @@
     ],
     "metadata": {
       "created": "2025-08-30T10:40:15.806Z",
-      "updated": "2025-09-01T20:22:19.751Z",
+      "updated": "2025-09-01T21:04:10.582Z",
       "description": "Tasks for development context"
     }
   }

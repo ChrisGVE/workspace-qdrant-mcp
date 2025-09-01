@@ -22,6 +22,7 @@ from .parsers import (
     HtmlParser,
     MarkdownParser,
     PDFParser,
+    PptxParser,
     TextParser,
 )
 
@@ -123,6 +124,7 @@ class DocumentIngestionEngine:
             TextParser(),
             MarkdownParser(),
             PDFParser(),
+            PptxParser(),
             HtmlParser(),
         ]
 
