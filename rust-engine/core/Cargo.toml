@@ -67,6 +67,7 @@ tracing-subscriber = { version = "0.3", features = ["env-filter", "json", "regis
 
 # Command-line interface
 clap = { version = "4.4", features = ["derive"] }
+scopeguard = "1.2"
 
 [[bin]]
 name = "memexd"
