@@ -1,0 +1,399 @@
+{
+  "dashboard": {
+    "id": null,
+    "title": "Workspace Qdrant MCP - SLA Tracking",
+    "tags": ["workspace-qdrant-mcp", "sla", "slo", "reliability"],
+    "style": "dark",
+    "timezone": "browser",
+    "refresh": "1m",
+    "time": {
+      "from": "now-24h",
+      "to": "now"
+    },
+    "panels": [
+      {
+        "id": 1,
+        "title": "Service Availability (SLA: 99.9%)",
+        "type": "stat",
+        "targets": [
+          {
+            "expr": "avg(up{job=\"workspace-qdrant-mcp\"}) * 100",
+            "legendFormat": "Current Availability"
+          }
+        ],
+        "gridPos": {
+          "h": 8,
+          "w": 6,
+          "x": 0,
+          "y": 0
+        },
+        "fieldConfig": {
+          "defaults": {
+            "unit": "percent",
+            "min": 99,
+            "max": 100,
+            "thresholds": {
+              "steps": [
+                {"color": "red", "value": 0},
+                {"color": "yellow", "value": 99},
+                {"color": "green", "value": 99.9}
+              ]
+            }
+          }
+        },
+        "options": {
+          "colorMode": "background",
+          "graphMode": "none",
+          "justifyMode": "center",
+          "orientation": "horizontal"
+        }
+      },
+      {
+        "id": 2,
+        "title": "Error Rate (SLA: < 1%)",
+        "type": "stat",
+        "targets": [
+          {
+            "expr": "(sum(rate(http_requests_total{status=~\"5..\"}[5m])) / sum(rate(http_requests_total[5m]))) * 100",
+            "legendFormat": "Current Error Rate"
+          }
+        ],
+        "gridPos": {
+          "h": 8,
+          "w": 6,
+          "x": 6,
+          "y": 0
+        },
+        "fieldConfig": {
+          "defaults": {
+            "unit": "percent",
+            "min": 0,
+            "max": 5,
+            "thresholds": {
+              "steps": [
+                {"color": "green", "value": 0},
+                {"color": "yellow", "value": 1},
+                {"color": "red", "value": 5}
+              ]
+            }
+          }
+        },
+        "options": {
+          "colorMode": "background",
+          "graphMode": "none",
+          "justifyMode": "center"
+        }
+      },
+      {
+        "id": 3,
+        "title": "Response Time 95th Percentile (SLA: < 1s)",
+        "type": "stat",
+        "targets": [
+          {
+            "expr": "histogram_quantile(0.95, sum(rate(http_request_duration_seconds_bucket[5m])) by (le))",
+            "legendFormat": "95th Percentile"
+          }
+        ],
+        "gridPos": {
+          "h": 8,
+          "w": 6,
+          "x": 12,
+          "y": 0
+        },
+        "fieldConfig": {
+          "defaults": {
+            "unit": "s",
+            "min": 0,
+            "max": 3,
+            "thresholds": {
+              "steps": [
+                {"color": "green", "value": 0},
+                {"color": "yellow", "value": 1},
+                {"color": "red", "value": 2}
+              ]
+            }
+          }
+        },
+        "options": {
+          "colorMode": "background",
+          "graphMode": "none",
+          "justifyMode": "center"
+        }
+      },
+      {
+        "id": 4,
+        "title": "Vector Search Latency (SLA: < 500ms)",
+        "type": "stat",
+        "targets": [
+          {
+            "expr": "histogram_quantile(0.95, sum(rate(vector_search_duration_seconds_bucket[5m])) by (le))",
+            "legendFormat": "95th Percentile Search"
+          }
+        ],
+        "gridPos": {
+          "h": 8,
+          "w": 6,
+          "x": 18,
+          "y": 0
+        },
+        "fieldConfig": {
+          "defaults": {
+            "unit": "s",
+            "min": 0,
+            "max": 2,
+            "thresholds": {
+              "steps": [
+                {"color": "green", "value": 0},
+                {"color": "yellow", "value": 0.5},
+                {"color": "red", "value": 1}
+              ]
+            }
+          }
+        },
+        "options": {
+          "colorMode": "background",
+          "graphMode": "none",
+          "justifyMode": "center"
+        }
+      },
+      {
+        "id": 5,
+        "title": "SLA Compliance Over Time",
+        "type": "graph",
+        "targets": [
+          {
+            "expr": "avg_over_time(up{job=\"workspace-qdrant-mcp\"}[1h]) * 100",
+            "legendFormat": "Availability %"
+          },
+          {
+            "expr": "(1 - (sum(rate(http_requests_total{status=~\"5..\"}[1h])) / sum(rate(http_requests_total[1h])))) * 100",
+            "legendFormat": "Success Rate %"
+          }
+        ],
+        "gridPos": {
+          "h": 8,
+          "w": 24,
+          "x": 0,
+          "y": 8
+        },
+        "yAxes": [
+          {
+            "label": "Percent",
+            "min": 98,
+            "max": 100
+          }
+        ],
+        "thresholds": [
+          {
+            "value": 99.9,
+            "colorMode": "critical",
+            "op": "lt",
+            "line": true,
+            "lineColor": "rgba(245, 54, 54, 0.9)",
+            "fillColor": "rgba(245, 54, 54, 0.2)"
+          }
+        ]
+      },
+      {
+        "id": 6,
+        "title": "Monthly SLA Budget Burn",
+        "type": "graph",
+        "targets": [
+          {
+            "expr": "100 - (sum_over_time(up{job=\"workspace-qdrant-mcp\"}[30d]) / (30*24*60) * 100)",
+            "legendFormat": "Downtime % (30 days)"
+          }
+        ],
+        "gridPos": {
+          "h": 8,
+          "w": 12,
+          "x": 0,
+          "y": 16
+        },
+        "yAxes": [
+          {
+            "label": "Downtime Percent",
+            "min": 0,
+            "max": 0.5
+          }
+        ],
+        "thresholds": [
+          {
+            "value": 0.1,
+            "colorMode": "critical",
+            "op": "gt",
+            "line": true,
+            "lineColor": "rgba(245, 54, 54, 0.9)"
+          }
+        ]
+      },
+      {
+        "id": 7,
+        "title": "Error Budget Remaining",
+        "type": "piechart",
+        "targets": [
+          {
+            "expr": "100 - ((sum(rate(http_requests_total{status=~\"5..\"}[24h])) / sum(rate(http_requests_total[24h]))) * 100)",
+            "legendFormat": "Budget Remaining"
+          },
+          {
+            "expr": "(sum(rate(http_requests_total{status=~\"5..\"}[24h])) / sum(rate(http_requests_total[24h]))) * 100",
+            "legendFormat": "Budget Used"
+          }
+        ],
+        "gridPos": {
+          "h": 8,
+          "w": 12,
+          "x": 12,
+          "y": 16
+        },
+        "options": {
+          "reduceOptions": {
+            "values": false,
+            "calcs": ["lastNotNull"],
+            "fields": ""
+          },
+          "pieType": "pie",
+          "tooltip": {
+            "mode": "single"
+          },
+          "legend": {
+            "displayMode": "visible",
+            "placement": "bottom"
+          }
+        }
+      },
+      {
+        "id": 8,
+        "title": "Service Performance Trends",
+        "type": "graph",
+        "targets": [
+          {
+            "expr": "histogram_quantile(0.50, sum(rate(http_request_duration_seconds_bucket[5m])) by (le))",
+            "legendFormat": "50th Percentile"
+          },
+          {
+            "expr": "histogram_quantile(0.95, sum(rate(http_request_duration_seconds_bucket[5m])) by (le))",
+            "legendFormat": "95th Percentile"
+          },
+          {
+            "expr": "histogram_quantile(0.99, sum(rate(http_request_duration_seconds_bucket[5m])) by (le))",
+            "legendFormat": "99th Percentile"
+          }
+        ],
+        "gridPos": {
+          "h": 8,
+          "w": 24,
+          "x": 0,
+          "y": 24
+        },
+        "yAxes": [
+          {
+            "label": "Response Time (seconds)",
+            "min": 0
+          }
+        ],
+        "thresholds": [
+          {
+            "value": 1,
+            "colorMode": "critical",
+            "op": "gt",
+            "line": true,
+            "lineColor": "rgba(245, 54, 54, 0.9)"
+          }
+        ]
+      },
+      {
+        "id": 9,
+        "title": "Throughput (Requests per Second)",
+        "type": "graph",
+        "targets": [
+          {
+            "expr": "sum(rate(http_requests_total[5m]))",
+            "legendFormat": "Total RPS"
+          },
+          {
+            "expr": "sum(rate(http_requests_total{status=~\"2..\"}[5m]))",
+            "legendFormat": "Successful RPS"
+          }
+        ],
+        "gridPos": {
+          "h": 8,
+          "w": 12,
+          "x": 0,
+          "y": 32
+        },
+        "yAxes": [
+          {
+            "label": "Requests/sec",
+            "min": 0
+          }
+        ]
+      },
+      {
+        "id": 10,
+        "title": "Incident Timeline",
+        "type": "table",
+        "targets": [
+          {
+            "expr": "changes(up{job=\"workspace-qdrant-mcp\"}[24h]) > 0",
+            "format": "table",
+            "instant": true
+          }
+        ],
+        "gridPos": {
+          "h": 8,
+          "w": 12,
+          "x": 12,
+          "y": 32
+        },
+        "options": {
+          "showHeader": true
+        },
+        "fieldConfig": {
+          "defaults": {
+            "custom": {
+              "align": "center",
+              "width": 100
+            }
+          }
+        }
+      }
+    ],
+    "templating": {
+      "list": [
+        {
+          "name": "timerange",
+          "type": "interval",
+          "query": "1h,6h,12h,1d,7d,30d",
+          "current": {
+            "value": "1d",
+            "text": "1d"
+          }
+        }
+      ]
+    },
+    "annotations": {
+      "list": [
+        {
+          "name": "Deployments",
+          "datasource": "Prometheus",
+          "expr": "changes(up{job=\"workspace-qdrant-mcp\"}[1h]) > 0",
+          "step": "60s",
+          "iconColor": "blue",
+          "titleFormat": "Deployment",
+          "textFormat": "Service restarted"
+        },
+        {
+          "name": "SLA Violations",
+          "datasource": "Prometheus",
+          "expr": "up{job=\"workspace-qdrant-mcp\"} == 0",
+          "step": "60s",
+          "iconColor": "red",
+          "titleFormat": "SLA Violation",
+          "textFormat": "Service unavailable"
+        }
+      ]
+    }
+  }
+}
