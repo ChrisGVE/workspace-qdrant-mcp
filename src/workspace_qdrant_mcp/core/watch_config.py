@@ -1,6 +1,4 @@
 
-from ...observability import get_logger
-logger = get_logger(__name__)
 """
 Persistent watch configuration storage system.
 
@@ -17,7 +15,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Union
 
-from pydantic import BaseModel, Field, ValidationError, validator
+from pydantic import BaseModel, Field, ValidationError, field_validator
 
 logger = logging.getLogger(__name__)
 
@@ -57,7 +55,7 @@ class WatchConfigSchema(BaseModel):
     )
     status: str = Field(
         default="active", 
-        regex="^(active|paused|error|disabled)$",
+        pattern="^(active|paused|error|disabled)$",
         description="Watch status"
     )
     created_at: str = Field(
@@ -71,7 +69,8 @@ class WatchConfigSchema(BaseModel):
     files_processed: int = Field(default=0, ge=0, description="Number of files processed")
     errors_count: int = Field(default=0, ge=0, description="Error count")
     
-    @validator('path')
+    @field_validator('path')
+    @classmethod
     def validate_path_exists(cls, v):
         """Validate that the watch path exists and is a directory."""
         path = Path(v).resolve()
@@ -81,7 +80,8 @@ class WatchConfigSchema(BaseModel):
             raise ValueError(f"Path is not a directory: {v}")
         return str(path)
     
-    @validator('patterns', 'ignore_patterns')
+    @field_validator('patterns', 'ignore_patterns')
+    @classmethod
     def validate_patterns(cls, v):
         """Validate that patterns are non-empty strings."""
         if not v:

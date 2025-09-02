@@ -1,6 +1,4 @@
 
-from ...observability import get_logger
-logger = get_logger(__name__)
 """FastAPI web server for memory curation interface."""
 
 import asyncio

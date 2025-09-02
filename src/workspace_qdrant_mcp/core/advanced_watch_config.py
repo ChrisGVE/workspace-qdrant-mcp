@@ -1,6 +1,4 @@
 
-from ...observability import get_logger
-logger = get_logger(__name__)
 """
 Advanced watch configuration options and validation.
 
@@ -15,7 +13,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Set, Tuple
 
-from pydantic import BaseModel, Field, validator
+from pydantic import BaseModel, Field, field_validator
 
 logger = logging.getLogger(__name__)
 
@@ -44,7 +42,8 @@ class FileFilterConfig(BaseModel):
         description="Advanced regex patterns: {'include': 'pattern', 'exclude': 'pattern'}"
     )
     
-    @validator('include_patterns', 'exclude_patterns')
+    @field_validator('include_patterns', 'exclude_patterns')
+    @classmethod
     def validate_patterns(cls, v):
         """Validate glob patterns."""
         if not v:
@@ -60,7 +59,8 @@ class FileFilterConfig(BaseModel):
                 raise ValueError(f"Invalid glob pattern: {pattern}")
         return v
     
-    @validator('regex_patterns')
+    @field_validator('regex_patterns')
+    @classmethod
     def validate_regex_patterns(cls, v):
         """Validate regex patterns."""
         for key, pattern in v.items():
@@ -90,7 +90,8 @@ class RecursiveConfig(BaseModel):
         description="Directory names to exclude from recursion"
     )
     
-    @validator('exclude_dirs')
+    @field_validator('exclude_dirs')
+    @classmethod
     def validate_exclude_dirs(cls, v):
         """Validate excluded directory patterns."""
         for dirname in v:
@@ -151,7 +152,8 @@ class CollectionTargeting(BaseModel):
         description="Collection prefixes based on file characteristics"
     )
     
-    @validator('routing_rules')
+    @field_validator('routing_rules')
+    @classmethod
     def validate_routing_rules(cls, v):
         """Validate collection routing rules."""
         required_keys = {'pattern', 'collection'}

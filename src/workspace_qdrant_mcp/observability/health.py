@@ -1,6 +1,4 @@
 
-from ...observability import get_logger
-logger = get_logger(__name__)
 """
 Health check system for workspace-qdrant-mcp.
 

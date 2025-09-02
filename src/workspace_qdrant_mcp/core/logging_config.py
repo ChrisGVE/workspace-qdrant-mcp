@@ -1,6 +1,4 @@
 
-from ...observability import get_logger
-logger = get_logger(__name__)
 """
 Structured logging configuration for workspace-qdrant-mcp.
 

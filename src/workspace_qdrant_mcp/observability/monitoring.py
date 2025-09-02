@@ -1,6 +1,4 @@
 
-from ...observability import get_logger
-logger = get_logger(__name__)
 """
 Operation monitoring and instrumentation for workspace-qdrant-mcp.
 

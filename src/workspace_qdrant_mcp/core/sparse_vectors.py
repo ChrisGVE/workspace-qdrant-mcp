@@ -1,6 +1,4 @@
 
-from ...observability import get_logger
-logger = get_logger(__name__)
 """
 Advanced sparse vector encoding with dual BM25 implementation strategies.
 

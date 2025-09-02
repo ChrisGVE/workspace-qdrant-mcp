@@ -1,6 +1,4 @@
 
-from ...observability import get_logger
-logger = get_logger(__name__)
 """
 Watch state synchronization and persistence system.
 
@@ -72,14 +70,412 @@ class FileLockManager:
         start_time = time.time()
         
         while not lock_acquired and (time.time() - start_time) < self._lock_timeout:
-            try:\n                # Create lock file\n                self._lock_fd = os.open(str(self.lock_file), os.O_CREAT | os.O_EXCL | os.O_RDWR)\n                \n                # Write lock information\n                lock_info = {\n                    "pid": os.getpid(),\n                    "timestamp": datetime.now(timezone.utc).isoformat(),\n                    "config_file": str(self.config_file)\n                }\n                \n                os.write(self._lock_fd, json.dumps(lock_info).encode())\n                lock_acquired = True\n                \n                logger.debug(f"Acquired config file lock: {self.lock_file}")\n                \n            except FileExistsError:\n                # Lock file exists, check if it's stale\n                if await self._is_stale_lock():\n                    logger.warning("Removing stale lock file")\n                    try:\n                        self.lock_file.unlink()\n                    except FileNotFoundError:\n                        pass  # Already removed\n                else:\n                    # Wait and retry\n                    await asyncio.sleep(0.1)\n            \n            except Exception as e:\n                logger.error(f"Error acquiring lock: {e}")\n                await asyncio.sleep(0.1)\n        \n        if not lock_acquired:\n            raise TimeoutError(f"Could not acquire lock on {self.config_file} within {self._lock_timeout} seconds")\n    \n    async def _release_lock(self) -> None:\n        """Release file lock."""\n        if self._lock_fd is not None:\n            try:\n                os.close(self._lock_fd)\n                self._lock_fd = None\n            except Exception as e:\n                logger.error(f"Error closing lock file descriptor: {e}")\n        \n        try:\n            self.lock_file.unlink()\n            logger.debug(f"Released config file lock: {self.lock_file}")\n        except FileNotFoundError:\n            pass  # Already removed\n        except Exception as e:\n            logger.error(f"Error removing lock file: {e}")\n    \n    async def _is_stale_lock(self) -> bool:\n        \"\"\"Check if lock file is stale (process no longer exists).\"\"\"\n        try:\n            if not self.lock_file.exists():\n                return False\n            \n            # Read lock information\n            with open(self.lock_file, 'r') as f:\n                lock_info = json.load(f)\n            \n            pid = lock_info.get("pid")\n            if not pid:\n                return True  # Invalid lock file\n            \n            # Check if process still exists\n            try:\n                os.kill(pid, 0)  # Send null signal to test if process exists\n                return False  # Process exists, lock is not stale\n            except OSError:\n                return True  # Process doesn't exist, lock is stale\n        \n        except Exception as e:\n            logger.warning(f"Error checking stale lock: {e}")\n            return True  # Assume stale if we can't determine
+            try:
+                # Create lock file
+                self._lock_fd = os.open(str(self.lock_file), os.O_CREAT | os.O_EXCL | os.O_RDWR)
+                
+                # Write lock information
+                lock_info = {
+                    "pid": os.getpid(),
+                    "timestamp": datetime.now(timezone.utc).isoformat(),
+                    "config_file": str(self.config_file)
+                }
+                
+                os.write(self._lock_fd, json.dumps(lock_info).encode())
+                lock_acquired = True
+                
+                logger.debug(f"Acquired config file lock: {self.lock_file}")
+                
+            except FileExistsError:
+                # Lock file exists, check if it's stale
+                if await self._is_stale_lock():
+                    logger.warning("Removing stale lock file")
+                    try:
+                        self.lock_file.unlink()
+                    except FileNotFoundError:
+                        pass  # Already removed
+                else:
+                    # Wait and retry
+                    await asyncio.sleep(0.1)
+            
+            except Exception as e:
+                logger.error(f"Error acquiring lock: {e}")
+                await asyncio.sleep(0.1)
+        
+        if not lock_acquired:
+            raise TimeoutError(f"Could not acquire lock on {self.config_file} within {self._lock_timeout} seconds")
+    
+    async def _release_lock(self) -> None:
+        """Release file lock."""
+        if self._lock_fd is not None:
+            try:
+                os.close(self._lock_fd)
+                self._lock_fd = None
+            except Exception as e:
+                logger.error(f"Error closing lock file descriptor: {e}")
+        
+        try:
+            self.lock_file.unlink()
+            logger.debug(f"Released config file lock: {self.lock_file}")
+        except FileNotFoundError:
+            pass  # Already removed
+        except Exception as e:
+            logger.error(f"Error removing lock file: {e}")
+    
+    async def _is_stale_lock(self) -> bool:
+        """Check if lock file is stale (process no longer exists)."""
+        try:
+            if not self.lock_file.exists():
+                return False
+            
+            # Read lock information
+            with open(self.lock_file, 'r') as f:
+                lock_info = json.load(f)
+            
+            pid = lock_info.get("pid")
+            if not pid:
+                return True  # Invalid lock file
+            
+            # Check if process still exists
+            try:
+                os.kill(pid, 0)  # Send null signal to test if process exists
+                return False  # Process exists, lock is not stale
+            except OSError:
+                return True  # Process doesn't exist, lock is stale
+        
+        except Exception as e:
+            logger.warning(f"Error checking stale lock: {e}")
+            return True  # Assume stale if we can't determine
 
 
 class WatchEventNotifier:
-    \"\"\"Event notification system for watch configuration changes.\"\"\"
-    \n    def __init__(self):\n        self.subscribers: WeakSet[Callable[[ConfigChangeEvent], None]] = WeakSet()\n        self.event_history: List[ConfigChangeEvent] = []\n        self.max_history_size = 1000\n        self._notification_queue = asyncio.Queue()\n        self._notification_task: Optional[asyncio.Task] = None\n        self._running = False\n    \n    def subscribe(self, callback: Callable[[ConfigChangeEvent], None]) -> None:\n        \"\"\"Subscribe to configuration change events.\"\"\"\n        self.subscribers.add(callback)\n        logger.debug(f\"Added event subscriber: {callback}\")\n    \n    def unsubscribe(self, callback: Callable[[ConfigChangeEvent], None]) -> None:\n        \"\"\"Unsubscribe from configuration change events.\"\"\"\n        self.subscribers.discard(callback)\n        logger.debug(f\"Removed event subscriber: {callback}\")\n    \n    async def notify(self, event: ConfigChangeEvent) -> None:\n        \"\"\"Notify all subscribers of a configuration change.\"\"\"\n        # Add to history\n        self.event_history.append(event)\n        if len(self.event_history) > self.max_history_size:\n            self.event_history.pop(0)\n        \n        # Queue for async notification\n        await self._notification_queue.put(event)\n    \n    async def start_notifications(self) -> None:\n        \"\"\"Start the notification processing task.\"\"\"\n        if self._running:\n            return\n        \n        self._running = True\n        self._notification_task = asyncio.create_task(self._notification_loop())\n        logger.info(\"Started watch event notifications\")\n    \n    async def stop_notifications(self) -> None:\n        \"\"\"Stop the notification processing task.\"\"\"\n        self._running = False\n        \n        if self._notification_task:\n            self._notification_task.cancel()\n            try:\n                await self._notification_task\n            except asyncio.CancelledError:\n                pass\n        \n        logger.info(\"Stopped watch event notifications\")\n    \n    async def _notification_loop(self) -> None:\n        \"\"\"Main notification processing loop.\"\"\"\n        while self._running:\n            try:\n                # Wait for events with timeout to allow graceful shutdown\n                event = await asyncio.wait_for(self._notification_queue.get(), timeout=1.0)\n                await self._process_event(event)\n            except asyncio.TimeoutError:\n                continue  # Normal timeout, check if still running\n            except asyncio.CancelledError:\n                break\n            except Exception as e:\n                logger.error(f\"Error in notification loop: {e}\")\n                await asyncio.sleep(1)  # Brief pause before continuing\n    \n    async def _process_event(self, event: ConfigChangeEvent) -> None:\n        \"\"\"Process and distribute an event to subscribers.\"\"\"\n        logger.debug(f\"Processing config change event: {event.event_type} for {event.watch_id}\")\n        \n        # Notify all subscribers\n        for subscriber in list(self.subscribers):  # Create list to avoid modification during iteration\n            try:\n                if asyncio.iscoroutinefunction(subscriber):\n                    await subscriber(event)\n                else:\n                    subscriber(event)\n            except Exception as e:\n                logger.error(f\"Error notifying subscriber {subscriber}: {e}\")\n    \n    def get_event_history(self, watch_id: Optional[str] = None, limit: int = 100) -> List[Dict[str, Any]]:\n        \"\"\"Get event history with optional filtering.\"\"\"\n        events = self.event_history\n        \n        if watch_id:\n            events = [e for e in events if e.watch_id == watch_id]\n        \n        # Return most recent events first\n        recent_events = events[-limit:]\n        recent_events.reverse()\n        \n        return [event.to_dict() for event in recent_events]
+    """Event notification system for watch configuration changes."""
+    
+    def __init__(self):
+        self.subscribers: WeakSet[Callable[[ConfigChangeEvent], None]] = WeakSet()
+        self.event_history: List[ConfigChangeEvent] = []
+        self.max_history_size = 1000
+        self._notification_queue = asyncio.Queue()
+        self._notification_task: Optional[asyncio.Task] = None
+        self._running = False
+    
+    def subscribe(self, callback: Callable[[ConfigChangeEvent], None]) -> None:
+        """Subscribe to configuration change events."""
+        self.subscribers.add(callback)
+        logger.debug(f"Added event subscriber: {callback}")
+    
+    def unsubscribe(self, callback: Callable[[ConfigChangeEvent], None]) -> None:
+        """Unsubscribe from configuration change events."""
+        self.subscribers.discard(callback)
+        logger.debug(f"Removed event subscriber: {callback}")
+    
+    async def notify(self, event: ConfigChangeEvent) -> None:
+        """Notify all subscribers of a configuration change."""
+        # Add to history
+        self.event_history.append(event)
+        if len(self.event_history) > self.max_history_size:
+            self.event_history.pop(0)
+        
+        # Queue for async notification
+        await self._notification_queue.put(event)
+    
+    async def start_notifications(self) -> None:
+        """Start the notification processing task."""
+        if self._running:
+            return
+        
+        self._running = True
+        self._notification_task = asyncio.create_task(self._notification_loop())
+        logger.info("Started watch event notifications")
+    
+    async def stop_notifications(self) -> None:
+        """Stop the notification processing task."""
+        self._running = False
+        
+        if self._notification_task:
+            self._notification_task.cancel()
+            try:
+                await self._notification_task
+            except asyncio.CancelledError:
+                pass
+        
+        logger.info("Stopped watch event notifications")
+    
+    async def _notification_loop(self) -> None:
+        """Main notification processing loop."""
+        while self._running:
+            try:
+                # Wait for events with timeout to allow graceful shutdown
+                event = await asyncio.wait_for(self._notification_queue.get(), timeout=1.0)
+                await self._process_event(event)
+            except asyncio.TimeoutError:
+                continue  # Normal timeout, check if still running
+            except asyncio.CancelledError:
+                break
+            except Exception as e:
+                logger.error(f"Error in notification loop: {e}")
+                await asyncio.sleep(1)  # Brief pause before continuing
+    
+    async def _process_event(self, event: ConfigChangeEvent) -> None:
+        """Process and distribute an event to subscribers."""
+        logger.debug(f"Processing config change event: {event.event_type} for {event.watch_id}")
+        
+        # Notify all subscribers
+        for subscriber in list(self.subscribers):  # Create list to avoid modification during iteration
+            try:
+                if asyncio.iscoroutinefunction(subscriber):
+                    await subscriber(event)
+                else:
+                    subscriber(event)
+            except Exception as e:
+                logger.error(f"Error notifying subscriber {subscriber}: {e}")
+    
+    def get_event_history(self, watch_id: Optional[str] = None, limit: int = 100) -> List[Dict[str, Any]]:
+        """Get event history with optional filtering."""
+        events = self.event_history
+        
+        if watch_id:
+            events = [e for e in events if e.watch_id == watch_id]
+        
+        # Return most recent events first
+        recent_events = events[-limit:]
+        recent_events.reverse()
+        
+        return [event.to_dict() for event in recent_events]
 
 
 class SynchronizedWatchConfigManager:
-    \"\"\"Enhanced configuration manager with synchronization and event notifications.\"\"\"
-    \n    def __init__(self, config_file: Optional[Path] = None, project_dir: Optional[Path] = None):\n        from .watch_config import PersistentWatchConfigManager, WatchConfigFile\n        \n        # Initialize base config manager\n        self.base_manager = PersistentWatchConfigManager(config_file, project_dir)\n        self.config_file = self.base_manager.config_file\n        \n        # Initialize synchronization components\n        self.lock_manager = FileLockManager(self.config_file)\n        self.event_notifier = WatchEventNotifier()\n        \n        # Cache for in-memory configuration\n        self._config_cache: Optional[WatchConfigFile] = None\n        self._cache_timestamp: Optional[float] = None\n        self._cache_timeout = 5.0  # seconds\n        \n        logger.info(f\"Initialized synchronized config manager: {self.config_file}\")\n    \n    async def initialize(self) -> None:\n        \"\"\"Initialize the synchronized config manager.\"\"\"\n        await self.event_notifier.start_notifications()\n        # Load initial configuration into cache\n        await self.load_config()\n    \n    async def cleanup(self) -> None:\n        \"\"\"Clean up resources.\"\"\"\n        await self.event_notifier.stop_notifications()\n    \n    async def load_config(self, force_reload: bool = False) -> Any:\n        \"\"\"Load configuration with caching and synchronization.\"\"\"\n        current_time = time.time()\n        \n        # Check if we can use cached config\n        if (not force_reload and \n            self._config_cache is not None and \n            self._cache_timestamp is not None and \n            (current_time - self._cache_timestamp) < self._cache_timeout):\n            return self._config_cache\n        \n        # Load configuration with file lock\n        async with self.lock_manager.acquire_lock():\n            config = await self.base_manager.load_config()\n            \n            # Update cache\n            self._config_cache = config\n            self._cache_timestamp = current_time\n            \n            logger.debug(f\"Loaded configuration with {len(config.watches)} watches\")\n            return config\n    \n    async def save_config(self, config: Any) -> bool:\n        \"\"\"Save configuration with atomic operations and event notifications.\"\"\"\n        async with self.lock_manager.acquire_lock():\n            # Save configuration\n            success = await self.base_manager.save_config(config)\n            \n            if success:\n                # Update cache\n                self._config_cache = config\n                self._cache_timestamp = time.time()\n                logger.debug(\"Configuration saved and cache updated\")\n            \n            return success\n    \n    async def add_watch_config(self, watch_config: Any, source: str = \"mcp_tool\") -> bool:\n        \"\"\"Add watch configuration with event notification.\"\"\"\n        # Get current config for comparison\n        current_config = await self.load_config()\n        existing_watch = None\n        for watch in current_config.watches:\n            if watch.id == watch_config.id:\n                existing_watch = watch\n                break\n        \n        # Perform the add operation\n        success = await self.base_manager.add_watch_config(watch_config)\n        \n        if success:\n            # Clear cache to force reload on next access\n            self._config_cache = None\n            \n            # Notify subscribers\n            event = ConfigChangeEvent(\n                event_type=\"added\" if not existing_watch else \"modified\",\n                watch_id=watch_config.id,\n                old_config=existing_watch.to_dict() if existing_watch else None,\n                new_config=watch_config.to_dict(),\n                source=source\n            )\n            \n            await self.event_notifier.notify(event)\n            logger.info(f\"Watch config {'added' if not existing_watch else 'modified'}: {watch_config.id}\")\n        \n        return success\n    \n    async def remove_watch_config(self, watch_id: str, source: str = \"mcp_tool\") -> bool:\n        \"\"\"Remove watch configuration with event notification.\"\"\"\n        # Get current config to capture removed watch\n        current_config = await self.load_config()\n        removed_watch = None\n        for watch in current_config.watches:\n            if watch.id == watch_id:\n                removed_watch = watch\n                break\n        \n        if not removed_watch:\n            return False  # Watch doesn't exist\n        \n        # Perform the remove operation\n        success = await self.base_manager.remove_watch_config(watch_id)\n        \n        if success:\n            # Clear cache\n            self._config_cache = None\n            \n            # Notify subscribers\n            event = ConfigChangeEvent(\n                event_type=\"removed\",\n                watch_id=watch_id,\n                old_config=removed_watch.to_dict(),\n                new_config=None,\n                source=source\n            )\n            \n            await self.event_notifier.notify(event)\n            logger.info(f\"Watch config removed: {watch_id}\")\n        \n        return success\n    \n    async def update_watch_config(self, watch_config: Any, source: str = \"mcp_tool\") -> bool:\n        \"\"\"Update watch configuration with event notification.\"\"\"\n        # Get current config for comparison\n        current_config = await self.load_config()\n        old_watch = None\n        for watch in current_config.watches:\n            if watch.id == watch_config.id:\n                old_watch = watch\n                break\n        \n        if not old_watch:\n            return False  # Watch doesn't exist\n        \n        # Perform the update operation\n        success = await self.base_manager.update_watch_config(watch_config)\n        \n        if success:\n            # Clear cache\n            self._config_cache = None\n            \n            # Notify subscribers\n            event = ConfigChangeEvent(\n                event_type=\"modified\",\n                watch_id=watch_config.id,\n                old_config=old_watch.to_dict(),\n                new_config=watch_config.to_dict(),\n                source=source\n            )\n            \n            await self.event_notifier.notify(event)\n            logger.info(f\"Watch config updated: {watch_config.id}\")\n        \n        return success\n    \n    async def update_watch_status(self, watch_id: str, status: str, source: str = \"system\") -> bool:\n        \"\"\"Update watch status with event notification.\"\"\"\n        watch_config = await self.get_watch_config(watch_id)\n        if not watch_config:\n            return False\n        \n        old_status = watch_config.status\n        if old_status == status:\n            return True  # No change needed\n        \n        # Update status\n        watch_config.status = status\n        success = await self.update_watch_config(watch_config, source=source)\n        \n        if success:\n            # Send additional status change event\n            event = ConfigChangeEvent(\n                event_type=\"status_changed\",\n                watch_id=watch_id,\n                old_config={\"status\": old_status},\n                new_config={\"status\": status},\n                source=source\n            )\n            \n            await self.event_notifier.notify(event)\n            logger.info(f\"Watch status changed: {watch_id} ({old_status} -> {status})\")\n        \n        return success\n    \n    # Delegate remaining methods to base manager\n    async def list_watch_configs(self, active_only: bool = False) -> List[Any]:\n        \"\"\"List watch configurations.\"\"\"\n        return await self.base_manager.list_watch_configs(active_only)\n    \n    async def get_watch_config(self, watch_id: str) -> Optional[Any]:\n        \"\"\"Get specific watch configuration.\"\"\"\n        return await self.base_manager.get_watch_config(watch_id)\n    \n    async def validate_all_configs(self) -> Dict[str, List[str]]:\n        \"\"\"Validate all configurations.\"\"\"\n        return await self.base_manager.validate_all_configs()\n    \n    def get_config_file_path(self) -> Path:\n        \"\"\"Get configuration file path.\"\"\"\n        return self.base_manager.get_config_file_path()\n    \n    async def backup_config(self, backup_path: Optional[Path] = None) -> bool:\n        \"\"\"Create configuration backup.\"\"\"\n        return await self.base_manager.backup_config(backup_path)\n    \n    # Event system methods\n    def subscribe_to_changes(self, callback: Callable[[ConfigChangeEvent], None]) -> None:\n        \"\"\"Subscribe to configuration change events.\"\"\"\n        self.event_notifier.subscribe(callback)\n    \n    def unsubscribe_from_changes(self, callback: Callable[[ConfigChangeEvent], None]) -> None:\n        \"\"\"Unsubscribe from configuration change events.\"\"\"\n        self.event_notifier.unsubscribe(callback)\n    \n    def get_change_history(self, watch_id: Optional[str] = None, limit: int = 100) -> List[Dict[str, Any]]:\n        \"\"\"Get configuration change history.\"\"\"\n        return self.event_notifier.get_event_history(watch_id, limit)\n    \n    async def force_sync(self) -> None:\n        \"\"\"Force synchronization of all cached data.\"\"\"\n        self._config_cache = None\n        self._cache_timestamp = None\n        await self.load_config(force_reload=True)\n        logger.info(\"Forced configuration synchronization\")
+    """Enhanced configuration manager with synchronization and event notifications."""
+    
+    def __init__(self, config_file: Optional[Path] = None, project_dir: Optional[Path] = None):
+        from .watch_config import PersistentWatchConfigManager, WatchConfigFile
+        
+        # Initialize base config manager
+        self.base_manager = PersistentWatchConfigManager(config_file, project_dir)
+        self.config_file = self.base_manager.config_file
+        
+        # Initialize synchronization components
+        self.lock_manager = FileLockManager(self.config_file)
+        self.event_notifier = WatchEventNotifier()
+        
+        # Cache for in-memory configuration
+        self._config_cache: Optional[WatchConfigFile] = None
+        self._cache_timestamp: Optional[float] = None
+        self._cache_timeout = 5.0  # seconds
+        
+        logger.info(f"Initialized synchronized config manager: {self.config_file}")
+    
+    async def initialize(self) -> None:
+        """Initialize the synchronized config manager."""
+        await self.event_notifier.start_notifications()
+        # Load initial configuration into cache
+        await self.load_config()
+    
+    async def cleanup(self) -> None:
+        """Clean up resources."""
+        await self.event_notifier.stop_notifications()
+    
+    async def load_config(self, force_reload: bool = False) -> Any:
+        """Load configuration with caching and synchronization."""
+        current_time = time.time()
+        
+        # Check if we can use cached config
+        if (not force_reload and 
+            self._config_cache is not None and 
+            self._cache_timestamp is not None and 
+            (current_time - self._cache_timestamp) < self._cache_timeout):
+            return self._config_cache
+        
+        # Load configuration with file lock
+        async with self.lock_manager.acquire_lock():
+            config = await self.base_manager.load_config()
+            
+            # Update cache
+            self._config_cache = config
+            self._cache_timestamp = current_time
+            
+            logger.debug(f"Loaded configuration with {len(config.watches)} watches")
+            return config
+    
+    async def save_config(self, config: Any) -> bool:
+        """Save configuration with atomic operations and event notifications."""
+        async with self.lock_manager.acquire_lock():
+            # Save configuration
+            success = await self.base_manager.save_config(config)
+            
+            if success:
+                # Update cache
+                self._config_cache = config
+                self._cache_timestamp = time.time()
+                logger.debug("Configuration saved and cache updated")
+            
+            return success
+    
+    async def add_watch_config(self, watch_config: Any, source: str = "mcp_tool") -> bool:
+        """Add watch configuration with event notification."""
+        # Get current config for comparison
+        current_config = await self.load_config()
+        existing_watch = None
+        for watch in current_config.watches:
+            if watch.id == watch_config.id:
+                existing_watch = watch
+                break
+        
+        # Perform the add operation
+        success = await self.base_manager.add_watch_config(watch_config)
+        
+        if success:
+            # Clear cache to force reload on next access
+            self._config_cache = None
+            
+            # Notify subscribers
+            event = ConfigChangeEvent(
+                event_type="added" if not existing_watch else "modified",
+                watch_id=watch_config.id,
+                old_config=existing_watch.to_dict() if existing_watch else None,
+                new_config=watch_config.to_dict(),
+                source=source
+            )
+            
+            await self.event_notifier.notify(event)
+            logger.info(f"Watch config {'added' if not existing_watch else 'modified'}: {watch_config.id}")
+        
+        return success
+    
+    async def remove_watch_config(self, watch_id: str, source: str = "mcp_tool") -> bool:
+        """Remove watch configuration with event notification."""
+        # Get current config to capture removed watch
+        current_config = await self.load_config()
+        removed_watch = None
+        for watch in current_config.watches:
+            if watch.id == watch_id:
+                removed_watch = watch
+                break
+        
+        if not removed_watch:
+            return False  # Watch doesn't exist
+        
+        # Perform the remove operation
+        success = await self.base_manager.remove_watch_config(watch_id)
+        
+        if success:
+            # Clear cache
+            self._config_cache = None
+            
+            # Notify subscribers
+            event = ConfigChangeEvent(
+                event_type="removed",
+                watch_id=watch_id,
+                old_config=removed_watch.to_dict(),
+                new_config=None,
+                source=source
+            )
+            
+            await self.event_notifier.notify(event)
+            logger.info(f"Watch config removed: {watch_id}")
+        
+        return success
+    
+    async def update_watch_config(self, watch_config: Any, source: str = "mcp_tool") -> bool:
+        """Update watch configuration with event notification."""
+        # Get current config for comparison
+        current_config = await self.load_config()
+        old_watch = None
+        for watch in current_config.watches:
+            if watch.id == watch_config.id:
+                old_watch = watch
+                break
+        
+        if not old_watch:
+            return False  # Watch doesn't exist
+        
+        # Perform the update operation
+        success = await self.base_manager.update_watch_config(watch_config)
+        
+        if success:
+            # Clear cache
+            self._config_cache = None
+            
+            # Notify subscribers
+            event = ConfigChangeEvent(
+                event_type="modified",
+                watch_id=watch_config.id,
+                old_config=old_watch.to_dict(),
+                new_config=watch_config.to_dict(),
+                source=source
+            )
+            
+            await self.event_notifier.notify(event)
+            logger.info(f"Watch config updated: {watch_config.id}")
+        
+        return success
+    
+    async def update_watch_status(self, watch_id: str, status: str, source: str = "system") -> bool:
+        """Update watch status with event notification."""
+        watch_config = await self.get_watch_config(watch_id)
+        if not watch_config:
+            return False
+        
+        old_status = watch_config.status
+        if old_status == status:
+            return True  # No change needed
+        
+        # Update status
+        watch_config.status = status
+        success = await self.update_watch_config(watch_config, source=source)
+        
+        if success:
+            # Send additional status change event
+            event = ConfigChangeEvent(
+                event_type="status_changed",
+                watch_id=watch_id,
+                old_config={"status": old_status},
+                new_config={"status": status},
+                source=source
+            )
+            
+            await self.event_notifier.notify(event)
+            logger.info(f"Watch status changed: {watch_id} ({old_status} -> {status})")
+        
+        return success
+    
+    # Delegate remaining methods to base manager
+    async def list_watch_configs(self, active_only: bool = False) -> List[Any]:
+        """List watch configurations."""
+        return await self.base_manager.list_watch_configs(active_only)
+    
+    async def get_watch_config(self, watch_id: str) -> Optional[Any]:
+        """Get specific watch configuration."""
+        return await self.base_manager.get_watch_config(watch_id)
+    
+    async def validate_all_configs(self) -> Dict[str, List[str]]:
+        """Validate all configurations."""
+        return await self.base_manager.validate_all_configs()
+    
+    def get_config_file_path(self) -> Path:
+        """Get configuration file path."""
+        return self.base_manager.get_config_file_path()
+    
+    async def backup_config(self, backup_path: Optional[Path] = None) -> bool:
+        """Create configuration backup."""
+        return await self.base_manager.backup_config(backup_path)
+    
+    # Event system methods
+    def subscribe_to_changes(self, callback: Callable[[ConfigChangeEvent], None]) -> None:
+        """Subscribe to configuration change events."""
+        self.event_notifier.subscribe(callback)
+    
+    def unsubscribe_from_changes(self, callback: Callable[[ConfigChangeEvent], None]) -> None:
+        """Unsubscribe from configuration change events."""
+        self.event_notifier.unsubscribe(callback)
+    
+    def get_change_history(self, watch_id: Optional[str] = None, limit: int = 100) -> List[Dict[str, Any]]:
+        """Get configuration change history."""
+        return self.event_notifier.get_event_history(watch_id, limit)
+    
+    async def force_sync(self) -> None:
+        """Force synchronization of all cached data."""
+        self._config_cache = None
+        self._cache_timestamp = None
+        await self.load_config(force_reload=True)
+        logger.info("Forced configuration synchronization")

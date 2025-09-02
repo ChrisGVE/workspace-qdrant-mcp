@@ -1,6 +1,4 @@
 
-from ...observability import get_logger
-logger = get_logger(__name__)
 """
 Health monitoring and system optimization utilities for workspace-qdrant-mcp.
 
