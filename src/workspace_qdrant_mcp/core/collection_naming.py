@@ -471,9 +471,49 @@ class CollectionNamingManager:
         )
 
 
+class CollectionNameError(Exception):
+    """Exception raised when a collection name is invalid."""
+    pass
+
+
 class CollectionPermissionError(Exception):
     """Exception raised when attempting prohibited collection operations."""
     pass
+
+
+def validate_collection_name(name: str, allow_library: bool = False) -> None:
+    """
+    Validate a collection name and raise exception if invalid.
+    
+    This is a convenience function that creates a naming manager and
+    validates the name, raising CollectionNameError if invalid.
+    
+    Args:
+        name: The collection name to validate
+        allow_library: Whether to allow library collection names (starting with '_')
+        
+    Raises:
+        CollectionNameError: If the collection name is invalid
+    """
+    manager = CollectionNamingManager()
+    
+    # Determine intended type based on name pattern
+    intended_type = None
+    if name == 'memory':
+        intended_type = CollectionType.MEMORY
+    elif name.startswith('_'):
+        if not allow_library:
+            raise CollectionNameError(
+                f"Library collection names (starting with '_') not allowed here: {name}"
+            )
+        intended_type = CollectionType.LIBRARY
+    else:
+        intended_type = CollectionType.PROJECT
+    
+    result = manager.validate_collection_name(name, intended_type)
+    
+    if not result.is_valid:
+        raise CollectionNameError(f"Invalid collection name: {result.error_message}")
 
 
 def create_naming_manager(global_collections: list[str] = None) -> CollectionNamingManager:
