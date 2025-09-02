@@ -99,7 +99,10 @@ class HealthChecker:
         # Initialize standard health checks
         self._initialize_standard_checks()
         
-        logger.info("HealthChecker initialized", checks_registered=len(self.health_checks))
+        # Only log initialization if explicitly requested or in server mode
+        import os
+        if os.getenv("WQM_LOG_INIT", "false").lower() == "true" or os.getenv("WQM_SERVER_MODE", "false").lower() == "true":
+            logger.info("HealthChecker initialized", checks_registered=len(self.health_checks))
     
     def _initialize_standard_checks(self):
         """Initialize standard system health checks."""
