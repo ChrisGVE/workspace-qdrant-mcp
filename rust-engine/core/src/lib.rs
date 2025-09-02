@@ -194,7 +194,7 @@ impl DocumentProcessor {
         })
     }
 
-    fn detect_document_type(&self, file_path: &Path) -> Result<DocumentType, ProcessingError> {
+    pub fn detect_document_type(&self, file_path: &Path) -> Result<DocumentType, ProcessingError> {
         // First try MIME type detection
         let mime_type = mime_guess::from_path(file_path).first_or_octet_stream();
         
