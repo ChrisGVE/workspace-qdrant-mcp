@@ -77,13 +77,6 @@ full = ["markdown>=3.4.0", "PyYAML>=6.0.0", "pypdf>=4.0.0"]
 [project.scripts]
 workspace-qdrant-mcp = "workspace_qdrant_mcp.server:main"
 wqm = "workspace_qdrant_mcp.cli.main:cli"
-wqutil = "workspace_qdrant_mcp.utils.admin_cli:admin_cli"
-workspace-qdrant-validate = "workspace_qdrant_mcp.utils.config_validator:validate_config_cli"
-workspace-qdrant-admin = "workspace_qdrant_mcp.utils.admin_cli:admin_cli"
-workspace-qdrant-ingest = "workspace_qdrant_mcp.cli.ingest:main"
-workspace-qdrant-setup = "workspace_qdrant_mcp.cli.setup:main"
-workspace-qdrant-test = "workspace_qdrant_mcp.cli.diagnostics:main"
-workspace-qdrant-health = "workspace_qdrant_mcp.cli.health:main"
 
 [project.urls]
 Homepage = "https://github.com/ChrisGVE/workspace-qdrant-mcp"
