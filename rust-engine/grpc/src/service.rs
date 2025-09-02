@@ -4,12 +4,11 @@
 
 use crate::proto::*;
 use std::pin::Pin;
-use tokio_stream::{Stream, StreamExt};
-use tonic::{Request, Response, Status, Streaming};
+use tokio_stream::Stream;
+use tonic::{Request, Response, Status};
 use workspace_qdrant_core::DocumentProcessor;
 
 /// Ingestion service implementation
-#[derive(Debug)]
 pub struct IngestionService {
     processor: DocumentProcessor,
 }
@@ -68,11 +67,11 @@ impl ingest_service_server::IngestService for IngestionService {
         let stream = tokio_stream::iter(vec![
             Ok(WatchingUpdate {
                 watch_id: watch_id.clone(),
-                event_type: WatchEventType::WatchEventTypeStarted.into(),
+                event_type: WatchEventType::Started as i32,
                 file_path: req.path.clone(),
                 timestamp: Some(prost_types::Timestamp::from(std::time::SystemTime::now())),
                 error_message: None,
-                status: WatchStatus::WatchStatusActive.into(),
+                status: WatchStatus::Active as i32,
             })
         ]);
         
@@ -127,7 +126,10 @@ impl ingest_service_server::IngestService for IngestionService {
         // TODO: Implement actual stats collection using self.processor
         let engine_stats = EngineStats {
             started_at: Some(prost_types::Timestamp::from(std::time::SystemTime::now())),
-            uptime: Some(prost_types::Duration::from(std::time::Duration::from_secs(0))),
+            uptime: Some(prost_types::Duration {
+                seconds: 0,
+                nanos: 0,
+            }),
             total_documents_processed: 0,
             total_documents_indexed: 0,
             active_watches: 0,
@@ -145,17 +147,17 @@ impl ingest_service_server::IngestService for IngestionService {
 
     async fn health_check(
         &self,
-        _request: Request<prost_types::Empty>,
+        _request: Request<()>,
     ) -> Result<Response<HealthResponse>, Status> {
         tracing::debug!("Health check requested");
         
         let response = HealthResponse {
-            status: HealthStatus::HealthStatusHealthy.into(),
+            status: HealthStatus::Healthy as i32,
             message: "Service is healthy".to_string(),
             services: vec![
                 ServiceHealth {
                     name: "ingestion_engine".to_string(),
-                    status: HealthStatus::HealthStatusHealthy.into(),
+                    status: HealthStatus::Healthy as i32,
                     message: "Running normally".to_string(),
                 }
             ],
