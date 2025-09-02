@@ -1,4 +1,12 @@
 
+# Suppress SSL warnings for localhost connections
+import warnings
+import urllib3
+# Suppress both urllib3 and general UserWarnings about insecure connections
+warnings.filterwarnings('ignore', message='.*insecure connection.*')
+warnings.filterwarnings('ignore', category=urllib3.exceptions.InsecureRequestWarning)
+urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
+
 from ...observability import get_logger
 logger = get_logger(__name__)
 """Memory management CLI commands.
