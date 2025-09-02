@@ -365,6 +365,15 @@ class MemoryManager:
             MemoryRule if found, None otherwise
         """
         try:
+            # Check if memory collection exists
+            collections = self.client.get_collections()
+            collection_names = {col.name for col in collections.collections}
+            
+            if self.MEMORY_COLLECTION not in collection_names:
+                # Collection doesn't exist yet, rule cannot be found
+                logger.debug(f"Memory collection '{self.MEMORY_COLLECTION}' doesn't exist yet")
+                return None
+            
             points = self.client.retrieve(
                 collection_name=self.MEMORY_COLLECTION,
                 ids=[rule_id],
@@ -399,6 +408,15 @@ class MemoryManager:
             List of matching memory rules
         """
         try:
+            # Check if memory collection exists
+            collections = self.client.get_collections()
+            collection_names = {col.name for col in collections.collections}
+            
+            if self.MEMORY_COLLECTION not in collection_names:
+                # Collection doesn't exist yet, return empty list
+                logger.debug(f"Memory collection '{self.MEMORY_COLLECTION}' doesn't exist yet")
+                return []
+            
             # Build filter conditions
             conditions = []
 
@@ -530,6 +548,15 @@ class MemoryManager:
             True if deletion successful, False otherwise
         """
         try:
+            # Check if memory collection exists
+            collections = self.client.get_collections()
+            collection_names = {col.name for col in collections.collections}
+            
+            if self.MEMORY_COLLECTION not in collection_names:
+                # Collection doesn't exist, rule cannot be deleted
+                logger.debug(f"Memory collection '{self.MEMORY_COLLECTION}' doesn't exist yet")
+                return False
+            
             self.client.delete(
                 collection_name=self.MEMORY_COLLECTION,
                 points_selector=[rule_id]
@@ -562,6 +589,15 @@ class MemoryManager:
             List of (MemoryRule, score) tuples sorted by relevance
         """
         try:
+            # Check if memory collection exists
+            collections = self.client.get_collections()
+            collection_names = {col.name for col in collections.collections}
+            
+            if self.MEMORY_COLLECTION not in collection_names:
+                # Collection doesn't exist yet, return empty list
+                logger.debug(f"Memory collection '{self.MEMORY_COLLECTION}' doesn't exist yet")
+                return []
+            
             # Generate query embedding (placeholder)
             query_vector = [0.0] * self.embedding_dim
 
