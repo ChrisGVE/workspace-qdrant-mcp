@@ -1,0 +1,240 @@
+version: '3.8'
+
+services:
+  # Full backup service - runs daily
+  backup-full:
+    image: alpine:latest
+    container_name: qdrant-backup-full
+    volumes:
+      - ../../scripts:/backup-scripts:ro
+      - /backups:/backups
+      - /var/log/backup:/var/log/backup
+      - /var/lib/backup:/var/lib/backup
+      - /var/run/docker.sock:/var/run/docker.sock
+    environment:
+      - BACKUP_BASE_DIR=/backups
+      - QDRANT_URL=http://qdrant:6333
+      - TZ=UTC
+      - AWS_ACCESS_KEY_ID=${AWS_ACCESS_KEY_ID:-}
+      - AWS_SECRET_ACCESS_KEY=${AWS_SECRET_ACCESS_KEY:-}
+      - BACKUP_RSYNC_TARGET=${BACKUP_RSYNC_TARGET:-}
+    command: >
+      sh -c "
+        apk add --no-cache curl jq bash tar gzip bc findutils coreutils docker-cli aws-cli rsync &&
+        echo '0 2 * * * /backup-scripts/backup/full-backup.sh >> /var/log/backup/cron.log 2>&1' | crontab - &&
+        crond -f
+      "
+    restart: unless-stopped
+    networks:
+      - backup-network
+    depends_on:
+      - qdrant
+    healthcheck:
+      test: ["CMD", "pgrep", "crond"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  # Incremental backup service - runs every 4 hours
+  backup-incremental:
+    image: alpine:latest
+    container_name: qdrant-backup-incremental
+    volumes:
+      - ../../scripts:/backup-scripts:ro
+      - /backups:/backups
+      - /var/log/backup:/var/log/backup
+      - /var/lib/backup:/var/lib/backup
+      - /var/run/docker.sock:/var/run/docker.sock
+    environment:
+      - BACKUP_BASE_DIR=/backups
+      - QDRANT_URL=http://qdrant:6333
+      - TZ=UTC
+    command: >
+      sh -c "
+        apk add --no-cache curl jq bash tar gzip bc findutils coreutils &&
+        echo '0 */4 * * * /backup-scripts/backup/qdrant-backup.sh --type incremental >> /var/log/backup/cron.log 2>&1' | crontab - &&
+        crond -f
+      "
+    restart: unless-stopped
+    networks:
+      - backup-network
+    depends_on:
+      - qdrant
+    healthcheck:
+      test: ["CMD", "pgrep", "crond"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  # Backup verification service - runs daily at 4 AM
+  backup-verification:
+    image: alpine:latest
+    container_name: qdrant-backup-verification
+    volumes:
+      - ../../scripts:/backup-scripts:ro
+      - /backups:/backups:ro
+      - /var/log/verification:/var/log/verification
+      - /var/lib/node_exporter/textfile_collector:/var/lib/node_exporter/textfile_collector
+      - /tmp:/tmp
+    environment:
+      - TZ=UTC
+    command: >
+      sh -c "
+        apk add --no-cache curl jq bash tar gzip bc file &&
+        echo '0 4 * * * /backup-scripts/verification/verify-backup.sh --type full >> /var/log/verification/cron.log 2>&1' | crontab - &&
+        crond -f
+      "
+    restart: unless-stopped
+    networks:
+      - backup-network
+    healthcheck:
+      test: ["CMD", "pgrep", "crond"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  # Backup cleanup service - runs weekly on Sunday at 3 AM
+  backup-cleanup:
+    image: alpine:latest
+    container_name: qdrant-backup-cleanup
+    volumes:
+      - ../../scripts:/backup-scripts:ro
+      - /backups:/backups
+      - /var/log/backup:/var/log/backup
+    environment:
+      - TZ=UTC
+      - RETENTION_DAYS=30
+    command: >
+      sh -c "
+        apk add --no-cache bash findutils coreutils &&
+        cat > /cleanup.sh << 'EOF'
+        #!/bin/bash
+        echo \"[$(date)] Starting backup cleanup...\" >> /var/log/backup/cleanup.log
+        
+        # Clean up old full backups (keep 30 days)
+        find /backups/full -type d -mtime +30 -exec rm -rf {} + 2>/dev/null || true
+        
+        # Clean up old incremental backups (keep 7 days)
+        find /backups/qdrant/incremental -type d -mtime +7 -exec rm -rf {} + 2>/dev/null || true
+        
+        # Clean up old logs (keep 60 days)
+        find /var/log/backup -name \"*.log\" -mtime +60 -delete 2>/dev/null || true
+        find /var/log/verification -name \"*.log\" -mtime +60 -delete 2>/dev/null || true
+        
+        echo \"[$(date)] Backup cleanup completed\" >> /var/log/backup/cleanup.log
+        EOF
+        chmod +x /cleanup.sh &&
+        echo '0 3 * * 0 /cleanup.sh' | crontab - &&
+        crond -f
+      "
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "pgrep", "crond"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  # Backup monitoring service - exports metrics
+  backup-monitor:
+    image: alpine:latest
+    container_name: qdrant-backup-monitor
+    volumes:
+      - /backups:/backups:ro
+      - /var/log/backup:/var/log/backup:ro
+      - /var/log/verification:/var/log/verification:ro
+      - /var/lib/node_exporter/textfile_collector:/var/lib/node_exporter/textfile_collector
+    environment:
+      - TZ=UTC
+    command: >
+      sh -c "
+        apk add --no-cache bash jq bc findutils coreutils &&
+        cat > /monitor.sh << 'EOF'
+        #!/bin/bash
+        
+        # Export backup monitoring metrics
+        METRICS_FILE=/var/lib/node_exporter/textfile_collector/backup_status_metrics.prom
+        
+        {
+          echo '# HELP backup_last_success_timestamp Unix timestamp of last successful backup'
+          echo '# TYPE backup_last_success_timestamp gauge'
+          
+          # Full backup timestamp
+          LATEST_FULL=\$(find /backups/full -name manifest.json -exec stat -c %Y {} + 2>/dev/null | sort -n | tail -1)
+          echo \"backup_last_success_timestamp{type=\\\"full\\\"} \${LATEST_FULL:-0}\"
+          
+          # Incremental backup timestamp
+          LATEST_INCREMENTAL=\$(find /backups/qdrant/incremental -name manifest.json -exec stat -c %Y {} + 2>/dev/null | sort -n | tail -1)
+          echo \"backup_last_success_timestamp{type=\\\"incremental\\\"} \${LATEST_INCREMENTAL:-0}\"
+          
+          echo '# HELP backup_size_bytes Total size of all backups'
+          echo '# TYPE backup_size_bytes gauge'
+          
+          # Calculate total backup sizes
+          FULL_SIZE=\$(du -sb /backups/full 2>/dev/null | cut -f1 || echo 0)
+          INCREMENTAL_SIZE=\$(du -sb /backups/qdrant/incremental 2>/dev/null | cut -f1 || echo 0)
+          
+          echo \"backup_size_bytes{type=\\\"full\\\"} \$FULL_SIZE\"
+          echo \"backup_size_bytes{type=\\\"incremental\\\"} \$INCREMENTAL_SIZE\"
+          
+          echo '# HELP backup_count Number of backup directories'
+          echo '# TYPE backup_count gauge'
+          
+          FULL_COUNT=\$(find /backups/full -maxdepth 1 -type d | wc -l)
+          INCREMENTAL_COUNT=\$(find /backups/qdrant/incremental -maxdepth 1 -type d 2>/dev/null | wc -l || echo 0)
+          
+          echo \"backup_count{type=\\\"full\\\"} \$FULL_COUNT\"
+          echo \"backup_count{type=\\\"incremental\\\"} \$INCREMENTAL_COUNT\"
+          
+          echo '# HELP backup_age_seconds Age of the newest backup in seconds'
+          echo '# TYPE backup_age_seconds gauge'
+          
+          CURRENT_TIME=\$(date +%s)
+          FULL_AGE=\$((\$CURRENT_TIME - \${LATEST_FULL:-0}))
+          INCREMENTAL_AGE=\$((\$CURRENT_TIME - \${LATEST_INCREMENTAL:-0}))
+          
+          echo \"backup_age_seconds{type=\\\"full\\\"} \$FULL_AGE\"
+          echo \"backup_age_seconds{type=\\\"incremental\\\"} \$INCREMENTAL_AGE\"
+          
+        } > \$METRICS_FILE
+        EOF
+        chmod +x /monitor.sh &&
+        echo '*/5 * * * * /monitor.sh' | crontab - &&
+        crond -f
+      "
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "pgrep", "crond"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  # Qdrant service (for reference - should be defined in main docker-compose)
+  qdrant:
+    image: qdrant/qdrant:latest
+    container_name: qdrant-main
+    ports:
+      - "6333:6333"
+      - "6334:6334"
+    volumes:
+      - qdrant-data:/qdrant/storage
+    environment:
+      - QDRANT__SERVICE__ENABLE_CORS=true
+    networks:
+      - backup-network
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:6333/healthz"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    restart: unless-stopped
+
+volumes:
+  qdrant-data:
+    driver: local
+
+networks:
+  backup-network:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 172.20.0.0/16

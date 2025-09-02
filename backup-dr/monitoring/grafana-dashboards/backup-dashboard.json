@@ -1,0 +1,700 @@
+{
+  "dashboard": {
+    "id": null,
+    "title": "Qdrant MCP - Backup & Disaster Recovery",
+    "description": "Comprehensive monitoring for backup operations and disaster recovery readiness",
+    "tags": [
+      "backup",
+      "disaster-recovery",
+      "qdrant",
+      "mcp"
+    ],
+    "timezone": "UTC",
+    "time": {
+      "from": "now-24h",
+      "to": "now"
+    },
+    "refresh": "30s",
+    "schemaVersion": 30,
+    "version": 1,
+    "panels": [
+      {
+        "id": 1,
+        "title": "Backup Status Overview",
+        "type": "stat",
+        "targets": [
+          {
+            "expr": "backup_success{type=\"full\"}",
+            "legendFormat": "Full Backup Status",
+            "refId": "A"
+          },
+          {
+            "expr": "qdrant_backup_success{type=\"incremental\"}",
+            "legendFormat": "Incremental Backup Status",
+            "refId": "B"
+          },
+          {
+            "expr": "backup_verification_success",
+            "legendFormat": "Verification Status",
+            "refId": "C"
+          }
+        ],
+        "fieldConfig": {
+          "defaults": {
+            "mappings": [
+              {
+                "options": {
+                  "0": {
+                    "color": "red",
+                    "text": "Failed"
+                  },
+                  "1": {
+                    "color": "green",
+                    "text": "Success"
+                  }
+                },
+                "type": "value"
+              }
+            ],
+            "thresholds": {
+              "mode": "absolute",
+              "steps": [
+                {
+                  "color": "red",
+                  "value": null
+                },
+                {
+                  "color": "green",
+                  "value": 1
+                }
+              ]
+            }
+          }
+        },
+        "gridPos": {
+          "h": 8,
+          "w": 12,
+          "x": 0,
+          "y": 0
+        },
+        "options": {
+          "colorMode": "background",
+          "graphMode": "none",
+          "justifyMode": "auto",
+          "orientation": "horizontal",
+          "reduceOptions": {
+            "calcs": ["lastNotNull"],
+            "fields": "",
+            "values": false
+          }
+        }
+      },
+      {
+        "id": 2,
+        "title": "Backup Age",
+        "type": "stat",
+        "targets": [
+          {
+            "expr": "(time() - backup_last_success_timestamp{type=\"full\"})",
+            "legendFormat": "Full Backup Age",
+            "refId": "A"
+          },
+          {
+            "expr": "(time() - qdrant_backup_timestamp_seconds{type=\"incremental\"})",
+            "legendFormat": "Incremental Backup Age",
+            "refId": "B"
+          }
+        ],
+        "fieldConfig": {
+          "defaults": {
+            "unit": "s",
+            "thresholds": {
+              "mode": "absolute",
+              "steps": [
+                {
+                  "color": "green",
+                  "value": null
+                },
+                {
+                  "color": "yellow",
+                  "value": 86400
+                },
+                {
+                  "color": "red",
+                  "value": 172800
+                }
+              ]
+            }
+          }
+        },
+        "gridPos": {
+          "h": 8,
+          "w": 12,
+          "x": 12,
+          "y": 0
+        },
+        "options": {
+          "colorMode": "background",
+          "graphMode": "none",
+          "justifyMode": "auto",
+          "orientation": "horizontal",
+          "reduceOptions": {
+            "calcs": ["lastNotNull"],
+            "fields": "",
+            "values": false
+          }
+        }
+      },
+      {
+        "id": 3,
+        "title": "Backup Success Rate (24h)",
+        "type": "timeseries",
+        "targets": [
+          {
+            "expr": "rate(backup_success{type=\"full\"}[1h])",
+            "legendFormat": "Full Backup Success Rate",
+            "refId": "A"
+          },
+          {
+            "expr": "rate(qdrant_backup_success{type=\"incremental\"}[1h])",
+            "legendFormat": "Incremental Backup Success Rate",
+            "refId": "B"
+          }
+        ],
+        "fieldConfig": {
+          "defaults": {
+            "custom": {
+              "drawStyle": "line",
+              "lineInterpolation": "linear",
+              "lineWidth": 2,
+              "fillOpacity": 10,
+              "gradientMode": "none",
+              "spanNulls": false,
+              "pointSize": 5,
+              "stacking": {
+                "mode": "none",
+                "group": "A"
+              }
+            },
+            "unit": "percentunit",
+            "min": 0,
+            "max": 1
+          }
+        },
+        "gridPos": {
+          "h": 8,
+          "w": 24,
+          "x": 0,
+          "y": 8
+        }
+      },
+      {
+        "id": 4,
+        "title": "Backup Duration Trends",
+        "type": "timeseries",
+        "targets": [
+          {
+            "expr": "backup_duration_seconds{type=\"full\"}",
+            "legendFormat": "Full Backup Duration",
+            "refId": "A"
+          },
+          {
+            "expr": "qdrant_backup_duration_seconds{type=\"incremental\"}",
+            "legendFormat": "Incremental Backup Duration",
+            "refId": "B"
+          }
+        ],
+        "fieldConfig": {
+          "defaults": {
+            "unit": "s",
+            "custom": {
+              "drawStyle": "line",
+              "lineInterpolation": "linear",
+              "lineWidth": 2,
+              "fillOpacity": 10
+            }
+          }
+        },
+        "gridPos": {
+          "h": 8,
+          "w": 12,
+          "x": 0,
+          "y": 16
+        }
+      },
+      {
+        "id": 5,
+        "title": "Backup Size Trends",
+        "type": "timeseries",
+        "targets": [
+          {
+            "expr": "backup_size_bytes{type=\"full\"}",
+            "legendFormat": "Full Backup Size",
+            "refId": "A"
+          },
+          {
+            "expr": "qdrant_backup_size_bytes{type=\"incremental\"}",
+            "legendFormat": "Incremental Backup Size",
+            "refId": "B"
+          }
+        ],
+        "fieldConfig": {
+          "defaults": {
+            "unit": "bytes",
+            "custom": {
+              "drawStyle": "line",
+              "lineInterpolation": "linear",
+              "lineWidth": 2,
+              "fillOpacity": 10
+            }
+          }
+        },
+        "gridPos": {
+          "h": 8,
+          "w": 12,
+          "x": 12,
+          "y": 16
+        }
+      },
+      {
+        "id": 6,
+        "title": "Collections Backed Up",
+        "type": "stat",
+        "targets": [
+          {
+            "expr": "backup_collections_count{type=\"full\"}",
+            "legendFormat": "Full Backup Collections",
+            "refId": "A"
+          },
+          {
+            "expr": "qdrant_backup_collections_count{type=\"incremental\"}",
+            "legendFormat": "Incremental Backup Collections",
+            "refId": "B"
+          }
+        ],
+        "fieldConfig": {
+          "defaults": {
+            "unit": "short",
+            "thresholds": {
+              "mode": "absolute",
+              "steps": [
+                {
+                  "color": "red",
+                  "value": null
+                },
+                {
+                  "color": "yellow",
+                  "value": 1
+                },
+                {
+                  "color": "green",
+                  "value": 3
+                }
+              ]
+            }
+          }
+        },
+        "gridPos": {
+          "h": 6,
+          "w": 8,
+          "x": 0,
+          "y": 24
+        },
+        "options": {
+          "colorMode": "background",
+          "graphMode": "area",
+          "justifyMode": "center",
+          "orientation": "auto"
+        }
+      },
+      {
+        "id": 7,
+        "title": "Total Storage Usage",
+        "type": "piechart",
+        "targets": [
+          {
+            "expr": "backup_size_bytes{type=\"full\"}",
+            "legendFormat": "Full Backups",
+            "refId": "A"
+          },
+          {
+            "expr": "backup_size_bytes{type=\"incremental\"}",
+            "legendFormat": "Incremental Backups",
+            "refId": "B"
+          }
+        ],
+        "fieldConfig": {
+          "defaults": {
+            "unit": "bytes"
+          }
+        },
+        "gridPos": {
+          "h": 6,
+          "w": 8,
+          "x": 8,
+          "y": 24
+        },
+        "options": {
+          "pieType": "pie",
+          "reduceOptions": {
+            "calcs": ["lastNotNull"],
+            "fields": "",
+            "values": false
+          }
+        }
+      },
+      {
+        "id": 8,
+        "title": "Verification Results",
+        "type": "stat",
+        "targets": [
+          {
+            "expr": "backup_verification_collections_verified",
+            "legendFormat": "Verified Collections",
+            "refId": "A"
+          },
+          {
+            "expr": "backup_verification_collections_total",
+            "legendFormat": "Total Collections",
+            "refId": "B"
+          }
+        ],
+        "fieldConfig": {
+          "defaults": {
+            "unit": "short"
+          }
+        },
+        "gridPos": {
+          "h": 6,
+          "w": 8,
+          "x": 16,
+          "y": 24
+        }
+      },
+      {
+        "id": 9,
+        "title": "RTO/RPO Compliance",
+        "type": "gauge",
+        "targets": [
+          {
+            "expr": "clamp_max((900 - (time() - qdrant_backup_timestamp_seconds{type=\"incremental\"})) / 900, 1)",
+            "legendFormat": "RPO Compliance (15min target)",
+            "refId": "A"
+          },
+          {
+            "expr": "clamp_max((1800 - backup_duration_seconds{type=\"full\"}) / 1800, 1)",
+            "legendFormat": "RTO Compliance (30min target)",
+            "refId": "B"
+          }
+        ],
+        "fieldConfig": {
+          "defaults": {
+            "unit": "percentunit",
+            "min": 0,
+            "max": 1,
+            "thresholds": {
+              "mode": "absolute",
+              "steps": [
+                {
+                  "color": "red",
+                  "value": null
+                },
+                {
+                  "color": "yellow",
+                  "value": 0.7
+                },
+                {
+                  "color": "green",
+                  "value": 0.9
+                }
+              ]
+            }
+          }
+        },
+        "gridPos": {
+          "h": 8,
+          "w": 12,
+          "x": 0,
+          "y": 30
+        },
+        "options": {
+          "orientation": "auto",
+          "reduceOptions": {
+            "calcs": ["lastNotNull"],
+            "fields": "",
+            "values": false
+          },
+          "showThresholdLabels": false,
+          "showThresholdMarkers": true
+        }
+      },
+      {
+        "id": 10,
+        "title": "Recent Alerts",
+        "type": "logs",
+        "targets": [
+          {
+            "expr": "{job=\"alertmanager\"} |= \"backup\" or \"disaster\" or \"recovery\"",
+            "refId": "A"
+          }
+        ],
+        "gridPos": {
+          "h": 8,
+          "w": 12,
+          "x": 12,
+          "y": 30
+        },
+        "options": {
+          "showTime": true,
+          "showLabels": true,
+          "showCommonLabels": false,
+          "wrapLogMessage": true,
+          "prettifyLogMessage": false,
+          "enableLogDetails": true,
+          "dedupStrategy": "none",
+          "sortOrder": "Descending"
+        }
+      },
+      {
+        "id": 11,
+        "title": "Backup Schedule Adherence",
+        "type": "heatmap",
+        "targets": [
+          {
+            "expr": "increase(backup_success{type=\"full\"}[1h])",
+            "legendFormat": "Full Backups",
+            "refId": "A"
+          },
+          {
+            "expr": "increase(qdrant_backup_success{type=\"incremental\"}[1h])",
+            "legendFormat": "Incremental Backups",
+            "refId": "B"
+          }
+        ],
+        "gridPos": {
+          "h": 8,
+          "w": 24,
+          "x": 0,
+          "y": 38
+        },
+        "options": {
+          "calculate": false,
+          "calculation": {},
+          "cellGap": 2,
+          "cellValues": {},
+          "color": {
+            "exponent": 0.5,
+            "fill": "dark-orange",
+            "mode": "spectrum",
+            "reverse": false,
+            "scale": "exponential",
+            "scheme": "RdYlGn",
+            "steps": 64
+          },
+          "exemplars": {
+            "color": "rgba(255,0,255,0.7)"
+          },
+          "filterValues": {
+            "le": 1e-9
+          },
+          "legend": {
+            "show": false
+          },
+          "rowsFrame": {
+            "layout": "auto"
+          },
+          "tooltip": {
+            "show": true,
+            "yHistogram": false
+          },
+          "yAxis": {
+            "axisPlacement": "left",
+            "reverse": false,
+            "unit": "short"
+          }
+        }
+      },
+      {
+        "id": 12,
+        "title": "Disaster Recovery Readiness Score",
+        "type": "stat",
+        "targets": [
+          {
+            "expr": "(backup_success{type=\"full\"} * 0.4 + qdrant_backup_success{type=\"incremental\"} * 0.3 + backup_verification_success * 0.3)",
+            "legendFormat": "DR Readiness Score",
+            "refId": "A"
+          }
+        ],
+        "fieldConfig": {
+          "defaults": {
+            "unit": "percentunit",
+            "min": 0,
+            "max": 1,
+            "thresholds": {
+              "mode": "absolute",
+              "steps": [
+                {
+                  "color": "red",
+                  "value": null
+                },
+                {
+                  "color": "yellow",
+                  "value": 0.7
+                },
+                {
+                  "color": "green",
+                  "value": 0.9
+                }
+              ]
+            },
+            "mappings": [
+              {
+                "options": {
+                  "from": 0,
+                  "to": 0.5,
+                  "result": {
+                    "text": "Poor"
+                  }
+                },
+                "type": "range"
+              },
+              {
+                "options": {
+                  "from": 0.5,
+                  "to": 0.8,
+                  "result": {
+                    "text": "Fair"
+                  }
+                },
+                "type": "range"
+              },
+              {
+                "options": {
+                  "from": 0.8,
+                  "to": 0.95,
+                  "result": {
+                    "text": "Good"
+                  }
+                },
+                "type": "range"
+              },
+              {
+                "options": {
+                  "from": 0.95,
+                  "to": 1,
+                  "result": {
+                    "text": "Excellent"
+                  }
+                },
+                "type": "range"
+              }
+            ]
+          }
+        },
+        "gridPos": {
+          "h": 6,
+          "w": 24,
+          "x": 0,
+          "y": 46
+        },
+        "options": {
+          "colorMode": "background",
+          "graphMode": "area",
+          "justifyMode": "center",
+          "orientation": "horizontal",
+          "reduceOptions": {
+            "calcs": ["lastNotNull"],
+            "fields": "",
+            "values": false
+          },
+          "textMode": "value_and_name"
+        }
+      }
+    ],
+    "annotations": {
+      "list": [
+        {
+          "builtIn": 1,
+          "datasource": "-- Grafana --",
+          "enable": true,
+          "hide": true,
+          "iconColor": "rgba(0, 211, 255, 1)",
+          "name": "Annotations & Alerts",
+          "type": "dashboard"
+        },
+        {
+          "datasource": "prometheus",
+          "enable": true,
+          "expr": "ALERTS{alertname=~\".*[Bb]ackup.*\"}",
+          "iconColor": "red",
+          "name": "Backup Alerts",
+          "titleFormat": "{{ alertname }}",
+          "tagKeys": "severity,component"
+        }
+      ]
+    },
+    "templating": {
+      "list": [
+        {
+          "current": {
+            "selected": false,
+            "text": "All",
+            "value": "$__all"
+          },
+          "datasource": "prometheus",
+          "definition": "label_values(backup_success, type)",
+          "hide": 0,
+          "includeAll": true,
+          "multi": true,
+          "name": "backup_type",
+          "options": [],
+          "query": {
+            "query": "label_values(backup_success, type)",
+            "refId": "StandardVariableQuery"
+          },
+          "refresh": 1,
+          "regex": "",
+          "skipUrlSync": false,
+          "sort": 0,
+          "type": "query"
+        }
+      ]
+    },
+    "links": [
+      {
+        "asDropdown": false,
+        "icon": "external link",
+        "includeVars": false,
+        "keepTime": false,
+        "tags": ["backup", "runbooks"],
+        "targetBlank": true,
+        "title": "Backup Runbooks",
+        "tooltip": "Emergency procedures and troubleshooting guides",
+        "type": "link",
+        "url": "https://wiki.company.com/runbooks/backup"
+      }
+    ]
+  },
+  "meta": {
+    "type": "db",
+    "canSave": true,
+    "canEdit": true,
+    "canAdmin": true,
+    "canStar": true,
+    "slug": "qdrant-mcp-backup-disaster-recovery",
+    "url": "/d/backup-dr/qdrant-mcp-backup-disaster-recovery",
+    "expires": "0001-01-01T00:00:00Z",
+    "created": "2024-01-01T00:00:00Z",
+    "updated": "2024-01-01T00:00:00Z",
+    "updatedBy": "admin",
+    "createdBy": "admin",
+    "version": 1,
+    "hasAcl": false,
+    "isFolder": false,
+    "folderId": 0,
+    "folderTitle": "General",
+    "folderUrl": "",
+    "provisioned": true,
+    "provisionedExternalId": ""
+  }
+}
