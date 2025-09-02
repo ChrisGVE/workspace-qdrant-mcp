@@ -255,7 +255,10 @@ class MetricsCollector:
         # Initialize standard metrics
         self._initialize_standard_metrics()
         
-        logger.info("MetricsCollector initialized", metrics_enabled=True)
+        # Only log initialization if explicitly requested or in server mode
+        import os
+        if os.getenv("WQM_LOG_INIT", "false").lower() == "true" or os.getenv("WQM_SERVER_MODE", "false").lower() == "true":
+            logger.info("MetricsCollector initialized", metrics_enabled=True)
     
     def _initialize_standard_metrics(self):
         """Initialize standard application metrics."""
