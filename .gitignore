@@ -131,7 +131,7 @@ workspace_qdrant_admin.log
 CLAUDE.md
 backup-dr/
 external/
-proto/
+# proto/ (commented out - proto files should be tracked as source code)
 dev/
 
 # Development artifacts and reports - KEEP LOCAL ONLY
