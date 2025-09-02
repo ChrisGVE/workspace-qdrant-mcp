@@ -13,10 +13,7 @@ import sys
 from enum import Enum
 
 import typer
-from rich.console import Console
 from typer.completion import get_completion_script
-
-console = Console()
 
 # Available shells for completion
 class Shell(str, Enum):
@@ -125,7 +122,7 @@ TROUBLESHOOTING:
   - For fish, ensure the completions directory exists
   - Use 'wqm init SHELL' to regenerate if needed
 """
-    console.print(help_text.strip())
+    print(help_text.strip())
 
 def generate_completion_script(shell: Shell, prog_name: str) -> None:
     """Generate and output completion script for the specified shell."""
@@ -138,12 +135,12 @@ def generate_completion_script(shell: Shell, prog_name: str) -> None:
             shell=shell.value
         )
         
-        # Output the script directly (no Rich formatting for shell evaluation)
+        # Output the script directly (no formatting for shell evaluation)
         print(script, end="")
         
     except Exception as e:
         # Use stderr for errors so they don't interfere with script output
-        console.print(f"Error generating completion script: {e}", file=sys.stderr, style="red")
+        print(f"Error generating completion script: {e}", file=sys.stderr)
         raise typer.Exit(1)
 
 # Alias for backward compatibility (if needed)
