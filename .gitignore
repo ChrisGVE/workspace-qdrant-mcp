@@ -20,6 +20,9 @@ IMPLEMENTATION_SUMMARY.md
 # Environment variables
 .env
 
+# Local configuration overrides
+src/workspace_qdrant_mcp/config/local.yaml
+
 # Editor directories and files
 .idea
 .vscode
