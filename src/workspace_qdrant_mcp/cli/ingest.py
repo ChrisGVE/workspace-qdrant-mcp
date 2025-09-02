@@ -28,6 +28,7 @@ from rich.table import Table
 from ..core.client import QdrantWorkspaceClient
 from ..core.config import Config
 from .ingestion_engine import DocumentIngestionEngine, IngestionResult, IngestionStats
+from .parsers import WebIngestionInterface, SecurityConfig, create_secure_web_parser
 
 # Configure logging
 logger = logging.getLogger(__name__)
@@ -154,6 +155,80 @@ def estimate(
 ) -> None:
     """Estimate processing time and resource requirements."""
     asyncio.run(_estimate_processing(path, formats, concurrency))
+
+
+@app.command()
+def ingest_web(
+    url: str = typer.Argument(..., help="URL to crawl and ingest"),
+    collection: str = typer.Option(
+        ..., "--collection", "-c", help="Target collection name"
+    ),
+    max_pages: int = typer.Option(
+        1, "--max-pages", help="Maximum pages to crawl (1 = single page)"
+    ),
+    max_depth: int = typer.Option(
+        0, "--max-depth", help="Maximum crawl depth (0 = no following links)"
+    ),
+    allowed_domains: list[str] | None = typer.Option(
+        None, "--allowed-domains", help="Comma-separated list of allowed domains"
+    ),
+    request_delay: float = typer.Option(
+        1.0, "--request-delay", help="Delay between requests in seconds"
+    ),
+    chunk_size: int = typer.Option(
+        1000, "--chunk-size", help="Maximum characters per text chunk"
+    ),
+    chunk_overlap: int = typer.Option(
+        200, "--chunk-overlap", help="Character overlap between chunks"
+    ),
+    dry_run: bool = typer.Option(
+        False, "--dry-run", help="Analyze content without ingesting"
+    ),
+    disable_security: bool = typer.Option(
+        False, "--disable-security", help="Disable security scanning (NOT RECOMMENDED)"
+    ),
+    allow_all_domains: bool = typer.Option(
+        False, "--allow-all-domains", help="Allow crawling any domain (security risk)"
+    ),
+    verbose: bool = typer.Option(False, "--verbose", "-v", help="Verbose output"),
+    debug: bool = typer.Option(False, "--debug", help="Debug output"),
+    yes: bool = typer.Option(False, "--yes", "-y", help="Skip confirmation prompts"),
+) -> None:
+    """
+    Ingest web content from URLs with security hardening.
+
+    This command safely crawls web content and ingests it into a Qdrant collection.
+    Includes malware protection, domain restrictions, and respectful crawling.
+
+    Examples:
+        # Ingest single page
+        workspace-qdrant-ingest ingest-web https://example.com/docs --collection docs
+
+        # Crawl multiple pages with restrictions
+        workspace-qdrant-ingest ingest-web https://example.com/docs -c docs \
+            --max-pages 10 --max-depth 2 --allowed-domains example.com
+
+        # Dry run to preview
+        workspace-qdrant-ingest ingest-web https://example.com/docs -c docs --dry-run
+    """
+    setup_logging(verbose, debug)
+
+    asyncio.run(
+        _run_web_ingestion(
+            url=url,
+            collection=collection,
+            max_pages=max_pages,
+            max_depth=max_depth,
+            allowed_domains=allowed_domains,
+            request_delay=request_delay,
+            chunk_size=chunk_size,
+            chunk_overlap=chunk_overlap,
+            dry_run=dry_run,
+            disable_security=disable_security,
+            allow_all_domains=allow_all_domains,
+            auto_confirm=yes,
+        )
+    )
 
 
 async def _run_ingestion(
@@ -514,6 +589,157 @@ async def _estimate_processing(
     except Exception as e:
         console.print(f"❌ Error during estimation: {e}", style="red")
         sys.exit(1)
+
+
+async def _run_web_ingestion(
+    url: str,
+    collection: str,
+    max_pages: int,
+    max_depth: int,
+    allowed_domains: list[str] | None,
+    request_delay: float,
+    chunk_size: int,
+    chunk_overlap: int,
+    dry_run: bool,
+    disable_security: bool,
+    allow_all_domains: bool,
+    auto_confirm: bool,
+) -> None:
+    """Run web content ingestion."""
+    
+    try:
+        # Security warnings
+        if disable_security:
+            console.print("⚠️  Security scanning is DISABLED. This is not recommended!", 
+                         style="red bold")
+            if not auto_confirm and not typer.confirm("Continue with disabled security?"):
+                console.print("❌ Operation cancelled", style="red")
+                return
+        
+        if allow_all_domains and not allowed_domains:
+            console.print("⚠️  All domains are allowed. This increases security risk!", 
+                         style="yellow bold")
+            if not auto_confirm and not typer.confirm("Continue allowing all domains?"):
+                console.print("❌ Operation cancelled", style="red")
+                return
+        
+        # Initialize client
+        console.print("🚀 Initializing workspace client...", style="blue")
+        config = Config()
+        client = QdrantWorkspaceClient(config)
+        await client.initialize()
+        
+        console.print(f"✅ Connected to Qdrant at {config.qdrant.url}", style="green")
+        
+        # Show project info
+        project_info = client.get_project_info()
+        if project_info:
+            console.print(f"📁 Project: {project_info['main_project']}", style="cyan")
+        
+        # Configure web parser
+        console.print("🔧 Configuring secure web parser...", style="blue")
+        
+        # Create security config
+        security_config = SecurityConfig()
+        
+        if allowed_domains:
+            security_config.domain_allowlist = set(allowed_domains)
+            console.print(f"🔐 Domain allowlist: {', '.join(allowed_domains)}", style="yellow")
+        elif not allow_all_domains:
+            # Default to same domain as start URL
+            from urllib.parse import urlparse
+            parsed_url = urlparse(url)
+            if parsed_url.netloc:
+                security_config.domain_allowlist = {parsed_url.netloc}
+                console.print(f"🔐 Restricting to same domain: {parsed_url.netloc}", style="yellow")
+        
+        security_config.request_delay = request_delay
+        security_config.enable_content_scanning = not disable_security
+        security_config.quarantine_suspicious = not disable_security
+        security_config.max_total_pages = max_pages
+        security_config.max_depth = max_depth
+        
+        # Initialize web interface
+        web_interface = WebIngestionInterface(security_config)
+        
+        console.print("🌐 Starting web content ingestion...", style="blue")
+        
+        # Parse web content
+        if max_pages > 1 or max_depth > 0:
+            console.print(f"📄 Crawling up to {max_pages} pages (depth: {max_depth})...", style="cyan")
+            parsed_doc = await web_interface.ingest_site(
+                url, 
+                max_pages=max_pages, 
+                max_depth=max_depth
+            )
+        else:
+            console.print(f"📄 Fetching single page: {url}...", style="cyan")
+            parsed_doc = await web_interface.ingest_url(url)
+        
+        # Show content stats
+        content_length = len(parsed_doc.content)
+        console.print(f"✅ Content retrieved: {content_length:,} characters", style="green")
+        
+        # Security warnings
+        if 'security_warnings' in parsed_doc.additional_metadata:
+            warnings = parsed_doc.additional_metadata['security_warnings']
+            if warnings:
+                console.print(f"⚠️  Security warnings found: {len(warnings)}", style="yellow")
+                for warning in warnings[:3]:  # Show first 3 warnings
+                    console.print(f"  • {warning}", style="yellow")
+                if len(warnings) > 3:
+                    console.print(f"  ... and {len(warnings) - 3} more warnings", style="yellow")
+        
+        # Pages crawled info
+        if 'pages_crawled' in parsed_doc.additional_metadata:
+            pages_crawled = parsed_doc.additional_metadata['pages_crawled']
+            console.print(f"📊 Pages successfully crawled: {pages_crawled}", style="cyan")
+        
+        if dry_run:
+            console.print("\n🔍 DRY RUN - Content preview (first 500 chars):", style="yellow bold")
+            preview = parsed_doc.content[:500]
+            if len(parsed_doc.content) > 500:
+                preview += "..."
+            console.print(f"'{preview}'", style="dim")
+            console.print("\n✅ Dry run completed successfully", style="green")
+            return
+        
+        # Confirmation
+        if not auto_confirm:
+            console.print(f"\n🤔 Ready to ingest {content_length:,} characters into '{collection}' collection")
+            if not typer.confirm("Proceed with ingestion?"):
+                console.print("❌ Operation cancelled", style="red")
+                return
+        
+        # Add to collection
+        console.print(f"💾 Adding content to collection '{collection}'...", style="blue")
+        
+        result = await add_document(
+            client=client,
+            collection=collection,
+            document=parsed_doc,
+            chunk_size=chunk_size,
+            chunk_overlap=chunk_overlap
+        )
+        
+        # Display results
+        if result and result.get('success', False):
+            console.print(f"✅ Successfully ingested web content", style="green bold")
+            console.print(f"📄 Document ID: {result.get('document_id', 'unknown')}", style="cyan")
+            if 'chunks_created' in result:
+                console.print(f"🔗 Text chunks created: {result['chunks_created']}", style="cyan")
+        else:
+            console.print(f"❌ Ingestion failed: {result.get('error', 'Unknown error')}", style="red")
+            sys.exit(1)
+    
+    except Exception as e:
+        console.print(f"❌ Web ingestion failed: {e}", style="red")
+        logger.error(f"Web ingestion error: {e}", exc_info=True)
+        sys.exit(1)
+    
+    finally:
+        if 'client' in locals():
+            await client.close()
 
 
 def main() -> None:
