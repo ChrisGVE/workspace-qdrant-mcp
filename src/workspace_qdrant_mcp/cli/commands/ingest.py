@@ -27,7 +27,10 @@ console = Console()
 logger = logging.getLogger(__name__)
 
 # Create the ingest app
-ingest_app = typer.Typer(help="📁 Manual document processing")
+ingest_app = typer.Typer(
+    help="📁 Manual document processing",
+    no_args_is_help=True
+)
 
 def handle_async(coro):
     """Helper to run async commands."""

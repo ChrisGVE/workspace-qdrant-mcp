@@ -27,7 +27,10 @@ from ...utils.project_detection import ProjectDetector
 console = Console()
 
 # Create the search app
-search_app = typer.Typer(help="🔍 Command-line search interface")
+search_app = typer.Typer(
+    help="🔍 Command-line search interface",
+    no_args_is_help=True
+)
 
 def handle_async(coro):
     """Helper to run async commands."""
