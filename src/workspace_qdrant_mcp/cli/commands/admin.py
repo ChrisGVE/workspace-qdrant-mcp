@@ -205,11 +205,15 @@ async def _collect_status_data(config: Config) -> dict[str, Any]:
     # Project detection
     try:
         detector = ProjectDetector(config.workspace.github_user if hasattr(config, 'workspace') else None)
-        projects = detector.detect_projects([Path.cwd()])
+        project_info = detector.get_project_info(str(Path.cwd()))
+        main_project = project_info["main_project"]
+        subprojects = project_info["subprojects"]
+        
         status_data["project"] = {
             "current_dir": str(Path.cwd()),
-            "detected_projects": len(projects),
-            "current_project": projects[0].name if projects else "unknown"
+            "detected_projects": 1 + len(subprojects),
+            "current_project": main_project,
+            "subprojects": len(subprojects)
         }
     except Exception as e:
         status_data["project"] = {"error": str(e)}
@@ -241,19 +245,20 @@ def _display_status_panel(status_data: dict[str, Any], verbose: bool):
     else:
         print(f"Qdrant DB        | ERROR        | {qdrant.get('error', 'Connection failed')}")
 
-    # Rust Engine
+    # Rust Engine - Show more useful status
     rust_engine = status_data["rust_engine"]
     if rust_engine["status"] == "healthy":
         print(f"Rust Engine      | RUNNING      | Tasks: {rust_engine.get('active_tasks', 0)}A/{rust_engine.get('queued_tasks', 0)}Q")
     elif rust_engine["status"] == "not_implemented":
-        print(f"Rust Engine      | PENDING      | {rust_engine.get('message', 'Not yet implemented')}")
+        print(f"Rust Engine      | NOT READY    | Engine integration pending")
     else:
         print(f"Rust Engine      | ERROR        | {rust_engine.get('error', 'Unknown error')}")
 
     # Project Context
     project = status_data["project"]
     if "error" not in project:
-        print(f"Project          | DETECTED     | {project.get('current_project', 'unknown')} | {project.get('detected_projects', 0)} projects")
+        subproject_info = f" + {project.get('subprojects', 0)} sub" if project.get('subprojects', 0) > 0 else ""
+        print(f"Project          | DETECTED     | {project.get('current_project', 'unknown')}{subproject_info} | {project.get('detected_projects', 0)} total")
     else:
         print(f"Project          | WARNING      | {project.get('error', 'Detection failed')}")
 
