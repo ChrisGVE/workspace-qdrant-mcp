@@ -109,11 +109,8 @@ class WorkspaceQdrantAdmin:
         # Determine current project context
         if not self.project_scope:
             current_dir = Path.cwd()
-            detected_projects = self.project_detector.detect_projects([current_dir])
-            if detected_projects:
-                self.current_project = detected_projects[0].name
-            else:
-                self.current_project = "unknown_project"
+            project_info = self.project_detector.get_project_info(str(current_dir))
+            self.current_project = project_info["main_project"]
         else:
             self.current_project = self.project_scope
 
@@ -385,13 +382,12 @@ class WorkspaceQdrantAdmin:
 
                 # Check project detection
                 try:
-                    detected_projects = self.project_detector.detect_projects(
-                        [Path.cwd()]
-                    )
+                    project_info = self.project_detector.get_project_info(str(Path.cwd()))
                     health_info["project_detection"] = {
                         "status": "ok",
-                        "detected_projects": len(detected_projects),
+                        "detected_projects": 1 + len(project_info["subprojects"]),
                         "current_project": self.current_project,
+                        "subprojects": len(project_info["subprojects"])
                     }
                 except Exception as e:
                     health_info["project_detection"] = {

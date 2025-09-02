@@ -129,8 +129,8 @@ async def _search_project(
 
         # Detect current project
         detector = ProjectDetector(config.workspace.github_user if hasattr(config, 'workspace') else None)
-        projects = detector.detect_projects([Path.cwd()])
-        current_project = projects[0].name if projects else "unknown"
+        project_info = detector.get_project_info(str(Path.cwd()))
+        current_project = project_info["main_project"]
 
         print(f"Searching project: {current_project}")
 
