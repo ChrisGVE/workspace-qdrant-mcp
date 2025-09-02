@@ -21,7 +21,7 @@ from rich.text import Text
 
 from ...core.client import create_qdrant_client
 from ...core.config import Config
-from ...tools.search import hybrid_search
+from ...tools.search import search_workspace
 from ...utils.project_detection import ProjectDetector
 
 console = Console()
@@ -160,7 +160,7 @@ async def _search_project(
         all_results = []
         for collection_name in project_collections:
             try:
-                results = await hybrid_search(
+                results = await search_workspace(
                     query=query,
                     collection_name=collection_name,
                     limit=limit,
@@ -211,7 +211,7 @@ async def _search_collection(
             raise typer.Exit(1)
 
         # Perform search
-        results = await hybrid_search(
+        results = await search_workspace(
             query=query,
             collection_name=collection,
             limit=limit,
@@ -268,7 +268,7 @@ async def _search_global(
         all_results = []
         for collection_name in global_collections:
             try:
-                results = await hybrid_search(
+                results = await search_workspace(
                     query=query,
                     collection_name=collection_name,
                     limit=limit,
@@ -322,7 +322,7 @@ async def _search_all(
         all_results = []
         for collection_name in collection_names:
             try:
-                results = await hybrid_search(
+                results = await search_workspace(
                     query=query,
                     collection_name=collection_name,
                     limit=limit,
