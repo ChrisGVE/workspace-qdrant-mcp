@@ -122,6 +122,11 @@ workspace_qdrant_admin.log
 # tasks.json
 # tasks/
 
+# Local configuration files (configuration examples are now in documentation)
+.env
+.env.local
+.mcp.json
+
 # Development and local configuration - KEEP LOCAL ONLY
 .claude/
 .taskmaster/
