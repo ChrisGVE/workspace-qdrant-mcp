@@ -1,0 +1,292 @@
+# ELK Stack Configuration for Workspace Qdrant MCP Log Aggregation
+version: '3.8'
+
+services:
+  elasticsearch:
+    image: docker.elastic.co/elasticsearch/elasticsearch:8.11.0
+    container_name: workspace-qdrant-elasticsearch
+    environment:
+      - node.name=elasticsearch
+      - cluster.name=workspace-qdrant-logs
+      - discovery.type=single-node
+      - bootstrap.memory_lock=true
+      - "ES_JAVA_OPTS=-Xms1g -Xmx1g"
+      - xpack.security.enabled=false
+      - xpack.security.enrollment.enabled=false
+    ulimits:
+      memlock:
+        soft: -1
+        hard: -1
+    volumes:
+      - elasticsearch_data:/usr/share/elasticsearch/data
+    ports:
+      - "9200:9200"
+      - "9300:9300"
+    networks:
+      - elastic
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://localhost:9200 || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+
+  logstash:
+    image: docker.elastic.co/logstash/logstash:8.11.0
+    container_name: workspace-qdrant-logstash
+    volumes:
+      - ./logstash/config:/usr/share/logstash/config
+      - ./logstash/pipeline:/usr/share/logstash/pipeline
+      - /var/log:/host/var/log:ro
+    ports:
+      - "5000:5000/tcp"
+      - "5000:5000/udp"
+      - "5044:5044"
+      - "9600:9600"
+    environment:
+      LS_JAVA_OPTS: "-Xmx1g -Xms1g"
+    networks:
+      - elastic
+    depends_on:
+      - elasticsearch
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://localhost:9600 || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+
+  kibana:
+    image: docker.elastic.co/kibana/kibana:8.11.0
+    container_name: workspace-qdrant-kibana
+    ports:
+      - "5601:5601"
+    environment:
+      ELASTICSEARCH_HOSTS: http://elasticsearch:9200
+      ELASTICSEARCH_URL: http://elasticsearch:9200
+    networks:
+      - elastic
+    depends_on:
+      - elasticsearch
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://localhost:5601 || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+
+  filebeat:
+    image: docker.elastic.co/beats/filebeat:8.11.0
+    container_name: workspace-qdrant-filebeat
+    user: root
+    volumes:
+      - ./filebeat/filebeat.yml:/usr/share/filebeat/filebeat.yml:ro
+      - /var/lib/docker/containers:/var/lib/docker/containers:ro
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - /var/log:/var/log:ro
+      - filebeat_data:/usr/share/filebeat/data
+    environment:
+      - ELASTICSEARCH_HOST=elasticsearch:9200
+      - KIBANA_HOST=kibana:5601
+    networks:
+      - elastic
+    depends_on:
+      - elasticsearch
+      - logstash
+    command: ["--strict.perms=false"]
+
+volumes:
+  elasticsearch_data:
+    driver: local
+  filebeat_data:
+    driver: local
+
+networks:
+  elastic:
+    driver: bridge
+
+# Logstash Pipeline Configuration
+---
+# File: ./logstash/pipeline/workspace-qdrant-mcp.conf
+input {
+  beats {
+    port => 5044
+  }
+  
+  # Application logs via syslog
+  syslog {
+    port => 5000
+    type => "syslog"
+  }
+  
+  # JSON logs via TCP
+  tcp {
+    port => 5001
+    codec => json_lines
+    type => "json"
+  }
+  
+  # HTTP input for direct log submission
+  http {
+    port => 8080
+    type => "http"
+  }
+}
+
+filter {
+  # Parse application-specific logs
+  if [fields][service] == "workspace-qdrant-mcp" {
+    # Parse structured JSON logs
+    if [message] =~ /^{.*}$/ {
+      json {
+        source => "message"
+      }
+    }
+    
+    # Extract log level
+    grok {
+      match => { "message" => "%{TIMESTAMP_ISO8601:timestamp} - %{DATA:logger} - %{LOGLEVEL:level} - %{GREEDYDATA:msg}" }
+      overwrite => [ "message" ]
+    }
+    
+    # Parse vector search logs
+    if [logger] =~ /vector_search/ {
+      grok {
+        match => { "msg" => "Vector search query_time=%{NUMBER:query_time_ms}ms results=%{NUMBER:result_count} query=%{QUOTEDSTRING:search_query}" }
+      }
+      
+      mutate {
+        convert => {
+          "query_time_ms" => "float"
+          "result_count" => "integer"
+        }
+      }
+    }
+    
+    # Parse ingestion logs
+    if [logger] =~ /ingestion/ {
+      grok {
+        match => { "msg" => "Document ingested doc_id=%{DATA:document_id} size=%{NUMBER:doc_size_bytes} processing_time=%{NUMBER:processing_time_ms}ms" }
+      }
+      
+      mutate {
+        convert => {
+          "doc_size_bytes" => "integer"
+          "processing_time_ms" => "float"
+        }
+      }
+    }
+    
+    # Parse error logs
+    if [level] == "ERROR" or [level] == "CRITICAL" {
+      # Extract stack traces
+      if [msg] =~ /Traceback/ {
+        multiline {
+          pattern => "^Traceback"
+          what => "previous"
+        }
+      }
+      
+      # Add error categorization
+      if [msg] =~ /ConnectionError|TimeoutError|ConnectTimeout/ {
+        mutate {
+          add_field => { "error_category" => "connection" }
+        }
+      } else if [msg] =~ /MemoryError|OutOfMemoryError/ {
+        mutate {
+          add_field => { "error_category" => "memory" }
+        }
+      } else if [msg] =~ /ValidationError|ValueError|TypeError/ {
+        mutate {
+          add_field => { "error_category" => "validation" }
+        }
+      } else {
+        mutate {
+          add_field => { "error_category" => "unknown" }
+        }
+      }
+    }
+  }
+  
+  # Parse HTTP access logs
+  if [type] == "nginx" {
+    grok {
+      match => { "message" => "%{NGINXACCESS}" }
+    }
+    
+    mutate {
+      convert => {
+        "response" => "integer"
+        "bytes" => "integer"
+        "responsetime" => "float"
+      }
+    }
+    
+    # Classify HTTP responses
+    if [response] >= 500 {
+      mutate {
+        add_field => { "response_category" => "server_error" }
+      }
+    } else if [response] >= 400 {
+      mutate {
+        add_field => { "response_category" => "client_error" }
+      }
+    } else if [response] >= 300 {
+      mutate {
+        add_field => { "response_category" => "redirect" }
+      }
+    } else {
+      mutate {
+        add_field => { "response_category" => "success" }
+      }
+    }
+  }
+  
+  # Add common fields
+  mutate {
+    add_field => { "[@metadata][index]" => "workspace-qdrant-mcp-%{+YYYY.MM.dd}" }
+  }
+  
+  # Parse timestamp
+  date {
+    match => [ "timestamp", "ISO8601" ]
+  }
+  
+  # Remove sensitive information
+  mutate {
+    remove_field => ["password", "token", "secret", "api_key"]
+  }
+}
+
+output {
+  elasticsearch {
+    hosts => ["elasticsearch:9200"]
+    index => "%{[@metadata][index]}"
+    template_name => "workspace-qdrant-mcp"
+    template_pattern => "workspace-qdrant-mcp-*"
+    template => {
+      "index_patterns" => ["workspace-qdrant-mcp-*"],
+      "settings" => {
+        "number_of_shards" => 1,
+        "number_of_replicas" => 0
+      },
+      "mappings" => {
+        "properties" => {
+          "timestamp" => { "type" => "date" },
+          "level" => { "type" => "keyword" },
+          "logger" => { "type" => "keyword" },
+          "service" => { "type" => "keyword" },
+          "query_time_ms" => { "type" => "float" },
+          "processing_time_ms" => { "type" => "float" },
+          "result_count" => { "type" => "integer" },
+          "doc_size_bytes" => { "type" => "integer" },
+          "response" => { "type" => "integer" },
+          "error_category" => { "type" => "keyword" },
+          "response_category" => { "type" => "keyword" }
+        }
+      }
+    }
+  }
+  
+  # Output to stdout for debugging
+  stdout {
+    codec => rubydebug
+  }
+}
