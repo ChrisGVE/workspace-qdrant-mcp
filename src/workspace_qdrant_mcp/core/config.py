@@ -128,6 +128,7 @@ class WorkspaceConfig(BaseModel):
         github_user: GitHub username for project ownership detection
         collection_prefix: Optional prefix for all collection names
         max_collections: Maximum number of collections per workspace (safety limit)
+        auto_create_collections: Whether to automatically create project collections on startup
 
     Usage Patterns:
         - collections define project-specific collection types
@@ -135,19 +136,21 @@ class WorkspaceConfig(BaseModel):
         - github_user enables intelligent project name detection
         - collection_prefix helps organize collections in shared Qdrant instances
         - max_collections prevents runaway collection creation
-        - scratchbook collections ({project-name}-scratchbook) are created automatically
+        - auto_create_collections controls whether collections are created automatically
+        - when auto_create_collections=false, only scratchbook collection is created
 
     Examples:
-        - collections=["project"] → creates {project-name}-project
-        - collections=["docs", "tests"] → creates {project-name}-docs, {project-name}-tests
-        - scratchbook collection is always created as {project-name}-scratchbook
+        - collections=["project"] → creates {project-name}-project (if auto_create_collections=true)
+        - collections=["docs", "tests"] → creates {project-name}-docs, {project-name}-tests (if auto_create_collections=true)
+        - scratchbook collection is always created regardless of auto_create_collections setting
     """
 
     collections: list[str] = ["project"]
-    global_collections: list[str] = ["docs", "references", "standards"]
+    global_collections: list[str] = ["scratchbook"]
     github_user: str | None = None
     collection_prefix: str = ""
     max_collections: int = 100
+    auto_create_collections: bool = False
 
 
 class Config(BaseSettings):
