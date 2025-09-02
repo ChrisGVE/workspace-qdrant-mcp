@@ -1,6 +1,4 @@
 
-from ...observability import get_logger
-logger = get_logger(__name__)
 """Core functionality for workspace-qdrant-mcp."""
 
 from .client import QdrantWorkspaceClient

@@ -1,6 +1,4 @@
 
-from .observability import get_logger
-logger = get_logger(__name__)
 """
 FastMCP server for workspace-qdrant-mcp.
 
@@ -44,7 +42,7 @@ import logging
 import os
 import signal
 from datetime import datetime, timezone
-from typing import Optional
+from typing import Optional, List
 
 import typer
 from fastmcp import FastMCP
@@ -1875,7 +1873,7 @@ async def initialize_workspace() -> None:
                       warnings=validation_results["warnings"])
 
     # Initialize Qdrant workspace client
-    logger.info("Initializing Qdrant workspace client", qdrant_url=config.qdrant_url)
+    logger.info("Initializing Qdrant workspace client", qdrant_url=config.qdrant.url)
     workspace_client = QdrantWorkspaceClient(config)
 
     # Initialize collections for current project

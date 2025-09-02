@@ -1,6 +1,4 @@
 
-from ...observability import get_logger
-logger = get_logger(__name__)
 """
 Connection testing and diagnostic utilities for workspace-qdrant-mcp.
 

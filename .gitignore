@@ -134,6 +134,7 @@ CLAUDE.md
 backup-dr/
 external/
 proto/
+dev/
 
 # Development artifacts and reports - KEEP LOCAL ONLY
 *_COMPLETION_REPORT.md

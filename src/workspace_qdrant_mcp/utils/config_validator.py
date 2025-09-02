@@ -1,6 +1,4 @@
 
-from ...observability import get_logger
-logger = get_logger(__name__)
 """
 Comprehensive configuration validation and setup guidance utilities.
 

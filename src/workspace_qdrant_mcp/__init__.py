@@ -1,6 +1,4 @@
 
-from .observability import get_logger
-logger = get_logger(__name__)
 """
 workspace-qdrant-mcp: Advanced project-scoped Qdrant MCP server.
 
