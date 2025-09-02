@@ -18,6 +18,7 @@
 
 [![Qdrant](https://img.shields.io/badge/Qdrant-1.7%2B-red.svg)](https://qdrant.tech)
 [![FastMCP](https://img.shields.io/badge/FastMCP-0.3%2B-orange.svg)](https://github.com/jlowin/fastmcp)
+[![GitHub Discussions](https://img.shields.io/github/discussions/ChrisGVE/workspace-qdrant-mcp?style=social&logo=github&label=Discussions)](https://github.com/ChrisGVE/workspace-qdrant-mcp/discussions)
 [![GitHub stars](https://img.shields.io/github/stars/ChrisGVE/workspace-qdrant-mcp.svg?style=social&label=Stars)](https://github.com/ChrisGVE/workspace-qdrant-mcp/stargazers)
 
 [![MseeP.ai Security Assessment](https://mseep.net/pr/chrisgve-workspace-qdrant-mcp-badge.png)](https://mseep.ai/app/chrisgve-workspace-qdrant-mcp)
@@ -459,7 +460,15 @@ We welcome contributions! Please see [CONTRIBUTING.md](CONTRIBUTING.md) for guid
 - Code style and quality requirements
 - Submitting pull requests
 
-For questions or discussions, please open an issue on GitHub.
+## 💬 Community
+
+Join our community discussions for support, ideas, and collaboration:
+
+- **[GitHub Discussions](https://github.com/ChrisGVE/workspace-qdrant-mcp/discussions)** - Community Q&A, feature ideas, and showcases
+- **[Community Guidelines](docs/COMMUNITY_GUIDELINES.md)** - How we work together
+- **[Discussion Guide](docs/DISCUSSIONS_GUIDE.md)** - Getting the most from community discussions
+
+For bug reports and specific feature requests, please open an issue on GitHub.
 
 ## License
 
