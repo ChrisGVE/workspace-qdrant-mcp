@@ -52,9 +52,11 @@ Example:
 """
 
 import os
-from typing import Optional
+import yaml
+from pathlib import Path
+from typing import Optional, Dict, Any
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, ValidationError
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -199,15 +201,167 @@ class Config(BaseSettings):
     embedding: EmbeddingConfig = Field(default_factory=EmbeddingConfig)
     workspace: WorkspaceConfig = Field(default_factory=WorkspaceConfig)
 
-    def __init__(self, **kwargs) -> None:
-        """Initialize configuration with environment and legacy variable loading.
+    def __init__(self, config_file: Optional[str] = None, **kwargs) -> None:
+        """Initialize configuration with YAML file, environment and legacy variable loading.
 
         Args:
+            config_file: Path to YAML configuration file (takes precedence over env vars)
             **kwargs: Override values for configuration parameters
         """
-        super().__init__(**kwargs)
+        # Load YAML configuration first if provided
+        yaml_config = {}
+        if config_file:
+            yaml_config = self._load_yaml_config(config_file)
+        
+        # Merge YAML config with kwargs, giving kwargs precedence
+        merged_kwargs = {**yaml_config, **kwargs}
+        
+        super().__init__(**merged_kwargs)
+        
+        # Load environment variables (these have lower precedence than YAML)
         self._load_legacy_env_vars()
         self._load_nested_env_vars()
+        
+        # Override with YAML config again to ensure YAML takes precedence over env vars
+        if yaml_config:
+            self._apply_yaml_overrides(yaml_config)
+
+    def _load_yaml_config(self, config_file: str) -> Dict[str, Any]:
+        """Load configuration from YAML file.
+        
+        Args:
+            config_file: Path to YAML configuration file
+            
+        Returns:
+            Dict containing the parsed YAML configuration
+            
+        Raises:
+            FileNotFoundError: If the config file doesn't exist
+            yaml.YAMLError: If the YAML file is malformed
+            ValueError: If the YAML structure is invalid
+        """
+        config_path = Path(config_file)
+        
+        if not config_path.exists():
+            raise FileNotFoundError(f"Configuration file not found: {config_file}")
+        
+        if not config_path.is_file():
+            raise ValueError(f"Configuration path is not a file: {config_file}")
+        
+        try:
+            with config_path.open('r', encoding='utf-8') as f:
+                yaml_data = yaml.safe_load(f)
+            
+            if yaml_data is None:
+                return {}
+            
+            if not isinstance(yaml_data, dict):
+                raise ValueError(f"YAML configuration must be a dictionary, got {type(yaml_data).__name__}")
+            
+            # Validate and flatten YAML structure for pydantic
+            return self._process_yaml_structure(yaml_data)
+            
+        except yaml.YAMLError as e:
+            raise yaml.YAMLError(f"Error parsing YAML configuration file {config_file}: {e}") from e
+        except Exception as e:
+            raise ValueError(f"Error loading configuration file {config_file}: {e}") from e
+    
+    def _process_yaml_structure(self, yaml_data: Dict[str, Any]) -> Dict[str, Any]:
+        """Process YAML data structure to match Pydantic model structure.
+        
+        Args:
+            yaml_data: Raw YAML data dictionary
+            
+        Returns:
+            Processed configuration dictionary matching the model structure
+        """
+        processed = {}
+        
+        # Handle nested configuration sections
+        for key, value in yaml_data.items():
+            if key == 'qdrant' and isinstance(value, dict):
+                processed['qdrant'] = QdrantConfig(**value)
+            elif key == 'embedding' and isinstance(value, dict):
+                processed['embedding'] = EmbeddingConfig(**value)
+            elif key == 'workspace' and isinstance(value, dict):
+                processed['workspace'] = WorkspaceConfig(**value)
+            elif key in ['host', 'port', 'debug']:  # Server-level config
+                processed[key] = value
+            else:
+                # Allow other keys to pass through
+                processed[key] = value
+        
+        return processed
+    
+    def _apply_yaml_overrides(self, yaml_config: Dict[str, Any]) -> None:
+        """Apply YAML configuration overrides after environment variables are loaded.
+        
+        Args:
+            yaml_config: Processed YAML configuration dictionary
+        """
+        for key, value in yaml_config.items():
+            if hasattr(self, key):
+                setattr(self, key, value)
+    
+    @classmethod
+    def from_yaml(cls, config_file: str, **kwargs) -> 'Config':
+        """Create Config instance from YAML file.
+        
+        Args:
+            config_file: Path to YAML configuration file
+            **kwargs: Additional configuration overrides
+            
+        Returns:
+            Config instance with YAML configuration loaded
+            
+        Example:
+            ```python
+            config = Config.from_yaml('config.yaml')
+            ```
+        """
+        return cls(config_file=config_file, **kwargs)
+    
+    def to_yaml(self, file_path: Optional[str] = None) -> str:
+        """Export current configuration to YAML format.
+        
+        Args:
+            file_path: Optional path to save YAML file
+            
+        Returns:
+            YAML string representation of the configuration
+        """
+        config_dict = {
+            'host': self.host,
+            'port': self.port,
+            'debug': self.debug,
+            'qdrant': {
+                'url': self.qdrant.url,
+                'api_key': self.qdrant.api_key,
+                'timeout': self.qdrant.timeout,
+                'prefer_grpc': self.qdrant.prefer_grpc,
+            },
+            'embedding': {
+                'model': self.embedding.model,
+                'enable_sparse_vectors': self.embedding.enable_sparse_vectors,
+                'chunk_size': self.embedding.chunk_size,
+                'chunk_overlap': self.embedding.chunk_overlap,
+                'batch_size': self.embedding.batch_size,
+            },
+            'workspace': {
+                'collections': self.workspace.collections,
+                'global_collections': self.workspace.global_collections,
+                'github_user': self.workspace.github_user,
+                'collection_prefix': self.workspace.collection_prefix,
+                'max_collections': self.workspace.max_collections,
+            }
+        }
+        
+        yaml_str = yaml.dump(config_dict, default_flow_style=False, sort_keys=False)
+        
+        if file_path:
+            Path(file_path).write_text(yaml_str, encoding='utf-8')
+        
+        return yaml_str
 
     def _load_nested_env_vars(self) -> None:
         """Load nested configuration from environment variables with double underscore syntax."""

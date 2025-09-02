@@ -1820,7 +1820,7 @@ def setup_signal_handlers() -> None:
 
 
 @monitor_async("initialize_workspace", critical=True, timeout_warning=30.0)
-async def initialize_workspace() -> None:
+async def initialize_workspace(config_file: Optional[str] = None) -> None:
     """Initialize the workspace client and project-specific collections.
 
     Performs comprehensive setup including configuration validation, project detection,
@@ -1852,9 +1852,18 @@ async def initialize_workspace() -> None:
     
     logger.info("Starting workspace initialization")
 
-    # Load configuration
-    logger.debug("Loading configuration")
-    config = Config()
+    # Load configuration from YAML file if provided, otherwise use environment variables
+    logger.debug("Loading configuration", config_file=config_file)
+    try:
+        if config_file:
+            config = Config.from_yaml(config_file)
+            logger.info("Configuration loaded from YAML file", config_file=config_file)
+        else:
+            config = Config()
+            logger.debug("Configuration loaded from environment variables")
+    except Exception as e:
+        logger.error("Failed to load configuration", config_file=config_file, error=str(e))
+        raise RuntimeError(f"Configuration loading failed: {e}") from e
 
     # Validate configuration
     validator = ConfigValidator(config)
@@ -1917,7 +1926,7 @@ def run_server(
         "127.0.0.1", help="Host to bind to (for HTTP transports only)"
     ),
     port: int = typer.Option(8000, help="Port to bind to (for HTTP transports only)"),
-    config_file: str | None = typer.Option(None, help="Path to configuration file"),
+    config: str | None = typer.Option(None, "--config", help="Path to YAML configuration file"),
 ) -> None:
     """Start the workspace-qdrant-mcp MCP server.
 
@@ -1929,11 +1938,11 @@ def run_server(
         transport: Transport protocol - 'stdio' for MCP clients, 'http'/'sse'/'streamable-http' for web
         host: IP address to bind the server to (only used for HTTP transports)
         port: TCP port number for the server (only used for HTTP transports)
-        config_file: Optional path to custom configuration file (overrides defaults)
+        config: Optional path to YAML configuration file (takes precedence over environment variables)
 
     Environment Variables:
-        CONFIG_FILE: Path to configuration file (can be set via --config-file)
-        QDRANT_URL: Qdrant database endpoint URL
+        WORKSPACE_QDRANT_*: Prefixed environment variables for configuration
+        QDRANT_URL: Qdrant database endpoint URL (legacy, use YAML config preferred)
         OPENAI_API_KEY: Required for embedding generation (if using OpenAI models)
 
     Example:
@@ -1941,17 +1950,16 @@ def run_server(
         # Start MCP server for Claude Desktop (default)
         python -m workspace_qdrant_mcp.server
 
-        # Start with custom configuration
-        python -m workspace_qdrant_mcp.server --config-file ./custom.toml
+        # Start with custom YAML configuration
+        python -m workspace_qdrant_mcp.server --config ./config.yaml
 
         # Start HTTP server for web clients
         python -m workspace_qdrant_mcp.server --transport http --host 0.0.0.0 --port 9000
         ```
     """
 
-    # Set configuration file if provided
-    if config_file:
-        os.environ["CONFIG_FILE"] = config_file
+    # Store configuration file path for later use
+    config_file_path = config
     
     # Configure logging early
     configure_logging(
@@ -1964,13 +1972,13 @@ def run_server(
                transport=transport,
                host=host if transport != "stdio" else None,
                port=port if transport != "stdio" else None,
-               config_file=config_file)
+               config_file=config)
 
     # Set up signal handlers for graceful shutdown
     setup_signal_handlers()
 
     # Initialize workspace before running server
-    asyncio.run(initialize_workspace())
+    asyncio.run(initialize_workspace(config_file_path))
 
     # Run FastMCP server with appropriate transport
     if transport == "stdio":

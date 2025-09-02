@@ -1,0 +1,30 @@
+# Example YAML configuration for workspace-qdrant-mcp
+# This file demonstrates the structure and available configuration options
+
+# Server configuration
+host: "127.0.0.1"
+port: 8000
+debug: false
+
+# Qdrant database configuration
+qdrant:
+  url: "http://localhost:6333"
+  api_key: null  # Set to your API key for Qdrant Cloud
+  timeout: 30
+  prefer_grpc: false
+
+# Embedding configuration
+embedding:
+  model: "sentence-transformers/all-MiniLM-L6-v2"
+  enable_sparse_vectors: true
+  chunk_size: 800
+  chunk_overlap: 120
+  batch_size: 50
+
+# Workspace configuration
+workspace:
+  collections: ["project"]  # Project-specific collections created as {project}-{collection}
+  global_collections: ["docs", "references", "standards"]  # Collections available across all projects
+  github_user: null  # Set to your GitHub username for improved project detection
+  collection_prefix: ""  # Optional prefix for all collection names
+  max_collections: 100  # Maximum number of collections per workspace
