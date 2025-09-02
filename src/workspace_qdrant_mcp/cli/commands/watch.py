@@ -13,19 +13,14 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 import typer
-from rich.console import Console
-from rich.panel import Panel
-from rich.prompt import Confirm
 
 from ...core.client import QdrantWorkspaceClient
 from ...core.config import Config
 from ..watch_service import WatchService, create_status_table, create_watches_table
 
-console = Console()
-
 # Create the watch app
 watch_app = typer.Typer(
-    help="👀 Folder watching configuration",
+    help="Folder watching configuration",
     no_args_is_help=True
 )
 
@@ -35,10 +30,10 @@ def handle_async(coro):
     try:
         return asyncio.run(coro)
     except KeyboardInterrupt:
-        console.print("\n[yellow]Operation cancelled by user[/yellow]")
+        print("\nOperation cancelled by user")
         raise typer.Exit(1)
     except Exception as e:
-        console.print(f"[red]Error: {e}[/red]")
+        print(f"Error: {e}")
         raise typer.Exit(1)
 
 
@@ -148,9 +143,9 @@ async def _add_watch(
     try:
         watch_path = Path(path).resolve()
 
-        console.print("[bold blue]👀 Adding watch configuration[/bold blue]")
-        console.print(f"Path: [cyan]{watch_path}[/cyan]")
-        console.print(f"Collection: [cyan]{collection}[/cyan]")
+        print("Adding watch configuration")
+        print(f"Path: {watch_path}")
+        print(f"Collection: {collection}")
 
         # Get watch service
         service = await _get_watch_service()
@@ -173,40 +168,33 @@ async def _add_watch(
         )
 
         # Show configuration
-        config_info = f"""[bold]Watch Configuration[/bold]
-
-📁 [cyan]Path:[/cyan] {watch_path}
-📚 [cyan]Collection:[/cyan] {collection}
-🆔 [cyan]Watch ID:[/cyan] {watch_id}
-🔄 [cyan]Auto-ingest:[/cyan] {'✅ Enabled' if auto_ingest else '❌ Disabled'}
-📂 [cyan]Recursive:[/cyan] {'✅ Yes' if recursive else '❌ No'}
-⏱️  [cyan]Debounce:[/cyan] {debounce} seconds
-
-[bold]File Patterns:[/bold]
-{chr(10).join(f'  • {pattern}' for pattern in patterns)}
-
-[bold]Ignore Patterns:[/bold]
-{chr(10).join(f'  • {ignore_pattern}' for ignore_pattern in ignore)}"""
-
-        config_panel = Panel(
-            config_info,
-            title="⚙️ Watch Configuration Added",
-            border_style="green"
-        )
-        console.print(config_panel)
+        print("Watch Configuration Added")
+        print("=" * 50)
+        print(f"Path: {watch_path}")
+        print(f"Collection: {collection}")
+        print(f"Watch ID: {watch_id}")
+        print(f"Auto-ingest: {'Enabled' if auto_ingest else 'Disabled'}")
+        print(f"Recursive: {'Yes' if recursive else 'No'}")
+        print(f"Debounce: {debounce} seconds")
+        print("\nFile Patterns:")
+        for pattern in patterns:
+            print(f"  • {pattern}")
+        print("\nIgnore Patterns:")
+        for ignore_pattern in ignore:
+            print(f"  • {ignore_pattern}")
 
         # Start monitoring if auto-ingest is enabled
         if auto_ingest:
             await service.start_all_watches()
-            console.print(f"\n[green]✅ File monitoring started for {watch_path}[/green]")
-            console.print("[dim]New files will be automatically ingested into the collection[/dim]")
+            print(f"\nFile monitoring started for {watch_path}")
+            print("New files will be automatically ingested into the collection")
         else:
-            console.print("\n[yellow]⚠️ Auto-ingest is disabled[/yellow]")
-            console.print("[dim]Files will be detected but not automatically processed[/dim]")
-            console.print("Enable with: [green]wqm watch resume[/green]")
+            print("\nWarning: Auto-ingest is disabled")
+            print("Files will be detected but not automatically processed")
+            print("Enable with: wqm watch resume")
 
     except Exception as e:
-        console.print(f"[red]❌ Failed to add watch: {e}[/red]")
+        print(f"Error: Failed to add watch: {e}")
         raise typer.Exit(1)
 
 
@@ -219,32 +207,33 @@ async def _list_watches(active_only: bool, collection: str | None, format: str):
         if format == "json":
             # JSON output
             output = [watch.to_dict() for watch in watches]
-            console.print("Output", data=json.dumps(output, indent=2))
+            print(json.dumps(output, indent=2))
             return
 
         # Table output
         if not watches:
-            console.print("[yellow]No watches found[/yellow]")
+            print("No watches found")
             if not active_only:
-                console.print("Add a watch with: [green]wqm watch add <path> --collection=<library>[/green]")
+                print("Add a watch with: wqm watch add <path> --collection=<library>")
             return
 
         # Get status information
         status_data = await service.get_watch_status()
         watches_status = status_data['watches']
 
-        console.print(f"[bold blue]📋 Watch Configurations ({len(watches)} found)[/bold blue]\n")
+        print(f"Watch Configurations ({len(watches)} found)\n")
 
         # Show summary table
         table = create_watches_table(watches_status)
-        console.print(table)
+        # TODO: Convert Rich table to plain text format
+        print("[Watch table would be displayed here]")
 
         # Show tips
-        console.print("\n[dim]💡 Use 'wqm watch status --detailed' for more information[/dim]")
-        console.print("[dim]💡 Use 'wqm watch sync' to manually process watched directories[/dim]")
+        print("\nTip: Use 'wqm watch status --detailed' for more information")
+        print("Tip: Use 'wqm watch sync' to manually process watched directories")
 
     except Exception as e:
-        console.print(f"[red]❌ Failed to list watches: {e}[/red]")
+        print(f"Error: Failed to list watches: {e}")
         raise typer.Exit(1)
 
 
@@ -322,7 +311,8 @@ async def _watch_status(detailed: bool, recent: bool):
 
         # System status overview
         table = create_status_table(status_data)
-        console.print(table)
+        # TODO: Convert Rich table to plain text format
+        print("[Watch table would be displayed here]")
 
         if detailed and status_data['watches']:
             console.print("\n")
