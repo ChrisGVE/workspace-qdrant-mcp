@@ -1,33 +1,16 @@
-# workspace-qdrant-mcp
+# THIS PROJECT IS IN ACTIVE DEVELOPMENT AND IS NOT YET READY FOR PRODUCTION, BUT SOON!
 
-<div align="center">
+# workspace-qdrant-mcp
 
 **Project-scoped Qdrant MCP server with hybrid search and configurable collections**
 
-[![PyPI version](https://badge.fury.io/py/workspace-qdrant-mcp.svg)](https://pypi.org/project/workspace-qdrant-mcp/)
-[![Python 3.10+](https://img.shields.io/badge/Python-3.10%2B-blue.svg)](https://www.python.org/downloads/)
-[![Downloads](https://pepy.tech/badge/workspace-qdrant-mcp)](https://pepy.tech/project/workspace-qdrant-mcp)
-[![License](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
-
-[![CI/CD Pipeline](https://github.com/ChrisGVE/workspace-qdrant-mcp/actions/workflows/ci.yml/badge.svg)](https://github.com/ChrisGVE/workspace-qdrant-mcp/actions/workflows/ci.yml)
-[![Semantic Release](https://github.com/ChrisGVE/workspace-qdrant-mcp/actions/workflows/semantic-release.yml/badge.svg)](https://github.com/ChrisGVE/workspace-qdrant-mcp/actions/workflows/semantic-release.yml)
-[![Release Verification](https://github.com/ChrisGVE/workspace-qdrant-mcp/actions/workflows/release-verification.yml/badge.svg)](https://github.com/ChrisGVE/workspace-qdrant-mcp/actions/workflows/release-verification.yml)
-[![Quality Assurance](https://github.com/ChrisGVE/workspace-qdrant-mcp/actions/workflows/quality.yml/badge.svg)](https://github.com/ChrisGVE/workspace-qdrant-mcp/actions/workflows/quality.yml)
-[![Security Scan](https://github.com/ChrisGVE/workspace-qdrant-mcp/actions/workflows/security.yml/badge.svg)](https://github.com/ChrisGVE/workspace-qdrant-mcp/actions/workflows/security.yml)
-[![Codecov](https://codecov.io/gh/ChrisGVE/workspace-qdrant-mcp/branch/main/graph/badge.svg)](https://codecov.io/gh/ChrisGVE/workspace-qdrant-mcp)
-
-[![Qdrant](https://img.shields.io/badge/Qdrant-1.7%2B-red.svg)](https://qdrant.tech)
-[![FastMCP](https://img.shields.io/badge/FastMCP-0.3%2B-orange.svg)](https://github.com/jlowin/fastmcp)
-[![GitHub Discussions](https://img.shields.io/github/discussions/ChrisGVE/workspace-qdrant-mcp?style=social&logo=github&label=Discussions)](https://github.com/ChrisGVE/workspace-qdrant-mcp/discussions)
-[![GitHub stars](https://img.shields.io/github/stars/ChrisGVE/workspace-qdrant-mcp.svg?style=social&label=Stars)](https://github.com/ChrisGVE/workspace-qdrant-mcp/stargazers)
-
-[![MseeP.ai Security Assessment](https://mseep.net/pr/chrisgve-workspace-qdrant-mcp-badge.png)](https://mseep.ai/app/chrisgve-workspace-qdrant-mcp)
+[![PyPI version](https://badge.fury.io/py/workspace-qdrant-mcp.svg)](https://pypi.org/project/workspace-qdrant-mcp/) [![Python 3.10+](https://img.shields.io/badge/Python-3.10%2B-blue.svg)](https://www.python.org/downloads/) [![Downloads](https://pepy.tech/badge/workspace-qdrant-mcp)](https://pepy.tech/project/workspace-qdrant-mcp) [![License](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE) [![Semantic Release](https://github.com/ChrisGVE/workspace-qdrant-mcp/actions/workflows/semantic-release.yml/badge.svg)](https://github.com/ChrisGVE/workspace-qdrant-mcp/actions/workflows/semantic-release.yml) [![Release Verification](https://github.com/ChrisGVE/workspace-qdrant-mcp/actions/workflows/release-verification.yml/badge.svg)](https://github.com/ChrisGVE/workspace-qdrant-mcp/actions/workflows/release-verification.yml) [![Quality Assurance](https://github.com/ChrisGVE/workspace-qdrant-mcp/actions/workflows/quality.yml/badge.svg)](https://github.com/ChrisGVE/workspace-qdrant-mcp/actions/workflows/quality.yml) [![Security Scan](https://github.com/ChrisGVE/workspace-qdrant-mcp/actions/workflows/security.yml/badge.svg)](https://github.com/ChrisGVE/workspace-qdrant-mcp/actions/workflows/security.yml) [![Codecov](https://codecov.io/gh/ChrisGVE/workspace-qdrant-mcp/branch/main/graph/badge.svg)](https://codecov.io/gh/ChrisGVE/workspace-qdrant-mcp) [![Qdrant](https://img.shields.io/badge/Qdrant-1.7%2B-red.svg)](https://qdrant.tech) [![FastMCP](https://img.shields.io/badge/FastMCP-0.3%2B-orange.svg)](https://github.com/jlowin/fastmcp) [![GitHub Discussions](https://img.shields.io/github/discussions/ChrisGVE/workspace-qdrant-mcp?style=social&logo=github&label=Discussions)](https://github.com/ChrisGVE/workspace-qdrant-mcp/discussions) [![GitHub stars](https://img.shields.io/github/stars/ChrisGVE/workspace-qdrant-mcp.svg?style=social&label=Stars)](https://github.com/ChrisGVE/workspace-qdrant-mcp/stargazers) [![MseeP.ai Security Assessment](https://mseep.net/pr/chrisgve-workspace-qdrant-mcp-badge.png)](https://mseep.ai/app/chrisgve-workspace-qdrant-mcp)
 
 </div>
 
 ---
 
-*Inspired by [claude-qdrant-mcp](https://github.com/marlian/claude-qdrant-mcp) with enhanced project detection, Python implementation, and flexible collection management.*
+_Inspired by [claude-qdrant-mcp](https://github.com/marlian/claude-qdrant-mcp) with enhanced project detection, Python implementation, and flexible collection management._
 
 workspace-qdrant-mcp provides intelligent vector database operations through the Model Context Protocol (MCP), featuring automatic project detection, hybrid search capabilities, and configurable collection management for seamless integration with Claude Desktop and Claude Code.
 
@@ -35,7 +18,7 @@ workspace-qdrant-mcp provides intelligent vector database operations through the
 
 - 🏗️ **Auto Project Detection** - Smart workspace-scoped collections with Git repository awareness
 - 🔍 **Hybrid Search** - Combines semantic and keyword search with reciprocal rank fusion
-- 📝 **Scratchbook Collections** - Personal development journals for each project  
+- 📝 **Scratchbook Collections** - Personal development journals for each project
 - 🎯 **Subproject Support** - Git submodules with user-filtered collection creation
 - ⚙️ **Interactive Setup** - Guided configuration wizard with health checks
 - 🚀 **High Performance** - Rust-powered components with evidence-based benchmarks
@@ -45,7 +28,7 @@ workspace-qdrant-mcp provides intelligent vector database operations through the
 
 - [✨ Key Features](#-key-features)
 - [Quick Start](#quick-start)
-- [Prerequisites](#prerequisites)  
+- [Prerequisites](#prerequisites)
 - [Installation](#installation)
 - [MCP Integration](#mcp-integration)
 - [Configuration](#configuration)
@@ -84,6 +67,7 @@ pip install workspace-qdrant-mcp
 ```
 
 **After installation, run the setup wizard:**
+
 ```bash
 workspace-qdrant-setup
 ```
@@ -125,32 +109,36 @@ Configure environment variables through Claude Code's settings or your shell env
 
 ### Environment Variables
 
-| Variable | Default | Description |
-|----------|---------|-------------|
-| `QDRANT_URL` | `http://localhost:6333` | Qdrant server URL |
-| `QDRANT_API_KEY` | _(none)_ | Required for Qdrant cloud, optional for local |
-| `COLLECTIONS` | `project` | Collection suffixes (comma-separated) |
-| `GLOBAL_COLLECTIONS` | _(none)_ | Global collection names (comma-separated) |
-| `GITHUB_USER` | _(none)_ | Filter projects by GitHub username |
-| `FASTEMBED_MODEL` | `sentence-transformers/all-MiniLM-L6-v2` | Embedding model (see options below) |
+| Variable             | Default                                  | Description                                   |
+| -------------------- | ---------------------------------------- | --------------------------------------------- |
+| `QDRANT_URL`         | `http://localhost:6333`                  | Qdrant server URL                             |
+| `QDRANT_API_KEY`     | _(none)_                                 | Required for Qdrant cloud, optional for local |
+| `COLLECTIONS`        | `project`                                | Collection suffixes (comma-separated)         |
+| `GLOBAL_COLLECTIONS` | _(none)_                                 | Global collection names (comma-separated)     |
+| `GITHUB_USER`        | _(none)_                                 | Filter projects by GitHub username            |
+| `FASTEMBED_MODEL`    | `sentence-transformers/all-MiniLM-L6-v2` | Embedding model (see options below)           |
 
 ### Embedding Model Options
 
 Choose the embedding model that best fits your system resources and quality requirements:
 
 **Lightweight (384D) - Good for limited resources:**
+
 - `sentence-transformers/all-MiniLM-L6-v2` (default) - Fast, low memory
 
 **Balanced (768D) - Better quality, moderate resources:**
+
 - `BAAI/bge-base-en-v1.5` - Excellent for most use cases
 - `jinaai/jina-embeddings-v2-base-en` - Good multilingual support
 - `thenlper/gte-base` - Google's T5-based model
 
 **High Quality (1024D) - Best results, high resource usage:**
+
 - `BAAI/bge-large-en-v1.5` - Top performance for English
 - `mixedbread-ai/mxbai-embed-large-v1` - Latest state-of-the-art
 
 **Configuration example:**
+
 ```bash
 # Use a more powerful model
 export FASTEMBED_MODEL="BAAI/bge-base-en-v1.5"
@@ -166,16 +154,20 @@ export FASTEMBED_MODEL="BAAI/bge-base-en-v1.5"
 Collections are automatically created based on your project and configuration:
 
 **Always Created:**
+
 - `{project-name}-scratchbook` → Auto-created for notes, ideas, todos, and code snippets
 
 **Project Collections:**
+
 - `COLLECTIONS="project"` → creates `{project-name}-project`
 - `COLLECTIONS="docs,tests"` → creates `{project-name}-docs`, `{project-name}-tests`
 
 **Global Collections (User Choice):**
+
 - `GLOBAL_COLLECTIONS="docs,references"` → creates `docs`, `references` (shared across projects)
 
 **Example:** For project "my-app" with `COLLECTIONS="docs,tests"`:
+
 - `my-app-scratchbook` (automatically created for notes)
 - `my-app-docs` (project documentation)
 - `my-app-tests` (test-related documents)
@@ -187,8 +179,9 @@ Collections are automatically created based on your project and configuration:
 Every project automatically gets a `{project-name}-scratchbook` collection for capturing development thoughts and notes. This is your **personal development journal** for the project.
 
 **What goes in scratchbook collections:**
+
 - 📝 **Meeting notes** and action items
-- 💡 **Ideas** and implementation thoughts  
+- 💡 **Ideas** and implementation thoughts
 - ✅ **TODOs** and reminders
 - 🔧 **Code snippets** and implementation patterns
 - 🏗️ **Architecture decisions** and rationale
@@ -197,6 +190,7 @@ Every project automatically gets a `{project-name}-scratchbook` collection for c
 - 🎯 **Project goals** and milestones
 
 **Example scratchbook entries:**
+
 ```
 "Discussed API rate limiting in team meeting - need to implement exponential backoff"
 "Found solution for memory leak in worker threads - use weak references"
@@ -209,21 +203,23 @@ Every project automatically gets a `{project-name}-scratchbook` collection for c
 For repositories with **Git submodules**, additional collections are created automatically:
 
 **Requirements:**
+
 - Must set `WORKSPACE_QDRANT_WORKSPACE__GITHUB_USER=yourusername`
 - Only submodules **owned by you** get collections (prevents vendor/third-party sprawl)
 - Without `github_user` configured, only main project collections are created (conservative approach)
 
 **Example with subprojects:**
+
 ```bash
 # Repository: my-monorepo with submodules
-# - frontend/ (github.com/myuser/frontend)  
+# - frontend/ (github.com/myuser/frontend)
 # - backend/ (github.com/myuser/backend)
 # - vendor-lib/ (github.com/vendor/lib) ← ignored
 
 # Collections created:
 my-monorepo-scratchbook    # Main project notes
 my-monorepo-project        # Main project docs
-frontend-scratchbook       # Frontend notes  
+frontend-scratchbook       # Frontend notes
 frontend-project          # Frontend docs
 backend-scratchbook       # Backend notes
 backend-project           # Backend docs
@@ -235,13 +231,15 @@ backend-project           # Backend docs
 **Important: All MCP search commands search across ALL your collections simultaneously.**
 
 When you use Claude with commands like:
-- "Search my project for authentication code"  
+
+- "Search my project for authentication code"
 - "Find all references to the payment API"
 - "What documentation do I have about deployment?"
 
 The search **automatically includes:**
+
 - ✅ Main project collections (`project-name-*`)
-- ✅ All subproject collections (`subproject-*`) 
+- ✅ All subproject collections (`subproject-*`)
 - ✅ Global collections (`docs`, `references`, etc.)
 - ✅ All scratchbook collections (your notes and ideas)
 
@@ -252,15 +250,18 @@ This gives you **unified search across your entire workspace** - you don't need 
 Interact with your collections through natural language commands in Claude:
 
 **Store Information:**
+
 - "Store this note in my project scratchbook: [your content]"
 - "Add this document to my docs collection: [document content]"
 
 **Search & Retrieve:**
+
 - "Search my project for information about authentication"
 - "Find all references to the API endpoint in my scratchbook"
 - "What documentation do I have about deployment?"
 
 **Hybrid Search:**
+
 - Combines semantic search (meaning-based) with keyword search (exact matches)
 - Automatically optimizes results using reciprocal rank fusion (RRF)
 - Searches across project and global collections
@@ -283,6 +284,7 @@ workspace-qdrant-setup --non-interactive
 ```
 
 The setup wizard:
+
 - Tests Qdrant connectivity and validates configuration
 - Helps choose optimal embedding models
 - Configures Claude Desktop integration automatically
@@ -334,7 +336,7 @@ Use `wqutil` for collection management and administration:
 # List collections
 wqutil list-collections
 
-# Collection information  
+# Collection information
 wqutil collection-info my-project-scratchbook
 
 # Validate configuration
@@ -370,6 +372,7 @@ workspace-qdrant-ingest /path/to/docs -c my-project --dry-run
 ## Troubleshooting
 
 **Quick Diagnostics:**
+
 ```bash
 # Run comprehensive system diagnostics
 workspace-qdrant-test
@@ -382,6 +385,7 @@ workspace-qdrant-setup
 ```
 
 **Connection Issues:**
+
 ```bash
 # Test Qdrant connectivity specifically
 workspace-qdrant-test --component qdrant
@@ -394,6 +398,7 @@ workspace-qdrant-validate
 ```
 
 **Performance Issues:**
+
 ```bash
 # Run performance benchmarks
 workspace-qdrant-test --benchmark
@@ -406,6 +411,7 @@ workspace-qdrant-health --analyze
 ```
 
 **Collection Issues:**
+
 ```bash
 # List current collections
 wqutil list-collections
@@ -477,6 +483,7 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 ---
 
 **Related Projects:**
+
 - [claude-qdrant-mcp](https://github.com/marlian/claude-qdrant-mcp) - Original TypeScript implementation
 - [Qdrant](https://qdrant.tech) - Vector database
 - [FastMCP](https://github.com/jlowin/fastmcp) - MCP server framework
