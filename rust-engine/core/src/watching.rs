@@ -266,3 +266,729 @@ impl EventDebouncer {
         });
     }
 }
+
+/// Batch processor for grouping and processing file events efficiently
+#[derive(Debug)]
+struct EventBatcher {
+    batches: HashMap<String, VecDeque<FileEvent>>,
+    config: BatchConfig,
+    last_flush: Instant,
+}
+
+impl EventBatcher {
+    fn new(config: BatchConfig) -> Self {
+        Self {
+            batches: HashMap::new(),
+            config,
+            last_flush: Instant::now(),
+        }
+    }
+    
+    fn add_event(&mut self, event: FileEvent) -> Option<Vec<FileEvent>> {
+        if !self.config.enabled {
+            return Some(vec![event]);
+        }
+        
+        let key = if self.config.group_by_type {
+            event.path.extension()
+                .and_then(|ext| ext.to_str())
+                .unwrap_or("unknown")
+                .to_string()
+        } else {
+            "default".to_string()
+        };
+        
+        let batch = self.batches.entry(key).or_insert_with(VecDeque::new);
+        batch.push_back(event);
+        
+        // Check if batch is full
+        if batch.len() >= self.config.max_batch_size {
+            return Some(batch.drain(..).collect());
+        }
+        
+        // Check if max wait time has elapsed
+        let now = Instant::now();
+        if now.duration_since(self.last_flush) >= Duration::from_millis(self.config.max_batch_wait_ms) {
+            return self.flush_all();
+        }
+        
+        None
+    }
+    
+    fn flush_all(&mut self) -> Option<Vec<FileEvent>> {
+        self.last_flush = Instant::now();
+        
+        let mut all_events = Vec::new();
+        for batch in self.batches.values_mut() {
+            all_events.extend(batch.drain(..));
+        }
+        
+        if all_events.is_empty() {
+            None
+        } else {
+            Some(all_events)
+        }
+    }
+}
+
+/// Statistics for file watching operations
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct WatchingStats {
+    pub events_received: u64,
+    pub events_processed: u64,
+    pub events_debounced: u64,
+    pub events_filtered: u64,
+    pub tasks_submitted: u64,
+    pub errors: u64,
+    pub uptime_seconds: u64,
+    pub watched_paths: usize,
+    pub current_queue_size: usize,
+}
+
+impl Default for WatchingStats {
+    fn default() -> Self {
+        Self {
+            events_received: 0,
+            events_processed: 0,
+            events_debounced: 0,
+            events_filtered: 0,
+            tasks_submitted: 0,
+            errors: 0,
+            uptime_seconds: 0,
+            watched_paths: 0,
+            current_queue_size: 0,
+        }
+    }
+}
+
+/// Main file watcher implementation with cross-platform support
+pub struct FileWatcher {
+    /// Configuration for the watcher
+    config: Arc<RwLock<WatcherConfig>>,
+    
+    /// Compiled patterns for efficient matching
+    patterns: Arc<RwLock<CompiledPatterns>>,
+    
+    /// Task submitter for processing pipeline integration
+    task_submitter: TaskSubmitter,
+    
+    /// Event debouncer to prevent duplicate processing
+    debouncer: Arc<Mutex<EventDebouncer>>,
+    
+    /// Event batcher for efficient processing
+    batcher: Arc<Mutex<EventBatcher>>,
+    
+    /// File system watcher
+    watcher: Arc<Mutex<Option<Box<dyn NotifyWatcher + Send + Sync>>>>,
+    
+    /// Channel for receiving file system events
+    event_receiver: Arc<Mutex<Option<mpsc::UnboundedReceiver<FileEvent>>>>,
+    
+    /// Handle to the event processing task
+    processor_handle: Arc<Mutex<Option<tokio::task::JoinHandle<()>>>>,
+    
+    /// Statistics
+    stats: Arc<Mutex<WatchingStats>>,
+    
+    /// Start time for uptime calculation
+    start_time: Instant,
+    
+    /// Currently watched paths
+    watched_paths: Arc<RwLock<HashSet<PathBuf>>>,
+}
+
+impl FileWatcher {
+    /// Create a new file watcher with the given configuration and task submitter
+    pub fn new(config: WatcherConfig, task_submitter: TaskSubmitter) -> Result<Self, WatchingError> {
+        let patterns = CompiledPatterns::new(&config)?;
+        let debouncer = EventDebouncer::new(config.debounce_ms);
+        let batcher = EventBatcher::new(config.batch_processing.clone());
+        
+        Ok(Self {
+            config: Arc::new(RwLock::new(config)),
+            patterns: Arc::new(RwLock::new(patterns)),
+            task_submitter,
+            debouncer: Arc::new(Mutex::new(debouncer)),
+            batcher: Arc::new(Mutex::new(batcher)),
+            watcher: Arc::new(Mutex::new(None)),
+            event_receiver: Arc::new(Mutex::new(None)),
+            processor_handle: Arc::new(Mutex::new(None)),
+            stats: Arc::new(Mutex::new(WatchingStats::default())),
+            start_time: Instant::now(),
+            watched_paths: Arc::new(RwLock::new(HashSet::new())),
+        })
+    }
+    
+    /// Start watching the specified path
+    pub async fn watch_path(&self, path: &Path) -> Result<(), WatchingError> {
+        let config = self.config.read().await;
+        
+        // Validate path
+        if !path.exists() {
+            return Err(WatchingError::Config { 
+                message: format!("Path does not exist: {}", path.display()) 
+            });
+        }
+        
+        // Create file system watcher
+        let (tx, rx) = mpsc::unbounded_channel();
+        let tx_clone = tx.clone();
+        
+        let watcher: Box<dyn NotifyWatcher + Send + Sync> = if config.use_polling {
+            let config_interval = Duration::from_millis(config.polling_interval_ms);
+            Box::new(
+                notify::PollWatcher::new(
+                    move |result| {
+                        if let Ok(event) = result {
+                            Self::handle_notify_event(event, &tx_clone);
+                        }
+                    },
+                    notify::Config::default().with_poll_interval(config_interval)
+                )?
+            )
+        } else {
+            Box::new(
+                notify::RecommendedWatcher::new(
+                    move |result| {
+                        if let Ok(event) = result {
+                            Self::handle_notify_event(event, &tx_clone);
+                        }
+                    },
+                    notify::Config::default()
+                )?
+            )
+        };
+        
+        // Add path to watcher
+        let recursive_mode = if config.recursive {
+            RecursiveMode::Recursive
+        } else {
+            RecursiveMode::NonRecursive
+        };
+        
+        {
+            let mut watcher_lock = self.watcher.lock().await;
+            *watcher_lock = Some(watcher);
+            if let Some(ref mut w) = *watcher_lock {
+                w.watch(path, recursive_mode)?;
+            }
+        }
+        
+        // Store the receiver
+        {
+            let mut receiver_lock = self.event_receiver.lock().await;
+            *receiver_lock = Some(rx);
+        }
+        
+        // Add to watched paths
+        {
+            let mut watched_paths = self.watched_paths.write().await;
+            watched_paths.insert(path.to_path_buf());
+        }
+        
+        // Start the event processor task
+        self.start_event_processor().await?;
+        
+        // Process existing files if configured
+        if config.process_existing {
+            self.process_existing_files(path).await?;
+        }
+        
+        tracing::info!("Started watching path: {} (recursive: {})", path.display(), config.recursive);
+        Ok(())
+    }
+    
+    /// Stop watching all paths
+    pub async fn stop_watching(&self) -> Result<(), WatchingError> {
+        // Stop the event processor
+        {
+            let mut handle_lock = self.processor_handle.lock().await;
+            if let Some(handle) = handle_lock.take() {
+                handle.abort();
+            }
+        }
+        
+        // Clear the watcher
+        {
+            let mut watcher_lock = self.watcher.lock().await;
+            *watcher_lock = None;
+        }
+        
+        // Clear the receiver
+        {
+            let mut receiver_lock = self.event_receiver.lock().await;
+            *receiver_lock = None;
+        }
+        
+        // Clear watched paths
+        {
+            let mut watched_paths = self.watched_paths.write().await;
+            watched_paths.clear();
+        }
+        
+        tracing::info!("Stopped file watching");
+        Ok(())
+    }
+    
+    /// Update configuration (requires restart to take effect for some settings)
+    pub async fn update_config(&self, new_config: WatcherConfig) -> Result<(), WatchingError> {
+        let new_patterns = CompiledPatterns::new(&new_config)?;
+        
+        {
+            let mut config_lock = self.config.write().await;
+            *config_lock = new_config.clone();
+        }
+        
+        {
+            let mut patterns_lock = self.patterns.write().await;
+            *patterns_lock = new_patterns;
+        }
+        
+        // Update debouncer and batcher
+        {
+            let mut debouncer_lock = self.debouncer.lock().await;
+            *debouncer_lock = EventDebouncer::new(new_config.debounce_ms);
+        }
+        
+        {
+            let mut batcher_lock = self.batcher.lock().await;
+            *batcher_lock = EventBatcher::new(new_config.batch_processing);
+        }
+        
+        tracing::info!("Updated file watcher configuration");
+        Ok(())
+    }
+    
+    /// Get current statistics
+    pub async fn stats(&self) -> WatchingStats {
+        let mut stats = self.stats.lock().await.clone();
+        stats.uptime_seconds = self.start_time.elapsed().as_secs();
+        
+        {
+            let watched_paths = self.watched_paths.read().await;
+            stats.watched_paths = watched_paths.len();
+        }
+        
+        stats
+    }
+    
+    /// Get currently watched paths
+    pub async fn watched_paths(&self) -> Vec<PathBuf> {
+        let watched_paths = self.watched_paths.read().await;
+        watched_paths.iter().cloned().collect()
+    }
+    
+    /// Handle a notify event and convert it to our internal event format
+    fn handle_notify_event(event: Event, tx: &mpsc::UnboundedSender<FileEvent>) {
+        let now = Instant::now();
+        let system_time = SystemTime::now();
+        
+        for path in event.paths {
+            // Get file size if possible
+            let size = std::fs::metadata(&path)
+                .ok()
+                .map(|metadata| metadata.len());
+            
+            // Create metadata
+            let mut metadata = HashMap::new();
+            metadata.insert("event_type".to_string(), format!("{:?}", event.kind));
+            
+            if let Some(file_name) = path.file_name().and_then(|n| n.to_str()) {
+                metadata.insert("file_name".to_string(), file_name.to_string());
+            }
+            
+            if let Some(extension) = path.extension().and_then(|e| e.to_str()) {
+                metadata.insert("file_extension".to_string(), extension.to_string());
+            }
+            
+            let file_event = FileEvent {
+                path,
+                event_kind: event.kind,
+                timestamp: now,
+                system_time,
+                size,
+                metadata,
+            };
+            
+            if let Err(e) = tx.send(file_event) {
+                tracing::error!("Failed to send file event: {}", e);
+            }
+        }
+    }
+    
+    /// Start the event processing task
+    async fn start_event_processor(&self) -> Result<(), WatchingError> {
+        // Don't start if already running
+        {
+            let handle_lock = self.processor_handle.lock().await;
+            if handle_lock.is_some() {
+                return Ok(());
+            }
+        }
+        
+        let event_receiver = self.event_receiver.clone();
+        let debouncer = self.debouncer.clone();
+        let batcher = self.batcher.clone();
+        let patterns = self.patterns.clone();
+        let config = self.config.clone();
+        let task_submitter = self.task_submitter.clone();
+        let stats = self.stats.clone();
+        
+        let handle = tokio::spawn(async move {
+            Self::event_processing_loop(
+                event_receiver,
+                debouncer, 
+                batcher,
+                patterns,
+                config,
+                task_submitter,
+                stats
+            ).await;
+        });
+        
+        {
+            let mut handle_lock = self.processor_handle.lock().await;
+            *handle_lock = Some(handle);
+        }
+        
+        Ok(())
+    }
+    
+    /// Main event processing loop
+    async fn event_processing_loop(
+        event_receiver: Arc<Mutex<Option<mpsc::UnboundedReceiver<FileEvent>>>>,
+        debouncer: Arc<Mutex<EventDebouncer>>,
+        batcher: Arc<Mutex<EventBatcher>>,
+        patterns: Arc<RwLock<CompiledPatterns>>,
+        config: Arc<RwLock<WatcherConfig>>,
+        task_submitter: TaskSubmitter,
+        stats: Arc<Mutex<WatchingStats>>,
+    ) {
+        let mut cleanup_interval = interval(Duration::from_secs(300)); // 5 minute cleanup
+        let mut debounce_interval = interval(Duration::from_millis(500)); // Check debounced events
+        
+        loop {
+            tokio::select! {
+                // Handle incoming events
+                event = async {
+                    let mut receiver_lock = event_receiver.lock().await;
+                    if let Some(ref mut receiver) = *receiver_lock {
+                        receiver.recv().await
+                    } else {
+                        None
+                    }
+                } => {
+                    if let Some(event) = event {
+                        Self::process_file_event(
+                            event,
+                            &debouncer,
+                            &batcher,
+                            &patterns,
+                            &config,
+                            &task_submitter,
+                            &stats
+                        ).await;
+                    } else {
+                        // Channel closed, exit loop
+                        break;
+                    }
+                },
+                
+                // Process debounced events
+                _ = debounce_interval.tick() => {
+                    Self::process_debounced_events(
+                        &debouncer,
+                        &batcher,
+                        &patterns,
+                        &config,
+                        &task_submitter,
+                        &stats
+                    ).await;
+                },
+                
+                // Cleanup old events
+                _ = cleanup_interval.tick() => {
+                    Self::cleanup_old_events(&debouncer).await;
+                },
+            }
+        }
+        
+        tracing::info!("Event processing loop stopped");
+    }
+    
+    /// Process a single file event
+    async fn process_file_event(
+        event: FileEvent,
+        debouncer: &Arc<Mutex<EventDebouncer>>,
+        batcher: &Arc<Mutex<EventBatcher>>,
+        patterns: &Arc<RwLock<CompiledPatterns>>,
+        config: &Arc<RwLock<WatcherConfig>>,
+        task_submitter: &TaskSubmitter,
+        stats: &Arc<Mutex<WatchingStats>>,
+    ) {
+        // Update stats
+        {
+            let mut stats_lock = stats.lock().await;
+            stats_lock.events_received += 1;
+        }
+        
+        // Check if we should process this file based on patterns
+        {
+            let patterns_lock = patterns.read().await;
+            if !patterns_lock.should_process(&event.path) {
+                let mut stats_lock = stats.lock().await;
+                stats_lock.events_filtered += 1;
+                return;
+            }
+        }
+        
+        // Check file size limit
+        {
+            let config_lock = config.read().await;
+            if let (Some(max_size), Some(file_size)) = (config_lock.max_file_size, event.size) {
+                if file_size > max_size {
+                    tracing::debug!("Skipping large file: {} ({} bytes)", event.path.display(), file_size);
+                    let mut stats_lock = stats.lock().await;
+                    stats_lock.events_filtered += 1;
+                    return;
+                }
+            }
+        }
+        
+        // Add to debouncer
+        let should_process = {
+            let mut debouncer_lock = debouncer.lock().await;
+            debouncer_lock.add_event(event.clone())
+        };
+        
+        if should_process {
+            Self::handle_ready_event(event, batcher, config, task_submitter, stats).await;
+        } else {
+            let mut stats_lock = stats.lock().await;
+            stats_lock.events_debounced += 1;
+        }
+    }
+    
+    /// Process events that are ready after debouncing
+    async fn process_debounced_events(
+        debouncer: &Arc<Mutex<EventDebouncer>>,
+        batcher: &Arc<Mutex<EventBatcher>>,
+        patterns: &Arc<RwLock<CompiledPatterns>>,
+        config: &Arc<RwLock<WatcherConfig>>,
+        task_submitter: &TaskSubmitter,
+        stats: &Arc<Mutex<WatchingStats>>,
+    ) {
+        let ready_events = {
+            let mut debouncer_lock = debouncer.lock().await;
+            debouncer_lock.get_ready_events()
+        };
+        
+        for event in ready_events {
+            // Double-check patterns (they might have changed)
+            {
+                let patterns_lock = patterns.read().await;
+                if !patterns_lock.should_process(&event.path) {
+                    continue;
+                }
+            }
+            
+            Self::handle_ready_event(event, batcher, config, task_submitter, stats).await;
+        }
+    }
+    
+    /// Handle an event that's ready for processing
+    async fn handle_ready_event(
+        event: FileEvent,
+        batcher: &Arc<Mutex<EventBatcher>>,
+        config: &Arc<RwLock<WatcherConfig>>,
+        task_submitter: &TaskSubmitter,
+        stats: &Arc<Mutex<WatchingStats>>,
+    ) {
+        // Add to batcher
+        let ready_batch = {
+            let mut batcher_lock = batcher.lock().await;
+            batcher_lock.add_event(event)
+        };
+        
+        if let Some(batch) = ready_batch {
+            Self::submit_processing_tasks(batch, config, task_submitter, stats).await;
+        }
+    }
+    
+    /// Submit processing tasks for a batch of events
+    async fn submit_processing_tasks(
+        events: Vec<FileEvent>,
+        config: &Arc<RwLock<WatcherConfig>>,
+        task_submitter: &TaskSubmitter,
+        stats: &Arc<Mutex<WatchingStats>>,
+    ) {
+        let config_lock = config.read().await;
+        let task_priority = config_lock.task_priority;
+        let default_collection = config_lock.default_collection.clone();
+        drop(config_lock);
+        
+        for event in events {
+            // Only process create/modify events, ignore deletes
+            match event.event_kind {
+                EventKind::Create(_) | EventKind::Modify(_) => {
+                    // Check if file still exists (it might have been deleted quickly)
+                    if !event.path.exists() {
+                        continue;
+                    }
+                    
+                    // Check if it's a file (not directory)
+                    if !event.path.is_file() {
+                        continue;
+                    }
+                    
+                    let source = match task_priority {
+                        TaskPriority::ProjectWatching => TaskSource::ProjectWatcher {
+                            project_path: event.path.parent()
+                                .unwrap_or_else(|| Path::new("/"))
+                                .to_string_lossy()
+                                .to_string(),
+                        },
+                        TaskPriority::BackgroundWatching => TaskSource::BackgroundWatcher {
+                            folder_path: event.path.parent()
+                                .unwrap_or_else(|| Path::new("/"))
+                                .to_string_lossy()
+                                .to_string(),
+                        },
+                        _ => TaskSource::Generic {
+                            operation: "file_watching".to_string(),
+                        },
+                    };
+                    
+                    let payload = TaskPayload::ProcessDocument {
+                        file_path: event.path.clone(),
+                        collection: default_collection.clone(),
+                    };
+                    
+                    match task_submitter.submit_task(task_priority, source, payload, None).await {
+                        Ok(_) => {
+                            let mut stats_lock = stats.lock().await;
+                            stats_lock.tasks_submitted += 1;
+                            stats_lock.events_processed += 1;
+                            tracing::debug!("Submitted processing task for: {}", event.path.display());
+                        },
+                        Err(e) => {
+                            let mut stats_lock = stats.lock().await;
+                            stats_lock.errors += 1;
+                            tracing::error!("Failed to submit processing task for {}: {}", event.path.display(), e);
+                        }
+                    }
+                },
+                _ => {
+                    // Ignore other event types (delete, rename, etc.)
+                }
+            }
+        }
+    }
+    
+    /// Process existing files in a directory (for initial scan)
+    async fn process_existing_files(&self, root_path: &Path) -> Result<(), WatchingError> {
+        let config = self.config.read().await;
+        let patterns = self.patterns.read().await;
+        
+        let max_depth = if config.max_depth < 0 {
+            usize::MAX
+        } else {
+            config.max_depth as usize
+        };
+        
+        let walker = if config.recursive {
+            WalkDir::new(root_path).max_depth(max_depth)
+        } else {
+            WalkDir::new(root_path).max_depth(1)
+        };
+        
+        let mut file_count = 0;
+        let start_time = Instant::now();
+        
+        for entry in walker {
+            match entry {
+                Ok(entry) => {
+                    let path = entry.path();
+                    
+                    // Skip directories
+                    if !path.is_file() {
+                        continue;
+                    }
+                    
+                    // Check patterns
+                    if !patterns.should_process(path) {
+                        continue;
+                    }
+                    
+                    // Check file size
+                    if let Some(max_size) = config.max_file_size {
+                        if let Ok(metadata) = path.metadata() {
+                            if metadata.len() > max_size {
+                                continue;
+                            }
+                        }
+                    }
+                    
+                    // Create a synthetic file event
+                    let event = FileEvent {
+                        path: path.to_path_buf(),
+                        event_kind: EventKind::Create(notify::event::CreateKind::File),
+                        timestamp: Instant::now(),
+                        system_time: SystemTime::now(),
+                        size: path.metadata().ok().map(|m| m.len()),
+                        metadata: HashMap::new(),
+                    };
+                    
+                    // Process directly (skip debouncing for initial scan)
+                    Self::handle_ready_event(
+                        event, 
+                        &self.batcher, 
+                        &self.config, 
+                        &self.task_submitter, 
+                        &self.stats
+                    ).await;
+                    
+                    file_count += 1;
+                    
+                    // Prevent blocking the async runtime for too long
+                    if file_count % 100 == 0 {
+                        tokio::task::yield_now().await;
+                    }
+                },
+                Err(e) => {
+                    tracing::warn!("Error walking directory {}: {}", root_path.display(), e);
+                }
+            }
+        }
+        
+        // Flush any remaining batched events
+        {
+            let ready_batch = {
+                let mut batcher_lock = self.batcher.lock().await;
+                batcher_lock.flush_all()
+            };
+            
+            if let Some(batch) = ready_batch {
+                Self::submit_processing_tasks(batch, &self.config, &self.task_submitter, &self.stats).await;
+            }
+        }
+        
+        let elapsed = start_time.elapsed();
+        tracing::info!(
+            "Initial file scan complete: {} files found in {:?}",
+            file_count,
+            elapsed
+        );
+        
+        Ok(())
+    }
+    
+    /// Clean up old events from debouncer
+    async fn cleanup_old_events(debouncer: &Arc<Mutex<EventDebouncer>>) {
+        let mut debouncer_lock = debouncer.lock().await;
+        debouncer_lock.cleanup(Duration::from_secs(3600)); // 1 hour max age
+    }
+}
+
+/// Convenience type alias for the old Watcher struct (for backward compatibility)
+pub type Watcher = FileWatcher;
