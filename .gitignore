@@ -118,6 +118,54 @@ workspace_qdrant_admin.log
 # Thumbnails
 ._*
 
-# Task files
+# Task files (commented out - user may want these tracked)
 # tasks.json
-# tasks/ 
+# tasks/
+
+# Development and local configuration - KEEP LOCAL ONLY
+.claude/
+.taskmaster/
+CLAUDE.md
+backup-dr/
+external/
+proto/
+
+# Development artifacts and reports - KEEP LOCAL ONLY
+*_COMPLETION_REPORT.md
+*_RESEARCH_REPORT.md
+*_IMPLEMENTATION_REPORT.md
+BENCHMARK_CI_FIXES.md
+CHUNK_SIZE_RESEARCH_REPORT.md
+IMPLEMENTATION_PLAN.md
+LOGO_DESIGN_BRIEF.md
+PERFORMANCE_BASELINE_REPORT.md
+RECALL_PRECISION_TESTING_GUIDE.md
+RUST_ENGINE_ARCHITECTURE.md
+RUST_ENGINE_LIFECYCLE.md
+TEST_FIXES_SUMMARY.md
+TRUSTED_PUBLISHING_SETUP.md
+UNIFIED_CLI_IMPLEMENTATION_REPORT.md
+WQM_CLI_DESIGN.md
+document_format_research.md
+
+# Development test files - KEEP LOCAL ONLY
+*_empirical_test.py
+create_test_pdf.py
+format_extraction_benchmark.py
+quick_chunk_analysis.py
+research_chunk_optimization.py
+test_ci_fixes.py
+validate_chunk_recommendations.py
+
+# Benchmark and test results - KEEP LOCAL ONLY
+recall_precision_results/
+format_benchmark_results/
+
+# CI artifacts - KEEP LOCAL ONLY
+bandit-report.json
+unit-test-results.xml
+
+# Rust build artifacts (from embedded Rust engine)
+rust-engine/target/
+rust-engine/Cargo.lock
+rust-engine/*.old
