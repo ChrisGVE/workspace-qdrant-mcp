@@ -316,14 +316,120 @@ impl DocumentProcessor {
     }
 
     async fn extract_code_file_content(&self, file_path: &Path) -> Result<String, ProcessingError> {
-        // For code files, we'll use the same text extraction but potentially add
-        // tree-sitter parsing for better structure understanding in the future
+        // Extract raw text content
         let content = self.extract_text_file_content(file_path).await?;
         
-        // TODO: Add tree-sitter parsing for better code structure extraction
-        // This could include function/class boundaries, comments, etc.
+        // Add tree-sitter parsing for better code structure understanding
+        if let Some(extension) = file_path.extension().and_then(|e| e.to_str()) {
+            match extension.to_lowercase().as_str() {
+                "rs" => {
+                    if let Ok(enhanced_content) = self.parse_with_tree_sitter(&content, "rust").await {
+                        return Ok(enhanced_content);
+                    }
+                },
+                "py" => {
+                    if let Ok(enhanced_content) = self.parse_with_tree_sitter(&content, "python").await {
+                        return Ok(enhanced_content);
+                    }
+                },
+                "js" | "mjs" => {
+                    if let Ok(enhanced_content) = self.parse_with_tree_sitter(&content, "javascript").await {
+                        return Ok(enhanced_content);
+                    }
+                },
+                "json" => {
+                    if let Ok(enhanced_content) = self.parse_with_tree_sitter(&content, "json").await {
+                        return Ok(enhanced_content);
+                    }
+                },
+                _ => {}
+            }
+        }
         
+        // Fall back to raw content if tree-sitter parsing fails
         Ok(content)
+    }
+
+    async fn parse_with_tree_sitter(&self, content: &str, language: &str) -> Result<String, ProcessingError> {
+        use tree_sitter::Parser;
+        
+        // Get the appropriate language parser
+        let language_fn = match language {
+            "rust" => tree_sitter_rust::language,
+            "python" => tree_sitter_python::language,
+            "javascript" => tree_sitter_javascript::language,
+            "json" => tree_sitter_json::language,
+            _ => return Err(ProcessingError::Parse(format!("Unsupported language: {}", language))),
+        };
+        
+        let mut parser = Parser::new();
+        parser.set_language(language_fn())
+            .map_err(|e| ProcessingError::Parse(format!("Failed to set parser language: {}", e)))?;
+        
+        let tree = parser.parse(content, None)
+            .ok_or_else(|| ProcessingError::Parse("Failed to parse code".to_string()))?;
+        
+        // Extract structured information from the parse tree
+        let mut enhanced_content = String::new();
+        enhanced_content.push_str("=== CODE STRUCTURE ===\n");
+        
+        // Add the original content
+        enhanced_content.push_str(content);
+        enhanced_content.push_str("\n\n=== PARSED STRUCTURE ===\n");
+        
+        // Walk the tree and extract meaningful nodes
+        let root_node = tree.root_node();
+        self.extract_code_structure(&mut enhanced_content, root_node, content, 0);
+        
+        Ok(enhanced_content)
+    }
+
+    fn extract_code_structure(&self, output: &mut String, node: tree_sitter::Node, source: &str, depth: usize) {
+        let indent = "  ".repeat(depth);
+        
+        // Extract text for the node
+        let node_text = node.utf8_text(source.as_bytes()).unwrap_or("[invalid utf8]");
+        let node_kind = node.kind();
+        
+        // Only include meaningful structural elements
+        match node_kind {
+            "function_item" | "function_declaration" | "function_definition" |
+            "method_definition" | "class_definition" | "struct_item" | "enum_item" |
+            "impl_item" | "trait_item" | "module_item" | "use_declaration" |
+            "import_statement" | "export_statement" => {
+                
+                // Extract the first line or a summary
+                let first_line = node_text.lines().next().unwrap_or(node_text);
+                let summary = if first_line.len() > 100 {
+                    format!("{}...", &first_line[..97])
+                } else {
+                    first_line.to_string()
+                };
+                
+                output.push_str(&format!("{}[{}] {}\n", indent, node_kind, summary));
+            },
+            "comment" | "line_comment" | "block_comment" => {
+                // Include important comments
+                if node_text.contains("TODO") || node_text.contains("FIXME") || 
+                   node_text.contains("NOTE") || node_text.contains("WARNING") {
+                    output.push_str(&format!("{}[{}] {}\n", indent, node_kind, node_text.trim()));
+                }
+            },
+            _ => {
+                // For other node types, recurse without printing
+            }
+        }
+        
+        // Recurse into children for structural elements
+        if matches!(node_kind, 
+            "source_file" | "program" | "module" | "class_body" | "block" | "declaration_list"
+        ) || depth < 3 {
+            for i in 0..node.child_count() {
+                if let Some(child) = node.child(i) {
+                    self.extract_code_structure(output, child, source, depth + 1);
+                }
+            }
+        }
     }
 
     fn create_text_chunks(&self, text: &str, document_type: &DocumentType) -> Result<Vec<TextChunk>, ProcessingError> {
