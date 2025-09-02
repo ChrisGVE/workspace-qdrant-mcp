@@ -81,6 +81,7 @@ class TestWorkspaceCollectionManager:
                 github_user="testuser",
                 collection_prefix="test_",
                 max_collections=10,
+                auto_create_collections=True,
             ),
         )
 
@@ -689,3 +690,85 @@ class TestWorkspaceCollectionManager:
         result = collection_manager._validate_collection_limits(existing_collections)
 
         assert result is True  # Should always pass when unlimited
+
+    @pytest.mark.asyncio
+    async def test_initialize_workspace_collections_auto_create_disabled(self):
+        """Test that when auto_create_collections=False, only scratchbook is created."""
+        # Create config with auto_create_collections=False
+        workspace_config = WorkspaceConfig(
+            collections=["project", "docs"],
+            global_collections=["scratchbook", "references", "standards"], 
+            auto_create_collections=False
+        )
+        embedding_config = EmbeddingConfig()
+        config = Config(workspace=workspace_config, embedding=embedding_config)
+        
+        # Create collection manager
+        mock_client = MagicMock(spec=QdrantClient)
+        collection_manager = WorkspaceCollectionManager(mock_client, config)
+        
+        # Mock existing collections check
+        collection_manager.client.get_collections.return_value = (
+            models.CollectionsResponse(collections=[])
+        )
+        collection_manager.client.create_collection = MagicMock()
+
+        await collection_manager.initialize_workspace_collections(
+            "test-project", subprojects=["sub1", "sub2"]
+        )
+
+        # Verify only scratchbook collection was created
+        assert collection_manager.client.create_collection.call_count == 1
+        
+        created_names = [
+            call[1]["collection_name"]
+            for call in collection_manager.client.create_collection.call_args_list
+        ]
+        
+        # Should only create scratchbook
+        assert created_names == ["scratchbook"]
+
+    @pytest.mark.asyncio 
+    async def test_initialize_workspace_collections_auto_create_enabled(self):
+        """Test that when auto_create_collections=True, all collections are created."""
+        # Create config with auto_create_collections=True
+        workspace_config = WorkspaceConfig(
+            collections=["project", "docs"],
+            global_collections=["scratchbook", "references"],
+            auto_create_collections=True
+        )
+        embedding_config = EmbeddingConfig()
+        config = Config(workspace=workspace_config, embedding=embedding_config)
+        
+        # Create collection manager
+        mock_client = MagicMock(spec=QdrantClient)
+        collection_manager = WorkspaceCollectionManager(mock_client, config)
+        
+        # Mock existing collections check
+        collection_manager.client.get_collections.return_value = (
+            models.CollectionsResponse(collections=[])
+        )
+        collection_manager.client.create_collection = MagicMock()
+
+        await collection_manager.initialize_workspace_collections(
+            "test-project", subprojects=["sub1"]
+        )
+
+        created_names = [
+            call[1]["collection_name"]
+            for call in collection_manager.client.create_collection.call_args_list
+        ]
+        
+        # Should create project collections, subproject collections, and global collections
+        expected_collections = [
+            "test-project-project",  # main project with "project" suffix
+            "test-project-docs",     # main project with "docs" suffix
+            "sub1-project",          # subproject with "project" suffix
+            "sub1-docs",            # subproject with "docs" suffix
+            "scratchbook",          # global collection
+            "references"            # global collection
+        ]
+        
+        assert len(created_names) == 6
+        for expected in expected_collections:
+            assert expected in created_names
