@@ -1,0 +1,67 @@
+title: "Q&A Discussion"
+labels: ["question"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thank you for asking a question! This helps our community learn together.
+        
+        **Before posting:**
+        - Search existing Q&A discussions to see if your question has been answered
+        - Check our [documentation](../docs/) and [examples](../examples/)
+        - Review the [troubleshooting guide](../tutorials/troubleshooting.md)
+
+  - type: input
+    id: context
+    attributes:
+      label: "Context"
+      description: "What are you trying to accomplish?"
+      placeholder: "I'm trying to integrate Qdrant MCP with Claude Code for..."
+    validations:
+      required: true
+
+  - type: textarea
+    id: question
+    attributes:
+      label: "Question"
+      description: "What specific question do you have?"
+      placeholder: "How do I..."
+    validations:
+      required: true
+
+  - type: textarea
+    id: attempted
+    attributes:
+      label: "What have you tried?"
+      description: "Share any attempts or approaches you've already tried"
+      placeholder: "I tried following the documentation but..."
+
+  - type: textarea
+    id: environment
+    attributes:
+      label: "Environment Details"
+      description: "Your setup details (optional but helpful)"
+      placeholder: |
+        - Operating System: 
+        - Python version: 
+        - Claude Code version: 
+        - Qdrant version: 
+        - MCP version: 
+      render: markdown
+
+  - type: textarea
+    id: error
+    attributes:
+      label: "Error messages or logs"
+      description: "Any error messages or relevant log output"
+      render: shell
+
+  - type: checkboxes
+    id: terms
+    attributes:
+      label: "Community Guidelines"
+      description: "By submitting this question, you agree to follow our community guidelines"
+      options:
+        - label: "I have searched for existing answers to my question"
+        - label: "I have provided enough context for others to understand my question"
+        - label: "I will engage constructively with responses"
