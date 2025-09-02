@@ -359,3 +359,316 @@ impl TextPreprocessor {
             .collect()
     }
 }
+
+/// Embedding cache for storing computed embeddings
+#[derive(Debug)]
+pub struct EmbeddingCache {
+    cache: Arc<RwLock<AHashMap<u64, EmbeddingResult>>>,
+    max_size: usize,
+    access_order: Arc<RwLock<Vec<u64>>>, // LRU tracking
+}
+
+impl EmbeddingCache {
+    pub fn new(max_size: usize) -> Self {
+        Self {
+            cache: Arc::new(RwLock::new(AHashMap::new())),
+            max_size,
+            access_order: Arc::new(RwLock::new(Vec::new())),
+        }
+    }
+    
+    /// Calculate hash for text (used as cache key)
+    fn hash_text(text: &str) -> u64 {
+        let mut hasher = AHasher::default();
+        text.hash(&mut hasher);
+        hasher.finish()
+    }
+    
+    /// Get embedding from cache
+    pub async fn get(&self, text: &str) -> Option<EmbeddingResult> {
+        let hash = Self::hash_text(text);
+        let cache = self.cache.read().await;
+        
+        if let Some(result) = cache.get(&hash) {
+            // Update access order for LRU
+            let mut access_order = self.access_order.write().await;
+            if let Some(pos) = access_order.iter().position(|&x| x == hash) {
+                access_order.remove(pos);
+            }
+            access_order.push(hash);
+            
+            return Some(result.clone());
+        }
+        
+        None
+    }
+    
+    /// Store embedding in cache
+    pub async fn put(&self, text: &str, result: EmbeddingResult) {
+        let hash = Self::hash_text(text);
+        let mut cache = self.cache.write().await;
+        let mut access_order = self.access_order.write().await;
+        
+        // Check if we need to evict old entries
+        while cache.len() >= self.max_size && !cache.is_empty() {
+            if let Some(old_hash) = access_order.first().copied() {
+                cache.remove(&old_hash);
+                access_order.remove(0);
+            } else {
+                break;
+            }
+        }
+        
+        // Insert new entry
+        cache.insert(hash, result);
+        access_order.push(hash);
+    }
+    
+    /// Clear all cached embeddings
+    pub async fn clear(&self) {
+        let mut cache = self.cache.write().await;
+        let mut access_order = self.access_order.write().await;
+        cache.clear();
+        access_order.clear();
+    }
+    
+    /// Get cache statistics
+    pub async fn stats(&self) -> (usize, usize) {
+        let cache = self.cache.read().await;
+        (cache.len(), self.max_size)
+    }
+}
+
+/// Main embedding generator that orchestrates all components
+#[derive(Debug)]
+pub struct EmbeddingGenerator {
+    config: EmbeddingConfig,
+    model_manager: ModelManager,
+    preprocessor: TextPreprocessor,
+    cache: EmbeddingCache,
+    bm25: Arc<RwLock<BM25>>,
+    onnx_env: Arc<Environment>,
+    sessions: Arc<RwLock<AHashMap<String, Session>>>,
+    tokenizers: Arc<RwLock<AHashMap<String, Tokenizer>>>,
+}
+
+impl EmbeddingGenerator {
+    /// Create a new embedding generator
+    pub fn new(config: EmbeddingConfig) -> Result<Self, EmbeddingError> {
+        let model_manager = ModelManager::new(config.clone());
+        let preprocessor = TextPreprocessor::new(config.enable_preprocessing);
+        let cache = EmbeddingCache::new(config.max_cache_size);
+        let bm25 = Arc::new(RwLock::new(BM25::new(config.bm25_k1, config.bm25_b)));
+        
+        // Initialize ONNX Runtime environment
+        let onnx_env = Arc::new(Environment::builder()
+            .with_name("embedding-generator")
+            .build()
+            .map_err(|e| EmbeddingError::OnnxError { 
+                message: format!("Failed to initialize ONNX environment: {}", e)
+            })?);
+        
+        Ok(Self {
+            config,
+            model_manager,
+            preprocessor,
+            cache,
+            bm25,
+            onnx_env,
+            sessions: Arc::new(RwLock::new(AHashMap::new())),
+            tokenizers: Arc::new(RwLock::new(AHashMap::new())),
+        })
+    }
+    
+    /// Initialize a model (download if needed and load into memory)
+    pub async fn initialize_model(&self, model_name: &str) -> Result<(), EmbeddingError> {
+        // Download model if not cached
+        if !self.model_manager.is_model_cached(model_name) {
+            self.model_manager.download_model(model_name).await?;
+        }
+        
+        // Load ONNX session
+        let model_path = self.model_manager.get_model_path(model_name);
+        let session = SessionBuilder::new(&self.onnx_env)
+            .map_err(|e| EmbeddingError::OnnxError {
+                message: format!("Failed to create session builder: {}", e)
+            })?
+            .with_model_from_file(&model_path)
+            .map_err(|e| EmbeddingError::OnnxError {
+                message: format!("Failed to load model from {}: {}", model_path.display(), e)
+            })?;
+        
+        // Load tokenizer
+        let tokenizer_path = self.model_manager.get_tokenizer_path(model_name);
+        let tokenizer = Tokenizer::from_file(&tokenizer_path)
+            .map_err(|e| EmbeddingError::TokenizationError { source: Box::new(e) })?;
+        
+        // Store in memory
+        {
+            let mut sessions = self.sessions.write().await;
+            sessions.insert(model_name.to_string(), session);
+        }
+        
+        {
+            let mut tokenizers = self.tokenizers.write().await;
+            tokenizers.insert(model_name.to_string(), tokenizer);
+        }
+        
+        Ok(())
+    }
+    
+    /// Generate embeddings for a single text
+    pub async fn generate_embedding(
+        &self,
+        text: &str,
+        model_name: &str,
+    ) -> Result<EmbeddingResult, EmbeddingError> {
+        // Check cache first
+        if let Some(cached) = self.cache.get(text).await {
+            return Ok(cached);
+        }
+        
+        // Preprocess text
+        let preprocessed = self.preprocessor.preprocess(text);
+        
+        // Generate dense embedding
+        let dense = self.generate_dense_embedding(&preprocessed, model_name).await?;
+        
+        // Generate sparse embedding using BM25
+        let sparse = {
+            let bm25 = self.bm25.read().await;
+            bm25.generate_sparse_vector(&preprocessed.tokens)
+        };
+        
+        let result = EmbeddingResult {
+            text_hash: EmbeddingCache::hash_text(text),
+            dense,
+            sparse,
+            generated_at: chrono::Utc::now(),
+        };
+        
+        // Cache the result
+        self.cache.put(text, result.clone()).await;
+        
+        Ok(result)
+    }
+    
+    /// Generate embeddings for multiple texts in batch
+    pub async fn generate_embeddings_batch(
+        &self,
+        texts: &[String],
+        model_name: &str,
+    ) -> Result<Vec<EmbeddingResult>, EmbeddingError> {
+        let mut results = Vec::with_capacity(texts.len());
+        
+        // Process in batches to manage memory
+        for chunk in texts.chunks(self.config.batch_size) {
+            for text in chunk {
+                let result = self.generate_embedding(text, model_name).await?;
+                results.push(result);
+            }
+        }
+        
+        Ok(results)
+    }
+    
+    /// Generate dense embedding using ONNX model
+    async fn generate_dense_embedding(
+        &self,
+        preprocessed: &PreprocessedText,
+        model_name: &str,
+    ) -> Result<DenseEmbedding, EmbeddingError> {
+        // Get tokenizer and session
+        let tokenizer = {
+            let tokenizers = self.tokenizers.read().await;
+            tokenizers.get(model_name)
+                .ok_or_else(|| EmbeddingError::ModelNotFound {
+                    model_name: model_name.to_string(),
+                })?
+                .clone()
+        };
+        
+        let session = {
+            let sessions = self.sessions.read().await;
+            sessions.get(model_name)
+                .ok_or_else(|| EmbeddingError::ModelNotFound {
+                    model_name: model_name.to_string(),
+                })?
+                .clone()
+        };
+        
+        // Tokenize the text
+        let encoding = tokenizer.encode(&preprocessed.cleaned, false)
+            .map_err(|e| EmbeddingError::TokenizationError { source: Box::new(e) })?;
+        
+        let input_ids = encoding.get_ids();
+        let attention_mask: Vec<i64> = vec![1i64; input_ids.len()];
+        
+        // Truncate if needed
+        let max_len = self.config.max_sequence_length.min(input_ids.len());
+        let input_ids: Vec<i64> = input_ids[..max_len].iter().map(|&x| x as i64).collect();
+        let attention_mask = attention_mask[..max_len].to_vec();
+        
+        // Create ONNX input tensors
+        let input_ids_tensor = Value::from_array(([1, input_ids.len()], input_ids.into_boxed_slice()))
+            .map_err(|e| EmbeddingError::OnnxError {
+                message: format!("Failed to create input_ids tensor: {}", e)
+            })?;
+        
+        let attention_mask_tensor = Value::from_array(([1, attention_mask.len()], attention_mask.into_boxed_slice()))
+            .map_err(|e| EmbeddingError::OnnxError {
+                message: format!("Failed to create attention_mask tensor: {}", e)
+            })?;
+        
+        // Run inference
+        let outputs = session.run(vec![input_ids_tensor, attention_mask_tensor])
+            .map_err(|e| EmbeddingError::OnnxError {
+                message: format!("ONNX inference failed: {}", e)
+            })?;
+        
+        // Extract embedding from output
+        let embedding_tensor = &outputs[0];
+        let embedding_data = embedding_tensor.extract_tensor::<f32>()
+            .map_err(|e| EmbeddingError::OnnxError {
+                message: format!("Failed to extract embedding tensor: {}", e)
+            })?;
+        
+        // Convert to vector (assuming output is [1, embedding_dim])
+        let embedding_vec: Vec<f32> = embedding_data.view().iter().cloned().collect();
+        
+        Ok(DenseEmbedding {
+            vector: embedding_vec,
+            model_name: model_name.to_string(),
+            sequence_length: max_len,
+        })
+    }
+    
+    /// Add a document to the BM25 corpus for better sparse vector generation
+    pub async fn add_document_to_corpus(&self, text: &str) {
+        let preprocessed = self.preprocessor.preprocess(text);
+        let mut bm25 = self.bm25.write().await;
+        bm25.add_document(&preprocessed.tokens);
+    }
+    
+    /// Get cache statistics
+    pub async fn cache_stats(&self) -> (usize, usize) {
+        self.cache.stats().await
+    }
+    
+    /// Clear embedding cache
+    pub async fn clear_cache(&self) {
+        self.cache.clear().await;
+    }
+    
+    /// Get list of available models
+    pub fn available_models(&self) -> Vec<String> {
+        self.model_manager.models.keys().cloned().collect()
+    }
+    
+    /// Check if a model is ready to use
+    pub async fn is_model_ready(&self, model_name: &str) -> bool {
+        let sessions = self.sessions.read().await;
+        let tokenizers = self.tokenizers.read().await;
+        sessions.contains_key(model_name) && tokenizers.contains_key(model_name)
+    }
+}
