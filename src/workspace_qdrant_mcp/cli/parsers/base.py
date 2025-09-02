@@ -1,5 +1,5 @@
 
-from .....observability import get_logger
+from ...observability import get_logger
 logger = get_logger(__name__)
 """
 Base document parser interface and data structures.
