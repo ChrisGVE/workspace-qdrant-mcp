@@ -65,5 +65,12 @@ anyhow = "1.0"
 tracing = { version = "0.1", features = ["log", "attributes", "std"] }
 tracing-subscriber = { version = "0.3", features = ["env-filter", "json", "registry"] }
 
+# Command-line interface
+clap = { version = "4.4", features = ["derive"] }
+
+[[bin]]
+name = "memexd"
+path = "src/bin/memexd.rs"
+
 [target.'cfg(target_os = "windows")'.dependencies]
 winapi = { version = "0.3", features = ["winnt", "processthreadsapi"] }
