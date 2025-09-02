@@ -155,15 +155,28 @@ async def _collect_status_data(config: Config) -> dict[str, Any]:
 
     # Test Qdrant connectivity
     try:
-        client = create_qdrant_client(config.qdrant_client_config)
-        # Simple ping test
-        collections = await client.list_collections()
+        # Use raw Qdrant client for basic connectivity test
+        from qdrant_client import QdrantClient
+        # Only pass api_key if it's configured and we're using HTTPS
+        client_kwargs = {'url': config.qdrant.url, 'timeout': 5}
+        if (hasattr(config.qdrant, 'api_key') and config.qdrant.api_key and 
+            config.qdrant.api_key.strip() and config.qdrant.url.startswith('https')):
+            client_kwargs['api_key'] = config.qdrant.api_key
+        raw_client = QdrantClient(**client_kwargs)
+        
+        # Get collections directly from API
+        collections_response = raw_client.get_collections()
+        collections = collections_response.collections if hasattr(collections_response, 'collections') else []
+        
         status_data["qdrant"] = {
             "status": "healthy",
             "url": config.qdrant.url,
             "collections_count": len(collections),
-            "version": "1.x"  # TODO: Get actual version
+            "version": "1.x"  # TODO: Get actual version from info API
         }
+        
+        # Clean up
+        raw_client.close()
     except Exception as e:
         status_data["qdrant"] = {
             "status": "error",
@@ -305,8 +318,16 @@ async def _config_management(show: bool, validate: bool, path: str | None):
 
             # Validate Qdrant connection
             try:
-                client = create_qdrant_client(config.qdrant_client_config)
-                await client.list_collections()
+                # Use raw Qdrant client for validation
+                from qdrant_client import QdrantClient
+                # Only pass api_key if it's configured and we're using HTTPS
+                client_kwargs = {'url': config.qdrant.url, 'timeout': 5}
+                if (hasattr(config.qdrant, 'api_key') and config.qdrant.api_key and 
+                    config.qdrant.api_key.strip() and config.qdrant.url.startswith('https')):
+                    client_kwargs['api_key'] = config.qdrant.api_key
+                raw_client = QdrantClient(**client_kwargs)
+                collections = raw_client.get_collections()
+                raw_client.close()
                 validation_results.append(("Qdrant Connection", "Valid"))
             except Exception as e:
                 validation_results.append(("Qdrant Connection", f"Failed: {e}"))
@@ -376,15 +397,26 @@ async def _list_collections(project: str | None, stats: bool, library: bool):
     """List and manage collections."""
     try:
         config = Config()
-        client = create_qdrant_client(config.qdrant_client_config)
-        collections = await client.list_collections()
-
+        # Use raw Qdrant client to get collections
+        from qdrant_client import QdrantClient
+        # Only pass api_key if it's configured and we're using HTTPS
+        client_kwargs = {'url': config.qdrant.url, 'timeout': 10}
+        if (hasattr(config.qdrant, 'api_key') and config.qdrant.api_key and 
+            config.qdrant.api_key.strip() and config.qdrant.url.startswith('https')):
+            client_kwargs['api_key'] = config.qdrant.api_key
+        raw_client = QdrantClient(**client_kwargs)
+        
+        collections_response = raw_client.get_collections()
+        all_collections = [{'name': col.name} for col in collections_response.collections]
+        
         # Filter collections
         if library:
-            collections = [col for col in collections if col.get("name", "").startswith("_")]
+            collections = [col for col in all_collections if col.get("name", "").startswith("_")]
         elif project:
             prefix = f"{config.workspace.collection_prefix}{project}_" if hasattr(config, 'workspace') else f"{project}_"
-            collections = [col for col in collections if col.get("name", "").startswith(prefix)]
+            collections = [col for col in all_collections if col.get("name", "").startswith(prefix)]
+        else:
+            collections = all_collections
 
         if not collections:
             filter_desc = "library " if library else f"project '{project}' " if project else ""
@@ -408,15 +440,18 @@ async def _list_collections(project: str | None, stats: bool, library: bool):
 
             if stats:
                 try:
-                    info = await client.get_collection_info(name)
-                    points = str(info.get("points_count", "?"))
-                    vectors = str(info.get("vectors_count", "?"))
+                    info = raw_client.get_collection(name)
+                    points = str(info.points_count if hasattr(info, 'points_count') else "?")
+                    vectors = str(info.vectors_count if hasattr(info, 'vectors_count') else "?")
                     print(f"{name:<30} {col_type:<10} {points:<10} {vectors:<10}")
                 except Exception:
                     print(f"{name:<30} {col_type:<10} {'?':<10} {'?':<10}")
             else:
                 print(f"{name:<30} {col_type:<10}")
 
+        # Clean up
+        raw_client.close()
+        
     except Exception as e:
         print(f"Error listing collections: {e}")
         raise typer.Exit(1)
@@ -432,13 +467,24 @@ async def _health_check(deep: bool, timeout: int):
     print("Testing Qdrant connectivity...")
     try:
         config = Config()
-        client = create_qdrant_client(config.qdrant_client_config)
-        await asyncio.wait_for(client.list_collections(), timeout=timeout)
+        # Use raw Qdrant client for health check
+        from qdrant_client import QdrantClient
+        # Only pass api_key if it's configured and we're using HTTPS
+        client_kwargs = {'url': config.qdrant.url, 'timeout': timeout}
+        if (hasattr(config.qdrant, 'api_key') and config.qdrant.api_key and 
+            config.qdrant.api_key.strip() and config.qdrant.url.startswith('https')):
+            client_kwargs['api_key'] = config.qdrant.api_key
+        raw_client = QdrantClient(**client_kwargs)
+        
+        # Test basic connectivity
+        collections = raw_client.get_collections()
+        raw_client.close()
         health_results.append(("Qdrant Connectivity", "Healthy", "ok"))
-    except asyncio.TimeoutError:
-        health_results.append(("Qdrant Connectivity", "Timeout", "warning"))
     except Exception as e:
-        health_results.append(("Qdrant Connectivity", f"Error: {e}", "error"))
+        if "timeout" in str(e).lower():
+            health_results.append(("Qdrant Connectivity", "Timeout", "warning"))
+        else:
+            health_results.append(("Qdrant Connectivity", f"Error: {e}", "error"))
 
     # Memory usage check
     print("Checking memory usage...")
