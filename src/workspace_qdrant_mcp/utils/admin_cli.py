@@ -225,12 +225,12 @@ class WorkspaceQdrantAdmin:
 
                 # Interactive confirmation unless explicitly confirmed
                 if not confirm and not self.dry_run:
-                    logger.info("Output", data=
-                        f"\n⚠️  WARNING: You are about to delete collection '{collection_name}'"
+                    print(
+                        f"\nWARNING: You are about to delete collection '{collection_name}'"
                     )
-                    logger.info("   Project: {self.current_project}")
-                    logger.info("   Document count: {doc_count}")
-                    logger.info("   This operation cannot be undone!")
+                    print(f"   Project: {self.current_project}")
+                    print(f"   Document count: {doc_count}")
+                    print("   This operation cannot be undone!")
 
                     response = input("\nType 'DELETE' to confirm: ")
                     if response != "DELETE":
@@ -325,13 +325,13 @@ class WorkspaceQdrantAdmin:
 
         # Interactive confirmation
         if not confirm and not self.dry_run:
-            logger.info("Output", data=
-                f"\n⚠️  WARNING: You are about to reset project '{self.current_project}'"
+            print(
+                f"\nWARNING: You are about to reset project '{self.current_project}'"
             )
-            logger.info("   This will delete {len(project_collections)} collections:")
+            print(f"   This will delete {len(project_collections)} collections:")
             for col in project_collections:
-                logger.info("   - {col['name']}")
-            logger.info("   This operation cannot be undone!")
+                print(f"   - {col['name']}")
+            print("   This operation cannot be undone!")
 
             response = input(f"\nType 'RESET {self.current_project}' to confirm: ")
             if response != f"RESET {self.current_project}":
@@ -493,25 +493,25 @@ Examples:
         # Execute command
         if args.command == "list-collections":
             collections = await admin.list_collections(include_stats=args.stats)
-            logger.info("\nFound {len(collections)} collections:")
+            print(f"\nFound {len(collections)} collections:")
             for col in collections:
-                logger.info("  - {col['name']}")
+                print(f"  - {col['name']}")
                 if args.stats and "stats" in col:
                     stats = col["stats"]
                     if isinstance(stats, dict) and "error" not in stats:
-                        logger.info("    Documents: {stats.get('points_count', 'Unknown')}")
-                        logger.info("    Vectors: {stats.get('vectors_count', 'Unknown')}")
+                        print(f"    Documents: {stats.get('points_count', 'Unknown')}")
+                        print(f"    Vectors: {stats.get('vectors_count', 'Unknown')}")
                     else:
-                        logger.info("    Stats: {stats}")
+                        print(f"    Stats: {stats}")
 
         elif args.command == "delete-collection":
             success = await admin.delete_collection(
                 args.collection_name, confirm=args.confirm
             )
             if success:
-                logger.info("Collection {args.collection_name} deleted successfully")
+                print(f"Collection {args.collection_name} deleted successfully")
             else:
-                logger.info("Failed to delete collection {args.collection_name}")
+                print(f"Failed to delete collection {args.collection_name}")
                 sys.exit(1)
 
         elif args.command == "search":
@@ -519,64 +519,64 @@ Examples:
                 args.query, limit=args.limit, include_content=args.content
             )
 
-            logger.info("\nSearch results for: '{args.query}'")
+            print(f"\nSearch results for: '{args.query}'")
             total = 0
             for result in results:
-                logger.info("\n{result['collection']} ({result['count']} results)")
+                print(f"\n{result['collection']} ({result['count']} results)")
                 for hit in result["results"][:5]:  # Show top 5 per collection
-                    logger.info("  Score: {hit.get('score', 'N/A'):.3f}")
+                    print(f"  Score: {hit.get('score', 'N/A'):.3f}")
                     if args.content and "content" in hit:
                         preview = (
                             hit["content"][:100] + "..."
                             if len(hit["content"]) > 100
                             else hit["content"]
                         )
-                        logger.info("     {preview}")
+                        print(f"     {preview}")
                 total += result["count"]
 
-            logger.info("\nTotal results: {total}")
+            print(f"\nTotal results: {total}")
 
         elif args.command == "reset-project":
             success = await admin.reset_project(confirm=args.confirm)
             if success:
-                logger.info("Project {admin.current_project} reset successfully")
+                print(f"Project {admin.current_project} reset successfully")
             else:
-                logger.info("Failed to reset project {admin.current_project}")
+                print(f"Failed to reset project {admin.current_project}")
                 sys.exit(1)
 
         elif args.command == "health":
             health = await admin.get_system_health()
-            logger.info("\nSystem Health Report - {health['timestamp']}")
-            logger.info("Project detected", project=health['project'])
+            print(f"\nSystem Health Report - {health['timestamp']}")
+            print(f"Project detected: {health['project']}")
 
             # Qdrant status
             qdrant = health["qdrant"]
             if qdrant["status"] == "connected":
-                logger.info("Output", data=
+                print(
                     f"Qdrant: Connected ({qdrant['total_collections']} collections, {qdrant['project_collections']} for this project)"
                 )
             else:
-                logger.info("Qdrant: {qdrant['error']}")
+                print(f"Qdrant: {qdrant['error']}")
 
             # Project detection status
             proj_detect = health["project_detection"]
             if proj_detect["status"] == "ok":
-                logger.info("Output", data=
+                print(
                     f"Project Detection: OK ({proj_detect['detected_projects']} projects detected)"
                 )
             else:
-                logger.info("Project Detection: {proj_detect['error']}")
+                print(f"Project Detection: {proj_detect['error']}")
 
-            logger.info("\nConfiguration:")
-            logger.info("  Qdrant URL: {health['config']['qdrant_url']}")
-            logger.info("  Debug Mode: {health['config']['debug_mode']}")
-            logger.info("  Collection Prefix: {health['config']['collection_prefix']}")
+            print("\nConfiguration:")
+            print(f"  Qdrant URL: {health['config']['qdrant_url']}")
+            print(f"  Debug Mode: {health['config']['debug_mode']}")
+            print(f"  Collection Prefix: {health['config']['collection_prefix']}")
 
     except KeyboardInterrupt:
-        logger.info("\n\nOperation cancelled by user")
+        print("\n\nOperation cancelled by user")
         sys.exit(1)
     except Exception as e:
-        logger.error(f"Command failed: {e}")
+        print(f"Command failed: {e}")
         if args.debug:
             import traceback
 
