@@ -134,6 +134,11 @@ class QdrantWorkspaceClient:
             return
 
         try:
+            # Suppress SSL warnings for localhost connections to avoid cluttering output
+            if "localhost" in self.config.qdrant.url or "127.0.0.1" in self.config.qdrant.url:
+                import urllib3
+                urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
+            
             # Initialize Qdrant client
             self.client = QdrantClient(**self.config.qdrant_client_config)
 

@@ -293,6 +293,17 @@ class MemoryManager:
         Raises:
             Exception: If rule creation fails
         """
+        # Check if memory collection exists
+        collections = self.client.get_collections()
+        collection_names = {col.name for col in collections.collections}
+        
+        if self.MEMORY_COLLECTION not in collection_names:
+            # Collection doesn't exist, need to initialize first
+            raise RuntimeError(
+                f"Memory collection '{self.MEMORY_COLLECTION}' doesn't exist. "
+                "Call initialize_memory_collection() first."
+            )
+        
         # Generate unique ID
         rule_id = self._generate_rule_id()
 
