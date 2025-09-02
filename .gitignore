@@ -119,8 +119,6 @@ workspace_qdrant_admin.log
 ._*
 
 # Task files (commented out - user may want these tracked)
-# tasks.json
-# tasks/
 
 # Local configuration files (configuration examples are now in documentation)
 .env
@@ -175,3 +173,7 @@ unit-test-results.xml
 rust-engine/target/
 rust-engine/Cargo.lock
 rust-engine/*.old
+
+# Task files
+# tasks.json
+# tasks/ 

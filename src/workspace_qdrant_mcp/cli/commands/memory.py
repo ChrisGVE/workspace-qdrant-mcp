@@ -14,10 +14,6 @@ from typing import List, Optional
 
 import typer
 from qdrant_client import QdrantClient
-from rich.console import Console
-from rich.panel import Panel
-from rich.prompt import Confirm, Prompt
-from rich.table import Table
 from ...core.collection_naming import create_naming_manager
 from ...core.config import Config
 from ...core.memory import (
@@ -28,12 +24,65 @@ from ...core.memory import (
     parse_conversational_memory_update,
 )
 
-console = Console()
+# Plain text console - no Rich formatting
+
+def format_plain_table(headers, rows, title=None):
+    """Format data as a plain text table with aligned columns."""
+    if not rows:
+        return "No data to display"
+    
+    # Calculate column widths
+    col_widths = [len(header) for header in headers]
+    for row in rows:
+        for i, cell in enumerate(row):
+            col_widths[i] = max(col_widths[i], len(str(cell)))
+    
+    # Build table
+    lines = []
+    if title:
+        lines.append(f"\n{title}")
+        lines.append("=" * len(title))
+    
+    # Header row
+    header_line = "  ".join(header.ljust(col_widths[i]) for i, header in enumerate(headers))
+    lines.append(header_line)
+    lines.append("-" * len(header_line))
+    
+    # Data rows
+    for row in rows:
+        row_line = "  ".join(str(cell).ljust(col_widths[i]) for i, cell in enumerate(row))
+        lines.append(row_line)
+    
+    return "\n".join(lines)
+
+def get_user_input(prompt: str, default: str = None) -> str:
+    """Get user input with optional default value."""
+    if default:
+        full_prompt = f"{prompt} [{default}]: "
+    else:
+        full_prompt = f"{prompt}: "
+    
+    response = input(full_prompt).strip()
+    return response if response else (default or "")
+
+def get_user_confirmation(prompt: str, default: bool = True) -> bool:
+    """Get yes/no confirmation from user."""
+    suffix = " [Y/n]: " if default else " [y/N]: "
+    while True:
+        response = input(prompt + suffix).strip().lower()
+        if not response:
+            return default
+        if response in ('y', 'yes'):
+            return True
+        if response in ('n', 'no'):
+            return False
+        print("Please enter 'y' or 'n'")
 
 # Create the memory app
 memory_app = typer.Typer(
-    help="🧠 Memory rules and LLM behavior management",
-    no_args_is_help=True
+    help="Memory rules and LLM behavior management",
+    no_args_is_help=True,
+    rich_markup_mode=None  # Disable Rich formatting completely
 )
 
 def handle_async(coro):
@@ -41,10 +90,10 @@ def handle_async(coro):
     try:
         return asyncio.run(coro)
     except KeyboardInterrupt:
-        console.print("\n[yellow]Operation cancelled by user[/yellow]")
+        print("\nOperation cancelled by user")
         raise typer.Exit(1)
     except Exception as e:
-        console.print(f"[red]Error: {e}[/red]")
+        print(f"Error: {e}")
         raise typer.Exit(1)
 
 @memory_app.command("list")
@@ -164,38 +213,35 @@ async def _list_memory_rules(
         else:
             # Display in table format
             if not rules:
-                console.print("[yellow]No memory rules found.[/yellow]")
+                print("No memory rules found.")
                 return
 
-            table = Table(title=f"💭 Memory Rules ({len(rules)} found)")
-            table.add_column("ID", style="cyan", width=12)
-            table.add_column("Category", width=10)
-            table.add_column("Name", style="bold", width=20)
-            table.add_column("Authority", width=10)
-            table.add_column("Rule", width=50)
-            table.add_column("Scope", width=15)
-
+            # Format as plain text table
+            headers = ["ID", "Category", "Name", "Authority", "Rule", "Scope"]
+            table_rows = []
+            
             for rule in rules:
-                authority_style = "red" if rule.authority == AuthorityLevel.ABSOLUTE else "yellow"
                 scope_text = ", ".join(rule.scope) if rule.scope else "-"
-
-                table.add_row(
+                rule_text = rule.rule[:47] + "..." if len(rule.rule) > 50 else rule.rule
+                
+                table_rows.append([
                     rule.id[-8:],  # Show last 8 chars of ID
                     rule.category.value,
                     rule.name,
-                    f"[{authority_style}]{rule.authority.value}[/{authority_style}]",
-                    rule.rule[:47] + "..." if len(rule.rule) > 50 else rule.rule,
+                    rule.authority.value,
+                    rule_text,
                     scope_text
-                )
-
-            console.print(table)
+                ])
+            
+            table_output = format_plain_table(headers, table_rows, f"Memory Rules ({len(rules)} found)")
+            print(table_output)
 
             # Show summary
             stats = await memory_manager.get_memory_stats()
-            console.print(f"\n[dim]Total: {stats.total_rules} rules, ~{stats.estimated_tokens} tokens[/dim]")
+            print(f"\nTotal: {stats.total_rules} rules, ~{stats.estimated_tokens} tokens")
 
     except Exception as e:
-        console.print(f"[red]Error listing memory rules: {e}[/red]")
+        print(f"Error listing memory rules: {e}")
         raise typer.Exit(1)
 
 async def _add_memory_rule(
@@ -221,29 +267,23 @@ async def _add_memory_rule(
             console.print("Enter details for the new memory rule.\n")
 
             if not rule:
-                rule = Prompt.ask("Rule text")
+                rule = get_user_input("Rule text")
 
             if not category:
                 category_choices = [c.value for c in MemoryCategory]
-                category = Prompt.ask(
-                    "Category",
-                    choices=category_choices,
-                    default="preference"
-                )
+                print(f"Category choices: {', '.join(category_choices)}")
+                category = get_user_input("Category", "preference")
 
             # Generate name from rule if not provided
-            name = Prompt.ask("Short name", default=_generate_name_from_rule(rule))
+            name = get_user_input("Short name", _generate_name_from_rule(rule))
 
             if authority not in [a.value for a in AuthorityLevel]:
                 authority_choices = [a.value for a in AuthorityLevel]
-                authority = Prompt.ask(
-                    "Authority level",
-                    choices=authority_choices,
-                    default="default"
-                )
+                print(f"Authority level choices: {', '.join(authority_choices)}")
+                authority = get_user_input("Authority level", "default")
 
             if not scope:
-                scope_input = Prompt.ask("Scope (comma-separated, optional)", default="")
+                scope_input = get_user_input("Scope (comma-separated, optional)", "")
                 scope = scope_input if scope_input else None
         else:
             name = _generate_name_from_rule(rule)

@@ -39,6 +39,7 @@ app = typer.Typer(
     help="Workspace Qdrant MCP - Unified semantic workspace management",
     add_completion=False,  # Use custom init command instead
     no_args_is_help=True,   # Show help when no arguments provided
+    rich_markup_mode=None,  # Disable Rich formatting completely
 )
 logger = get_logger(__name__)
 
