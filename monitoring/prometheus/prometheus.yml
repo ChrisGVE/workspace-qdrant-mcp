@@ -1,0 +1,103 @@
+# Prometheus configuration for workspace-qdrant-mcp monitoring
+global:
+  scrape_interval: 15s
+  evaluation_interval: 15s
+  external_labels:
+    cluster: 'workspace-qdrant-mcp'
+    environment: 'production'
+
+rule_files:
+  - "rules/*.yml"
+
+alerting:
+  alertmanagers:
+    - static_configs:
+        - targets:
+          - alertmanager:9093
+
+scrape_configs:
+  # Application metrics
+  - job_name: 'workspace-qdrant-mcp'
+    static_configs:
+      - targets: ['localhost:8000']
+    metrics_path: /metrics
+    scrape_interval: 15s
+    scrape_timeout: 10s
+    honor_labels: true
+    params:
+      format: ['prometheus']
+
+  # Python application metrics
+  - job_name: 'mcp-server'
+    static_configs:
+      - targets: ['localhost:8001']
+    metrics_path: /metrics
+    scrape_interval: 15s
+
+  # Rust engine metrics
+  - job_name: 'rust-engine'
+    static_configs:
+      - targets: ['localhost:8002']
+    metrics_path: /metrics
+    scrape_interval: 10s
+
+  # System metrics via node_exporter
+  - job_name: 'node'
+    static_configs:
+      - targets: ['localhost:9100']
+    scrape_interval: 30s
+
+  # Qdrant vector database metrics
+  - job_name: 'qdrant'
+    static_configs:
+      - targets: ['localhost:6333']
+    metrics_path: /metrics
+    scrape_interval: 30s
+
+  # Health check endpoints
+  - job_name: 'health-checks'
+    static_configs:
+      - targets: ['localhost:8000']
+    metrics_path: /health
+    scrape_interval: 30s
+    scrape_timeout: 5s
+
+  # Custom business metrics
+  - job_name: 'business-metrics'
+    static_configs:
+      - targets: ['localhost:8000']
+    metrics_path: /business-metrics
+    scrape_interval: 60s
+
+# Recording rules for efficient querying
+recording_rules:
+  - name: "workspace_qdrant_mcp.rules"
+    rules:
+      - record: instance:cpu_usage:rate5m
+        expr: 100 - (avg by (instance) (irate(node_cpu_seconds_total{mode="idle"}[5m])) * 100)
+      
+      - record: instance:memory_usage:percentage
+        expr: 100 * (1 - (node_memory_MemAvailable_bytes / node_memory_MemTotal_bytes))
+      
+      - record: instance:disk_usage:percentage
+        expr: 100 - (node_filesystem_avail_bytes{mountpoint="/"} / node_filesystem_size_bytes{mountpoint="/"} * 100)
+
+# Remote write for long-term storage (optional)
+# remote_write:
+#   - url: "https://prometheus-remote-write-endpoint/api/v1/write"
+#     basic_auth:
+#       username: "username"
+#       password: "password"
+
+# Service discovery for dynamic environments
+# kubernetes_sd_configs:
+# - role: pod
+#   namespaces:
+#     names:
+#     - workspace-qdrant-mcp
+
+# File-based service discovery for development
+# file_sd_configs:
+# - files:
+#   - /etc/prometheus/targets/*.yml
+#   refresh_interval: 5m
