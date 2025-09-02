@@ -1,0 +1,311 @@
+{
+  "dashboard": {
+    "id": null,
+    "title": "Workspace Qdrant MCP - Application Overview",
+    "tags": ["workspace-qdrant-mcp", "application", "overview"],
+    "style": "dark",
+    "timezone": "browser",
+    "refresh": "30s",
+    "time": {
+      "from": "now-1h",
+      "to": "now"
+    },
+    "panels": [
+      {
+        "id": 1,
+        "title": "Request Rate",
+        "type": "graph",
+        "targets": [
+          {
+            "expr": "rate(http_requests_total[5m])",
+            "legendFormat": "{{method}} {{status}}"
+          }
+        ],
+        "yAxes": [
+          {
+            "label": "Requests/sec",
+            "min": 0
+          }
+        ],
+        "gridPos": {
+          "h": 8,
+          "w": 12,
+          "x": 0,
+          "y": 0
+        },
+        "legend": {
+          "show": true,
+          "values": false,
+          "min": false,
+          "max": false,
+          "current": false,
+          "total": false,
+          "avg": false
+        }
+      },
+      {
+        "id": 2,
+        "title": "Error Rate",
+        "type": "singlestat",
+        "targets": [
+          {
+            "expr": "rate(http_requests_total{status=~\"5..\"}[5m]) / rate(http_requests_total[5m]) * 100",
+            "legendFormat": "Error Rate %"
+          }
+        ],
+        "thresholds": "1,5",
+        "colorBackground": true,
+        "colorValue": false,
+        "colors": [
+          "#73BF69",
+          "#FADE2A",
+          "#F2495C"
+        ],
+        "format": "percent",
+        "gridPos": {
+          "h": 8,
+          "w": 12,
+          "x": 12,
+          "y": 0
+        },
+        "valueName": "current"
+      },
+      {
+        "id": 3,
+        "title": "Response Time (95th percentile)",
+        "type": "graph",
+        "targets": [
+          {
+            "expr": "histogram_quantile(0.95, rate(http_request_duration_seconds_bucket[5m]))",
+            "legendFormat": "95th percentile"
+          },
+          {
+            "expr": "histogram_quantile(0.50, rate(http_request_duration_seconds_bucket[5m]))",
+            "legendFormat": "50th percentile"
+          }
+        ],
+        "yAxes": [
+          {
+            "label": "Seconds",
+            "min": 0
+          }
+        ],
+        "gridPos": {
+          "h": 8,
+          "w": 24,
+          "x": 0,
+          "y": 8
+        }
+      },
+      {
+        "id": 4,
+        "title": "Memory Usage",
+        "type": "graph",
+        "targets": [
+          {
+            "expr": "process_resident_memory_bytes",
+            "legendFormat": "RSS Memory"
+          },
+          {
+            "expr": "process_virtual_memory_bytes",
+            "legendFormat": "Virtual Memory"
+          }
+        ],
+        "yAxes": [
+          {
+            "label": "Bytes",
+            "min": 0
+          }
+        ],
+        "gridPos": {
+          "h": 8,
+          "w": 12,
+          "x": 0,
+          "y": 16
+        }
+      },
+      {
+        "id": 5,
+        "title": "CPU Usage",
+        "type": "graph",
+        "targets": [
+          {
+            "expr": "rate(process_cpu_seconds_total[5m]) * 100",
+            "legendFormat": "CPU Usage %"
+          }
+        ],
+        "yAxes": [
+          {
+            "label": "Percent",
+            "min": 0,
+            "max": 100
+          }
+        ],
+        "gridPos": {
+          "h": 8,
+          "w": 12,
+          "x": 12,
+          "y": 16
+        }
+      },
+      {
+        "id": 6,
+        "title": "Vector Search Performance",
+        "type": "graph",
+        "targets": [
+          {
+            "expr": "rate(vector_search_requests_total[5m])",
+            "legendFormat": "Search Rate"
+          }
+        ],
+        "yAxes": [
+          {
+            "label": "Searches/sec",
+            "min": 0
+          }
+        ],
+        "gridPos": {
+          "h": 8,
+          "w": 12,
+          "x": 0,
+          "y": 24
+        }
+      },
+      {
+        "id": 7,
+        "title": "Document Ingestion Rate",
+        "type": "graph",
+        "targets": [
+          {
+            "expr": "rate(documents_ingested_total[5m])",
+            "legendFormat": "Ingestion Rate"
+          }
+        ],
+        "yAxes": [
+          {
+            "label": "Documents/sec",
+            "min": 0
+          }
+        ],
+        "gridPos": {
+          "h": 8,
+          "w": 12,
+          "x": 12,
+          "y": 24
+        }
+      },
+      {
+        "id": 8,
+        "title": "Active Connections",
+        "type": "singlestat",
+        "targets": [
+          {
+            "expr": "active_connections",
+            "legendFormat": "Connections"
+          }
+        ],
+        "format": "short",
+        "gridPos": {
+          "h": 4,
+          "w": 6,
+          "x": 0,
+          "y": 32
+        },
+        "colorBackground": false,
+        "colorValue": true,
+        "thresholds": "100,500"
+      },
+      {
+        "id": 9,
+        "title": "Queue Size",
+        "type": "singlestat",
+        "targets": [
+          {
+            "expr": "task_queue_size",
+            "legendFormat": "Queue Size"
+          }
+        ],
+        "format": "short",
+        "gridPos": {
+          "h": 4,
+          "w": 6,
+          "x": 6,
+          "y": 32
+        },
+        "colorBackground": false,
+        "colorValue": true,
+        "thresholds": "100,1000"
+      },
+      {
+        "id": 10,
+        "title": "Database Connections",
+        "type": "singlestat",
+        "targets": [
+          {
+            "expr": "database_connections_active",
+            "legendFormat": "DB Connections"
+          }
+        ],
+        "format": "short",
+        "gridPos": {
+          "h": 4,
+          "w": 6,
+          "x": 12,
+          "y": 32
+        },
+        "colorBackground": false,
+        "colorValue": true,
+        "thresholds": "50,100"
+      },
+      {
+        "id": 11,
+        "title": "Disk Usage",
+        "type": "singlestat",
+        "targets": [
+          {
+            "expr": "(node_filesystem_size_bytes{mountpoint=\"/\"} - node_filesystem_avail_bytes{mountpoint=\"/\"}) / node_filesystem_size_bytes{mountpoint=\"/\"} * 100",
+            "legendFormat": "Disk Usage %"
+          }
+        ],
+        "format": "percent",
+        "gridPos": {
+          "h": 4,
+          "w": 6,
+          "x": 18,
+          "y": 32
+        },
+        "colorBackground": true,
+        "colorValue": false,
+        "thresholds": "70,90",
+        "colors": [
+          "#73BF69",
+          "#FADE2A",
+          "#F2495C"
+        ]
+      }
+    ],
+    "templating": {
+      "list": [
+        {
+          "name": "instance",
+          "type": "query",
+          "query": "label_values(up{job=\"workspace-qdrant-mcp\"}, instance)",
+          "refresh": 1,
+          "includeAll": false,
+          "multi": false
+        }
+      ]
+    },
+    "annotations": {
+      "list": [
+        {
+          "name": "Deployments",
+          "datasource": "Prometheus",
+          "expr": "changes(up[1h]) > 0",
+          "step": "60s",
+          "iconColor": "blue"
+        }
+      ]
+    }
+  }
+}
