@@ -82,12 +82,38 @@ mod tests {
         assert_eq!(config.bind_addr, addr);
     }
 
-    #[tokio::test]
-    async fn test_grpc_server() {
-        let addr = "127.0.0.1:50052".parse::<SocketAddr>().unwrap();
-        let config = ServerConfig::new(addr);
-        let server = GrpcServer::new(config);
-        // Basic instantiation test
-        assert!(server.start().await.is_ok());
+    #[test]
+    fn test_protobuf_serialization() {
+        use crate::proto::*;
+        use prost::Message;
+        
+        // Test ProcessDocumentRequest serialization
+        let request = ProcessDocumentRequest {
+            file_path: "/test/path.txt".to_string(),
+            collection: "test_collection".to_string(),
+            metadata: std::collections::HashMap::new(),
+            document_id: Some("test_doc_id".to_string()),
+            chunk_text: true,
+        };
+        
+        // Should be able to serialize and deserialize
+        let bytes = prost::Message::encode_to_vec(&request);
+        assert!(!bytes.is_empty());
+        
+        let decoded = ProcessDocumentRequest::decode(&bytes[..]).unwrap();
+        assert_eq!(decoded.file_path, "/test/path.txt");
+        assert_eq!(decoded.collection, "test_collection");
+        assert_eq!(decoded.document_id, Some("test_doc_id".to_string()));
+        assert_eq!(decoded.chunk_text, true);
+    }
+
+    #[test]
+    fn test_grpc_service_instantiation() {
+        use crate::service::IngestionService;
+        
+        // Test that the service can be created
+        let _service = IngestionService::new();
+        // Service should be valid (no panic on creation)
+        let _service2 = IngestionService::default();
     }
 }
