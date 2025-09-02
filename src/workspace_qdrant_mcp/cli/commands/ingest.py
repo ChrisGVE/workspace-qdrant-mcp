@@ -37,10 +37,10 @@ def handle_async(coro):
     try:
         return asyncio.run(coro)
     except KeyboardInterrupt:
-        console.logger.info("\n[yellow]Operation cancelled by user[/yellow]")
+        console.print("\n[yellow]Operation cancelled by user[/yellow]")
         raise typer.Exit(1)
     except Exception as e:
-        console.logger.info("[red]Error: {e}[/red]")
+        console.print(f"[red]Error: {e}[/red]")
         raise typer.Exit(1)
 
 @ingest_app.command("file")
@@ -133,11 +133,11 @@ async def _ingest_file(
         file_path = Path(path)
 
         if not file_path.exists():
-            console.logger.info("[red]❌ File not found: {path}[/red]")
+            console.print(f"[red]❌ File not found: {path}[/red]")
             raise typer.Exit(1)
 
         if not file_path.is_file():
-            console.logger.info("[red]❌ Path is not a file: {path}[/red]")
+            console.print(f"[red]❌ Path is not a file: {path}[/red]")
             raise typer.Exit(1)
 
         config = Config()
@@ -152,7 +152,7 @@ async def _ingest_file(
         )
 
         if dry_run:
-            console.logger.info("[bold blue]📋 Analyzing File: {file_path.name}[/bold blue]")
+            console.print(f"[bold blue]📋 Analyzing File: {file_path.name}[/bold blue]")
 
             # Analyze file without processing
             file_info = {
@@ -171,18 +171,18 @@ async def _ingest_file(
             info_table.add_row("Extension", file_info["extension"])
             info_table.add_row("Supported", "✅ Yes" if file_info["supported"] else "❌ No")
 
-            console.logger.info("Output", data=info_table)
+            console.print(info_table)
 
             if file_info["supported"]:
-                console.logger.info("[green]✅ File can be processed with current settings[/green]")
+                console.print("[green]✅ File can be processed with current settings[/green]")
                 estimated_chunks = max(1, int(file_info["size_mb"] * 1024 * 1024 / chunk_size))
-                console.logger.info("[dim]Estimated chunks: ~{estimated_chunks}[/dim]")
+                console.print(f"[dim]Estimated chunks: ~{estimated_chunks}[/dim]")
             else:
-                console.logger.info("[red]❌ Unsupported file format: {file_info['extension']}[/red]")
+                console.print(f"[red]❌ Unsupported file format: {file_info['extension']}[/red]")
 
             return
 
-        console.logger.info("[bold blue]📄 Ingesting File: {file_path.name}[/bold blue]")
+        console.print(f"[bold blue]📄 Ingesting File: {file_path.name}[/bold blue]")
 
         with Progress(
             SpinnerColumn(),
@@ -201,7 +201,7 @@ async def _ingest_file(
             _display_ingestion_result(result, file_path.name)
 
     except Exception as e:
-        console.logger.info("[red]❌ Ingestion failed: {e}[/red]")
+        console.print(f"[red]❌ Ingestion failed: {e}[/red]")
         raise typer.Exit(1)
 
 async def _ingest_folder(
@@ -221,11 +221,11 @@ async def _ingest_folder(
         folder_path = Path(path)
 
         if not folder_path.exists():
-            console.logger.info("[red]❌ Folder not found: {path}[/red]")
+            console.print(f"[red]❌ Folder not found: {path}[/red]")
             raise typer.Exit(1)
 
         if not folder_path.is_dir():
-            console.logger.info("[red]❌ Path is not a directory: {path}[/red]")
+            console.print(f"[red]❌ Path is not a directory: {path}[/red]")
             raise typer.Exit(1)
 
         # Default formats if not specified
@@ -256,10 +256,10 @@ async def _ingest_folder(
             files = filtered_files
 
         if not files:
-            console.logger.info("[yellow]No files found matching criteria in {path}[/yellow]")
+            console.print(f"[yellow]No files found matching criteria in {path}[/yellow]")
             return
 
-        console.logger.info("[bold blue]📁 Found {len(files)} files to process[/bold blue]")
+        console.print(f"[bold blue]📁 Found {len(files)} files to process[/bold blue]")
 
         if dry_run:
             # Show analysis summary
@@ -294,8 +294,8 @@ async def _ingest_folder(
                 f"[bold]{total_size:.2f}[/bold]"
             )
 
-            console.logger.info("Output", data=summary_table)
-            console.logger.info("[green]✅ {len(files)} files ready for processing[/green]")
+            console.print(summary_table)
+            console.print(f"[green]✅ {len(files)} files ready for processing[/green]")
             return
 
         config = Config()
@@ -311,7 +311,7 @@ async def _ingest_folder(
         )
 
         # Process files with progress
-        console.logger.info("[bold blue]📁 Processing {len(files)} files...[/bold blue]")
+        console.print(f"[bold blue]📁 Processing {len(files)} files...[/bold blue]")
 
         with Progress(
             TextColumn("[progress.description]{task.description}"),
@@ -339,7 +339,7 @@ async def _ingest_folder(
                 for file_path, result in zip(batch, batch_results, strict=False):
                     processed += 1
                     if isinstance(result, Exception):
-                        console.logger.info("[red]❌ Failed to process {file_path.name}: {result}[/red]")
+                        console.print(f"[red]❌ Failed to process {file_path.name}: {result}[/red]")
                         results.append(None)
                     else:
                         results.append(result)
@@ -349,17 +349,17 @@ async def _ingest_folder(
         # Display summary
         successful_results = [r for r in results if r is not None]
 
-        console.logger.info("\n[green]✅ Folder ingestion completed![/green]")
-        console.logger.info("  Successfully processed: {len(successful_results)}/{len(files)} files")
+        console.print("\n[green]✅ Folder ingestion completed![/green]")
+        console.print(f"  Successfully processed: {len(successful_results)}/{len(files)} files")
 
         if successful_results:
             total_chunks = sum(r.chunks_created for r in successful_results)
             total_chars = sum(r.total_characters for r in successful_results)
-            console.logger.info("  Total chunks created: {total_chunks}")
-            console.logger.info("  Total characters processed: {total_chars:,}")
+            console.print(f"  Total chunks created: {total_chunks}")
+            console.print(f"  Total characters processed: {total_chars:,}")
 
     except Exception as e:
-        console.logger.info("[red]❌ Folder ingestion failed: {e}[/red]")
+        console.print(f"[red]❌ Folder ingestion failed: {e}[/red]")
         raise typer.Exit(1)
 
 async def _generate_yaml_metadata(
@@ -374,29 +374,29 @@ async def _generate_yaml_metadata(
         lib_path = Path(library_path)
 
         if not lib_path.exists():
-            console.logger.info("[red]❌ Library path not found: {library_path}[/red]")
+            console.print(f"[red]❌ Library path not found: {library_path}[/red]")
             raise typer.Exit(1)
 
         if not lib_path.is_dir():
-            console.logger.info("[red]❌ Path is not a directory: {library_path}[/red]")
+            console.print(f"[red]❌ Path is not a directory: {library_path}[/red]")
             raise typer.Exit(1)
 
         # Validate collection name (should start with _)
         if not collection.startswith('_'):
-            console.logger.info("[red]❌ Library collection name must start with '_': {collection}[/red]")
+            console.print(f"[red]❌ Library collection name must start with '_': {collection}[/red]")
             raise typer.Exit(1)
 
         # Check output path
         output_path = Path(output) if output else lib_path / 'metadata_completion.yaml'
 
         if output_path.exists() and not force:
-            console.logger.info("[red]❌ Output file exists (use --force to overwrite): {output_path}[/red]")
+            console.print(f"[red]❌ Output file exists (use --force to overwrite): {output_path}[/red]")
             raise typer.Exit(1)
 
-        console.logger.info("[bold blue]📋 Generating YAML Metadata for Library[/bold blue]")
-        console.logger.info("  Library Path: {lib_path}")
-        console.logger.info("  Collection: {collection}")
-        console.logger.info("  Output: {output_path}")
+        console.print("[bold blue]📋 Generating YAML Metadata for Library[/bold blue]")
+        console.print(f"  Library Path: {lib_path}")
+        console.print(f"  Collection: {collection}")
+        console.print(f"  Output: {output_path}")
 
         # Create workflow
         config = Config()
@@ -437,12 +437,12 @@ async def _generate_yaml_metadata(
                 title="🎉 YAML Generation Complete",
                 border_style="green"
             )
-            console.logger.info("Output", data=result_panel)
+            console.print(result_panel)
         else:
-            console.logger.info("[yellow]⚠️ No documents found to process[/yellow]")
+            console.print("[yellow]⚠️ No documents found to process[/yellow]")
 
     except Exception as e:
-        console.logger.info("[red]❌ YAML generation failed: {e}[/red]")
+        console.print(f"[red]❌ YAML generation failed: {e}[/red]")
         raise typer.Exit(1)
 
 async def _ingest_yaml_metadata(path: str, dry_run: bool, force: bool):
@@ -451,10 +451,10 @@ async def _ingest_yaml_metadata(path: str, dry_run: bool, force: bool):
         yaml_path = Path(path)
 
         if not yaml_path.exists():
-            console.logger.info("[red]❌ YAML file not found: {path}[/red]")
+            console.print(f"[red]❌ YAML file not found: {path}[/red]")
             raise typer.Exit(1)
 
-        console.logger.info("[bold blue]📋 Processing YAML Metadata: {yaml_path.name}[/bold blue]")
+        console.print(f"[bold blue]📋 Processing YAML Metadata: {yaml_path.name}[/bold blue]")
 
         # Create workflow
         config = Config()
@@ -517,15 +517,15 @@ async def _ingest_yaml_metadata(path: str, dry_run: bool, force: bool):
                 border_style="green"
             )
 
-        console.logger.info("Output", data=result_panel)
+        console.print(result_panel)
 
         # Show guidance for next steps
         if remaining > 0 and not dry_run:
-            console.logger.info("\n[dim]💡 The YAML file has been updated with {remaining} remaining documents.[/dim]")
-            console.logger.info("[dim]   Complete their metadata and run 'wqm ingest yaml {yaml_path}' again.[/dim]")
+            console.print(f"\n[dim]💡 The YAML file has been updated with {remaining} remaining documents.[/dim]")
+            console.print(f"[dim]   Complete their metadata and run 'wqm ingest yaml {yaml_path}' again.[/dim]")
 
     except Exception as e:
-        console.logger.info("[red]❌ YAML processing failed: {e}[/red]")
+        console.print(f"[red]❌ YAML processing failed: {e}[/red]")
         logger.exception("YAML metadata processing error")
         raise typer.Exit(1)
 
@@ -541,27 +541,27 @@ async def _ingest_web_pages(
 ):
     """Crawl and ingest web pages."""
     try:
-        console.logger.info("[bold blue]🌐 Web Crawling: {url}[/bold blue]")
+        console.print(f"[bold blue]🌐 Web Crawling: {url}[/bold blue]")
 
         # TODO: Implement web crawling and ingestion
         # This will be part of future enhancement
 
         if dry_run:
-            console.logger.info("[yellow]🌐 Web crawling analysis (dry run)[/yellow]")
-            console.logger.info("Would crawl {url} with max depth {max_depth} and max {max_pages} pages")
-            console.logger.info("Web crawling feature will be implemented in a future task")
+            console.print("[yellow]🌐 Web crawling analysis (dry run)[/yellow]")
+            console.print(f"Would crawl {url} with max depth {max_depth} and max {max_pages} pages")
+            console.print("Web crawling feature will be implemented in a future task")
         else:
-            console.logger.info("[yellow]🌐 Web crawling[/yellow]")
-            console.logger.info("Web crawling feature will be implemented in a future task")
+            console.print("[yellow]🌐 Web crawling[/yellow]")
+            console.print("Web crawling feature will be implemented in a future task")
 
     except Exception as e:
-        console.logger.info("[red]❌ Web crawling failed: {e}[/red]")
+        console.print(f"[red]❌ Web crawling failed: {e}[/red]")
         raise typer.Exit(1)
 
 async def _ingestion_status(collection: str | None, recent: bool):
     """Show ingestion status and statistics."""
     try:
-        console.logger.info("[bold blue]📊 Ingestion Status[/bold blue]")
+        console.print("[bold blue]📊 Ingestion Status[/bold blue]")
 
         config = Config()
         client = create_qdrant_client(config.qdrant_client_config)
@@ -599,14 +599,14 @@ async def _ingestion_status(collection: str | None, recent: bool):
             except Exception:
                 status_table.add_row(name, "?", "Unknown", "[red]Error[/red]")
 
-        console.logger.info("Output", data=status_table)
+        console.print(status_table)
 
         # Show recent activity if requested
         if recent:
-            console.logger.info("\n[dim]Recent activity tracking will be implemented in future updates[/dim]")
+            console.print("\n[dim]Recent activity tracking will be implemented in future updates[/dim]")
 
     except Exception as e:
-        console.logger.info("[red]❌ Status check failed: {e}[/red]")
+        console.print(f"[red]❌ Status check failed: {e}[/red]")
         raise typer.Exit(1)
 
 def _display_ingestion_result(result: IngestionResult, filename: str):
@@ -639,4 +639,4 @@ Error: {result.error_message}
             border_style="red"
         )
 
-    console.logger.info("Output", data=result_panel)
+    console.print(result_panel)
