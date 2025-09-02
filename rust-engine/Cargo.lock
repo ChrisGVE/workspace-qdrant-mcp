@@ -3709,6 +3709,7 @@ dependencies = [
  "dashmap",
  "encoding_rs",
  "epub",
+ "fastrand",
  "futures",
  "glob",
  "mime_guess",
