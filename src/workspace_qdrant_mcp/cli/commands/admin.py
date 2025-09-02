@@ -27,7 +27,10 @@ from ...utils.project_detection import ProjectDetector
 console = Console()
 
 # Create the admin app
-admin_app = typer.Typer(help="⚙️ System administration and configuration")
+admin_app = typer.Typer(
+    help="⚙️ System administration and configuration",
+    no_args_is_help=True
+)
 
 def handle_async(coro):
     """Helper to run async commands."""

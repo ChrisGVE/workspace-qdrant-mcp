@@ -32,7 +32,10 @@ from ...core.memory import (
 console = Console()
 
 # Create the memory app
-memory_app = typer.Typer(help="🧠 Memory rules and LLM behavior management")
+memory_app = typer.Typer(
+    help="🧠 Memory rules and LLM behavior management",
+    no_args_is_help=True
+)
 
 def handle_async(coro):
     """Helper to run async commands."""

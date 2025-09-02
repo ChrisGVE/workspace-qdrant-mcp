@@ -23,7 +23,10 @@ from ..watch_service import WatchService, create_status_table, create_watches_ta
 console = Console()
 
 # Create the watch app
-watch_app = typer.Typer(help="👀 Folder watching configuration")
+watch_app = typer.Typer(
+    help="👀 Folder watching configuration",
+    no_args_is_help=True
+)
 
 
 def handle_async(coro):

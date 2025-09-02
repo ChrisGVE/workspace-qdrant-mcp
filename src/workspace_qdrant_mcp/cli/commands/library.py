@@ -24,7 +24,10 @@ from ...core.config import Config
 console = Console()
 
 # Create the library app
-library_app = typer.Typer(help="📚 Library collection management")
+library_app = typer.Typer(
+    help="📚 Library collection management",
+    no_args_is_help=True
+)
 
 def handle_async(coro):
     """Helper to run async commands."""
