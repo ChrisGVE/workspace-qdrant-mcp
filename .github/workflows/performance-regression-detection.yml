@@ -1,0 +1,889 @@
+name: Performance Regression Detection
+
+on:
+  workflow_dispatch:
+    inputs:
+      current_version:
+        description: 'Current version to test (e.g., 0.2.1)'
+        required: true
+        type: string
+      baseline_version:
+        description: 'Baseline version for comparison (e.g., 0.2.0)'
+        required: true
+        type: string
+      regression_threshold:
+        description: 'Regression threshold percentage (e.g., 20 for 20% slower)'
+        required: true
+        default: '15'
+        type: string
+
+  workflow_call:
+    inputs:
+      current_version:
+        description: 'Version to test'
+        required: true
+        type: string
+      baseline_version:
+        description: 'Baseline version'
+        required: true
+        type: string
+      regression_threshold:
+        description: 'Regression threshold percentage'
+        required: false
+        default: '15'
+        type: string
+
+env:
+  PYTHON_VERSION: "3.10"
+
+jobs:
+  setup-regression-testing:
+    name: Setup Performance Regression Testing
+    runs-on: ubuntu-latest
+    outputs:
+      current_version: ${{ steps.setup.outputs.current_version }}
+      baseline_version: ${{ steps.setup.outputs.baseline_version }}
+      threshold_percent: ${{ steps.setup.outputs.threshold_percent }}
+      test_configuration: ${{ steps.setup.outputs.test_configuration }}
+    
+    steps:
+      - name: Setup regression test parameters
+        id: setup
+        run: |
+          CURRENT="${{ github.event.inputs.current_version || inputs.current_version }}"
+          BASELINE="${{ github.event.inputs.baseline_version || inputs.baseline_version }}"
+          THRESHOLD="${{ github.event.inputs.regression_threshold || inputs.regression_threshold }}"
+          
+          echo "current_version=$CURRENT" >> $GITHUB_OUTPUT
+          echo "baseline_version=$BASELINE" >> $GITHUB_OUTPUT
+          echo "threshold_percent=$THRESHOLD" >> $GITHUB_OUTPUT
+          
+          echo "🔍 Performance Regression Detection Setup"
+          echo "Current Version: $CURRENT"
+          echo "Baseline Version: $BASELINE" 
+          echo "Regression Threshold: $THRESHOLD%"
+          
+          # Create test configuration
+          cat > regression-test-config.json << EOF
+          {
+            "current_version": "$CURRENT",
+            "baseline_version": "$BASELINE",
+            "threshold_percent": $THRESHOLD,
+            "test_parameters": {
+              "warm_up_iterations": 10,
+              "test_iterations": 100,
+              "concurrent_users": [1, 5, 10, 25],
+              "timeout_seconds": 60,
+              "cool_down_seconds": 5
+            },
+            "metrics": {
+              "import_time": { "unit": "ms", "lower_is_better": true },
+              "config_loading_time": { "unit": "ms", "lower_is_better": true },
+              "client_init_time": { "unit": "ms", "lower_is_better": true },
+              "memory_usage": { "unit": "MB", "lower_is_better": true },
+              "concurrent_throughput": { "unit": "ops/sec", "lower_is_better": false }
+            }
+          }
+          EOF
+          
+          echo "test_configuration=$(cat regression-test-config.json | jq -c .)" >> $GITHUB_OUTPUT
+
+      - name: Upload test configuration
+        uses: actions/upload-artifact@v4
+        with:
+          name: regression-test-config
+          path: regression-test-config.json
+
+  benchmark-baseline-version:
+    name: Benchmark Baseline Version
+    needs: setup-regression-testing
+    runs-on: ubuntu-latest
+    services:
+      qdrant:
+        image: qdrant/qdrant:latest
+        ports:
+          - 6333:6333
+        options: >-
+          --health-cmd="curl -f http://localhost:6333/health || exit 1"
+          --health-interval=10s
+          --health-timeout=5s
+          --health-retries=5
+    
+    steps:
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+
+      - name: Install baseline version
+        run: |
+          echo "📦 Installing baseline version ${{ needs.setup-regression-testing.outputs.baseline_version }}"
+          python -m venv baseline-venv
+          source baseline-venv/bin/activate
+          pip install --upgrade pip
+          pip install workspace-qdrant-mcp==${{ needs.setup-regression-testing.outputs.baseline_version }}
+          pip install psutil memory-profiler
+
+      - name: Download test configuration
+        uses: actions/download-artifact@v4
+        with:
+          name: regression-test-config
+          path: .
+
+      - name: Run baseline performance benchmarks
+        run: |
+          source baseline-venv/bin/activate
+          
+          echo "⚡ Running baseline performance benchmarks..."
+          
+          python -c "
+          import json
+          import time
+          import asyncio
+          import statistics
+          import psutil
+          import concurrent.futures
+          from datetime import datetime
+          
+          # Load test configuration
+          with open('regression-test-config.json', 'r') as f:
+              config = json.load(f)
+          
+          print(f\"🧪 Benchmarking baseline version {config['baseline_version']}\")
+          
+          results = {
+              'version': config['baseline_version'],
+              'test_type': 'baseline',
+              'started_at': datetime.utcnow().isoformat() + 'Z',
+              'system_info': {
+                  'cpu_count': psutil.cpu_count(),
+                  'memory_total_gb': round(psutil.virtual_memory().total / (1024**3), 2)
+              },
+              'benchmarks': {}
+          }
+          
+          test_params = config['test_parameters']
+          
+          # Benchmark 1: Import time
+          print('🔍 Benchmarking import time...')
+          import_times = []
+          
+          for i in range(test_params['warm_up_iterations'] + test_params['test_iterations']):
+              # Fresh Python process for each test to avoid caching effects
+              import subprocess
+              import tempfile
+              
+              test_script = '''
+          import time
+          start = time.time()
+          import workspace_qdrant_mcp
+          end = time.time()
+          print(f\"{(end - start) * 1000:.3f}\")
+          '''
+              
+              with tempfile.NamedTemporaryFile(mode='w', suffix='.py', delete=False) as f:
+                  f.write(test_script)
+                  f.flush()
+                  
+                  result = subprocess.run(['python', f.name], capture_output=True, text=True, timeout=30)
+                  if result.returncode == 0:
+                      import_time = float(result.stdout.strip())
+                      if i >= test_params['warm_up_iterations']:  # Skip warm-up iterations
+                          import_times.append(import_time)
+              
+              import os
+              os.unlink(f.name)
+          
+          results['benchmarks']['import_time'] = {
+              'mean_ms': round(statistics.mean(import_times), 3),
+              'median_ms': round(statistics.median(import_times), 3),
+              'std_dev_ms': round(statistics.stdev(import_times), 3),
+              'min_ms': round(min(import_times), 3),
+              'max_ms': round(max(import_times), 3),
+              'p95_ms': round(sorted(import_times)[int(len(import_times) * 0.95)], 3),
+              'samples': len(import_times)
+          }
+          print(f\"  Mean: {results['benchmarks']['import_time']['mean_ms']:.1f}ms\")
+          
+          # Benchmark 2: Configuration loading time  
+          print('🔍 Benchmarking configuration loading...')
+          from workspace_qdrant_mcp.core.config import Settings
+          
+          config_times = []
+          for i in range(test_params['test_iterations']):
+              start = time.time()
+              settings = Settings()
+              end = time.time()
+              config_times.append((end - start) * 1000)
+              time.sleep(0.01)  # Small delay
+          
+          results['benchmarks']['config_loading_time'] = {
+              'mean_ms': round(statistics.mean(config_times), 3),
+              'median_ms': round(statistics.median(config_times), 3),
+              'std_dev_ms': round(statistics.stdev(config_times), 3),
+              'min_ms': round(min(config_times), 3),
+              'max_ms': round(max(config_times), 3),
+              'p95_ms': round(sorted(config_times)[int(len(config_times) * 0.95)], 3),
+              'samples': len(config_times)
+          }
+          print(f\"  Mean: {results['benchmarks']['config_loading_time']['mean_ms']:.1f}ms\")
+          
+          # Benchmark 3: Client initialization time
+          print('🔍 Benchmarking client initialization...')
+          
+          async def benchmark_client_init():
+              from workspace_qdrant_mcp.core.qdrant_client import QdrantClientManager
+              
+              client_init_times = []
+              for i in range(test_params['test_iterations'] // 5):  # Fewer iterations for async operations
+                  start = time.time()
+                  client = QdrantClientManager('http://localhost:6333')
+                  await client.initialize()
+                  end = time.time()
+                  client_init_times.append((end - start) * 1000)
+                  await asyncio.sleep(0.1)  # Cool down
+              
+              return client_init_times
+          
+          client_times = asyncio.run(benchmark_client_init())
+          
+          results['benchmarks']['client_init_time'] = {
+              'mean_ms': round(statistics.mean(client_times), 3),
+              'median_ms': round(statistics.median(client_times), 3),
+              'std_dev_ms': round(statistics.stdev(client_times), 3),
+              'min_ms': round(min(client_times), 3),
+              'max_ms': round(max(client_times), 3),
+              'p95_ms': round(sorted(client_times)[int(len(client_times) * 0.95)], 3),
+              'samples': len(client_times)
+          }
+          print(f\"  Mean: {results['benchmarks']['client_init_time']['mean_ms']:.1f}ms\")
+          
+          # Benchmark 4: Memory usage
+          print('🔍 Benchmarking memory usage...')
+          import gc
+          
+          gc.collect()  # Clean up before measuring
+          baseline_memory = psutil.Process().memory_info().rss / 1024 / 1024  # MB
+          
+          # Load modules and create instances
+          from workspace_qdrant_mcp.core.config import Settings
+          settings_instances = []
+          for i in range(50):
+              settings_instances.append(Settings())
+          
+          peak_memory = psutil.Process().memory_info().rss / 1024 / 1024  # MB
+          memory_delta = peak_memory - baseline_memory
+          
+          results['benchmarks']['memory_usage'] = {
+              'baseline_mb': round(baseline_memory, 2),
+              'peak_mb': round(peak_memory, 2),
+              'delta_mb': round(memory_delta, 2),
+              'per_instance_kb': round((memory_delta * 1024) / 50, 2)
+          }
+          print(f\"  Memory delta: {memory_delta:.1f}MB\")
+          
+          # Benchmark 5: Concurrent throughput
+          print('🔍 Benchmarking concurrent throughput...')
+          
+          def config_load_task():
+              return Settings()
+          
+          concurrent_results = {}
+          for user_count in config['test_parameters']['concurrent_users']:
+              print(f\"  Testing with {user_count} concurrent users...\")
+              
+              start = time.time()
+              with concurrent.futures.ThreadPoolExecutor(max_workers=user_count) as executor:
+                  futures = [executor.submit(config_load_task) for _ in range(user_count * 10)]
+                  results_concurrent = [f.result(timeout=30) for f in concurrent.futures.as_completed(futures)]
+              end = time.time()
+              
+              total_operations = len(results_concurrent)
+              duration = end - start
+              throughput = total_operations / duration
+              
+              concurrent_results[f'{user_count}_users'] = {
+                  'operations': total_operations,
+                  'duration_seconds': round(duration, 3),
+                  'throughput_ops_per_sec': round(throughput, 2),
+                  'avg_time_per_op_ms': round((duration / total_operations) * 1000, 3)
+              }
+              print(f\"    Throughput: {throughput:.1f} ops/sec\")
+          
+          results['benchmarks']['concurrent_throughput'] = concurrent_results
+          
+          # Finalize results
+          results['completed_at'] = datetime.utcnow().isoformat() + 'Z'
+          results['total_duration_seconds'] = round((datetime.fromisoformat(results['completed_at'].replace('Z', '+00:00')) - 
+                                                    datetime.fromisoformat(results['started_at'].replace('Z', '+00:00'))).total_seconds(), 2)
+          
+          with open('baseline-performance-results.json', 'w') as f:
+              json.dump(results, f, indent=2)
+          
+          print(f\"\\n🎯 Baseline benchmarks completed in {results['total_duration_seconds']}s\")
+          print('Results saved to baseline-performance-results.json')
+          "
+
+      - name: Upload baseline results
+        uses: actions/upload-artifact@v4
+        with:
+          name: baseline-performance-results
+          path: baseline-performance-results.json
+
+  benchmark-current-version:
+    name: Benchmark Current Version
+    needs: [setup-regression-testing, benchmark-baseline-version]
+    runs-on: ubuntu-latest
+    services:
+      qdrant:
+        image: qdrant/qdrant:latest
+        ports:
+          - 6333:6333
+        options: >-
+          --health-cmd="curl -f http://localhost:6333/health || exit 1"
+          --health-interval=10s
+          --health-timeout=5s
+          --health-retries=5
+    
+    steps:
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+
+      - name: Install current version
+        run: |
+          echo "📦 Installing current version ${{ needs.setup-regression-testing.outputs.current_version }}"
+          python -m venv current-venv
+          source current-venv/bin/activate
+          pip install --upgrade pip
+          pip install workspace-qdrant-mcp==${{ needs.setup-regression-testing.outputs.current_version }}
+          pip install psutil memory-profiler
+
+      - name: Download test configuration
+        uses: actions/download-artifact@v4
+        with:
+          name: regression-test-config
+          path: .
+
+      - name: Run current version benchmarks
+        run: |
+          source current-venv/bin/activate
+          
+          echo "⚡ Running current version benchmarks..."
+          
+          # Use the same benchmarking code but for current version
+          python -c "
+          import json
+          import time
+          import asyncio
+          import statistics
+          import psutil
+          import concurrent.futures
+          from datetime import datetime
+          
+          # Load test configuration
+          with open('regression-test-config.json', 'r') as f:
+              config = json.load(f)
+          
+          print(f\"🧪 Benchmarking current version {config['current_version']}\")
+          
+          results = {
+              'version': config['current_version'],
+              'test_type': 'current',
+              'started_at': datetime.utcnow().isoformat() + 'Z',
+              'system_info': {
+                  'cpu_count': psutil.cpu_count(),
+                  'memory_total_gb': round(psutil.virtual_memory().total / (1024**3), 2)
+              },
+              'benchmarks': {}
+          }
+          
+          test_params = config['test_parameters']
+          
+          # Benchmark 1: Import time
+          print('🔍 Benchmarking import time...')
+          import_times = []
+          
+          for i in range(test_params['warm_up_iterations'] + test_params['test_iterations']):
+              import subprocess
+              import tempfile
+              
+              test_script = '''
+          import time
+          start = time.time()
+          import workspace_qdrant_mcp
+          end = time.time()
+          print(f\"{(end - start) * 1000:.3f}\")
+          '''
+              
+              with tempfile.NamedTemporaryFile(mode='w', suffix='.py', delete=False) as f:
+                  f.write(test_script)
+                  f.flush()
+                  
+                  result = subprocess.run(['python', f.name], capture_output=True, text=True, timeout=30)
+                  if result.returncode == 0:
+                      import_time = float(result.stdout.strip())
+                      if i >= test_params['warm_up_iterations']:
+                          import_times.append(import_time)
+              
+              import os
+              os.unlink(f.name)
+          
+          results['benchmarks']['import_time'] = {
+              'mean_ms': round(statistics.mean(import_times), 3),
+              'median_ms': round(statistics.median(import_times), 3),
+              'std_dev_ms': round(statistics.stdev(import_times), 3),
+              'min_ms': round(min(import_times), 3),
+              'max_ms': round(max(import_times), 3),
+              'p95_ms': round(sorted(import_times)[int(len(import_times) * 0.95)], 3),
+              'samples': len(import_times)
+          }
+          print(f\"  Mean: {results['benchmarks']['import_time']['mean_ms']:.1f}ms\")
+          
+          # Benchmark 2: Configuration loading time
+          print('🔍 Benchmarking configuration loading...')
+          from workspace_qdrant_mcp.core.config import Settings
+          
+          config_times = []
+          for i in range(test_params['test_iterations']):
+              start = time.time()
+              settings = Settings()
+              end = time.time()
+              config_times.append((end - start) * 1000)
+              time.sleep(0.01)
+          
+          results['benchmarks']['config_loading_time'] = {
+              'mean_ms': round(statistics.mean(config_times), 3),
+              'median_ms': round(statistics.median(config_times), 3),
+              'std_dev_ms': round(statistics.stdev(config_times), 3),
+              'min_ms': round(min(config_times), 3),
+              'max_ms': round(max(config_times), 3),
+              'p95_ms': round(sorted(config_times)[int(len(config_times) * 0.95)], 3),
+              'samples': len(config_times)
+          }
+          print(f\"  Mean: {results['benchmarks']['config_loading_time']['mean_ms']:.1f}ms\")
+          
+          # Benchmark 3: Client initialization time
+          print('🔍 Benchmarking client initialization...')
+          
+          async def benchmark_client_init():
+              from workspace_qdrant_mcp.core.qdrant_client import QdrantClientManager
+              
+              client_init_times = []
+              for i in range(test_params['test_iterations'] // 5):
+                  start = time.time()
+                  client = QdrantClientManager('http://localhost:6333')
+                  await client.initialize()
+                  end = time.time()
+                  client_init_times.append((end - start) * 1000)
+                  await asyncio.sleep(0.1)
+              
+              return client_init_times
+          
+          client_times = asyncio.run(benchmark_client_init())
+          
+          results['benchmarks']['client_init_time'] = {
+              'mean_ms': round(statistics.mean(client_times), 3),
+              'median_ms': round(statistics.median(client_times), 3),
+              'std_dev_ms': round(statistics.stdev(client_times), 3),
+              'min_ms': round(min(client_times), 3),
+              'max_ms': round(max(client_times), 3),
+              'p95_ms': round(sorted(client_times)[int(len(client_times) * 0.95)], 3),
+              'samples': len(client_times)
+          }
+          print(f\"  Mean: {results['benchmarks']['client_init_time']['mean_ms']:.1f}ms\")
+          
+          # Benchmark 4: Memory usage
+          print('🔍 Benchmarking memory usage...')
+          import gc
+          
+          gc.collect()
+          baseline_memory = psutil.Process().memory_info().rss / 1024 / 1024
+          
+          from workspace_qdrant_mcp.core.config import Settings
+          settings_instances = []
+          for i in range(50):
+              settings_instances.append(Settings())
+          
+          peak_memory = psutil.Process().memory_info().rss / 1024 / 1024
+          memory_delta = peak_memory - baseline_memory
+          
+          results['benchmarks']['memory_usage'] = {
+              'baseline_mb': round(baseline_memory, 2),
+              'peak_mb': round(peak_memory, 2),
+              'delta_mb': round(memory_delta, 2),
+              'per_instance_kb': round((memory_delta * 1024) / 50, 2)
+          }
+          print(f\"  Memory delta: {memory_delta:.1f}MB\")
+          
+          # Benchmark 5: Concurrent throughput
+          print('🔍 Benchmarking concurrent throughput...')
+          
+          def config_load_task():
+              return Settings()
+          
+          concurrent_results = {}
+          for user_count in config['test_parameters']['concurrent_users']:
+              print(f\"  Testing with {user_count} concurrent users...\")
+              
+              start = time.time()
+              with concurrent.futures.ThreadPoolExecutor(max_workers=user_count) as executor:
+                  futures = [executor.submit(config_load_task) for _ in range(user_count * 10)]
+                  results_concurrent = [f.result(timeout=30) for f in concurrent.futures.as_completed(futures)]
+              end = time.time()
+              
+              total_operations = len(results_concurrent)
+              duration = end - start
+              throughput = total_operations / duration
+              
+              concurrent_results[f'{user_count}_users'] = {
+                  'operations': total_operations,
+                  'duration_seconds': round(duration, 3),
+                  'throughput_ops_per_sec': round(throughput, 2),
+                  'avg_time_per_op_ms': round((duration / total_operations) * 1000, 3)
+              }
+              print(f\"    Throughput: {throughput:.1f} ops/sec\")
+          
+          results['benchmarks']['concurrent_throughput'] = concurrent_results
+          
+          # Finalize results
+          results['completed_at'] = datetime.utcnow().isoformat() + 'Z'
+          results['total_duration_seconds'] = round((datetime.fromisoformat(results['completed_at'].replace('Z', '+00:00')) - 
+                                                    datetime.fromisoformat(results['started_at'].replace('Z', '+00:00'))).total_seconds(), 2)
+          
+          with open('current-performance-results.json', 'w') as f:
+              json.dump(results, f, indent=2)
+          
+          print(f\"\\n🎯 Current version benchmarks completed in {results['total_duration_seconds']}s\")
+          print('Results saved to current-performance-results.json')
+          "
+
+      - name: Upload current results
+        uses: actions/upload-artifact@v4
+        with:
+          name: current-performance-results
+          path: current-performance-results.json
+
+  analyze-performance-regression:
+    name: Analyze Performance Regression
+    needs: [setup-regression-testing, benchmark-baseline-version, benchmark-current-version]
+    runs-on: ubuntu-latest
+    outputs:
+      has_regression: ${{ steps.analysis.outputs.has_regression }}
+      regression_summary: ${{ steps.analysis.outputs.regression_summary }}
+    
+    steps:
+      - name: Download all benchmark results
+        uses: actions/download-artifact@v4
+        with:
+          pattern: "*performance-results"
+          merge-multiple: true
+
+      - name: Download test configuration
+        uses: actions/download-artifact@v4
+        with:
+          name: regression-test-config
+          path: .
+
+      - name: Analyze performance regression
+        id: analysis
+        run: |
+          echo "📊 Analyzing performance regression..."
+          
+          python3 -c "
+          import json
+          import math
+          from datetime import datetime
+          
+          # Load configuration and results
+          with open('regression-test-config.json', 'r') as f:
+              config = json.load(f)
+          
+          with open('baseline-performance-results.json', 'r') as f:
+              baseline = json.load(f)
+          
+          with open('current-performance-results.json', 'r') as f:
+              current = json.load(f)
+          
+          threshold_percent = float(config['threshold_percent'])
+          
+          print(f'🔍 Regression Analysis')
+          print(f'Baseline: {baseline[\"version\"]}')
+          print(f'Current: {current[\"version\"]}')
+          print(f'Threshold: {threshold_percent}%')
+          print()
+          
+          # Analysis results
+          analysis = {
+              'analysis_timestamp': datetime.utcnow().isoformat() + 'Z',
+              'baseline_version': baseline['version'],
+              'current_version': current['version'],
+              'threshold_percent': threshold_percent,
+              'metric_comparisons': {},
+              'regressions_detected': [],
+              'improvements_detected': [],
+              'overall_regression': False
+          }
+          
+          def calculate_change_percent(baseline_val, current_val, lower_is_better=True):
+              if baseline_val == 0:
+                  return 0
+              
+              change_percent = ((current_val - baseline_val) / baseline_val) * 100
+              
+              # For metrics where lower is better, positive change is regression
+              # For metrics where higher is better, negative change is regression
+              if lower_is_better:
+                  is_regression = change_percent > threshold_percent
+                  is_improvement = change_percent < -5  # 5% improvement threshold
+              else:
+                  is_regression = change_percent < -threshold_percent
+                  is_improvement = change_percent > 5
+              
+              return {
+                  'baseline_value': baseline_val,
+                  'current_value': current_val,
+                  'change_percent': round(change_percent, 2),
+                  'is_regression': is_regression,
+                  'is_improvement': is_improvement,
+                  'change_direction': 'worse' if is_regression else ('better' if is_improvement else 'stable')
+              }
+          
+          # Analyze individual metrics
+          
+          # 1. Import time
+          baseline_import = baseline['benchmarks']['import_time']['mean_ms']
+          current_import = current['benchmarks']['import_time']['mean_ms']
+          import_analysis = calculate_change_percent(baseline_import, current_import, lower_is_better=True)
+          analysis['metric_comparisons']['import_time'] = import_analysis
+          print(f'Import Time: {baseline_import:.1f}ms → {current_import:.1f}ms ({import_analysis[\"change_percent\"]:+.1f}%) - {import_analysis[\"change_direction\"]}')
+          
+          # 2. Config loading time
+          baseline_config = baseline['benchmarks']['config_loading_time']['mean_ms']
+          current_config = current['benchmarks']['config_loading_time']['mean_ms']
+          config_analysis = calculate_change_percent(baseline_config, current_config, lower_is_better=True)
+          analysis['metric_comparisons']['config_loading_time'] = config_analysis
+          print(f'Config Loading: {baseline_config:.1f}ms → {current_config:.1f}ms ({config_analysis[\"change_percent\"]:+.1f}%) - {config_analysis[\"change_direction\"]}')
+          
+          # 3. Client initialization time
+          baseline_client = baseline['benchmarks']['client_init_time']['mean_ms']
+          current_client = current['benchmarks']['client_init_time']['mean_ms']
+          client_analysis = calculate_change_percent(baseline_client, current_client, lower_is_better=True)
+          analysis['metric_comparisons']['client_init_time'] = client_analysis
+          print(f'Client Init: {baseline_client:.1f}ms → {current_client:.1f}ms ({client_analysis[\"change_percent\"]:+.1f}%) - {client_analysis[\"change_direction\"]}')
+          
+          # 4. Memory usage
+          baseline_memory = baseline['benchmarks']['memory_usage']['delta_mb']
+          current_memory = current['benchmarks']['memory_usage']['delta_mb']
+          memory_analysis = calculate_change_percent(baseline_memory, current_memory, lower_is_better=True)
+          analysis['metric_comparisons']['memory_usage'] = memory_analysis
+          print(f'Memory Usage: {baseline_memory:.1f}MB → {current_memory:.1f}MB ({memory_analysis[\"change_percent\"]:+.1f}%) - {memory_analysis[\"change_direction\"]}')
+          
+          # 5. Concurrent throughput (analyze highest concurrency level)
+          max_users = max([int(k.split('_')[0]) for k in baseline['benchmarks']['concurrent_throughput'].keys()])
+          baseline_throughput = baseline['benchmarks']['concurrent_throughput'][f'{max_users}_users']['throughput_ops_per_sec']
+          current_throughput = current['benchmarks']['concurrent_throughput'][f'{max_users}_users']['throughput_ops_per_sec']
+          throughput_analysis = calculate_change_percent(baseline_throughput, current_throughput, lower_is_better=False)
+          analysis['metric_comparisons']['concurrent_throughput'] = throughput_analysis
+          print(f'Throughput ({max_users} users): {baseline_throughput:.1f} → {current_throughput:.1f} ops/sec ({throughput_analysis[\"change_percent\"]:+.1f}%) - {throughput_analysis[\"change_direction\"]}')
+          
+          # Collect regressions and improvements
+          for metric, comparison in analysis['metric_comparisons'].items():
+              if comparison['is_regression']:
+                  analysis['regressions_detected'].append({
+                      'metric': metric,
+                      'change_percent': comparison['change_percent'],
+                      'baseline': comparison['baseline_value'],
+                      'current': comparison['current_value']
+                  })
+              elif comparison['is_improvement']:
+                  analysis['improvements_detected'].append({
+                      'metric': metric,
+                      'change_percent': comparison['change_percent'],
+                      'baseline': comparison['baseline_value'],
+                      'current': comparison['current_value']
+                  })
+          
+          # Determine overall regression status
+          analysis['overall_regression'] = len(analysis['regressions_detected']) > 0
+          
+          print()
+          print(f'📈 Improvements: {len(analysis[\"improvements_detected\"])}')
+          for improvement in analysis['improvements_detected']:
+              print(f'  ✅ {improvement[\"metric\"]}: {improvement[\"change_percent\"]:+.1f}%')
+          
+          print(f'📉 Regressions: {len(analysis[\"regressions_detected\"])}')
+          for regression in analysis['regressions_detected']:
+              print(f'  ❌ {regression[\"metric\"]}: {regression[\"change_percent\"]:+.1f}%')
+          
+          print()
+          if analysis['overall_regression']:
+              print('🚨 Performance regression detected!')
+          else:
+              print('✅ No significant performance regressions detected')
+          
+          # Save analysis
+          with open('performance-regression-analysis.json', 'w') as f:
+              json.dump(analysis, f, indent=2)
+          
+          # Set GitHub outputs
+          with open('$GITHUB_OUTPUT', 'a') as f:
+              f.write(f'has_regression={str(analysis[\"overall_regression\"]).lower()}\\n')
+              
+              summary = f'Regressions: {len(analysis[\"regressions_detected\"])}, Improvements: {len(analysis[\"improvements_detected\"])}'
+              f.write(f'regression_summary={summary}\\n')
+          "
+
+      - name: Upload regression analysis
+        uses: actions/upload-artifact@v4
+        with:
+          name: performance-regression-analysis
+          path: performance-regression-analysis.json
+
+  create-regression-report:
+    name: Create Regression Report and Issue
+    needs: [setup-regression-testing, analyze-performance-regression]
+    if: always()
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Download analysis results
+        uses: actions/download-artifact@v4
+        with:
+          name: performance-regression-analysis
+          path: .
+
+      - name: Generate regression report
+        run: |
+          echo "📊 Generating performance regression report..."
+          
+          python3 -c "
+          import json
+          
+          with open('performance-regression-analysis.json', 'r') as f:
+              analysis = json.load(f)
+          
+          print('## 📊 Performance Regression Analysis Report')
+          print()
+          print(f'**Baseline Version:** {analysis[\"baseline_version\"]}')
+          print(f'**Current Version:** {analysis[\"current_version\"]}')
+          print(f'**Regression Threshold:** {analysis[\"threshold_percent\"]}%')
+          print(f'**Analysis Date:** {analysis[\"analysis_timestamp\"]}')
+          print()
+          
+          if analysis['overall_regression']:
+              print('### 🚨 Regressions Detected')
+              print()
+              print('| Metric | Baseline | Current | Change | Status |')
+              print('|--------|----------|---------|---------|---------|')
+              for reg in analysis['regressions_detected']:
+                  baseline = reg['baseline']
+                  current = reg['current']
+                  change = reg['change_percent']
+                  print(f'| {reg[\"metric\"]} | {baseline} | {current} | {change:+.1f}% | ❌ Regression |')
+              print()
+          else:
+              print('### ✅ No Significant Regressions')
+              print()
+          
+          if analysis['improvements_detected']:
+              print('### 📈 Performance Improvements')
+              print()
+              print('| Metric | Baseline | Current | Change | Status |')
+              print('|--------|----------|---------|---------|---------|')
+              for imp in analysis['improvements_detected']:
+                  baseline = imp['baseline']
+                  current = imp['current']
+                  change = imp['change_percent']
+                  print(f'| {imp[\"metric\"]} | {baseline} | {current} | {change:+.1f}% | ✅ Improvement |')
+              print()
+          
+          print('### 📋 All Metric Comparisons')
+          print()
+          print('| Metric | Baseline | Current | Change % | Direction |')
+          print('|--------|----------|---------|----------|----------|')
+          
+          for metric, comparison in analysis['metric_comparisons'].items():
+              baseline = comparison['baseline_value']
+              current = comparison['current_value']
+              change = comparison['change_percent']
+              direction = comparison['change_direction']
+              
+              if direction == 'worse':
+                  icon = '❌'
+              elif direction == 'better':
+                  icon = '✅'
+              else:
+                  icon = '➖'
+              
+              print(f'| {metric} | {baseline} | {current} | {change:+.1f}% | {icon} {direction} |')
+          
+          print()
+          print('### 🎯 Summary')
+          print()
+          print(f'- **Total Metrics Analyzed:** {len(analysis[\"metric_comparisons\"])}')
+          print(f'- **Regressions Detected:** {len(analysis[\"regressions_detected\"])}')
+          print(f'- **Improvements Detected:** {len(analysis[\"improvements_detected\"])}')
+          print(f'- **Stable Metrics:** {len(analysis[\"metric_comparisons\"]) - len(analysis[\"regressions_detected\"]) - len(analysis[\"improvements_detected\"])}')
+          print()
+          
+          if analysis['overall_regression']:
+              print('**⚠️ Action Required:** Performance regressions detected that exceed the threshold.')
+              print('Consider investigating the root cause and optimizing before release.')
+          else:
+              print('**✅ Performance Status:** No significant regressions detected. Performance is stable or improved.')
+          " > regression-report.md
+
+      - name: Output report to job summary
+        run: |
+          cat regression-report.md >> $GITHUB_STEP_SUMMARY
+
+      - name: Create GitHub issue for regressions
+        if: needs.analyze-performance-regression.outputs.has_regression == 'true'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require('fs');
+            const report = fs.readFileSync('regression-report.md', 'utf8');
+            
+            await github.rest.issues.create({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              title: `🚨 Performance Regression Detected: v${{ needs.setup-regression-testing.outputs.current_version }}`,
+              body: `
+              ## Performance Regression Alert
+              
+              Performance regression detected when comparing:
+              - **Baseline:** v${{ needs.setup-regression-testing.outputs.baseline_version }}
+              - **Current:** v${{ needs.setup-regression-testing.outputs.current_version }}
+              - **Threshold:** ${{ needs.setup-regression-testing.outputs.threshold_percent }}%
+              
+              ${report}
+              
+              ## Recommended Actions
+              
+              1. **Investigate** the root cause of performance degradation
+              2. **Profile** the current version to identify bottlenecks
+              3. **Optimize** critical paths or consider reverting problematic changes
+              4. **Re-run** regression tests after fixes
+              5. **Consider** delaying release until regression is resolved
+              
+              ## Workflow Details
+              
+              **Workflow Run:** [${{ github.run_id }}](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }})
+              **Triggered By:** @${{ github.actor }}
+              **Regression Summary:** ${{ needs.analyze-performance-regression.outputs.regression_summary }}
+              `,
+              labels: ['performance-regression', 'bug', 'priority-high']
+            });
+
+      - name: Set workflow conclusion
+        run: |
+          if [ "${{ needs.analyze-performance-regression.outputs.has_regression }}" = "true" ]; then
+            echo "🚨 Performance regression detected - failing workflow"
+            exit 1
+          else
+            echo "✅ No performance regression detected"
+            exit 0
+          fi
