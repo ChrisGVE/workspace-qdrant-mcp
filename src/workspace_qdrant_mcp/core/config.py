@@ -356,6 +356,7 @@ class Config(BaseSettings):
                 'github_user': self.workspace.github_user,
                 'collection_prefix': self.workspace.collection_prefix,
                 'max_collections': self.workspace.max_collections,
+                'auto_create_collections': self.workspace.auto_create_collections,
             }
         }
         
@@ -412,6 +413,8 @@ class Config(BaseSettings):
             self.workspace.collection_prefix = collection_prefix
         if max_collections := os.getenv("WORKSPACE_QDRANT_WORKSPACE__MAX_COLLECTIONS"):
             self.workspace.max_collections = int(max_collections)
+        if auto_create := os.getenv("WORKSPACE_QDRANT_WORKSPACE__AUTO_CREATE_COLLECTIONS"):
+            self.workspace.auto_create_collections = auto_create.lower() == "true"
 
     def _load_legacy_env_vars(self) -> None:
         """Load legacy environment variables for backward compatibility."""
