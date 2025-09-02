@@ -3,9 +3,10 @@
 //! This crate provides the core document processing, file watching, and embedding
 //! generation capabilities for the workspace-qdrant-mcp ingestion engine.
 
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
-use std::time::Duration;
+use std::time::{Duration, Instant};
+use std::collections::HashMap;
 use thiserror::Error;
 use tokio::sync::Mutex;
 
@@ -45,14 +46,71 @@ pub struct DocumentResult {
     pub processing_time_ms: u64,
 }
 
-/// Basic document processor for testing
+/// Document type enumeration
+#[derive(Debug, Clone, PartialEq)]
+pub enum DocumentType {
+    Pdf,
+    Epub,
+    Docx,
+    Text,
+    Markdown,
+    Code(String), // Language name
+    Unknown,
+}
+
+/// Text chunk with metadata
+#[derive(Debug, Clone)]
+pub struct TextChunk {
+    pub content: String,
+    pub chunk_index: usize,
+    pub start_char: usize,
+    pub end_char: usize,
+    pub metadata: HashMap<String, String>,
+}
+
+/// Document content representation
+#[derive(Debug, Clone)]
+pub struct DocumentContent {
+    pub raw_text: String,
+    pub metadata: HashMap<String, String>,
+    pub document_type: DocumentType,
+    pub chunks: Vec<TextChunk>,
+}
+
+/// Chunking configuration
+#[derive(Debug, Clone)]
+pub struct ChunkingConfig {
+    pub chunk_size: usize,
+    pub overlap_size: usize,
+    pub preserve_paragraphs: bool,
+}
+
+impl Default for ChunkingConfig {
+    fn default() -> Self {
+        Self {
+            chunk_size: 512,
+            overlap_size: 50,
+            preserve_paragraphs: true,
+        }
+    }
+}
+
+/// Comprehensive document processor with format-specific parsing
 pub struct DocumentProcessor {
-    // Placeholder for processor state
+    chunking_config: ChunkingConfig,
 }
 
 impl DocumentProcessor {
     pub fn new() -> Self {
-        Self {}
+        Self {
+            chunking_config: ChunkingConfig::default(),
+        }
+    }
+
+    pub fn with_chunking_config(chunking_config: ChunkingConfig) -> Self {
+        Self {
+            chunking_config,
+        }
     }
 
     pub async fn process_file(
@@ -60,17 +118,355 @@ impl DocumentProcessor {
         file_path: &Path,
         collection: &str,
     ) -> Result<DocumentResult, ProcessingError> {
-        // Minimal implementation to satisfy CI build
-        let _content = tokio::fs::read_to_string(file_path)
-            .await
-            .map_err(ProcessingError::Io)?;
-
+        let start_time = Instant::now();
+        
+        // Extract document content based on file type
+        let document_content = self.extract_document_content(file_path).await?;
+        
+        let chunks_created = document_content.chunks.len();
+        let document_id = uuid::Uuid::new_v4().to_string();
+        
+        // TODO: Store chunks in Qdrant (will be implemented in later tasks)
+        tracing::info!(
+            "Processed document '{}': {} chunks created, type: {:?}",
+            file_path.display(),
+            chunks_created,
+            document_content.document_type
+        );
+        
+        let processing_time_ms = start_time.elapsed().as_millis() as u64;
+        
         Ok(DocumentResult {
-            document_id: uuid::Uuid::new_v4().to_string(),
+            document_id,
             collection: collection.to_string(),
-            chunks_created: 1,
-            processing_time_ms: 1,
+            chunks_created,
+            processing_time_ms,
         })
+    }
+
+    async fn extract_document_content(&self, file_path: &Path) -> Result<DocumentContent, ProcessingError> {
+        // Detect file type using MIME type and extension
+        let document_type = self.detect_document_type(file_path)?;
+        
+        // Extract raw text based on document type
+        let raw_text = match &document_type {
+            DocumentType::Pdf => self.extract_pdf_text(file_path).await?,
+            DocumentType::Epub => self.extract_epub_text(file_path).await?,
+            DocumentType::Docx => self.extract_docx_text(file_path).await?,
+            DocumentType::Text | DocumentType::Markdown => {
+                self.extract_text_file_content(file_path).await?
+            },
+            DocumentType::Code(_) => self.extract_code_file_content(file_path).await?,
+            DocumentType::Unknown => {
+                // Try to read as text with encoding detection
+                self.extract_text_file_content(file_path).await?
+            }
+        };
+        
+        // Create chunks from the extracted text
+        let chunks = self.create_text_chunks(&raw_text, &document_type)?;
+        
+        // Build metadata
+        let mut metadata = HashMap::new();
+        metadata.insert("file_path".to_string(), file_path.to_string_lossy().to_string());
+        metadata.insert("file_name".to_string(), 
+            file_path.file_name()
+                .map(|n| n.to_string_lossy().to_string())
+                .unwrap_or_else(|| "unknown".to_string())
+        );
+        metadata.insert("document_type".to_string(), format!("{:?}", document_type));
+        metadata.insert("char_count".to_string(), raw_text.len().to_string());
+        metadata.insert("chunk_count".to_string(), chunks.len().to_string());
+        
+        if let Ok(file_metadata) = tokio::fs::metadata(file_path).await {
+            if let Ok(modified) = file_metadata.modified() {
+                metadata.insert("last_modified".to_string(), 
+                    chrono::DateTime::<chrono::Utc>::from(modified).to_rfc3339());
+            }
+            metadata.insert("file_size".to_string(), file_metadata.len().to_string());
+        }
+        
+        Ok(DocumentContent {
+            raw_text,
+            metadata,
+            document_type,
+            chunks,
+        })
+    }
+
+    fn detect_document_type(&self, file_path: &Path) -> Result<DocumentType, ProcessingError> {
+        // First try MIME type detection
+        let mime_type = mime_guess::from_path(file_path).first_or_octet_stream();
+        
+        match mime_type.as_ref() {
+            "application/pdf" => return Ok(DocumentType::Pdf),
+            "application/epub+zip" => return Ok(DocumentType::Epub),
+            "application/vnd.openxmlformats-officedocument.wordprocessingml.document" => {
+                return Ok(DocumentType::Docx);
+            },
+            "text/markdown" => return Ok(DocumentType::Markdown),
+            "text/plain" => return Ok(DocumentType::Text),
+            _ => {}
+        }
+        
+        // Fall back to extension-based detection
+        if let Some(extension) = file_path.extension().and_then(|e| e.to_str()) {
+            match extension.to_lowercase().as_str() {
+                "pdf" => Ok(DocumentType::Pdf),
+                "epub" => Ok(DocumentType::Epub),
+                "docx" => Ok(DocumentType::Docx),
+                "md" | "markdown" => Ok(DocumentType::Markdown),
+                "txt" => Ok(DocumentType::Text),
+                // Code file extensions
+                "rs" => Ok(DocumentType::Code("rust".to_string())),
+                "py" => Ok(DocumentType::Code("python".to_string())),
+                "js" | "mjs" => Ok(DocumentType::Code("javascript".to_string())),
+                "ts" => Ok(DocumentType::Code("typescript".to_string())),
+                "json" => Ok(DocumentType::Code("json".to_string())),
+                "yaml" | "yml" => Ok(DocumentType::Code("yaml".to_string())),
+                "toml" => Ok(DocumentType::Code("toml".to_string())),
+                "xml" | "html" | "htm" => Ok(DocumentType::Code("xml".to_string())),
+                "c" | "h" => Ok(DocumentType::Code("c".to_string())),
+                "cpp" | "cc" | "cxx" | "hpp" => Ok(DocumentType::Code("cpp".to_string())),
+                "java" => Ok(DocumentType::Code("java".to_string())),
+                "go" => Ok(DocumentType::Code("go".to_string())),
+                "rb" => Ok(DocumentType::Code("ruby".to_string())),
+                "php" => Ok(DocumentType::Code("php".to_string())),
+                "sh" | "bash" => Ok(DocumentType::Code("bash".to_string())),
+                "css" => Ok(DocumentType::Code("css".to_string())),
+                "scss" | "sass" => Ok(DocumentType::Code("scss".to_string())),
+                "sql" => Ok(DocumentType::Code("sql".to_string())),
+                _ => Ok(DocumentType::Unknown),
+            }
+        } else {
+            Ok(DocumentType::Unknown)
+        }
+    }
+
+    async fn extract_pdf_text(&self, file_path: &Path) -> Result<String, ProcessingError> {
+        use std::fs::File;
+        
+        let file = File::open(file_path)
+            .map_err(ProcessingError::Io)?;
+        
+        let doc = pdf::file::File::open(file)
+            .map_err(|e| ProcessingError::Parse(format!("Failed to parse PDF: {}", e)))?;
+        
+        let mut text = String::new();
+        let num_pages = doc.num_pages();
+        
+        for page_num in 0..num_pages {
+            if let Ok(page) = doc.get_page(page_num) {
+                if let Ok(content) = page.extract_text() {
+                    if !text.is_empty() && !text.ends_with('\n') {
+                        text.push('\n');
+                    }
+                    text.push_str(&content);
+                }
+            }
+        }
+        
+        Ok(text)
+    }
+
+    async fn extract_epub_text(&self, file_path: &Path) -> Result<String, ProcessingError> {
+        let doc = epub::doc::EpubDoc::new(file_path)
+            .map_err(|e| ProcessingError::Parse(format!("Failed to parse EPUB: {}", e)))?;
+        
+        let mut text = String::new();
+        let spine_len = doc.get_spine().len();
+        
+        for i in 0..spine_len {
+            if let Ok(content) = doc.get_resource_str_by_path(&doc.get_spine()[i]) {
+                // Simple HTML tag removal (for better text extraction, consider using html2text crate)
+                let clean_content = self.strip_html_tags(&content);
+                if !text.is_empty() && !text.ends_with('\n') {
+                    text.push('\n');
+                }
+                text.push_str(&clean_content);
+            }
+        }
+        
+        Ok(text)
+    }
+
+    async fn extract_docx_text(&self, file_path: &Path) -> Result<String, ProcessingError> {
+        use std::io::Read;
+        
+        let file = std::fs::File::open(file_path)
+            .map_err(ProcessingError::Io)?;
+        
+        let mut archive = zip::ZipArchive::new(file)
+            .map_err(|e| ProcessingError::Parse(format!("Failed to read DOCX archive: {}", e)))?;
+        
+        let mut document_xml = archive.by_name("word/document.xml")
+            .map_err(|e| ProcessingError::Parse(format!("Failed to find document.xml: {}", e)))?;
+        
+        let mut xml_content = String::new();
+        document_xml.read_to_string(&mut xml_content)
+            .map_err(ProcessingError::Io)?;
+        
+        // Extract text from XML (basic implementation - removes XML tags)
+        let text = self.extract_text_from_docx_xml(&xml_content);
+        
+        Ok(text)
+    }
+
+    async fn extract_text_file_content(&self, file_path: &Path) -> Result<String, ProcessingError> {
+        let bytes = tokio::fs::read(file_path).await
+            .map_err(ProcessingError::Io)?;
+        
+        // Detect encoding
+        let encoding = chardet::detect(&bytes);
+        let encoding_name = &encoding.0;
+        
+        // Convert to UTF-8
+        let (decoded, _, had_errors) = encoding_rs::Encoding::for_label(encoding_name.as_bytes())
+            .unwrap_or(encoding_rs::UTF_8)
+            .decode(&bytes);
+        
+        if had_errors {
+            tracing::warn!("Encoding conversion had errors for file: {}", file_path.display());
+        }
+        
+        Ok(decoded.to_string())
+    }
+
+    async fn extract_code_file_content(&self, file_path: &Path) -> Result<String, ProcessingError> {
+        // For code files, we'll use the same text extraction but potentially add
+        // tree-sitter parsing for better structure understanding in the future
+        let content = self.extract_text_file_content(file_path).await?;
+        
+        // TODO: Add tree-sitter parsing for better code structure extraction
+        // This could include function/class boundaries, comments, etc.
+        
+        Ok(content)
+    }
+
+    fn create_text_chunks(&self, text: &str, document_type: &DocumentType) -> Result<Vec<TextChunk>, ProcessingError> {
+        let mut chunks = Vec::new();
+        
+        if text.is_empty() {
+            return Ok(chunks);
+        }
+        
+        // Simple token-based chunking (approximate)
+        // In a production system, you'd want proper tokenization
+        let words: Vec<&str> = text.split_whitespace().collect();
+        
+        if words.is_empty() {
+            return Ok(chunks);
+        }
+        
+        let mut current_chunk_start = 0;
+        let mut chunk_index = 0;
+        
+        while current_chunk_start < words.len() {
+            let chunk_end = std::cmp::min(
+                current_chunk_start + self.chunking_config.chunk_size,
+                words.len()
+            );
+            
+            let chunk_words = &words[current_chunk_start..chunk_end];
+            let chunk_text = chunk_words.join(" ");
+            
+            // Calculate character positions (approximate)
+            let start_char = if current_chunk_start == 0 {
+                0
+            } else {
+                words[0..current_chunk_start].join(" ").len() + 1
+            };
+            
+            let end_char = start_char + chunk_text.len();
+            
+            let mut metadata = HashMap::new();
+            metadata.insert("chunk_type".to_string(), "text".to_string());
+            metadata.insert("document_type".to_string(), format!("{:?}", document_type));
+            metadata.insert("word_count".to_string(), chunk_words.len().to_string());
+            
+            chunks.push(TextChunk {
+                content: chunk_text,
+                chunk_index,
+                start_char,
+                end_char,
+                metadata,
+            });
+            
+            chunk_index += 1;
+            
+            // Calculate next chunk start with overlap
+            if chunk_end >= words.len() {
+                break;
+            }
+            
+            current_chunk_start = if chunk_end > self.chunking_config.overlap_size {
+                chunk_end - self.chunking_config.overlap_size
+            } else {
+                chunk_end
+            };
+        }
+        
+        Ok(chunks)
+    }
+
+    fn strip_html_tags(&self, html: &str) -> String {
+        // Basic HTML tag removal - in production, consider using html2text crate
+        let mut result = String::new();
+        let mut in_tag = false;
+        
+        for ch in html.chars() {
+            match ch {
+                '<' => in_tag = true,
+                '>' => in_tag = false,
+                _ if !in_tag => result.push(ch),
+                _ => {}
+            }
+        }
+        
+        // Clean up excessive whitespace
+        result.split_whitespace().collect::<Vec<_>>().join(" ")
+    }
+
+    fn extract_text_from_docx_xml(&self, xml: &str) -> String {
+        // Basic XML text extraction for DOCX document.xml
+        // Look for text within <w:t> tags
+        let mut result = String::new();
+        let mut in_text_tag = false;
+        let mut current_tag = String::new();
+        
+        let mut chars = xml.chars().peekable();
+        
+        while let Some(ch) = chars.next() {
+            match ch {
+                '<' => {
+                    current_tag.clear();
+                    current_tag.push(ch);
+                    
+                    // Read the full tag
+                    while let Some(&next_ch) = chars.peek() {
+                        current_tag.push(chars.next().unwrap());
+                        if next_ch == '>' {
+                            break;
+                        }
+                    }
+                    
+                    // Check if this is a text tag
+                    if current_tag.starts_with("<w:t") {
+                        in_text_tag = true;
+                    } else if current_tag.starts_with("</w:t>") {
+                        in_text_tag = false;
+                        result.push(' '); // Add space between text runs
+                    }
+                },
+                _ if in_text_tag => {
+                    result.push(ch);
+                },
+                _ => {}
+            }
+        }
+        
+        // Clean up excessive whitespace
+        result.split_whitespace().collect::<Vec<_>>().join(" ")
     }
 }
 
