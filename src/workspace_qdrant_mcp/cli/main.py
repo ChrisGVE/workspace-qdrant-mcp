@@ -24,6 +24,7 @@ from ..observability import get_logger, configure_logging
 
 from .commands.admin import admin_app
 from .commands.ingest import ingest_app
+from .commands.init import init_app
 from .commands.library import library_app
 
 # Import command modules
@@ -36,12 +37,13 @@ from .observability import observability_app
 app = typer.Typer(
     name="wqm",
     help="Workspace Qdrant MCP - Unified semantic workspace management",
-    add_completion=True,
+    add_completion=False,  # Use custom init command instead
     no_args_is_help=False,  # Allow custom welcome message
 )
 logger = get_logger(__name__)
 
 # Add subcommand groups
+app.add_typer(init_app, name="init", help="Initialize shell completion for wqm")
 app.add_typer(memory_app, name="memory", help="Memory rules and LLM behavior management")
 app.add_typer(admin_app, name="admin", help="System administration and configuration")
 app.add_typer(ingest_app, name="ingest", help="Manual document processing")
@@ -121,6 +123,7 @@ def show_welcome(debug: bool = False) -> None:
     print("Workspace Qdrant MCP - Unified semantic workspace management")
     print("")
     print("Available commands:")
+    print("  wqm init bash                      # Enable shell completion")
     print("  wqm admin status                   # Check system health")
     print("  wqm memory add \"Use uv for Python\"  # Add behavior rule")
     print("  wqm ingest file document.pdf       # Process a document")
@@ -130,6 +133,9 @@ def show_welcome(debug: bool = False) -> None:
     print("")
     print("Use 'wqm COMMAND --help' for detailed information.")
     print("Use 'wqm --debug' for verbose debugging output.")
+    print("")
+    print("Enable shell completion with: eval \"$(wqm init bash)\"")
+    print("For other shells, use: wqm init help")
 
 def handle_async_command(coro, debug: bool = False):
     """Helper to run async commands in CLI context."""
