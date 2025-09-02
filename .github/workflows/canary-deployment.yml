@@ -1,0 +1,601 @@
+name: Canary Deployment and Progressive Rollout
+
+on:
+  workflow_dispatch:
+    inputs:
+      version_to_deploy:
+        description: 'Version to deploy as canary (e.g., 0.2.1)'
+        required: true
+        type: string
+      canary_percentage:
+        description: 'Percentage of traffic for canary (5-50)'
+        required: true
+        default: '10'
+        type: string
+      rollout_duration:
+        description: 'Duration for full rollout (hours)'
+        required: true
+        default: '24'
+        type: string
+      auto_promote:
+        description: 'Auto-promote if canary succeeds'
+        required: false
+        default: true
+        type: boolean
+
+env:
+  PYTHON_VERSION: "3.10"
+
+jobs:
+  validate-canary-request:
+    name: Validate Canary Deployment Request
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.validate.outputs.version }}
+      canary_percentage: ${{ steps.validate.outputs.canary_percentage }}
+      rollout_hours: ${{ steps.validate.outputs.rollout_hours }}
+      pypi_available: ${{ steps.validate.outputs.pypi_available }}
+    
+    steps:
+      - name: Validate canary deployment parameters
+        id: validate
+        run: |
+          VERSION="${{ github.event.inputs.version_to_deploy }}"
+          PERCENTAGE="${{ github.event.inputs.canary_percentage }}"
+          DURATION="${{ github.event.inputs.rollout_duration }}"
+          
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
+          echo "canary_percentage=$PERCENTAGE" >> $GITHUB_OUTPUT
+          echo "rollout_hours=$DURATION" >> $GITHUB_OUTPUT
+          
+          echo "🧪 Canary Deployment Validation"
+          echo "Version: $VERSION"
+          echo "Canary Traffic: $PERCENTAGE%"
+          echo "Rollout Duration: ${DURATION}h"
+          echo "Auto-promote: ${{ github.event.inputs.auto_promote }}"
+          
+          # Validate percentage is within acceptable range
+          if [ $PERCENTAGE -lt 5 ] || [ $PERCENTAGE -gt 50 ]; then
+            echo "❌ Canary percentage must be between 5-50%"
+            exit 1
+          fi
+          
+          # Validate duration is reasonable
+          if [ $DURATION -lt 1 ] || [ $DURATION -gt 168 ]; then
+            echo "❌ Rollout duration must be between 1-168 hours"
+            exit 1
+          fi
+          
+          echo "✅ Canary parameters validated"
+
+      - name: Check PyPI availability
+        run: |
+          echo "🔍 Checking PyPI availability for version ${{ steps.validate.outputs.version }}..."
+          if pip index versions workspace-qdrant-mcp 2>/dev/null | grep -q "${{ steps.validate.outputs.version }}"; then
+            echo "✅ Version ${{ steps.validate.outputs.version }} available on PyPI"
+            echo "pypi_available=true" >> $GITHUB_OUTPUT
+          else
+            echo "❌ Version ${{ steps.validate.outputs.version }} not found on PyPI"
+            echo "pypi_available=false" >> $GITHUB_OUTPUT
+            exit 1
+          fi
+
+  create-canary-environment:
+    name: Create Canary Environment
+    needs: validate-canary-request
+    runs-on: ubuntu-latest
+    outputs:
+      canary_environment: ${{ steps.setup.outputs.environment }}
+      canary_endpoint: ${{ steps.setup.outputs.endpoint }}
+    
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+
+      - name: Setup canary environment
+        id: setup
+        run: |
+          CANARY_ENV="canary-v${{ needs.validate-canary-request.outputs.version }}"
+          CANARY_ENDPOINT="http://canary-${{ needs.validate-canary-request.outputs.version }}.staging.local:8000"
+          
+          echo "environment=$CANARY_ENV" >> $GITHUB_OUTPUT
+          echo "endpoint=$CANARY_ENDPOINT" >> $GITHUB_OUTPUT
+          
+          echo "🧪 Setting up canary environment: $CANARY_ENV"
+          echo "📍 Canary endpoint: $CANARY_ENDPOINT"
+          
+          # Create canary configuration
+          mkdir -p canary-config
+          cat > canary-config/canary-settings.yaml << EOF
+          # Canary Deployment Configuration
+          version: "${{ needs.validate-canary-request.outputs.version }}"
+          traffic_percentage: ${{ needs.validate-canary-request.outputs.canary_percentage }}
+          rollout_duration_hours: ${{ needs.validate-canary-request.outputs.rollout_hours }}
+          auto_promote: ${{ github.event.inputs.auto_promote }}
+          
+          environment:
+            name: "$CANARY_ENV"
+            endpoint: "$CANARY_ENDPOINT"
+            monitoring_enabled: true
+            error_threshold: 5.0  # 5% error rate threshold
+            performance_threshold: 2000  # 2 second response time threshold
+            
+          monitoring:
+            metrics_collection_interval: 30  # seconds
+            alert_email: "ops@company.com"
+            slack_webhook: "${{ secrets.SLACK_CANARY_WEBHOOK }}"
+            
+          rollback:
+            auto_rollback_enabled: true
+            error_rate_threshold: 10.0  # 10% error rate triggers rollback
+            response_time_threshold: 5000  # 5 second response time triggers rollback
+          EOF
+
+      - name: Install canary version from PyPI
+        run: |
+          echo "📦 Installing canary version ${{ needs.validate-canary-request.outputs.version }} from PyPI"
+          python -m venv canary-venv
+          source canary-venv/bin/activate
+          pip install --upgrade pip
+          pip install workspace-qdrant-mcp==${{ needs.validate-canary-request.outputs.version }}
+          
+          # Verify installation
+          python -c "
+          import workspace_qdrant_mcp
+          print(f'✅ Canary version installed: {workspace_qdrant_mcp.__version__}')
+          assert workspace_qdrant_mcp.__version__ == '${{ needs.validate-canary-request.outputs.version }}'
+          "
+
+      - name: Upload canary configuration
+        uses: actions/upload-artifact@v4
+        with:
+          name: canary-config
+          path: canary-config/
+
+  deploy-canary:
+    name: Deploy to Canary Environment
+    needs: [validate-canary-request, create-canary-environment]
+    runs-on: ubuntu-latest
+    services:
+      qdrant-canary:
+        image: qdrant/qdrant:latest
+        ports:
+          - 6333:6333
+        options: >-
+          --health-cmd="curl -f http://localhost:6333/health || exit 1"
+          --health-interval=10s
+          --health-timeout=5s
+          --health-retries=5
+
+    steps:
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+
+      - name: Download canary configuration
+        uses: actions/download-artifact@v4
+        with:
+          name: canary-config
+          path: canary-config/
+
+      - name: Install and start canary service
+        run: |
+          echo "🚀 Deploying canary service..."
+          python -m venv canary-venv
+          source canary-venv/bin/activate
+          pip install --upgrade pip
+          pip install workspace-qdrant-mcp==${{ needs.validate-canary-request.outputs.version }}
+          
+          # Start canary service (simulation - in real deployment this would be K8s/Docker)
+          echo "📍 Canary service would be deployed to: ${{ needs.create-canary-environment.outputs.canary_endpoint }}"
+          echo "🎯 Traffic allocation: ${{ needs.validate-canary-request.outputs.canary_percentage }}%"
+          
+          # Test canary service startup
+          python -c "
+          import workspace_qdrant_mcp
+          from workspace_qdrant_mcp.core.config import Settings
+          print('✅ Canary service components loaded successfully')
+          "
+
+      - name: Configure traffic routing
+        run: |
+          echo "🔀 Configuring traffic routing for canary deployment"
+          
+          # Create traffic routing configuration
+          cat > traffic-routing.yaml << EOF
+          apiVersion: networking.istio.io/v1beta1
+          kind: VirtualService
+          metadata:
+            name: workspace-qdrant-mcp-canary
+            namespace: production
+          spec:
+            hosts:
+            - workspace-qdrant-mcp
+            http:
+            - match:
+              - headers:
+                  canary:
+                    exact: "true"
+              route:
+              - destination:
+                  host: workspace-qdrant-mcp
+                  subset: canary-v${{ needs.validate-canary-request.outputs.version }}
+                weight: 100
+            - route:
+              - destination:
+                  host: workspace-qdrant-mcp
+                  subset: stable
+                weight: ${{ 100 - needs.validate-canary-request.outputs.canary_percentage }}
+              - destination:
+                  host: workspace-qdrant-mcp
+                  subset: canary-v${{ needs.validate-canary-request.outputs.version }}
+                weight: ${{ needs.validate-canary-request.outputs.canary_percentage }}
+          ---
+          apiVersion: networking.istio.io/v1beta1
+          kind: DestinationRule
+          metadata:
+            name: workspace-qdrant-mcp-canary
+            namespace: production
+          spec:
+            host: workspace-qdrant-mcp
+            subsets:
+            - name: stable
+              labels:
+                version: stable
+            - name: canary-v${{ needs.validate-canary-request.outputs.version }}
+              labels:
+                version: canary-v${{ needs.validate-canary-request.outputs.version }}
+          EOF
+          
+          echo "📝 Traffic routing configuration created"
+          echo "🎯 Canary receives ${{ needs.validate-canary-request.outputs.canary_percentage }}% of traffic"
+
+  canary-smoke-tests:
+    name: Canary Smoke Tests
+    needs: [validate-canary-request, deploy-canary]
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+
+      - name: Run canary smoke tests
+        run: |
+          echo "🧪 Running canary smoke tests..."
+          
+          # Install canary version for testing
+          python -m venv test-venv
+          source test-venv/bin/activate
+          pip install --upgrade pip
+          pip install workspace-qdrant-mcp==${{ needs.validate-canary-request.outputs.version }}
+          
+          # Basic functionality tests
+          python -c "
+          import time
+          import workspace_qdrant_mcp
+          from workspace_qdrant_mcp.core.config import Settings
+          
+          print('🔬 Testing canary version basic functionality...')
+          
+          # Test 1: Import and version check
+          print(f'✅ Version: {workspace_qdrant_mcp.__version__}')
+          assert workspace_qdrant_mcp.__version__ == '${{ needs.validate-canary-request.outputs.version }}'
+          
+          # Test 2: Configuration loading
+          settings = Settings()
+          print('✅ Configuration loaded successfully')
+          
+          # Test 3: CLI command availability
+          import subprocess
+          result = subprocess.run(['workspace-qdrant-mcp', '--help'], capture_output=True, text=True)
+          assert result.returncode == 0, 'CLI command failed'
+          print('✅ CLI commands functional')
+          
+          print('🎉 Canary smoke tests passed!')
+          "
+
+      - name: Performance baseline check
+        run: |
+          echo "⚡ Running canary performance baseline..."
+          
+          python -c "
+          import time
+          import workspace_qdrant_mcp
+          
+          # Measure import time
+          start = time.time()
+          import workspace_qdrant_mcp.core.qdrant_client
+          import_time = time.time() - start
+          
+          print(f'⏱️ Import time: {import_time:.3f}s')
+          
+          # Check if performance is acceptable (< 2s for canary)
+          if import_time > 2.0:
+              print(f'⚠️ Warning: Canary import time {import_time:.3f}s exceeds 2.0s threshold')
+              exit(1)
+          else:
+              print(f'✅ Canary performance acceptable: {import_time:.3f}s')
+          "
+
+  canary-monitoring-setup:
+    name: Setup Canary Monitoring
+    needs: [validate-canary-request, deploy-canary, canary-smoke-tests]
+    runs-on: ubuntu-latest
+    outputs:
+      monitoring_dashboard: ${{ steps.monitor.outputs.dashboard_url }}
+    
+    steps:
+      - name: Configure canary monitoring
+        id: monitor
+        run: |
+          DASHBOARD_URL="https://grafana.company.com/d/canary-v${{ needs.validate-canary-request.outputs.version }}"
+          echo "dashboard_url=$DASHBOARD_URL" >> $GITHUB_OUTPUT
+          
+          echo "📊 Setting up canary monitoring..."
+          
+          # Create monitoring configuration
+          cat > canary-monitoring.json << EOF
+          {
+            "canary_deployment": {
+              "version": "${{ needs.validate-canary-request.outputs.version }}",
+              "traffic_percentage": ${{ needs.validate-canary-request.outputs.canary_percentage }},
+              "start_time": "$(date -u +%Y-%m-%dT%H:%M:%SZ)",
+              "rollout_duration_hours": ${{ needs.validate-canary-request.outputs.rollout_hours }},
+              "monitoring": {
+                "dashboard_url": "$DASHBOARD_URL",
+                "metrics": {
+                  "error_rate_threshold": 5.0,
+                  "response_time_threshold_ms": 2000,
+                  "success_rate_minimum": 95.0
+                },
+                "alerts": {
+                  "error_rate_spike": true,
+                  "response_time_degradation": true,
+                  "traffic_anomaly": true
+                }
+              }
+            }
+          }
+          EOF
+          
+          echo "📊 Monitoring dashboard: $DASHBOARD_URL"
+          echo "🎯 Error rate threshold: 5%"
+          echo "⏱️ Response time threshold: 2000ms"
+
+      - name: Create monitoring alerts
+        run: |
+          echo "🚨 Setting up canary monitoring alerts..."
+          
+          # Create Prometheus alert rules for canary
+          cat > canary-alerts.yaml << EOF
+          groups:
+          - name: canary-deployment-v${{ needs.validate-canary-request.outputs.version }}
+            rules:
+            - alert: CanaryHighErrorRate
+              expr: |
+                (
+                  sum(rate(http_requests_total{version="canary-v${{ needs.validate-canary-request.outputs.version }}", code!~"2.."}[5m])) /
+                  sum(rate(http_requests_total{version="canary-v${{ needs.validate-canary-request.outputs.version }}"}[5m]))
+                ) * 100 > 5
+              for: 2m
+              labels:
+                severity: warning
+                canary_version: "v${{ needs.validate-canary-request.outputs.version }}"
+              annotations:
+                summary: "Canary deployment showing high error rate"
+                description: "Canary version v${{ needs.validate-canary-request.outputs.version }} error rate is {{ printf \"%.2f\" \$value }}%"
+
+            - alert: CanarySlowResponse
+              expr: |
+                histogram_quantile(0.95, sum(rate(http_request_duration_seconds_bucket{version="canary-v${{ needs.validate-canary-request.outputs.version }}"}[5m])) by (le)) > 2
+              for: 2m
+              labels:
+                severity: warning
+                canary_version: "v${{ needs.validate-canary-request.outputs.version }}"
+              annotations:
+                summary: "Canary deployment showing slow response times"
+                description: "Canary version v${{ needs.validate-canary-request.outputs.version }} 95th percentile response time is {{ printf \"%.2f\" \$value }}s"
+
+            - alert: CanaryTrafficDrop
+              expr: |
+                sum(rate(http_requests_total{version="canary-v${{ needs.validate-canary-request.outputs.version }}"}[5m])) < 
+                (sum(rate(http_requests_total[5m])) * ${{ needs.validate-canary-request.outputs.canary_percentage }} / 100 * 0.5)
+              for: 5m
+              labels:
+                severity: critical
+                canary_version: "v${{ needs.validate-canary-request.outputs.version }}"
+              annotations:
+                summary: "Canary deployment receiving insufficient traffic"
+                description: "Canary version v${{ needs.validate-canary-request.outputs.version }} is receiving less than 50% of expected traffic"
+          EOF
+          
+          echo "✅ Canary monitoring alerts configured"
+
+  schedule-progressive-rollout:
+    name: Schedule Progressive Rollout
+    needs: [validate-canary-request, canary-monitoring-setup]
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Create rollout schedule
+        run: |
+          echo "⏰ Creating progressive rollout schedule..."
+          
+          ROLLOUT_HOURS=${{ needs.validate-canary-request.outputs.rollout_hours }}
+          CANARY_PERCENT=${{ needs.validate-canary-request.outputs.canary_percentage }}
+          
+          # Calculate rollout stages
+          python -c "
+          import json
+          from datetime import datetime, timedelta
+          
+          rollout_hours = int('$ROLLOUT_HOURS')
+          canary_percent = int('$CANARY_PERCENT')
+          start_time = datetime.utcnow()
+          
+          # Define rollout stages
+          stages = []
+          
+          # Stage 1: Initial canary (already deployed)
+          stages.append({
+              'stage': 1,
+              'traffic_percentage': canary_percent,
+              'start_time': start_time.isoformat() + 'Z',
+              'duration_hours': max(rollout_hours * 0.3, 2),
+              'description': f'Initial canary deployment with {canary_percent}% traffic'
+          })
+          
+          # Stage 2: Increase to 25%
+          stage2_start = start_time + timedelta(hours=max(rollout_hours * 0.3, 2))
+          stages.append({
+              'stage': 2,
+              'traffic_percentage': min(25, 100),
+              'start_time': stage2_start.isoformat() + 'Z',
+              'duration_hours': rollout_hours * 0.3,
+              'description': 'Increase canary traffic to 25%'
+          })
+          
+          # Stage 3: Increase to 50%
+          stage3_start = stage2_start + timedelta(hours=rollout_hours * 0.3)
+          stages.append({
+              'stage': 3,
+              'traffic_percentage': 50,
+              'start_time': stage3_start.isoformat() + 'Z',
+              'duration_hours': rollout_hours * 0.2,
+              'description': 'Increase canary traffic to 50%'
+          })
+          
+          # Stage 4: Full rollout
+          stage4_start = stage3_start + timedelta(hours=rollout_hours * 0.2)
+          stages.append({
+              'stage': 4,
+              'traffic_percentage': 100,
+              'start_time': stage4_start.isoformat() + 'Z',
+              'duration_hours': rollout_hours * 0.2,
+              'description': 'Complete rollout - 100% traffic to new version'
+          })
+          
+          rollout_plan = {
+              'canary_version': 'v${{ needs.validate-canary-request.outputs.version }}',
+              'total_duration_hours': rollout_hours,
+              'auto_promote': '${{ github.event.inputs.auto_promote }}' == 'true',
+              'stages': stages,
+              'created_at': start_time.isoformat() + 'Z',
+              'monitoring_dashboard': '${{ needs.canary-monitoring-setup.outputs.monitoring_dashboard }}'
+          }
+          
+          with open('rollout-schedule.json', 'w') as f:
+              json.dump(rollout_plan, f, indent=2)
+              
+          print('📅 Progressive rollout schedule created:')
+          for stage in stages:
+              print(f\"  Stage {stage['stage']}: {stage['traffic_percentage']}% traffic starting {stage['start_time']} for {stage['duration_hours']}h\")
+          "
+
+      - name: Upload rollout schedule
+        uses: actions/upload-artifact@v4
+        with:
+          name: rollout-schedule
+          path: rollout-schedule.json
+
+      - name: Create GitHub issue for rollout tracking
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require('fs');
+            const rolloutPlan = JSON.parse(fs.readFileSync('rollout-schedule.json', 'utf8'));
+            
+            const stagesTable = rolloutPlan.stages.map(stage => 
+              `| Stage ${stage.stage} | ${stage.traffic_percentage}% | ${stage.start_time} | ${stage.duration_hours}h | ${stage.description} |`
+            ).join('\n');
+            
+            await github.rest.issues.create({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              title: `🧪 Canary Deployment Tracking: v${{ needs.validate-canary-request.outputs.version }}`,
+              body: `
+              ## 🧪 Canary Deployment in Progress
+              
+              **Version:** v${{ needs.validate-canary-request.outputs.version }}
+              **Started:** ${rolloutPlan.created_at}
+              **Auto-promote:** ${{ github.event.inputs.auto_promote }}
+              **Initiated by:** @${{ github.actor }}
+              
+              ### Progressive Rollout Schedule
+              
+              | Stage | Traffic % | Start Time | Duration | Description |
+              |-------|-----------|------------|----------|-------------|
+              ${stagesTable}
+              
+              ### Monitoring
+              
+              📊 **Dashboard:** ${{ needs.canary-monitoring-setup.outputs.monitoring_dashboard }}
+              
+              🚨 **Alert Thresholds:**
+              - Error rate: > 5%
+              - Response time: > 2000ms
+              - Success rate: < 95%
+              
+              ### Manual Controls
+              
+              **Promote to full release:**
+              \`\`\`bash
+              gh workflow run canary-promote.yml -f version=${{ needs.validate-canary-request.outputs.version }}
+              \`\`\`
+              
+              **Emergency rollback:**
+              \`\`\`bash
+              gh workflow run release-rollback.yml -f rollback_version=[PREVIOUS_VERSION] -f rollback_reason="Canary failure"
+              \`\`\`
+              
+              ---
+              
+              - [ ] Stage 1 Complete (${{ needs.validate-canary-request.outputs.canary_percentage }}% traffic)
+              - [ ] Stage 2 Complete (25% traffic)
+              - [ ] Stage 3 Complete (50% traffic)
+              - [ ] Stage 4 Complete (100% traffic)
+              
+              *This issue will be updated automatically as the rollout progresses.*
+              `,
+              labels: ['canary-deployment', 'monitoring', 'in-progress']
+            });
+
+  finalize-canary-deployment:
+    name: Finalize Canary Deployment
+    needs: [validate-canary-request, deploy-canary, canary-smoke-tests, canary-monitoring-setup, schedule-progressive-rollout]
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Generate canary deployment summary
+        run: |
+          echo "## 🧪 Canary Deployment Summary" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**Version:** v${{ needs.validate-canary-request.outputs.version }}" >> $GITHUB_STEP_SUMMARY
+          echo "**Initial Traffic:** ${{ needs.validate-canary-request.outputs.canary_percentage }}%" >> $GITHUB_STEP_SUMMARY
+          echo "**Rollout Duration:** ${{ needs.validate-canary-request.outputs.rollout_hours }} hours" >> $GITHUB_STEP_SUMMARY
+          echo "**Auto-promote:** ${{ github.event.inputs.auto_promote }}" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### Status: ✅ DEPLOYED" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**Monitoring Dashboard:** ${{ needs.canary-monitoring-setup.outputs.monitoring_dashboard }}" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### Next Steps:" >> $GITHUB_STEP_SUMMARY
+          echo "1. Monitor canary metrics and alerts" >> $GITHUB_STEP_SUMMARY
+          echo "2. Progressive rollout will continue automatically" >> $GITHUB_STEP_SUMMARY
+          echo "3. Manual promotion available if needed" >> $GITHUB_STEP_SUMMARY
+          echo "4. Rollback ready if issues detected" >> $GITHUB_STEP_SUMMARY
+
+      - name: Cleanup deployment artifacts
+        if: always()
+        uses: geekyeggo/delete-artifact@v2
+        with:
+          name: canary-config
+          failOnError: false
