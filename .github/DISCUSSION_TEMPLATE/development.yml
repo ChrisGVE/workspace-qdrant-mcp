@@ -1,0 +1,151 @@
+title: "🛠️ Development Discussion"
+labels: ["development", "contributor"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Welcome to development discussions! This space is for contributors to discuss technical architecture, 
+        development plans, code reviews, and implementation strategies.
+        
+        **Great for:**
+        - Technical architecture discussions
+        - Development planning and roadmaps
+        - Code review discussions
+        - Performance optimization ideas
+        - Testing strategies
+        - Development tooling and processes
+
+  - type: dropdown
+    id: discussion-type
+    attributes:
+      label: "Discussion Type"
+      description: "What type of development discussion is this?"
+      options:
+        - "Architecture & Design"
+        - "Implementation Strategy"
+        - "Code Review"
+        - "Performance Optimization"
+        - "Testing Approach"
+        - "Development Process"
+        - "Technical RFC"
+        - "Other"
+    validations:
+      required: true
+
+  - type: input
+    id: topic
+    attributes:
+      label: "Topic"
+      description: "Specific topic or component you'd like to discuss"
+      placeholder: "Vector search optimization, MCP protocol enhancement, etc."
+    validations:
+      required: true
+
+  - type: textarea
+    id: context
+    attributes:
+      label: "Context & Background"
+      description: "Provide context for this discussion"
+      placeholder: "Currently we handle... but we're considering..."
+    validations:
+      required: true
+
+  - type: textarea
+    id: proposal
+    attributes:
+      label: "Proposal or Question"
+      description: "What are you proposing or what would you like to discuss?"
+      placeholder: "I propose we... What do you think about...?"
+    validations:
+      required: true
+
+  - type: textarea
+    id: technical-details
+    attributes:
+      label: "Technical Details"
+      description: "Technical specifications, code examples, or implementation details"
+      placeholder: |
+        ```python
+        # Code examples
+        ```
+        
+        Or technical specifications...
+      render: markdown
+
+  - type: textarea
+    id: considerations
+    attributes:
+      label: "Considerations & Trade-offs"
+      description: "Technical considerations, trade-offs, or potential issues"
+      placeholder: |
+        **Pros:**
+        - 
+        
+        **Cons:**
+        - 
+        
+        **Concerns:**
+        - 
+      render: markdown
+
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: "Alternative Approaches"
+      description: "Other approaches or solutions you've considered"
+      placeholder: "Alternative 1: ... Alternative 2: ..."
+
+  - type: checkboxes
+    id: impact
+    attributes:
+      label: "Impact Areas"
+      description: "Which areas of the codebase might be affected? (check all that apply)"
+      options:
+        - label: "Core MCP protocol implementation"
+        - label: "Vector search and retrieval"
+        - label: "Collection management"
+        - label: "Performance and optimization"
+        - label: "API and interfaces"
+        - label: "Testing and validation"
+        - label: "Documentation"
+        - label: "Build and deployment"
+
+  - type: textarea
+    id: questions
+    attributes:
+      label: "Specific Questions"
+      description: "Specific questions you'd like input on"
+      placeholder: |
+        1. What's the best approach for...?
+        2. Should we consider...?
+        3. How do you think we should handle...?
+      render: markdown
+
+  - type: checkboxes
+    id: contributor-info
+    attributes:
+      label: "Contributor Information"
+      description: "About your involvement"
+      options:
+        - label: "I'm planning to work on implementing this"
+        - label: "I'm looking for collaborators on this"
+        - label: "This is related to an existing issue or PR"
+        - label: "This needs community consensus before proceeding"
+        - label: "I'm seeking technical guidance and mentorship"
+
+  - type: input
+    id: related-links
+    attributes:
+      label: "Related Links"
+      description: "Links to related issues, PRs, or external resources"
+      placeholder: "Issue #123, PR #456, https://external-resource.com"
+
+  - type: checkboxes
+    id: guidelines
+    attributes:
+      label: "Development Guidelines"
+      description: "Development discussion guidelines"
+      options:
+        - label: "I've reviewed the contributing guidelines"
+        - label: "I'm open to feedback and alternative approaches"
+        - label: "I understand this is a collaborative discussion space"
