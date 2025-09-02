@@ -1,99 +1,26 @@
 """
 Enhanced configuration management for workspace-qdrant-mcp with environment support.
 
-This module provides a comprehensive configuration system that supports multiple
-deployment environments (development, staging, production), YAML configuration files,
-environment variable overrides, configuration validation, hot-reload capabilities,
-and secure secrets management.
-
-Configuration Sources (in order of precedence):
-    1. Environment variables (highest priority)
-    2. Local configuration files (local.yaml)
-    3. Environment-specific files (development.yaml, staging.yaml, production.yaml)
-    4. .env files in current directory
-    5. Default values (lowest priority)
-
-Supported Environments:
-    - development: Local development with debugging and fast iteration
-    - staging: Production-like environment for testing
-    - production: Production deployment with security and performance optimization
-
-Features:
-    - Environment-based configuration loading
-    - YAML configuration file support with variable substitution
-    - Configuration validation with detailed error messages
-    - Hot-reload support for development
-    - Secure handling of sensitive values
-    - Configuration profiles and templates
-    - Backward compatibility with existing configuration
-
-Example:
-    ```python
-    from workspace_qdrant_mcp.core.enhanced_config import EnhancedConfig
-
-    # Load configuration for specific environment
-    config = EnhancedConfig(environment="development")
-
-    # Access configuration
-    print(f"Qdrant URL: {config.qdrant.url}")
-    print(f"Environment: {config.environment}")
-
-    # Validate configuration
-    if not config.is_valid:
-        print(f"Configuration errors: {config.validation_errors}")
-
-    # Enable hot-reload for development
-    if config.development.hot_reload:
-        config.start_config_watcher()
-    ```
+This is a simplified version that avoids threading issues while providing
+environment-based configuration loading, validation, and YAML support.
 """
 
 import os
 import re
-import secrets
 import logging
 from pathlib import Path
-from typing import Optional, Any, Dict, List, Union, Callable
-from threading import Lock
-import threading
+from typing import Optional, Any, Dict, List, Union
 
 try:
     import yaml
+    YAML_AVAILABLE = True
 except ImportError:
-    yaml = None
+    YAML_AVAILABLE = False
 
-from pydantic import BaseModel, Field, validator, root_validator
+from pydantic import BaseModel, Field, validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
-try:
-    from watchdog.observers import Observer
-    from watchdog.events import FileSystemEventHandler
-    WATCHDOG_AVAILABLE = True
-except ImportError:
-    WATCHDOG_AVAILABLE = False
-
-
 logger = logging.getLogger(__name__)
-
-
-class ConfigFileWatcher(FileSystemEventHandler):
-    """File system event handler for configuration file changes."""
-    
-    def __init__(self, config_instance, callback: Callable = None):
-        self.config_instance = config_instance
-        self.callback = callback
-        self._lock = Lock()
-    
-    def on_modified(self, event):
-        """Handle file modification events."""
-        if event.is_directory:
-            return
-            
-        if event.src_path.endswith(('.yaml', '.yml', '.env')):
-            with self._lock:
-                logger.info(f"Configuration file changed: {event.src_path}")
-                if self.callback:
-                    self.callback()
 
 
 class SecurityConfig(BaseModel):
@@ -249,13 +176,6 @@ class EnhancedConfig(BaseSettings):
     performance: PerformanceConfig = Field(default_factory=PerformanceConfig)
     development: DevelopmentConfig = Field(default_factory=DevelopmentConfig)
     
-    # Configuration state
-    _config_files_loaded: List[Path] = []
-    _validation_errors: List[str] = []
-    _file_watcher = None
-    _observer = None
-    _config_lock = Lock()
-    
     def __init__(self, environment: Optional[str] = None, config_dir: Optional[Path] = None, **kwargs):
         """Initialize enhanced configuration with environment-specific loading.
         
@@ -277,21 +197,18 @@ class EnhancedConfig(BaseSettings):
         self._config_dir = Path(config_dir)
         
         # Load configuration files and environment variables
+        self._config_files_loaded = []
         self._load_configuration_files()
         self._load_legacy_env_vars()
         self._load_nested_env_vars()
         
         # Validate configuration
         self._validation_errors = self.validate_config()
-        
-        # Set up hot-reload if enabled
-        if self.development.hot_reload and self.development.config_watch:
-            self.start_config_watcher()
     
     def _load_configuration_files(self) -> None:
         """Load configuration from YAML files based on environment."""
-        if yaml is None:
-            logger.warning("PyYAML not available, skipping YAML configuration files")
+        if not YAML_AVAILABLE:
+            logger.info("PyYAML not available, skipping YAML configuration files")
             return
         
         config_files = []
@@ -312,10 +229,10 @@ class EnhancedConfig(BaseSettings):
                 config_data = self._load_yaml_file(config_file)
                 if config_data:
                     self._apply_config_data(config_data)
-                    self._config_files_loaded.append(config_file)
+                    self._config_files_loaded.append(str(config_file))
                     logger.info(f"Loaded configuration from {config_file}")
             except Exception as e:
-                logger.error(f"Failed to load configuration from {config_file}: {e}")
+                logger.warning(f"Failed to load configuration from {config_file}: {e}")
     
     def _load_yaml_file(self, file_path: Path) -> Optional[Dict[str, Any]]:
         """Load and parse YAML configuration file with variable substitution."""
@@ -517,57 +434,12 @@ class EnhancedConfig(BaseSettings):
         
         return issues
     
-    def start_config_watcher(self) -> None:
-        """Start file system watcher for configuration changes."""
-        if not WATCHDOG_AVAILABLE:
-            logger.warning("Watchdog not available, config hot-reload disabled")
-            return
-        
-        if self._observer is not None:
-            return  # Already watching
-        
-        def reload_config():
-            """Callback for configuration reload."""
-            with self._config_lock:
-                logger.info("Reloading configuration...")
-                try:
-                    self._load_configuration_files()
-                    self._validation_errors = self.validate_config()
-                    logger.info("Configuration reloaded successfully")
-                except Exception as e:
-                    logger.error(f"Failed to reload configuration: {e}")
-        
-        self._file_watcher = ConfigFileWatcher(self, reload_config)
-        self._observer = Observer()
-        
-        # Watch config directory
-        if self._config_dir.exists():
-            self._observer.schedule(self._file_watcher, str(self._config_dir), recursive=False)
-        
-        # Watch for .env file changes
-        env_file = Path(".env")
-        if env_file.exists():
-            self._observer.schedule(self._file_watcher, str(env_file.parent), recursive=False)
-        
-        self._observer.start()
-        logger.info(f"Started configuration file watcher for {self._config_dir}")
-    
-    def stop_config_watcher(self) -> None:
-        """Stop file system watcher."""
-        if self._observer is not None:
-            self._observer.stop()
-            self._observer.join()
-            self._observer = None
-            self._file_watcher = None
-            logger.info("Stopped configuration file watcher")
-    
     def reload_config(self) -> None:
         """Manually reload configuration."""
-        with self._config_lock:
-            self._load_configuration_files()
-            self._load_legacy_env_vars()
-            self._load_nested_env_vars()
-            self._validation_errors = self.validate_config()
+        self._load_configuration_files()
+        self._load_legacy_env_vars()
+        self._load_nested_env_vars()
+        self._validation_errors = self.validate_config()
     
     def mask_sensitive_value(self, value: str, mask_char: str = "*") -> str:
         """Mask sensitive values for logging."""
@@ -584,7 +456,7 @@ class EnhancedConfig(BaseSettings):
         """Get configuration summary for debugging."""
         summary = {
             "environment": self.environment,
-            "config_files_loaded": [str(f) for f in self._config_files_loaded],
+            "config_files_loaded": self._config_files_loaded,
             "validation_status": "valid" if self.is_valid else "invalid",
             "validation_errors": self.validation_errors,
             "qdrant_url": self.mask_sensitive_value(self.qdrant.url) if self.security.mask_sensitive_logs else self.qdrant.url,
@@ -599,11 +471,6 @@ class EnhancedConfig(BaseSettings):
                 summary["qdrant_api_key"] = self.mask_sensitive_value(self.qdrant.api_key)
         
         return summary
-    
-    def __del__(self):
-        """Cleanup on object deletion."""
-        if hasattr(self, '_observer') and self._observer is not None:
-            self.stop_config_watcher()
 
 
 # Backward compatibility: alias to enhanced config
