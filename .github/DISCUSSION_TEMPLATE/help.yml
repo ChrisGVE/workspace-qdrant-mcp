@@ -1,0 +1,135 @@
+title: "🆘 Help Request"
+labels: ["help wanted", "support"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Need help with Qdrant MCP? We're here to assist! The community is always ready to help troubleshoot issues.
+        
+        **Before asking for help:**
+        - Check the [troubleshooting guide](../tutorials/troubleshooting.md)
+        - Review [installation instructions](../INSTALLATION.md)
+        - Search existing discussions for similar issues
+        - Try the basic [examples](../examples/) to isolate the problem
+
+  - type: input
+    id: issue-summary
+    attributes:
+      label: "Issue Summary"
+      description: "Brief description of the problem you're experiencing"
+      placeholder: "Can't connect to Qdrant server from MCP"
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected-behavior
+    attributes:
+      label: "Expected Behavior"
+      description: "What did you expect to happen?"
+      placeholder: "I expected the MCP server to connect to Qdrant and..."
+    validations:
+      required: true
+
+  - type: textarea
+    id: actual-behavior
+    attributes:
+      label: "Actual Behavior"
+      description: "What actually happened?"
+      placeholder: "Instead, I got an error message..."
+    validations:
+      required: true
+
+  - type: textarea
+    id: steps-to-reproduce
+    attributes:
+      label: "Steps to Reproduce"
+      description: "Detailed steps to reproduce the issue"
+      placeholder: |
+        1. Install Qdrant MCP using...
+        2. Configure the connection with...
+        3. Run the command...
+        4. Error occurs when...
+      render: markdown
+    validations:
+      required: true
+
+  - type: textarea
+    id: error-logs
+    attributes:
+      label: "Error Messages & Logs"
+      description: "Complete error messages, stack traces, or log output"
+      placeholder: "Paste error messages here..."
+      render: shell
+
+  - type: textarea
+    id: environment
+    attributes:
+      label: "Environment Details"
+      description: "Your system and software versions"
+      placeholder: |
+        - Operating System: macOS/Windows/Linux (version)
+        - Python version: 3.x.x
+        - Claude Code version: x.x.x
+        - Qdrant version: x.x.x
+        - MCP version: x.x.x
+        - Installation method: pip/poetry/conda/docker
+      render: markdown
+    validations:
+      required: true
+
+  - type: textarea
+    id: configuration
+    attributes:
+      label: "Configuration Files"
+      description: "Relevant configuration files (remove sensitive data like API keys)"
+      placeholder: |
+        # .mcp.json content (redact sensitive info):
+        # Environment variables:
+        # Qdrant configuration:
+      render: json
+
+  - type: textarea
+    id: attempted-solutions
+    attributes:
+      label: "What have you tried?"
+      description: "Solutions you've already attempted"
+      placeholder: |
+        - Tried reinstalling the package
+        - Checked firewall settings
+        - Verified Qdrant server is running
+      render: markdown
+
+  - type: dropdown
+    id: urgency
+    attributes:
+      label: "Urgency"
+      description: "How urgent is this issue for you?"
+      options:
+        - "Low - I can work around this"
+        - "Medium - It's blocking some work"
+        - "High - It's blocking critical work"
+        - "Critical - Production system down"
+    validations:
+      required: true
+
+  - type: checkboxes
+    id: troubleshooting
+    attributes:
+      label: "Pre-flight Checklist"
+      description: "Confirm you've tried these basic troubleshooting steps"
+      options:
+        - label: "I've checked that Qdrant server is running and accessible"
+        - label: "I've verified my configuration settings"
+        - label: "I've tried with a minimal example"
+        - label: "I've checked the logs for additional error details"
+        - label: "I've searched existing discussions for similar issues"
+
+  - type: checkboxes
+    id: guidelines
+    attributes:
+      label: "Community Guidelines"
+      description: "Support guidelines"
+      options:
+        - label: "I've provided enough detail for others to understand the issue"
+        - label: "I've removed or redacted sensitive information from my examples"
+        - label: "I'm willing to provide additional information if requested"
