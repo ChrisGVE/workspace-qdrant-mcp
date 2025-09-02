@@ -1,5 +1,5 @@
 
-from .....observability import get_logger
+from ...observability import get_logger
 logger = get_logger(__name__)
 """
 HTML and web content parser for extracting text content and metadata.

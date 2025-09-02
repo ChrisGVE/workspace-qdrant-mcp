@@ -1,5 +1,5 @@
 
-from .....observability import get_logger
+from ...observability import get_logger
 logger = get_logger(__name__)
 """
 File type detection and validation system.
