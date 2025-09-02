@@ -154,16 +154,20 @@ class WorkspaceCollectionManager:
         self, project_name: str, subprojects: list[str] | None = None
     ) -> None:
         """
-        Initialize all collections for the current workspace based on project structure.
+        Initialize collections for the current workspace based on configuration and project structure.
 
-        Creates project-specific collections (docs and scratchbook) for the main project
-        and any detected subprojects, plus global collections that span across projects.
-        All collections are created with optimized settings for search performance.
+        Behavior depends on the auto_create_collections setting:
+        - When auto_create_collections=True: Creates project collections, subproject collections, and global collections
+        - When auto_create_collections=False: Only creates scratchbook collection for basic functionality
 
-        Collection Creation Pattern:
-            Main project: [project-name]-{suffix} for each workspace.collections suffix
-            Subprojects: [subproject-name]-{suffix} for each workspace.collections suffix
-            Global: scratchbook, shared-notes (configurable via workspace.global_collections)
+        Collection Creation Patterns:
+            With auto_create_collections=True:
+                Main project: [project-name]-{suffix} for each workspace.collections suffix  
+                Subprojects: [subproject-name]-{suffix} for each workspace.collections suffix
+                Global: All collections from workspace.global_collections
+
+            With auto_create_collections=False:
+                Only: scratchbook collection (essential for cross-project note-taking)
 
         Args:
             project_name: Main project identifier (used as collection name prefix)
@@ -176,10 +180,10 @@ class WorkspaceCollectionManager:
 
         Example:
             ```python
-            # Initialize for simple project
+            # Initialize for simple project (respects auto_create_collections setting)
             await manager.initialize_workspace_collections("my-app")
 
-            # Initialize with subprojects
+            # Initialize with subprojects (respects auto_create_collections setting) 
             await manager.initialize_workspace_collections(
                 project_name="enterprise-system",
                 subprojects=["web-frontend", "mobile-app", "api-gateway"]
@@ -188,40 +192,55 @@ class WorkspaceCollectionManager:
         """
         collections_to_create = []
 
-        # Main project collections
-        for suffix in self.config.workspace.collections:
-            collections_to_create.append(
-                CollectionConfig(
-                    name=f"{project_name}-{suffix}",
-                    description=f"{suffix.title()} collection for {project_name}",
-                    collection_type=suffix,
-                    project_name=project_name,
-                    vector_size=self._get_vector_size(),
-                    enable_sparse_vectors=self.config.embedding.enable_sparse_vectors,
-                )
-            )
-
-        # Subproject collections
-        if subprojects:
-            for subproject in subprojects:
-                for suffix in self.config.workspace.collections:
-                    collections_to_create.append(
-                        CollectionConfig(
-                            name=f"{subproject}-{suffix}",
-                            description=f"{suffix.title()} collection for {subproject}",
-                            collection_type=suffix,
-                            project_name=subproject,
-                            vector_size=self._get_vector_size(),
-                            enable_sparse_vectors=self.config.embedding.enable_sparse_vectors,
-                        )
+        if self.config.workspace.auto_create_collections:
+            # Full collection creation when auto_create_collections=True
+            
+            # Main project collections
+            for suffix in self.config.workspace.collections:
+                collections_to_create.append(
+                    CollectionConfig(
+                        name=f"{project_name}-{suffix}",
+                        description=f"{suffix.title()} collection for {project_name}",
+                        collection_type=suffix,
+                        project_name=project_name,
+                        vector_size=self._get_vector_size(),
+                        enable_sparse_vectors=self.config.embedding.enable_sparse_vectors,
                     )
+                )
 
-        # Global collections
-        for global_collection in self.config.workspace.global_collections:
+            # Subproject collections
+            if subprojects:
+                for subproject in subprojects:
+                    for suffix in self.config.workspace.collections:
+                        collections_to_create.append(
+                            CollectionConfig(
+                                name=f"{subproject}-{suffix}",
+                                description=f"{suffix.title()} collection for {subproject}",
+                                collection_type=suffix,
+                                project_name=subproject,
+                                vector_size=self._get_vector_size(),
+                                enable_sparse_vectors=self.config.embedding.enable_sparse_vectors,
+                            )
+                        )
+
+            # Global collections
+            for global_collection in self.config.workspace.global_collections:
+                collections_to_create.append(
+                    CollectionConfig(
+                        name=global_collection,
+                        description=f"Global {global_collection} collection",
+                        collection_type="global",
+                        vector_size=self._get_vector_size(),
+                        enable_sparse_vectors=self.config.embedding.enable_sparse_vectors,
+                    )
+                )
+        else:
+            # Minimal collection creation when auto_create_collections=False
+            # Only create scratchbook collection for essential functionality
             collections_to_create.append(
                 CollectionConfig(
-                    name=global_collection,
-                    description=f"Global {global_collection} collection",
+                    name="scratchbook",
+                    description="Global scratchbook collection for cross-project notes",
                     collection_type="global",
                     vector_size=self._get_vector_size(),
                     enable_sparse_vectors=self.config.embedding.enable_sparse_vectors,
