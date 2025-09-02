@@ -1,0 +1,176 @@
+# Alertmanager configuration for workspace-qdrant-mcp
+global:
+  smtp_smarthost: 'localhost:587'
+  smtp_from: 'alerts@workspace-qdrant-mcp.com'
+  smtp_auth_username: 'alerts@workspace-qdrant-mcp.com'
+  smtp_auth_password: 'your-email-password'
+  resolve_timeout: 5m
+
+# Route configuration
+route:
+  group_by: ['alertname', 'cluster', 'service']
+  group_wait: 10s
+  group_interval: 10s
+  repeat_interval: 1h
+  receiver: 'web.hook'
+  routes:
+    # Critical alerts go to on-call immediately
+    - match:
+        severity: critical
+      receiver: 'critical-alerts'
+      group_wait: 5s
+      repeat_interval: 5m
+    
+    # Warning alerts batched and sent less frequently
+    - match:
+        severity: warning
+      receiver: 'warning-alerts'
+      group_wait: 30s
+      repeat_interval: 30m
+    
+    # Database-specific alerts
+    - match:
+        category: database
+      receiver: 'database-team'
+      
+    # Performance alerts
+    - match:
+        category: performance
+      receiver: 'performance-team'
+      
+    # Resource alerts
+    - match:
+        category: resource
+      receiver: 'infrastructure-team'
+
+# Inhibit rules to reduce alert noise
+inhibit_rules:
+  # Silence warning alerts if critical alerts are firing
+  - source_match:
+      severity: 'critical'
+    target_match:
+      severity: 'warning'
+    equal: ['alertname', 'cluster', 'service']
+
+  # Silence high memory alerts if service is down
+  - source_match:
+      alertname: 'ServiceDown'
+    target_match:
+      alertname: 'HighMemoryUsage'
+    equal: ['instance']
+
+  # Silence performance alerts if service is down
+  - source_match:
+      alertname: 'ServiceDown'
+    target_match_re:
+      alertname: '(SlowResponseTime|HighVectorSearchLatency|QueueBacklog)'
+    equal: ['instance']
+
+# Receiver configurations
+receivers:
+  - name: 'web.hook'
+    webhook_configs:
+      - url: 'http://127.0.0.1:5001/webhook'
+
+  - name: 'critical-alerts'
+    email_configs:
+      - to: 'oncall@workspace-qdrant-mcp.com'
+        subject: '[CRITICAL] {{ .GroupLabels.alertname }} - {{ .GroupLabels.service }}'
+        body: |
+          {{ range .Alerts }}
+          **Alert:** {{ .Annotations.summary }}
+          **Description:** {{ .Annotations.description }}
+          **Instance:** {{ .Labels.instance }}
+          **Severity:** {{ .Labels.severity }}
+          **Runbook:** {{ .Annotations.runbook_url }}
+          **Started:** {{ .StartsAt }}
+          {{ end }}
+        headers:
+          Subject: '[CRITICAL] Workspace Qdrant MCP Alert'
+    
+    slack_configs:
+      - api_url: 'https://hooks.slack.com/services/YOUR/SLACK/WEBHOOK'
+        channel: '#alerts-critical'
+        title: 'Critical Alert: {{ .GroupLabels.alertname }}'
+        text: |
+          {{ range .Alerts }}
+          *{{ .Annotations.summary }}*
+          {{ .Annotations.description }}
+          Service: {{ .Labels.service }}
+          Instance: {{ .Labels.instance }}
+          Runbook: {{ .Annotations.runbook_url }}
+          {{ end }}
+        send_resolved: true
+
+    pagerduty_configs:
+      - service_key: 'your-pagerduty-service-key'
+        description: |
+          {{ range .Alerts }}{{ .Annotations.summary }}{{ end }}
+
+  - name: 'warning-alerts'
+    email_configs:
+      - to: 'team@workspace-qdrant-mcp.com'
+        subject: '[WARNING] {{ .GroupLabels.alertname }} - {{ .GroupLabels.service }}'
+        body: |
+          {{ range .Alerts }}
+          **Alert:** {{ .Annotations.summary }}
+          **Description:** {{ .Annotations.description }}
+          **Instance:** {{ .Labels.instance }}
+          **Severity:** {{ .Labels.severity }}
+          **Runbook:** {{ .Annotations.runbook_url }}
+          **Started:** {{ .StartsAt }}
+          {{ end }}
+    
+    slack_configs:
+      - api_url: 'https://hooks.slack.com/services/YOUR/SLACK/WEBHOOK'
+        channel: '#alerts-warning'
+        title: 'Warning: {{ .GroupLabels.alertname }}'
+        text: |
+          {{ range .Alerts }}
+          {{ .Annotations.summary }}
+          Service: {{ .Labels.service }}
+          Instance: {{ .Labels.instance }}
+          {{ end }}
+
+  - name: 'database-team'
+    email_configs:
+      - to: 'database-team@workspace-qdrant-mcp.com'
+        subject: '[DB ALERT] {{ .GroupLabels.alertname }}'
+        body: |
+          Database-related alert detected:
+          {{ range .Alerts }}
+          **Alert:** {{ .Annotations.summary }}
+          **Description:** {{ .Annotations.description }}
+          **Instance:** {{ .Labels.instance }}
+          **Runbook:** {{ .Annotations.runbook_url }}
+          {{ end }}
+
+  - name: 'performance-team'
+    email_configs:
+      - to: 'performance-team@workspace-qdrant-mcp.com'
+        subject: '[PERF ALERT] {{ .GroupLabels.alertname }}'
+        body: |
+          Performance-related alert detected:
+          {{ range .Alerts }}
+          **Alert:** {{ .Annotations.summary }}
+          **Description:** {{ .Annotations.description }}
+          **Instance:** {{ .Labels.instance }}
+          **Runbook:** {{ .Annotations.runbook_url }}
+          {{ end }}
+
+  - name: 'infrastructure-team'
+    email_configs:
+      - to: 'infrastructure@workspace-qdrant-mcp.com'
+        subject: '[INFRA ALERT] {{ .GroupLabels.alertname }}'
+        body: |
+          Infrastructure-related alert detected:
+          {{ range .Alerts }}
+          **Alert:** {{ .Annotations.summary }}
+          **Description:** {{ .Annotations.description }}
+          **Instance:** {{ .Labels.instance }}
+          **Runbook:** {{ .Annotations.runbook_url }}
+          {{ end }}
+
+# Templates for custom formatting
+templates:
+  - '/etc/alertmanager/templates/*.tmpl'
