@@ -4,6 +4,7 @@ This module provides the `wqm init` command to generate shell completion scripts
 for bash, zsh, and fish shells, following standard CLI patterns.
 
 Usage:
+    wqm init --help             # Show supported shells
     eval "$(wqm init bash)"     # Enable bash completion
     eval "$(wqm init zsh)"      # Enable zsh completion  
     eval "$(wqm init fish)"     # Enable fish completion
@@ -25,7 +26,7 @@ class Shell(str, Enum):
 # Initialize the init app - make it simple with direct commands
 init_app = typer.Typer(
     name="init",
-    help="Initialize shell completion for wqm",
+    help="Initialize shell completion for wqm. Supports bash, zsh, and fish shells.",
     no_args_is_help=True,
 )
 
@@ -37,10 +38,7 @@ def bash_completion(
         help="Program name for completion (default: wqm)"
     ),
 ) -> None:
-    """Generate bash completion script.
-    
-    Usage: eval "$(wqm init bash)"
-    """
+    """Generate bash completion script for shell evaluation."""
     generate_completion_script(Shell.BASH, prog_name)
 
 @init_app.command("zsh")
@@ -51,10 +49,7 @@ def zsh_completion(
         help="Program name for completion (default: wqm)"
     ),
 ) -> None:
-    """Generate zsh completion script.
-    
-    Usage: eval "$(wqm init zsh)"
-    """
+    """Generate zsh completion script for shell evaluation."""
     generate_completion_script(Shell.ZSH, prog_name)
 
 @init_app.command("fish")
@@ -65,64 +60,8 @@ def fish_completion(
         help="Program name for completion (default: wqm)"
     ),
 ) -> None:
-    """Generate fish completion script.
-    
-    Usage: eval "$(wqm init fish)"
-    """
+    """Generate fish completion script for shell evaluation."""
     generate_completion_script(Shell.FISH, prog_name)
-
-@init_app.command("help")
-def show_help() -> None:
-    """Show detailed help for shell completion setup."""
-    help_text = """
-Shell Completion Setup for wqm
-
-The 'wqm init' command generates shell completion scripts that can be 
-evaluated to enable tab completion for wqm commands and options.
-
-BASIC USAGE:
-    eval "$(wqm init SHELL)"
-
-SUPPORTED SHELLS:
-    bash    - Bash shell completion
-    zsh     - Zsh shell completion  
-    fish    - Fish shell completion
-
-EXAMPLES:
-
-  Temporary activation (current session only):
-    eval "$(wqm init bash)"      # For Bash
-    eval "$(wqm init zsh)"       # For Zsh  
-    eval "$(wqm init fish)"      # For Fish
-
-  Permanent installation:
-  
-    Bash:
-      wqm init bash > ~/.bash_completion.d/wqm
-      # Or add to ~/.bashrc:
-      echo 'eval "$(wqm init bash)"' >> ~/.bashrc
-
-    Zsh:
-      wqm init zsh > ~/.zsh/completions/_wqm
-      # Or add to ~/.zshrc:
-      echo 'eval "$(wqm init zsh)"' >> ~/.zshrc
-      
-    Fish:
-      wqm init fish > ~/.config/fish/completions/wqm.fish
-
-WHAT YOU GET:
-  - Tab completion for all wqm commands
-  - Tab completion for command options  
-  - Context-aware argument completion
-  - Help text display during completion
-
-TROUBLESHOOTING:
-  - Make sure wqm is in your PATH
-  - Restart your shell after permanent installation
-  - For fish, ensure the completions directory exists
-  - Use 'wqm init SHELL' to regenerate if needed
-"""
-    print(help_text.strip())
 
 def generate_completion_script(shell: Shell, prog_name: str) -> None:
     """Generate and output completion script for the specified shell."""

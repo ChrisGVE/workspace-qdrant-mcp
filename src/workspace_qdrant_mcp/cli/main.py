@@ -38,7 +38,7 @@ app = typer.Typer(
     name="wqm",
     help="Workspace Qdrant MCP - Unified semantic workspace management",
     add_completion=False,  # Use custom init command instead
-    no_args_is_help=False,  # Allow custom welcome message
+    no_args_is_help=True,   # Show help when no arguments provided
 )
 logger = get_logger(__name__)
 
@@ -52,9 +52,8 @@ app.add_typer(library_app, name="library", help="Library collection management")
 app.add_typer(watch_app, name="watch", help="Folder watching configuration")
 app.add_typer(observability_app, name="observability", help="Observability, monitoring, and health checks")
 
-@app.callback(invoke_without_command=True)
+@app.callback()
 def main(
-    ctx: typer.Context,
     version: bool = typer.Option(False, "--version", "-v", help="Show version information"),
     config_path: str | None = typer.Option(None, "--config", "-c", help="Custom configuration file"),
     debug: bool = typer.Option(False, "--debug", help="Enable debug mode with verbose logging"),
@@ -72,6 +71,7 @@ def main(
         wqm search project "rust patterns"  # Search current project
         wqm library create technical-books  # Create library collection
         wqm watch add ~/docs --collection=_docs  # Watch folder
+        wqm init                           # Enable shell completion
     """
     # Configure logging and environment based on debug flag
     import os
@@ -95,9 +95,6 @@ def main(
             logger.debug("Custom config path provided", config_path=config_path)
         pass
 
-    if ctx.invoked_subcommand is None:
-        show_welcome(debug=debug)
-
 def show_version(debug: bool = False) -> None:
     """Display version information."""
     try:
@@ -115,27 +112,6 @@ def show_version(debug: bool = False) -> None:
         # Simple version display
         print(version_str)
 
-def show_welcome(debug: bool = False) -> None:
-    """Display welcome message and quick start guide."""
-    if debug:
-        logger.debug("Displaying welcome message")
-    
-    print("Workspace Qdrant MCP - Unified semantic workspace management")
-    print("")
-    print("Available commands:")
-    print("  wqm init bash                      # Enable shell completion")
-    print("  wqm admin status                   # Check system health")
-    print("  wqm memory add \"Use uv for Python\"  # Add behavior rule")
-    print("  wqm ingest file document.pdf       # Process a document")
-    print("  wqm search project \"patterns\"      # Search your project")
-    print("  wqm library create technical-books # Create library collection")
-    print("  wqm watch add ~/docs               # Watch folder")
-    print("")
-    print("Use 'wqm COMMAND --help' for detailed information.")
-    print("Use 'wqm --debug' for verbose debugging output.")
-    print("")
-    print("Enable shell completion with: eval \"$(wqm init bash)\"")
-    print("For other shells, use: wqm init help")
 
 def handle_async_command(coro, debug: bool = False):
     """Helper to run async commands in CLI context."""
