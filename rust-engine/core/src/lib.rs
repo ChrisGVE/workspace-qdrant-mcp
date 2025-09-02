@@ -11,6 +11,7 @@ use thiserror::Error;
 use tokio::sync::Mutex;
 
 pub mod config;
+pub mod embedding;
 pub mod ipc;
 pub mod processing;
 pub mod storage;
@@ -20,6 +21,10 @@ use crate::processing::{Pipeline, TaskSubmitter, TaskPriority, TaskSource, TaskP
 use crate::ipc::{IpcServer, IpcClient};
 use crate::storage::StorageClient;
 use crate::config::Config;
+pub use crate::embedding::{
+    EmbeddingGenerator, EmbeddingConfig, EmbeddingResult, 
+    DenseEmbedding, SparseEmbedding, EmbeddingError
+};
 
 /// Core processing errors
 #[derive(Error, Debug)]
