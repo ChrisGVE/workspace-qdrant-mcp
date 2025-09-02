@@ -1,0 +1,90 @@
+title: "💡 Feature Idea"
+labels: ["enhancement", "idea"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for sharing your idea! Feature requests and suggestions help make Qdrant MCP better for everyone.
+        
+        **Before posting:**
+        - Check if a similar idea already exists in discussions or issues
+        - Consider if this fits with the MCP (Model Context Protocol) scope
+
+  - type: input
+    id: title
+    attributes:
+      label: "Feature Title"
+      description: "A concise title for your feature idea"
+      placeholder: "Add support for..."
+    validations:
+      required: true
+
+  - type: textarea
+    id: problem
+    attributes:
+      label: "What problem does this solve?"
+      description: "Describe the problem or limitation you're experiencing"
+      placeholder: "Currently it's difficult to... because..."
+    validations:
+      required: true
+
+  - type: textarea
+    id: solution
+    attributes:
+      label: "Proposed Solution"
+      description: "How do you envision this feature working?"
+      placeholder: "I would like to see..."
+    validations:
+      required: true
+
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: "Alternative Solutions"
+      description: "Any alternative approaches you've considered?"
+      placeholder: "I also considered... but..."
+
+  - type: textarea
+    id: use-case
+    attributes:
+      label: "Use Case Examples"
+      description: "Specific examples of how this feature would be used"
+      placeholder: |
+        1. When integrating with Claude Code, users could...
+        2. For vector search applications, this would allow...
+      render: markdown
+
+  - type: dropdown
+    id: priority
+    attributes:
+      label: "Priority Level"
+      description: "How important is this feature to your workflow?"
+      options:
+        - "Nice to have"
+        - "Would be helpful"
+        - "Important for my use case"
+        - "Critical for adoption"
+    validations:
+      required: true
+
+  - type: checkboxes
+    id: implementation
+    attributes:
+      label: "Implementation Considerations"
+      description: "Technical aspects to consider (check all that apply)"
+      options:
+        - label: "This may require changes to the MCP protocol interface"
+        - label: "This may affect performance"
+        - label: "This may require new dependencies"
+        - label: "This may break backward compatibility"
+        - label: "I'm willing to help implement this feature"
+
+  - type: checkboxes
+    id: guidelines
+    attributes:
+      label: "Community Guidelines"
+      description: "By submitting this idea, you agree to follow our community guidelines"
+      options:
+        - label: "I have searched for similar existing ideas"
+        - label: "This idea aligns with the MCP and vector database scope"
+        - label: "I'm open to feedback and discussion on this idea"
