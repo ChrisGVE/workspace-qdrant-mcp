@@ -12,21 +12,19 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 import typer
-from rich.console import Console
-from rich.panel import Panel
 from rich.prompt import Confirm
-from rich.table import Table
 
 from ...core.client import create_qdrant_client
 from ...core.collection_naming import CollectionNameError, validate_collection_name
 from ...core.config import Config
 
-console = Console()
 
 # Create the library app
 library_app = typer.Typer(
-    help="📚 Library collection management",
+    help=" Library collection management",
     no_args_is_help=True
+,
+    rich_markup_mode=None  # Disable Rich formatting completely
 )
 
 def handle_async(coro):
@@ -34,10 +32,10 @@ def handle_async(coro):
     try:
         return asyncio.run(coro)
     except KeyboardInterrupt:
-        console.print("\n[yellow]Operation cancelled by user[/yellow]")
+        print("\nOperation cancelled by user")
         raise typer.Exit(1)
     except Exception as e:
-        console.print(f"[red]Error: {e}[/red]")
+        print(f"Error: {e}")
         raise typer.Exit(1)
 
 @library_app.command("list")
@@ -46,7 +44,7 @@ def list_libraries(
     sort_by: str = typer.Option("name", "--sort", help="Sort by: name, size, created"),
     format: str = typer.Option("table", "--format", "-f", help="Output format: table, json"),
 ):
-    """📋 Show all library collections."""
+    """ Show all library collections."""
     handle_async(_list_libraries(stats, sort_by, format))
 
 @library_app.command("create")
@@ -57,7 +55,7 @@ def create_library(
     vector_size: int = typer.Option(384, "--vector-size", help="Vector dimension size"),
     distance_metric: str = typer.Option("cosine", "--distance", help="Distance metric: cosine, euclidean, dot"),
 ):
-    """➕ Create a new library collection."""
+    """ Create a new library collection."""
     handle_async(_create_library(name, description, tags, vector_size, distance_metric))
 
 @library_app.command("remove")
@@ -66,7 +64,7 @@ def remove_library(
     force: bool = typer.Option(False, "--force", "-f", help="Skip confirmation"),
     backup: bool = typer.Option(True, "--backup/--no-backup", help="Create backup before removal"),
 ):
-    """🗑️ Remove library collection."""
+    """ Remove library collection."""
     handle_async(_remove_library(name, force, backup))
 
 @library_app.command("status")
@@ -75,7 +73,7 @@ def library_status(
     detailed: bool = typer.Option(False, "--detailed", "-d", help="Show detailed information"),
     health_check: bool = typer.Option(False, "--health", help="Perform health check"),
 ):
-    """📊 Show library statistics and health."""
+    """ Show library statistics and health."""
     handle_async(_library_status(name, detailed, health_check))
 
 @library_app.command("info")
@@ -84,7 +82,7 @@ def library_info(
     show_samples: bool = typer.Option(False, "--samples", help="Show sample documents"),
     show_schema: bool = typer.Option(False, "--schema", help="Show collection schema"),
 ):
-    """🔍 Show detailed library information."""
+    """ Show detailed library information."""
     handle_async(_library_info(name, show_samples, show_schema))
 
 @library_app.command("rename")
@@ -93,7 +91,7 @@ def rename_library(
     new_name: str = typer.Argument(..., help="New library name"),
     force: bool = typer.Option(False, "--force", help="Skip confirmation"),
 ):
-    """✏️ Rename a library collection."""
+    """ Rename a library collection."""
     handle_async(_rename_library(old_name, new_name, force))
 
 @library_app.command("copy")
@@ -102,7 +100,7 @@ def copy_library(
     destination: str = typer.Argument(..., help="Destination library name"),
     description: str | None = typer.Option(None, "--description", help="Description for new library"),
 ):
-    """📋 Copy library collection."""
+    """ Copy library collection."""
     handle_async(_copy_library(source, destination, description))
 
 # Async implementation functions
@@ -122,8 +120,8 @@ async def _list_libraries(stats: bool, sort_by: str, format: str):
         ]
 
         if not library_collections:
-            console.print("[yellow]📚 No library collections found.[/yellow]")
-            console.print("[dim]Use 'wqm library create <name>' to create one[/dim]")
+            print("📚 No library collections found.")
+            print("Use 'wqm library create <name>' to create one")
             return
 
         # Collect statistics if requested
@@ -158,7 +156,7 @@ async def _list_libraries(stats: bool, sort_by: str, format: str):
 
         if format == "json":
             import json
-            console.print(json.dumps(library_data, indent=2))
+            print(json.dumps(library_data, indent=2))
             return
 
         # Display as table
@@ -192,14 +190,14 @@ async def _list_libraries(stats: bool, sort_by: str, format: str):
             else:
                 table.add_row(name, status)
 
-        console.print(table)
+        print(table)
 
         if stats:
             total_docs = sum(lib.get("points_count", 0) for lib in library_data if isinstance(lib.get("points_count"), int))
-            console.print(f"\n[dim]Total documents across all libraries: {total_docs:,}[/dim]")
+            print(f"\nTotal documents across all libraries: {total_docs:,}")
 
     except Exception as e:
-        console.print(f"[red]❌ Failed to list libraries: {e}[/red]")
+        print(f"❌ Failed to list libraries: {e}")
         raise typer.Exit(1)
 
 async def _create_library(
@@ -223,7 +221,7 @@ async def _create_library(
         try:
             validate_collection_name(collection_name, allow_library=True)
         except CollectionNameError as e:
-            console.print(f"[red]❌ Invalid collection name: {e}[/red]")
+            print(f"❌ Invalid collection name: {e}")
             raise typer.Exit(1)
 
         config = Config()
@@ -232,10 +230,10 @@ async def _create_library(
         # Check if collection already exists
         existing_collections = await client.list_collections()
         if any(col.get("name") == collection_name for col in existing_collections):
-            console.print(f"[red]❌ Library collection '{display_name}' already exists[/red]")
+            print(f"❌ Library collection '{display_name}' already exists")
             raise typer.Exit(1)
 
-        console.print(f"[bold blue]➕ Creating library: {display_name}[/bold blue]")
+        print(f" Creating library: {display_name}")
 
         # Prepare collection configuration
         collection_config = {
@@ -258,18 +256,18 @@ async def _create_library(
         # Create the collection
         await client.create_collection(collection_name, collection_config)
 
-        console.print(f"[green]✅ Library collection '{display_name}' created successfully![/green]")
+        print(f" Library collection '{display_name}' created successfully!")
 
         # Display creation summary
         summary_panel = Panel(
             f"""[bold]Library Collection Created[/bold]
 
 📚 [cyan]Name:[/cyan] {display_name}
-🔍 [cyan]Full Name:[/cyan] {collection_name}
+ [cyan]Full Name:[/cyan] {collection_name}
 📏 [cyan]Vector Size:[/cyan] {vector_size}
 📐 [cyan]Distance Metric:[/cyan] {distance_metric.upper()}
 📝 [cyan]Description:[/cyan] {description or "None"}
-🏷️  [cyan]Tags:[/cyan] {', '.join(tags) if tags else "None"}
+🏷  [cyan]Tags:[/cyan] {', '.join(tags) if tags else "None"}
 
 [dim]Next steps:[/dim]
 • Use [green]wqm watch add PATH --collection={collection_name}[/green] to auto-monitor files
@@ -278,10 +276,10 @@ async def _create_library(
             title="🎉 Success",
             border_style="green"
         )
-        console.print(summary_panel)
+        print(summary_panel)
 
     except Exception as e:
-        console.print(f"[red]❌ Failed to create library: {e}[/red]")
+        print(f"❌ Failed to create library: {e}")
         raise typer.Exit(1)
 
 async def _remove_library(name: str, force: bool, backup: bool):
@@ -301,7 +299,7 @@ async def _remove_library(name: str, force: bool, backup: bool):
         # Check if collection exists
         existing_collections = await client.list_collections()
         if not any(col.get("name") == collection_name for col in existing_collections):
-            console.print(f"[red]❌ Library collection '{display_name}' not found[/red]")
+            print(f"❌ Library collection '{display_name}' not found")
             raise typer.Exit(1)
 
         # Get collection info for confirmation
@@ -312,28 +310,28 @@ async def _remove_library(name: str, force: bool, backup: bool):
             doc_count = "unknown"
 
         if not force:
-            console.print(f"[bold red]🗑️ Remove Library: {display_name}[/bold red]")
-            console.print("[yellow]⚠️ This will permanently delete the library collection![/yellow]")
-            console.print(f"Collection: {collection_name}")
-            console.print(f"Documents: {doc_count}")
+            print(f" Remove Library: {display_name}")
+            print(" This will permanently delete the library collection!")
+            print(f"Collection: {collection_name}")
+            print(f"Documents: {doc_count}")
 
-            if not Confirm.ask("\n[red]Are you sure you want to delete this library?[/red]"):
-                console.print("[yellow]Removal cancelled.[/yellow]")
+            if not get_user_confirmation("\nAre you sure you want to delete this library?"):
+                print("Removal cancelled.")
                 return
 
         # TODO: Implement backup functionality
         if backup:
-            console.print("[yellow]📦 Backup functionality not yet implemented[/yellow]")
-            console.print("[dim]This will be added in a future update[/dim]")
+            print("📦 Backup functionality not yet implemented")
+            print("This will be added in a future update")
 
         # Delete the collection
-        console.print(f"[yellow]Removing library '{display_name}'...[/yellow]")
+        print(f"Removing library '{display_name}'...")
         await client.delete_collection(collection_name)
 
-        console.print(f"[green]✅ Library collection '{display_name}' removed successfully[/green]")
+        print(f" Library collection '{display_name}' removed successfully")
 
     except Exception as e:
-        console.print(f"[red]❌ Failed to remove library: {e}[/red]")
+        print(f"❌ Failed to remove library: {e}")
         raise typer.Exit(1)
 
 async def _library_status(name: str | None, detailed: bool, health_check: bool):
@@ -347,7 +345,7 @@ async def _library_status(name: str | None, detailed: bool, health_check: bool):
             collection_name = name if name.startswith("_") else f"_{name}"
             display_name = name[1:] if name.startswith("_") else name
 
-            console.print(f"[bold blue]📊 Library Status: {display_name}[/bold blue]")
+            print(f" Library Status: {display_name}")
 
             try:
                 info = await client.get_collection_info(collection_name)
@@ -366,23 +364,23 @@ async def _library_status(name: str | None, detailed: bool, health_check: bool):
                     status_table.add_row("Vector Size", str(info.get("config", {}).get("params", {}).get("vectors", {}).get("size", "unknown")))
                     status_table.add_row("Distance Metric", str(info.get("config", {}).get("params", {}).get("vectors", {}).get("distance", "unknown")))
 
-                console.print(status_table)
+                print(status_table)
 
             except Exception as e:
-                console.print(f"[red]❌ Cannot get status for '{display_name}': {e}[/red]")
+                print(f"❌ Cannot get status for '{display_name}': {e}")
 
         else:
             # Status for all libraries
-            console.print("[bold blue]📊 All Libraries Status[/bold blue]")
+            print(" All Libraries Status")
             await _list_libraries(stats=True, sort_by="name", format="table")
 
         if health_check:
-            console.print("\n[bold blue]🏥 Health Check[/bold blue]")
+            print("\n🏥 Health Check")
             # TODO: Implement comprehensive health check
-            console.print("[yellow]Comprehensive health check will be implemented in future updates[/yellow]")
+            print("Comprehensive health check will be implemented in future updates")
 
     except Exception as e:
-        console.print(f"[red]❌ Failed to get library status: {e}[/red]")
+        print(f"❌ Failed to get library status: {e}")
         raise typer.Exit(1)
 
 async def _library_info(name: str, show_samples: bool, show_schema: bool):
@@ -394,7 +392,7 @@ async def _library_info(name: str, show_samples: bool, show_schema: bool):
         config = Config()
         client = create_qdrant_client(config.qdrant_client_config)
 
-        console.print(f"[bold blue]🔍 Library Info: {display_name}[/bold blue]")
+        print(f" Library Info: {display_name}")
 
         # Get collection info
         info = await client.get_collection_info(collection_name)
@@ -404,11 +402,11 @@ async def _library_info(name: str, show_samples: bool, show_schema: bool):
             f"""[bold]Library Details[/bold]
 
 📚 [cyan]Name:[/cyan] {display_name}
-🔍 [cyan]Full Name:[/cyan] {collection_name}
-📊 [cyan]Status:[/cyan] {info.get("status", "unknown")}
+ [cyan]Full Name:[/cyan] {collection_name}
+ [cyan]Status:[/cyan] {info.get("status", "unknown")}
 📄 [cyan]Documents:[/cyan] {info.get("points_count", 0):,}
 🔢 [cyan]Vectors:[/cyan] {info.get("vectors_count", 0):,}
-✅ [cyan]Indexed:[/cyan] {info.get("indexed_points_count", 0):,}
+ [cyan]Indexed:[/cyan] {info.get("indexed_points_count", 0):,}
 
 [bold]Configuration[/bold]
 📏 [cyan]Vector Size:[/cyan] {info.get("config", {}).get("params", {}).get("vectors", {}).get("size", "unknown")}
@@ -416,67 +414,67 @@ async def _library_info(name: str, show_samples: bool, show_schema: bool):
             title="📚 Library Information",
             border_style="blue"
         )
-        console.print(info_panel)
+        print(info_panel)
 
         if show_schema:
-            console.print("\n[bold blue]📋 Collection Schema[/bold blue]")
+            print("\n Collection Schema")
             # TODO: Display collection schema details
-            console.print("[yellow]Schema details display will be implemented in future updates[/yellow]")
+            print("Schema details display will be implemented in future updates")
 
         if show_samples:
-            console.print("\n[bold blue]📄 Sample Documents[/bold blue]")
+            print("\n📄 Sample Documents")
             try:
                 # Get a few sample points
                 sample_results = await client.scroll_collection(collection_name, limit=3)
 
                 if sample_results and "points" in sample_results:
                     for i, point in enumerate(sample_results["points"][:3], 1):
-                        console.print(f"[cyan]Sample {i}:[/cyan]")
+                        print(f"Sample {i}:")
                         payload = point.get("payload", {})
 
                         # Display key fields
                         for key, value in payload.items():
                             if key in ["title", "content", "filename", "source"]:
                                 display_value = str(value)[:100] + "..." if len(str(value)) > 100 else str(value)
-                                console.print(f"  [dim]{key}:[/dim] {display_value}")
+                                print(f"  {key}: {display_value}")
 
                         console.print()
                 else:
-                    console.print("[yellow]No sample documents found[/yellow]")
+                    print("No sample documents found")
 
             except Exception as e:
-                console.print(f"[yellow]Cannot retrieve samples: {e}[/yellow]")
+                print(f"Cannot retrieve samples: {e}")
 
     except Exception as e:
-        console.print(f"[red]❌ Failed to get library info: {e}[/red]")
+        print(f"❌ Failed to get library info: {e}")
         raise typer.Exit(1)
 
 async def _rename_library(old_name: str, new_name: str, force: bool):
     """Rename a library collection."""
     try:
-        console.print("[yellow]🚧 Library renaming is not yet implemented[/yellow]")
-        console.print("This feature requires creating a new collection and migrating data.")
-        console.print("It will be implemented in a future update.")
-        console.print("\n[dim]Current workaround:[/dim]")
-        console.print(f"1. [green]wqm library create {new_name}[/green]")
-        console.print("2. Manually re-ingest content into the new library")
-        console.print(f"3. [red]wqm library remove {old_name}[/red] when ready")
+        print("🚧 Library renaming is not yet implemented")
+        print("This feature requires creating a new collection and migrating data.")
+        print("It will be implemented in a future update.")
+        print("\nCurrent workaround:")
+        print(f"1. wqm library create {new_name}")
+        print("2. Manually re-ingest content into the new library")
+        print(f"3. wqm library remove {old_name} when ready")
 
     except Exception as e:
-        console.print(f"[red]❌ Rename operation failed: {e}[/red]")
+        print(f"❌ Rename operation failed: {e}")
         raise typer.Exit(1)
 
 async def _copy_library(source: str, destination: str, description: str | None):
     """Copy library collection."""
     try:
-        console.print("[yellow]🚧 Library copying is not yet implemented[/yellow]")
-        console.print("This feature requires advanced collection manipulation.")
-        console.print("It will be implemented in a future update.")
-        console.print("\n[dim]Current workaround:[/dim]")
-        console.print(f"1. [green]wqm library create {destination}[/green]")
-        console.print("2. Export data from source library (when export feature is available)")
-        console.print("3. Import data into destination library")
+        print("🚧 Library copying is not yet implemented")
+        print("This feature requires advanced collection manipulation.")
+        print("It will be implemented in a future update.")
+        print("\nCurrent workaround:")
+        print(f"1. wqm library create {destination}")
+        print("2. Export data from source library (when export feature is available)")
+        print("3. Import data into destination library")
 
     except Exception as e:
-        console.print(f"[red]❌ Copy operation failed: {e}[/red]")
+        print(f"❌ Copy operation failed: {e}")
         raise typer.Exit(1)

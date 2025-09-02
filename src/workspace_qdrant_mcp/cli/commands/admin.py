@@ -24,6 +24,8 @@ from ...utils.project_detection import ProjectDetector
 admin_app = typer.Typer(
     help="System administration and configuration",
     no_args_is_help=True
+,
+    rich_markup_mode=None  # Disable Rich formatting completely
 )
 
 def handle_async(coro):

@@ -22,6 +22,8 @@ from ..watch_service import WatchService, create_status_table, create_watches_ta
 watch_app = typer.Typer(
     help="Folder watching configuration",
     no_args_is_help=True
+,
+    rich_markup_mode=None  # Disable Rich formatting completely
 )
 
 
@@ -65,7 +67,7 @@ def add_watch(
     recursive: bool = typer.Option(True, "--recursive/--no-recursive", help="Watch subdirectories"),
     debounce: int = typer.Option(5, "--debounce", help="Debounce time in seconds"),
 ):
-    """➕ Add a folder to watch for automatic ingestion."""
+    """ Add a folder to watch for automatic ingestion."""
     handle_async(_add_watch(path, collection, patterns, ignore, auto_ingest, recursive, debounce))
 
 
@@ -75,7 +77,7 @@ def list_watches(
     collection: str | None = typer.Option(None, "--collection", "-c", help="Filter by collection"),
     format: str = typer.Option("table", "--format", "-f", help="Output format: table, json"),
 ):
-    """📋 Show all active watches."""
+    """ Show all active watches."""
     handle_async(_list_watches(active_only, collection, format))
 
 
@@ -86,7 +88,7 @@ def remove_watch(
     all: bool = typer.Option(False, "--all", help="Remove all watches"),
     force: bool = typer.Option(False, "--force", "-f", help="Skip confirmation"),
 ):
-    """🗑️ Stop watching folder."""
+    """ Stop watching folder."""
     handle_async(_remove_watch(path, collection, all, force))
 
 
@@ -95,7 +97,7 @@ def watch_status(
     detailed: bool = typer.Option(False, "--detailed", "-d", help="Show detailed statistics"),
     recent: bool = typer.Option(False, "--recent", help="Show recent activity"),
 ):
-    """📊 Watch activity and statistics."""
+    """ Watch activity and statistics."""
     handle_async(_watch_status(detailed, recent))
 
 
@@ -105,7 +107,7 @@ def pause_watches(
     collection: str | None = typer.Option(None, "--collection", "-c", help="Pause all watches for collection"),
     all: bool = typer.Option(False, "--all", help="Pause all watches"),
 ):
-    """⏸️ Pause all or specific watches."""
+    """⏸ Pause all or specific watches."""
     handle_async(_pause_watches(path, collection, all))
 
 
@@ -115,7 +117,7 @@ def resume_watches(
     collection: str | None = typer.Option(None, "--collection", "-c", help="Resume all watches for collection"),
     all: bool = typer.Option(False, "--all", help="Resume all watches"),
 ):
-    """▶️ Resume paused watches."""
+    """▶ Resume paused watches."""
     handle_async(_resume_watches(path, collection, all))
 
 
@@ -243,13 +245,13 @@ async def _remove_watch(path: str | None, collection: str | None, all: bool, for
         service = await _get_watch_service()
 
         if all:
-            console.print("[bold red]🗑️ Remove All Watches[/bold red]")
+            print(" Remove All Watches")
         elif collection:
-            console.print(f"[bold red]🗑️ Remove Watches for Collection: {collection}[/bold red]")
+            print(f" Remove Watches for Collection: {collection}")
         elif path:
-            console.print(f"[bold red]🗑️ Remove Watch: {path}[/bold red]")
+            print(f" Remove Watch: {path}")
         else:
-            console.print("[red]❌ Must specify --all, --collection, or a path/watch ID[/red]")
+            print("❌ Must specify --all, --collection, or a path/watch ID")
             raise typer.Exit(1)
 
         # Find watches to remove
@@ -266,23 +268,23 @@ async def _remove_watch(path: str | None, collection: str | None, all: bool, for
             if matches:
                 watches_to_remove = matches
             else:
-                console.print(f"[red]❌ No watch found for: {path}[/red]")
+                print(f"❌ No watch found for: {path}")
                 raise typer.Exit(1)
 
         if not watches_to_remove:
-            console.print("[yellow]No matching watches found[/yellow]")
+            print("No matching watches found")
             return
 
         # Show what will be removed
-        console.print(f"\n[yellow]Found {len(watches_to_remove)} watch(es) to remove:[/yellow]")
+        print(f"\nFound {len(watches_to_remove)} watch(es) to remove:[/yellow]")
         for watch in watches_to_remove:
-            console.print(f"  • {watch.path} -> {watch.collection} ({watch.id})")
+            print(f"  • {watch.path} -> {watch.collection} ({watch.id})")
 
         # Confirm removal
         if not force:
             action = "all watches" if all else f"watches for {collection}" if collection else f"watch for {path}"
-            if not Confirm.ask(f"\n[red]Are you sure you want to remove {action}?[/red]"):
-                console.print("[yellow]Operation cancelled[/yellow]")
+            if not get_user_confirmation("\nAre you sure you want to remove {action}?"):
+                print("Operation cancelled")
                 return
 
         # Remove watches
@@ -290,14 +292,14 @@ async def _remove_watch(path: str | None, collection: str | None, all: bool, for
         for watch in watches_to_remove:
             if await service.remove_watch(watch.id):
                 removed_count += 1
-                console.print(f"[green]✅ Removed watch: {watch.path}[/green]")
+                print(f" Removed watch: {watch.path}")
             else:
-                console.print(f"[red]❌ Failed to remove watch: {watch.path}[/red]")
+                print(f"❌ Failed to remove watch: {watch.path}")
 
-        console.print(f"\n[green]Successfully removed {removed_count} watch(es)[/green]")
+        print(f"\nSuccessfully removed {removed_count} watch(es)[/green]")
 
     except Exception as e:
-        console.print(f"[red]❌ Failed to remove watches: {e}[/red]")
+        print(f"❌ Failed to remove watches: {e}")
         raise typer.Exit(1)
 
 
@@ -307,7 +309,7 @@ async def _watch_status(detailed: bool, recent: bool):
         service = await _get_watch_service()
         status_data = await service.get_watch_status()
 
-        console.print("[bold blue]📊 Watch System Status[/bold blue]\n")
+        print(" Watch System Status\n")
 
         # System status overview
         table = create_status_table(status_data)
@@ -315,23 +317,20 @@ async def _watch_status(detailed: bool, recent: bool):
         print("[Watch table would be displayed here]")
 
         if detailed and status_data['watches']:
-            console.print("\n")
+            print("\n")
             watches_table = create_watches_table(status_data['watches'])
-            console.print("Output", data=watches_table)
+            print("Output", data=watches_table)
 
         if recent:
-            console.print("\n[bold]📋 Recent Activity[/bold]")
+            print("\n Recent Activity")
             recent_events = service.get_recent_activity(limit=20)
 
             if not recent_events:
-                console.print("[dim]No recent activity[/dim]")
+                print("No recent activity")
             else:
-                from rich.table import Table
-                activity_table = Table(title=f"Last {len(recent_events)} Events")
-                activity_table.add_column("Time", style="dim", width=20)
-                activity_table.add_column("Event", width=15)
-                activity_table.add_column("File", style="cyan", width=35)
-                activity_table.add_column("Collection", style="blue", width=20)
+                # TODO: Replace Rich table with plain text
+                print(f"Last {len(recent_events)} Events:")
+                print("-" * 80)
 
                 for event in reversed(recent_events[-20:]):
                     # Format timestamp
@@ -342,39 +341,24 @@ async def _watch_status(detailed: bool, recent: bool):
                     except:
                         time_str = event.timestamp[:8]
 
-                    # Color code event type
-                    event_display = event.change_type
-                    if event.change_type == "added":
-                        event_display = f"[green]{event.change_type}[/green]"
-                    elif event.change_type == "modified":
-                        event_display = f"[yellow]{event.change_type}[/yellow]"
-                    elif event.change_type == "deleted":
-                        event_display = f"[red]{event.change_type}[/red]"
-
                     # Shorten file path
                     file_path = event.file_path
                     if len(file_path) > 30:
                         file_path = "..." + file_path[-27:]
 
-                    activity_table.add_row(
-                        time_str,
-                        event_display,
-                        file_path,
-                        event.collection,
-                    )
-
-                console.print("Output", data=activity_table)
+                    # Simple text output
+                    print(f"  {time_str} {event.change_type} {file_path} -> {event.collection}")
 
         # Show tips
         if status_data['total_watches'] == 0:
-            console.print("\n[yellow]💡 No watches configured yet[/yellow]")
-            console.print("Add one with: [green]wqm watch add <path> --collection=<library>[/green]")
+            print("\nNo watches configured yet")
+            print("Add one with: wqm watch add <path> --collection=<library>")
         elif status_data['running_watches'] == 0:
-            console.print("\n[yellow]💡 No watches are currently running[/yellow]")
-            console.print("Start them with: [green]wqm watch resume --all[/green]")
+            print("\nNo watches are currently running")
+            print("Start them with: wqm watch resume --all")
 
     except Exception as e:
-        console.print(f"[red]❌ Failed to get watch status: {e}[/red]")
+        print(f"❌ Failed to get watch status: {e}")
         raise typer.Exit(1)
 
 
@@ -384,43 +368,43 @@ async def _pause_watches(path: str | None, collection: str | None, all: bool):
         service = await _get_watch_service()
 
         if all:
-            console.print("[bold yellow]⏸️ Pausing All Watches[/bold yellow]")
+            print("⏸ Pausing All Watches")
             await service.stop_all_watches()
-            console.print("[green]✅ All watches paused[/green]")
+            print(" All watches paused")
 
         elif collection:
-            console.print(f"[bold yellow]⏸️ Pausing Watches for Collection: {collection}[/bold yellow]")
+            print(f"⏸ Pausing Watches for Collection: {collection}")
             watches = await service.list_watches(collection=collection)
             paused_count = 0
             for watch in watches:
                 if await service.pause_watch(watch.id):
                     paused_count += 1
-            console.print(f"[green]✅ Paused {paused_count} watch(es)[/green]")
+            print(f" Paused {paused_count} watch(es)[/green]")
 
         elif path:
-            console.print(f"[bold yellow]⏸️ Pausing Watch: {path}[/bold yellow]")
+            print(f"⏸ Pausing Watch: {path}")
             # Find watch by path or ID
             all_watches = await service.list_watches()
             matches = [w for w in all_watches if w.id == path or Path(w.path) == Path(path).resolve()]
 
             if not matches:
-                console.print(f"[red]❌ No watch found for: {path}[/red]")
+                print(f"❌ No watch found for: {path}")
                 raise typer.Exit(1)
 
             for watch in matches:
                 if await service.pause_watch(watch.id):
-                    console.print(f"[green]✅ Paused watch: {watch.path}[/green]")
+                    print(f" Paused watch: {watch.path}")
                 else:
-                    console.print(f"[red]❌ Failed to pause watch: {watch.path}[/red]")
+                    print(f"❌ Failed to pause watch: {watch.path}")
         else:
-            console.print("[red]❌ Must specify --all, --collection, or a path/watch ID[/red]")
+            print("❌ Must specify --all, --collection, or a path/watch ID")
             raise typer.Exit(1)
 
-        console.print("\n[dim]File monitoring is stopped but configurations are preserved[/dim]")
-        console.print("Resume with: [green]wqm watch resume[/green]")
+        print("\nFile monitoring is stopped but configurations are preserved")
+        print("Resume with: wqm watch resume")
 
     except Exception as e:
-        console.print(f"[red]❌ Failed to pause watches: {e}[/red]")
+        print(f"❌ Failed to pause watches: {e}")
         raise typer.Exit(1)
 
 
@@ -430,42 +414,42 @@ async def _resume_watches(path: str | None, collection: str | None, all: bool):
         service = await _get_watch_service()
 
         if all:
-            console.print("[bold green]▶️ Resuming All Watches[/bold green]")
+            print("▶ Resuming All Watches")
             await service.start_all_watches()
-            console.print("[green]✅ All watches resumed[/green]")
+            print(" All watches resumed")
 
         elif collection:
-            console.print(f"[bold green]▶️ Resuming Watches for Collection: {collection}[/bold green]")
+            print(f"▶ Resuming Watches for Collection: {collection}")
             watches = await service.list_watches(collection=collection)
             resumed_count = 0
             for watch in watches:
                 if await service.resume_watch(watch.id):
                     resumed_count += 1
-            console.print(f"[green]✅ Resumed {resumed_count} watch(es)[/green]")
+            print(f" Resumed {resumed_count} watch(es)[/green]")
 
         elif path:
-            console.print(f"[bold green]▶️ Resuming Watch: {path}[/bold green]")
+            print(f"▶ Resuming Watch: {path}")
             # Find watch by path or ID
             all_watches = await service.list_watches()
             matches = [w for w in all_watches if w.id == path or Path(w.path) == Path(path).resolve()]
 
             if not matches:
-                console.print(f"[red]❌ No watch found for: {path}[/red]")
+                print(f"❌ No watch found for: {path}")
                 raise typer.Exit(1)
 
             for watch in matches:
                 if await service.resume_watch(watch.id):
-                    console.print(f"[green]✅ Resumed watch: {watch.path}[/green]")
+                    print(f" Resumed watch: {watch.path}")
                 else:
-                    console.print(f"[red]❌ Failed to resume watch: {watch.path}[/red]")
+                    print(f"❌ Failed to resume watch: {watch.path}")
         else:
-            console.print("[red]❌ Must specify --all, --collection, or a path/watch ID[/red]")
+            print("❌ Must specify --all, --collection, or a path/watch ID")
             raise typer.Exit(1)
 
-        console.print("\n[green]File monitoring restarted - new files will be automatically ingested[/green]")
+        print("\nFile monitoring restarted - new files will be automatically ingested")
 
     except Exception as e:
-        console.print(f"[red]❌ Failed to resume watches: {e}[/red]")
+        print(f"❌ Failed to resume watches: {e}")
         raise typer.Exit(1)
 
 
@@ -475,18 +459,18 @@ async def _sync_watched_folders(path: str | None, dry_run: bool, force: bool):
         service = await _get_watch_service()
 
         if path:
-            console.print(f"[bold blue]🔄 Syncing Watch: {path}[/bold blue]")
+            print(f"🔄 Syncing Watch: {path}")
         else:
-            console.print("[bold blue]🔄 Syncing All Watched Folders[/bold blue]")
+            print("🔄 Syncing All Watched Folders")
 
         if dry_run:
-            console.print("[yellow]DRY RUN - No files will be processed[/yellow]")
+            print("DRY RUN - No files will be processed")
 
         # Perform sync
         results = await service.sync_watched_folders(path=path, dry_run=dry_run, force=force)
 
         if 'error' in results:
-            console.print(f"[red]❌ {results['error']}[/red]")
+            print(f"❌ {results['error']}")
             raise typer.Exit(1)
 
         # Show results
@@ -496,32 +480,32 @@ async def _sync_watched_folders(path: str | None, dry_run: bool, force: bool):
         for watch_id, result in results.items():
             if result['success']:
                 stats = result['stats']
-                console.print(f"\n[green]✅ Watch {watch_id}:[/green] {result['message']}")
+                print(f"\n Watch {watch_id}: {result['message']}")
                 if stats:
                     total_processed += stats.get('files_processed', 0)
                     if stats.get('files_failed', 0) > 0:
-                        console.print(f"  [yellow]⚠️ {stats['files_failed']} files failed[/yellow]")
+                        print(f"   {stats['files_failed']} files failed")
                         total_errors += stats['files_failed']
             else:
-                console.print(f"\n[red]❌ Watch {watch_id}:[/red] {result['message']}")
+                print(f"\n❌ Watch {watch_id}: {result['message']}")
                 total_errors += 1
 
         # Summary
         if dry_run:
-            console.print("\n[bold]📊 Sync Preview Summary[/bold]")
-            console.print(f"Would process {total_processed} files")
+            print("\n Sync Preview Summary")
+            print(f"Would process {total_processed} files")
         else:
-            console.print("\n[bold]📊 Sync Summary[/bold]")
-            console.print(f"Processed {total_processed} files")
+            print("\n Sync Summary")
+            print(f"Processed {total_processed} files")
 
         if total_errors > 0:
-            console.print(f"Errors: {total_errors}")
+            print(f"Errors: {total_errors}")
 
         # Current alternative note
         if not results:
-            console.print("\n[yellow]No watched folders found to sync[/yellow]")
-            console.print("Add watches with: [green]wqm watch add <path> --collection=<library>[/green]")
+            print("\nNo watched folders found to sync")
+            print("Add watches with: wqm watch add <path> --collection=<library>")
 
     except Exception as e:
-        console.print(f"[red]❌ Failed to sync watches: {e}[/red]")
+        print(f"❌ Failed to sync watches: {e}")
         raise typer.Exit(1)

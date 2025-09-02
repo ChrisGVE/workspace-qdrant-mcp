@@ -28,6 +28,7 @@ init_app = typer.Typer(
     name="init",
     help="Initialize shell completion for wqm. Supports bash, zsh, and fish shells.",
     no_args_is_help=True,
+    rich_markup_mode=None  # Disable Rich formatting completely
 )
 
 @init_app.command("bash")
