@@ -992,6 +992,58 @@ impl FileWatcher {
 /// Convenience type alias for the old Watcher struct (for backward compatibility)
 pub type Watcher = FileWatcher;
 
+/// Example usage of the FileWatcher integrated with ProcessingEngine
+/// 
+/// ```rust,no_run
+/// use std::path::Path;
+/// use workspace_qdrant_core::{ProcessingEngine, watching::{FileWatcher, WatcherConfig}};
+/// use workspace_qdrant_core::processing::TaskPriority;
+/// 
+/// #[tokio::main]
+/// async fn main() -> Result<(), Box<dyn std::error::Error>> {
+///     // Create processing engine
+///     let mut engine = ProcessingEngine::new();
+///     engine.start().await?;
+///     let task_submitter = engine.task_submitter();
+///     
+///     // Configure file watcher
+///     let config = WatcherConfig {
+///         include_patterns: vec!["*.pdf".to_string(), "*.txt".to_string(), "*.md".to_string()],
+///         exclude_patterns: vec!["*.tmp".to_string(), ".git/**".to_string()],
+///         recursive: true,
+///         max_depth: 5,
+///         debounce_ms: 2000, // 2 second debounce
+///         task_priority: TaskPriority::BackgroundWatching,
+///         default_collection: "documents".to_string(),
+///         process_existing: true, // Process existing files on startup
+///         max_file_size: Some(50 * 1024 * 1024), // 50MB limit
+///         batch_processing: workspace_qdrant_core::watching::BatchConfig {
+///             enabled: true,
+///             max_batch_size: 10,
+///             max_batch_wait_ms: 5000,
+///             group_by_type: true,
+///         },
+///         ..Default::default()
+///     };
+///     
+///     // Create and start file watcher
+///     let watcher = FileWatcher::new(config, task_submitter)?;
+///     watcher.watch_path(Path::new("/path/to/documents")).await?;
+///     
+///     println!("File watcher started. Monitoring for changes...");
+///     
+///     // Monitor statistics
+///     loop {
+///         tokio::time::sleep(std::time::Duration::from_secs(30)).await;
+///         let stats = watcher.stats().await;
+///         println!(
+///             "Stats: {} events received, {} tasks submitted, {} errors",
+///             stats.events_received, stats.tasks_submitted, stats.errors
+///         );
+///     }
+/// }
+/// ```
+
 #[cfg(test)]
 mod tests {
     use super::*;
