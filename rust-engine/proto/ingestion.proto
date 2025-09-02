@@ -1,0 +1,187 @@
+syntax = "proto3";
+
+package workspace_qdrant.v1;
+
+import "google/protobuf/timestamp.proto";
+import "google/protobuf/duration.proto";
+import "google/protobuf/any.proto";
+import "google/protobuf/empty.proto";
+
+// Main ingestion service for document processing, file watching, and search operations
+service IngestService {
+  // Process a single document for ingestion
+  rpc ProcessDocument(ProcessDocumentRequest) returns (ProcessDocumentResponse);
+  
+  // Start watching a directory for file changes (streaming response for updates)
+  rpc StartWatching(StartWatchingRequest) returns (stream WatchingUpdate);
+  
+  // Stop watching a specific watch configuration
+  rpc StopWatching(StopWatchingRequest) returns (StopWatchingResponse);
+  
+  // Execute a search query against the indexed documents
+  rpc ExecuteQuery(ExecuteQueryRequest) returns (ExecuteQueryResponse);
+  
+  // Get statistics and health information about the ingestion engine
+  rpc GetStats(GetStatsRequest) returns (GetStatsResponse);
+  
+  // Health check endpoint
+  rpc HealthCheck(google.protobuf.Empty) returns (HealthResponse);
+}
+
+// Document processing messages
+message ProcessDocumentRequest {
+  string file_path = 1;
+  string collection = 2;
+  map<string, string> metadata = 3;
+  optional string document_id = 4;
+  bool chunk_text = 5;
+}
+
+message ProcessDocumentResponse {
+  bool success = 1;
+  string message = 2;
+  optional string document_id = 3;
+  int32 chunks_added = 4;
+  map<string, string> applied_metadata = 5;
+}
+
+// File watching messages
+message StartWatchingRequest {
+  string path = 1;
+  string collection = 2;
+  repeated string patterns = 3;
+  repeated string ignore_patterns = 4;
+  bool auto_ingest = 5;
+  bool recursive = 6;
+  int32 recursive_depth = 7;
+  int32 debounce_seconds = 8;
+  int32 update_frequency_ms = 9;
+  optional string watch_id = 10;
+}
+
+message WatchingUpdate {
+  string watch_id = 1;
+  WatchEventType event_type = 2;
+  string file_path = 3;
+  google.protobuf.Timestamp timestamp = 4;
+  optional string error_message = 5;
+  WatchStatus status = 6;
+}
+
+message StopWatchingRequest {
+  string watch_id = 1;
+}
+
+message StopWatchingResponse {
+  bool success = 1;
+  string message = 2;
+}
+
+// Query execution messages
+message ExecuteQueryRequest {
+  string query = 1;
+  repeated string collections = 2;
+  SearchMode mode = 3;
+  int32 limit = 4;
+  double score_threshold = 5;
+}
+
+message ExecuteQueryResponse {
+  string query = 1;
+  SearchMode mode = 2;
+  repeated string collections_searched = 3;
+  int32 total_results = 4;
+  repeated SearchResult results = 5;
+}
+
+message SearchResult {
+  string id = 1;
+  double score = 2;
+  map<string, google.protobuf.Any> payload = 3;
+  string collection = 4;
+  string search_type = 5;
+}
+
+// Statistics and health messages
+message GetStatsRequest {
+  bool include_collection_stats = 1;
+  bool include_watch_stats = 2;
+}
+
+message GetStatsResponse {
+  EngineStats engine_stats = 1;
+  repeated CollectionStats collection_stats = 2;
+  repeated WatchStats watch_stats = 3;
+}
+
+message EngineStats {
+  google.protobuf.Timestamp started_at = 1;
+  google.protobuf.Duration uptime = 2;
+  int64 total_documents_processed = 3;
+  int64 total_documents_indexed = 4;
+  int32 active_watches = 5;
+  string version = 6;
+}
+
+message CollectionStats {
+  string name = 1;
+  int64 document_count = 2;
+  int64 total_size_bytes = 3;
+  google.protobuf.Timestamp last_updated = 4;
+}
+
+message WatchStats {
+  string watch_id = 1;
+  string path = 2;
+  string collection = 3;
+  WatchStatus status = 4;
+  int64 files_processed = 5;
+  int64 files_failed = 6;
+  google.protobuf.Timestamp created_at = 7;
+  google.protobuf.Timestamp last_activity = 8;
+}
+
+message HealthResponse {
+  HealthStatus status = 1;
+  string message = 2;
+  repeated ServiceHealth services = 3;
+}
+
+message ServiceHealth {
+  string name = 1;
+  HealthStatus status = 2;
+  string message = 3;
+}
+
+// Enums
+enum WatchEventType {
+  WATCH_EVENT_TYPE_UNSPECIFIED = 0;
+  WATCH_EVENT_TYPE_CREATED = 1;
+  WATCH_EVENT_TYPE_MODIFIED = 2;
+  WATCH_EVENT_TYPE_DELETED = 3;
+  WATCH_EVENT_TYPE_ERROR = 4;
+  WATCH_EVENT_TYPE_STARTED = 5;
+  WATCH_EVENT_TYPE_STOPPED = 6;
+}
+
+enum WatchStatus {
+  WATCH_STATUS_UNSPECIFIED = 0;
+  WATCH_STATUS_ACTIVE = 1;
+  WATCH_STATUS_PAUSED = 2;
+  WATCH_STATUS_ERROR = 3;
+  WATCH_STATUS_STOPPED = 4;
+}
+
+enum SearchMode {
+  SEARCH_MODE_UNSPECIFIED = 0;
+  SEARCH_MODE_HYBRID = 1;
+  SEARCH_MODE_DENSE = 2;
+  SEARCH_MODE_SPARSE = 3;
+}
+
+enum HealthStatus {
+  HEALTH_STATUS_UNSPECIFIED = 0;
+  HEALTH_STATUS_HEALTHY = 1;
+  HEALTH_STATUS_DEGRADED = 2;
+  HEALTH_STATUS_UNHEALTHY = 3;
+}
