@@ -1,3 +1,6 @@
+
+from ...observability import get_logger
+logger = get_logger(__name__)
 """MCP tools for workspace operations."""
 
 from .documents import add_document, delete_document, get_document, update_document

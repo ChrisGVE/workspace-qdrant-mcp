@@ -23,6 +23,8 @@ from rich import print as rprint
 from rich.console import Console
 from rich.panel import Panel
 
+from ..observability import get_logger
+
 from .commands.admin import admin_app
 from .commands.ingest import ingest_app
 from .commands.library import library_app
@@ -33,7 +35,7 @@ from .commands.search import search_app
 from .commands.watch import watch_app
 from .observability import observability_app
 
-# Initialize main app and console
+# Initialize main app, console, and logger
 app = typer.Typer(
     name="wqm",
     help="🚀 Workspace Qdrant MCP - Unified semantic workspace management",
@@ -42,6 +44,7 @@ app = typer.Typer(
     no_args_is_help=True,
 )
 console = Console()
+logger = get_logger(__name__)
 
 # Add subcommand groups
 app.add_typer(memory_app, name="memory", help="🧠 Memory rules and LLM behavior management")
@@ -135,9 +138,11 @@ def handle_async_command(coro):
     try:
         return asyncio.run(coro)
     except KeyboardInterrupt:
+        logger.warning("Operation cancelled by user")
         console.print("\n[yellow]Operation cancelled by user[/yellow]")
         raise typer.Exit(1)
     except Exception as e:
+        logger.error("CLI operation failed", error=str(e), exc_info=True)
         console.print(f"[red]Error: {e}[/red]")
         raise typer.Exit(1)
 

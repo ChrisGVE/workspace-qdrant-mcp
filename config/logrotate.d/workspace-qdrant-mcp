@@ -1,0 +1,32 @@
+/var/log/workspace-qdrant-mcp/*.log {
+    daily
+    rotate 30
+    compress
+    delaycompress
+    missingok
+    create 644 www-data www-data
+    postrotate
+        systemctl reload workspace-qdrant-mcp || true
+    endscript
+}
+
+/home/*/logs/workspace-qdrant-mcp*.log {
+    daily
+    rotate 7
+    compress
+    delaycompress
+    missingok
+    create 644
+    copytruncate
+}
+
+# For development environments
+./logs/*.log {
+    size 100M
+    rotate 5
+    compress
+    delaycompress
+    missingok
+    create 644
+    copytruncate
+}

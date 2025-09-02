@@ -1,3 +1,6 @@
+
+from .....observability import get_logger
+logger = get_logger(__name__)
 """Library collection management CLI commands.
 
 This module provides management for readonly library collections
@@ -28,10 +31,10 @@ def handle_async(coro):
     try:
         return asyncio.run(coro)
     except KeyboardInterrupt:
-        console.print("\n[yellow]Operation cancelled by user[/yellow]")
+        console.logger.info("\n[yellow]Operation cancelled by user[/yellow]")
         raise typer.Exit(1)
     except Exception as e:
-        console.print(f"[red]Error: {e}[/red]")
+        console.logger.info("[red]Error: {e}[/red]")
         raise typer.Exit(1)
 
 @library_app.command("list")
@@ -116,8 +119,8 @@ async def _list_libraries(stats: bool, sort_by: str, format: str):
         ]
 
         if not library_collections:
-            console.print("[yellow]📚 No library collections found.[/yellow]")
-            console.print("[dim]Use 'wqm library create <name>' to create one[/dim]")
+            console.logger.info("[yellow]📚 No library collections found.[/yellow]")
+            console.logger.info("[dim]Use 'wqm library create <name>' to create one[/dim]")
             return
 
         # Collect statistics if requested
@@ -152,7 +155,7 @@ async def _list_libraries(stats: bool, sort_by: str, format: str):
 
         if format == "json":
             import json
-            print(json.dumps(library_data, indent=2))
+            logger.info("Output", data=json.dumps(library_data, indent=2))
             return
 
         # Display as table
@@ -186,14 +189,14 @@ async def _list_libraries(stats: bool, sort_by: str, format: str):
             else:
                 table.add_row(name, status)
 
-        console.print(table)
+        console.logger.info("Output", data=table)
 
         if stats:
             total_docs = sum(lib.get("points_count", 0) for lib in library_data if isinstance(lib.get("points_count"), int))
-            console.print(f"\n[dim]Total documents across all libraries: {total_docs:,}[/dim]")
+            console.logger.info("\n[dim]Total documents across all libraries: {total_docs:,}[/dim]")
 
     except Exception as e:
-        console.print(f"[red]❌ Failed to list libraries: {e}[/red]")
+        console.logger.info("[red]❌ Failed to list libraries: {e}[/red]")
         raise typer.Exit(1)
 
 async def _create_library(
@@ -217,7 +220,7 @@ async def _create_library(
         try:
             validate_collection_name(collection_name, allow_library=True)
         except CollectionNameError as e:
-            console.print(f"[red]❌ Invalid collection name: {e}[/red]")
+            console.logger.info("[red]❌ Invalid collection name: {e}[/red]")
             raise typer.Exit(1)
 
         config = Config()
@@ -226,10 +229,10 @@ async def _create_library(
         # Check if collection already exists
         existing_collections = await client.list_collections()
         if any(col.get("name") == collection_name for col in existing_collections):
-            console.print(f"[red]❌ Library collection '{display_name}' already exists[/red]")
+            console.logger.info("[red]❌ Library collection '{display_name}' already exists[/red]")
             raise typer.Exit(1)
 
-        console.print(f"[bold blue]➕ Creating library: {display_name}[/bold blue]")
+        console.logger.info("[bold blue]➕ Creating library: {display_name}[/bold blue]")
 
         # Prepare collection configuration
         collection_config = {
@@ -252,7 +255,7 @@ async def _create_library(
         # Create the collection
         await client.create_collection(collection_name, collection_config)
 
-        console.print(f"[green]✅ Library collection '{display_name}' created successfully![/green]")
+        console.logger.info("[green]✅ Library collection '{display_name}' created successfully![/green]")
 
         # Display creation summary
         summary_panel = Panel(
@@ -272,10 +275,10 @@ async def _create_library(
             title="🎉 Success",
             border_style="green"
         )
-        console.print(summary_panel)
+        console.logger.info("Output", data=summary_panel)
 
     except Exception as e:
-        console.print(f"[red]❌ Failed to create library: {e}[/red]")
+        console.logger.info("[red]❌ Failed to create library: {e}[/red]")
         raise typer.Exit(1)
 
 async def _remove_library(name: str, force: bool, backup: bool):
@@ -295,7 +298,7 @@ async def _remove_library(name: str, force: bool, backup: bool):
         # Check if collection exists
         existing_collections = await client.list_collections()
         if not any(col.get("name") == collection_name for col in existing_collections):
-            console.print(f"[red]❌ Library collection '{display_name}' not found[/red]")
+            console.logger.info("[red]❌ Library collection '{display_name}' not found[/red]")
             raise typer.Exit(1)
 
         # Get collection info for confirmation
@@ -306,28 +309,28 @@ async def _remove_library(name: str, force: bool, backup: bool):
             doc_count = "unknown"
 
         if not force:
-            console.print(f"[bold red]🗑️ Remove Library: {display_name}[/bold red]")
-            console.print("[yellow]⚠️ This will permanently delete the library collection![/yellow]")
-            console.print(f"Collection: {collection_name}")
-            console.print(f"Documents: {doc_count}")
+            console.logger.info("[bold red]🗑️ Remove Library: {display_name}[/bold red]")
+            console.logger.info("[yellow]⚠️ This will permanently delete the library collection![/yellow]")
+            console.logger.info("Collection: {collection_name}")
+            console.logger.info("Documents: {doc_count}")
 
             if not Confirm.ask("\n[red]Are you sure you want to delete this library?[/red]"):
-                console.print("[yellow]Removal cancelled.[/yellow]")
+                console.logger.info("[yellow]Removal cancelled.[/yellow]")
                 return
 
         # TODO: Implement backup functionality
         if backup:
-            console.print("[yellow]📦 Backup functionality not yet implemented[/yellow]")
-            console.print("[dim]This will be added in a future update[/dim]")
+            console.logger.info("[yellow]📦 Backup functionality not yet implemented[/yellow]")
+            console.logger.info("[dim]This will be added in a future update[/dim]")
 
         # Delete the collection
-        console.print(f"[yellow]Removing library '{display_name}'...[/yellow]")
+        console.logger.info("[yellow]Removing library '{display_name}'...[/yellow]")
         await client.delete_collection(collection_name)
 
-        console.print(f"[green]✅ Library collection '{display_name}' removed successfully[/green]")
+        console.logger.info("[green]✅ Library collection '{display_name}' removed successfully[/green]")
 
     except Exception as e:
-        console.print(f"[red]❌ Failed to remove library: {e}[/red]")
+        console.logger.info("[red]❌ Failed to remove library: {e}[/red]")
         raise typer.Exit(1)
 
 async def _library_status(name: str | None, detailed: bool, health_check: bool):
@@ -341,7 +344,7 @@ async def _library_status(name: str | None, detailed: bool, health_check: bool):
             collection_name = name if name.startswith("_") else f"_{name}"
             display_name = name[1:] if name.startswith("_") else name
 
-            console.print(f"[bold blue]📊 Library Status: {display_name}[/bold blue]")
+            console.logger.info("[bold blue]📊 Library Status: {display_name}[/bold blue]")
 
             try:
                 info = await client.get_collection_info(collection_name)
@@ -360,23 +363,23 @@ async def _library_status(name: str | None, detailed: bool, health_check: bool):
                     status_table.add_row("Vector Size", str(info.get("config", {}).get("params", {}).get("vectors", {}).get("size", "unknown")))
                     status_table.add_row("Distance Metric", str(info.get("config", {}).get("params", {}).get("vectors", {}).get("distance", "unknown")))
 
-                console.print(status_table)
+                console.logger.info("Output", data=status_table)
 
             except Exception as e:
-                console.print(f"[red]❌ Cannot get status for '{display_name}': {e}[/red]")
+                console.logger.info("[red]❌ Cannot get status for '{display_name}': {e}[/red]")
 
         else:
             # Status for all libraries
-            console.print("[bold blue]📊 All Libraries Status[/bold blue]")
+            console.logger.info("[bold blue]📊 All Libraries Status[/bold blue]")
             await _list_libraries(stats=True, sort_by="name", format="table")
 
         if health_check:
-            console.print("\n[bold blue]🏥 Health Check[/bold blue]")
+            console.logger.info("\n[bold blue]🏥 Health Check[/bold blue]")
             # TODO: Implement comprehensive health check
-            console.print("[yellow]Comprehensive health check will be implemented in future updates[/yellow]")
+            console.logger.info("[yellow]Comprehensive health check will be implemented in future updates[/yellow]")
 
     except Exception as e:
-        console.print(f"[red]❌ Failed to get library status: {e}[/red]")
+        console.logger.info("[red]❌ Failed to get library status: {e}[/red]")
         raise typer.Exit(1)
 
 async def _library_info(name: str, show_samples: bool, show_schema: bool):
@@ -388,7 +391,7 @@ async def _library_info(name: str, show_samples: bool, show_schema: bool):
         config = Config()
         client = create_qdrant_client(config.qdrant_client_config)
 
-        console.print(f"[bold blue]🔍 Library Info: {display_name}[/bold blue]")
+        console.logger.info("[bold blue]🔍 Library Info: {display_name}[/bold blue]")
 
         # Get collection info
         info = await client.get_collection_info(collection_name)
@@ -410,67 +413,67 @@ async def _library_info(name: str, show_samples: bool, show_schema: bool):
             title="📚 Library Information",
             border_style="blue"
         )
-        console.print(info_panel)
+        console.logger.info("Output", data=info_panel)
 
         if show_schema:
-            console.print("\n[bold blue]📋 Collection Schema[/bold blue]")
+            console.logger.info("\n[bold blue]📋 Collection Schema[/bold blue]")
             # TODO: Display collection schema details
-            console.print("[yellow]Schema details display will be implemented in future updates[/yellow]")
+            console.logger.info("[yellow]Schema details display will be implemented in future updates[/yellow]")
 
         if show_samples:
-            console.print("\n[bold blue]📄 Sample Documents[/bold blue]")
+            console.logger.info("\n[bold blue]📄 Sample Documents[/bold blue]")
             try:
                 # Get a few sample points
                 sample_results = await client.scroll_collection(collection_name, limit=3)
 
                 if sample_results and "points" in sample_results:
                     for i, point in enumerate(sample_results["points"][:3], 1):
-                        console.print(f"[cyan]Sample {i}:[/cyan]")
+                        console.logger.info("[cyan]Sample {i}:[/cyan]")
                         payload = point.get("payload", {})
 
                         # Display key fields
                         for key, value in payload.items():
                             if key in ["title", "content", "filename", "source"]:
                                 display_value = str(value)[:100] + "..." if len(str(value)) > 100 else str(value)
-                                console.print(f"  [dim]{key}:[/dim] {display_value}")
+                                console.logger.info("  [dim]{key}:[/dim] {display_value}")
 
                         console.print()
                 else:
-                    console.print("[yellow]No sample documents found[/yellow]")
+                    console.logger.info("[yellow]No sample documents found[/yellow]")
 
             except Exception as e:
-                console.print(f"[yellow]Cannot retrieve samples: {e}[/yellow]")
+                console.logger.info("[yellow]Cannot retrieve samples: {e}[/yellow]")
 
     except Exception as e:
-        console.print(f"[red]❌ Failed to get library info: {e}[/red]")
+        console.logger.info("[red]❌ Failed to get library info: {e}[/red]")
         raise typer.Exit(1)
 
 async def _rename_library(old_name: str, new_name: str, force: bool):
     """Rename a library collection."""
     try:
-        console.print("[yellow]🚧 Library renaming is not yet implemented[/yellow]")
-        console.print("This feature requires creating a new collection and migrating data.")
-        console.print("It will be implemented in a future update.")
-        console.print("\n[dim]Current workaround:[/dim]")
-        console.print(f"1. [green]wqm library create {new_name}[/green]")
-        console.print("2. Manually re-ingest content into the new library")
-        console.print(f"3. [red]wqm library remove {old_name}[/red] when ready")
+        console.logger.info("[yellow]🚧 Library renaming is not yet implemented[/yellow]")
+        console.logger.info("This feature requires creating a new collection and migrating data.")
+        console.logger.info("It will be implemented in a future update.")
+        console.logger.info("\n[dim]Current workaround:[/dim]")
+        console.logger.info("1. [green]wqm library create {new_name}[/green]")
+        console.logger.info("2. Manually re-ingest content into the new library")
+        console.logger.info("3. [red]wqm library remove {old_name}[/red] when ready")
 
     except Exception as e:
-        console.print(f"[red]❌ Rename operation failed: {e}[/red]")
+        console.logger.info("[red]❌ Rename operation failed: {e}[/red]")
         raise typer.Exit(1)
 
 async def _copy_library(source: str, destination: str, description: str | None):
     """Copy library collection."""
     try:
-        console.print("[yellow]🚧 Library copying is not yet implemented[/yellow]")
-        console.print("This feature requires advanced collection manipulation.")
-        console.print("It will be implemented in a future update.")
-        console.print("\n[dim]Current workaround:[/dim]")
-        console.print(f"1. [green]wqm library create {destination}[/green]")
-        console.print("2. Export data from source library (when export feature is available)")
-        console.print("3. Import data into destination library")
+        console.logger.info("[yellow]🚧 Library copying is not yet implemented[/yellow]")
+        console.logger.info("This feature requires advanced collection manipulation.")
+        console.logger.info("It will be implemented in a future update.")
+        console.logger.info("\n[dim]Current workaround:[/dim]")
+        console.logger.info("1. [green]wqm library create {destination}[/green]")
+        console.logger.info("2. Export data from source library (when export feature is available)")
+        console.logger.info("3. Import data into destination library")
 
     except Exception as e:
-        console.print(f"[red]❌ Copy operation failed: {e}[/red]")
+        console.logger.info("[red]❌ Copy operation failed: {e}[/red]")
         raise typer.Exit(1)

@@ -1,3 +1,6 @@
+
+from ...observability import get_logger
+logger = get_logger(__name__)
 """
 Collection management for workspace-scoped Qdrant collections.
 
@@ -361,7 +364,7 @@ class WorkspaceCollectionManager:
             # Example return: ['my-project-docs', 'my-project-scratchbook', 'scratchbook']
 
             for collection in collections:
-                print(f"Workspace collection: {collection}")
+                logger.info("Workspace collection: {collection}")
             ```
         """
         try:
@@ -401,12 +404,12 @@ class WorkspaceCollectionManager:
         Example:
             ```python
             info = await manager.get_collection_info()
-            print(f"Total collections: {info['total_collections']}")
+            logger.info("Total collections: {info['total_collections']}")
 
             for name, details in info['collections'].items():
-                print(f"{name}: {details['points_count']} documents")
+                logger.info("{name}: {details['points_count']} documents")
                 if 'error' in details:
-                    print(f"  Error: {details['error']}")
+                    logger.info("  Error: {details['error']}")
             ```
         """
         try:

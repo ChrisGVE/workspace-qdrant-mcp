@@ -1,3 +1,6 @@
+
+from ...observability import get_logger
+logger = get_logger(__name__)
 """
 Health and metrics endpoints for workspace-qdrant-mcp.
 

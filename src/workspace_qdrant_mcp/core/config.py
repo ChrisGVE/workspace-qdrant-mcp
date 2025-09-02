@@ -1,3 +1,6 @@
+
+from ...observability import get_logger
+logger = get_logger(__name__)
 """
 Comprehensive configuration management for workspace-qdrant-mcp.
 
@@ -37,13 +40,13 @@ Example:
     config = Config()
 
     # Access nested configuration
-    print(f"Qdrant URL: {config.qdrant.url}")
-    print(f"Embedding model: {config.embedding.model}")
+    logger.info("Qdrant URL: {config.qdrant.url}")
+    logger.info("Embedding model: {config.embedding.model}")
 
     # Validate configuration
     issues = config.validate_config()
     if issues:
-        print(f"Configuration issues: {issues}")
+        logger.info("Configuration issues: {issues}")
 
     # Get Qdrant client configuration
     client_config = config.qdrant_client_config
@@ -344,9 +347,9 @@ class Config(BaseSettings):
             config = Config()
             issues = config.validate_config()
             if issues:
-                print("Configuration errors:")
+                logger.info("Configuration errors:")
                 for issue in issues:
-                    print(f"  - {issue}")
+                    logger.info("  - {issue}")
                 sys.exit(1)
             ```
         """

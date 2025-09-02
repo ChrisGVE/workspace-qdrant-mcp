@@ -1,3 +1,6 @@
+
+from ...observability import get_logger
+logger = get_logger(__name__)
 """
 Observability CLI tools for workspace-qdrant-mcp.
 
@@ -220,34 +223,34 @@ def health(
             else:
                 # Display formatted health status
                 table = create_health_table(health_data)
-                console.print(table)
+                console.logger.info("Output", data=table)
                 
                 # Show detailed information if requested
                 if detailed:
-                    console.print("\n[bold]Detailed Component Information:[/bold]")
+                    console.logger.info("\n[bold]Detailed Component Information:[/bold]")
                     components = health_data.get("components", {})
                     for name, comp in components.items():
                         if comp.get("details"):
                             panel_title = f"{name.replace('_', ' ').title()} Details"
                             panel_content = JSON(json.dumps(comp["details"], indent=2))
-                            console.print(Panel(panel_content, title=panel_title, border_style="dim"))
+                            console.logger.info("Output", data=Panel(panel_content, title=panel_title, border_style="dim"))
                 
                 # Overall status message
                 status = health_data.get("status", "unknown")
                 if status == "healthy":
-                    console.print("\n✅ [green]System is healthy and operational[/green]")
+                    console.logger.info("\n✅ [green]System is healthy and operational[/green]")
                 elif status == "degraded":
-                    console.print("\n⚠️  [yellow]System is degraded but operational[/yellow]")
+                    console.logger.info("\n⚠️  [yellow]System is degraded but operational[/yellow]")
                 else:
-                    console.print("\n❌ [red]System is unhealthy[/red]")
+                    console.logger.info("\n❌ [red]System is unhealthy[/red]")
                     # Set error exit code for CI/CD
                     raise typer.Exit(1)
         
         except asyncio.TimeoutError:
-            console.print(f"❌ [red]Health check timed out after {timeout} seconds[/red]")
+            console.logger.info("❌ [red]Health check timed out after {timeout} seconds[/red]")
             raise typer.Exit(1)
         except Exception as e:
-            console.print(f"❌ [red]Health check failed: {e}[/red]")
+            console.logger.info("❌ [red]Health check failed: {e}[/red]")
             raise typer.Exit(1)
     
     asyncio.run(check_health())
@@ -293,7 +296,7 @@ def metrics(
             output_content = json.dumps(metrics_data, indent=2)
             if output_file:
                 output_file.write_text(output_content)
-                console.print(f"✅ Metrics saved to {output_file}")
+                console.logger.info("✅ Metrics saved to {output_file}")
             else:
                 console.print_json(output_content)
         
@@ -301,27 +304,27 @@ def metrics(
             output_content = metrics_instance.export_prometheus_format()
             if output_file:
                 output_file.write_text(output_content)
-                console.print(f"✅ Prometheus metrics saved to {output_file}")
+                console.logger.info("✅ Prometheus metrics saved to {output_file}")
             else:
-                console.print(output_content)
+                console.logger.info("Output", data=output_content)
         
         else:  # table format
             if output_file:
-                console.print("❌ [red]Table format cannot be saved to file. Use --format json or prometheus[/red]")
+                console.logger.info("❌ [red]Table format cannot be saved to file. Use --format json or prometheus[/red]")
                 raise typer.Exit(1)
             
             table = create_metrics_table(metrics_data)
-            console.print(table)
+            console.logger.info("Output", data=table)
             
             # Show summary stats
             counter_count = len(metrics_data.get("counters", {}))
             gauge_count = len(metrics_data.get("gauges", {}))
             histogram_count = len(metrics_data.get("histograms", {}))
             
-            console.print(f"\n📊 Total metrics: {counter_count} counters, {gauge_count} gauges, {histogram_count} histograms")
+            console.logger.info("\n📊 Total metrics: {counter_count} counters, {gauge_count} gauges, {histogram_count} histograms")
     
     except Exception as e:
-        console.print(f"❌ [red]Failed to collect metrics: {e}[/red]")
+        console.logger.info("❌ [red]Failed to collect metrics: {e}[/red]")
         raise typer.Exit(1)
 
 
@@ -353,23 +356,23 @@ def diagnostics(
                 # Save detailed diagnostics to file
                 diagnostics_json = json.dumps(diagnostics_data, indent=2, default=str)
                 output_file.write_text(diagnostics_json)
-                console.print(f"✅ [green]Diagnostics saved to {output_file}[/green]")
+                console.logger.info("✅ [green]Diagnostics saved to {output_file}[/green]")
             else:
                 # Display formatted diagnostics
-                console.print("[bold]System Diagnostics Report[/bold]")
-                console.print(f"Generated at: {time.strftime('%Y-%m-%d %H:%M:%S UTC', time.gmtime())}")
+                console.logger.info("[bold]System Diagnostics Report[/bold]")
+                console.logger.info("Generated at: {time.strftime('%Y-%m-%d %H:%M:%S UTC', time.gmtime())}")
                 console.print()
                 
                 # Health status summary
                 health_status = diagnostics_data.get("health_status", {})
                 health_table = create_health_table(health_status)
-                console.print(health_table)
+                console.logger.info("Output", data=health_table)
                 console.print()
                 
                 # System information
                 system_info = diagnostics_data.get("system_info", {})
                 if system_info and not system_info.get("error"):
-                    console.print("[bold]System Information:[/bold]")
+                    console.logger.info("[bold]System Information:[/bold]")
                     
                     sys_table = Table(show_header=False, box=None)
                     sys_table.add_column("Property", style="cyan", min_width=20)
@@ -385,13 +388,13 @@ def diagnostics(
                     
                     sys_table.add_row("Thread Count", str(system_info.get("num_threads", "N/A")))
                     
-                    console.print(sys_table)
+                    console.logger.info("Output", data=sys_table)
                     console.print()
                 
                 # Configuration status
                 check_history = diagnostics_data.get("check_history", {})
                 if check_history:
-                    console.print("[bold]Health Check Configuration:[/bold]")
+                    console.logger.info("[bold]Health Check Configuration:[/bold]")
                     
                     check_table = Table()
                     check_table.add_column("Check", style="cyan")
@@ -407,17 +410,17 @@ def diagnostics(
                             str(check_info.get("consecutive_failures", 0))
                         )
                     
-                    console.print(check_table)
+                    console.logger.info("Output", data=check_table)
                     console.print()
                 
                 # Verbose information
                 if verbose:
-                    console.print("[bold]Verbose Diagnostics:[/bold]")
+                    console.logger.info("[bold]Verbose Diagnostics:[/bold]")
                     verbose_content = JSON(json.dumps(diagnostics_data, indent=2, default=str))
-                    console.print(Panel(verbose_content, title="Full Diagnostic Data", border_style="dim"))
+                    console.logger.info("Output", data=Panel(verbose_content, title="Full Diagnostic Data", border_style="dim"))
                 
         except Exception as e:
-            console.print(f"❌ [red]Diagnostics failed: {e}[/red]")
+            console.logger.info("❌ [red]Diagnostics failed: {e}[/red]")
             raise typer.Exit(1)
     
     asyncio.run(run_diagnostics())
@@ -439,10 +442,10 @@ def monitor(
             start_time = time.time()
             iteration = 0
             
-            console.print(f"🔍 [cyan]Starting continuous monitoring (interval: {interval}s)[/cyan]")
+            console.logger.info("🔍 [cyan]Starting continuous monitoring (interval: {interval}s)[/cyan]")
             if duration:
-                console.print(f"⏱️  [dim]Will run for {duration} seconds[/dim]")
-            console.print("Press Ctrl+C to stop\n")
+                console.logger.info("⏱️  [dim]Will run for {duration} seconds[/dim]")
+            console.logger.info("Press Ctrl+C to stop\n")
             
             def create_monitor_layout(health_data: Dict[str, Any], metrics_data: Dict[str, Any]) -> Layout:
                 """Create live monitoring layout."""
@@ -532,7 +535,7 @@ def monitor(
                             
                             # Print alert to stderr (won't interfere with live display)
                             alert_message = f"🚨 ALERT: System status is {status.upper()} at {time.strftime('%H:%M:%S')}"
-                            console.print(f"\n{alert_message}", style="bold red", err=True)
+                            console.logger.info("Output", data=f"\n{alert_message}", style="bold red", err=True)
                         
                         # Sleep until next check
                         await asyncio.sleep(interval)
@@ -541,16 +544,16 @@ def monitor(
                         break
                 
             runtime = time.time() - start_time
-            console.print(f"\n✅ [green]Monitoring completed. Runtime: {runtime:.1f}s, Iterations: {iteration}[/green]")
+            console.logger.info("\n✅ [green]Monitoring completed. Runtime: {runtime:.1f}s, Iterations: {iteration}[/green]")
             
         except Exception as e:
-            console.print(f"\n❌ [red]Monitoring failed: {e}[/red]")
+            console.logger.info("\n❌ [red]Monitoring failed: {e}[/red]")
             raise typer.Exit(1)
     
     try:
         asyncio.run(continuous_monitor())
     except KeyboardInterrupt:
-        console.print("\n👋 [yellow]Monitoring stopped by user[/yellow]")
+        console.logger.info("\n👋 [yellow]Monitoring stopped by user[/yellow]")
 
 
 # Export the observability CLI app

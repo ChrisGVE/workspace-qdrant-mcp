@@ -39,12 +39,13 @@ from typing import Optional
 
 from qdrant_client import QdrantClient
 
+from ..observability import get_logger
 from ..utils.project_detection import ProjectDetector
 from .collections import WorkspaceCollectionManager
 from .config import Config
 from .embeddings import EmbeddingService
 
-logger = logging.getLogger(__name__)
+logger = get_logger(__name__)
 
 
 class QdrantWorkspaceClient:
@@ -196,8 +197,9 @@ class QdrantWorkspaceClient:
             ```python
             status = await client.get_status()
             if status.get('connected'):
-                print(f"Project: {status['current_project']}")
-                print(f"Collections: {status['workspace_collections']}")
+                logger.info("Client status", 
+                          project=status['current_project'],
+                          collections=status['workspace_collections'])
             ```
         """
         if not self.initialized:
@@ -250,7 +252,7 @@ class QdrantWorkspaceClient:
             ```python
             collections = await client.list_collections()
             for collection in collections:
-                print(f"Available: {collection}")
+                logger.info("Available collection", collection=collection)
             ```
         """
         if not self.initialized:

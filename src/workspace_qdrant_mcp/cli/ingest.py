@@ -1,3 +1,6 @@
+
+from ...observability import get_logger
+logger = get_logger(__name__)
 """
 Command-line interface for batch document ingestion.
 
@@ -248,17 +251,17 @@ async def _run_ingestion(
 
     try:
         # Initialize client
-        console.print("🚀 Initializing workspace client...", style="blue")
+        console.logger.info("Output", data="🚀 Initializing workspace client...", style="blue")
         config = Config()
         client = QdrantWorkspaceClient(config)
         await client.initialize()
 
-        console.print(f"✅ Connected to Qdrant at {config.qdrant.url}", style="green")
+        console.logger.info("Output", data=f"✅ Connected to Qdrant at {config.qdrant.url}", style="green")
 
         # Show project info
         project_info = client.get_project_info()
         if project_info:
-            console.print(f"📁 Project: {project_info['main_project']}", style="cyan")
+            console.logger.info("Output", data=f"📁 Project: {project_info['main_project']}", style="cyan")
 
         # Initialize ingestion engine
         engine = DocumentIngestionEngine(
@@ -269,7 +272,7 @@ async def _run_ingestion(
         )
 
         # Get estimation
-        console.print("📊 Analyzing directory...", style="blue")
+        console.logger.info("Output", data="📊 Analyzing directory...", style="blue")
         estimation = await engine.estimate_processing_time(path, formats)
 
         # Display estimation
@@ -278,7 +281,7 @@ async def _run_ingestion(
         # Confirmation (unless dry run or auto-confirmed)
         if not dry_run and not auto_confirm:
             if not typer.confirm("\n🤔 Proceed with ingestion?"):
-                console.print("❌ Operation cancelled", style="red")
+                console.logger.info("Output", data="❌ Operation cancelled", style="red")
                 return
 
         # Run ingestion with progress tracking
@@ -310,7 +313,7 @@ async def _run_ingestion(
         sys.exit(0 if result.success else 1)
 
     except Exception as e:
-        console.print(f"❌ Error: {e}", style="red")
+        console.logger.info("Output", data=f"❌ Error: {e}", style="red")
         logger.error(f"Ingestion failed: {e}", exc_info=True)
         sys.exit(1)
 
@@ -337,10 +340,10 @@ def _display_estimation(estimation: dict[str, Any], dry_run: bool) -> None:
         for file_type, count in estimation["file_types"].items():
             table.add_row(f"  {file_type}", f"{count:,} files")
 
-    console.print(table)
+    console.logger.info("Output", data=table)
 
     if dry_run:
-        console.print(
+        console.logger.info("Output", data=
             "\n🔍 Running in DRY RUN mode - no documents will be ingested",
             style="yellow bold",
         )
@@ -423,15 +426,15 @@ def _display_results(result: IngestionResult) -> None:
     table.add_row("Processing rate", f"{stats.files_per_second:.1f} files/sec")
     table.add_row("Success rate", f"{stats.success_rate:.1f}%")
 
-    console.print(table)
+    console.logger.info("Output", data=table)
 
     # Show detailed message
     if result.message:
-        console.print(f"\n{result.message}")
+        console.logger.info("\n{result.message}")
 
     # Show errors if any
     if stats.errors:
-        console.print("\n❌ Errors encountered:", style="red bold")
+        console.logger.info("Output", data="\n❌ Errors encountered:", style="red bold")
         error_table = Table(show_header=True)
         error_table.add_column("File", style="red")
         error_table.add_column("Error", style="yellow")
@@ -446,21 +449,21 @@ def _display_results(result: IngestionResult) -> None:
                 error.get("parser", "unknown"),
             )
 
-        console.print(error_table)
+        console.logger.info("Output", data=error_table)
 
         if len(stats.errors) > 10:
-            console.print(f"... and {len(stats.errors) - 10} more errors")
+            console.logger.info("... and {len(stats.errors) - 10} more errors")
 
     # Show skipped files if any
     if stats.skipped_files:
-        console.print(f"\n⏭️  {len(stats.skipped_files)} files skipped")
+        console.logger.info("\n⏭️  {len(stats.skipped_files)} files skipped")
         if len(stats.skipped_files) <= 5:
             for skip_info in stats.skipped_files:
-                console.print(
+                console.logger.info("Output", data=
                     f"  • {skip_info['file']}: {skip_info['reason']}", style="yellow"
                 )
         else:
-            console.print("  Run with --verbose to see details", style="dim")
+            console.logger.info("Output", data="  Run with --verbose to see details", style="dim")
 
 
 async def _show_formats() -> None:
@@ -476,32 +479,32 @@ async def _show_formats() -> None:
             PDFParser(),
         ]
 
-        console.print("📄 Supported File Formats", style="bold blue")
+        console.logger.info("Output", data="📄 Supported File Formats", style="bold blue")
         console.print()
 
         for parser in parsers:
             # Format header
-            console.print(f"🔹 {parser.format_name}", style="bold cyan")
+            console.logger.info("Output", data=f"🔹 {parser.format_name}", style="bold cyan")
 
             # Extensions
             ext_text = ", ".join(parser.supported_extensions)
-            console.print(f"   Extensions: {ext_text}")
+            console.logger.info("   Extensions: {ext_text}")
 
             # Parsing options
             options = parser.get_parsing_options()
             if options:
-                console.print("   Options:")
+                console.logger.info("   Options:")
                 for option_name, option_info in options.items():
                     default_val = option_info.get("default", "None")
                     desc = option_info.get("description", "No description")
-                    console.print(
+                    console.logger.info("Output", data=
                         f"     • {option_name}: {desc} (default: {default_val})"
                     )
 
             console.print()
 
     except Exception as e:
-        console.print(f"❌ Error getting format info: {e}", style="red")
+        console.logger.info("Output", data=f"❌ Error getting format info: {e}", style="red")
         sys.exit(1)
 
 
@@ -520,7 +523,7 @@ async def _estimate_processing(
         # Find files manually
         directory_path = Path(path)
         if not directory_path.exists():
-            console.print(f"❌ Directory not found: {path}", style="red")
+            console.logger.info("Output", data=f"❌ Directory not found: {path}", style="red")
             return
 
         # Get supported extensions
@@ -581,13 +584,13 @@ async def _estimate_processing(
             "estimated_time_human": f"{estimated_seconds // 60:.0f}m {estimated_seconds % 60:.0f}s",
         }
 
-        console.print("⏱️  Processing Time Estimation", style="bold blue")
+        console.logger.info("Output", data="⏱️  Processing Time Estimation", style="bold blue")
         console.print()
 
         _display_estimation(estimation, False)
 
     except Exception as e:
-        console.print(f"❌ Error during estimation: {e}", style="red")
+        console.logger.info("Output", data=f"❌ Error during estimation: {e}", style="red")
         sys.exit(1)
 
 
@@ -610,48 +613,48 @@ async def _run_web_ingestion(
     try:
         # Security warnings
         if disable_security:
-            console.print("⚠️  Security scanning is DISABLED. This is not recommended!", 
+            console.logger.info("Output", data="⚠️  Security scanning is DISABLED. This is not recommended!", 
                          style="red bold")
             if not auto_confirm and not typer.confirm("Continue with disabled security?"):
-                console.print("❌ Operation cancelled", style="red")
+                console.logger.info("Output", data="❌ Operation cancelled", style="red")
                 return
         
         if allow_all_domains and not allowed_domains:
-            console.print("⚠️  All domains are allowed. This increases security risk!", 
+            console.logger.info("Output", data="⚠️  All domains are allowed. This increases security risk!", 
                          style="yellow bold")
             if not auto_confirm and not typer.confirm("Continue allowing all domains?"):
-                console.print("❌ Operation cancelled", style="red")
+                console.logger.info("Output", data="❌ Operation cancelled", style="red")
                 return
         
         # Initialize client
-        console.print("🚀 Initializing workspace client...", style="blue")
+        console.logger.info("Output", data="🚀 Initializing workspace client...", style="blue")
         config = Config()
         client = QdrantWorkspaceClient(config)
         await client.initialize()
         
-        console.print(f"✅ Connected to Qdrant at {config.qdrant.url}", style="green")
+        console.logger.info("Output", data=f"✅ Connected to Qdrant at {config.qdrant.url}", style="green")
         
         # Show project info
         project_info = client.get_project_info()
         if project_info:
-            console.print(f"📁 Project: {project_info['main_project']}", style="cyan")
+            console.logger.info("Output", data=f"📁 Project: {project_info['main_project']}", style="cyan")
         
         # Configure web parser
-        console.print("🔧 Configuring secure web parser...", style="blue")
+        console.logger.info("Output", data="🔧 Configuring secure web parser...", style="blue")
         
         # Create security config
         security_config = SecurityConfig()
         
         if allowed_domains:
             security_config.domain_allowlist = set(allowed_domains)
-            console.print(f"🔐 Domain allowlist: {', '.join(allowed_domains)}", style="yellow")
+            console.logger.info("Output", data=f"🔐 Domain allowlist: {', '.join(allowed_domains)}", style="yellow")
         elif not allow_all_domains:
             # Default to same domain as start URL
             from urllib.parse import urlparse
             parsed_url = urlparse(url)
             if parsed_url.netloc:
                 security_config.domain_allowlist = {parsed_url.netloc}
-                console.print(f"🔐 Restricting to same domain: {parsed_url.netloc}", style="yellow")
+                console.logger.info("Output", data=f"🔐 Restricting to same domain: {parsed_url.netloc}", style="yellow")
         
         security_config.request_delay = request_delay
         security_config.enable_content_scanning = not disable_security
@@ -662,57 +665,57 @@ async def _run_web_ingestion(
         # Initialize web interface
         web_interface = WebIngestionInterface(security_config)
         
-        console.print("🌐 Starting web content ingestion...", style="blue")
+        console.logger.info("Output", data="🌐 Starting web content ingestion...", style="blue")
         
         # Parse web content
         if max_pages > 1 or max_depth > 0:
-            console.print(f"📄 Crawling up to {max_pages} pages (depth: {max_depth})...", style="cyan")
+            console.logger.info("Output", data=f"📄 Crawling up to {max_pages} pages (depth: {max_depth})...", style="cyan")
             parsed_doc = await web_interface.ingest_site(
                 url, 
                 max_pages=max_pages, 
                 max_depth=max_depth
             )
         else:
-            console.print(f"📄 Fetching single page: {url}...", style="cyan")
+            console.logger.info("Output", data=f"📄 Fetching single page: {url}...", style="cyan")
             parsed_doc = await web_interface.ingest_url(url)
         
         # Show content stats
         content_length = len(parsed_doc.content)
-        console.print(f"✅ Content retrieved: {content_length:,} characters", style="green")
+        console.logger.info("Output", data=f"✅ Content retrieved: {content_length:,} characters", style="green")
         
         # Security warnings
         if 'security_warnings' in parsed_doc.additional_metadata:
             warnings = parsed_doc.additional_metadata['security_warnings']
             if warnings:
-                console.print(f"⚠️  Security warnings found: {len(warnings)}", style="yellow")
+                console.logger.info("Output", data=f"⚠️  Security warnings found: {len(warnings)}", style="yellow")
                 for warning in warnings[:3]:  # Show first 3 warnings
-                    console.print(f"  • {warning}", style="yellow")
+                    console.logger.info("Output", data=f"  • {warning}", style="yellow")
                 if len(warnings) > 3:
-                    console.print(f"  ... and {len(warnings) - 3} more warnings", style="yellow")
+                    console.logger.info("Output", data=f"  ... and {len(warnings) - 3} more warnings", style="yellow")
         
         # Pages crawled info
         if 'pages_crawled' in parsed_doc.additional_metadata:
             pages_crawled = parsed_doc.additional_metadata['pages_crawled']
-            console.print(f"📊 Pages successfully crawled: {pages_crawled}", style="cyan")
+            console.logger.info("Output", data=f"📊 Pages successfully crawled: {pages_crawled}", style="cyan")
         
         if dry_run:
-            console.print("\n🔍 DRY RUN - Content preview (first 500 chars):", style="yellow bold")
+            console.logger.info("Output", data="\n🔍 DRY RUN - Content preview (first 500 chars):", style="yellow bold")
             preview = parsed_doc.content[:500]
             if len(parsed_doc.content) > 500:
                 preview += "..."
-            console.print(f"'{preview}'", style="dim")
-            console.print("\n✅ Dry run completed successfully", style="green")
+            console.logger.info("Output", data=f"'{preview}'", style="dim")
+            console.logger.info("Output", data="\n✅ Dry run completed successfully", style="green")
             return
         
         # Confirmation
         if not auto_confirm:
-            console.print(f"\n🤔 Ready to ingest {content_length:,} characters into '{collection}' collection")
+            console.logger.info("\n🤔 Ready to ingest {content_length:,} characters into '{collection}' collection")
             if not typer.confirm("Proceed with ingestion?"):
-                console.print("❌ Operation cancelled", style="red")
+                console.logger.info("Output", data="❌ Operation cancelled", style="red")
                 return
         
         # Add to collection
-        console.print(f"💾 Adding content to collection '{collection}'...", style="blue")
+        console.logger.info("Output", data=f"💾 Adding content to collection '{collection}'...", style="blue")
         
         result = await add_document(
             client=client,
@@ -724,16 +727,16 @@ async def _run_web_ingestion(
         
         # Display results
         if result and result.get('success', False):
-            console.print(f"✅ Successfully ingested web content", style="green bold")
-            console.print(f"📄 Document ID: {result.get('document_id', 'unknown')}", style="cyan")
+            console.logger.info("Output", data=f"✅ Successfully ingested web content", style="green bold")
+            console.logger.info("Output", data=f"📄 Document ID: {result.get('document_id', 'unknown')}", style="cyan")
             if 'chunks_created' in result:
-                console.print(f"🔗 Text chunks created: {result['chunks_created']}", style="cyan")
+                console.logger.info("Output", data=f"🔗 Text chunks created: {result['chunks_created']}", style="cyan")
         else:
-            console.print(f"❌ Ingestion failed: {result.get('error', 'Unknown error')}", style="red")
+            console.logger.info("Output", data=f"❌ Ingestion failed: {result.get('error', 'Unknown error')}", style="red")
             sys.exit(1)
     
     except Exception as e:
-        console.print(f"❌ Web ingestion failed: {e}", style="red")
+        console.logger.info("Output", data=f"❌ Web ingestion failed: {e}", style="red")
         logger.error(f"Web ingestion error: {e}", exc_info=True)
         sys.exit(1)
     

@@ -1,3 +1,6 @@
+
+from ...observability import get_logger
+logger = get_logger(__name__)
 """
 CLI commands for memory management.
 
@@ -173,11 +176,11 @@ async def _list_memory_rules(
                 }
                 rules_data.append(rule_dict)
 
-            print(json.dumps(rules_data, indent=2))
+            logger.info("Output", data=json.dumps(rules_data, indent=2))
         else:
             # Display in table format
             if not rules:
-                console.print("[yellow]No memory rules found.[/yellow]")
+                console.logger.info("[yellow]No memory rules found.[/yellow]")
                 return
 
             table = Table(title=f"Memory Rules ({len(rules)} found)")
@@ -201,14 +204,14 @@ async def _list_memory_rules(
                     scope_text
                 )
 
-            console.print(table)
+            console.logger.info("Output", data=table)
 
             # Show summary
             stats = await memory_manager.get_memory_stats()
-            console.print(f"\n[dim]Total: {stats.total_rules} rules, ~{stats.estimated_tokens} tokens[/dim]")
+            console.logger.info("\n[dim]Total: {stats.total_rules} rules, ~{stats.estimated_tokens} tokens[/dim]")
 
     except Exception as e:
-        console.print(f"[red]Error listing memory rules: {e}[/red]")
+        console.logger.info("[red]Error listing memory rules: {e}[/red]")
         sys.exit(1)
 
 
@@ -231,8 +234,8 @@ async def _add_memory_rule(
 
         # Interactive mode or collect missing parameters
         if interactive or not rule:
-            console.print("[bold blue]Add Memory Rule[/bold blue]")
-            console.print("Enter details for the new memory rule.\n")
+            console.logger.info("[bold blue]Add Memory Rule[/bold blue]")
+            console.logger.info("Enter details for the new memory rule.\n")
 
             if not rule:
                 rule = Prompt.ask("Rule text")
@@ -281,15 +284,15 @@ async def _add_memory_rule(
             source="cli_user"
         )
 
-        console.print(f"[green]✓[/green] Added memory rule with ID: [cyan]{rule_id}[/cyan]")
-        console.print(f"  Name: {name}")
-        console.print(f"  Category: {category_enum.value}")
-        console.print(f"  Authority: {authority_enum.value}")
+        console.logger.info("[green]✓[/green] Added memory rule with ID: [cyan]{rule_id}[/cyan]")
+        console.logger.info("  Name: {name}")
+        console.logger.info("  Category: {category_enum.value}")
+        console.logger.info("  Authority: {authority_enum.value}")
         if scope_list:
-            console.print(f"  Scope: {', '.join(scope_list)}")
+            console.logger.info("  Scope: {', '.join(scope_list)}")
 
     except Exception as e:
-        console.print(f"[red]Error adding memory rule: {e}[/red]")
+        console.logger.info("[red]Error adding memory rule: {e}[/red]")
         sys.exit(1)
 
 
@@ -304,11 +307,11 @@ async def _edit_memory_rule(rule_id: str):
         # Get existing rule
         rule = await memory_manager.get_memory_rule(rule_id)
         if not rule:
-            console.print(f"[red]Memory rule {rule_id} not found.[/red]")
+            console.logger.info("[red]Memory rule {rule_id} not found.[/red]")
             sys.exit(1)
 
-        console.print(f"[bold blue]Edit Memory Rule: {rule.name}[/bold blue]")
-        console.print(f"Current rule: {rule.rule}\n")
+        console.logger.info("[bold blue]Edit Memory Rule: {rule.name}[/bold blue]")
+        console.logger.info("Current rule: {rule.rule}\n")
 
         # Collect updates
         updates = {}
@@ -337,28 +340,28 @@ async def _edit_memory_rule(rule_id: str):
             updates["scope"] = new_scope_list
 
         if not updates:
-            console.print("[yellow]No changes made.[/yellow]")
+            console.logger.info("[yellow]No changes made.[/yellow]")
             return
 
         # Confirm changes
-        console.print("\n[bold]Proposed changes:[/bold]")
+        console.logger.info("\n[bold]Proposed changes:[/bold]")
         for key, value in updates.items():
-            console.print(f"  {key}: {getattr(rule, key)} → {value}")
+            console.logger.info("  {key}: {getattr(rule, key)} → {value}")
 
         if not Confirm.ask("\nApply changes?"):
-            console.print("[yellow]Changes cancelled.[/yellow]")
+            console.logger.info("[yellow]Changes cancelled.[/yellow]")
             return
 
         # Apply updates
         success = await memory_manager.update_memory_rule(rule_id, updates)
 
         if success:
-            console.print(f"[green]✓[/green] Updated memory rule {rule_id}")
+            console.logger.info("[green]✓[/green] Updated memory rule {rule_id}")
         else:
-            console.print(f"[red]Failed to update memory rule {rule_id}[/red]")
+            console.logger.info("[red]Failed to update memory rule {rule_id}[/red]")
 
     except Exception as e:
-        console.print(f"[red]Error editing memory rule: {e}[/red]")
+        console.logger.info("[red]Error editing memory rule: {e}[/red]")
         sys.exit(1)
 
 
@@ -373,31 +376,31 @@ async def _remove_memory_rule(rule_id: str, force: bool):
         # Get rule details for confirmation
         rule = await memory_manager.get_memory_rule(rule_id)
         if not rule:
-            console.print(f"[red]Memory rule {rule_id} not found.[/red]")
+            console.logger.info("[red]Memory rule {rule_id} not found.[/red]")
             sys.exit(1)
 
         # Confirm deletion
         if not force:
-            console.print("[bold red]Remove Memory Rule[/bold red]")
-            console.print(f"ID: {rule.id}")
-            console.print(f"Name: {rule.name}")
-            console.print(f"Rule: {rule.rule}")
-            console.print(f"Authority: {rule.authority.value}")
+            console.logger.info("[bold red]Remove Memory Rule[/bold red]")
+            console.logger.info("ID: {rule.id}")
+            console.logger.info("Name: {rule.name}")
+            console.logger.info("Rule: {rule.rule}")
+            console.logger.info("Authority: {rule.authority.value}")
 
             if not Confirm.ask("\n[red]Are you sure you want to delete this rule?[/red]"):
-                console.print("[yellow]Deletion cancelled.[/yellow]")
+                console.logger.info("[yellow]Deletion cancelled.[/yellow]")
                 return
 
         # Delete the rule
         success = await memory_manager.delete_memory_rule(rule_id)
 
         if success:
-            console.print(f"[green]✓[/green] Deleted memory rule {rule_id}")
+            console.logger.info("[green]✓[/green] Deleted memory rule {rule_id}")
         else:
-            console.print(f"[red]Failed to delete memory rule {rule_id}[/red]")
+            console.logger.info("[red]Failed to delete memory rule {rule_id}[/red]")
 
     except Exception as e:
-        console.print(f"[red]Error removing memory rule: {e}[/red]")
+        console.logger.info("[red]Error removing memory rule: {e}[/red]")
         sys.exit(1)
 
 
@@ -439,10 +442,10 @@ By Category:
             usage_text += f"\nLast Optimized: {stats.last_optimization.strftime('%Y-%m-%d %H:%M:%S')}"
 
         panel = Panel(usage_text.strip(), title="Memory Token Usage", title_align="left")
-        console.print(panel)
+        console.logger.info("Output", data=panel)
 
     except Exception as e:
-        console.print(f"[red]Error getting token usage: {e}[/red]")
+        console.logger.info("[red]Error getting token usage: {e}[/red]")
         sys.exit(1)
 
 
@@ -456,37 +459,37 @@ async def _trim_memory(max_tokens: int, dry_run: bool):
 
         stats = await memory_manager.get_memory_stats()
 
-        console.print("[bold blue]Memory Optimization[/bold blue]")
-        console.print(f"Current usage: {stats.estimated_tokens} tokens")
-        console.print(f"Target: {max_tokens} tokens")
+        console.logger.info("[bold blue]Memory Optimization[/bold blue]")
+        console.logger.info("Current usage: {stats.estimated_tokens} tokens")
+        console.logger.info("Target: {max_tokens} tokens")
 
         if stats.estimated_tokens <= max_tokens:
-            console.print("[green]✓ Memory already within token limit.[/green]")
+            console.logger.info("[green]✓ Memory already within token limit.[/green]")
             return
 
         excess_tokens = stats.estimated_tokens - max_tokens
-        console.print(f"Need to reduce by: [red]{excess_tokens}[/red] tokens\n")
+        console.logger.info("Need to reduce by: [red]{excess_tokens}[/red] tokens\n")
 
         if dry_run:
-            console.print("[yellow]DRY RUN - No changes will be made[/yellow]\n")
+            console.logger.info("[yellow]DRY RUN - No changes will be made[/yellow]\n")
 
         # Get optimization suggestions
         tokens_saved, actions = await memory_manager.optimize_memory(max_tokens)
 
-        console.print("[bold]Optimization Suggestions:[/bold]")
+        console.logger.info("[bold]Optimization Suggestions:[/bold]")
         for i, action in enumerate(actions, 1):
-            console.print(f"  {i}. {action}")
+            console.logger.info("  {i}. {action}")
 
-        console.print(f"\nEstimated tokens saved: [green]{tokens_saved}[/green]")
+        console.logger.info("\nEstimated tokens saved: [green]{tokens_saved}[/green]")
 
         if not dry_run:
             if Confirm.ask("\nApply optimizations?"):
-                console.print("[green]✓[/green] Memory optimization applied")
+                console.logger.info("[green]✓[/green] Memory optimization applied")
             else:
-                console.print("[yellow]Optimization cancelled.[/yellow]")
+                console.logger.info("[yellow]Optimization cancelled.[/yellow]")
 
     except Exception as e:
-        console.print(f"[red]Error optimizing memory: {e}[/red]")
+        console.logger.info("[red]Error optimizing memory: {e}[/red]")
         sys.exit(1)
 
 
@@ -498,33 +501,33 @@ async def _detect_conflicts(auto_resolve: bool):
         naming_manager = create_naming_manager(config.workspace.global_collections)
         memory_manager = create_memory_manager(client, naming_manager)
 
-        console.print("[bold blue]Conflict Detection[/bold blue]")
-        console.print("Analyzing memory rules for conflicts...\n")
+        console.logger.info("[bold blue]Conflict Detection[/bold blue]")
+        console.logger.info("Analyzing memory rules for conflicts...\n")
 
         conflicts = await memory_manager.detect_conflicts()
 
         if not conflicts:
-            console.print("[green]✓ No conflicts detected.[/green]")
+            console.logger.info("[green]✓ No conflicts detected.[/green]")
             return
 
-        console.print(f"[red]Found {len(conflicts)} conflict(s):[/red]\n")
+        console.logger.info("[red]Found {len(conflicts)} conflict(s):[/red]\n")
 
         for i, conflict in enumerate(conflicts, 1):
-            console.print(f"[bold]Conflict {i}: {conflict.conflict_type}[/bold]")
-            console.print(f"Confidence: {conflict.confidence:.1%}")
-            console.print(f"Description: {conflict.description}")
-            console.print(f"Rule 1: {conflict.rule1.name} - {conflict.rule1.rule}")
-            console.print(f"Rule 2: {conflict.rule2.name} - {conflict.rule2.rule}")
+            console.logger.info("[bold]Conflict {i}: {conflict.conflict_type}[/bold]")
+            console.logger.info("Confidence: {conflict.confidence:.1%}")
+            console.logger.info("Description: {conflict.description}")
+            console.logger.info("Rule 1: {conflict.rule1.name} - {conflict.rule1.rule}")
+            console.logger.info("Rule 2: {conflict.rule2.name} - {conflict.rule2.rule}")
 
-            console.print("Resolution options:")
+            console.logger.info("Resolution options:")
             for j, option in enumerate(conflict.resolution_options, 1):
-                console.print(f"  {j}. {option}")
+                console.logger.info("  {j}. {option}")
             console.print()
 
             if auto_resolve:
-                console.print(f"[yellow]Auto-resolving conflict {i}...[/yellow]")
+                console.logger.info("[yellow]Auto-resolving conflict {i}...[/yellow]")
                 # Placeholder for auto-resolution logic
-                console.print("[green]✓ Conflict resolved automatically[/green]\n")
+                console.logger.info("[green]✓ Conflict resolved automatically[/green]\n")
             else:
                 if Confirm.ask(f"Resolve conflict {i}?"):
                     # Interactive resolution
@@ -533,12 +536,12 @@ async def _detect_conflicts(auto_resolve: bool):
                         choices=[str(j) for j in range(1, len(conflict.resolution_options) + 1)],
                         default="1"
                     )
-                    console.print(f"[green]✓ Applied resolution option {choice}[/green]\n")
+                    console.logger.info("[green]✓ Applied resolution option {choice}[/green]\n")
                 else:
-                    console.print("[yellow]Conflict skipped[/yellow]\n")
+                    console.logger.info("[yellow]Conflict skipped[/yellow]\n")
 
     except Exception as e:
-        console.print(f"[red]Error detecting conflicts: {e}[/red]")
+        console.logger.info("[red]Error detecting conflicts: {e}[/red]")
         sys.exit(1)
 
 
@@ -548,11 +551,11 @@ async def _parse_conversational_update(message: str):
         result = parse_conversational_memory_update(message)
 
         if result:
-            console.print("[green]✓ Parsed conversational memory update:[/green]")
-            console.print(f"  Category: {result['category'].value}")
-            console.print(f"  Rule: {result['rule']}")
-            console.print(f"  Authority: {result['authority'].value}")
-            console.print(f"  Source: {result['source']}")
+            console.logger.info("[green]✓ Parsed conversational memory update:[/green]")
+            console.logger.info("  Category: {result['category'].value}")
+            console.logger.info("  Rule: {result['rule']}")
+            console.logger.info("  Authority: {result['authority'].value}")
+            console.logger.info("  Source: {result['source']}")
 
             if Confirm.ask("\nAdd this as a memory rule?"):
                 config = Config()
@@ -572,19 +575,19 @@ async def _parse_conversational_update(message: str):
                     source=result["source"]
                 )
 
-                console.print(f"[green]✓ Added memory rule with ID: {rule_id}[/green]")
+                console.logger.info("[green]✓ Added memory rule with ID: {rule_id}[/green]")
             else:
-                console.print("[yellow]Memory rule not added.[/yellow]")
+                console.logger.info("[yellow]Memory rule not added.[/yellow]")
         else:
-            console.print("[yellow]No conversational memory update detected.[/yellow]")
-            console.print("Supported patterns:")
-            console.print("  - 'Note: <preference>'")
-            console.print("  - 'For future reference, <instruction>'")
-            console.print("  - 'Remember that I <preference>'")
-            console.print("  - 'Always <behavior>' or 'Never <behavior>'")
+            console.logger.info("[yellow]No conversational memory update detected.[/yellow]")
+            console.logger.info("Supported patterns:")
+            console.logger.info("  - 'Note: <preference>'")
+            console.logger.info("  - 'For future reference, <instruction>'")
+            console.logger.info("  - 'Remember that I <preference>'")
+            console.logger.info("  - 'Always <behavior>' or 'Never <behavior>'")
 
     except Exception as e:
-        console.print(f"[red]Error parsing conversational update: {e}[/red]")
+        console.logger.info("[red]Error parsing conversational update: {e}[/red]")
         sys.exit(1)
 
 

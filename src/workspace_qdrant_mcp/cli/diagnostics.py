@@ -1,3 +1,6 @@
+
+from ...observability import get_logger
+logger = get_logger(__name__)
 """
 Connection testing and diagnostic utilities for workspace-qdrant-mcp.
 
@@ -258,7 +261,7 @@ class DiagnosticTool:
             border_style="blue",
             padding=(1, 2),
         )
-        console.print(panel)
+        console.logger.info("Output", data=panel)
 
     def _collect_system_info(self) -> dict[str, Any]:
         """Collect system information."""
@@ -1219,7 +1222,7 @@ class DiagnosticTool:
 
     async def _run_performance_tests(self) -> dict[str, Any]:
         """Run performance benchmarking tests."""
-        console.print("\n📊 Running performance benchmarks...", style="blue")
+        console.logger.info("Output", data="\n📊 Running performance benchmarks...", style="blue")
 
         metrics = {}
 
@@ -1412,7 +1415,7 @@ class DiagnosticTool:
             border_style="green" if report.overall_success else "red",
             padding=(0, 1),
         )
-        console.print(header_panel)
+        console.logger.info("Output", data=header_panel)
 
         # Component results table
         table = Table(
@@ -1435,7 +1438,7 @@ class DiagnosticTool:
                 style=status_style if not comp.success else None,
             )
 
-        console.print(table)
+        console.logger.info("Output", data=table)
 
         # Performance metrics (if benchmark ran)
         if report.performance_metrics:
@@ -1455,7 +1458,7 @@ class DiagnosticTool:
                 else:
                     perf_table.add_row(category.replace("_", " ").title(), str(metrics))
 
-            console.print(perf_table)
+            console.logger.info("Output", data=perf_table)
 
         # Detailed component information (verbose mode)
         if self.verbose:
@@ -1474,7 +1477,7 @@ class DiagnosticTool:
                             detail_text.append(f"  • {suggestion}\n", style="yellow")
 
                     if detail_text.plain:
-                        console.print(
+                        console.logger.info("Output", data=
                             Panel(
                                 detail_text,
                                 title=f"{comp.name} Details",
@@ -1489,7 +1492,7 @@ class DiagnosticTool:
             for rec in report.recommendations:
                 rec_text.append(f"{rec}\n")
 
-            console.print(
+            console.logger.info("Output", data=
                 Panel(
                     rec_text,
                     title="🎯 Recommendations",
@@ -1513,7 +1516,7 @@ class DiagnosticTool:
                 style="yellow",
             )
 
-        console.print(Panel(summary, border_style="blue"))
+        console.logger.info("Output", data=Panel(summary, border_style="blue"))
 
 
 @app.command()
@@ -1582,20 +1585,20 @@ def main(
 
             try:
                 output_path.write_text(json.dumps(report.to_dict(), indent=2))
-                console.print(
+                console.logger.info("Output", data=
                     f"\n📊 Report saved to: {output_path.absolute()}", style="green"
                 )
             except Exception as e:
-                console.print(f"\n⚠️  Failed to save report: {e}", style="yellow")
+                console.logger.info("Output", data=f"\n⚠️  Failed to save report: {e}", style="yellow")
 
         # Exit with appropriate code
         sys.exit(0 if report.overall_success else 1)
 
     except KeyboardInterrupt:
-        console.print("\n❌ Diagnostics cancelled by user", style="red")
+        console.logger.info("Output", data="\n❌ Diagnostics cancelled by user", style="red")
         sys.exit(1)
     except Exception as e:
-        console.print(f"\n❌ Diagnostics failed: {e}", style="red")
+        console.logger.info("Output", data=f"\n❌ Diagnostics failed: {e}", style="red")
         logger.error(f"Diagnostics failed: {e}", exc_info=True)
         sys.exit(1)
 

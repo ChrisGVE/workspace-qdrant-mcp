@@ -1,3 +1,6 @@
+
+from ...observability import get_logger
+logger = get_logger(__name__)
 """
 Advanced search tools for workspace-qdrant-mcp.
 
@@ -121,9 +124,9 @@ async def search_workspace(
 
         # Process results
         for result in results['results']:
-            print(f"Score: {result['score']:.3f}")
-            print(f"Source: {result['collection']}")
-            print(f"Content: {result['payload']['content'][:100]}...")
+            logger.info("Score: {result['score']:.3f}")
+            logger.info("Source: {result['collection']}")
+            logger.info("Content: {result['payload']['content'][:100]}...")
         ```
     """
     if not client.initialized:

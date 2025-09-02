@@ -1,3 +1,6 @@
+
+from ...observability import get_logger
+logger = get_logger(__name__)
 """
 FastEmbed integration for high-performance document embeddings.
 
@@ -392,7 +395,7 @@ class EmbeddingService:
 
             # Each chunk is <= 1000 chars with 100 char overlap
             for i, chunk in enumerate(chunks):
-                print(f"Chunk {i}: {len(chunk)} characters")
+                logger.info("Chunk {i}: {len(chunk)} characters")
             ```
         """
         chunk_size = chunk_size or self.config.embedding.chunk_size
@@ -497,9 +500,9 @@ class EmbeddingService:
         Example:
             ```python
             info = service.get_model_info()
-            print(f"Dense model: {info['dense_model']['name']}")
-            print(f"Dimensions: {info['dense_model']['dimensions']}")
-            print(f"Sparse enabled: {info['sparse_model']['enabled']}")
+            logger.info("Dense model: {info['dense_model']['name']}")
+            logger.info("Dimensions: {info['dense_model']['dimensions']}")
+            logger.info("Sparse enabled: {info['sparse_model']['enabled']}")
             ```
         """
         sparse_info = {}
