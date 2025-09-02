@@ -786,8 +786,9 @@ async def get_watch_status(watch_id: str = None) -> dict:
         result = await get_watch_status("research-watch")
         if result["success"]:
             status = result["status"]
-            print(f"Valid config: {status['validation']['valid']}")
-            print(f"Path exists: {status['path_exists']}")
+            logger.info("Watch status retrieved", 
+                       valid_config=status['validation']['valid'],
+                       path_exists=status['path_exists'])
         ```
     """
     if not workspace_client or not watch_tools_manager:
@@ -1038,8 +1039,9 @@ async def validate_watch_configuration(
         )
         
         if not result["valid"]:
-            for issue in result["issues"]:
-                print(f"Validation issue: {issue}")
+            logger.error("Configuration validation failed", 
+                        issues=result["issues"],
+                        issues_count=len(result["issues"]))
         ```
     """
     validation_results = {
@@ -1186,16 +1188,22 @@ async def validate_watch_path(path: str) -> dict:
         # Validate a local directory
         result = await validate_watch_path("/home/user/documents")
         if result["valid"]:
-            print("Path is suitable for watching")
+            logger.info("Path is suitable for watching", path="/home/user/documents")
             if result["warnings"]:
-                print(f"Warnings: {', '.join(result['warnings'])}")
+                logger.warning("Path validation warnings", 
+                             warnings=result['warnings'],
+                             warnings_count=len(result['warnings']))
         else:
-            print(f"Validation failed: {result['error_message']}")
+            logger.error("Path validation failed", 
+                        path="/home/user/documents",
+                        error_message=result['error_message'])
         
         # Validate a network path
         result = await validate_watch_path("//server/share/folder")
-        for warning in result["warnings"]:
-            print(f"Warning: {warning}")
+        if result["warnings"]:
+            logger.warning("Network path validation warnings", 
+                          path="//server/share/folder",
+                          warnings=result["warnings"])
         ```
     """
     try:
@@ -1299,15 +1307,20 @@ async def get_watch_health_status(watch_id: str = None) -> dict:
         ```python
         # Get health status for all watches
         result = await get_watch_health_status()
-        for watch_id, health in result["health_status"].items():
-            print(f"Watch {watch_id}: {health['status']}")
+        if result.get("health_status"):
+            logger.info("Watch health status retrieved", 
+                       watches_count=len(result["health_status"]),
+                       statuses={watch_id: health['status'] for watch_id, health in result["health_status"].items()})
         
         # Get detailed status for specific watch
         result = await get_watch_health_status("my-watch")
-        health = result["health_status"]
-        print(f"Status: {health['status']}")
-        print(f"Last check: {health['last_check']}")
-        print(f"Failures: {health['consecutive_failures']}")
+        if result.get("health_status"):
+            health = result["health_status"]
+            logger.info("Watch health details", 
+                       watch_id="my-watch",
+                       status=health['status'],
+                       last_check=health['last_check'],
+                       consecutive_failures=health['consecutive_failures'])
         ```
     """
     if not workspace_client or not watch_tools_manager:
@@ -1387,7 +1400,9 @@ async def trigger_watch_recovery(watch_id: str, error_type: str = None) -> dict:
         # Trigger automatic recovery
         result = await trigger_watch_recovery("my-watch")
         if result["success"]:
-            print(f"Recovery successful: {result['details']}")
+            logger.info("Watch recovery successful", 
+                       watch_id="my-watch",
+                       details=result['details'])
         
         # Trigger recovery for specific error type
         result = await trigger_watch_recovery(
@@ -1465,12 +1480,16 @@ async def get_watch_sync_status() -> dict:
         ```python
         # Get sync status
         result = await get_watch_sync_status()
-        print(f"Config file: {result['config_file']}")
-        print(f"Recent changes: {len(result['recent_events'])}")
+        logger.info("Watch sync status retrieved", 
+                   config_file=result['config_file'],
+                   recent_changes_count=len(result['recent_events']))
         
         # Check for recent configuration changes
-        for event in result['recent_events'][:5]:
-            print(f"{event['timestamp']}: {event['event_type']} {event['watch_id']}")
+        recent_events = result['recent_events'][:5]
+        if recent_events:
+            logger.info("Recent configuration changes", 
+                       events_count=len(recent_events),
+                       recent_events=[f"{event['timestamp']}: {event['event_type']} {event['watch_id']}" for event in recent_events])
         ```
     """
     if not workspace_client or not watch_tools_manager:
@@ -1539,8 +1558,9 @@ async def force_watch_sync() -> dict:
         # Force sync after external changes
         result = await force_watch_sync()
         if result["success"]:
-            print(f"Synchronized {result['watches_count']} watches")
-            print(f"Cache updated at: {result['sync_timestamp']}")
+            logger.info("Watch synchronization completed",
+                       watches_count=result['watches_count'],
+                       sync_timestamp=result['sync_timestamp'])
         ```
     """
     if not workspace_client or not watch_tools_manager:
@@ -1591,12 +1611,16 @@ async def get_watch_change_history(watch_id: str = None, limit: int = 20) -> dic
         ```python
         # Get recent changes for all watches
         result = await get_watch_change_history(limit=10)
-        for event in result["events"]:
-            print(f"{event['timestamp']}: {event['event_type']} - {event['watch_id']}")
+        if result.get("events"):
+            logger.info("Watch change history retrieved", 
+                       events_count=len(result["events"]),
+                       recent_changes=[f"{event['timestamp']}: {event['event_type']} - {event['watch_id']}" for event in result["events"]])
         
         # Get full history for specific watch
         result = await get_watch_change_history("my-watch", limit=50)
-        print(f"Found {len(result['events'])} changes for watch")
+        logger.info("Watch history retrieved", 
+                   watch_id="my-watch",
+                   changes_count=len(result.get('events', [])))
         ```
     """
     if not workspace_client or not watch_tools_manager:
