@@ -1,0 +1,105 @@
+title: "🎉 Show and Tell"
+labels: ["showcase", "community"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Share your amazing projects and integrations using Qdrant MCP! We love seeing what the community builds.
+        
+        **Perfect for:**
+        - Interesting use cases and applications
+        - Integration examples and tutorials
+        - Performance results and benchmarks
+        - Creative implementations
+        - Success stories
+
+  - type: input
+    id: project-title
+    attributes:
+      label: "Project Title"
+      description: "What are you showcasing?"
+      placeholder: "My AI-powered document search using Qdrant MCP"
+    validations:
+      required: true
+
+  - type: textarea
+    id: description
+    attributes:
+      label: "Project Description"
+      description: "Tell us about your project and what makes it special"
+      placeholder: "I built a system that..."
+    validations:
+      required: true
+
+  - type: textarea
+    id: how-qdrant-used
+    attributes:
+      label: "How Qdrant MCP is Used"
+      description: "Explain how Qdrant MCP fits into your project"
+      placeholder: "I use Qdrant MCP to..."
+    validations:
+      required: true
+
+  - type: textarea
+    id: technical-details
+    attributes:
+      label: "Technical Implementation"
+      description: "Share interesting technical details, architecture, or code snippets"
+      placeholder: |
+        - Built with: Python, Claude Code
+        - Vector dimensions: 1536
+        - Collection setup: ...
+        - Integration approach: ...
+      render: markdown
+
+  - type: textarea
+    id: results
+    attributes:
+      label: "Results & Performance"
+      description: "Any metrics, benchmarks, or outcomes you'd like to share?"
+      placeholder: |
+        - Processing time: X seconds for Y documents
+        - Search accuracy: Z%
+        - User feedback: ...
+
+  - type: input
+    id: links
+    attributes:
+      label: "Links"
+      description: "Share relevant links (GitHub, demo, blog post, etc.)"
+      placeholder: "https://github.com/yourname/project or https://demo.example.com"
+
+  - type: textarea
+    id: lessons-learned
+    attributes:
+      label: "Lessons Learned"
+      description: "What did you learn? Any tips for others building similar projects?"
+      placeholder: "Key insights I gained..."
+
+  - type: textarea
+    id: challenges
+    attributes:
+      label: "Challenges & Solutions"
+      description: "Any obstacles you overcame and how you solved them?"
+      placeholder: "I ran into... and solved it by..."
+
+  - type: checkboxes
+    id: open-source
+    attributes:
+      label: "Sharing"
+      description: "How are you sharing this work?"
+      options:
+        - label: "Open source code available"
+        - label: "Demo or live version available"
+        - label: "Detailed blog post or documentation"
+        - label: "Available for collaboration"
+
+  - type: checkboxes
+    id: guidelines
+    attributes:
+      label: "Community Guidelines"
+      description: "Showcase guidelines"
+      options:
+        - label: "This project uses Qdrant MCP in a meaningful way"
+        - label: "I'm sharing this to help and inspire the community"
+        - label: "I'm open to questions and feedback"
