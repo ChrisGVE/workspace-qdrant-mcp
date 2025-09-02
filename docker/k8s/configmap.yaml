@@ -1,0 +1,282 @@
+# ConfigMaps for application configuration
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: workspace-qdrant-mcp-config
+  namespace: workspace-qdrant-mcp
+  labels:
+    app: workspace-qdrant-mcp
+    component: config
+data:
+  # Application configuration
+  WORKSPACE_QDRANT_HOST: "0.0.0.0"
+  WORKSPACE_QDRANT_PORT: "8000"
+  WORKSPACE_QDRANT_LOG_LEVEL: "INFO"
+  WORKSPACE_QDRANT_ENV: "kubernetes"
+  
+  # Qdrant connection
+  QDRANT_HOST: "qdrant-service"
+  QDRANT_PORT: "6333"
+  QDRANT_GRPC_PORT: "6334"
+  
+  # Redis connection
+  REDIS_HOST: "redis-service"
+  REDIS_PORT: "6379"
+  
+  # Observability
+  OTEL_EXPORTER_OTLP_ENDPOINT: "http://jaeger-service:14268"
+  PROMETHEUS_MULTIPROC_DIR: "/tmp/prometheus"
+  
+  # Performance tuning
+  PYTHONUNBUFFERED: "1"
+  PYTHONDONTWRITEBYTECODE: "1"
+  UVICORN_WORKERS: "4"
+  UVICORN_BACKLOG: "2048"
+
+---
+# Qdrant configuration
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: qdrant-config
+  namespace: workspace-qdrant-mcp
+  labels:
+    app: qdrant
+    component: config
+data:
+  # Qdrant service configuration
+  QDRANT__SERVICE__HTTP_PORT: "6333"
+  QDRANT__SERVICE__GRPC_PORT: "6334"
+  QDRANT__LOG_LEVEL: "INFO"
+  QDRANT__STORAGE__SNAPSHOTS_PATH: "/qdrant/snapshots"
+  QDRANT__STORAGE__STORAGE_PATH: "/qdrant/storage"
+  QDRANT__SERVICE__ENABLE_CORS: "false"
+  
+  # Performance optimization
+  QDRANT__STORAGE__WAL_CAPACITY_MB: "64"
+  QDRANT__STORAGE__WAL_SEGMENTS_AHEAD: "2"
+  QDRANT__STORAGE__PERFORMANCE__MAX_SEARCH_THREADS: "0"
+  QDRANT__STORAGE__PERFORMANCE__MAX_OPTIMIZATION_THREADS: "2"
+  QDRANT__STORAGE__OPTIMIZERS__MEMMAP_THRESHOLD_KB: "200000"
+  QDRANT__STORAGE__OPTIMIZERS__INDEXING_THRESHOLD_KB: "20000"
+
+---
+# Redis configuration
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: redis-config
+  namespace: workspace-qdrant-mcp
+  labels:
+    app: redis
+    component: config
+data:
+  redis.conf: |
+    # Redis configuration for Kubernetes
+    bind 0.0.0.0
+    port 6379
+    protected-mode yes
+    
+    # Memory management
+    maxmemory 1gb
+    maxmemory-policy allkeys-lru
+    
+    # Persistence
+    save 900 1
+    save 300 10
+    save 60 10000
+    appendonly yes
+    appendfsync everysec
+    auto-aof-rewrite-percentage 100
+    auto-aof-rewrite-min-size 64mb
+    
+    # Logging
+    loglevel notice
+    logfile ""
+    
+    # Security
+    requirepass REDIS_PASSWORD_PLACEHOLDER
+
+---
+# Nginx configuration
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: nginx-config
+  namespace: workspace-qdrant-mcp
+  labels:
+    app: nginx
+    component: config
+data:
+  nginx.conf: |
+    user nginx;
+    worker_processes auto;
+    error_log /var/log/nginx/error.log notice;
+    pid /var/run/nginx.pid;
+
+    events {
+        worker_connections 1024;
+        use epoll;
+        multi_accept on;
+    }
+
+    http {
+        include /etc/nginx/mime.types;
+        default_type application/octet-stream;
+
+        log_format main '$remote_addr - $remote_user [$time_local] "$request" '
+                       '$status $body_bytes_sent "$http_referer" '
+                       '"$http_user_agent" "$http_x_forwarded_for"';
+
+        access_log /var/log/nginx/access.log main;
+
+        sendfile on;
+        tcp_nopush on;
+        tcp_nodelay on;
+        keepalive_timeout 65;
+        types_hash_max_size 2048;
+        server_tokens off;
+
+        # Security headers
+        add_header X-Frame-Options DENY always;
+        add_header X-Content-Type-Options nosniff always;
+        add_header X-XSS-Protection "1; mode=block" always;
+
+        # Upstream
+        upstream workspace_qdrant_mcp {
+            least_conn;
+            server workspace-qdrant-mcp-service:8000;
+            keepalive 32;
+        }
+
+        server {
+            listen 80;
+            server_name _;
+
+            location /health {
+                access_log off;
+                return 200 "healthy\n";
+                add_header Content-Type text/plain;
+            }
+
+            location / {
+                proxy_pass http://workspace_qdrant_mcp;
+                proxy_set_header Host $host;
+                proxy_set_header X-Real-IP $remote_addr;
+                proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+                proxy_set_header X-Forwarded-Proto $scheme;
+                
+                proxy_connect_timeout 5s;
+                proxy_send_timeout 60s;
+                proxy_read_timeout 60s;
+            }
+        }
+    }
+
+---
+# Prometheus configuration
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: prometheus-config
+  namespace: workspace-qdrant-mcp
+  labels:
+    app: prometheus
+    component: config
+data:
+  prometheus.yml: |
+    global:
+      scrape_interval: 15s
+      evaluation_interval: 15s
+
+    rule_files:
+      - "/etc/prometheus/rules/*.yml"
+
+    scrape_configs:
+    - job_name: 'workspace-qdrant-mcp'
+      static_configs:
+      - targets: ['workspace-qdrant-mcp-service:8000']
+      metrics_path: '/metrics'
+      scrape_interval: 30s
+
+    - job_name: 'qdrant'
+      static_configs:
+      - targets: ['qdrant-service:6333']
+      metrics_path: '/metrics'
+      scrape_interval: 30s
+
+    - job_name: 'redis'
+      static_configs:
+      - targets: ['redis-exporter-service:9121']
+      scrape_interval: 30s
+
+    - job_name: 'kubernetes-pods'
+      kubernetes_sd_configs:
+      - role: pod
+        namespaces:
+          names:
+          - workspace-qdrant-mcp
+      relabel_configs:
+      - source_labels: [__meta_kubernetes_pod_annotation_prometheus_io_scrape]
+        action: keep
+        regex: true
+      - source_labels: [__meta_kubernetes_pod_annotation_prometheus_io_path]
+        action: replace
+        target_label: __metrics_path__
+        regex: (.+)
+      - source_labels: [__address__, __meta_kubernetes_pod_annotation_prometheus_io_port]
+        action: replace
+        regex: ([^:]+)(?::\d+)?;(\d+)
+        replacement: $1:$2
+        target_label: __address__
+
+    - job_name: 'kubernetes-services'
+      kubernetes_sd_configs:
+      - role: service
+        namespaces:
+          names:
+          - workspace-qdrant-mcp
+      relabel_configs:
+      - source_labels: [__meta_kubernetes_service_annotation_prometheus_io_scrape]
+        action: keep
+        regex: true
+
+  rules.yml: |
+    groups:
+    - name: workspace-qdrant-mcp
+      rules:
+      - alert: WorkspaceQdrantMCPDown
+        expr: up{job="workspace-qdrant-mcp"} == 0
+        for: 1m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Workspace Qdrant MCP is down"
+          description: "Workspace Qdrant MCP has been down for more than 1 minute"
+
+      - alert: QdrantDown
+        expr: up{job="qdrant"} == 0
+        for: 1m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Qdrant is down"
+          description: "Qdrant has been down for more than 1 minute"
+
+      - alert: HighMemoryUsage
+        expr: (container_memory_usage_bytes{name=~"workspace-qdrant-mcp.*"} / container_spec_memory_limit_bytes{name=~"workspace-qdrant-mcp.*"}) * 100 > 80
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "High memory usage detected"
+          description: "Memory usage is above 80% for {{ $labels.name }}"
+
+      - alert: HighCPUUsage
+        expr: (rate(container_cpu_usage_seconds_total{name=~"workspace-qdrant-mcp.*"}[5m]) * 100) > 80
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "High CPU usage detected"
+          description: "CPU usage is above 80% for {{ $labels.name }}"

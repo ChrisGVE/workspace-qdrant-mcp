@@ -1,0 +1,359 @@
+# Production Override for Docker Compose
+# Enhanced security, performance, and reliability settings
+version: '3.8'
+
+services:
+  workspace-qdrant-mcp:
+    # Production-specific environment
+    environment:
+      - WORKSPACE_QDRANT_LOG_LEVEL=INFO
+      - WORKSPACE_QDRANT_ENV=production
+      - OTEL_RESOURCE_ATTRIBUTES=service.name=workspace-qdrant-mcp,service.version=${VERSION:-0.2.0}
+      - OTEL_EXPORTER_OTLP_ENDPOINT=http://jaeger:14268
+      - PROMETHEUS_MULTIPROC_DIR=/tmp/prometheus
+    # Production resource limits
+    deploy:
+      resources:
+        limits:
+          cpus: '4.0'
+          memory: 4G
+        reservations:
+          cpus: '1.0'
+          memory: 1G
+      # Production-specific deployment
+      replicas: ${REPLICAS:-2}
+      update_config:
+        parallelism: 1
+        delay: 30s
+        failure_action: rollback
+        order: start-first
+      restart_policy:
+        condition: any
+        delay: 5s
+        max_attempts: 3
+        window: 120s
+    # Additional security
+    security_opt:
+      - no-new-privileges:true
+      - apparmor:docker-default
+    cap_drop:
+      - ALL
+    cap_add:
+      - CHOWN
+      - DAC_OVERRIDE
+      - FOWNER
+      - SETGID
+      - SETUID
+    # Production logging
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+        labels: "com.workspace-qdrant-mcp.service"
+
+  qdrant:
+    # Production Qdrant configuration
+    environment:
+      - QDRANT__LOG_LEVEL=INFO
+      - QDRANT__SERVICE__API_KEY=${QDRANT_API_KEY:?QDRANT_API_KEY is required}
+      - QDRANT__SERVICE__ENABLE_CORS=false
+      # Production performance settings
+      - QDRANT__STORAGE__WAL_CAPACITY_MB=64
+      - QDRANT__STORAGE__WAL_SEGMENTS_AHEAD=2
+      - QDRANT__STORAGE__PERFORMANCE__MAX_SEARCH_THREADS=0
+      - QDRANT__STORAGE__PERFORMANCE__MAX_OPTIMIZATION_THREADS=2
+      - QDRANT__STORAGE__OPTIMIZERS__MEMMAP_THRESHOLD_KB=200000
+      - QDRANT__STORAGE__OPTIMIZERS__INDEXING_THRESHOLD_KB=20000
+    # Production resource limits
+    deploy:
+      resources:
+        limits:
+          cpus: '6.0'
+          memory: 8G
+        reservations:
+          cpus: '2.0'
+          memory: 2G
+    # Backup configuration
+    volumes:
+      - qdrant_storage:/qdrant/storage
+      - qdrant_snapshots:/qdrant/snapshots
+      - qdrant_logs:/qdrant/logs
+      - ${QDRANT_BACKUP_DIR:-./backups/qdrant}:/qdrant/backups
+    # Production logging
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "100m"
+        max-file: "5"
+
+  redis:
+    # Production Redis configuration
+    command: >
+      redis-server
+      --appendonly yes
+      --appendfsync everysec
+      --auto-aof-rewrite-percentage 100
+      --auto-aof-rewrite-min-size 64mb
+      --maxmemory ${REDIS_MAX_MEMORY:-1gb}
+      --maxmemory-policy allkeys-lru
+      --save 900 1
+      --save 300 10
+      --save 60 10000
+      --requirepass ${REDIS_PASSWORD:?REDIS_PASSWORD is required}
+      --bind 0.0.0.0
+      --protected-mode yes
+    # Production resource limits
+    deploy:
+      resources:
+        limits:
+          cpus: '1.0'
+          memory: 1.5G
+        reservations:
+          cpus: '0.2'
+          memory: 256M
+    # Production logging
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "50m"
+        max-file: "3"
+
+  nginx:
+    # Production Nginx with enhanced security
+    volumes:
+      - ./nginx/nginx-prod.conf:/etc/nginx/nginx.conf:ro
+      - ./nginx/conf.d:/etc/nginx/conf.d:ro
+      - ./nginx/ssl:/etc/nginx/ssl:ro
+      - nginx_logs:/var/log/nginx
+      - ${NGINX_CACHE_DIR:-./cache/nginx}:/var/cache/nginx
+    environment:
+      - NGINX_WORKER_PROCESSES=auto
+      - NGINX_WORKER_CONNECTIONS=1024
+    # Production resource limits
+    deploy:
+      resources:
+        limits:
+          cpus: '1.0'
+          memory: 512M
+        reservations:
+          cpus: '0.2'
+          memory: 128M
+    # Production logging
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "100m"
+        max-file: "5"
+
+  prometheus:
+    # Production Prometheus configuration
+    environment:
+      - PROMETHEUS_RETENTION_TIME=30d
+      - PROMETHEUS_STORAGE_PATH=/prometheus
+    command:
+      - '--config.file=/etc/prometheus/prometheus.yml'
+      - '--storage.tsdb.path=/prometheus'
+      - '--storage.tsdb.retention.time=30d'
+      - '--storage.tsdb.retention.size=10GB'
+      - '--web.enable-lifecycle'
+      - '--web.enable-admin-api'
+      - '--log.level=info'
+      - '--web.external-url=${PROMETHEUS_EXTERNAL_URL:-http://localhost:9090}'
+    # Production resource limits
+    deploy:
+      resources:
+        limits:
+          cpus: '2.0'
+          memory: 2G
+        reservations:
+          cpus: '0.5'
+          memory: 512M
+    # Data backup
+    volumes:
+      - ./monitoring/prometheus/prometheus-prod.yml:/etc/prometheus/prometheus.yml:ro
+      - ./monitoring/prometheus/rules:/etc/prometheus/rules:ro
+      - prometheus_data:/prometheus
+      - ${PROMETHEUS_BACKUP_DIR:-./backups/prometheus}:/backup
+    # Production logging
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "100m"
+        max-file: "5"
+
+  grafana:
+    # Production Grafana configuration
+    environment:
+      - GF_SECURITY_ADMIN_USER=${GRAFANA_ADMIN_USER:?GRAFANA_ADMIN_USER is required}
+      - GF_SECURITY_ADMIN_PASSWORD=${GRAFANA_ADMIN_PASSWORD:?GRAFANA_ADMIN_PASSWORD is required}
+      - GF_USERS_ALLOW_SIGN_UP=false
+      - GF_SECURITY_ALLOW_EMBEDDING=false
+      - GF_SECURITY_COOKIE_SECURE=true
+      - GF_SECURITY_COOKIE_SAMESITE=strict
+      - GF_SERVER_ROOT_URL=${GRAFANA_ROOT_URL:-http://localhost:3000}
+      - GF_LOG_LEVEL=info
+      - GF_ANALYTICS_REPORTING_ENABLED=false
+      - GF_ANALYTICS_CHECK_FOR_UPDATES=false
+      - GF_INSTALL_PLUGINS=grafana-piechart-panel,grafana-clock-panel,grafana-worldmap-panel
+    # Production resource limits
+    deploy:
+      resources:
+        limits:
+          cpus: '1.0'
+          memory: 1G
+        reservations:
+          cpus: '0.2'
+          memory: 256M
+    # Data backup
+    volumes:
+      - grafana_data:/var/lib/grafana
+      - ../monitoring/grafana/provisioning:/etc/grafana/provisioning:ro
+      - ../monitoring/grafana/dashboards:/var/lib/grafana/dashboards:ro
+      - ${GRAFANA_BACKUP_DIR:-./backups/grafana}:/backup
+    # Production logging
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "100m"
+        max-file: "3"
+
+  jaeger:
+    # Production Jaeger configuration
+    environment:
+      - SPAN_STORAGE_TYPE=badger
+      - BADGER_EPHEMERAL=false
+      - BADGER_DIRECTORY_VALUE=/badger/data
+      - BADGER_DIRECTORY_KEY=/badger/key
+      - COLLECTOR_OTLP_ENABLED=true
+      - LOG_LEVEL=info
+      - METRICS_BACKEND=prometheus
+      - PROMETHEUS_SERVER_URL=http://prometheus:9090
+    # Production resource limits
+    deploy:
+      resources:
+        limits:
+          cpus: '1.0'
+          memory: 1G
+        reservations:
+          cpus: '0.2'
+          memory: 256M
+    # Data persistence
+    volumes:
+      - jaeger_data:/badger
+      - ${JAEGER_BACKUP_DIR:-./backups/jaeger}:/backup
+    # Production logging
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "100m"
+        max-file: "3"
+
+  loki:
+    # Production Loki configuration
+    volumes:
+      - loki_data:/loki
+      - ../monitoring/loki/loki-prod-config.yaml:/etc/loki/loki-config.yaml:ro
+      - ${LOKI_BACKUP_DIR:-./backups/loki}:/backup
+    # Production resource limits
+    deploy:
+      resources:
+        limits:
+          cpus: '1.0'
+          memory: 1G
+        reservations:
+          cpus: '0.2'
+          memory: 256M
+    # Production logging
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "100m"
+        max-file: "3"
+
+  # Add additional production services
+  alertmanager:
+    image: prom/alertmanager:v0.26.0
+    container_name: workspace-qdrant-alertmanager
+    restart: unless-stopped
+    ports:
+      - "${ALERTMANAGER_PORT:-9093}:9093"
+    volumes:
+      - ../monitoring/alertmanager/alertmanager-prod.yml:/etc/alertmanager/alertmanager.yml:ro
+      - alertmanager_data:/alertmanager
+    command:
+      - '--config.file=/etc/alertmanager/alertmanager.yml'
+      - '--storage.path=/alertmanager'
+      - '--web.external-url=${ALERTMANAGER_EXTERNAL_URL:-http://localhost:9093}'
+      - '--log.level=info'
+    networks:
+      - monitoring
+    deploy:
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 256M
+        reservations:
+          cpus: '0.1'
+          memory: 64M
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "50m"
+        max-file: "3"
+    labels:
+      - "com.workspace-qdrant-mcp.service=alertmanager"
+      - "com.workspace-qdrant-mcp.env=production"
+
+  # Node exporter for system metrics
+  node_exporter:
+    image: prom/node-exporter:v1.6.1
+    container_name: workspace-qdrant-node-exporter
+    restart: unless-stopped
+    ports:
+      - "${NODE_EXPORTER_PORT:-9100}:9100"
+    volumes:
+      - /proc:/host/proc:ro
+      - /sys:/host/sys:ro
+      - /:/rootfs:ro
+    command:
+      - '--path.procfs=/host/proc'
+      - '--path.sysfs=/host/sys'
+      - '--collector.filesystem.mount-points-exclude=^/(sys|proc|dev|host|etc)($$|/)'
+    networks:
+      - monitoring
+    deploy:
+      resources:
+        limits:
+          cpus: '0.2'
+          memory: 128M
+        reservations:
+          cpus: '0.05'
+          memory: 32M
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "2"
+    labels:
+      - "com.workspace-qdrant-mcp.service=node-exporter"
+      - "com.workspace-qdrant-mcp.env=production"
+
+volumes:
+  # Add backup volumes for production
+  alertmanager_data:
+    driver: local
+  
+  # Configure backup volumes with appropriate drivers
+  qdrant_storage:
+    driver: local
+    driver_opts:
+      type: none
+      o: bind
+      device: ${QDRANT_STORAGE_DIR:-./volumes/qdrant/storage}
+  qdrant_snapshots:
+    driver: local
+    driver_opts:
+      type: none
+      o: bind
+      device: ${QDRANT_SNAPSHOTS_DIR:-./volumes/qdrant/snapshots}
