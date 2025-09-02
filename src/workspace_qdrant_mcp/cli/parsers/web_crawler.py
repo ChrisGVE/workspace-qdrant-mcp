@@ -1,3 +1,6 @@
+
+from .....observability import get_logger
+logger = get_logger(__name__)
 """
 Secure web content crawler with comprehensive security hardening.
 

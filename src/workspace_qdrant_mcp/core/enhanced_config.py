@@ -1,3 +1,6 @@
+
+from ...observability import get_logger
+logger = get_logger(__name__)
 """
 Enhanced configuration management for workspace-qdrant-mcp with environment support.
 

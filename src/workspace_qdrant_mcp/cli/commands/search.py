@@ -1,3 +1,6 @@
+
+from .....observability import get_logger
+logger = get_logger(__name__)
 """Search CLI commands.
 
 This module provides command-line search interface with different
@@ -31,10 +34,10 @@ def handle_async(coro):
     try:
         return asyncio.run(coro)
     except KeyboardInterrupt:
-        console.print("\n[yellow]Operation cancelled by user[/yellow]")
+        console.logger.info("\n[yellow]Operation cancelled by user[/yellow]")
         raise typer.Exit(1)
     except Exception as e:
-        console.print(f"[red]Error: {e}[/red]")
+        console.logger.info("[red]Error: {e}[/red]")
         raise typer.Exit(1)
 
 @search_app.command("project")
@@ -127,7 +130,7 @@ async def _search_project(
         projects = detector.detect_projects([Path.cwd()])
         current_project = projects[0].name if projects else "unknown"
 
-        console.print(f"[bold blue]🎯 Searching project: {current_project}[/bold blue]")
+        console.logger.info("[bold blue]🎯 Searching project: {current_project}[/bold blue]")
 
         # Get project collections
         all_collections = await client.list_collections()
@@ -140,7 +143,7 @@ async def _search_project(
                 if col_name.startswith(project_prefix) or col_name in [c.get("name") for c in all_collections]:
                     project_collections.append(col_name)
                 else:
-                    console.print(f"[yellow]⚠️ Collection not found: {col_name}[/yellow]")
+                    console.logger.info("[yellow]⚠️ Collection not found: {col_name}[/yellow]")
         else:
             # Find all project collections
             project_collections = [
@@ -149,8 +152,8 @@ async def _search_project(
             ]
 
         if not project_collections:
-            console.print(f"[yellow]No collections found for project '{current_project}'[/yellow]")
-            console.print("Try running 'wqm ingest folder' to create collections first")
+            console.logger.info("[yellow]No collections found for project '{current_project}'[/yellow]")
+            console.logger.info("Try running 'wqm ingest folder' to create collections first")
             return
 
         # Search across project collections
@@ -169,7 +172,7 @@ async def _search_project(
                     all_results.append(result)
 
             except Exception as e:
-                console.print(f"[red]❌ Search failed for {collection_name}: {e}[/red]")
+                console.logger.info("[red]❌ Search failed for {collection_name}: {e}[/red]")
                 continue
 
         # Sort by score
@@ -179,7 +182,7 @@ async def _search_project(
         _display_search_results(all_results, query, format, include_content)
 
     except Exception as e:
-        console.print(f"[red]❌ Project search failed: {e}[/red]")
+        console.logger.info("[red]❌ Project search failed: {e}[/red]")
         raise typer.Exit(1)
 
 async def _search_collection(
@@ -196,15 +199,15 @@ async def _search_collection(
         config = Config()
         client = create_qdrant_client(config.qdrant_client_config)
 
-        console.print(f"[bold blue]📁 Searching collection: {collection}[/bold blue]")
+        console.logger.info("[bold blue]📁 Searching collection: {collection}[/bold blue]")
 
         # Verify collection exists
         all_collections = await client.list_collections()
         collection_names = [col.get("name") for col in all_collections]
 
         if collection not in collection_names:
-            console.print(f"[red]❌ Collection not found: {collection}[/red]")
-            console.print(f"Available collections: {', '.join(collection_names)}")
+            console.logger.info("[red]❌ Collection not found: {collection}[/red]")
+            console.logger.info("Available collections: {', '.join(collection_names)}")
             raise typer.Exit(1)
 
         # Perform search
@@ -222,7 +225,7 @@ async def _search_collection(
         _display_search_results(results, query, format, include_content, with_vectors)
 
     except Exception as e:
-        console.print(f"[red]❌ Collection search failed: {e}[/red]")
+        console.logger.info("[red]❌ Collection search failed: {e}[/red]")
         raise typer.Exit(1)
 
 async def _search_global(
@@ -238,7 +241,7 @@ async def _search_global(
         config = Config()
         client = create_qdrant_client(config.qdrant_client_config)
 
-        console.print("[bold blue]🌍 Searching global collections[/bold blue]")
+        console.logger.info("[bold blue]🌍 Searching global collections[/bold blue]")
 
         # Get all collections
         all_collections = await client.list_collections()
@@ -256,10 +259,10 @@ async def _search_global(
                 global_collections.append(name)
 
         if not global_collections:
-            console.print("[yellow]No global collections found[/yellow]")
+            console.logger.info("[yellow]No global collections found[/yellow]")
             return
 
-        console.print(f"[dim]Searching {len(global_collections)} global collections[/dim]")
+        console.logger.info("[dim]Searching {len(global_collections)} global collections[/dim]")
 
         # Search across global collections
         all_results = []
@@ -277,7 +280,7 @@ async def _search_global(
                     all_results.append(result)
 
             except Exception as e:
-                console.print(f"[yellow]⚠️ Search failed for {collection_name}: {e}[/yellow]")
+                console.logger.info("[yellow]⚠️ Search failed for {collection_name}: {e}[/yellow]")
                 continue
 
         # Sort by score
@@ -287,7 +290,7 @@ async def _search_global(
         _display_search_results(all_results, query, format, include_content)
 
     except Exception as e:
-        console.print(f"[red]❌ Global search failed: {e}[/red]")
+        console.logger.info("[red]❌ Global search failed: {e}[/red]")
         raise typer.Exit(1)
 
 async def _search_all(
@@ -303,17 +306,17 @@ async def _search_all(
         config = Config()
         client = create_qdrant_client(config.qdrant_client_config)
 
-        console.print("[bold blue]🔍 Searching all collections[/bold blue]")
+        console.logger.info("[bold blue]🔍 Searching all collections[/bold blue]")
 
         # Get all collections
         all_collections = await client.list_collections()
         collection_names = [col.get("name") for col in all_collections]
 
         if not collection_names:
-            console.print("[yellow]No collections found[/yellow]")
+            console.logger.info("[yellow]No collections found[/yellow]")
             return
 
-        console.print(f"[dim]Searching {len(collection_names)} collections[/dim]")
+        console.logger.info("[dim]Searching {len(collection_names)} collections[/dim]")
 
         # Search across all collections
         all_results = []
@@ -331,7 +334,7 @@ async def _search_all(
                     all_results.append(result)
 
             except Exception as e:
-                console.print(f"[yellow]⚠️ Search failed for {collection_name}: {e}[/yellow]")
+                console.logger.info("[yellow]⚠️ Search failed for {collection_name}: {e}[/yellow]")
                 continue
 
         # Sort by score
@@ -344,7 +347,7 @@ async def _search_all(
             _display_search_results(all_results, query, format, include_content)
 
     except Exception as e:
-        console.print(f"[red]❌ Search all failed: {e}[/red]")
+        console.logger.info("[red]❌ Search all failed: {e}[/red]")
         raise typer.Exit(1)
 
 async def _search_memory(
@@ -364,7 +367,7 @@ async def _search_memory(
         naming_manager = create_naming_manager(config.workspace.global_collections)
         memory_manager = create_memory_manager(client, naming_manager)
 
-        console.print("[bold blue]🧠 Searching memory rules[/bold blue]")
+        console.logger.info("[bold blue]🧠 Searching memory rules[/bold blue]")
 
         # Convert filters to enums if provided
         category_enum = MemoryCategory(category) if category else None
@@ -379,7 +382,7 @@ async def _search_memory(
         )
 
         if not matching_rules:
-            console.print(f"[yellow]No memory rules found matching '{query}'[/yellow]")
+            console.logger.info("[yellow]No memory rules found matching '{query}'[/yellow]")
             return
 
         if format == "json":
@@ -395,7 +398,7 @@ async def _search_memory(
                     "source": rule.source,
                     "relevance": rule.get("relevance", 1.0)
                 })
-            print(json.dumps(rules_data, indent=2))
+            logger.info("Output", data=json.dumps(rules_data, indent=2))
         else:
             # Display as table
             table = Table(title=f"🧠 Memory Search Results ({len(matching_rules)} found)")
@@ -416,10 +419,10 @@ async def _search_memory(
                     f"[{authority_style}]{rule.authority.value}[/{authority_style}]"
                 )
 
-            console.print(table)
+            console.logger.info("Output", data=table)
 
     except Exception as e:
-        console.print(f"[red]❌ Memory search failed: {e}[/red]")
+        console.logger.info("[red]❌ Memory search failed: {e}[/red]")
         raise typer.Exit(1)
 
 async def _research_query(
@@ -431,8 +434,8 @@ async def _research_query(
 ):
     """Advanced research mode with analysis."""
     try:
-        console.print(f"[bold blue]🔬 Research Mode: {mode.upper()}[/bold blue]")
-        console.print(f"Query: [cyan]{query}[/cyan]")
+        console.logger.info("[bold blue]🔬 Research Mode: {mode.upper()}[/bold blue]")
+        console.logger.info("Query: [cyan]{query}[/cyan]")
 
         # TODO: Implement comprehensive research functionality
         # This will be part of Task 13: Advanced search modes implementation
@@ -445,21 +448,21 @@ async def _research_query(
         }
 
         mode_description = research_modes.get(mode, "Unknown mode")
-        console.print(f"[dim]Mode: {mode_description}[/dim]")
+        console.logger.info("[dim]Mode: {mode_description}[/dim]")
 
         if collections:
-            console.print(f"[dim]Collections: {', '.join(collections)}[/dim]")
+            console.logger.info("[dim]Collections: {', '.join(collections)}[/dim]")
 
-        console.print("\n[yellow]🚧 Research modes are not yet fully implemented[/yellow]")
-        console.print("This advanced functionality will be available in Task 13: Advanced search modes")
-        console.print("For now, use the basic search commands: project, collection, global, all")
+        console.logger.info("\n[yellow]🚧 Research modes are not yet fully implemented[/yellow]")
+        console.logger.info("This advanced functionality will be available in Task 13: Advanced search modes")
+        console.logger.info("For now, use the basic search commands: project, collection, global, all")
 
         # Basic search as fallback
-        console.print("\n[blue]Performing basic search as fallback...[/blue]")
+        console.logger.info("\n[blue]Performing basic search as fallback...[/blue]")
         await _search_all(query, 20, 0.5, format, True, False)
 
     except Exception as e:
-        console.print(f"[red]❌ Research query failed: {e}[/red]")
+        console.logger.info("[red]❌ Research query failed: {e}[/red]")
         raise typer.Exit(1)
 
 def _display_search_results(
@@ -472,7 +475,7 @@ def _display_search_results(
     """Display search results in specified format."""
 
     if not results:
-        console.print(f"[yellow]No results found for: '{query}'[/yellow]")
+        console.logger.info("[yellow]No results found for: '{query}'[/yellow]")
         return
 
     if format == "json":
@@ -492,7 +495,7 @@ def _display_search_results(
 
             json_results.append(clean_result)
 
-        print(json.dumps(json_results, indent=2))
+        logger.info("Output", data=json.dumps(json_results, indent=2))
         return
 
     if format == "detailed":
@@ -516,17 +519,17 @@ def _display_search_results(
 
         table.add_row(score, collection, title, preview)
 
-    console.print(table)
+    console.logger.info("Output", data=table)
 
     # Summary
     avg_score = sum(r.get("score", 0) for r in results) / len(results) if results else 0
-    console.print(f"\n[dim]Average score: {avg_score:.3f} | Best match: {results[0].get('score', 0):.3f}[/dim]")
+    console.logger.info("\n[dim]Average score: {avg_score:.3f} | Best match: {results[0].get('score', 0):.3f}[/dim]")
 
 def _display_detailed_results(results: list[dict[str, Any]], query: str, include_content: bool):
     """Display detailed search results with full content."""
 
-    console.print(f"[bold blue]🔍 Detailed Results for: '{query}'[/bold blue]")
-    console.print(f"[dim]{len(results)} results found[/dim]\n")
+    console.logger.info("[bold blue]🔍 Detailed Results for: '{query}'[/bold blue]")
+    console.logger.info("[dim]{len(results)} results found[/dim]\n")
 
     for i, result in enumerate(results, 1):
         score = result.get("score", 0)
@@ -537,8 +540,8 @@ def _display_detailed_results(results: list[dict[str, Any]], query: str, include
         result_header = f"[bold cyan]#{i}[/bold cyan] [bold]{title}[/bold]"
         result_info = f"[dim]Collection: {collection} | Score: {score:.3f}[/dim]"
 
-        console.print(result_header)
-        console.print(result_info)
+        console.logger.info("Output", data=result_header)
+        console.logger.info("Output", data=result_info)
 
         # Content
         content = result.get("content", "")
@@ -547,18 +550,18 @@ def _display_detailed_results(results: list[dict[str, Any]], query: str, include
             if any(indicator in content.lower() for indicator in ["def ", "class ", "import ", "function", "var ", "const "]):
                 try:
                     syntax = Syntax(content[:500], "python", theme="monokai", line_numbers=False)
-                    console.print(syntax)
+                    console.logger.info("Output", data=syntax)
                 except:
-                    console.print(f"[white]{content[:500]}[/white]")
+                    console.logger.info("[white]{content[:500]}[/white]")
             else:
-                console.print(f"[white]{content[:500]}[/white]")
+                console.logger.info("[white]{content[:500]}[/white]")
 
             if len(content) > 500:
-                console.print("[dim]... (truncated)[/dim]")
+                console.logger.info("[dim]... (truncated)[/dim]")
         else:
             # Show preview
             preview = content[:200] + "..." if len(content) > 200 else content
-            console.print(f"[dim]{preview}[/dim]")
+            console.logger.info("[dim]{preview}[/dim]")
 
         if i < len(results):
             console.print()  # Spacing between results
@@ -567,7 +570,7 @@ def _display_grouped_search_results(results: list[dict[str, Any]], query: str, f
     """Display search results grouped by collection."""
 
     if not results:
-        console.print(f"[yellow]No results found for: '{query}'[/yellow]")
+        console.logger.info("[yellow]No results found for: '{query}'[/yellow]")
         return
 
     # Group results by collection
@@ -578,13 +581,13 @@ def _display_grouped_search_results(results: list[dict[str, Any]], query: str, f
             grouped[collection] = []
         grouped[collection].append(result)
 
-    console.print(f"[bold blue]🔍 Search Results for: '{query}'[/bold blue]")
-    console.print(f"[dim]Found results in {len(grouped)} collections[/dim]\n")
+    console.logger.info("[bold blue]🔍 Search Results for: '{query}'[/bold blue]")
+    console.logger.info("[dim]Found results in {len(grouped)} collections[/dim]\n")
 
     for collection, collection_results in grouped.items():
         # Collection header
         collection_type = "Library" if collection.startswith("_") else "Project"
-        console.print(f"[bold cyan]📁 {collection}[/bold cyan] [dim]({collection_type}) - {len(collection_results)} results[/dim]")
+        console.logger.info("[bold cyan]📁 {collection}[/bold cyan] [dim]({collection_type}) - {len(collection_results)} results[/dim]")
 
         # Results table for this collection
         table = Table(show_header=False, box=None, padding=(0, 1))
@@ -601,9 +604,9 @@ def _display_grouped_search_results(results: list[dict[str, Any]], query: str, f
 
             table.add_row(score, title, preview)
 
-        console.print(table)
+        console.logger.info("Output", data=table)
 
         if len(collection_results) > 5:
-            console.print(f"[dim]... and {len(collection_results) - 5} more results in this collection[/dim]")
+            console.logger.info("[dim]... and {len(collection_results) - 5} more results in this collection[/dim]")
 
         console.print()  # Spacing between collections

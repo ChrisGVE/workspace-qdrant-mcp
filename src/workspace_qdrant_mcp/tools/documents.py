@@ -1,3 +1,6 @@
+
+from ...observability import get_logger
+logger = get_logger(__name__)
 """
 Advanced document management tools for workspace-qdrant-mcp.
 
@@ -49,7 +52,7 @@ Example:
     )
 
     if result["success"]:
-        print(f"Added {result['chunks_added']} chunks")
+        logger.info("Added {result['chunks_added']} chunks")
     ```
 """
 
@@ -137,10 +140,10 @@ async def add_document(
         )
 
         if result["success"]:
-            print(f"Successfully added {result['chunks_added']} chunks")
-            print(f"Processing time: {result['processing_time']:.2f}s")
+            logger.info("Successfully added {result['chunks_added']} chunks")
+            logger.info("Processing time: {result['processing_time']:.2f}s")
         else:
-            print(f"Failed: {result['error']}")
+            logger.info("Failed: {result['error']}")
         ```
     """
     # Input validation

@@ -1,6 +1,6 @@
 # Task ID: 24
 # Title: Enhance GitHub issue templates
-# Status: pending
+# Status: done
 # Dependencies: None
 # Priority: medium
 # Description: Improve existing issue templates with better guidance and comprehensive options

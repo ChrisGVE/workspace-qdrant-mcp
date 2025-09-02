@@ -1,6 +1,6 @@
 # Task ID: 31
 # Title: Implement web ingestion with security hardening
-# Status: pending
+# Status: done
 # Dependencies: None
 # Priority: medium
 # Description: Add secure web content ingestion with malware protection and access controls

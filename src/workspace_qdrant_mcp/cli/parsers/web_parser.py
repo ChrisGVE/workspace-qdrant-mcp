@@ -1,3 +1,6 @@
+
+from .....observability import get_logger
+logger = get_logger(__name__)
 """
 Web content parser that integrates secure crawling with document parsing.
 

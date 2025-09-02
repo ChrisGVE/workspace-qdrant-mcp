@@ -1,3 +1,6 @@
+
+from ...observability import get_logger
+logger = get_logger(__name__)
 """
 Health check system for workspace-qdrant-mcp.
 
@@ -26,7 +29,7 @@ Example:
     # Check overall system health
     health_status = await health_checker_instance.get_health_status()
     if health_status["status"] == "healthy":
-        print("System is operational")
+        logger.info("System is operational")
     
     # Get detailed component diagnostics
     diagnostics = await health_checker_instance.get_detailed_diagnostics()

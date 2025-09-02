@@ -1,3 +1,6 @@
+
+from ...observability import get_logger
+logger = get_logger(__name__)
 """
 Intelligent project detection with Git and GitHub integration.
 
@@ -41,8 +44,8 @@ Example:
     # GitHub user-aware detection
     detector = ProjectDetector(github_user="username")
     project_info = detector.get_project_info()
-    print(f"Main project: {project_info['main_project']}")
-    print(f"Subprojects: {project_info['subprojects']}")
+    logger.info("Main project: {project_info['main_project']}")
+    logger.info("Subprojects: {project_info['subprojects']}")
     ```
 """
 

@@ -1,3 +1,6 @@
+
+from ...observability import get_logger
+logger = get_logger(__name__)
 """
 Comprehensive configuration validation and setup guidance utilities.
 
@@ -34,9 +37,9 @@ Example:
     # Comprehensive validation
     is_valid, results = validator.validate_all()
     if not is_valid:
-        print("Configuration issues found:")
+        logger.info("Configuration issues found:")
         for issue in results['issues']:
-            print(f"  - {issue}")
+            logger.info("  - {issue}")
 
     # Individual component testing
     qdrant_ok, message = validator.validate_qdrant_connection()
@@ -166,9 +169,9 @@ class ConfigValidator:
             validator = ConfigValidator()
             is_valid, message = validator.validate_qdrant_connection()
             if is_valid:
-                print(f"✓ {message}")
+                logger.info("✓ {message}")
             else:
-                print(f"✗ Connection failed: {message}")
+                logger.info("✗ Connection failed: {message}")
             ```
         """
         try:
@@ -212,9 +215,9 @@ class ConfigValidator:
             validator = ConfigValidator()
             is_valid, message = validator.validate_embedding_model()
             if is_valid:
-                print(f"✓ {message}")  # e.g., "all-MiniLM-L6-v2 (384D)"
+                logger.info("✓ {message}")  # e.g., "all-MiniLM-L6-v2 (384D)"
             else:
-                print(f"✗ Model validation failed: {message}")
+                logger.info("✗ Model validation failed: {message}")
             ```
         """
         try:
@@ -267,9 +270,9 @@ class ConfigValidator:
             validator = ConfigValidator()
             is_valid, message = validator.validate_project_detection()
             if is_valid:
-                print(f"✓ {message}")
+                logger.info("✓ {message}")
             else:
-                print(f"✗ Detection failed: {message}")
+                logger.info("✗ Detection failed: {message}")
             ```
         """
         try:
@@ -349,16 +352,16 @@ class ConfigValidator:
             is_valid, results = validator.validate_all()
 
             if is_valid:
-                print("All validation checks passed!")
+                logger.info("All validation checks passed!")
             else:
-                print(f"Found {len(results['issues'])} issues:")
+                logger.info("Found {len(results['issues'])} issues:")
                 for issue in results['issues']:
-                    print(f"  • {issue}")
+                    logger.info("  • {issue}")
 
             if results['warnings']:
-                print(f"{len(results['warnings'])} warnings:")
+                logger.info("{len(results['warnings'])} warnings:")
                 for warning in results['warnings']:
-                    print(f"  • {warning}")
+                    logger.info("  • {warning}")
             ```
         """
         # Clear previous results
@@ -601,13 +604,13 @@ class ConfigValidator:
             validator = ConfigValidator()
             guide = validator.get_setup_guide()
 
-            print("Quick Start Guide:")
+            logger.info("Quick Start Guide:")
             for step in guide['quick_start']:
-                print(f"  {step}")
+                logger.info("  {step}")
 
-            print("\nEnvironment Variables:")
+            logger.info("\nEnvironment Variables:")
             for item in guide['environment_variables']:
-                print(f"  {item}")
+                logger.info("  {item}")
             ```
         """
         guide = {

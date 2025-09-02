@@ -1,3 +1,6 @@
+
+from .....observability import get_logger
+logger = get_logger(__name__)
 """Administrative CLI commands for system management.
 
 This module provides comprehensive system administration capabilities
@@ -31,10 +34,10 @@ def handle_async(coro):
     try:
         return asyncio.run(coro)
     except KeyboardInterrupt:
-        console.print("\n[yellow]Operation cancelled by user[/yellow]")
+        console.logger.info("\n[yellow]Operation cancelled by user[/yellow]")
         raise typer.Exit(1)
     except Exception as e:
-        console.print(f"[red]Error: {e}[/red]")
+        console.logger.info("[red]Error: {e}[/red]")
         raise typer.Exit(1)
 
 @admin_app.command("status")
@@ -106,20 +109,20 @@ async def _system_status(verbose: bool, json_output: bool):
         status_data = await _collect_status_data(config)
 
         if json_output:
-            print(json.dumps(status_data, indent=2, default=str))
+            logger.info("Output", data=json.dumps(status_data, indent=2, default=str))
             return
 
         _display_status_panel(status_data, verbose)
 
     except Exception as e:
-        console.print(f"[red]Error getting system status: {e}[/red]")
+        console.logger.info("[red]Error getting system status: {e}[/red]")
         raise typer.Exit(1)
 
 async def _watch_status(verbose: bool):
     """Watch system status with continuous refresh."""
     import time
 
-    console.print("[bold blue]🔍 Watching system status (Ctrl+C to stop)[/bold blue]\n")
+    console.logger.info("[bold blue]🔍 Watching system status (Ctrl+C to stop)[/bold blue]\n")
 
     try:
         while True:
@@ -130,13 +133,13 @@ async def _watch_status(verbose: bool):
             status_data = await _collect_status_data(config)
             _display_status_panel(status_data, verbose)
 
-            console.print(f"\n[dim]Last updated: {status_data['timestamp']} | Press Ctrl+C to stop[/dim]")
+            console.logger.info("\n[dim]Last updated: {status_data['timestamp']} | Press Ctrl+C to stop[/dim]")
 
             # Wait 5 seconds
             await asyncio.sleep(5)
 
     except KeyboardInterrupt:
-        console.print("\n[yellow]Status monitoring stopped[/yellow]")
+        console.logger.info("\n[yellow]Status monitoring stopped[/yellow]")
 
 async def _collect_status_data(config: Config) -> dict[str, Any]:
     """Collect comprehensive status information."""
@@ -233,7 +236,7 @@ def _display_status_panel(status_data: dict[str, Any], verbose: bool):
         title="🚀 System Health",
         border_style=health_color,
     )
-    console.print(status_panel)
+    console.logger.info("Output", data=status_panel)
 
     # Component status table
     table = Table(title="📊 Component Status")
@@ -292,7 +295,7 @@ def _display_status_panel(status_data: dict[str, Any], verbose: bool):
             str(project.get("error", "Detection failed"))
         )
 
-    console.print(table)
+    console.logger.info("Output", data=table)
 
     # System resources (if verbose)
     if verbose and "error" not in status_data["system"]:
@@ -329,7 +332,7 @@ def _display_status_panel(status_data: dict[str, Any], verbose: bool):
             f"{disk['free_gb']:.1f}GB free / {disk['total_gb']:.1f}GB total"
         )
 
-        console.print(resource_table)
+        console.logger.info("Output", data=resource_table)
 
 async def _config_management(show: bool, validate: bool, path: str | None):
     """Configuration management operations."""
@@ -337,7 +340,7 @@ async def _config_management(show: bool, validate: bool, path: str | None):
         config = Config()
 
         if show:
-            console.print("[bold blue]📋 Current Configuration[/bold blue]")
+            console.logger.info("[bold blue]📋 Current Configuration[/bold blue]")
 
             # Basic config info
             config_table = Table(title="Configuration Settings")
@@ -352,10 +355,10 @@ async def _config_management(show: bool, validate: bool, path: str | None):
             if hasattr(config, 'workspace'):
                 config_table.add_row("Collection Prefix", str(config.workspace.collection_prefix))
 
-            console.print(config_table)
+            console.logger.info("Output", data=config_table)
 
         if validate:
-            console.print("[bold blue]✅ Configuration Validation[/bold blue]")
+            console.logger.info("[bold blue]✅ Configuration Validation[/bold blue]")
 
             validation_results = []
 
@@ -369,18 +372,18 @@ async def _config_management(show: bool, validate: bool, path: str | None):
 
             # Display validation results
             for setting, result, color in validation_results:
-                console.print(f"  {setting}: [{color}]{result}[/{color}]")
+                console.logger.info("  {setting}: [{color}]{result}[/{color}]")
 
         if not show and not validate:
-            console.print("[yellow]Use --show or --validate flags to perform operations[/yellow]")
+            console.logger.info("[yellow]Use --show or --validate flags to perform operations[/yellow]")
 
     except Exception as e:
-        console.print(f"[red]Configuration error: {e}[/red]")
+        console.logger.info("[red]Configuration error: {e}[/red]")
         raise typer.Exit(1)
 
 async def _start_engine(force: bool, config_path: str | None):
     """Start the Rust processing engine."""
-    console.print("[bold blue]🚀 Starting Rust Engine[/bold blue]")
+    console.logger.info("[bold blue]🚀 Starting Rust Engine[/bold blue]")
 
     with Progress(
         SpinnerColumn(),
@@ -394,34 +397,34 @@ async def _start_engine(force: bool, config_path: str | None):
             await asyncio.sleep(2)  # Simulate startup time
 
             progress.update(task, description="Engine started successfully")
-            console.print("[green]✅ Rust engine started successfully[/green]")
-            console.print("[dim]Note: Full Rust engine integration will be implemented in Task 11[/dim]")
+            console.logger.info("[green]✅ Rust engine started successfully[/green]")
+            console.logger.info("[dim]Note: Full Rust engine integration will be implemented in Task 11[/dim]")
 
         except Exception as e:
-            console.print(f"[red]❌ Failed to start engine: {e}[/red]")
+            console.logger.info("[red]❌ Failed to start engine: {e}[/red]")
             raise typer.Exit(1)
 
 async def _stop_engine(force: bool, timeout: int):
     """Stop the Rust processing engine."""
-    console.print("[bold yellow]🛑 Stopping Rust Engine[/bold yellow]")
+    console.logger.info("[bold yellow]🛑 Stopping Rust Engine[/bold yellow]")
 
     try:
         # TODO: Implement actual Rust engine shutdown
         if force:
-            console.print("[yellow]Force stopping engine...[/yellow]")
+            console.logger.info("[yellow]Force stopping engine...[/yellow]")
         else:
-            console.print(f"[yellow]Graceful shutdown (timeout: {timeout}s)...[/yellow]")
+            console.logger.info("[yellow]Graceful shutdown (timeout: {timeout}s)...[/yellow]")
 
         await asyncio.sleep(1)  # Simulate shutdown time
-        console.print("[green]✅ Rust engine stopped[/green]")
+        console.logger.info("[green]✅ Rust engine stopped[/green]")
 
     except Exception as e:
-        console.print(f"[red]❌ Failed to stop engine: {e}[/red]")
+        console.logger.info("[red]❌ Failed to stop engine: {e}[/red]")
         raise typer.Exit(1)
 
 async def _restart_engine(config_path: str | None):
     """Restart engine with new configuration."""
-    console.print("[bold blue]🔄 Restarting Rust Engine[/bold blue]")
+    console.logger.info("[bold blue]🔄 Restarting Rust Engine[/bold blue]")
 
     try:
         await _stop_engine(False, 30)
@@ -429,7 +432,7 @@ async def _restart_engine(config_path: str | None):
         await _start_engine(False, config_path)
 
     except Exception as e:
-        console.print(f"[red]❌ Failed to restart engine: {e}[/red]")
+        console.logger.info("[red]❌ Failed to restart engine: {e}[/red]")
         raise typer.Exit(1)
 
 async def _list_collections(project: str | None, stats: bool, library: bool):
@@ -448,7 +451,7 @@ async def _list_collections(project: str | None, stats: bool, library: bool):
 
         if not collections:
             filter_desc = "library " if library else f"project '{project}' " if project else ""
-            console.print(f"[yellow]No {filter_desc}collections found.[/yellow]")
+            console.logger.info("[yellow]No {filter_desc}collections found.[/yellow]")
             return
 
         # Display collections table
@@ -475,15 +478,15 @@ async def _list_collections(project: str | None, stats: bool, library: bool):
             else:
                 table.add_row(name, col_type)
 
-        console.print(table)
+        console.logger.info("Output", data=table)
 
     except Exception as e:
-        console.print(f"[red]Error listing collections: {e}[/red]")
+        console.logger.info("[red]Error listing collections: {e}[/red]")
         raise typer.Exit(1)
 
 async def _health_check(deep: bool, timeout: int):
     """Comprehensive health check."""
-    console.print("[bold blue]🏥 System Health Check[/bold blue]")
+    console.logger.info("[bold blue]🏥 System Health Check[/bold blue]")
 
     health_results = []
 
@@ -533,9 +536,9 @@ async def _health_check(deep: bool, timeout: int):
                 health_results.append(("Disk Space", f"❌ Error: {e}", "red"))
 
     # Display results
-    console.print("\n[bold]Health Check Results:[/bold]")
+    console.logger.info("\n[bold]Health Check Results:[/bold]")
     for component, status, color in health_results:
-        console.print(f"  {component}: [{color}]{status}[/{color}]")
+        console.logger.info("  {component}: [{color}]{status}[/{color}]")
 
     # Overall assessment
     errors = sum(1 for _, status, _ in health_results if status.startswith("❌"))
@@ -543,9 +546,9 @@ async def _health_check(deep: bool, timeout: int):
 
     if errors == 0:
         if warnings == 0:
-            console.print("\n[green]🎉 System is healthy![/green]")
+            console.logger.info("\n[green]🎉 System is healthy![/green]")
         else:
-            console.print(f"\n[yellow]⚠️ System has {warnings} warning(s)[/yellow]")
+            console.logger.info("\n[yellow]⚠️ System has {warnings} warning(s)[/yellow]")
     else:
-        console.print(f"\n[red]❌ System has {errors} error(s) and {warnings} warning(s)[/red]")
+        console.logger.info("\n[red]❌ System has {errors} error(s) and {warnings} warning(s)[/red]")
         raise typer.Exit(1)

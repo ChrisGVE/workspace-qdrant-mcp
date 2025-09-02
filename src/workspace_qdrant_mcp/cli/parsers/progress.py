@@ -1,3 +1,6 @@
+
+from .....observability import get_logger
+logger = get_logger(__name__)
 """
 Progress reporting infrastructure for document parsing operations.
 
@@ -189,15 +192,15 @@ class ConsoleProgressCallback(ProgressCallback):
         if self.show_memory and metrics.memory_usage_mb > 0:
             output_parts.append(f"Memory: {metrics.memory_usage_mb:.1f}MB")
         
-        print(" ".join(output_parts), end="\r", flush=True)
+        logger.info("Output", data=" ".join(output_parts), end="\r", flush=True)
     
     def on_phase_change(self, old_phase: ProgressPhase, new_phase: ProgressPhase) -> None:
         """Display phase change."""
-        print(f"\n{new_phase.value.replace('_', ' ').title()}...")
+        logger.info("\n{new_phase.value.replace('_', ' ').title()}...")
     
     def on_error(self, error: Exception, metrics: ProgressMetrics) -> None:
         """Display error information."""
-        print(f"\nError during {metrics.phase.value}: {error}")
+        logger.info("\nError during {metrics.phase.value}: {error}")
     
     def _create_progress_bar(self, percent: float, width: int = 30) -> str:
         """Create ASCII progress bar."""

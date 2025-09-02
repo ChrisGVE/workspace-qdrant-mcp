@@ -1,3 +1,6 @@
+
+from ...observability import get_logger
+logger = get_logger(__name__)
 """
 Advanced sparse vector encoding with dual BM25 implementation strategies.
 
@@ -170,7 +173,7 @@ class BM25SparseEncoder:
 
         # Encode single document
         vector = encoder.encode("Your text here")
-        print(f"Sparse vector has {len(vector['indices'])} non-zero terms")
+        logger.info("Sparse vector has {len(vector['indices'])} non-zero terms")
 
         # Batch encoding for better performance
         documents = ["Doc 1", "Doc 2", "Doc 3"]
@@ -178,8 +181,8 @@ class BM25SparseEncoder:
 
         # Get model information
         info = encoder.get_model_info()
-        print(f"Vocabulary size: {info['vocab_size']}")
-        print(f"Using: {info['encoder_type']}")
+        logger.info("Vocabulary size: {info['vocab_size']}")
+        logger.info("Using: {info['encoder_type']}")
         ```
     """
 
@@ -261,7 +264,7 @@ class BM25SparseEncoder:
 
             # Check which implementation is active
             info = encoder.get_model_info()
-            print(f"Using {info['encoder_type']} implementation")
+            logger.info("Using {info['encoder_type']} implementation")
             ```
         """
         if self.initialized:
@@ -351,8 +354,8 @@ class BM25SparseEncoder:
                 "Machine learning algorithms for natural language processing"
             )
 
-            print(f"Vector has {len(vector['indices'])} non-zero terms")
-            print(f"Max score: {max(vector['values']) if vector['values'] else 0}")
+            logger.info("Vector has {len(vector['indices'])} non-zero terms")
+            logger.info("Max score: {max(vector['values']) if vector['values'] else 0}")
 
             # Use with Qdrant
             from workspace_qdrant_mcp.core.sparse_vectors import create_qdrant_sparse_vector
@@ -462,10 +465,10 @@ class BM25SparseEncoder:
             # Batch encode for efficiency
             vectors = await encoder.encode_batch(documents)
 
-            print(f"Encoded {len(vectors)} documents")
+            logger.info("Encoded {len(vectors)} documents")
             for i, vector in enumerate(vectors):
                 non_zero_terms = len(vector['indices'])
-                print(f"Doc {i}: {non_zero_terms} terms")
+                logger.info("Doc {i}: {non_zero_terms} terms")
 
             # Use with Qdrant (example for first document)
             if vectors:
@@ -664,14 +667,14 @@ class BM25SparseEncoder:
 
             # Get detailed model information
             info = encoder.get_model_info()
-            print(f"Encoder type: {info['encoder_type']}")
-            print(f"Vocabulary size: {info['vocab_size']:,} terms")
-            print(f"Average doc length: {info['avg_doc_length']:.1f} tokens")
-            print(f"BM25 parameters: k1={info['parameters']['k1']}, b={info['parameters']['b']}")
+            logger.info("Encoder type: {info['encoder_type']}")
+            logger.info("Vocabulary size: {info['vocab_size']:,} terms")
+            logger.info("Average doc length: {info['avg_doc_length']:.1f} tokens")
+            logger.info("BM25 parameters: k1={info['parameters']['k1']}, b={info['parameters']['b']}")
 
             # Check if ready for encoding
             if info['initialized'] and info['vocab_size'] > 0:
-                print("Encoder ready for production use")
+                logger.info("Encoder ready for production use")
             ```
         """
         return {

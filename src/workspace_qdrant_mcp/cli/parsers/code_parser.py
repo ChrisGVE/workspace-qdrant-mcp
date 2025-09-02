@@ -1,3 +1,6 @@
+
+from .....observability import get_logger
+logger = get_logger(__name__)
 """
 Source code file parser for extracting text content and metadata from programming files.
 

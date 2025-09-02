@@ -1,3 +1,6 @@
+
+from ...observability import get_logger
+logger = get_logger(__name__)
 """
 Advanced hybrid search implementation with multiple fusion strategies.
 
@@ -405,12 +408,12 @@ class HybridSearchEngine:
                 )
             )
 
-            print(f"Found {results['total_results']} results")
-            print(f"Dense: {results['dense_results_count']}, Sparse: {results['sparse_results_count']}")
+            logger.info("Found {results['total_results']} results")
+            logger.info("Dense: {results['dense_results_count']}, Sparse: {results['sparse_results_count']}")
 
             for result in results['results']:
-                print(f"Score: {result.get('rrf_score', result.get('score')):.3f}")
-                print(f"Title: {result['payload'].get('title', 'Untitled')}")
+                logger.info("Score: {result.get('rrf_score', result.get('score')):.3f}")
+                logger.info("Title: {result['payload'].get('title', 'Untitled')}")
             ```
         """
         try:
@@ -634,17 +637,17 @@ class HybridSearchEngine:
             # Analyze results
             for method, results in benchmark['benchmark_results'].items():
                 if 'error' in results:
-                    print(f"{method}: Failed - {results['error']}")
+                    logger.info("{method}: Failed - {results['error']}")
                 else:
-                    print(f"{method}: {results['total_results']} results")
-                    print(f"  Top score: {results['results'][0]['score']:.3f}")
-                    print(f"  Unique results: {len(set(r['id'] for r in results['results']))}")
+                    logger.info("{method}: {results['total_results']} results")
+                    logger.info("  Top score: {results['results'][0]['score']:.3f}")
+                    logger.info("  Unique results: {len(set(r['id'] for r in results['results']))}")
 
             # Compare result overlap
             rrf_ids = set(r['id'] for r in benchmark['benchmark_results']['rrf']['results'])
             ws_ids = set(r['id'] for r in benchmark['benchmark_results']['weighted_sum']['results'])
             overlap = len(rrf_ids & ws_ids)
-            print(f"RRF/WeightedSum overlap: {overlap}/{limit} documents")
+            logger.info("RRF/WeightedSum overlap: {overlap}/{limit} documents")
             ```
         """
         methods = ["rrf", "weighted_sum", "max"]
