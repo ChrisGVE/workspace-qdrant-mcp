@@ -7,15 +7,15 @@
 //! - Text preprocessing and normalization
 //! - Embedding result caching for performance
 
-use std::collections::{HashMap, HashSet};
+use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use tokio::sync::RwLock;
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
-use ort::{Environment, Session, SessionBuilder, Value};
+use ort::{environment::Environment, session::{Session, SessionBuilder}, value::Value};
 use tokenizers::Tokenizer;
-use uuid::Uuid;
+// use uuid::Uuid;  // Currently unused
 use ahash::AHashMap;
 use std::hash::{Hash, Hasher};
 use ahash::AHasher;
@@ -598,7 +598,7 @@ impl EmbeddingGenerator {
         };
         
         // Tokenize the text
-        let encoding = tokenizer.encode(&preprocessed.cleaned, false)
+        let encoding = tokenizer.encode(preprocessed.cleaned.as_str(), false)
             .map_err(|e| EmbeddingError::TokenizationError { source: Box::new(e) })?;
         
         let input_ids = encoding.get_ids();
