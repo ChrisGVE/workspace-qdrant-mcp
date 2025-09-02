@@ -28,6 +28,7 @@ from .parsers import (
     EpubParser,
     CodeParser,
     MobiParser,
+    WebParser,
 )
 
 logger = logging.getLogger(__name__)
@@ -134,6 +135,7 @@ class DocumentIngestionEngine:
             EpubParser(),
             CodeParser(),
             MobiParser(),
+            WebParser(),
         ]
 
         # Content hash tracking for deduplication
