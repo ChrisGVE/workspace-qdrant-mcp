@@ -47,6 +47,11 @@ Get up and running in just a few minutes:
 2. **Run the setup wizard**: `workspace-qdrant-setup`
 3. **Start using with Claude**: The wizard configures everything automatically
 
+**Or use YAML configuration for project-specific setups:**
+```bash
+workspace-qdrant-mcp --config=my-project.yaml
+```
+
 ## Prerequisites
 
 **Qdrant server must be running** - workspace-qdrant-mcp connects to Qdrant for vector operations.
@@ -117,6 +122,59 @@ Configure environment variables through Claude Code's settings or your shell env
 | `GLOBAL_COLLECTIONS` | _(none)_                                 | Global collection names (comma-separated)     |
 | `GITHUB_USER`        | _(none)_                                 | Filter projects by GitHub username            |
 | `FASTEMBED_MODEL`    | `sentence-transformers/all-MiniLM-L6-v2` | Embedding model (see options below)           |
+
+### YAML Configuration
+
+For easier project-specific configuration management, you can use YAML configuration files:
+
+```bash
+# Start with YAML configuration
+workspace-qdrant-mcp --config=project-config.yaml
+```
+
+**Configuration Precedence:**
+1. Command line arguments (highest)
+2. YAML configuration file
+3. Environment variables  
+4. Default values (lowest)
+
+**Example YAML configuration:**
+
+```yaml
+# project-config.yaml
+host: "127.0.0.1"
+port: 8000
+debug: false
+
+qdrant:
+  url: "http://localhost:6333"
+  api_key: null
+  timeout: 30
+  prefer_grpc: false
+
+embedding:
+  model: "sentence-transformers/all-MiniLM-L6-v2"
+  enable_sparse_vectors: true
+  chunk_size: 800
+  chunk_overlap: 120
+  batch_size: 50
+
+workspace:
+  collections: ["project"]
+  global_collections: ["docs", "references", "standards"]
+  github_user: null
+  collection_prefix: ""
+  max_collections: 100
+```
+
+**Benefits:**
+- **Project-specific**: Each project can have its own config
+- **Version control**: YAML configs can be committed to your repo
+- **Team sharing**: Easy to share configurations
+- **Validation**: Built-in validation with helpful error messages
+- **Documentation**: Self-documenting with structure and comments
+
+See [YAML_CONFIG.md](YAML_CONFIG.md) for complete documentation and examples.
 
 ### Embedding Model Options
 
