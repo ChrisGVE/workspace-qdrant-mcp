@@ -1,0 +1,324 @@
+# Horizontal Pod Autoscaler for automatic scaling based on metrics
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: workspace-qdrant-mcp-hpa
+  namespace: workspace-qdrant-mcp
+  labels:
+    app: workspace-qdrant-mcp
+    component: autoscaler
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: workspace-qdrant-mcp
+  minReplicas: 2
+  maxReplicas: 10
+  metrics:
+  # CPU utilization scaling
+  - type: Resource
+    resource:
+      name: cpu
+      target:
+        type: Utilization
+        averageUtilization: 70
+  # Memory utilization scaling
+  - type: Resource
+    resource:
+      name: memory
+      target:
+        type: Utilization
+        averageUtilization: 80
+  # Custom metrics scaling based on request rate
+  - type: Pods
+    pods:
+      metric:
+        name: http_requests_per_second
+      target:
+        type: AverageValue
+        averageValue: "100"
+  # Custom metrics scaling based on queue depth
+  - type: Object
+    object:
+      metric:
+        name: queue_depth
+      describedObject:
+        apiVersion: v1
+        kind: Service
+        name: workspace-qdrant-mcp-service
+      target:
+        type: Value
+        value: "50"
+  behavior:
+    scaleDown:
+      stabilizationWindowSeconds: 300
+      policies:
+      - type: Percent
+        value: 10
+        periodSeconds: 60
+      - type: Pods
+        value: 2
+        periodSeconds: 60
+      selectPolicy: Min
+    scaleUp:
+      stabilizationWindowSeconds: 60
+      policies:
+      - type: Percent
+        value: 50
+        periodSeconds: 30
+      - type: Pods
+        value: 4
+        periodSeconds: 30
+      selectPolicy: Max
+
+---
+# HPA for Qdrant (if clustering is enabled)
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: qdrant-hpa
+  namespace: workspace-qdrant-mcp
+  labels:
+    app: qdrant
+    component: autoscaler
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: qdrant
+  minReplicas: 1
+  maxReplicas: 3  # Limited scaling for stateful workload
+  metrics:
+  - type: Resource
+    resource:
+      name: cpu
+      target:
+        type: Utilization
+        averageUtilization: 80
+  - type: Resource
+    resource:
+      name: memory
+      target:
+        type: Utilization
+        averageUtilization: 85
+  # Custom metric for search latency
+  - type: Pods
+    pods:
+      metric:
+        name: search_latency_p99
+      target:
+        type: AverageValue
+        averageValue: "100m"  # 100ms
+  behavior:
+    scaleDown:
+      stabilizationWindowSeconds: 600  # Longer stabilization for stateful service
+      policies:
+      - type: Pods
+        value: 1
+        periodSeconds: 300
+    scaleUp:
+      stabilizationWindowSeconds: 120
+      policies:
+      - type: Pods
+        value: 1
+        periodSeconds: 60
+
+---
+# Vertical Pod Autoscaler for right-sizing (requires VPA controller)
+apiVersion: autoscaling.k8s.io/v1
+kind: VerticalPodAutoscaler
+metadata:
+  name: workspace-qdrant-mcp-vpa
+  namespace: workspace-qdrant-mcp
+  labels:
+    app: workspace-qdrant-mcp
+    component: vpa
+spec:
+  targetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: workspace-qdrant-mcp
+  updatePolicy:
+    updateMode: "Auto"  # Can be "Off", "Auto", or "Recreation"
+  resourcePolicy:
+    containerPolicies:
+    - containerName: workspace-qdrant-mcp
+      minAllowed:
+        cpu: 100m
+        memory: 128Mi
+      maxAllowed:
+        cpu: 4000m
+        memory: 8Gi
+      controlledResources: ["cpu", "memory"]
+      controlledValues: RequestsAndLimits
+
+---
+# Custom metrics for HPA (requires metrics-server and custom metrics API)
+apiVersion: v1
+kind: Service
+metadata:
+  name: workspace-qdrant-mcp-metrics
+  namespace: workspace-qdrant-mcp
+  labels:
+    app: workspace-qdrant-mcp
+    component: metrics
+  annotations:
+    prometheus.io/scrape: "true"
+    prometheus.io/port: "8000"
+    prometheus.io/path: "/metrics"
+spec:
+  type: ClusterIP
+  ports:
+  - name: metrics
+    port: 8000
+    targetPort: 8000
+    protocol: TCP
+  selector:
+    app: workspace-qdrant-mcp
+    component: api
+
+---
+# ServiceMonitor for Prometheus to scrape custom metrics
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: workspace-qdrant-mcp-servicemonitor
+  namespace: workspace-qdrant-mcp
+  labels:
+    app: workspace-qdrant-mcp
+    component: monitoring
+spec:
+  selector:
+    matchLabels:
+      app: workspace-qdrant-mcp
+      component: api
+  endpoints:
+  - port: http
+    path: /metrics
+    interval: 30s
+    scrapeTimeout: 10s
+  - port: metrics
+    path: /metrics
+    interval: 30s
+    scrapeTimeout: 10s
+
+---
+# Pod Disruption Budget to ensure availability during scaling
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: workspace-qdrant-mcp-pdb
+  namespace: workspace-qdrant-mcp
+  labels:
+    app: workspace-qdrant-mcp
+    component: availability
+spec:
+  minAvailable: 1
+  selector:
+    matchLabels:
+      app: workspace-qdrant-mcp
+      component: api
+
+---
+# Pod Disruption Budget for Qdrant
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: qdrant-pdb
+  namespace: workspace-qdrant-mcp
+  labels:
+    app: qdrant
+    component: availability
+spec:
+  minAvailable: 1
+  selector:
+    matchLabels:
+      app: qdrant
+      component: database
+
+---
+# Custom Resource Definition for application-specific scaling metrics
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  name: scalingmetrics.workspace-qdrant-mcp.io
+spec:
+  group: workspace-qdrant-mcp.io
+  versions:
+  - name: v1
+    served: true
+    storage: true
+    schema:
+      openAPIV3Schema:
+        type: object
+        properties:
+          spec:
+            type: object
+            properties:
+              targetRef:
+                type: object
+                properties:
+                  apiVersion:
+                    type: string
+                  kind:
+                    type: string
+                  name:
+                    type: string
+                required:
+                - apiVersion
+                - kind
+                - name
+              metrics:
+                type: array
+                items:
+                  type: object
+                  properties:
+                    name:
+                      type: string
+                    targetValue:
+                      type: string
+                    query:
+                      type: string
+                  required:
+                  - name
+                  - targetValue
+                  - query
+            required:
+            - targetRef
+            - metrics
+          status:
+            type: object
+            properties:
+              currentMetrics:
+                type: array
+                items:
+                  type: object
+                  properties:
+                    name:
+                      type: string
+                    currentValue:
+                      type: string
+                    lastUpdated:
+                      type: string
+              conditions:
+                type: array
+                items:
+                  type: object
+                  properties:
+                    type:
+                      type: string
+                    status:
+                      type: string
+                    lastTransitionTime:
+                      type: string
+                    reason:
+                      type: string
+                    message:
+                      type: string
+  scope: Namespaced
+  names:
+    plural: scalingmetrics
+    singular: scalingmetric
+    kind: ScalingMetric
+    shortNames:
+    - sm
