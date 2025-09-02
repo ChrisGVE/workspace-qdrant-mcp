@@ -898,14 +898,14 @@ def main(
 
             if watch:
                 # Run continuous monitoring
-                console.logger.info("Output", data=
+                console.print(
                     "👀 Starting continuous health monitoring...", style="blue"
                 )
-                console.logger.info("Press Ctrl+C to stop. Update interval: {interval}s\n")
+                console.print(f"Press Ctrl+C to stop. Update interval: {interval}s\n")
                 await monitor.run_continuous_monitoring(interval)
             else:
                 # Run single health check
-                console.logger.info("Output", data="🔍 Running health check...", style="blue")
+                console.print("🔍 Running health check...", style="blue")
 
                 with Progress(
                     SpinnerColumn(),
@@ -931,12 +931,12 @@ def main(
                         output_path.write_text(
                             json.dumps(health_report.to_dict(), indent=2)
                         )
-                        console.logger.info("Output", data=
+                        console.print(
                             f"\n📄 Health report saved to: {output_path.absolute()}",
                             style="green",
                         )
                     except Exception as e:
-                        console.logger.info("Output", data=
+                        console.print(
                             f"\n⚠️  Failed to save report: {e}", style="yellow"
                         )
 
@@ -948,10 +948,10 @@ def main(
                 sys.exit(exit_code)
 
         except KeyboardInterrupt:
-            console.logger.info("Output", data="\n❌ Health monitoring cancelled by user", style="red")
+            console.print("\n❌ Health monitoring cancelled by user", style="red")
             sys.exit(1)
         except Exception as e:
-            console.logger.info("Output", data=f"\n❌ Health monitoring failed: {e}", style="red")
+            console.print(f"\n❌ Health monitoring failed: {e}", style="red")
             logger.error(f"Health monitoring failed: {e}", exc_info=True)
             sys.exit(1)
         finally:
@@ -980,7 +980,7 @@ def display_health_report(report: HealthReport, analyze: bool, verbose: bool) ->
         f"\nLast checked: {report.timestamp.strftime('%Y-%m-%d %H:%M:%S')}", style="dim"
     )
 
-    console.logger.info("Output", data=
+    console.print(
         Panel(
             header_text,
             title="🏥 Health Status",
@@ -1044,7 +1044,7 @@ def display_health_report(report: HealthReport, analyze: bool, verbose: bool) ->
     for resource, value, status in resources:
         resources_table.add_row(resource, value, status)
 
-    console.logger.info("Output", data=resources_table)
+    console.print(resources_table)
 
     # Collections summary
     if report.collections:
@@ -1076,7 +1076,7 @@ def display_health_report(report: HealthReport, analyze: bool, verbose: bool) ->
                 f"{status_icon} {col.status}",
             )
 
-        console.logger.info("Output", data=collections_table)
+        console.print(collections_table)
 
     # Performance metrics
     if any(
@@ -1113,7 +1113,7 @@ def display_health_report(report: HealthReport, analyze: bool, verbose: bool) ->
                 "Process Uptime", f"{report.performance_metrics.uptime_hours:.1f} hours"
             )
 
-        console.logger.info("Output", data=perf_table)
+        console.print(perf_table)
 
     # Alerts
     if report.alerts:
@@ -1121,7 +1121,7 @@ def display_health_report(report: HealthReport, analyze: bool, verbose: bool) ->
         for alert in report.alerts:
             alert_text.append(f"{alert}\n")
 
-        console.logger.info("Output", data=
+        console.print(
             Panel(
                 alert_text, title="⚠️  Active Alerts", border_style="red", padding=(1, 2)
             )
@@ -1133,7 +1133,7 @@ def display_health_report(report: HealthReport, analyze: bool, verbose: bool) ->
         for rec in report.recommendations:
             rec_text.append(f"{rec}\n")
 
-        console.logger.info("Output", data=
+        console.print(
             Panel(
                 rec_text,
                 title="🎯 Recommendations",
@@ -1158,7 +1158,7 @@ def display_health_report(report: HealthReport, analyze: bool, verbose: bool) ->
             for issue in report.configuration_status["issues"][:5]:
                 detail_text.append(f"    - {issue}\n", style="red")
 
-        console.logger.info("Output", data=
+        console.print(
             Panel(
                 detail_text,
                 title="🔍 Detailed Analysis",

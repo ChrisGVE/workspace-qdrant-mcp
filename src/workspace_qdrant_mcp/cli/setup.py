@@ -128,13 +128,13 @@ class SetupWizard:
                     return SetupResult(False, "Setup cancelled by user")
 
             # System requirements check
-            console.logger.info("Output", data="\n📋 Checking system requirements...", style="blue")
+            console.print("\n📋 Checking system requirements...", style="blue")
             req_result = await self._check_requirements()
             if not req_result:
                 return SetupResult(False, "System requirements check failed")
 
             # Build configuration step by step
-            console.logger.info("Output", data="\n⚙️  Building configuration...", style="blue")
+            console.print("\n⚙️  Building configuration...", style="blue")
 
             # 1. Qdrant configuration
             qdrant_config = await self._configure_qdrant()
@@ -159,19 +159,19 @@ class SetupWizard:
             )
 
             # 4. Test complete configuration
-            console.logger.info("Output", data="\n🔍 Testing complete configuration...", style="blue")
+            console.print("\n🔍 Testing complete configuration...", style="blue")
             test_result = await self._test_configuration()
             if not test_result:
                 return SetupResult(False, "Configuration testing failed")
 
             # 5. Save configuration
-            console.logger.info("Output", data="\n💾 Saving configuration...", style="blue")
+            console.print("\n💾 Saving configuration...", style="blue")
             config_path = await self._save_configuration()
             if not config_path:
                 return SetupResult(False, "Failed to save configuration")
 
             # 6. Claude Desktop integration
-            console.logger.info("Output", data="\n🔧 Setting up Claude Desktop integration...", style="blue")
+            console.print("\n🔧 Setting up Claude Desktop integration...", style="blue")
             claude_result = await self._setup_claude_integration()
 
             # 7. Create sample documents
@@ -179,15 +179,15 @@ class SetupWizard:
                 if Confirm.ask(
                     "\n📚 Would you like to create sample documents for testing?"
                 ):
-                    console.logger.info("Output", data="\n📄 Creating sample documents...", style="blue")
+                    console.print("\n📄 Creating sample documents...", style="blue")
                     sample_result = await self._create_sample_documents()
                     if sample_result:
-                        console.logger.info("Output", data=
+                        console.print(
                             "✅ Sample documents created successfully", style="green"
                         )
 
             # 8. Final verification
-            console.logger.info("Output", data="\n✨ Running final system verification...", style="blue")
+            console.print("\n✨ Running final system verification...", style="blue")
             await self._verify_installation()
 
             # Success message
@@ -196,10 +196,10 @@ class SetupWizard:
             return SetupResult(True, "Setup completed successfully", config_path)
 
         except KeyboardInterrupt:
-            console.logger.info("Output", data="\n❌ Setup cancelled by user", style="red")
+            console.print("\n❌ Setup cancelled by user", style="red")
             return SetupResult(False, "Setup cancelled by user")
         except Exception as e:
-            console.logger.info("Output", data=f"\n❌ Setup failed: {e}", style="red")
+            console.print(f"\n❌ Setup failed: {e}", style="red")
             logger.error(f"Setup failed: {e}", exc_info=True)
             return SetupResult(False, f"Setup failed: {e}")
 
@@ -222,7 +222,7 @@ class SetupWizard:
         panel = Panel(
             welcome_text, title="🚀 Setup Wizard", border_style="blue", padding=(1, 2)
         )
-        console.logger.info("Output", data=panel)
+        console.print(panel)
 
     async def _check_requirements(self) -> bool:
         """Check system requirements."""
@@ -251,10 +251,10 @@ class SetupWizard:
             if not status:
                 all_ok = False
 
-        console.logger.info("Output", data=table)
+        console.print(table)
 
         if not all_ok:
-            console.logger.info("Output", data=
+            console.print(
                 "\n❌ Some requirements are not met. Please fix the issues above.",
                 style="red",
             )
@@ -301,8 +301,8 @@ class SetupWizard:
 
     async def _configure_qdrant(self) -> QdrantConfig | None:
         """Configure Qdrant database connection."""
-        console.logger.info("Output", data="\n🗄️  Qdrant Database Configuration", style="bold blue")
-        console.logger.info("Configure your Qdrant vector database connection.\n")
+        console.print("\n🗄️  Qdrant Database Configuration", style="bold blue")
+        console.print("Configure your Qdrant vector database connection.\n")
 
         if self.non_interactive:
             return QdrantConfig()  # Use defaults
@@ -315,10 +315,10 @@ class SetupWizard:
         try:
             parsed = urlparse(url)
             if not parsed.scheme or not parsed.netloc:
-                console.logger.info("Output", data="❌ Invalid URL format", style="red")
+                console.print("❌ Invalid URL format", style="red")
                 return None
         except Exception:
-            console.logger.info("Output", data="❌ Invalid URL format", style="red")
+            console.print("❌ Invalid URL format", style="red")
             return None
 
         # API key (optional)
@@ -342,14 +342,14 @@ class SetupWizard:
         )
 
         # Test connection
-        console.logger.info("Output", data="\n🔍 Testing Qdrant connection...", style="blue")
+        console.print("\n🔍 Testing Qdrant connection...", style="blue")
         connection_ok, message = await self._test_qdrant_connection(qdrant_config)
 
         if connection_ok:
-            console.logger.info("Output", data=f"✅ {message}", style="green")
+            console.print(f"✅ {message}", style="green")
             return qdrant_config
         else:
-            console.logger.info("Output", data=f"❌ {message}", style="red")
+            console.print(f"❌ {message}", style="red")
 
             if Confirm.ask("\nWould you like to try a different configuration?"):
                 return await self._configure_qdrant()
@@ -388,8 +388,8 @@ class SetupWizard:
 
     async def _configure_embedding(self) -> EmbeddingConfig | None:
         """Configure embedding service."""
-        console.logger.info("Output", data="\n🧠 Embedding Model Configuration", style="bold blue")
-        console.logger.info("Configure text embedding generation settings.\n")
+        console.print("\n🧠 Embedding Model Configuration", style="bold blue")
+        console.print("Configure text embedding generation settings.\n")
 
         if self.non_interactive:
             return EmbeddingConfig()  # Use defaults
@@ -402,7 +402,7 @@ class SetupWizard:
             "BAAI/bge-base-en-v1.5",
         ]
 
-        console.logger.info("Available embedding models:")
+        console.print("Available embedding models:")
         for i, model in enumerate(available_models, 1):
             style = "bold green" if i == 1 else "white"
             quality = (
@@ -410,7 +410,7 @@ class SetupWizard:
                 if i == 1
                 else ("🔥 High Quality, Slower" if i == 2 else "⭐ Excellent Quality")
             )
-            console.logger.info("Output", data=f"  {i}. {model} - {quality}", style=style)
+            console.print(f"  {i}. {model} - {quality}", style=style)
 
         if self.advanced_mode:
             choice = IntPrompt.ask(
@@ -432,7 +432,7 @@ class SetupWizard:
             enable_sparse = Confirm.ask(
                 "\nEnable sparse vectors for hybrid search?", default=True
             )
-            console.logger.info("Output", data=
+            console.print(
                 "💡 Sparse vectors improve search quality but add ~30% processing time",
                 style="dim",
             )
@@ -443,7 +443,7 @@ class SetupWizard:
         batch_size = 50
 
         if self.advanced_mode:
-            console.logger.info("\n📝 Text Processing Settings")
+            console.print("\n📝 Text Processing Settings")
             chunk_size = IntPrompt.ask(
                 "Chunk size (characters)", default=1000, show_default=True
             )
@@ -464,14 +464,14 @@ class SetupWizard:
         )
 
         # Test embedding model
-        console.logger.info("Output", data="\n🔍 Testing embedding model...", style="blue")
+        console.print("\n🔍 Testing embedding model...", style="blue")
         embedding_ok, message = await self._test_embedding_model(embedding_config)
 
         if embedding_ok:
-            console.logger.info("Output", data=f"✅ {message}", style="green")
+            console.print(f"✅ {message}", style="green")
             return embedding_config
         else:
-            console.logger.info("Output", data=f"❌ {message}", style="red")
+            console.print(f"❌ {message}", style="red")
 
             if Confirm.ask("\nWould you like to try a different model?"):
                 return await self._configure_embedding()
@@ -506,8 +506,8 @@ class SetupWizard:
 
     async def _configure_workspace(self) -> WorkspaceConfig | None:
         """Configure workspace settings."""
-        console.logger.info("Output", data="\n🏗️  Workspace Configuration", style="bold blue")
-        console.logger.info("Configure workspace collections and project settings.\n")
+        console.print("\n🏗️  Workspace Configuration", style="bold blue")
+        console.print("Configure workspace collections and project settings.\n")
 
         if self.non_interactive:
             return WorkspaceConfig()  # Use defaults
@@ -515,11 +515,11 @@ class SetupWizard:
         # Detect current project
         project_info = self.project_detector.get_project_info()
         if project_info and project_info.get("main_project"):
-            console.logger.info("Output", data=
+            console.print(
                 f"📁 Detected project: {project_info['main_project']}", style="green"
             )
             if project_info.get("subprojects"):
-                console.logger.info("Output", data=
+                console.print(
                     f"📂 Subprojects: {', '.join(project_info['subprojects'])}",
                     style="cyan",
                 )
@@ -536,9 +536,9 @@ class SetupWizard:
         global_collections = ["docs", "references", "standards"]
 
         if self.advanced_mode:
-            console.logger.info("\n📚 Collection Configuration")
-            console.logger.info("Project collections are created for each detected project.")
-            console.logger.info("Global collections are shared across all projects.\n")
+            console.print("\n📚 Collection Configuration")
+            console.print("Project collections are created for each detected project.")
+            console.print("Global collections are shared across all projects.\n")
 
             collections_str = Prompt.ask(
                 "Project collection types (comma-separated)",
@@ -587,16 +587,16 @@ class SetupWizard:
             )
 
             if is_valid:
-                console.logger.info("Output", data="✅ Configuration is valid", style="green")
+                console.print("✅ Configuration is valid", style="green")
                 return True
             else:
-                console.logger.info("Output", data="❌ Configuration validation failed:", style="red")
+                console.print("❌ Configuration validation failed:", style="red")
                 for issue in results.get("issues", []):
-                    console.logger.info("Output", data=f"  • {issue}", style="red")
+                    console.print(f"  • {issue}", style="red")
                 return False
 
         except Exception as e:
-            console.logger.info("Output", data=f"❌ Configuration testing failed: {e}", style="red")
+            console.print(f"❌ Configuration testing failed: {e}", style="red")
             return False
 
     async def _save_configuration(self) -> Path | None:
@@ -612,7 +612,7 @@ class SetupWizard:
                             f".env.backup.{int(asyncio.get_event_loop().time())}"
                         )
                         env_path.rename(backup_path)
-                        console.logger.info("Output", data=
+                        console.print(
                             f"📋 Existing .env backed up to {backup_path}",
                             style="yellow",
                         )
@@ -623,13 +623,13 @@ class SetupWizard:
             # Write to file
             env_path.write_text(config_content)
 
-            console.logger.info("Output", data=
+            console.print(
                 f"✅ Configuration saved to {env_path.absolute()}", style="green"
             )
             return env_path
 
         except Exception as e:
-            console.logger.info("Output", data=f"❌ Failed to save configuration: {e}", style="red")
+            console.print(f"❌ Failed to save configuration: {e}", style="red")
             return None
 
     def _generate_env_content(self) -> str:
@@ -730,11 +730,11 @@ class SetupWizard:
                     break
 
             if not claude_config_path:
-                console.logger.info("Output", data=
+                console.print(
                     "⚠️  Claude Desktop configuration directory not found",
                     style="yellow",
                 )
-                console.logger.info("Output", data=
+                console.print(
                     "You'll need to manually add the MCP server configuration.",
                     style="dim",
                 )
@@ -747,7 +747,7 @@ class SetupWizard:
                 try:
                     config_data = json.loads(claude_config_path.read_text())
                 except json.JSONDecodeError:
-                    console.logger.info("Output", data=
+                    console.print(
                         "⚠️  Invalid existing Claude configuration", style="yellow"
                     )
                     config_data = {}
@@ -778,14 +778,14 @@ class SetupWizard:
             # Save configuration
             claude_config_path.write_text(json.dumps(config_data, indent=2))
 
-            console.logger.info("Output", data=
+            console.print(
                 f"✅ Claude Desktop configuration updated: {claude_config_path}",
                 style="green",
             )
             return True
 
         except Exception as e:
-            console.logger.info("Output", data=f"❌ Failed to setup Claude integration: {e}", style="red")
+            console.print(f"❌ Failed to setup Claude integration: {e}", style="red")
             self._show_manual_claude_config()
             return False
 
@@ -816,7 +816,7 @@ Configuration file locations:
             border_style="yellow",
             padding=(1, 2),
         )
-        console.logger.info("Output", data=panel)
+        console.print(panel)
 
     async def _create_sample_documents(self) -> bool:
         """Create sample documents for testing."""
@@ -908,7 +908,7 @@ Remove a document from the collection.
                 file_path = sample_dir / filename
                 file_path.write_text(content)
 
-            console.logger.info("Output", data=
+            console.print(
                 f"✅ Created {len(samples)} sample documents in {sample_dir}/",
                 style="green",
             )
@@ -923,7 +923,7 @@ Remove a document from the collection.
             return True
 
         except Exception as e:
-            console.logger.info("Output", data=f"❌ Failed to create sample documents: {e}", style="red")
+            console.print(f"❌ Failed to create sample documents: {e}", style="red")
             return False
 
     async def _ingest_sample_documents(self, sample_dir: Path) -> None:
@@ -940,7 +940,7 @@ Remove a document from the collection.
             else:
                 collection = "sample-project"
 
-            console.logger.info("📚 Ingesting documents into collection: {collection}")
+            console.print(f"📚 Ingesting documents into collection: {collection}")
 
             # Simple ingestion of sample files
             for file_path in sample_dir.glob("*"):
@@ -963,20 +963,20 @@ Remove a document from the collection.
                         )
 
                         if "successfully" in result.lower():
-                            console.logger.info("Output", data=f"  ✅ {file_path.name}", style="green")
+                            console.print(f"  ✅ {file_path.name}", style="green")
                         else:
-                            console.logger.info("Output", data=
+                            console.print(
                                 f"  ❌ {file_path.name}: {result}", style="red"
                             )
 
                     except Exception as e:
-                        console.logger.info("Output", data=f"  ❌ {file_path.name}: {e}", style="red")
+                        console.print(f"  ❌ {file_path.name}: {e}", style="red")
 
             await client.close()
-            console.logger.info("Output", data="✅ Sample documents ingested successfully", style="green")
+            console.print("✅ Sample documents ingested successfully", style="green")
 
         except Exception as e:
-            console.logger.info("Output", data=f"❌ Failed to ingest sample documents: {e}", style="red")
+            console.print(f"❌ Failed to ingest sample documents: {e}", style="red")
 
     async def _verify_installation(self) -> bool:
         """Run final system verification."""
@@ -988,7 +988,7 @@ Remove a document from the collection.
             status = await client.get_status()
 
             if status.get("connected"):
-                console.logger.info("Output", data="✅ System verification passed", style="green")
+                console.print("✅ System verification passed", style="green")
 
                 # Show status summary
                 table = Table(title="System Status")
@@ -1006,17 +1006,17 @@ Remove a document from the collection.
                     f"✅ {len(status.get('workspace_collections', []))} available",
                 )
 
-                console.logger.info("Output", data=table)
+                console.print(table)
 
                 await client.close()
                 return True
             else:
-                console.logger.info("Output", data="❌ System verification failed", style="red")
+                console.print("❌ System verification failed", style="red")
                 await client.close()
                 return False
 
         except Exception as e:
-            console.logger.info("Output", data=f"❌ System verification failed: {e}", style="red")
+            console.print(f"❌ System verification failed: {e}", style="red")
             return False
 
     def _show_completion_message(self, config_path: Path, claude_success: bool) -> None:
@@ -1074,7 +1074,7 @@ Remove a document from the collection.
             border_style="green",
             padding=(1, 2),
         )
-        console.logger.info("Output", data=panel)
+        console.print(panel)
 
 
 @app.command()
@@ -1112,7 +1112,7 @@ def main(
     if result.success:
         sys.exit(0)
     else:
-        console.logger.info("Output", data=f"\n❌ Setup failed: {result.message}", style="red")
+        console.print(f"\n❌ Setup failed: {result.message}", style="red")
         sys.exit(1)
 
 
