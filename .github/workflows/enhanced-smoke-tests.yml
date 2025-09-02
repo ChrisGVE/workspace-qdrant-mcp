@@ -1,0 +1,848 @@
+name: Enhanced Smoke Tests for Release Verification
+
+on:
+  workflow_dispatch:
+    inputs:
+      version_to_test:
+        description: 'Version to run smoke tests against (e.g., 0.2.1)'
+        required: true
+        type: string
+      environment:
+        description: 'Environment to test'
+        required: true
+        default: 'production'
+        type: choice
+        options:
+          - 'production'
+          - 'staging' 
+          - 'canary'
+      test_depth:
+        description: 'Depth of smoke tests'
+        required: true
+        default: 'comprehensive'
+        type: choice
+        options:
+          - 'basic'
+          - 'standard'  
+          - 'comprehensive'
+          - 'stress'
+
+  workflow_call:
+    inputs:
+      version_to_test:
+        description: 'Version to test'
+        required: true
+        type: string
+      environment:
+        description: 'Environment to test'
+        required: true
+        type: string
+      test_depth:
+        description: 'Test depth level'
+        required: true
+        type: string
+
+env:
+  PYTHON_VERSION: "3.10"
+
+jobs:
+  setup-smoke-tests:
+    name: Setup Enhanced Smoke Test Environment
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.setup.outputs.version }}
+      environment: ${{ steps.setup.outputs.environment }}
+      test_depth: ${{ steps.setup.outputs.test_depth }}
+      test_config: ${{ steps.setup.outputs.test_config }}
+    
+    steps:
+      - name: Setup test parameters
+        id: setup
+        run: |
+          VERSION="${{ github.event.inputs.version_to_test || inputs.version_to_test }}"
+          ENVIRONMENT="${{ github.event.inputs.environment || inputs.environment }}"
+          DEPTH="${{ github.event.inputs.test_depth || inputs.test_depth }}"
+          
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
+          echo "environment=$ENVIRONMENT" >> $GITHUB_OUTPUT  
+          echo "test_depth=$DEPTH" >> $GITHUB_OUTPUT
+          
+          echo "🧪 Enhanced Smoke Test Configuration"
+          echo "Version: $VERSION"
+          echo "Environment: $ENVIRONMENT"
+          echo "Test Depth: $DEPTH"
+          
+          # Configure test parameters based on depth
+          case $DEPTH in
+            "basic")
+              TEST_DURATION=60
+              CONCURRENT_USERS=5
+              TEST_ITERATIONS=10
+              ;;
+            "standard")
+              TEST_DURATION=300
+              CONCURRENT_USERS=10
+              TEST_ITERATIONS=50
+              ;;
+            "comprehensive")
+              TEST_DURATION=600
+              CONCURRENT_USERS=25
+              TEST_ITERATIONS=100
+              ;;
+            "stress")
+              TEST_DURATION=1200
+              CONCURRENT_USERS=50
+              TEST_ITERATIONS=500
+              ;;
+          esac
+          
+          # Create test configuration
+          cat > test-config.json << EOF
+          {
+            "version": "$VERSION",
+            "environment": "$ENVIRONMENT",
+            "test_depth": "$DEPTH",
+            "parameters": {
+              "duration_seconds": $TEST_DURATION,
+              "concurrent_users": $CONCURRENT_USERS,
+              "test_iterations": $TEST_ITERATIONS,
+              "timeout_seconds": 30,
+              "retry_attempts": 3
+            },
+            "thresholds": {
+              "max_response_time_ms": $((DEPTH == "stress" ? 5000 : 2000)),
+              "max_error_rate_percent": $((DEPTH == "stress" ? 10 : 5)),
+              "min_success_rate_percent": $((DEPTH == "stress" ? 85 : 95))
+            }
+          }
+          EOF
+          
+          echo "test_config=$(cat test-config.json | jq -c .)" >> $GITHUB_OUTPUT
+
+      - name: Upload test configuration
+        uses: actions/upload-artifact@v4
+        with:
+          name: smoke-test-config
+          path: test-config.json
+
+  basic-functionality-smoke-tests:
+    name: Basic Functionality Smoke Tests
+    needs: setup-smoke-tests
+    runs-on: ubuntu-latest
+    services:
+      qdrant:
+        image: qdrant/qdrant:latest
+        ports:
+          - 6333:6333
+        options: >-
+          --health-cmd="curl -f http://localhost:6333/health || exit 1"
+          --health-interval=10s
+          --health-timeout=5s
+          --health-retries=5
+    
+    steps:
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+
+      - name: Install test version
+        run: |
+          echo "📦 Installing version ${{ needs.setup-smoke-tests.outputs.version }}"
+          python -m venv smoke-test-venv
+          source smoke-test-venv/bin/activate
+          pip install --upgrade pip
+          pip install workspace-qdrant-mcp==${{ needs.setup-smoke-tests.outputs.version }}
+          pip install pytest asyncio-http requests
+
+      - name: Download test configuration
+        uses: actions/download-artifact@v4
+        with:
+          name: smoke-test-config
+          path: .
+
+      - name: Run basic import and initialization tests
+        run: |
+          source smoke-test-venv/bin/activate
+          
+          echo "🔬 Basic functionality smoke tests..."
+          
+          python -c "
+          import json
+          import time
+          import asyncio
+          from datetime import datetime
+          
+          # Load test configuration
+          with open('test-config.json', 'r') as f:
+              config = json.load(f)
+          
+          print(f\"🧪 Running {config['test_depth']} smoke tests for version {config['version']}\")
+          
+          # Test results tracking
+          results = {
+              'test_suite': 'basic-functionality',
+              'version': config['version'],
+              'environment': config['environment'],
+              'started_at': datetime.utcnow().isoformat() + 'Z',
+              'tests': []
+          }
+          
+          def add_test_result(test_name, success, duration_ms, error=None):
+              results['tests'].append({
+                  'name': test_name,
+                  'success': success,
+                  'duration_ms': duration_ms,
+                  'error': str(error) if error else None,
+                  'timestamp': datetime.utcnow().isoformat() + 'Z'
+              })
+          
+          # Test 1: Basic imports
+          start = time.time()
+          try:
+              import workspace_qdrant_mcp
+              import workspace_qdrant_mcp.core.config
+              import workspace_qdrant_mcp.core.qdrant_client
+              import workspace_qdrant_mcp.server
+              duration = (time.time() - start) * 1000
+              add_test_result('basic_imports', True, duration)
+              print(f'✅ Basic imports: {duration:.1f}ms')
+          except Exception as e:
+              duration = (time.time() - start) * 1000
+              add_test_result('basic_imports', False, duration, e)
+              print(f'❌ Basic imports failed: {e}')
+              raise
+          
+          # Test 2: Version verification
+          start = time.time()
+          try:
+              version = workspace_qdrant_mcp.__version__
+              assert version == config['version'], f'Version mismatch: expected {config[\"version\"]}, got {version}'
+              duration = (time.time() - start) * 1000
+              add_test_result('version_verification', True, duration)
+              print(f'✅ Version verification: {version} ({duration:.1f}ms)')
+          except Exception as e:
+              duration = (time.time() - start) * 1000
+              add_test_result('version_verification', False, duration, e)
+              print(f'❌ Version verification failed: {e}')
+              raise
+          
+          # Test 3: Configuration loading
+          start = time.time()
+          try:
+              from workspace_qdrant_mcp.core.config import Settings
+              settings = Settings()
+              assert settings is not None, 'Settings object is None'
+              duration = (time.time() - start) * 1000
+              add_test_result('configuration_loading', True, duration)
+              print(f'✅ Configuration loading: {duration:.1f}ms')
+          except Exception as e:
+              duration = (time.time() - start) * 1000
+              add_test_result('configuration_loading', False, duration, e)
+              print(f'❌ Configuration loading failed: {e}')
+              raise
+          
+          # Test 4: CLI command availability
+          start = time.time()
+          try:
+              import subprocess
+              result = subprocess.run(['workspace-qdrant-mcp', '--help'], capture_output=True, text=True, timeout=10)
+              assert result.returncode == 0, f'CLI command failed with return code {result.returncode}'
+              duration = (time.time() - start) * 1000
+              add_test_result('cli_command_availability', True, duration)
+              print(f'✅ CLI command availability: {duration:.1f}ms')
+          except Exception as e:
+              duration = (time.time() - start) * 1000
+              add_test_result('cli_command_availability', False, duration, e)
+              print(f'❌ CLI command availability failed: {e}')
+              raise
+          
+          # Save results
+          results['completed_at'] = datetime.utcnow().isoformat() + 'Z'
+          results['total_tests'] = len(results['tests'])
+          results['passed_tests'] = len([t for t in results['tests'] if t['success']])
+          results['failed_tests'] = results['total_tests'] - results['passed_tests']
+          results['success_rate'] = (results['passed_tests'] / results['total_tests']) * 100
+          
+          with open('basic-smoke-test-results.json', 'w') as f:
+              json.dump(results, f, indent=2)
+          
+          print(f\"\\n🎯 Basic smoke tests completed:\")
+          print(f\"  Total: {results['total_tests']}\")
+          print(f\"  Passed: {results['passed_tests']}\")
+          print(f\"  Failed: {results['failed_tests']}\")
+          print(f\"  Success Rate: {results['success_rate']:.1f}%\")
+          
+          if results['failed_tests'] > 0:
+              print('❌ Some basic tests failed')
+              exit(1)
+          else:
+              print('✅ All basic smoke tests passed')
+          "
+
+      - name: Upload basic test results
+        uses: actions/upload-artifact@v4
+        with:
+          name: basic-smoke-test-results
+          path: basic-smoke-test-results.json
+
+  integration-smoke-tests:
+    name: Integration Smoke Tests  
+    needs: [setup-smoke-tests, basic-functionality-smoke-tests]
+    runs-on: ubuntu-latest
+    services:
+      qdrant:
+        image: qdrant/qdrant:latest
+        ports:
+          - 6333:6333
+        options: >-
+          --health-cmd="curl -f http://localhost:6333/health || exit 1"
+          --health-interval=10s
+          --health-timeout=5s
+          --health-retries=5
+    
+    steps:
+      - name: Set up Python  
+        uses: actions/setup-python@v4
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+
+      - name: Install test version
+        run: |
+          python -m venv integration-venv
+          source integration-venv/bin/activate
+          pip install --upgrade pip
+          pip install workspace-qdrant-mcp==${{ needs.setup-smoke-tests.outputs.version }}
+
+      - name: Download test configuration
+        uses: actions/download-artifact@v4
+        with:
+          name: smoke-test-config
+          path: .
+
+      - name: Run integration smoke tests
+        run: |
+          source integration-venv/bin/activate
+          
+          echo "🔗 Integration smoke tests..."
+          
+          python -c "
+          import json
+          import time
+          import asyncio
+          from datetime import datetime
+          
+          # Load test configuration
+          with open('test-config.json', 'r') as f:
+              config = json.load(f)
+          
+          print(f\"🧪 Running integration smoke tests for version {config['version']}\")
+          
+          results = {
+              'test_suite': 'integration',
+              'version': config['version'],
+              'environment': config['environment'],
+              'started_at': datetime.utcnow().isoformat() + 'Z',
+              'tests': []
+          }
+          
+          def add_test_result(test_name, success, duration_ms, details=None, error=None):
+              results['tests'].append({
+                  'name': test_name,
+                  'success': success,
+                  'duration_ms': duration_ms,
+                  'details': details,
+                  'error': str(error) if error else None,
+                  'timestamp': datetime.utcnow().isoformat() + 'Z'
+              })
+          
+          async def run_integration_tests():
+              from workspace_qdrant_mcp.core.qdrant_client import QdrantClientManager
+              from workspace_qdrant_mcp.core.config import Settings
+              
+              # Test 1: Qdrant client initialization
+              start = time.time()
+              try:
+                  client = QdrantClientManager('http://localhost:6333')
+                  await client.initialize()
+                  duration = (time.time() - start) * 1000
+                  add_test_result('qdrant_client_init', True, duration, 'Client initialized successfully')
+                  print(f'✅ Qdrant client initialization: {duration:.1f}ms')
+              except Exception as e:
+                  duration = (time.time() - start) * 1000
+                  add_test_result('qdrant_client_init', False, duration, error=e)
+                  print(f'❌ Qdrant client initialization failed: {e}')
+                  return
+              
+              # Test 2: Collection operations
+              start = time.time()
+              try:
+                  test_collection = 'smoke-test-collection'
+                  await client.ensure_collection(test_collection, vector_size=384)
+                  collections = await client.client.get_collections()
+                  collection_names = [c.name for c in collections.collections]
+                  assert test_collection in collection_names, f'Collection {test_collection} not found'
+                  duration = (time.time() - start) * 1000
+                  add_test_result('collection_operations', True, duration, f'Collection {test_collection} created and verified')
+                  print(f'✅ Collection operations: {duration:.1f}ms')
+              except Exception as e:
+                  duration = (time.time() - start) * 1000
+                  add_test_result('collection_operations', False, duration, error=e)
+                  print(f'❌ Collection operations failed: {e}')
+                  return
+              
+              # Test 3: Health check operations
+              start = time.time()
+              try:
+                  # Simulate health check
+                  collections = await client.client.get_collections()
+                  health_info = {
+                      'total_collections': len(collections.collections),
+                      'client_connected': True,
+                      'response_time_ms': duration
+                  }
+                  duration = (time.time() - start) * 1000
+                  add_test_result('health_check_operations', True, duration, health_info)
+                  print(f'✅ Health check operations: {duration:.1f}ms')
+              except Exception as e:
+                  duration = (time.time() - start) * 1000
+                  add_test_result('health_check_operations', False, duration, error=e)
+                  print(f'❌ Health check operations failed: {e}')
+              
+              # Test 4: Concurrent operations (if test depth allows)
+              if config['test_depth'] in ['comprehensive', 'stress']:
+                  start = time.time()
+                  try:
+                      concurrent_tasks = []
+                      for i in range(min(10, config['parameters']['concurrent_users'])):
+                          task = client.client.get_collections()
+                          concurrent_tasks.append(task)
+                      
+                      results_concurrent = await asyncio.gather(*concurrent_tasks, return_exceptions=True)
+                      successful_ops = len([r for r in results_concurrent if not isinstance(r, Exception)])
+                      duration = (time.time() - start) * 1000
+                      
+                      details = {
+                          'concurrent_operations': len(concurrent_tasks),
+                          'successful_operations': successful_ops,
+                          'success_rate': (successful_ops / len(concurrent_tasks)) * 100
+                      }
+                      
+                      success = successful_ops >= len(concurrent_tasks) * 0.9  # 90% success rate required
+                      add_test_result('concurrent_operations', success, duration, details)
+                      print(f\"{'✅' if success else '❌'} Concurrent operations: {successful_ops}/{len(concurrent_tasks)} successful ({duration:.1f}ms)\")
+                  except Exception as e:
+                      duration = (time.time() - start) * 1000
+                      add_test_result('concurrent_operations', False, duration, error=e)
+                      print(f'❌ Concurrent operations failed: {e}')
+              
+              # Cleanup
+              try:
+                  await client.client.delete_collection('smoke-test-collection')
+                  print('🧹 Test collection cleaned up')
+              except:
+                  pass  # Best effort cleanup
+          
+          # Run the async integration tests
+          asyncio.run(run_integration_tests())
+          
+          # Save results
+          results['completed_at'] = datetime.utcnow().isoformat() + 'Z'
+          results['total_tests'] = len(results['tests'])
+          results['passed_tests'] = len([t for t in results['tests'] if t['success']])
+          results['failed_tests'] = results['total_tests'] - results['passed_tests']
+          results['success_rate'] = (results['passed_tests'] / results['total_tests']) * 100 if results['total_tests'] > 0 else 0
+          
+          with open('integration-smoke-test-results.json', 'w') as f:
+              json.dump(results, f, indent=2)
+          
+          print(f\"\\n🎯 Integration smoke tests completed:\")
+          print(f\"  Total: {results['total_tests']}\")
+          print(f\"  Passed: {results['passed_tests']}\")
+          print(f\"  Failed: {results['failed_tests']}\")
+          print(f\"  Success Rate: {results['success_rate']:.1f}%\")
+          
+          if results['success_rate'] < config['thresholds']['min_success_rate_percent']:
+              print(f\"❌ Success rate {results['success_rate']:.1f}% below threshold {config['thresholds']['min_success_rate_percent']}%\")
+              exit(1)
+          else:
+              print('✅ Integration smoke tests passed')
+          "
+
+      - name: Upload integration test results
+        uses: actions/upload-artifact@v4
+        with:
+          name: integration-smoke-test-results
+          path: integration-smoke-test-results.json
+
+  performance-smoke-tests:
+    name: Performance Smoke Tests
+    needs: [setup-smoke-tests, integration-smoke-tests]
+    if: contains(fromJSON('["standard", "comprehensive", "stress"]'), needs.setup-smoke-tests.outputs.test_depth)
+    runs-on: ubuntu-latest
+    services:
+      qdrant:
+        image: qdrant/qdrant:latest
+        ports:
+          - 6333:6333
+        options: >-
+          --health-cmd="curl -f http://localhost:6333/health || exit 1"
+          --health-interval=10s
+          --health-timeout=5s
+          --health-retries=5
+
+    steps:
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+
+      - name: Install test version with performance tools
+        run: |
+          python -m venv perf-venv
+          source perf-venv/bin/activate
+          pip install --upgrade pip
+          pip install workspace-qdrant-mcp==${{ needs.setup-smoke-tests.outputs.version }}
+          pip install psutil memory-profiler
+
+      - name: Download test configuration
+        uses: actions/download-artifact@v4
+        with:
+          name: smoke-test-config
+          path: .
+
+      - name: Run performance smoke tests
+        run: |
+          source perf-venv/bin/activate
+          
+          echo "⚡ Performance smoke tests..."
+          
+          python -c "
+          import json
+          import time
+          import asyncio
+          import psutil
+          import concurrent.futures
+          from datetime import datetime
+          
+          # Load test configuration
+          with open('test-config.json', 'r') as f:
+              config = json.load(f)
+          
+          print(f\"🧪 Running performance smoke tests for version {config['version']}\")
+          print(f\"Test depth: {config['test_depth']}\")
+          
+          results = {
+              'test_suite': 'performance',
+              'version': config['version'],
+              'environment': config['environment'],
+              'test_depth': config['test_depth'],
+              'started_at': datetime.utcnow().isoformat() + 'Z',
+              'system_info': {
+                  'cpu_count': psutil.cpu_count(),
+                  'memory_total_gb': round(psutil.virtual_memory().total / (1024**3), 2),
+                  'python_version': f'{__import__(\"sys\").version_info.major}.{__import__(\"sys\").version_info.minor}.{__import__(\"sys\").version_info.micro}'
+              },
+              'tests': []
+          }
+          
+          def add_test_result(test_name, success, duration_ms, metrics=None, error=None):
+              results['tests'].append({
+                  'name': test_name,
+                  'success': success,
+                  'duration_ms': duration_ms,
+                  'metrics': metrics or {},
+                  'error': str(error) if error else None,
+                  'timestamp': datetime.utcnow().isoformat() + 'Z'
+              })
+          
+          # Test 1: Import performance
+          start = time.time()
+          start_memory = psutil.Process().memory_info().rss / 1024 / 1024  # MB
+          try:
+              import workspace_qdrant_mcp
+              import workspace_qdrant_mcp.core.config
+              import workspace_qdrant_mcp.core.qdrant_client
+              end_memory = psutil.Process().memory_info().rss / 1024 / 1024  # MB
+              duration = (time.time() - start) * 1000
+              
+              metrics = {
+                  'import_time_ms': duration,
+                  'memory_before_mb': round(start_memory, 2),
+                  'memory_after_mb': round(end_memory, 2),
+                  'memory_delta_mb': round(end_memory - start_memory, 2)
+              }
+              
+              success = duration <= config['thresholds']['max_response_time_ms'] / 2  # Import should be fast
+              add_test_result('import_performance', success, duration, metrics)
+              print(f\"{'✅' if success else '⚠️'} Import performance: {duration:.1f}ms, Memory: +{metrics['memory_delta_mb']:.1f}MB\")
+          except Exception as e:
+              duration = (time.time() - start) * 1000
+              add_test_result('import_performance', False, duration, error=e)
+              print(f'❌ Import performance test failed: {e}')
+          
+          # Test 2: Configuration loading performance
+          start = time.time()
+          try:
+              from workspace_qdrant_mcp.core.config import Settings
+              for _ in range(config['parameters']['test_iterations'] // 10):
+                  settings = Settings()
+              duration = (time.time() - start) * 1000
+              avg_duration = duration / (config['parameters']['test_iterations'] // 10)
+              
+              metrics = {
+                  'total_time_ms': duration,
+                  'iterations': config['parameters']['test_iterations'] // 10,
+                  'avg_time_per_load_ms': round(avg_duration, 2),
+                  'loads_per_second': round(1000 / avg_duration, 2)
+              }
+              
+              success = avg_duration <= 50  # Should load config in under 50ms on average
+              add_test_result('config_loading_performance', success, duration, metrics)
+              print(f\"{'✅' if success else '⚠️'} Config loading: {avg_duration:.1f}ms avg, {metrics['loads_per_second']:.1f} loads/sec\")
+          except Exception as e:
+              duration = (time.time() - start) * 1000
+              add_test_result('config_loading_performance', False, duration, error=e)
+              print(f'❌ Config loading performance test failed: {e}')
+          
+          # Test 3: Concurrent initialization performance
+          if config['test_depth'] in ['comprehensive', 'stress']:
+              start = time.time()
+              try:
+                  def init_client():
+                      from workspace_qdrant_mcp.core.config import Settings
+                      return Settings()
+                  
+                  concurrent_count = min(config['parameters']['concurrent_users'], 20)
+                  with concurrent.futures.ThreadPoolExecutor(max_workers=concurrent_count) as executor:
+                      futures = [executor.submit(init_client) for _ in range(concurrent_count)]
+                      results_concurrent = [f.result(timeout=30) for f in concurrent.futures.as_completed(futures)]
+                  
+                  duration = (time.time() - start) * 1000
+                  
+                  metrics = {
+                      'concurrent_initializations': concurrent_count,
+                      'total_time_ms': duration,
+                      'avg_time_per_init_ms': round(duration / concurrent_count, 2),
+                      'inits_per_second': round((concurrent_count * 1000) / duration, 2)
+                  }
+                  
+                  success = (duration / concurrent_count) <= 200  # Should init in under 200ms per client on average
+                  add_test_result('concurrent_init_performance', success, duration, metrics)
+                  print(f\"{'✅' if success else '⚠️'} Concurrent init: {concurrent_count} clients, {metrics['avg_time_per_init_ms']:.1f}ms avg\")
+              except Exception as e:
+                  duration = (time.time() - start) * 1000
+                  add_test_result('concurrent_init_performance', False, duration, error=e)
+                  print(f'❌ Concurrent initialization performance test failed: {e}')
+          
+          # Test 4: Memory usage stability
+          if config['test_depth'] == 'stress':
+              start = time.time()
+              try:
+                  memory_samples = []
+                  from workspace_qdrant_mcp.core.config import Settings
+                  
+                  # Sample memory usage during repeated operations
+                  for i in range(50):
+                      settings = Settings()
+                      if i % 10 == 0:
+                          memory_mb = psutil.Process().memory_info().rss / 1024 / 1024
+                          memory_samples.append(memory_mb)
+                      time.sleep(0.01)  # Small delay to simulate real usage
+                  
+                  duration = (time.time() - start) * 1000
+                  
+                  metrics = {
+                      'memory_samples_mb': [round(m, 2) for m in memory_samples],
+                      'memory_min_mb': round(min(memory_samples), 2),
+                      'memory_max_mb': round(max(memory_samples), 2),
+                      'memory_growth_mb': round(max(memory_samples) - min(memory_samples), 2),
+                      'operations_count': 50
+                  }
+                  
+                  # Memory should not grow by more than 50MB during operations
+                  success = metrics['memory_growth_mb'] <= 50
+                  add_test_result('memory_stability', success, duration, metrics)
+                  print(f\"{'✅' if success else '⚠️'} Memory stability: {metrics['memory_growth_mb']:.1f}MB growth over 50 operations\")
+              except Exception as e:
+                  duration = (time.time() - start) * 1000
+                  add_test_result('memory_stability', False, duration, error=e)
+                  print(f'❌ Memory stability test failed: {e}')
+          
+          # Calculate final results
+          results['completed_at'] = datetime.utcnow().isoformat() + 'Z'
+          results['total_duration_seconds'] = round((datetime.fromisoformat(results['completed_at'].replace('Z', '+00:00')) - 
+                                                    datetime.fromisoformat(results['started_at'].replace('Z', '+00:00'))).total_seconds(), 2)
+          results['total_tests'] = len(results['tests'])
+          results['passed_tests'] = len([t for t in results['tests'] if t['success']])
+          results['failed_tests'] = results['total_tests'] - results['passed_tests']
+          results['success_rate'] = (results['passed_tests'] / results['total_tests']) * 100 if results['total_tests'] > 0 else 0
+          
+          with open('performance-smoke-test-results.json', 'w') as f:
+              json.dump(results, f, indent=2)
+          
+          print(f\"\\n🎯 Performance smoke tests completed:\")
+          print(f\"  Total: {results['total_tests']}\")
+          print(f\"  Passed: {results['passed_tests']}\")
+          print(f\"  Failed: {results['failed_tests']}\")
+          print(f\"  Success Rate: {results['success_rate']:.1f}%\")
+          print(f\"  Duration: {results['total_duration_seconds']}s\")
+          
+          # Performance tests have more lenient thresholds
+          min_perf_threshold = max(80, config['thresholds']['min_success_rate_percent'] - 10)
+          if results['success_rate'] < min_perf_threshold:
+              print(f\"❌ Performance success rate {results['success_rate']:.1f}% below threshold {min_perf_threshold}%\")
+              exit(1)
+          else:
+              print('✅ Performance smoke tests passed')
+          "
+
+      - name: Upload performance test results
+        uses: actions/upload-artifact@v4
+        with:
+          name: performance-smoke-test-results
+          path: performance-smoke-test-results.json
+
+  generate-smoke-test-report:
+    name: Generate Comprehensive Smoke Test Report
+    needs: [setup-smoke-tests, basic-functionality-smoke-tests, integration-smoke-tests, performance-smoke-tests]
+    if: always()
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Download all test results
+        uses: actions/download-artifact@v4
+        with:
+          pattern: "*smoke-test-results"
+          merge-multiple: true
+
+      - name: Generate comprehensive report
+        run: |
+          echo "📊 Generating comprehensive smoke test report..."
+          
+          python3 -c "
+          import json
+          import os
+          from datetime import datetime
+          
+          # Load all test results
+          test_results = {}
+          result_files = [f for f in os.listdir('.') if f.endswith('-smoke-test-results.json')]
+          
+          for file in result_files:
+              with open(file, 'r') as f:
+                  data = json.load(f)
+                  suite_name = data['test_suite']
+                  test_results[suite_name] = data
+          
+          # Generate comprehensive report
+          version = '${{ needs.setup-smoke-tests.outputs.version }}'
+          environment = '${{ needs.setup-smoke-tests.outputs.environment }}'
+          test_depth = '${{ needs.setup-smoke-tests.outputs.test_depth }}'
+          
+          report = {
+              'smoke_test_report': {
+                  'version': version,
+                  'environment': environment,
+                  'test_depth': test_depth,
+                  'generated_at': datetime.utcnow().isoformat() + 'Z',
+                  'workflow_run': '${{ github.run_id }}',
+                  'test_suites': test_results,
+                  'summary': {}
+              }
+          }
+          
+          # Calculate overall summary
+          total_tests = sum(suite.get('total_tests', 0) for suite in test_results.values())
+          total_passed = sum(suite.get('passed_tests', 0) for suite in test_results.values())
+          total_failed = sum(suite.get('failed_tests', 0) for suite in test_results.values())
+          overall_success_rate = (total_passed / total_tests * 100) if total_tests > 0 else 0
+          
+          report['smoke_test_report']['summary'] = {
+              'total_test_suites': len(test_results),
+              'successful_suites': len([s for s in test_results.values() if s.get('success_rate', 0) >= 90]),
+              'total_tests': total_tests,
+              'total_passed': total_passed,
+              'total_failed': total_failed,
+              'overall_success_rate': round(overall_success_rate, 2),
+              'test_duration_summary': {
+                  suite: round(data.get('total_duration_seconds', 0), 2) 
+                  for suite, data in test_results.items()
+              }
+          }
+          
+          # Save comprehensive report
+          with open('comprehensive-smoke-test-report.json', 'w') as f:
+              json.dump(report, f, indent=2)
+          
+          print(f'📊 Comprehensive Smoke Test Report Generated')
+          print(f'Version: {version}')
+          print(f'Environment: {environment}')
+          print(f'Test Depth: {test_depth}')
+          print(f'Total Test Suites: {len(test_results)}')
+          print(f'Total Tests: {total_tests}')
+          print(f'Overall Success Rate: {overall_success_rate:.1f}%')
+          print()
+          
+          for suite_name, suite_data in test_results.items():
+              success_rate = suite_data.get('success_rate', 0)
+              print(f'{suite_name.title()}: {success_rate:.1f}% ({suite_data.get(\"passed_tests\", 0)}/{suite_data.get(\"total_tests\", 0)})')
+          
+          # Determine overall result
+          if overall_success_rate >= 90:
+              print('\\n✅ Overall smoke tests PASSED')
+              exit_code = 0
+          elif overall_success_rate >= 75:
+              print('\\n⚠️ Overall smoke tests PASSED WITH WARNINGS')
+              exit_code = 0
+          else:
+              print('\\n❌ Overall smoke tests FAILED')
+              exit_code = 1
+              
+          exit(exit_code)
+          "
+
+      - name: Output report to job summary
+        if: always()
+        run: |
+          if [ -f comprehensive-smoke-test-report.json ]; then
+            echo "## 🧪 Enhanced Smoke Test Report" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+            
+            python3 -c "
+            import json
+            
+            with open('comprehensive-smoke-test-report.json', 'r') as f:
+                report = json.load(f)['smoke_test_report']
+            
+            summary = report['summary']
+            
+            print(f\"**Version:** {report['version']}\", file=open('summary.md', 'a'))
+            print(f\"**Environment:** {report['environment']}\", file=open('summary.md', 'a'))
+            print(f\"**Test Depth:** {report['test_depth']}\", file=open('summary.md', 'a'))
+            print(f\"**Overall Success Rate:** {summary['overall_success_rate']}%\", file=open('summary.md', 'a'))
+            print(\"\", file=open('summary.md', 'a'))
+            print(\"### Test Suite Results\", file=open('summary.md', 'a'))
+            print(\"\", file=open('summary.md', 'a'))
+            print(\"| Suite | Success Rate | Passed | Failed | Duration |\", file=open('summary.md', 'a'))
+            print(\"|-------|--------------|---------|--------|-----------|\", file=open('summary.md', 'a'))
+            
+            for suite_name, suite_data in report['test_suites'].items():
+                success_rate = suite_data.get('success_rate', 0)
+                passed = suite_data.get('passed_tests', 0)
+                failed = suite_data.get('failed_tests', 0)
+                duration = summary['test_duration_summary'].get(suite_name, 0)
+                status_icon = '✅' if success_rate >= 90 else ('⚠️' if success_rate >= 75 else '❌')
+                print(f\"| {status_icon} {suite_name.title()} | {success_rate:.1f}% | {passed} | {failed} | {duration}s |\", file=open('summary.md', 'a'))
+            "
+            
+            cat summary.md >> $GITHUB_STEP_SUMMARY
+          else
+            echo "**❌ Smoke test report generation failed**" >> $GITHUB_STEP_SUMMARY
+          fi
+
+      - name: Upload comprehensive report
+        uses: actions/upload-artifact@v4
+        with:
+          name: comprehensive-smoke-test-report
+          path: comprehensive-smoke-test-report.json
