@@ -29,6 +29,8 @@ def _print_table_as_text(table_data):
 search_app = typer.Typer(
     help="Command-line search interface",
     no_args_is_help=True
+,
+    rich_markup_mode=None  # Disable Rich formatting completely
 )
 
 def handle_async(coro):
