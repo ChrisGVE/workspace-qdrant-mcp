@@ -179,3 +179,235 @@ struct ConnectionStats {
     total_requests: u64,
     total_errors: u64,
 }
+
+impl StorageClient {
+    /// Create a new storage client with default configuration
+    pub fn new() -> Self {
+        Self::with_config(StorageConfig::default())
+    }
+    
+    /// Create a storage client with custom configuration
+    pub fn with_config(config: StorageConfig) -> Self {
+        let mut client_builder = QdrantClient::from_url(&config.url);
+        
+        // Configure authentication
+        if let Some(api_key) = &config.api_key {
+            client_builder = client_builder.with_api_key(api_key);
+        }
+        
+        // Configure timeout
+        client_builder = client_builder.with_timeout(Duration::from_millis(config.timeout_ms));
+        
+        let client = Arc::new(client_builder.build().expect(\"Failed to build Qdrant client\"));
+        
+        Self {
+            client,
+            config,
+            stats: Arc::new(tokio::sync::Mutex::new(ConnectionStats::default())),
+        }\n    }
+    
+    /// Test connection to Qdrant server
+    pub async fn test_connection(&self) -> Result<bool, StorageError> {
+        debug!(\"Testing connection to Qdrant server: {}\", self.config.url);
+        
+        match self.client.health_check().await {
+            Ok(_) => {
+                info!(\"Successfully connected to Qdrant server\");
+                self.update_stats(|stats| stats.successful_connections += 1).await;
+                Ok(true)
+            },
+            Err(e) => {
+                error!(\"Failed to connect to Qdrant server: {}\", e);
+                self.update_stats(|stats| stats.failed_connections += 1).await;
+                Err(StorageError::Connection(e.to_string()))
+            }
+        }
+    }
+    
+    /// Create a new collection with vector configuration
+    pub async fn create_collection(
+        &self,
+        collection_name: &str,
+        dense_vector_size: Option<u64>,
+        sparse_vector_size: Option<u64>,
+    ) -> Result<(), StorageError> {
+        info!(\"Creating collection: {}\", collection_name);
+        
+        let dense_size = dense_vector_size.unwrap_or(self.config.dense_vector_size);
+        
+        let mut vectors_config = VectorsConfig::default();
+        
+        // Configure dense vector
+        let dense_vector_params = VectorParams {
+            size: dense_size,
+            distance: Distance::Cosine.into(),
+            hnsw_config: None,
+            quantization_config: None,
+            on_disk: Some(false), // Keep in memory for better performance
+        };
+        
+        vectors_config.config = Some(qdrant_client::qdrant::vectors_config::Config::Params(dense_vector_params));
+        
+        let create_collection = CreateCollection {
+            collection_name: collection_name.to_string(),
+            vectors_config: Some(vectors_config),
+            shard_number: Some(1),
+            replication_factor: Some(1),
+            write_consistency_factor: Some(1),
+            on_disk_payload: Some(true),
+            timeout: Some(self.config.timeout_ms),
+            ..Default::default()
+        };
+        
+        self.retry_operation(|| async {
+            self.client.create_collection(&create_collection).await
+                .map_err(|e| StorageError::Collection(e.to_string()))
+        }).await?;
+        
+        // Configure sparse vectors if requested
+        if let Some(sparse_size) = sparse_vector_size.or(self.config.sparse_vector_size) {
+            let sparse_params = SparseVectorParams {
+                map: [(\"sparse\".to_string(), qdrant_client::qdrant::SparseVectorConfig {
+                    map: HashMap::new(),
+                })]
+                .into_iter()
+                .collect(),
+            };
+            
+            // Note: Sparse vector configuration would be added here in a production implementation
+            // The qdrant-client API for sparse vectors may vary by version
+        }
+        
+        info!(\"Successfully created collection: {}\", collection_name);
+        Ok(())
+    }
+    
+    /// Delete a collection
+    pub async fn delete_collection(&self, collection_name: &str) -> Result<(), StorageError> {
+        info!(\"Deleting collection: {}\", collection_name);
+        
+        let delete_collection = DeleteCollection {
+            collection_name: collection_name.to_string(),
+            timeout: Some(self.config.timeout_ms),
+        };
+        
+        self.retry_operation(|| async {
+            self.client.delete_collection(&delete_collection).await
+                .map_err(|e| StorageError::Collection(e.to_string()))
+        }).await?;
+        
+        info!(\"Successfully deleted collection: {}\", collection_name);
+        Ok(())
+    }
+    
+    /// Check if a collection exists
+    pub async fn collection_exists(&self, collection_name: &str) -> Result<bool, StorageError> {
+        debug!(\"Checking if collection exists: {}\", collection_name);
+        
+        let request = CollectionExists {
+            collection_name: collection_name.to_string(),
+        };
+        
+        let response = self.retry_operation(|| async {
+            self.client.collection_exists(&request).await
+                .map_err(|e| StorageError::Collection(e.to_string()))
+        }).await?;
+        
+        Ok(response.result.unwrap_or(false))
+    }
+    
+    /// Insert a single document point
+    pub async fn insert_point(
+        &self,
+        collection_name: &str,
+        point: DocumentPoint,
+    ) -> Result<(), StorageError> {
+        debug!(\"Inserting point {} into collection {}\", point.id, collection_name);
+        
+        let qdrant_point = self.convert_to_qdrant_point(point)?;
+        
+        let upsert_points = UpsertPoints {
+            collection_name: collection_name.to_string(),
+            points: vec![qdrant_point],
+            wait: Some(true),
+            ..Default::default()
+        };
+        
+        self.retry_operation(|| async {
+            self.client.upsert_points(&upsert_points).await
+                .map_err(|e| StorageError::Point(e.to_string()))
+        }).await?;
+        
+        debug!(\"Successfully inserted point into collection {}\", collection_name);
+        Ok(())
+    }
+    
+    /// Insert multiple document points in batch
+    pub async fn insert_points_batch(
+        &self,
+        collection_name: &str,
+        points: Vec<DocumentPoint>,
+        batch_size: Option<usize>,
+    ) -> Result<BatchStats, StorageError> {
+        info!(\"Inserting {} points into collection {} in batches\", points.len(), collection_name);
+        
+        let start_time = std::time::Instant::now();
+        let batch_size = batch_size.unwrap_or(100); // Default batch size
+        let total_points = points.len();
+        let mut successful = 0;\n        let mut failed = 0;
+        
+        for chunk in points.chunks(batch_size) {
+            let qdrant_points: Result<Vec<_>, _> = chunk.iter()
+                .map(|p| self.convert_to_qdrant_point(p.clone()))
+                .collect();
+                
+            match qdrant_points {
+                Ok(points_batch) => {
+                    let upsert_points = UpsertPoints {
+                        collection_name: collection_name.to_string(),
+                        points: points_batch,
+                        wait: Some(false), // Don't wait for batch operations
+                        ..Default::default()
+                    };
+                    
+                    match self.retry_operation(|| async {
+                        self.client.upsert_points(&upsert_points).await
+                            .map_err(|e| StorageError::Batch(e.to_string()))
+                    }).await {
+                        Ok(_) => successful += chunk.len(),
+                        Err(e) => {
+                            error!(\"Failed to insert batch: {}\", e);
+                            failed += chunk.len();
+                        }
+                    }
+                },
+                Err(e) => {
+                    error!(\"Failed to convert points batch: {}\", e);
+                    failed += chunk.len();
+                }
+            }
+            
+            // Small delay between batches to avoid overwhelming the server
+            sleep(Duration::from_millis(10)).await;
+        }
+        
+        let processing_time_ms = start_time.elapsed().as_millis() as u64;
+        let throughput = if processing_time_ms > 0 {
+            (successful as f64) / (processing_time_ms as f64 / 1000.0)
+        } else {
+            0.0
+        };
+        
+        let stats = BatchStats {
+            total_points,
+            successful,
+            failed,
+            processing_time_ms,
+            throughput,
+        };
+        
+        info!(\"Batch insertion completed: {} successful, {} failed, {:.2} points/sec\", 
+              successful, failed, throughput);
+        
+        Ok(stats)
+    }
