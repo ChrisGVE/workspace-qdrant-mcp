@@ -11,6 +11,7 @@ Supported formats:
     - Microsoft Word (.docx) - optional
     - Microsoft PowerPoint (.pptx) - optional
     - HTML (.html, .htm, .xhtml) - optional
+    - Web content (http, https) - with security hardening
 
 Each parser implements the DocumentParser interface and provides:
     - Format detection and validation
@@ -43,6 +44,8 @@ from .docx_parser import DocxParser
 from .epub_parser import EpubParser
 from .code_parser import CodeParser
 from .mobi_parser import MobiParser
+from .web_parser import WebParser, WebIngestionInterface, create_secure_web_parser
+from .web_crawler import SecureWebCrawler, SecurityConfig, CrawlResult
 
 __all__ = [
     # Base classes
@@ -58,6 +61,12 @@ __all__ = [
     "EpubParser",
     "CodeParser",
     "MobiParser",
+    "WebParser",
+    "WebIngestionInterface",
+    "SecureWebCrawler",
+    "SecurityConfig",
+    "CrawlResult",
+    "create_secure_web_parser",
     # Error handling
     "ParsingError",
     "FileAccessError",
