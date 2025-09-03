@@ -27,9 +27,16 @@ def _print_table_as_text(table_data):
 
 # Create the search app
 search_app = typer.Typer(
-    help="Command-line search interface",
-    no_args_is_help=True
-,
+    help="""Command-line search interface
+    
+    Examples:
+        wqm search project "rust async patterns"      # Search current project
+        wqm search collection docs "API reference"   # Search specific collection
+        wqm search global "python best practices"    # Search library collections
+        wqm search all "error handling"              # Search everywhere
+        wqm search memory "coding preferences"       # Search memory rules
+    """,
+    no_args_is_help=True,
     rich_markup_mode=None  # Disable Rich formatting completely
 )
 
@@ -53,7 +60,13 @@ def search_project(
     collections: list[str] | None = typer.Option(None, "--collection", "-c", help="Specific collections to search"),
     include_content: bool = typer.Option(False, "--content", help="Include document content in results"),
 ):
-    """Search current project collections."""
+    """Search current project collections.
+    
+    Examples:
+        wqm search project "async await patterns"
+        wqm search project "error handling" --limit=5
+        wqm search project "database" --format=json --content
+    """
     handle_async(_search_project(query, limit, threshold, format, collections, include_content))
 
 @search_app.command("collection")

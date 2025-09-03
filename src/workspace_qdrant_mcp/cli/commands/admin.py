@@ -22,9 +22,18 @@ from ...utils.project_detection import ProjectDetector
 
 # Create the admin app
 admin_app = typer.Typer(
-    help="System administration and configuration",
-    no_args_is_help=True
-,
+    help="""System administration and configuration
+    
+    Monitor system health, manage configuration, and control processing engines.
+    
+    Examples:
+        wqm admin status                 # Show comprehensive system status
+        wqm admin health                 # Run health checks
+        wqm admin collections            # List all collections
+        wqm admin start-engine           # Start Rust processing engine
+        wqm admin config show           # Show current configuration
+    """,
+    no_args_is_help=True,
     rich_markup_mode=None  # Disable Rich formatting completely
 )
 

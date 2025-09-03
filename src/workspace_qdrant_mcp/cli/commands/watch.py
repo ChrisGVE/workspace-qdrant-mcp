@@ -20,9 +20,18 @@ from ..watch_service import WatchService, create_status_table, create_watches_ta
 
 # Create the watch app
 watch_app = typer.Typer(
-    help="Folder watching configuration",
-    no_args_is_help=True
-,
+    help="""Folder watching configuration
+    
+    Configure automatic folder watching for library collections.
+    
+    Examples:
+        wqm watch list                      # Show all watch configurations
+        wqm watch add ~/docs --collection=docs  # Watch folder for changes
+        wqm watch remove ~/docs             # Stop watching folder
+        wqm watch status                    # Show watch service status
+        wqm watch enable --name=docs-watch  # Enable specific watch
+    """,
+    no_args_is_help=True,
     rich_markup_mode=None  # Disable Rich formatting completely
 )
 

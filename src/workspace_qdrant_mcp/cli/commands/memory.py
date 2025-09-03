@@ -116,13 +116,25 @@ def list_rules(
 
 @memory_app.command("add")
 def add_rule(
+    ctx: typer.Context,
     rule: str | None = typer.Argument(None, help="The memory rule to add"),
     category: str | None = typer.Option(None, "--category", "-c", help="Category of the rule"),
     authority: str = typer.Option("default", "--authority", "-a", help="Authority level (default: default)"),
     scope: str | None = typer.Option(None, "--scope", "-s", help="Comma-separated list of scopes"),
-    interactive: bool = typer.Option(False, "--interactive", "-i", help="Interactive mode"),
+    interactive: bool = typer.Option(False, "--interactive", "-i", help="Interactive mode for guided input"),
 ):
-    """ Add new memory rule (preference or behavior)."""
+    """ Add new memory rule (preference or behavior).
+    
+    Examples:
+        wqm memory add "Always use uv for Python package management"
+        wqm memory add "Prefer functional programming patterns" --category=preference
+        wqm memory add --interactive  # For guided input
+    """
+    # Show help if no rule provided and not interactive mode
+    if not rule and not interactive:
+        print(ctx.get_help())
+        raise typer.Exit()
+    
     handle_async(_add_memory_rule(rule, category, authority, scope, interactive))
 
 @memory_app.command("edit")
@@ -269,13 +281,16 @@ async def _add_memory_rule(
         # Ensure memory collection exists
         await memory_manager.initialize_memory_collection()
 
-        # Interactive mode or collect missing parameters
-        if interactive or not rule:
+        # Interactive mode for collecting details
+        if interactive:
             print("Add Memory Rule")
             print("Enter details for the new memory rule.\n")
-
+            
+            # Get rule text if not provided
             if not rule:
                 rule = get_user_input("Rule text")
+            else:
+                print(f"Rule text: {rule}")
 
             if not category:
                 category_choices = [c.value for c in MemoryCategory]
@@ -294,6 +309,7 @@ async def _add_memory_rule(
                 scope_input = get_user_input("Scope (comma-separated, optional)", "")
                 scope = scope_input if scope_input else None
         else:
+            # Non-interactive mode - rule should be provided
             name = _generate_name_from_rule(rule)
 
         # Parse scope
