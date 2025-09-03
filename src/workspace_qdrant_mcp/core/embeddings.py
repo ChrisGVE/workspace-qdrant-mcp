@@ -1,4 +1,3 @@
-
 """
 FastEmbed integration for high-performance document embeddings.
 
@@ -230,7 +229,9 @@ class EmbeddingService:
             # Generate sparse embeddings if requested
             sparse_embeddings = []
             if include_sparse and self.bm25_encoder:
-                sparse_embeddings = await self._generate_sparse_embeddings(processed_texts)
+                sparse_embeddings = await self._generate_sparse_embeddings(
+                    processed_texts
+                )
 
             # Combine results
             results = []
@@ -269,7 +270,7 @@ class EmbeddingService:
             # Handle both numpy arrays (with .tolist()) and plain lists
             result = []
             for embedding in embeddings:
-                if hasattr(embedding, 'tolist'):
+                if hasattr(embedding, "tolist"):
                     result.append(embedding.tolist())
                 else:
                     result.append(embedding)
@@ -454,9 +455,9 @@ class EmbeddingService:
             return ""
 
         # Normalize whitespace
-        text = re.sub(r'\s+', ' ', text)
+        text = re.sub(r"\s+", " ", text)
         # Remove non-breaking spaces and other unicode whitespace
-        text = re.sub(r'[\u00a0\u2000-\u200f\u2028-\u202f]', ' ', text)
+        text = re.sub(r"[\u00a0\u2000-\u200f\u2028-\u202f]", " ", text)
 
         return text.strip()
 

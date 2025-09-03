@@ -1,4 +1,3 @@
-
 """
 Health monitoring and system optimization utilities for workspace-qdrant-mcp.
 
@@ -496,7 +495,9 @@ class HealthMonitor:
             alerts.append(f"🟡 Elevated CPU usage: {resources.cpu_percent}%")
 
         if resources.memory_percent > 95:
-            alerts.append(f"Warning: Critical memory usage: {resources.memory_percent}%")
+            alerts.append(
+                f"Warning: Critical memory usage: {resources.memory_percent}%"
+            )
         elif resources.memory_percent > 85:
             alerts.append(f"🟡 High memory usage: {resources.memory_percent}%")
 
@@ -513,7 +514,9 @@ class HealthMonitor:
             if collection.status == "error":
                 alerts.append(f"Error: Collection '{collection.name}' in error state")
             elif collection.optimization_status == "error":
-                alerts.append(f"Warning: Collection '{collection.name}' needs optimization")
+                alerts.append(
+                    f"Warning: Collection '{collection.name}' needs optimization"
+                )
 
             # Check for large unindexed vectors
             if (
@@ -543,7 +546,9 @@ class HealthMonitor:
         if (
             performance.error_rate_percent and performance.error_rate_percent > 5
         ):  # 5% error rate
-            alerts.append(f"Warning: High error rate: {performance.error_rate_percent}%")
+            alerts.append(
+                f"Warning: High error rate: {performance.error_rate_percent}%"
+            )
 
         return alerts
 
@@ -562,9 +567,7 @@ class HealthMonitor:
             recommendations.append(
                 "📏 Consider reducing embedding batch size to lower memory usage"
             )
-            recommendations.append(
-                "Restart the system to free up memory if possible"
-            )
+            recommendations.append("Restart the system to free up memory if possible")
 
         if resources.disk_percent > 85:
             recommendations.append("📋 Clean up old logs and temporary files")
@@ -602,23 +605,17 @@ class HealthMonitor:
             recommendations.append("⚡ Enable GPU acceleration if available")
 
         if performance.search_avg_time_ms and performance.search_avg_time_ms > 500:
-            recommendations.append(
-                "Optimize search parameters and query construction"
-            )
+            recommendations.append("Optimize search parameters and query construction")
             recommendations.append("📊 Consider using more specific search filters")
 
         # Configuration recommendations
         if not config_status.get("valid", False):
-            recommendations.append(
-                "Fix configuration issues for optimal performance"
-            )
+            recommendations.append("Fix configuration issues for optimal performance")
             for issue in config_status.get("issues", [])[:3]:
                 recommendations.append(f"  - {issue}")
 
         if not self.config.embedding.enable_sparse_vectors:
-            recommendations.append(
-                "Enable sparse vectors for improved search quality"
-            )
+            recommendations.append("Enable sparse vectors for improved search quality")
 
         if self.config.embedding.chunk_size > 2000:
             recommendations.append(
@@ -1122,9 +1119,7 @@ def display_health_report(report: HealthReport, analyze: bool, verbose: bool) ->
             alert_text.append(f"{alert}\n")
 
         console.print(
-            Panel(
-                alert_text, title="Active Alerts", border_style="red", padding=(1, 2)
-            )
+            Panel(alert_text, title="Active Alerts", border_style="red", padding=(1, 2))
         )
 
     # Recommendations

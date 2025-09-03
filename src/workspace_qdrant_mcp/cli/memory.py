@@ -1,4 +1,3 @@
-
 """
 CLI commands for memory management.
 
@@ -53,19 +52,18 @@ def memory():
 @click.option(
     "--category",
     type=click.Choice([c.value for c in MemoryCategory]),
-    help="Filter by category"
+    help="Filter by category",
 )
 @click.option(
     "--authority",
     type=click.Choice([a.value for a in AuthorityLevel]),
-    help="Filter by authority level"
+    help="Filter by authority level",
 )
-@click.option(
-    "--scope",
-    help="Filter by scope containing this value"
-)
+@click.option("--scope", help="Filter by scope containing this value")
 @click.option("--json", "output_json", is_flag=True, help="Output as JSON")
-def list(category: str | None, authority: str | None, scope: str | None, output_json: bool):
+def list(
+    category: str | None, authority: str | None, scope: str | None, output_json: bool
+):
     """Show all memory rules."""
     asyncio.run(_list_memory_rules(category, authority, scope, output_json))
 
@@ -75,17 +73,23 @@ def list(category: str | None, authority: str | None, scope: str | None, output_
 @click.option(
     "--category",
     type=click.Choice([c.value for c in MemoryCategory]),
-    help="Category of the rule"
+    help="Category of the rule",
 )
 @click.option(
     "--authority",
     type=click.Choice([a.value for a in AuthorityLevel]),
     default="default",
-    help="Authority level (default: default)"
+    help="Authority level (default: default)",
 )
 @click.option("--scope", help="Comma-separated list of scopes")
 @click.option("--interactive", "-i", is_flag=True, help="Interactive mode")
-def add(rule: str | None, category: str | None, authority: str, scope: str | None, interactive: bool):
+def add(
+    rule: str | None,
+    category: str | None,
+    authority: str,
+    scope: str | None,
+    interactive: bool,
+):
     """Add new memory rule (preference or behavior)."""
     asyncio.run(_add_memory_rule(rule, category, authority, scope, interactive))
 
@@ -113,14 +117,18 @@ def tokens():
 
 @memory.command()
 @click.option("--max-tokens", default=2000, help="Maximum allowed tokens")
-@click.option("--dry-run", is_flag=True, help="Show what would be done without making changes")
+@click.option(
+    "--dry-run", is_flag=True, help="Show what would be done without making changes"
+)
 def trim(max_tokens: int, dry_run: bool):
     """Interactive token optimization."""
     asyncio.run(_trim_memory(max_tokens, dry_run))
 
 
 @memory.command()
-@click.option("--auto-resolve", is_flag=True, help="Automatically resolve simple conflicts")
+@click.option(
+    "--auto-resolve", is_flag=True, help="Automatically resolve simple conflicts"
+)
 def conflicts(auto_resolve: bool):
     """Detect and resolve memory conflicts."""
     asyncio.run(_detect_conflicts(auto_resolve))
@@ -134,10 +142,7 @@ def parse(message: str):
 
 
 async def _list_memory_rules(
-    category: str | None,
-    authority: str | None,
-    scope: str | None,
-    output_json: bool
+    category: str | None, authority: str | None, scope: str | None, output_json: bool
 ):
     """List memory rules with optional filtering."""
     try:
@@ -152,9 +157,7 @@ async def _list_memory_rules(
 
         # List rules
         rules = await memory_manager.list_memory_rules(
-            category=category_enum,
-            authority=authority_enum,
-            scope=scope
+            category=category_enum, authority=authority_enum, scope=scope
         )
 
         if output_json:
@@ -169,8 +172,12 @@ async def _list_memory_rules(
                     "authority": rule.authority.value,
                     "scope": rule.scope,
                     "source": rule.source,
-                    "created_at": rule.created_at.isoformat() if rule.created_at else None,
-                    "updated_at": rule.updated_at.isoformat() if rule.updated_at else None
+                    "created_at": rule.created_at.isoformat()
+                    if rule.created_at
+                    else None,
+                    "updated_at": rule.updated_at.isoformat()
+                    if rule.updated_at
+                    else None,
                 }
                 rules_data.append(rule_dict)
 
@@ -190,7 +197,9 @@ async def _list_memory_rules(
             table.add_column("Scope", width=15)
 
             for rule in rules:
-                authority_style = "red" if rule.authority == AuthorityLevel.ABSOLUTE else "yellow"
+                authority_style = (
+                    "red" if rule.authority == AuthorityLevel.ABSOLUTE else "yellow"
+                )
                 scope_text = ", ".join(rule.scope) if rule.scope else "-"
 
                 table.add_row(
@@ -199,14 +208,16 @@ async def _list_memory_rules(
                     rule.name,
                     f"[{authority_style}]{rule.authority.value}[/{authority_style}]",
                     rule.rule[:47] + "..." if len(rule.rule) > 50 else rule.rule,
-                    scope_text
+                    scope_text,
                 )
 
             console.print(table)
 
             # Show summary
             stats = await memory_manager.get_memory_stats()
-            console.print(f"\n[dim]Total: {stats.total_rules} rules, ~{stats.estimated_tokens} tokens[/dim]")
+            console.print(
+                f"\n[dim]Total: {stats.total_rules} rules, ~{stats.estimated_tokens} tokens[/dim]"
+            )
 
     except Exception as e:
         console.print(f"[red]Error listing memory rules: {e}[/red]")
@@ -218,7 +229,7 @@ async def _add_memory_rule(
     category: str | None,
     authority: str,
     scope: str | None,
-    interactive: bool
+    interactive: bool,
 ):
     """Add a new memory rule."""
     try:
@@ -241,9 +252,7 @@ async def _add_memory_rule(
             if not category:
                 category_choices = [c.value for c in MemoryCategory]
                 category = Prompt.ask(
-                    "Category",
-                    choices=category_choices,
-                    default="preference"
+                    "Category", choices=category_choices, default="preference"
                 )
 
             # Generate name from rule if not provided
@@ -252,13 +261,13 @@ async def _add_memory_rule(
             if authority not in [a.value for a in AuthorityLevel]:
                 authority_choices = [a.value for a in AuthorityLevel]
                 authority = Prompt.ask(
-                    "Authority level",
-                    choices=authority_choices,
-                    default="default"
+                    "Authority level", choices=authority_choices, default="default"
                 )
 
             if not scope:
-                scope_input = Prompt.ask("Scope (comma-separated, optional)", default="")
+                scope_input = Prompt.ask(
+                    "Scope (comma-separated, optional)", default=""
+                )
                 scope = scope_input if scope_input else None
         else:
             name = _generate_name_from_rule(rule)
@@ -279,10 +288,12 @@ async def _add_memory_rule(
             rule=rule,
             authority=authority_enum,
             scope=scope_list,
-            source="cli_user"
+            source="cli_user",
         )
 
-        console.print(f"[green]✓[/green] Added memory rule with ID: [cyan]{rule_id}[/cyan]")
+        console.print(
+            f"[green]✓[/green] Added memory rule with ID: [cyan]{rule_id}[/cyan]"
+        )
         console.print(f"  Name: {name}")
         console.print(f"  Category: {category_enum.value}")
         console.print(f"  Authority: {authority_enum.value}")
@@ -324,16 +335,16 @@ async def _edit_memory_rule(rule_id: str):
 
         authority_choices = [a.value for a in AuthorityLevel]
         new_authority = Prompt.ask(
-            "Authority level",
-            choices=authority_choices,
-            default=rule.authority.value
+            "Authority level", choices=authority_choices, default=rule.authority.value
         )
         if new_authority != rule.authority.value:
             updates["authority"] = AuthorityLevel(new_authority)
 
         scope_str = ", ".join(rule.scope) if rule.scope else ""
         new_scope = Prompt.ask("Scope (comma-separated)", default=scope_str)
-        new_scope_list = [s.strip() for s in new_scope.split(",") if s.strip()] if new_scope else []
+        new_scope_list = (
+            [s.strip() for s in new_scope.split(",") if s.strip()] if new_scope else []
+        )
         if new_scope_list != rule.scope:
             updates["scope"] = new_scope_list
 
@@ -385,7 +396,9 @@ async def _remove_memory_rule(rule_id: str, force: bool):
             console.print(f"Rule: {rule.rule}")
             console.print(f"Authority: {rule.authority.value}")
 
-            if not Confirm.ask("\n[red]Are you sure you want to delete this rule?[/red]"):
+            if not Confirm.ask(
+                "\n[red]Are you sure you want to delete this rule?[/red]"
+            ):
                 console.print("[yellow]Deletion cancelled.[/yellow]")
                 return
 
@@ -439,7 +452,9 @@ By Category:
         if stats.last_optimization:
             usage_text += f"\nLast Optimized: {stats.last_optimization.strftime('%Y-%m-%d %H:%M:%S')}"
 
-        panel = Panel(usage_text.strip(), title="Memory Token Usage", title_align="left")
+        panel = Panel(
+            usage_text.strip(), title="Memory Token Usage", title_align="left"
+        )
         console.print(panel)
 
     except Exception as e:
@@ -531,10 +546,15 @@ async def _detect_conflicts(auto_resolve: bool):
                     # Interactive resolution
                     choice = Prompt.ask(
                         "Choose resolution",
-                        choices=[str(j) for j in range(1, len(conflict.resolution_options) + 1)],
-                        default="1"
+                        choices=[
+                            str(j)
+                            for j in range(1, len(conflict.resolution_options) + 1)
+                        ],
+                        default="1",
                     )
-                    console.print(f"[green]✓ Applied resolution option {choice}[/green]\n")
+                    console.print(
+                        f"[green]✓ Applied resolution option {choice}[/green]\n"
+                    )
                 else:
                     console.print("[yellow]Conflict skipped[/yellow]\n")
 
@@ -558,7 +578,9 @@ async def _parse_conversational_update(message: str):
             if Confirm.ask("\nAdd this as a memory rule?"):
                 config = Config()
                 client = create_qdrant_client(config.qdrant_client_config)
-                naming_manager = create_naming_manager(config.workspace.global_collections)
+                naming_manager = create_naming_manager(
+                    config.workspace.global_collections
+                )
                 memory_manager = create_memory_manager(client, naming_manager)
 
                 # Ensure memory collection exists
@@ -570,7 +592,7 @@ async def _parse_conversational_update(message: str):
                     name=_generate_name_from_rule(result["rule"]),
                     rule=result["rule"],
                     authority=result["authority"],
-                    source=result["source"]
+                    source=result["source"],
                 )
 
                 console.print(f"[green]✓ Added memory rule with ID: {rule_id}[/green]")
@@ -594,7 +616,24 @@ def _generate_name_from_rule(rule: str) -> str:
     # Take first few words, clean them up
     words = rule.lower().split()[:3]
     # Remove common words
-    stop_words = {"the", "a", "an", "and", "or", "but", "in", "on", "at", "to", "for", "of", "with", "by", "always", "never"}
+    stop_words = {
+        "the",
+        "a",
+        "an",
+        "and",
+        "or",
+        "but",
+        "in",
+        "on",
+        "at",
+        "to",
+        "for",
+        "of",
+        "with",
+        "by",
+        "always",
+        "never",
+    }
     words = [w for w in words if w not in stop_words]
     # Take first 2-3 meaningful words
     name_words = words[:2] if len(words) >= 2 else words

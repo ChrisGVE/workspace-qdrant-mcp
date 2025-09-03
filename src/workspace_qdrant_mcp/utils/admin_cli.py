@@ -1,4 +1,3 @@
-
 """
 Comprehensive administrative CLI for workspace-qdrant-mcp.
 
@@ -322,9 +321,7 @@ class WorkspaceQdrantAdmin:
 
         # Interactive confirmation
         if not confirm and not self.dry_run:
-            print(
-                f"\nWARNING: You are about to reset project '{self.current_project}'"
-            )
+            print(f"\nWARNING: You are about to reset project '{self.current_project}'")
             print(f"   This will delete {len(project_collections)} collections:")
             for col in project_collections:
                 print(f"   - {col['name']}")
@@ -382,12 +379,14 @@ class WorkspaceQdrantAdmin:
 
                 # Check project detection
                 try:
-                    project_info = self.project_detector.get_project_info(str(Path.cwd()))
+                    project_info = self.project_detector.get_project_info(
+                        str(Path.cwd())
+                    )
                     health_info["project_detection"] = {
                         "status": "ok",
                         "detected_projects": 1 + len(project_info["subprojects"]),
                         "current_project": self.current_project,
-                        "subprojects": len(project_info["subprojects"])
+                        "subprojects": len(project_info["subprojects"]),
                     }
                 except Exception as e:
                     health_info["project_detection"] = {

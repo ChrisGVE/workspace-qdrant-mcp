@@ -1,4 +1,3 @@
-
 """
 FastMCP server for workspace-qdrant-mcp.
 
@@ -171,10 +170,12 @@ async def workspace_status() -> dict:
         return {"error": "Workspace client not initialized"}
 
     status = await workspace_client.get_status()
-    logger.info("Workspace status retrieved", 
-               connected=status.get("connected", False),
-               collections_count=status.get("collections_count", 0),
-               project=status.get("current_project"))
+    logger.info(
+        "Workspace status retrieved",
+        connected=status.get("connected", False),
+        collections_count=status.get("collections_count", 0),
+        project=status.get("current_project"),
+    )
     return status
 
 
@@ -196,7 +197,7 @@ async def list_workspace_collections() -> list[str]:
     Example:
         ```python
         collections = await list_workspace_collections()
-        logger.info("Available collections retrieved", 
+        logger.info("Available collections retrieved",
                    collections=collections,
                    count=len(collections))
         ```
@@ -265,22 +266,28 @@ async def search_workspace_tool(
         logger.error("Search requested but workspace client not initialized")
         return {"error": "Workspace client not initialized"}
 
-    logger.debug("Search request received",
-                query_length=len(query),
-                collections=collections,
-                mode=mode,
-                limit=limit,
-                score_threshold=score_threshold)
+    logger.debug(
+        "Search request received",
+        query_length=len(query),
+        collections=collections,
+        mode=mode,
+        limit=limit,
+        score_threshold=score_threshold,
+    )
 
-    with record_operation("search", mode=mode, collections_count=len(collections or [])):
+    with record_operation(
+        "search", mode=mode, collections_count=len(collections or [])
+    ):
         result = await search_workspace(
             workspace_client, query, collections, mode, limit, score_threshold
         )
-    
-    logger.info("Search completed",
-               results_count=result.get("total_results", 0),
-               collections_searched=len(result.get("collections_searched", [])))
-    
+
+    logger.info(
+        "Search completed",
+        results_count=result.get("total_results", 0),
+        collections_searched=len(result.get("collections_searched", [])),
+    )
+
     return result
 
 
@@ -341,24 +348,28 @@ async def add_document_tool(
         logger.error("Document add requested but workspace client not initialized")
         return {"error": "Workspace client not initialized"}
 
-    logger.debug("Document add request received",
-                content_length=len(content),
-                collection=collection,
-                document_id=document_id,
-                chunk_text=chunk_text,
-                metadata_keys=list(metadata.keys()) if metadata else [])
+    logger.debug(
+        "Document add request received",
+        content_length=len(content),
+        collection=collection,
+        document_id=document_id,
+        chunk_text=chunk_text,
+        metadata_keys=list(metadata.keys()) if metadata else [],
+    )
 
     with record_operation("add_document", collection=collection, chunk_text=chunk_text):
         result = await add_document(
             workspace_client, content, collection, metadata, document_id, chunk_text
         )
-    
-    logger.info("Document added",
-               success=result.get("success", False),
-               document_id=result.get("document_id"),
-               chunks_added=result.get("chunks_added", 0),
-               collection=collection)
-    
+
+    logger.info(
+        "Document added",
+        success=result.get("success", False),
+        document_id=result.get("document_id"),
+        chunks_added=result.get("chunks_added", 0),
+        collection=collection,
+    )
+
     return result
 
 
@@ -591,11 +602,11 @@ async def add_watch_folder(
 ) -> dict:
     """
     Add a persistent folder watch for automatic document ingestion.
-    
+
     Creates a persistent watch configuration that survives server restarts.
     The watch monitors the specified directory for file changes and automatically
     ingests matching documents into the target collection.
-    
+
     Args:
         path: Directory path to watch (must exist and be readable)
         collection: Target Qdrant collection for ingested files
@@ -607,10 +618,10 @@ async def add_watch_folder(
         debounce_seconds: Delay before processing file changes (1-300 seconds)
         update_frequency: File system check frequency in milliseconds (100-10000)
         watch_id: Custom watch identifier (auto-generated if not provided)
-        
+
     Returns:
         dict: Result with success status, watch configuration, and error details if failed
-            
+
     Example:
         ```python
         # Add watch for documents folder
@@ -621,7 +632,7 @@ async def add_watch_folder(
             recursive=True,
             debounce_seconds=10
         )
-        
+
         # Add watch with custom settings
         result = await add_watch_folder(
             path="/project/research",
@@ -634,7 +645,7 @@ async def add_watch_folder(
     """
     if not workspace_client or not watch_tools_manager:
         return {"error": "Watch management not initialized"}
-        
+
     return await watch_tools_manager.add_watch_folder(
         path=path,
         collection=collection,
@@ -653,29 +664,29 @@ async def add_watch_folder(
 async def remove_watch_folder(watch_id: str) -> dict:
     """
     Remove a persistent folder watch configuration.
-    
+
     Permanently removes the specified watch configuration from persistent storage.
     Any active file watching for this configuration will be stopped.
-    
+
     Args:
         watch_id: Unique identifier of the watch to remove
-        
+
     Returns:
         dict: Result with success status and removed watch details
-        
+
     Example:
         ```python
         # Remove a specific watch
         result = await remove_watch_folder("research-watch")
         if result["success"]:
-            logger.info("Watch removed", 
-                       watch_id="research-watch", 
+            logger.info("Watch removed",
+                       watch_id="research-watch",
                        path=result['removed_path'])
         ```
     """
     if not workspace_client or not watch_tools_manager:
         return {"error": "Watch management not initialized"}
-        
+
     return await watch_tools_manager.remove_watch_folder(watch_id)
 
 
@@ -687,25 +698,25 @@ async def list_watched_folders(
 ) -> dict:
     """
     List all configured persistent folder watches.
-    
+
     Returns detailed information about all watch configurations including
     status, statistics, validation results, and configuration details.
-    
+
     Args:
         active_only: Only return active watches (exclude paused/error/disabled)
         collection: Filter by specific collection name
         include_stats: Include processing statistics (files processed, errors)
-        
+
     Returns:
         dict: List of watches with summary statistics and configuration details
-        
+
     Example:
         ```python
         # List all watches
         result = await list_watched_folders()
-        logger.info("Watched folders listed", 
+        logger.info("Watched folders listed",
                    total_watches=result['summary']['total_watches'])
-        
+
         # List only active watches for specific collection
         result = await list_watched_folders(
             active_only=True,
@@ -715,7 +726,7 @@ async def list_watched_folders(
     """
     if not workspace_client or not watch_tools_manager:
         return {"error": "Watch management not initialized"}
-        
+
     return await watch_tools_manager.list_watched_folders(
         active_only=active_only,
         collection=collection,
@@ -737,10 +748,10 @@ async def configure_watch_settings(
 ) -> dict:
     """
     Configure settings for an existing persistent folder watch.
-    
+
     Updates configuration for an existing watch with validation and persistence.
     Only specified parameters are updated; others remain unchanged.
-    
+
     Args:
         watch_id: Unique identifier of the watch to configure
         patterns: New file patterns to include (optional)
@@ -751,10 +762,10 @@ async def configure_watch_settings(
         debounce_seconds: Set debounce delay in seconds (optional)
         update_frequency: Set check frequency in milliseconds (optional)
         status: Set watch status: 'active', 'paused', 'disabled' (optional)
-        
+
     Returns:
         dict: Result with success status, changes made, and updated configuration
-        
+
     Example:
         ```python
         # Pause a watch
@@ -762,7 +773,7 @@ async def configure_watch_settings(
             watch_id="research-watch",
             status="paused"
         )
-        
+
         # Update patterns and debounce settings
         result = await configure_watch_settings(
             watch_id="docs-watch",
@@ -773,7 +784,7 @@ async def configure_watch_settings(
     """
     if not workspace_client or not watch_tools_manager:
         return {"error": "Watch management not initialized"}
-        
+
     return await watch_tools_manager.configure_watch_settings(
         watch_id=watch_id,
         patterns=patterns,
@@ -791,33 +802,33 @@ async def configure_watch_settings(
 async def get_watch_status(watch_id: str = None) -> dict:
     """
     Get detailed status information for folder watches.
-    
+
     Provides comprehensive status including configuration validation,
     path existence checks, and runtime information for watches.
-    
+
     Args:
         watch_id: Specific watch ID to get status for (optional, gets all if None)
-        
+
     Returns:
         dict: Detailed status information with validation and runtime data
-        
+
     Example:
         ```python
         # Get status for all watches
         result = await get_watch_status()
-        
+
         # Get status for specific watch
         result = await get_watch_status("research-watch")
         if result["success"]:
             status = result["status"]
-            logger.info("Watch status retrieved", 
+            logger.info("Watch status retrieved",
                        valid_config=status['validation']['valid'],
                        path_exists=status['path_exists'])
         ```
     """
     if not workspace_client or not watch_tools_manager:
         return {"error": "Watch management not initialized"}
-        
+
     return await watch_tools_manager.get_watch_status(watch_id)
 
 
@@ -834,10 +845,10 @@ async def configure_advanced_watch(
 ) -> dict:
     """
     Configure advanced watch settings with comprehensive filtering and performance options.
-    
+
     Provides fine-grained control over file filtering, recursion behavior, performance tuning,
     and collection routing for sophisticated watch configurations.
-    
+
     Args:
         watch_id: Unique identifier of the watch to configure
         file_filters: Advanced file filtering options:
@@ -878,10 +889,10 @@ async def configure_advanced_watch(
         auto_ingest: Enable automatic file ingestion
         preserve_timestamps: Preserve original file timestamps in metadata
         tags: List of tags to associate with the watch configuration
-        
+
     Returns:
         dict: Configuration result with validation details and applied settings
-        
+
     Example:
         ```python
         # Configure advanced filtering for PDF documents
@@ -906,24 +917,26 @@ async def configure_advanced_watch(
     """
     if not workspace_client or not watch_tools_manager:
         return {"error": "Watch management not initialized"}
-    
+
     try:
         # Get existing configuration
-        existing_config = await watch_tools_manager.config_manager.get_watch_config(watch_id)
+        existing_config = await watch_tools_manager.config_manager.get_watch_config(
+            watch_id
+        )
         if not existing_config:
             return {
                 "success": False,
                 "error": f"Watch not found: {watch_id}",
-                "error_type": "watch_not_found"
+                "error_type": "watch_not_found",
             }
-        
+
         # Build advanced configuration from current settings
         advanced_config = AdvancedWatchConfig(
             id=existing_config.id,
             path=existing_config.path,
-            enabled=(existing_config.status == "active")
+            enabled=(existing_config.status == "active"),
         )
-        
+
         # Update file filters if provided
         if file_filters:
             try:
@@ -932,9 +945,9 @@ async def configure_advanced_watch(
                 return {
                     "success": False,
                     "error": f"Invalid file filter configuration: {e}",
-                    "error_type": "validation_error"
+                    "error_type": "validation_error",
                 }
-        
+
         # Update recursive configuration if provided
         if recursive_config:
             try:
@@ -943,9 +956,9 @@ async def configure_advanced_watch(
                 return {
                     "success": False,
                     "error": f"Invalid recursive configuration: {e}",
-                    "error_type": "validation_error"
+                    "error_type": "validation_error",
                 }
-        
+
         # Update performance configuration if provided
         if performance_config:
             try:
@@ -954,23 +967,25 @@ async def configure_advanced_watch(
                 return {
                     "success": False,
                     "error": f"Invalid performance configuration: {e}",
-                    "error_type": "validation_error"
+                    "error_type": "validation_error",
                 }
-        
+
         # Update collection configuration if provided
         if collection_config:
             try:
                 # Ensure default_collection is provided
                 if "default_collection" not in collection_config:
                     collection_config["default_collection"] = existing_config.collection
-                advanced_config.collection_config = CollectionTargeting(**collection_config)
+                advanced_config.collection_config = CollectionTargeting(
+                    **collection_config
+                )
             except Exception as e:
                 return {
                     "success": False,
                     "error": f"Invalid collection configuration: {e}",
-                    "error_type": "validation_error"
+                    "error_type": "validation_error",
                 }
-        
+
         # Update other settings
         if auto_ingest is not None:
             advanced_config.auto_ingest = auto_ingest
@@ -978,7 +993,7 @@ async def configure_advanced_watch(
             advanced_config.preserve_timestamps = preserve_timestamps
         if tags is not None:
             advanced_config.tags = tags
-        
+
         # Validate complete configuration
         validation_issues = advanced_config.validate()
         if validation_issues:
@@ -986,44 +1001,50 @@ async def configure_advanced_watch(
                 "success": False,
                 "error": f"Configuration validation failed: {'; '.join(validation_issues)}",
                 "error_type": "validation_error",
-                "validation_issues": validation_issues
+                "validation_issues": validation_issues,
             }
-        
+
         # Convert back to persistent configuration format
         include_patterns, exclude_patterns = advanced_config.get_effective_patterns()
-        
+
         # Update the persistent configuration with advanced settings
         existing_config.patterns = include_patterns
         existing_config.ignore_patterns = exclude_patterns
         existing_config.recursive = advanced_config.recursive.enabled
         existing_config.recursive_depth = advanced_config.recursive.max_depth
         existing_config.debounce_seconds = advanced_config.performance.debounce_seconds
-        existing_config.update_frequency = advanced_config.performance.update_frequency_ms
+        existing_config.update_frequency = (
+            advanced_config.performance.update_frequency_ms
+        )
         existing_config.auto_ingest = advanced_config.auto_ingest
-        existing_config.collection = advanced_config.collection_config.default_collection
-        
+        existing_config.collection = (
+            advanced_config.collection_config.default_collection
+        )
+
         # Save updated configuration
-        success = await watch_tools_manager.config_manager.update_watch_config(existing_config)
+        success = await watch_tools_manager.config_manager.update_watch_config(
+            existing_config
+        )
         if not success:
             return {
                 "success": False,
                 "error": "Failed to save advanced configuration",
-                "error_type": "save_error"
+                "error_type": "save_error",
             }
-        
+
         return {
             "success": True,
             "watch_id": watch_id,
             "advanced_config": advanced_config.to_dict(),
-            "message": f"Advanced watch configuration updated: {watch_id}"
+            "message": f"Advanced watch configuration updated: {watch_id}",
         }
-        
+
     except Exception as e:
         logger.error(f"Failed to configure advanced watch: {e}")
         return {
             "success": False,
             "error": f"Unexpected error: {str(e)}",
-            "error_type": "internal_error"
+            "error_type": "internal_error",
         }
 
 
@@ -1036,19 +1057,19 @@ async def validate_watch_configuration(
 ) -> dict:
     """
     Validate advanced watch configuration options without applying them.
-    
+
     Performs comprehensive validation of configuration components to help
     identify issues before applying settings to actual watches.
-    
+
     Args:
         file_filters: File filtering configuration to validate
         recursive_config: Recursive scanning configuration to validate
-        performance_config: Performance settings to validate  
+        performance_config: Performance settings to validate
         collection_config: Collection routing configuration to validate
-        
+
     Returns:
         dict: Validation results with detailed feedback on each component
-        
+
     Example:
         ```python
         # Validate complex filtering rules before applying
@@ -1061,9 +1082,9 @@ async def validate_watch_configuration(
                 "debounce_seconds": 500  # Invalid: exceeds maximum
             }
         )
-        
+
         if not result["valid"]:
-            logger.error("Configuration validation failed", 
+            logger.error("Configuration validation failed",
                         issues=result["issues"],
                         issues_count=len(result["issues"]))
         ```
@@ -1072,9 +1093,9 @@ async def validate_watch_configuration(
         "valid": True,
         "issues": [],
         "warnings": [],
-        "component_results": {}
+        "component_results": {},
     }
-    
+
     try:
         # Validate file filters
         if file_filters:
@@ -1082,9 +1103,9 @@ async def validate_watch_configuration(
                 filter_config = FileFilterConfig(**file_filters)
                 validation_results["component_results"]["file_filters"] = {
                     "valid": True,
-                    "config": filter_config.dict()
+                    "config": filter_config.dict(),
                 }
-                
+
                 # Additional pattern validation
                 pattern_issues = AdvancedConfigValidator.validate_patterns(
                     filter_config.include_patterns + filter_config.exclude_patterns
@@ -1092,88 +1113,100 @@ async def validate_watch_configuration(
                 if pattern_issues:
                     validation_results["issues"].extend(pattern_issues)
                     validation_results["valid"] = False
-                
+
             except Exception as e:
-                validation_results["issues"].append(f"File filters validation failed: {e}")
+                validation_results["issues"].append(
+                    f"File filters validation failed: {e}"
+                )
                 validation_results["valid"] = False
                 validation_results["component_results"]["file_filters"] = {
                     "valid": False,
-                    "error": str(e)
+                    "error": str(e),
                 }
-        
+
         # Validate recursive configuration
         if recursive_config:
             try:
                 recursive_cfg = RecursiveConfig(**recursive_config)
                 validation_results["component_results"]["recursive_config"] = {
                     "valid": True,
-                    "config": recursive_cfg.dict()
+                    "config": recursive_cfg.dict(),
                 }
             except Exception as e:
-                validation_results["issues"].append(f"Recursive configuration validation failed: {e}")
+                validation_results["issues"].append(
+                    f"Recursive configuration validation failed: {e}"
+                )
                 validation_results["valid"] = False
                 validation_results["component_results"]["recursive_config"] = {
                     "valid": False,
-                    "error": str(e)
+                    "error": str(e),
                 }
-        
+
         # Validate performance configuration
         if performance_config:
             try:
                 perf_config = PerformanceConfig(**performance_config)
                 validation_results["component_results"]["performance_config"] = {
                     "valid": True,
-                    "config": perf_config.dict()
+                    "config": perf_config.dict(),
                 }
-                
+
                 # Check for performance warnings
-                perf_issues = AdvancedConfigValidator.validate_performance_settings(perf_config)
+                perf_issues = AdvancedConfigValidator.validate_performance_settings(
+                    perf_config
+                )
                 if perf_issues:
                     validation_results["warnings"].extend(perf_issues)
-                
+
             except Exception as e:
-                validation_results["issues"].append(f"Performance configuration validation failed: {e}")
+                validation_results["issues"].append(
+                    f"Performance configuration validation failed: {e}"
+                )
                 validation_results["valid"] = False
                 validation_results["component_results"]["performance_config"] = {
                     "valid": False,
-                    "error": str(e)
+                    "error": str(e),
                 }
-        
+
         # Validate collection configuration
         if collection_config:
             try:
                 collection_cfg = CollectionTargeting(**collection_config)
                 validation_results["component_results"]["collection_config"] = {
                     "valid": True,
-                    "config": collection_cfg.dict()
+                    "config": collection_cfg.dict(),
                 }
-                
+
                 # Validate routing rules
                 if collection_cfg.routing_rules:
-                    routing_issues = AdvancedConfigValidator.validate_collection_routing(
-                        collection_cfg.routing_rules
+                    routing_issues = (
+                        AdvancedConfigValidator.validate_collection_routing(
+                            collection_cfg.routing_rules
+                        )
                     )
                     if routing_issues:
                         validation_results["issues"].extend(routing_issues)
                         validation_results["valid"] = False
-                
+
             except Exception as e:
-                validation_results["issues"].append(f"Collection configuration validation failed: {e}")
+                validation_results["issues"].append(
+                    f"Collection configuration validation failed: {e}"
+                )
                 validation_results["valid"] = False
                 validation_results["component_results"]["collection_config"] = {
                     "valid": False,
-                    "error": str(e)
+                    "error": str(e),
                 }
-        
+
         return validation_results
-        
+
     except Exception as e:
         return {
             "valid": False,
             "issues": [f"Validation error: {str(e)}"],
             "warnings": [],
             "component_results": {},
-            "error_type": "internal_error"
+            "error_type": "internal_error",
         }
 
 
@@ -1181,13 +1214,13 @@ async def validate_watch_configuration(
 async def validate_watch_path(path: str) -> dict:
     """
     Validate a directory path for watch suitability with comprehensive checks.
-    
+
     Performs extensive validation including path existence, permissions, filesystem
     compatibility, and potential issues that might affect file watching reliability.
-    
+
     Args:
         path: Directory path to validate for watching capabilities
-        
+
     Returns:
         dict: Comprehensive validation results with detailed feedback
             {
@@ -1206,7 +1239,7 @@ async def validate_watch_path(path: str) -> dict:
                 },
                 "recommendations": [str]          # Suggested actions for issues
             }
-            
+
     Example:
         ```python
         # Validate a local directory
@@ -1214,25 +1247,25 @@ async def validate_watch_path(path: str) -> dict:
         if result["valid"]:
             logger.info("Path is suitable for watching", path="/home/user/documents")
             if result["warnings"]:
-                logger.warning("Path validation warnings", 
+                logger.warning("Path validation warnings",
                              warnings=result['warnings'],
                              warnings_count=len(result['warnings']))
         else:
-            logger.error("Path validation failed", 
+            logger.error("Path validation failed",
                         path="/home/user/documents",
                         error_message=result['error_message'])
-        
+
         # Validate a network path
         result = await validate_watch_path("//server/share/folder")
         if result["warnings"]:
-            logger.warning("Network path validation warnings", 
+            logger.warning("Network path validation warnings",
                           path="//server/share/folder",
                           warnings=result["warnings"])
         ```
     """
     try:
         from pathlib import Path
-        
+
         # Validate and resolve path
         try:
             watch_path = Path(path).resolve()
@@ -1244,53 +1277,65 @@ async def validate_watch_path(path: str) -> dict:
                 "error_message": f"Invalid path format: {e}",
                 "warnings": [],
                 "metadata": {},
-                "recommendations": ["Check path format and correct any syntax errors"]
+                "recommendations": ["Check path format and correct any syntax errors"],
             }
-        
+
         # Perform comprehensive validation
         validation_result = WatchPathValidator.validate_watch_path(watch_path)
-        
+
         # Generate recommendations based on issues found
         recommendations = []
         if not validation_result.valid:
             error_code = validation_result.error_code
-            
+
             if error_code == "PATH_NOT_EXISTS":
-                recommendations.extend([
-                    "Create the directory if it should exist",
-                    "Check if the path is mounted (for network drives)",
-                    "Verify the path spelling and structure"
-                ])
+                recommendations.extend(
+                    [
+                        "Create the directory if it should exist",
+                        "Check if the path is mounted (for network drives)",
+                        "Verify the path spelling and structure",
+                    ]
+                )
             elif error_code == "PATH_ACCESS_DENIED":
-                recommendations.extend([
-                    "Check file permissions on the directory",
-                    "Run with appropriate user privileges",
-                    "Verify directory ownership settings"
-                ])
+                recommendations.extend(
+                    [
+                        "Check file permissions on the directory",
+                        "Run with appropriate user privileges",
+                        "Verify directory ownership settings",
+                    ]
+                )
             elif error_code == "SYMLINK_BROKEN":
-                recommendations.extend([
-                    "Fix the symbolic link target",
-                    "Replace symlink with direct directory reference",
-                    "Check if symlink target is mounted"
-                ])
+                recommendations.extend(
+                    [
+                        "Fix the symbolic link target",
+                        "Replace symlink with direct directory reference",
+                        "Check if symlink target is mounted",
+                    ]
+                )
             elif error_code == "FILESYSTEM_CHECK_ERROR":
-                recommendations.extend([
-                    "Check if filesystem is properly mounted",
-                    "Verify network connectivity for remote paths",
-                    "Check disk space and filesystem health"
-                ])
-        
+                recommendations.extend(
+                    [
+                        "Check if filesystem is properly mounted",
+                        "Verify network connectivity for remote paths",
+                        "Check disk space and filesystem health",
+                    ]
+                )
+
         # Add recommendations for warnings
         for warning in validation_result.warnings:
             if "network" in warning.lower():
-                recommendations.append("Consider using a local path for better reliability")
+                recommendations.append(
+                    "Consider using a local path for better reliability"
+                )
             elif "permission" in warning.lower():
-                recommendations.append("Review and adjust directory permissions if needed")
+                recommendations.append(
+                    "Review and adjust directory permissions if needed"
+                )
             elif "disk space" in warning.lower():
                 recommendations.append("Free up disk space to prevent issues")
             elif "symlink" in warning.lower():
                 recommendations.append("Monitor symbolic link target availability")
-        
+
         return {
             "valid": validation_result.valid,
             "path": str(watch_path),
@@ -1298,9 +1343,9 @@ async def validate_watch_path(path: str) -> dict:
             "error_message": validation_result.error_message,
             "warnings": validation_result.warnings,
             "metadata": validation_result.metadata,
-            "recommendations": list(set(recommendations))  # Remove duplicates
+            "recommendations": list(set(recommendations)),  # Remove duplicates
         }
-        
+
     except Exception as e:
         return {
             "valid": False,
@@ -1309,7 +1354,7 @@ async def validate_watch_path(path: str) -> dict:
             "error_message": f"Unexpected validation error: {str(e)}",
             "warnings": [],
             "metadata": {},
-            "recommendations": ["Report this error to support"]
+            "recommendations": ["Report this error to support"],
         }
 
 
@@ -1317,30 +1362,30 @@ async def validate_watch_path(path: str) -> dict:
 async def get_watch_health_status(watch_id: str = None) -> dict:
     """
     Get health status and recovery information for folder watches.
-    
+
     Provides detailed health monitoring data including validation status,
     error recovery attempts, and system health metrics for watches.
-    
+
     Args:
         watch_id: Specific watch ID to get status for (optional, gets all if None)
-        
+
     Returns:
         dict: Health status information with monitoring and recovery data
-        
+
     Example:
         ```python
         # Get health status for all watches
         result = await get_watch_health_status()
         if result.get("health_status"):
-            logger.info("Watch health status retrieved", 
+            logger.info("Watch health status retrieved",
                        watches_count=len(result["health_status"]),
                        statuses={watch_id: health['status'] for watch_id, health in result["health_status"].items()})
-        
+
         # Get detailed status for specific watch
         result = await get_watch_health_status("my-watch")
         if result.get("health_status"):
             health = result["health_status"]
-            logger.info("Watch health details", 
+            logger.info("Watch health details",
                        watch_id="my-watch",
                        status=health['status'],
                        last_check=health['last_check'],
@@ -1349,20 +1394,24 @@ async def get_watch_health_status(watch_id: str = None) -> dict:
     """
     if not workspace_client or not watch_tools_manager:
         return {"error": "Watch management not initialized"}
-    
+
     try:
         # Get health status from health monitor
         health_status = watch_tools_manager.health_monitor.get_health_status(watch_id)
-        
+
         # Get recovery history
         recovery_history = {}
         if watch_id:
-            recovery_history[watch_id] = watch_tools_manager.error_recovery.get_recovery_history(watch_id)
+            recovery_history[watch_id] = (
+                watch_tools_manager.error_recovery.get_recovery_history(watch_id)
+            )
         else:
             # Get recovery history for all watches
             for wid in health_status.keys():
-                recovery_history[wid] = watch_tools_manager.error_recovery.get_recovery_history(wid)
-        
+                recovery_history[wid] = (
+                    watch_tools_manager.error_recovery.get_recovery_history(wid)
+                )
+
         # Calculate summary statistics
         summary = {
             "total_watches": len(health_status),
@@ -1370,9 +1419,9 @@ async def get_watch_health_status(watch_id: str = None) -> dict:
             "unhealthy_watches": 0,
             "recovering_watches": 0,
             "unknown_watches": 0,
-            "monitoring_active": watch_tools_manager.health_monitor.is_monitoring()
+            "monitoring_active": watch_tools_manager.health_monitor.is_monitoring(),
         }
-        
+
         for health_info in health_status.values():
             status = health_info.get("status", "unknown")
             if status == "healthy":
@@ -1383,7 +1432,7 @@ async def get_watch_health_status(watch_id: str = None) -> dict:
                 summary["recovering_watches"] += 1
             else:
                 summary["unknown_watches"] += 1
-        
+
         return {
             "success": True,
             "health_status": health_status,
@@ -1391,16 +1440,16 @@ async def get_watch_health_status(watch_id: str = None) -> dict:
             "summary": summary,
             "monitoring_info": {
                 "active": summary["monitoring_active"],
-                "interval_seconds": watch_tools_manager.health_monitor.monitoring_interval
-            }
+                "interval_seconds": watch_tools_manager.health_monitor.monitoring_interval,
+            },
         }
-        
+
     except Exception as e:
         logger.error(f"Failed to get watch health status: {e}")
         return {
             "success": False,
             "error": f"Unexpected error: {str(e)}",
-            "error_type": "internal_error"
+            "error_type": "internal_error",
         }
 
 
@@ -1408,84 +1457,89 @@ async def get_watch_health_status(watch_id: str = None) -> dict:
 async def trigger_watch_recovery(watch_id: str, error_type: str = None) -> dict:
     """
     Manually trigger error recovery for a specific watch.
-    
+
     Initiates recovery procedures for watches experiencing issues,
     useful for troubleshooting and manual intervention scenarios.
-    
+
     Args:
         watch_id: Unique identifier of the watch to recover
         error_type: Specific error type to recover from (optional, auto-detected if None)
-        
+
     Returns:
         dict: Recovery attempt results with success status and details
-        
+
     Example:
         ```python
         # Trigger automatic recovery
         result = await trigger_watch_recovery("my-watch")
         if result["success"]:
-            logger.info("Watch recovery successful", 
+            logger.info("Watch recovery successful",
                        watch_id="my-watch",
                        details=result['details'])
-        
+
         # Trigger recovery for specific error type
         result = await trigger_watch_recovery(
-            "network-watch", 
+            "network-watch",
             error_type="NETWORK_PATH_UNAVAILABLE"
         )
         ```
     """
     if not workspace_client or not watch_tools_manager:
         return {"error": "Watch management not initialized"}
-    
+
     try:
         # Get watch configuration to find path
-        watch_config = await watch_tools_manager.config_manager.get_watch_config(watch_id)
+        watch_config = await watch_tools_manager.config_manager.get_watch_config(
+            watch_id
+        )
         if not watch_config:
             return {
                 "success": False,
                 "error": f"Watch not found: {watch_id}",
-                "error_type": "watch_not_found"
+                "error_type": "watch_not_found",
             }
-        
+
         # Determine error type if not provided
         if not error_type:
             # Validate path to detect current issues
             from pathlib import Path
+
             path = Path(watch_config.path)
             validation_result = WatchPathValidator.validate_watch_path(path)
-            
+
             if not validation_result.valid:
                 error_type = validation_result.error_code
             else:
                 error_type = "GENERAL_RECOVERY"  # Generic recovery attempt
-        
+
         # Attempt recovery
         success, details = await watch_tools_manager.error_recovery.attempt_recovery(
             watch_id=watch_id,
             error_type=error_type,
             path=Path(watch_config.path),
-            error_details="Manual recovery triggered"
+            error_details="Manual recovery triggered",
         )
-        
+
         # Get updated recovery history
-        recovery_history = watch_tools_manager.error_recovery.get_recovery_history(watch_id)
-        
+        recovery_history = watch_tools_manager.error_recovery.get_recovery_history(
+            watch_id
+        )
+
         return {
             "success": success,
             "watch_id": watch_id,
             "error_type": error_type,
             "details": details,
             "recovery_history": recovery_history,
-            "message": f"Recovery {'succeeded' if success else 'failed'} for watch {watch_id}"
+            "message": f"Recovery {'succeeded' if success else 'failed'} for watch {watch_id}",
         }
-        
+
     except Exception as e:
         logger.error(f"Failed to trigger watch recovery: {e}")
         return {
             "success": False,
             "error": f"Unexpected error: {str(e)}",
-            "error_type": "internal_error"
+            "error_type": "internal_error",
         }
 
 
@@ -1493,57 +1547,68 @@ async def trigger_watch_recovery(watch_id: str, error_type: str = None) -> dict:
 async def get_watch_sync_status() -> dict:
     """
     Get watch configuration synchronization status and event history.
-    
+
     Provides information about configuration synchronization, file locking status,
     and recent configuration change events for monitoring and debugging.
-    
+
     Returns:
         dict: Synchronization status with event history and locking information
-        
+
     Example:
         ```python
         # Get sync status
         result = await get_watch_sync_status()
-        logger.info("Watch sync status retrieved", 
+        logger.info("Watch sync status retrieved",
                    config_file=result['config_file'],
                    recent_changes_count=len(result['recent_events']))
-        
+
         # Check for recent configuration changes
         recent_events = result['recent_events'][:5]
         if recent_events:
-            logger.info("Recent configuration changes", 
+            logger.info("Recent configuration changes",
                        events_count=len(recent_events),
                        recent_events=[f"{event['timestamp']}: {event['event_type']} {event['watch_id']}" for event in recent_events])
         ```
     """
     if not workspace_client or not watch_tools_manager:
         return {"error": "Watch management not initialized"}
-    
+
     try:
         # Get basic sync information
         config_file_path = watch_tools_manager.config_manager.get_config_file_path()
-        
+
         # Get recent change events
         recent_events = watch_tools_manager.config_manager.get_change_history(limit=50)
-        
+
         # Get event statistics
         event_stats = {
             "total_events": len(recent_events),
             "events_by_type": {},
             "events_by_source": {},
-            "recent_activity": len([e for e in recent_events if 
-                                   (datetime.now(timezone.utc) - 
-                                    datetime.fromisoformat(e['timestamp'].replace('Z', '+00:00'))
-                                   ).total_seconds() < 3600])  # Last hour
+            "recent_activity": len(
+                [
+                    e
+                    for e in recent_events
+                    if (
+                        datetime.now(timezone.utc)
+                        - datetime.fromisoformat(e["timestamp"].replace("Z", "+00:00"))
+                    ).total_seconds()
+                    < 3600
+                ]
+            ),  # Last hour
         }
-        
+
         for event in recent_events:
-            event_type = event['event_type']
-            source = event.get('source', 'unknown')
-            
-            event_stats['events_by_type'][event_type] = event_stats['events_by_type'].get(event_type, 0) + 1
-            event_stats['events_by_source'][source] = event_stats['events_by_source'].get(source, 0) + 1
-        
+            event_type = event["event_type"]
+            source = event.get("source", "unknown")
+
+            event_stats["events_by_type"][event_type] = (
+                event_stats["events_by_type"].get(event_type, 0) + 1
+            )
+            event_stats["events_by_source"][source] = (
+                event_stats["events_by_source"].get(source, 0) + 1
+            )
+
         return {
             "success": True,
             "config_file": str(config_file_path),
@@ -1553,16 +1618,16 @@ async def get_watch_sync_status() -> dict:
             "synchronization": {
                 "cache_enabled": True,
                 "event_notifications_active": watch_tools_manager.config_manager.event_notifier._running,
-                "file_locking_enabled": True
-            }
+                "file_locking_enabled": True,
+            },
         }
-        
+
     except Exception as e:
         logger.error(f"Failed to get sync status: {e}")
         return {
             "success": False,
             "error": f"Unexpected error: {str(e)}",
-            "error_type": "internal_error"
+            "error_type": "internal_error",
         }
 
 
@@ -1570,13 +1635,13 @@ async def get_watch_sync_status() -> dict:
 async def force_watch_sync() -> dict:
     """
     Force synchronization of watch configuration and refresh all cached data.
-    
+
     Useful for ensuring consistency after external configuration changes
     or when debugging synchronization issues.
-    
+
     Returns:
         dict: Synchronization result with updated configuration information
-        
+
     Example:
         ```python
         # Force sync after external changes
@@ -1589,30 +1654,30 @@ async def force_watch_sync() -> dict:
     """
     if not workspace_client or not watch_tools_manager:
         return {"error": "Watch management not initialized"}
-    
+
     try:
         # Force synchronization
         await watch_tools_manager.config_manager.force_sync()
-        
+
         # Get updated configuration
         configs = await watch_tools_manager.config_manager.list_watch_configs()
-        
+
         # Get sync timestamp
         sync_timestamp = datetime.now(timezone.utc).isoformat()
-        
+
         return {
             "success": True,
             "watches_count": len(configs),
             "sync_timestamp": sync_timestamp,
-            "message": "Watch configuration synchronized successfully"
+            "message": "Watch configuration synchronized successfully",
         }
-        
+
     except Exception as e:
         logger.error(f"Failed to force sync: {e}")
         return {
             "success": False,
             "error": f"Unexpected error: {str(e)}",
-            "error_type": "internal_error"
+            "error_type": "internal_error",
         }
 
 
@@ -1620,89 +1685,109 @@ async def force_watch_sync() -> dict:
 async def get_watch_change_history(watch_id: str = None, limit: int = 20) -> dict:
     """
     Get detailed configuration change history for watches.
-    
+
     Provides comprehensive audit trail of configuration changes including
     timestamps, sources, and before/after states for debugging and monitoring.
-    
+
     Args:
         watch_id: Specific watch ID to get history for (optional, gets all if None)
         limit: Maximum number of events to return (default: 20, max: 200)
-        
+
     Returns:
         dict: Change history with detailed event information
-        
+
     Example:
         ```python
         # Get recent changes for all watches
         result = await get_watch_change_history(limit=10)
         if result.get("events"):
-            logger.info("Watch change history retrieved", 
+            logger.info("Watch change history retrieved",
                        events_count=len(result["events"]),
                        recent_changes=[f"{event['timestamp']}: {event['event_type']} - {event['watch_id']}" for event in result["events"]])
-        
+
         # Get full history for specific watch
         result = await get_watch_change_history("my-watch", limit=50)
-        logger.info("Watch history retrieved", 
+        logger.info("Watch history retrieved",
                    watch_id="my-watch",
                    changes_count=len(result.get('events', [])))
         ```
     """
     if not workspace_client or not watch_tools_manager:
         return {"error": "Watch management not initialized"}
-    
+
     try:
         # Validate limit
         limit = max(1, min(limit, 200))  # Between 1 and 200
-        
+
         # Get change history
         events = watch_tools_manager.config_manager.get_change_history(watch_id, limit)
-        
+
         # Enrich events with additional information
         enriched_events = []
         for event in events:
             enriched_event = event.copy()
-            
+
             # Add human-readable timestamps
-            timestamp_dt = datetime.fromisoformat(event['timestamp'].replace('Z', '+00:00'))
-            enriched_event['human_timestamp'] = timestamp_dt.strftime('%Y-%m-%d %H:%M:%S UTC')
-            enriched_event['time_ago'] = _format_time_ago(timestamp_dt)
-            
+            timestamp_dt = datetime.fromisoformat(
+                event["timestamp"].replace("Z", "+00:00")
+            )
+            enriched_event["human_timestamp"] = timestamp_dt.strftime(
+                "%Y-%m-%d %H:%M:%S UTC"
+            )
+            enriched_event["time_ago"] = _format_time_ago(timestamp_dt)
+
             # Add change summary
-            if event['event_type'] == 'modified' and event.get('old_config') and event.get('new_config'):
-                changes = _detect_config_changes(event['old_config'], event['new_config'])
-                enriched_event['changes_summary'] = changes
-            
+            if (
+                event["event_type"] == "modified"
+                and event.get("old_config")
+                and event.get("new_config")
+            ):
+                changes = _detect_config_changes(
+                    event["old_config"], event["new_config"]
+                )
+                enriched_event["changes_summary"] = changes
+
             enriched_events.append(enriched_event)
-        
+
         # Generate statistics
         stats = {
             "total_events": len(enriched_events),
             "events_by_type": {},
             "events_by_source": {},
-            "time_range": {}
+            "time_range": {},
         }
-        
+
         if enriched_events:
             # Count by type and source
             for event in enriched_events:
-                event_type = event['event_type']
-                source = event.get('source', 'unknown')
-                
-                stats['events_by_type'][event_type] = stats['events_by_type'].get(event_type, 0) + 1
-                stats['events_by_source'][source] = stats['events_by_source'].get(source, 0) + 1
-            
+                event_type = event["event_type"]
+                source = event.get("source", "unknown")
+
+                stats["events_by_type"][event_type] = (
+                    stats["events_by_type"].get(event_type, 0) + 1
+                )
+                stats["events_by_source"][source] = (
+                    stats["events_by_source"].get(source, 0) + 1
+                )
+
             # Time range
             first_event = enriched_events[-1]  # Oldest (events are reversed)
-            last_event = enriched_events[0]    # Newest
-            
-            stats['time_range'] = {
-                "first_event": first_event['timestamp'],
-                "last_event": last_event['timestamp'],
-                "span_hours": (datetime.fromisoformat(last_event['timestamp'].replace('Z', '+00:00')) - 
-                              datetime.fromisoformat(first_event['timestamp'].replace('Z', '+00:00'))
-                             ).total_seconds() / 3600
+            last_event = enriched_events[0]  # Newest
+
+            stats["time_range"] = {
+                "first_event": first_event["timestamp"],
+                "last_event": last_event["timestamp"],
+                "span_hours": (
+                    datetime.fromisoformat(
+                        last_event["timestamp"].replace("Z", "+00:00")
+                    )
+                    - datetime.fromisoformat(
+                        first_event["timestamp"].replace("Z", "+00:00")
+                    )
+                ).total_seconds()
+                / 3600,
             }
-        
+
         return {
             "success": True,
             "watch_id": watch_id,
@@ -1711,33 +1796,31 @@ async def get_watch_change_history(watch_id: str = None, limit: int = 20) -> dic
             "query_info": {
                 "limit_requested": limit,
                 "limit_applied": limit,
-                "filtered_by_watch": watch_id is not None
-            }
+                "filtered_by_watch": watch_id is not None,
+            },
         }
-        
+
     except Exception as e:
         logger.error(f"Failed to get change history: {e}")
         return {
             "success": False,
             "error": f"Unexpected error: {str(e)}",
-            "error_type": "internal_error"
+            "error_type": "internal_error",
         }
 
 
 @app.tool()
 async def test_grpc_connection_tool(
-    host: str = "127.0.0.1",
-    port: int = 50051,
-    timeout: float = 10.0
+    host: str = "127.0.0.1", port: int = 50051, timeout: float = 10.0
 ) -> dict:
     """
     Test gRPC connection to the Rust ingestion engine.
-    
+
     Args:
         host: gRPC server host address
         port: gRPC server port
         timeout: Connection timeout in seconds
-        
+
     Returns:
         Dict with connection test results including health status and performance metrics
     """
@@ -1750,22 +1833,24 @@ async def get_grpc_engine_stats_tool(
     port: int = 50051,
     include_collections: bool = True,
     include_watches: bool = True,
-    timeout: float = 15.0
+    timeout: float = 15.0,
 ) -> dict:
     """
     Get comprehensive statistics from the Rust ingestion engine.
-    
+
     Args:
         host: gRPC server host address
         port: gRPC server port
         include_collections: Include collection statistics in results
         include_watches: Include file watch statistics in results
         timeout: Request timeout in seconds
-        
+
     Returns:
         Dict with engine statistics or error information
     """
-    return await get_grpc_engine_stats(host, port, include_collections, include_watches, timeout)
+    return await get_grpc_engine_stats(
+        host, port, include_collections, include_watches, timeout
+    )
 
 
 @app.tool()
@@ -1777,14 +1862,14 @@ async def process_document_via_grpc_tool(
     metadata: dict = None,
     document_id: str = None,
     chunk_text: bool = True,
-    timeout: float = 60.0
+    timeout: float = 60.0,
 ) -> dict:
     """
     Process a document directly via gRPC bypassing hybrid client.
-    
+
     Useful for testing gRPC functionality or when specifically wanting
     to use the Rust engine for document processing.
-    
+
     Args:
         file_path: Path to document file to process
         collection: Target collection name
@@ -1794,7 +1879,7 @@ async def process_document_via_grpc_tool(
         document_id: Optional custom document identifier
         chunk_text: Whether to chunk large documents
         timeout: Processing timeout in seconds
-        
+
     Returns:
         Dict with processing results from the Rust engine
     """
@@ -1806,32 +1891,28 @@ async def process_document_via_grpc_tool(
 @app.tool()
 async def get_error_stats_tool() -> dict:
     """Get comprehensive error statistics and circuit breaker status.
-    
+
     Returns detailed error monitoring data including:
     - Total error counts by category and severity
     - Retry success/failure rates
     - Circuit breaker states and failure counts
     - Performance metrics for error recovery
-    
+
     Returns:
         dict: Comprehensive error statistics and monitoring data
     """
     try:
         async with error_context("get_error_stats"):
             stats = get_error_stats()
-            logger.info("Error statistics retrieved", 
-                       total_errors=stats.get("total_errors", 0),
-                       recovery_successes=stats.get("recovery_successes", 0))
-            return {
-                "success": True,
-                **stats
-            }
+            logger.info(
+                "Error statistics retrieved",
+                total_errors=stats.get("total_errors", 0),
+                recovery_successes=stats.get("recovery_successes", 0),
+            )
+            return {"success": True, **stats}
     except Exception as e:
         logger.error("Failed to retrieve error statistics", error=str(e), exc_info=e)
-        return {
-            "success": False,
-            "error": f"Failed to retrieve error statistics: {e}"
-        }
+        return {"success": False, "error": f"Failed to retrieve error statistics: {e}"}
 
 
 @app.tool()
@@ -1843,11 +1924,11 @@ async def search_via_grpc_tool(
     mode: str = "hybrid",
     limit: int = 10,
     score_threshold: float = 0.7,
-    timeout: float = 30.0
+    timeout: float = 30.0,
 ) -> dict:
     """
     Execute search directly via gRPC bypassing hybrid client.
-    
+
     Args:
         query: Search query text
         collections: Optional list of collections to search
@@ -1857,7 +1938,7 @@ async def search_via_grpc_tool(
         limit: Maximum number of results to return
         score_threshold: Minimum relevance score threshold
         timeout: Search timeout in seconds
-        
+
     Returns:
         Dict with search results from the Rust engine
     """
@@ -1870,9 +1951,9 @@ def _format_time_ago(timestamp_dt: datetime) -> str:
     """Format timestamp as human-readable time ago."""
     now = datetime.now(timezone.utc)
     diff = now - timestamp_dt
-    
+
     seconds = diff.total_seconds()
-    
+
     if seconds < 60:
         return f"{int(seconds)} seconds ago"
     elif seconds < 3600:
@@ -1886,24 +1967,29 @@ def _format_time_ago(timestamp_dt: datetime) -> str:
 def _detect_config_changes(old_config: dict, new_config: dict) -> List[str]:
     """Detect and summarize configuration changes."""
     changes = []
-    
+
     # Check common fields that might change
     fields_to_check = [
-        'status', 'patterns', 'ignore_patterns', 'auto_ingest', 
-        'recursive', 'debounce_seconds', 'collection'
+        "status",
+        "patterns",
+        "ignore_patterns",
+        "auto_ingest",
+        "recursive",
+        "debounce_seconds",
+        "collection",
     ]
-    
+
     for field in fields_to_check:
         old_val = old_config.get(field)
         new_val = new_config.get(field)
-        
+
         if old_val != new_val:
             if isinstance(old_val, list) and isinstance(new_val, list):
                 if set(old_val) != set(new_val):
                     changes.append(f"{field}: {len(old_val)} -> {len(new_val)} items")
             else:
                 changes.append(f"{field}: {old_val} -> {new_val}")
-    
+
     return changes
 
 
@@ -1911,20 +1997,20 @@ async def cleanup_workspace() -> None:
     """Clean up workspace resources on server shutdown.
 
     Ensures proper cleanup of database connections, embedding models,
-    observability systems, daemon processes, and any other resources 
+    observability systems, daemon processes, and any other resources
     to prevent memory leaks and hanging connections.
     """
     global workspace_client, watch_tools_manager, auto_ingestion_manager
-    
+
     logger.info("Starting graceful shutdown and cleanup")
-    
+
     # Stop background health monitoring
     try:
         health_checker_instance.stop_background_monitoring()
         logger.debug("Health monitoring stopped")
     except Exception as e:
         logger.error("Error stopping health monitoring", error=str(e))
-    
+
     # Clean up watch tools manager first
     if watch_tools_manager:
         try:
@@ -1932,7 +2018,7 @@ async def cleanup_workspace() -> None:
             logger.info("Watch tools manager cleaned up successfully")
         except Exception as e:
             logger.error("Error during watch cleanup", error=str(e))
-    
+
     # Clean up workspace client
     if workspace_client:
         try:
@@ -1940,25 +2026,28 @@ async def cleanup_workspace() -> None:
             logger.info("Workspace client cleaned up successfully")
         except Exception as e:
             logger.error("Error during workspace cleanup", error=str(e))
-    
+
     # Clean up daemon manager and all running daemons
     try:
         from .core.daemon_manager import shutdown_all_daemons
+
         await shutdown_all_daemons()
         logger.info("All daemons shut down successfully")
     except Exception as e:
         logger.error("Error during daemon cleanup", error=str(e))
-    
+
     # Final metrics export
     try:
         metrics_summary = metrics_instance.get_metrics_summary()
-        logger.info("Final metrics summary",
-                   counters=len(metrics_summary.get("counters", {})),
-                   gauges=len(metrics_summary.get("gauges", {})),
-                   histograms=len(metrics_summary.get("histograms", {})))
+        logger.info(
+            "Final metrics summary",
+            counters=len(metrics_summary.get("counters", {})),
+            gauges=len(metrics_summary.get("gauges", {})),
+            histograms=len(metrics_summary.get("histograms", {})),
+        )
     except Exception as e:
         logger.error("Error generating final metrics", error=str(e))
-    
+
     logger.info("Graceful shutdown completed")
 
 
@@ -1972,10 +2061,10 @@ def setup_signal_handlers() -> None:
 
     def signal_handler(signum, frame):
         logger.info("Received signal %s, initiating graceful shutdown...", signum)
-        
+
         # Create list of cleanup functions
         cleanup_functions = [cleanup_workspace]
-        
+
         # Use safe shutdown instead of direct cleanup
         try:
             loop = asyncio.get_event_loop()
@@ -1987,6 +2076,7 @@ def setup_signal_handlers() -> None:
             logger.error("Error during signal cleanup", error=str(e), exc_info=e)
             # Fallback to direct sys.exit if safe_shutdown fails
             import sys
+
             sys.exit(1)
 
     # Register signal handlers
@@ -1995,7 +2085,9 @@ def setup_signal_handlers() -> None:
 
     # Register atexit cleanup as backup
     atexit.register(
-        lambda: asyncio.run(safe_shutdown([cleanup_workspace], timeout_seconds=10.0)) if workspace_client else None
+        lambda: asyncio.run(safe_shutdown([cleanup_workspace], timeout_seconds=10.0))
+        if workspace_client
+        else None
     )
 
 
@@ -2030,98 +2122,114 @@ async def initialize_workspace(config_file: Optional[str] = None) -> None:
         ```
     """
     global workspace_client, watch_tools_manager
-    
+
     logger.info("Starting workspace initialization")
 
     # Load configuration using new YAML-first system
     logger.debug("Loading configuration", config_file=config_file)
     try:
         config = load_config(config_file)
-        logger.info("Configuration loaded successfully", 
-                   config_source="YAML file" if config_file else "hierarchy",
-                   config_file=config_file)
+        logger.info(
+            "Configuration loaded successfully",
+            config_source="YAML file" if config_file else "hierarchy",
+            config_file=config_file,
+        )
     except Exception as e:
-        logger.error("Failed to load configuration", config_file=config_file, error=str(e))
+        logger.error(
+            "Failed to load configuration", config_file=config_file, error=str(e)
+        )
         raise RuntimeError(f"Configuration loading failed: {e}") from e
 
     # Configuration is already validated by the YAML loader with JSON schema
     logger.info("Configuration validation completed successfully")
 
     # Initialize workspace client with new YAML configuration
-    logger.info("Initializing workspace client with daemon communication", 
-               qdrant_url=config.qdrant.url,
-               daemon_address=f"{config.daemon.grpc.host}:{config.daemon.grpc.port}")
-    
+    logger.info(
+        "Initializing workspace client with daemon communication",
+        qdrant_url=config.qdrant.url,
+        daemon_address=f"{config.daemon.grpc.host}:{config.daemon.grpc.port}",
+    )
+
     import os
 
     from .utils.project_detection import ProjectDetector
-    
+
     # Detect project information for workspace context
     project_path = os.getcwd()
     project_detector = ProjectDetector()
     project_info = project_detector.get_project_info(project_path)
     project_name = project_info.get("main_project", "default")
-    
-    logger.debug("Detected project for workspace context", 
-                project_name=project_name,
-                project_path=project_path)
-    
+
+    logger.debug(
+        "Detected project for workspace context",
+        project_name=project_name,
+        project_path=project_path,
+    )
+
     # Create workspace client (will use direct Qdrant until daemon is ready)
     workspace_client = QdrantWorkspaceClient(
         qdrant_url=config.qdrant.url,
         api_key=config.qdrant.api_key,
         timeout_seconds=config.qdrant.timeout_seconds,
         project_name=project_name,
-        project_path=project_path
+        project_path=project_path,
     )
 
     # Initialize collections for current project
     logger.debug("Initializing workspace collections")
     await workspace_client.initialize()
-    
+
     # Log workspace status after initialization
     status = await workspace_client.get_status()
-    logger.info("Workspace client initialized successfully",
-               connected=status.get("connected", False),
-               project=status.get("current_project"),
-               collections_count=status.get("collections_count", 0),
-               operation_mode=getattr(workspace_client, 'get_operation_mode', lambda: 'direct')())
+    logger.info(
+        "Workspace client initialized successfully",
+        connected=status.get("connected", False),
+        project=status.get("current_project"),
+        collections_count=status.get("collections_count", 0),
+        operation_mode=getattr(
+            workspace_client, "get_operation_mode", lambda: "direct"
+        )(),
+    )
 
     # Initialize watch tools manager
     logger.debug("Initializing watch tools manager")
     watch_tools_manager = WatchToolsManager(workspace_client)
-    
+
     # Initialize persistent watch system and recover state
     try:
         init_result = await watch_tools_manager.initialize()
         logger.info("Watch tools manager initialized", result=init_result)
     except Exception as e:
-        logger.error("Failed to initialize watch tools manager", error=str(e), exc_info=True)
-    
+        logger.error(
+            "Failed to initialize watch tools manager", error=str(e), exc_info=True
+        )
+
     # Initialize automatic file ingestion system
     logger.debug("Setting up automatic file ingestion")
     try:
         auto_ingestion_manager = AutoIngestionManager(
-            workspace_client, 
-            watch_tools_manager, 
-            config.auto_ingestion
+            workspace_client, watch_tools_manager, config.auto_ingestion
         )
-        
+
         if config.auto_ingestion.enabled:
             ingestion_result = await auto_ingestion_manager.setup_project_watches()
             if ingestion_result.get("success"):
                 watches_created = len(ingestion_result.get("watches_created", []))
-                bulk_summary = ingestion_result.get("bulk_ingestion", {}).get("summary", {})
+                bulk_summary = ingestion_result.get("bulk_ingestion", {}).get(
+                    "summary", {}
+                )
                 files_processed = bulk_summary.get("processed_files", 0)
-                
+
                 logger.info(
                     "Automatic file ingestion setup completed successfully",
-                    project=ingestion_result.get("project_info", {}).get("main_project"),
+                    project=ingestion_result.get("project_info", {}).get(
+                        "main_project"
+                    ),
                     watches_created=watches_created,
                     files_processed=files_processed,
-                    primary_collection=ingestion_result.get("primary_collection")
+                    primary_collection=ingestion_result.get("primary_collection"),
                 )
-                
+
                 # Log bulk ingestion summary if files were processed
                 if files_processed > 0:
                     success_rate = bulk_summary.get("success_rate", 0) * 100
@@ -2133,23 +2241,25 @@ async def initialize_workspace(config_file: Optional[str] = None) -> None:
                 logger.warning(
                     "Automatic file ingestion setup failed",
                     error=ingestion_result.get("error"),
-                    watches_created=len(ingestion_result.get("watches_created", []))
+                    watches_created=len(ingestion_result.get("watches_created", [])),
                 )
         else:
             logger.info("Automatic file ingestion disabled by configuration")
-            
+
     except Exception as e:
-        logger.error("Failed to initialize automatic file ingestion", error=str(e), exc_info=True)
+        logger.error(
+            "Failed to initialize automatic file ingestion", error=str(e), exc_info=True
+        )
         # Don't fail server startup if auto-ingestion fails
-    
+
     # Register memory tools with the MCP app
     logger.debug("Registering memory tools")
     register_memory_tools(app)
-    
+
     # Start background health monitoring
     logger.debug("Starting background health monitoring")
     health_checker_instance.start_background_monitoring(interval=60.0)  # Every minute
-    
+
     logger.info("Workspace initialization completed successfully")
 
 
@@ -2161,7 +2271,9 @@ def run_server(
         "127.0.0.1", help="Host to bind to (for HTTP transports only)"
     ),
     port: int = typer.Option(8000, help="Port to bind to (for HTTP transports only)"),
-    config: str | None = typer.Option(None, "--config", help="Path to YAML configuration file"),
+    config: str | None = typer.Option(
+        None, "--config", help="Path to YAML configuration file"
+    ),
 ) -> None:
     """Start the workspace-qdrant-mcp MCP server.
 
@@ -2195,19 +2307,19 @@ def run_server(
 
     # Store configuration file path for later use
     config_file_path = config
-    
+
     # Configure logging early
     configure_logging(
-        level=os.getenv("LOG_LEVEL", "INFO"),
-        json_format=True,
-        console_output=True
+        level=os.getenv("LOG_LEVEL", "INFO"), json_format=True, console_output=True
     )
-    
-    logger.info("Starting workspace-qdrant-mcp server",
-               transport=transport,
-               host=host if transport != "stdio" else None,
-               port=port if transport != "stdio" else None,
-               config_file=config)
+
+    logger.info(
+        "Starting workspace-qdrant-mcp server",
+        transport=transport,
+        host=host if transport != "stdio" else None,
+        port=port if transport != "stdio" else None,
+        config_file=config,
+    )
 
     # Set up signal handlers for graceful shutdown
     setup_signal_handlers()
@@ -2223,14 +2335,16 @@ def run_server(
     else:
         # HTTP-based transport for web clients
         logger.info("Starting MCP server with HTTP transport", host=host, port=port)
-        
+
         # Add observability routes for HTTP mode
-        if hasattr(app, '_fastapi_app'):
+        if hasattr(app, "_fastapi_app"):
             add_observability_routes(app._fastapi_app)
             setup_observability_middleware(app._fastapi_app)
-            logger.info("Observability endpoints enabled", 
-                       endpoints=["/health", "/health/detailed", "/metrics", "/diagnostics"])
-        
+            logger.info(
+                "Observability endpoints enabled",
+                endpoints=["/health", "/health/detailed", "/metrics", "/diagnostics"],
+            )
+
         app.run(transport=transport, host=host, port=port)
 
 

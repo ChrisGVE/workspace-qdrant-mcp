@@ -1,4 +1,3 @@
-
 """File watching CLI commands.
 
 This module provides management for library folder watching,
@@ -42,7 +41,7 @@ Examples:
     wqm watch remove ~/docs             # Stop watching folder
     wqm watch status                    # Show watch service status
     wqm watch enable --name=docs-watch  # Enable specific watch""",
-    no_args_is_help=True
+    no_args_is_help=True,
 )
 
 
@@ -59,59 +58,83 @@ async def _get_watch_service() -> WatchService:
 @watch_app.command("add")
 def add_watch(
     path: str = typer.Argument(..., help="Path to watch"),
-    collection: str = typer.Option(..., "--collection", "-c", help="Target collection (must start with _)"),
+    collection: str = typer.Option(
+        ..., "--collection", "-c", help="Target collection (must start with _)"
+    ),
     patterns: list[str] | None = typer.Option(
         None,
-        "--pattern", "-p",
-        help="File patterns to watch (default: *.pdf, *.epub, *.txt, *.md)"
+        "--pattern",
+        "-p",
+        help="File patterns to watch (default: *.pdf, *.epub, *.txt, *.md)",
     ),
     ignore: list[str] | None = typer.Option(
         None,
-        "--ignore", "-i",
-        help="Ignore patterns (default: .git/*, node_modules/*, __pycache__/*, .DS_Store)"
+        "--ignore",
+        "-i",
+        help="Ignore patterns (default: .git/*, node_modules/*, __pycache__/*, .DS_Store)",
     ),
-    auto_ingest: bool = typer.Option(True, "--auto/--no-auto", help="Enable automatic ingestion"),
-    recursive: bool = typer.Option(True, "--recursive/--no-recursive", help="Watch subdirectories"),
+    auto_ingest: bool = typer.Option(
+        True, "--auto/--no-auto", help="Enable automatic ingestion"
+    ),
+    recursive: bool = typer.Option(
+        True, "--recursive/--no-recursive", help="Watch subdirectories"
+    ),
     debounce: int = typer.Option(5, "--debounce", help="Debounce time in seconds"),
 ):
-    """ Add a folder to watch for automatic ingestion."""
-    handle_async(_add_watch(path, collection, patterns, ignore, auto_ingest, recursive, debounce))
+    """Add a folder to watch for automatic ingestion."""
+    handle_async(
+        _add_watch(path, collection, patterns, ignore, auto_ingest, recursive, debounce)
+    )
 
 
 @watch_app.command("list")
 def list_watches(
-    active_only: bool = typer.Option(False, "--active", help="Show only active watches"),
-    collection: str | None = typer.Option(None, "--collection", "-c", help="Filter by collection"),
-    format: str = typer.Option("table", "--format", "-f", help="Output format: table, json"),
+    active_only: bool = typer.Option(
+        False, "--active", help="Show only active watches"
+    ),
+    collection: str | None = typer.Option(
+        None, "--collection", "-c", help="Filter by collection"
+    ),
+    format: str = typer.Option(
+        "table", "--format", "-f", help="Output format: table, json"
+    ),
 ):
-    """ Show all active watches."""
+    """Show all active watches."""
     handle_async(_list_watches(active_only, collection, format))
 
 
 @watch_app.command("remove")
 def remove_watch(
     path: str | None = typer.Argument(None, help="Path to stop watching (or watch ID)"),
-    collection: str | None = typer.Option(None, "--collection", "-c", help="Remove all watches for collection"),
+    collection: str | None = typer.Option(
+        None, "--collection", "-c", help="Remove all watches for collection"
+    ),
     all: bool = typer.Option(False, "--all", help="Remove all watches"),
     force: bool = typer.Option(False, "--force", "-f", help="Skip confirmation"),
 ):
-    """ Stop watching folder."""
+    """Stop watching folder."""
     handle_async(_remove_watch(path, collection, all, force))
 
 
 @watch_app.command("status")
 def watch_status(
-    detailed: bool = typer.Option(False, "--detailed", "-d", help="Show detailed statistics"),
+    detailed: bool = typer.Option(
+        False, "--detailed", "-d", help="Show detailed statistics"
+    ),
     recent: bool = typer.Option(False, "--recent", help="Show recent activity"),
 ):
-    """ Watch activity and statistics."""
+    """Watch activity and statistics."""
     handle_async(_watch_status(detailed, recent))
 
 
 @watch_app.command("pause")
 def pause_watches(
-    path: str | None = typer.Argument(None, help="Specific path to pause (or watch ID)"),
-    collection: str | None = typer.Option(None, "--collection", "-c", help="Pause all watches for collection"),
+    path: str | None = typer.Argument(
+        None, help="Specific path to pause (or watch ID)"
+    ),
+    collection: str | None = typer.Option(
+        None, "--collection", "-c", help="Pause all watches for collection"
+    ),
     all: bool = typer.Option(False, "--all", help="Pause all watches"),
 ):
     """Pause all or specific watches."""
@@ -120,8 +143,12 @@ def pause_watches(
 
 @watch_app.command("resume")
 def resume_watches(
-    path: str | None = typer.Argument(None, help="Specific path to resume (or watch ID)"),
-    collection: str | None = typer.Option(None, "--collection", "-c", help="Resume all watches for collection"),
+    path: str | None = typer.Argument(
+        None, help="Specific path to resume (or watch ID)"
+    ),
+    collection: str | None = typer.Option(
+        None, "--collection", "-c", help="Resume all watches for collection"
+    ),
     all: bool = typer.Option(False, "--all", help="Resume all watches"),
 ):
     """Resume paused watches."""
@@ -146,7 +173,7 @@ async def _add_watch(
     ignore: list[str] | None,
     auto_ingest: bool,
     recursive: bool,
-    debounce: int
+    debounce: int,
 ):
     """Add a folder watch configuration."""
     try:
@@ -228,20 +255,32 @@ async def _list_watches(active_only: bool, collection: str | None, format: str):
 
         # Get status information
         status_data = await service.get_watch_status()
-        watches_status = status_data['watches']
+        watches_status = status_data["watches"]
 
         print(f"Watch Configurations ({len(watches)} found)\n")
 
         # Show summary table in plain text format
         if watches_status:
-            print(f"{'ID':<10} {'Path':<30} {'Collection':<20} {'Status':<15} {'Files'}")
+            print(
+                f"{'ID':<10} {'Path':<30} {'Collection':<20} {'Status':<15} {'Files'}"
+            )
             print("-" * 85)
             for watch_id, watch_info in watches_status.items():
-                status = "Running" if watch_info.get('active', False) else "Stopped"
-                files_count = watch_info.get('files_count', 0)
-                path = str(watch_info.get('path', ''))[:28] + '...' if len(str(watch_info.get('path', ''))) > 30 else str(watch_info.get('path', ''))
-                collection = str(watch_info.get('collection', ''))[:18] + '...' if len(str(watch_info.get('collection', ''))) > 20 else str(watch_info.get('collection', ''))
-                print(f"{watch_id:<10} {path:<30} {collection:<20} {status:<15} {files_count}")
+                status = "Running" if watch_info.get("active", False) else "Stopped"
+                files_count = watch_info.get("files_count", 0)
+                path = (
+                    str(watch_info.get("path", ""))[:28] + "..."
+                    if len(str(watch_info.get("path", ""))) > 30
+                    else str(watch_info.get("path", ""))
+                )
+                collection = (
+                    str(watch_info.get("collection", ""))[:18] + "..."
+                    if len(str(watch_info.get("collection", ""))) > 20
+                    else str(watch_info.get("collection", ""))
+                )
+                print(
+                    f"{watch_id:<10} {path:<30} {collection:<20} {status:<15} {files_count}"
+                )
         else:
             print("No watch configurations found.")
 
@@ -254,7 +293,9 @@ async def _list_watches(active_only: bool, collection: str | None, format: str):
         raise typer.Exit(1)
 
 
-async def _remove_watch(path: str | None, collection: str | None, all: bool, force: bool):
+async def _remove_watch(
+    path: str | None, collection: str | None, all: bool, force: bool
+):
     """Remove watch configurations."""
     try:
         service = await _get_watch_service()
@@ -279,7 +320,11 @@ async def _remove_watch(path: str | None, collection: str | None, all: bool, for
             watches_to_remove = [w for w in all_watches if w.collection == collection]
         elif path:
             # Try as watch ID first, then as path
-            matches = [w for w in all_watches if w.id == path or Path(w.path) == Path(path).resolve()]
+            matches = [
+                w
+                for w in all_watches
+                if w.id == path or Path(w.path) == Path(path).resolve()
+            ]
             if matches:
                 watches_to_remove = matches
             else:
@@ -297,7 +342,13 @@ async def _remove_watch(path: str | None, collection: str | None, all: bool, for
 
         # Confirm removal
         if not force:
-            action = "all watches" if all else f"watches for {collection}" if collection else f"watch for {path}"
+            action = (
+                "all watches"
+                if all
+                else f"watches for {collection}"
+                if collection
+                else f"watch for {path}"
+            )
             if not confirm("\nAre you sure you want to remove {action}?"):
                 print("Operation cancelled")
                 return
@@ -331,17 +382,19 @@ async def _watch_status(detailed: bool, recent: bool):
         print(f"Running: {status_data.get('running_watches', 0)}")
         print(f"Stopped: {status_data.get('stopped_watches', 0)}")
         print(f"Total Files Watched: {status_data.get('total_files', 0)}")
-        if status_data.get('last_activity'):
+        if status_data.get("last_activity"):
             print(f"Last Activity: {status_data['last_activity']}")
 
-        if detailed and status_data['watches']:
+        if detailed and status_data["watches"]:
             print("\n Detailed Watch Information")
             print("-" * 50)
-            for watch_id, watch_info in status_data['watches'].items():
+            for watch_id, watch_info in status_data["watches"].items():
                 print(f"Watch {watch_id}:")
                 print(f"  Path: {watch_info.get('path', 'N/A')}")
                 print(f"  Collection: {watch_info.get('collection', 'N/A')}")
-                print(f"  Status: {'Running' if watch_info.get('active', False) else 'Stopped'}")
+                print(
+                    f"  Status: {'Running' if watch_info.get('active', False) else 'Stopped'}"
+                )
                 print(f"  Files: {watch_info.get('files_count', 0)}")
                 print()
 
@@ -359,8 +412,11 @@ async def _watch_status(detailed: bool, recent: bool):
                 for event in reversed(recent_events[-20:]):
                     # Format timestamp
                     from datetime import datetime
+
                     try:
-                        ts = datetime.fromisoformat(event.timestamp.replace('Z', '+00:00'))
+                        ts = datetime.fromisoformat(
+                            event.timestamp.replace("Z", "+00:00")
+                        )
                         time_str = ts.strftime("%H:%M:%S")
                     except:
                         time_str = event.timestamp[:8]
@@ -371,13 +427,15 @@ async def _watch_status(detailed: bool, recent: bool):
                         file_path = "..." + file_path[-27:]
 
                     # Simple text output
-                    print(f"  {time_str} {event.change_type} {file_path} -> {event.collection}")
+                    print(
+                        f"  {time_str} {event.change_type} {file_path} -> {event.collection}"
+                    )
 
         # Show tips
-        if status_data['total_watches'] == 0:
+        if status_data["total_watches"] == 0:
             print("\nNo watches configured yet")
             print("Add one with: wqm watch add <path> --collection=<library>")
-        elif status_data['running_watches'] == 0:
+        elif status_data["running_watches"] == 0:
             print("\nNo watches are currently running")
             print("Start them with: wqm watch resume --all")
 
@@ -409,7 +467,11 @@ async def _pause_watches(path: str | None, collection: str | None, all: bool):
             print(f"Pausing watch: {path}")
             # Find watch by path or ID
             all_watches = await service.list_watches()
-            matches = [w for w in all_watches if w.id == path or Path(w.path) == Path(path).resolve()]
+            matches = [
+                w
+                for w in all_watches
+                if w.id == path or Path(w.path) == Path(path).resolve()
+            ]
 
             if not matches:
                 print(f"Error: No watch found for: {path}")
@@ -455,7 +517,11 @@ async def _resume_watches(path: str | None, collection: str | None, all: bool):
             print(f"Resuming watch: {path}")
             # Find watch by path or ID
             all_watches = await service.list_watches()
-            matches = [w for w in all_watches if w.id == path or Path(w.path) == Path(path).resolve()]
+            matches = [
+                w
+                for w in all_watches
+                if w.id == path or Path(w.path) == Path(path).resolve()
+            ]
 
             if not matches:
                 print(f"Error: No watch found for: {path}")
@@ -491,9 +557,11 @@ async def _sync_watched_folders(path: str | None, dry_run: bool, force: bool):
             print("DRY RUN - No files will be processed")
 
         # Perform sync
-        results = await service.sync_watched_folders(path=path, dry_run=dry_run, force=force)
+        results = await service.sync_watched_folders(
+            path=path, dry_run=dry_run, force=force
+        )
 
-        if 'error' in results:
+        if "error" in results:
             print(f"Error: {results['error']}")
             raise typer.Exit(1)
 
@@ -502,14 +570,14 @@ async def _sync_watched_folders(path: str | None, dry_run: bool, force: bool):
         total_errors = 0
 
         for watch_id, result in results.items():
-            if result['success']:
-                stats = result['stats']
+            if result["success"]:
+                stats = result["stats"]
                 print(f"\n Watch {watch_id}: {result['message']}")
                 if stats:
-                    total_processed += stats.get('files_processed', 0)
-                    if stats.get('files_failed', 0) > 0:
+                    total_processed += stats.get("files_processed", 0)
+                    if stats.get("files_failed", 0) > 0:
                         print(f"   {stats['files_failed']} files failed")
-                        total_errors += stats['files_failed']
+                        total_errors += stats["files_failed"]
             else:
                 print(f"\nError: Watch {watch_id}: {result['message']}")
                 total_errors += 1

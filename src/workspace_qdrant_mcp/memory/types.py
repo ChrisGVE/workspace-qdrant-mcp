@@ -1,4 +1,3 @@
-
 """
 Memory system type definitions.
 
@@ -14,17 +13,19 @@ from typing import Any, Dict, List, Optional, Union
 
 class AuthorityLevel(Enum):
     """Authority levels for memory rules."""
+
     ABSOLUTE = "absolute"  # Non-negotiable, always follow
-    DEFAULT = "default"    # Follow unless explicitly overridden by user/PRD
+    DEFAULT = "default"  # Follow unless explicitly overridden by user/PRD
 
 
 class MemoryCategory(Enum):
     """Categories of memory rules."""
-    PREFERENCE = "preference"        # User preferences (e.g., "Use uv for Python")
-    BEHAVIOR = "behavior"           # LLM behavioral rules (e.g., "Always make atomic commits")
-    AGENT_LIBRARY = "agent_library" # Agent definitions and capabilities
-    KNOWLEDGE = "knowledge"         # Factual knowledge and context
-    CONTEXT = "context"            # Session and project context
+
+    PREFERENCE = "preference"  # User preferences (e.g., "Use uv for Python")
+    BEHAVIOR = "behavior"  # LLM behavioral rules (e.g., "Always make atomic commits")
+    AGENT_LIBRARY = "agent_library"  # Agent definitions and capabilities
+    KNOWLEDGE = "knowledge"  # Factual knowledge and context
+    CONTEXT = "context"  # Session and project context
 
 
 @dataclass
@@ -32,19 +33,21 @@ class MemoryRule:
     """A single memory rule for LLM behavior management."""
 
     # Rule content (required fields first)
-    rule: str                                    # The actual rule text
-    category: MemoryCategory                     # Rule category
-    authority: AuthorityLevel                    # Authority level
+    rule: str  # The actual rule text
+    category: MemoryCategory  # Rule category
+    authority: AuthorityLevel  # Authority level
 
     # Optional fields with defaults
     id: str = field(default_factory=lambda: str(uuid.uuid4()))
-    scope: list[str] = field(default_factory=list)  # Contexts where rule applies (empty = global)
-    tags: list[str] = field(default_factory=list)   # Tags for organization and search
-    source: str = "user_cli"                     # Where rule came from (user_cli, conversation, etc.)
+    scope: list[str] = field(
+        default_factory=list
+    )  # Contexts where rule applies (empty = global)
+    tags: list[str] = field(default_factory=list)  # Tags for organization and search
+    source: str = "user_cli"  # Where rule came from (user_cli, conversation, etc.)
     created_at: datetime = field(default_factory=datetime.utcnow)
     updated_at: datetime | None = None
     last_used: datetime | None = None
-    use_count: int = 0                          # How many times rule has been applied
+    use_count: int = 0  # How many times rule has been applied
     metadata: dict[str, Any] = field(default_factory=dict)  # Extended metadata
 
     def __post_init__(self):
@@ -97,8 +100,12 @@ class MemoryRule:
             tags=data.get("tags", []),
             source=data.get("source", "user_cli"),
             created_at=datetime.fromisoformat(data["created_at"]),
-            updated_at=datetime.fromisoformat(data["updated_at"]) if data.get("updated_at") else None,
-            last_used=datetime.fromisoformat(data["last_used"]) if data.get("last_used") else None,
+            updated_at=datetime.fromisoformat(data["updated_at"])
+            if data.get("updated_at")
+            else None,
+            last_used=datetime.fromisoformat(data["last_used"])
+            if data.get("last_used")
+            else None,
             use_count=data.get("use_count", 0),
             metadata=data.get("metadata", {}),
         )
@@ -110,10 +117,10 @@ class MemoryRuleConflict:
 
     rule1: MemoryRule
     rule2: MemoryRule
-    conflict_type: str           # semantic, scope, direct, etc.
-    confidence: float           # Confidence level of conflict (0.0 to 1.0)
-    description: str            # Human-readable conflict description
-    severity: str               # low, medium, high, critical
+    conflict_type: str  # semantic, scope, direct, etc.
+    confidence: float  # Confidence level of conflict (0.0 to 1.0)
+    description: str  # Human-readable conflict description
+    severity: str  # low, medium, high, critical
     resolution_suggestion: str | None = None
 
     def to_dict(self) -> dict[str, Any]:
@@ -167,24 +174,25 @@ class MemoryContext:
 class ConversationalUpdate:
     """Represents a conversational memory update."""
 
-    text: str                   # The conversational text containing the update
+    text: str  # The conversational text containing the update
     extracted_rule: str | None = None  # Extracted rule text
     category: MemoryCategory | None = None
     authority: AuthorityLevel | None = None
     scope: list[str] = field(default_factory=list)
-    confidence: float = 0.0     # Confidence in the extraction
+    confidence: float = 0.0  # Confidence in the extraction
 
     def is_valid(self) -> bool:
         """Check if this update contains a valid extractable rule."""
         return (
-            self.extracted_rule is not None and
-            self.extracted_rule.strip() and
-            self.category is not None and
-            self.confidence >= 0.5
+            self.extracted_rule is not None
+            and self.extracted_rule.strip()
+            and self.category is not None
+            and self.confidence >= 0.5
         )
 
 
 # Agent Library Types
+
 
 @dataclass
 class AgentCapability:
@@ -217,9 +225,9 @@ class AgentCapability:
 class AgentDefinition:
     """Represents an agent in the agent library."""
 
-    name: str                   # Agent identifier (e.g., "python-pro")
-    display_name: str           # Human-readable name
-    description: str            # Brief description
+    name: str  # Agent identifier (e.g., "python-pro")
+    display_name: str  # Human-readable name
+    description: str  # Brief description
     capabilities: list[AgentCapability] = field(default_factory=list)
     specializations: list[str] = field(default_factory=list)
     tools: list[str] = field(default_factory=list)
@@ -250,7 +258,9 @@ class AgentDefinition:
             name=data["name"],
             display_name=data["display_name"],
             description=data["description"],
-            capabilities=[AgentCapability.from_dict(cap) for cap in data.get("capabilities", [])],
+            capabilities=[
+                AgentCapability.from_dict(cap) for cap in data.get("capabilities", [])
+            ],
             specializations=data.get("specializations", []),
             tools=data.get("tools", []),
             frameworks=data.get("frameworks", []),
@@ -261,6 +271,7 @@ class AgentDefinition:
 
 
 # Claude Code SDK Integration Types
+
 
 @dataclass
 class ClaudeCodeSession:

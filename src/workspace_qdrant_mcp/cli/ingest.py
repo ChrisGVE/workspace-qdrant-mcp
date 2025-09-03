@@ -1,4 +1,3 @@
-
 """
 Command-line interface for batch document ingestion.
 
@@ -539,7 +538,10 @@ async def _estimate_processing(
                 if any(fmt.lower() in parser_name_lower for fmt in format_filter):
                     include_parser = True
                 # Also check if any requested formats match parser extensions
-                elif any(f".{fmt.lower()}" in parser.supported_extensions for fmt in format_filter):
+                elif any(
+                    f".{fmt.lower()}" in parser.supported_extensions
+                    for fmt in format_filter
+                ):
                     include_parser = True
 
             if include_parser:
@@ -607,139 +609,173 @@ async def _run_web_ingestion(
     auto_confirm: bool,
 ) -> None:
     """Run web content ingestion."""
-    
+
     try:
         # Security warnings
         if disable_security:
-            console.print("⚠️  Security scanning is DISABLED. This is not recommended!", 
-                         style="red bold")
-            if not auto_confirm and not typer.confirm("Continue with disabled security?"):
+            console.print(
+                "⚠️  Security scanning is DISABLED. This is not recommended!",
+                style="red bold",
+            )
+            if not auto_confirm and not typer.confirm(
+                "Continue with disabled security?"
+            ):
                 console.print("❌ Operation cancelled", style="red")
                 return
-        
+
         if allow_all_domains and not allowed_domains:
-            console.print("⚠️  All domains are allowed. This increases security risk!", 
-                         style="yellow bold")
+            console.print(
+                "⚠️  All domains are allowed. This increases security risk!",
+                style="yellow bold",
+            )
             if not auto_confirm and not typer.confirm("Continue allowing all domains?"):
                 console.print("❌ Operation cancelled", style="red")
                 return
-        
+
         # Initialize client
         console.print("🚀 Initializing workspace client...", style="blue")
         config = Config()
         client = QdrantWorkspaceClient(config)
         await client.initialize()
-        
+
         console.print(f"✅ Connected to Qdrant at {config.qdrant.url}", style="green")
-        
+
         # Show project info
         project_info = client.get_project_info()
         if project_info:
             console.print(f"📁 Project: {project_info['main_project']}", style="cyan")
-        
+
         # Configure web parser
         console.print("🔧 Configuring secure web parser...", style="blue")
-        
+
         # Create security config
         security_config = SecurityConfig()
-        
+
         if allowed_domains:
             security_config.domain_allowlist = set(allowed_domains)
-            console.print(f"🔐 Domain allowlist: {', '.join(allowed_domains)}", style="yellow")
+            console.print(
+                f"🔐 Domain allowlist: {', '.join(allowed_domains)}", style="yellow"
+            )
         elif not allow_all_domains:
             # Default to same domain as start URL
             from urllib.parse import urlparse
+
             parsed_url = urlparse(url)
             if parsed_url.netloc:
                 security_config.domain_allowlist = {parsed_url.netloc}
-                console.print(f"🔐 Restricting to same domain: {parsed_url.netloc}", style="yellow")
-        
+                console.print(
+                    f"🔐 Restricting to same domain: {parsed_url.netloc}",
+                    style="yellow",
+                )
+
         security_config.request_delay = request_delay
         security_config.enable_content_scanning = not disable_security
         security_config.quarantine_suspicious = not disable_security
         security_config.max_total_pages = max_pages
         security_config.max_depth = max_depth
-        
+
         # Initialize web interface
         web_interface = WebIngestionInterface(security_config)
-        
+
         console.print("🌐 Starting web content ingestion...", style="blue")
-        
+
         # Parse web content
         if max_pages > 1 or max_depth > 0:
-            console.print(f"📄 Crawling up to {max_pages} pages (depth: {max_depth})...", style="cyan")
+            console.print(
+                f"📄 Crawling up to {max_pages} pages (depth: {max_depth})...",
+                style="cyan",
+            )
             parsed_doc = await web_interface.ingest_site(
-                url, 
-                max_pages=max_pages, 
-                max_depth=max_depth
+                url, max_pages=max_pages, max_depth=max_depth
             )
         else:
             console.print(f"📄 Fetching single page: {url}...", style="cyan")
             parsed_doc = await web_interface.ingest_url(url)
-        
+
         # Show content stats
         content_length = len(parsed_doc.content)
-        console.print(f"✅ Content retrieved: {content_length:,} characters", style="green")
-        
+        console.print(
+            f"✅ Content retrieved: {content_length:,} characters", style="green"
+        )
+
         # Security warnings
-        if 'security_warnings' in parsed_doc.additional_metadata:
-            warnings = parsed_doc.additional_metadata['security_warnings']
+        if "security_warnings" in parsed_doc.additional_metadata:
+            warnings = parsed_doc.additional_metadata["security_warnings"]
             if warnings:
-                console.print(f"⚠️  Security warnings found: {len(warnings)}", style="yellow")
+                console.print(
+                    f"⚠️  Security warnings found: {len(warnings)}", style="yellow"
+                )
                 for warning in warnings[:3]:  # Show first 3 warnings
                     console.print(f"  • {warning}", style="yellow")
                 if len(warnings) > 3:
-                    console.print(f"  ... and {len(warnings) - 3} more warnings", style="yellow")
-        
+                    console.print(
+                        f"  ... and {len(warnings) - 3} more warnings", style="yellow"
+                    )
+
         # Pages crawled info
-        if 'pages_crawled' in parsed_doc.additional_metadata:
-            pages_crawled = parsed_doc.additional_metadata['pages_crawled']
-            console.print(f"📊 Pages successfully crawled: {pages_crawled}", style="cyan")
-        
+        if "pages_crawled" in parsed_doc.additional_metadata:
+            pages_crawled = parsed_doc.additional_metadata["pages_crawled"]
+            console.print(
+                f"📊 Pages successfully crawled: {pages_crawled}", style="cyan"
+            )
+
         if dry_run:
-            console.print("\n🔍 DRY RUN - Content preview (first 500 chars):", style="yellow bold")
+            console.print(
+                "\n🔍 DRY RUN - Content preview (first 500 chars):", style="yellow bold"
+            )
             preview = parsed_doc.content[:500]
             if len(parsed_doc.content) > 500:
                 preview += "..."
             console.print(f"'{preview}'", style="dim")
             console.print("\n✅ Dry run completed successfully", style="green")
             return
-        
+
         # Confirmation
         if not auto_confirm:
-            console.print(f"\n🤔 Ready to ingest {content_length:,} characters into '{collection}' collection")
+            console.print(
+                f"\n🤔 Ready to ingest {content_length:,} characters into '{collection}' collection"
+            )
             if not typer.confirm("Proceed with ingestion?"):
                 console.print("❌ Operation cancelled", style="red")
                 return
-        
+
         # Add to collection
-        console.print(f"💾 Adding content to collection '{collection}'...", style="blue")
-        
+        console.print(
+            f"💾 Adding content to collection '{collection}'...", style="blue"
+        )
+
         result = await add_document(
             client=client,
             collection=collection,
             document=parsed_doc,
             chunk_size=chunk_size,
-            chunk_overlap=chunk_overlap
+            chunk_overlap=chunk_overlap,
         )
-        
+
         # Display results
-        if result and result.get('success', False):
+        if result and result.get("success", False):
             console.print(f"✅ Successfully ingested web content", style="green bold")
-            console.print(f"📄 Document ID: {result.get('document_id', 'unknown')}", style="cyan")
-            if 'chunks_created' in result:
-                console.print(f"🔗 Text chunks created: {result['chunks_created']}", style="cyan")
+            console.print(
+                f"📄 Document ID: {result.get('document_id', 'unknown')}", style="cyan"
+            )
+            if "chunks_created" in result:
+                console.print(
+                    f"🔗 Text chunks created: {result['chunks_created']}", style="cyan"
+                )
         else:
-            console.print(f"❌ Ingestion failed: {result.get('error', 'Unknown error')}", style="red")
+            console.print(
+                f"❌ Ingestion failed: {result.get('error', 'Unknown error')}",
+                style="red",
+            )
             raise typer.Exit(1)
-    
+
     except Exception as e:
         console.print(f"❌ Web ingestion failed: {e}", style="red")
         logger.error(f"Web ingestion error: {e}", exc_info=True)
         raise typer.Exit(1)
-    
+
     finally:
-        if 'client' in locals():
+        if "client" in locals():
             await client.close()
 
 

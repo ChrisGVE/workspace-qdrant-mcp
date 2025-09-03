@@ -1,4 +1,3 @@
-
 """Core functionality for workspace-qdrant-mcp."""
 
 from .client import QdrantWorkspaceClient

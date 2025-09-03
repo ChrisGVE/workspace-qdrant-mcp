@@ -1,4 +1,3 @@
-
 """
 Four-mode research interface implementation.
 
@@ -93,22 +92,16 @@ async def research_workspace(
 
         if mode == "project":
             # Search current project and subprojects
-            project_info = getattr(client, 'project_info', {})
-            main_project = project_info.get('main_project', 'default')
-            subprojects = project_info.get('subprojects', [])
+            project_info = getattr(client, "project_info", {})
+            main_project = project_info.get("main_project", "default")
+            subprojects = project_info.get("subprojects", [])
 
             # Add main project collections
-            collections.extend([
-                f"{main_project}-scratchbook",
-                f"{main_project}-docs"
-            ])
+            collections.extend([f"{main_project}-scratchbook", f"{main_project}-docs"])
 
             # Add subproject collections
             for subproject in subprojects:
-                collections.extend([
-                    f"{subproject}-scratchbook",
-                    f"{subproject}-docs"
-                ])
+                collections.extend([f"{subproject}-scratchbook", f"{subproject}-docs"])
 
         elif mode == "collection":
             # Search specific collection only
@@ -116,9 +109,11 @@ async def research_workspace(
 
         elif mode == "global":
             # Search global knowledge collections
-            workspace_config = getattr(client.config, 'workspace', None)
+            workspace_config = getattr(client.config, "workspace", None)
             if workspace_config:
-                global_collections = getattr(workspace_config, 'global_collections', None)
+                global_collections = getattr(
+                    workspace_config, "global_collections", None
+                )
                 if global_collections:
                     collections = global_collections
                 else:
@@ -142,7 +137,7 @@ async def research_workspace(
             collections=collections,
             mode="hybrid",  # Always use hybrid search for research
             limit=limit,
-            score_threshold=score_threshold
+            score_threshold=score_threshold,
         )
 
         # Check for search errors
@@ -200,8 +195,8 @@ async def research_workspace(
             "search_params": {
                 "limit": limit,
                 "score_threshold": score_threshold,
-                "include_relationships": include_relationships
-            }
+                "include_relationships": include_relationships,
+            },
         }
 
     except Exception as e:

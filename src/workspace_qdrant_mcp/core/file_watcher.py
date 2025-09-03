@@ -1,4 +1,3 @@
-
 """
 File watching system for automatic library collection ingestion.
 
@@ -27,12 +26,23 @@ class WatchConfiguration:
     id: str
     path: str
     collection: str
-    patterns: list[str] = field(default_factory=lambda: ["*.pdf", "*.epub", "*.txt", "*.md"])
-    ignore_patterns: list[str] = field(default_factory=lambda: [".git/*", "node_modules/*", "__pycache__/*", ".DS_Store"])
+    patterns: list[str] = field(
+        default_factory=lambda: ["*.pdf", "*.epub", "*.txt", "*.md"]
+    )
+    ignore_patterns: list[str] = field(
+        default_factory=lambda: [
+            ".git/*",
+            "node_modules/*",
+            "__pycache__/*",
+            ".DS_Store",
+        ]
+    )
     auto_ingest: bool = True
     recursive: bool = True
     debounce_seconds: int = 5
-    created_at: str = field(default_factory=lambda: datetime.now(timezone.utc).isoformat())
+    created_at: str = field(
+        default_factory=lambda: datetime.now(timezone.utc).isoformat()
+    )
     last_activity: str | None = None
     status: str = "active"  # active, paused, error
     files_processed: int = 0
@@ -55,7 +65,9 @@ class WatchEvent:
     change_type: str  # added, modified, deleted
     file_path: str
     collection: str
-    timestamp: str = field(default_factory=lambda: datetime.now(timezone.utc).isoformat())
+    timestamp: str = field(
+        default_factory=lambda: datetime.now(timezone.utc).isoformat()
+    )
 
 
 class FileWatcher:
@@ -96,7 +108,9 @@ class FileWatcher:
         self._running = True
         self.config.status = "active"
 
-        logger.info(f"Starting file watcher for {self.config.path} -> {self.config.collection}")
+        logger.info(
+            f"Starting file watcher for {self.config.path} -> {self.config.collection}"
+        )
 
         self._task = asyncio.create_task(self._watch_loop())
 
@@ -179,7 +193,7 @@ class FileWatcher:
             event = WatchEvent(
                 change_type=change_name,
                 file_path=str(file_path),
-                collection=self.config.collection
+                collection=self.config.collection,
             )
 
             # Notify event callback
@@ -190,7 +204,10 @@ class FileWatcher:
                     logger.error(f"Error in event callback: {e}")
 
             # Handle file ingestion with debouncing
-            if change_type in (Change.added, Change.modified) and self.config.auto_ingest:
+            if (
+                change_type in (Change.added, Change.modified)
+                and self.config.auto_ingest
+            ):
                 await self._debounce_ingestion(str(file_path))
 
     def _matches_patterns(self, file_path: Path) -> bool:
@@ -309,7 +326,7 @@ class WatchManager:
             with open(self.config_file) as f:
                 data = json.load(f)
 
-            for config_data in data.get('watches', []):
+            for config_data in data.get("watches", []):
                 config = WatchConfiguration.from_dict(config_data)
                 self.configurations[config.id] = config
 
@@ -322,13 +339,15 @@ class WatchManager:
         """Save watch configurations to file."""
         try:
             data = {
-                'watches': [config.to_dict() for config in self.configurations.values()],
-                'updated_at': datetime.now(timezone.utc).isoformat()
+                "watches": [
+                    config.to_dict() for config in self.configurations.values()
+                ],
+                "updated_at": datetime.now(timezone.utc).isoformat(),
             }
 
             # Write atomically
-            temp_file = self.config_file.with_suffix('.json.tmp')
-            with open(temp_file, 'w') as f:
+            temp_file = self.config_file.with_suffix(".json.tmp")
+            with open(temp_file, "w") as f:
                 json.dump(data, f, indent=2)
             temp_file.replace(self.config_file)
 
@@ -354,14 +373,17 @@ class WatchManager:
             Watch ID
         """
         # Generate unique ID
-        watch_id = f"watch_{len(self.configurations) + 1}_{datetime.now().timestamp():.0f}"
+        watch_id = (
+            f"watch_{len(self.configurations) + 1}_{datetime.now().timestamp():.0f}"
+        )
 
         config = WatchConfiguration(
             id=watch_id,
             path=str(Path(path).resolve()),
             collection=collection,
             patterns=patterns or ["*.pdf", "*.epub", "*.txt", "*.md"],
-            ignore_patterns=ignore_patterns or [".git/*", "node_modules/*", "__pycache__/*", ".DS_Store"],
+            ignore_patterns=ignore_patterns
+            or [".git/*", "node_modules/*", "__pycache__/*", ".DS_Store"],
             auto_ingest=auto_ingest,
             recursive=recursive,
             debounce_seconds=debounce_seconds,
@@ -465,9 +487,9 @@ class WatchManager:
             watcher = self.watchers.get(watch_id)
 
             status[watch_id] = {
-                'config': config.to_dict(),
-                'running': watcher.is_running() if watcher else False,
-                'path_exists': Path(config.path).exists(),
+                "config": config.to_dict(),
+                "running": watcher.is_running() if watcher else False,
+                "path_exists": Path(config.path).exists(),
             }
 
         return status

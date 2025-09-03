@@ -1,4 +1,3 @@
-
 from ...observability import get_logger
 
 logger = get_logger(__name__)
@@ -171,11 +170,11 @@ class DocumentParser(ABC):
             True if this parser can handle the file format
         """
         file_path = Path(file_path)
-        
+
         # First check extension (fast)
         if file_path.suffix.lower() in self.supported_extensions:
             return True
-        
+
         # If extension check fails, try file type detection
         try:
             _, parser_type, _ = detect_file_type(file_path)
@@ -183,14 +182,14 @@ class DocumentParser(ABC):
             return self._matches_parser_type(parser_type)
         except Exception:
             return False
-    
+
     def _matches_parser_type(self, parser_type: str) -> bool:
         """
         Check if detected parser type matches this parser.
-        
+
         Args:
             parser_type: Parser type from file detection
-            
+
         Returns:
             True if this parser can handle the detected type
         """
@@ -215,10 +214,10 @@ class DocumentParser(ABC):
 
     @abstractmethod
     async def parse(
-        self, 
-        file_path: str | Path, 
+        self,
+        file_path: str | Path,
         progress_tracker: Optional[ProgressTracker] = None,
-        **options: Any
+        **options: Any,
     ) -> ParsedDocument:
         """
         Parse a document file and extract its text content.
@@ -263,7 +262,7 @@ class DocumentParser(ABC):
             ParsingError: If file cannot be parsed (wraps specific error types)
         """
         file_path = Path(file_path)
-        
+
         try:
             if not file_path.exists():
                 raise FileNotFoundError(f"File not found: {file_path}")

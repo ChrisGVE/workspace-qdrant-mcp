@@ -1,4 +1,3 @@
-
 """
 Advanced document management tools for workspace-qdrant-mcp.
 
@@ -167,7 +166,9 @@ async def add_document(
             return {"error": str(e)}
 
         # Resolve display name to actual collection name
-        actual_collection, _ = client.collection_manager.resolve_collection_name(collection)
+        actual_collection, _ = client.collection_manager.resolve_collection_name(
+            collection
+        )
 
         # Store original document ID for metadata
         original_document_id = document_id
@@ -254,7 +255,9 @@ async def _add_single_document(
     """Add a single document/chunk to collection."""
     try:
         # Resolve display name to actual collection name
-        actual_collection, _ = client.collection_manager.resolve_collection_name(collection)
+        actual_collection, _ = client.collection_manager.resolve_collection_name(
+            collection
+        )
 
         # Generate embeddings
         embedding_service = client.get_embedding_service()
@@ -278,7 +281,12 @@ async def _add_single_document(
         # Insert into Qdrant (use actual collection name)
         await client.client.upsert(collection_name=actual_collection, points=[point])
 
-        logger.debug("Added document point %s to collection %s (actual: %s)", point_id, collection, actual_collection)
+        logger.debug(
+            "Added document point %s to collection %s (actual: %s)",
+            point_id,
+            collection,
+            actual_collection,
+        )
         return True
 
     except Exception as e:
@@ -469,7 +477,9 @@ async def get_document(
             return {"error": f"Collection '{collection}' not found"}
 
         # Resolve display name to actual collection name
-        actual_collection, _ = client.collection_manager.resolve_collection_name(collection)
+        actual_collection, _ = client.collection_manager.resolve_collection_name(
+            collection
+        )
 
         # Find document points
         points = client.client.scroll(
@@ -521,9 +531,7 @@ async def get_document(
 
 # Version Management Functions
 async def find_document_versions(
-    client: QdrantWorkspaceClient,
-    document_id: str,
-    collection: str
+    client: QdrantWorkspaceClient, document_id: str, collection: str
 ) -> list[dict]:
     """
     Find all versions of a document based on document_id pattern.
@@ -541,13 +549,12 @@ async def find_document_versions(
             scroll_filter=models.Filter(
                 must=[
                     models.FieldCondition(
-                        key="document_id",
-                        match=models.MatchValue(value=document_id)
+                        key="document_id", match=models.MatchValue(value=document_id)
                     )
                 ]
             ),
             with_payload=True,
-            limit=100  # Should be enough for version chains
+            limit=100,  # Should be enough for version chains
         )
 
         versions = []
@@ -559,7 +566,7 @@ async def find_document_versions(
                 "is_latest": point.payload.get("is_latest", False),
                 "timestamp": point.payload.get("added_at"),
                 "supersedes": point.payload.get("supersedes", []),
-                "payload": point.payload
+                "payload": point.payload,
             }
             versions.append(version_info)
 
@@ -601,7 +608,9 @@ async def ingest_new_version(
             document_id = str(uuid.uuid4())
 
         # Find existing versions of this document
-        existing_versions = await find_document_versions(client, document_id, collection)
+        existing_versions = await find_document_versions(
+            client, document_id, collection
+        )
 
         # Prepare version metadata according to PRD schema
         version_metadata = {
@@ -612,12 +621,14 @@ async def ingest_new_version(
             "document_type": document_type,
             "is_latest": True,
             "search_priority": 1.0,
-            "supersedes": [v["point_id"] for v in existing_versions] if existing_versions else [],
+            "supersedes": [v["point_id"] for v in existing_versions]
+            if existing_versions
+            else [],
             "authority_source": "user_provided" if version else "auto_detected",
             "source_info": {
                 "ingestion_date": datetime.utcnow().isoformat(),
-                "file_hash": f"sha256:{hash(content)}"  # Simple hash for now
-            }
+                "file_hash": f"sha256:{hash(content)}",  # Simple hash for now
+            },
         }
 
         # Merge with user metadata
@@ -631,14 +642,15 @@ async def ingest_new_version(
                 await client.client.set_payload(
                     collection_name=collection,
                     points=[existing_version["point_id"]],
-                    payload={
-                        "is_latest": False,
-                        "search_priority": 0.1
-                    }
+                    payload={"is_latest": False, "search_priority": 0.1},
                 )
                 logger.debug("De-prioritized version %s", existing_version["point_id"])
             except Exception as e:
-                logger.warning("Failed to de-prioritize version %s: %s", existing_version["point_id"], e)
+                logger.warning(
+                    "Failed to de-prioritize version %s: %s",
+                    existing_version["point_id"],
+                    e,
+                )
 
         # Step 2: Add the new version as latest
         result = await add_document(
@@ -647,7 +659,7 @@ async def ingest_new_version(
             collection=collection,
             metadata=version_metadata,
             document_id=document_id,
-            chunk_text=chunk_text
+            chunk_text=chunk_text,
         )
 
         if "error" not in result:
@@ -672,30 +684,30 @@ def get_document_type_config(document_type: str) -> dict:
             "secondary_version": "date",
             "required_metadata": ["title", "author", "edition"],
             "optional_metadata": ["isbn", "publisher", "draft_status"],
-            "retention_policy": "latest_only"
+            "retention_policy": "latest_only",
         },
         "scientific_article": {
             "primary_version": "publication_date",
             "required_metadata": ["title", "authors", "journal", "publication_date"],
             "optional_metadata": ["doi", "volume", "issue"],
-            "retention_policy": "latest_only"
+            "retention_policy": "latest_only",
         },
         "code_file": {
             "primary_version": "git_tag",
             "secondary_version": "modification_date",
             "auto_metadata": True,
-            "retention_policy": "current_state_only"
+            "retention_policy": "current_state_only",
         },
         "webpage": {
             "primary_version": "ingestion_date",
             "required_metadata": ["title", "url", "ingestion_date"],
-            "retention_policy": "latest_only"
+            "retention_policy": "latest_only",
         },
         "generic": {
             "primary_version": "timestamp",
             "required_metadata": ["title"],
-            "retention_policy": "latest_only"
-        }
+            "retention_policy": "latest_only",
+        },
     }
 
     return configs.get(document_type, configs["generic"])

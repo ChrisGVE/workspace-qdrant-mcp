@@ -1,4 +1,3 @@
-
 """
 Collection management for workspace-scoped Qdrant collections.
 
@@ -148,7 +147,9 @@ class WorkspaceCollectionManager:
         self.config = config
         self._collections_cache: dict[str, CollectionConfig] | None = None
         # Initialize the naming manager with legacy global collections for compatibility
-        self.naming_manager = CollectionNamingManager(global_collections=self.config.workspace.global_collections)
+        self.naming_manager = CollectionNamingManager(
+            global_collections=self.config.workspace.global_collections
+        )
 
     async def initialize_workspace_collections(
         self, project_name: str, subprojects: list[str] | None = None
@@ -162,7 +163,7 @@ class WorkspaceCollectionManager:
 
         Collection Creation Patterns:
             With auto_create_collections=True:
-                Main project: [project-name]-{suffix} for each workspace.collections suffix  
+                Main project: [project-name]-{suffix} for each workspace.collections suffix
                 Subprojects: [subproject-name]-{suffix} for each workspace.collections suffix
                 Global: All collections from workspace.global_collections
 
@@ -183,7 +184,7 @@ class WorkspaceCollectionManager:
             # Initialize for simple project (respects auto_create_collections setting)
             await manager.initialize_workspace_collections("my-app")
 
-            # Initialize with subprojects (respects auto_create_collections setting) 
+            # Initialize with subprojects (respects auto_create_collections setting)
             await manager.initialize_workspace_collections(
                 project_name="enterprise-system",
                 subprojects=["web-frontend", "mobile-app", "api-gateway"]
@@ -194,7 +195,7 @@ class WorkspaceCollectionManager:
 
         if self.config.workspace.auto_create_collections:
             # Full collection creation when auto_create_collections=True
-            
+
             # Main project collections
             for suffix in self.config.workspace.collections:
                 collections_to_create.append(

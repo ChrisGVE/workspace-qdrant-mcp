@@ -1,4 +1,3 @@
-
 """
 Comprehensive scratchbook management for workspace-qdrant-mcp.
 
@@ -192,8 +191,14 @@ class ScratchbookManager:
 
             # Prepare metadata
             # Ensure project_name is set to actual project name, not None
-            actual_project_name = project_name if project_name else (
-                self.project_info["main_project"] if self.project_info else "default"
+            actual_project_name = (
+                project_name
+                if project_name
+                else (
+                    self.project_info["main_project"]
+                    if self.project_info
+                    else "default"
+                )
             )
             metadata = {
                 "note_id": note_id,
@@ -213,7 +218,7 @@ class ScratchbookManager:
             embedding_service = self.client.get_embedding_service()
             embeddings_result = embedding_service.generate_embeddings(content)
             # Handle both async and mocked (sync) results
-            if hasattr(embeddings_result, '__await__'):
+            if hasattr(embeddings_result, "__await__"):
                 embeddings = await embeddings_result
             else:
                 embeddings = embeddings_result
@@ -234,7 +239,9 @@ class ScratchbookManager:
             point = models.PointStruct(id=note_id, vector=vectors, payload=payload)
 
             # Insert into Qdrant
-            await self.client.client.upsert(collection_name=collection_name, points=[point])
+            await self.client.client.upsert(
+                collection_name=collection_name, points=[point]
+            )
 
             logger.info("Added note %s to scratchbook %s", note_id, collection_name)
 
@@ -328,7 +335,7 @@ class ScratchbookManager:
                 embedding_service = self.client.get_embedding_service()
                 embeddings_result = embedding_service.generate_embeddings(content)
                 # Handle both async and mocked (sync) results
-                if hasattr(embeddings_result, '__await__'):
+                if hasattr(embeddings_result, "__await__"):
                     embeddings = await embeddings_result
                 else:
                     embeddings = embeddings_result
@@ -350,7 +357,7 @@ class ScratchbookManager:
                 updated_point = models.PointStruct(
                     id=note_id,
                     vector=existing_point.vector,  # Preserve existing vector
-                    payload=new_payload
+                    payload=new_payload,
                 )
 
             await self.client.client.upsert(
@@ -421,7 +428,7 @@ class ScratchbookManager:
                 query, include_sparse=(mode in ["sparse", "hybrid"])
             )
             # Handle both async and mocked (sync) results
-            if hasattr(embeddings_result, '__await__'):
+            if hasattr(embeddings_result, "__await__"):
                 embeddings = await embeddings_result
             else:
                 embeddings = embeddings_result
@@ -469,7 +476,7 @@ class ScratchbookManager:
                 )
 
             # Handle both async and mocked (sync) results
-            if hasattr(search_result, '__await__'):
+            if hasattr(search_result, "__await__"):
                 search_result = await search_result
 
             return {
@@ -685,13 +692,13 @@ async def update_scratchbook(
 
         if note_id:
             result = manager.update_note(note_id, content, title, tags, None)
-            if hasattr(result, '__await__'):
+            if hasattr(result, "__await__"):
                 return await result
             else:
                 return result
         else:
             result = manager.add_note(content, title, tags, note_type, None)
-            if hasattr(result, '__await__'):
+            if hasattr(result, "__await__"):
                 return await result
             else:
                 return result

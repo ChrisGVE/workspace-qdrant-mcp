@@ -1,4 +1,3 @@
-
 """
 workspace-qdrant-mcp: Advanced project-scoped Qdrant MCP server.
 
@@ -60,6 +59,7 @@ __url__ = "https://github.com/your-org/workspace-qdrant-mcp"
 # Import server app only when needed to avoid dependency issues
 try:
     from .server import app
+
     __all__ = ["app"]
 except ImportError:
     __all__ = []

@@ -1,4 +1,3 @@
-
 """Library collection management CLI commands.
 
 This module provides management for readonly library collections
@@ -43,46 +42,61 @@ Examples:
     wqm library status                  # Show library statistics
     wqm library info tech-docs          # Show collection details
     wqm library remove old-docs         # Remove library collection""",
-    no_args_is_help=True
+    no_args_is_help=True,
 )
+
 
 @library_app.command("list")
 def list_libraries(
     stats: bool = typer.Option(False, "--stats", help="Include collection statistics"),
     sort_by: str = typer.Option("name", "--sort", help="Sort by: name, size, created"),
-    format: str = typer.Option("table", "--format", "-f", help="Output format: table, json"),
+    format: str = typer.Option(
+        "table", "--format", "-f", help="Output format: table, json"
+    ),
 ):
-    """ Show all library collections."""
+    """Show all library collections."""
     handle_async(_list_libraries(stats, sort_by, format))
+
 
 @library_app.command("create")
 def create_library(
     name: str = typer.Argument(..., help="Library name (will be prefixed with _)"),
-    description: str | None = typer.Option(None, "--description", "-d", help="Library description"),
+    description: str | None = typer.Option(
+        None, "--description", "-d", help="Library description"
+    ),
     tags: list[str] | None = typer.Option(None, "--tag", "-t", help="Library tags"),
     vector_size: int = typer.Option(384, "--vector-size", help="Vector dimension size"),
-    distance_metric: str = typer.Option("cosine", "--distance", help="Distance metric: cosine, euclidean, dot"),
+    distance_metric: str = typer.Option(
+        "cosine", "--distance", help="Distance metric: cosine, euclidean, dot"
+    ),
 ):
-    """ Create a new library collection."""
+    """Create a new library collection."""
     handle_async(_create_library(name, description, tags, vector_size, distance_metric))
+
 
 @library_app.command("remove")
 def remove_library(
     name: str = typer.Argument(..., help="Library name (with or without _ prefix)"),
     force: bool = typer.Option(False, "--force", "-f", help="Skip confirmation"),
-    backup: bool = typer.Option(True, "--backup/--no-backup", help="Create backup before removal"),
+    backup: bool = typer.Option(
+        True, "--backup/--no-backup", help="Create backup before removal"
+    ),
 ):
-    """ Remove library collection."""
+    """Remove library collection."""
     handle_async(_remove_library(name, force, backup))
+
 
 @library_app.command("status")
 def library_status(
     name: str | None = typer.Argument(None, help="Specific library name to check"),
-    detailed: bool = typer.Option(False, "--detailed", "-d", help="Show detailed information"),
+    detailed: bool = typer.Option(
+        False, "--detailed", "-d", help="Show detailed information"
+    ),
     health_check: bool = typer.Option(False, "--health", help="Perform health check"),
 ):
-    """ Show library statistics and health."""
+    """Show library statistics and health."""
     handle_async(_library_status(name, detailed, health_check))
+
 
 @library_app.command("info")
 def library_info(
@@ -90,8 +104,9 @@ def library_info(
     show_samples: bool = typer.Option(False, "--samples", help="Show sample documents"),
     show_schema: bool = typer.Option(False, "--schema", help="Show collection schema"),
 ):
-    """ Show detailed library information."""
+    """Show detailed library information."""
     handle_async(_library_info(name, show_samples, show_schema))
+
 
 @library_app.command("rename")
 def rename_library(
@@ -99,17 +114,21 @@ def rename_library(
     new_name: str = typer.Argument(..., help="New library name"),
     force: bool = typer.Option(False, "--force", help="Skip confirmation"),
 ):
-    """ Rename a library collection."""
+    """Rename a library collection."""
     handle_async(_rename_library(old_name, new_name, force))
+
 
 @library_app.command("copy")
 def copy_library(
     source: str = typer.Argument(..., help="Source library name"),
     destination: str = typer.Argument(..., help="Destination library name"),
-    description: str | None = typer.Option(None, "--description", help="Description for new library"),
+    description: str | None = typer.Option(
+        None, "--description", help="Description for new library"
+    ),
 ):
-    """ Copy library collection."""
+    """Copy library collection."""
     handle_async(_copy_library(source, destination, description))
+
 
 # Async implementation functions
 async def _list_libraries(stats: bool, sort_by: str, format: str):
@@ -123,8 +142,7 @@ async def _list_libraries(stats: bool, sort_by: str, format: str):
 
         # Filter for library collections (start with _)
         library_collections = [
-            col for col in all_collections
-            if col.get("name", "").startswith("_")
+            col for col in all_collections if col.get("name", "").startswith("_")
         ]
 
         if not library_collections:
@@ -136,23 +154,26 @@ async def _list_libraries(stats: bool, sort_by: str, format: str):
         library_data = []
         for col in library_collections:
             name = col.get("name", "")
-            lib_info = {"name": name, "display_name": name[1:]}  # Remove _ prefix for display
+            lib_info = {
+                "name": name,
+                "display_name": name[1:],
+            }  # Remove _ prefix for display
 
             if stats:
                 try:
                     info = await client.get_collection_info(name)
-                    lib_info.update({
-                        "points_count": info.get("points_count", 0),
-                        "vectors_count": info.get("vectors_count", 0),
-                        "indexed_points_count": info.get("indexed_points_count", 0),
-                        "status": info.get("status", "unknown")
-                    })
+                    lib_info.update(
+                        {
+                            "points_count": info.get("points_count", 0),
+                            "vectors_count": info.get("vectors_count", 0),
+                            "indexed_points_count": info.get("indexed_points_count", 0),
+                            "status": info.get("status", "unknown"),
+                        }
+                    )
                 except Exception as e:
-                    lib_info.update({
-                        "points_count": "error",
-                        "status": "error",
-                        "error": str(e)
-                    })
+                    lib_info.update(
+                        {"points_count": "error", "status": "error", "error": str(e)}
+                    )
 
             library_data.append(lib_info)
 
@@ -160,10 +181,16 @@ async def _list_libraries(stats: bool, sort_by: str, format: str):
         if sort_by == "name":
             library_data.sort(key=lambda x: x["name"])
         elif sort_by == "size" and stats:
-            library_data.sort(key=lambda x: x.get("points_count", 0) if isinstance(x.get("points_count"), int) else 0, reverse=True)
+            library_data.sort(
+                key=lambda x: x.get("points_count", 0)
+                if isinstance(x.get("points_count"), int)
+                else 0,
+                reverse=True,
+            )
 
         if format == "json":
             import json
+
             print(json.dumps(library_data, indent=2))
             return
 
@@ -176,7 +203,7 @@ async def _list_libraries(stats: bool, sort_by: str, format: str):
 
         print()
         print("-" * (65 if stats else 40))
-        
+
         for lib in library_data:
             name = lib["display_name"]
 
@@ -194,24 +221,31 @@ async def _list_libraries(stats: bool, sort_by: str, format: str):
                 points = str(lib.get("points_count", "?"))
                 vectors = str(lib.get("vectors_count", "?"))
                 indexed = str(lib.get("indexed_points_count", "?"))
-                print(f"{name:<25} {status:<12} {points:<12} {vectors:<12} {indexed:<12}")
+                print(
+                    f"{name:<25} {status:<12} {points:<12} {vectors:<12} {indexed:<12}"
+                )
             else:
                 print(f"{name:<25} {status:<12}")
 
         if stats:
-            total_docs = sum(lib.get("points_count", 0) for lib in library_data if isinstance(lib.get("points_count"), int))
+            total_docs = sum(
+                lib.get("points_count", 0)
+                for lib in library_data
+                if isinstance(lib.get("points_count"), int)
+            )
             print(f"\nTotal documents across all libraries: {total_docs:,}")
 
     except Exception as e:
         print(f"Error: Failed to list libraries: {e}")
         raise typer.Exit(1)
 
+
 async def _create_library(
     name: str,
     description: str | None,
     tags: list[str] | None,
     vector_size: int,
-    distance_metric: str
+    distance_metric: str,
 ):
     """Create a new library collection."""
     try:
@@ -243,10 +277,7 @@ async def _create_library(
 
         # Prepare collection configuration
         collection_config = {
-            "vectors": {
-                "size": vector_size,
-                "distance": distance_metric.upper()
-            }
+            "vectors": {"size": vector_size, "distance": distance_metric.upper()}
         }
 
         # Add metadata if provided
@@ -273,13 +304,20 @@ async def _create_library(
         print(f"Description: {description or 'None'}")
         print(f"Tags: {', '.join(tags) if tags else 'None'}")
         print("\nNext steps:")
-        print(f"- Use 'wqm watch add PATH --collection={collection_name}' to auto-monitor files")
-        print(f"- Use 'wqm ingest folder PATH --collection={collection_name}' for manual ingestion")
-        print(f"- Use 'wqm search collection {collection_name} \"query\"' to search the library")
+        print(
+            f"- Use 'wqm watch add PATH --collection={collection_name}' to auto-monitor files"
+        )
+        print(
+            f"- Use 'wqm ingest folder PATH --collection={collection_name}' for manual ingestion"
+        )
+        print(
+            f"- Use 'wqm search collection {collection_name} \"query\"' to search the library"
+        )
 
     except Exception as e:
         print(f"Error: Failed to create library: {e}")
         raise typer.Exit(1)
+
 
 async def _remove_library(name: str, force: bool, backup: bool):
     """Remove library collection."""
@@ -313,9 +351,9 @@ async def _remove_library(name: str, force: bool, backup: bool):
             print("This will permanently delete the library collection!")
             print(f"Collection: {collection_name}")
             print(f"Documents: {doc_count}")
-            
+
             response = input("\nAre you sure you want to delete this library? (y/N): ")
-            if response.lower() not in ['y', 'yes']:
+            if response.lower() not in ["y", "yes"]:
                 print("Removal cancelled.")
                 return
 
@@ -333,6 +371,7 @@ async def _remove_library(name: str, force: bool, backup: bool):
     except Exception as e:
         print(f"Error: Failed to remove library: {e}")
         raise typer.Exit(1)
+
 
 async def _library_status(name: str | None, detailed: bool, health_check: bool):
     """Show library statistics and health."""
@@ -356,10 +395,14 @@ async def _library_status(name: str | None, detailed: bool, health_check: bool):
                 print(f"Documents: {info.get('points_count', 0)}")
                 print(f"Vectors: {info.get('vectors_count', 0)}")
                 print(f"Indexed Points: {info.get('indexed_points_count', 0)}")
-                
+
                 if detailed:
-                    print(f"Vector Size: {info.get('config', {}).get('params', {}).get('vectors', {}).get('size', 'unknown')}")
-                    print(f"Distance Metric: {info.get('config', {}).get('params', {}).get('vectors', {}).get('distance', 'unknown')}")
+                    print(
+                        f"Vector Size: {info.get('config', {}).get('params', {}).get('vectors', {}).get('size', 'unknown')}"
+                    )
+                    print(
+                        f"Distance Metric: {info.get('config', {}).get('params', {}).get('vectors', {}).get('distance', 'unknown')}"
+                    )
 
             except Exception as e:
                 print(f"Error: Cannot get status for '{display_name}': {e}")
@@ -377,6 +420,7 @@ async def _library_status(name: str | None, detailed: bool, health_check: bool):
     except Exception as e:
         print(f"Error: Failed to get library status: {e}")
         raise typer.Exit(1)
+
 
 async def _library_info(name: str, show_samples: bool, show_schema: bool):
     """Show detailed library information."""
@@ -401,8 +445,12 @@ async def _library_info(name: str, show_samples: bool, show_schema: bool):
         print(f"Vectors: {info.get('vectors_count', 0):,}")
         print(f"Indexed: {info.get('indexed_points_count', 0):,}")
         print("\nConfiguration:")
-        print(f"Vector Size: {info.get('config', {}).get('params', {}).get('vectors', {}).get('size', 'unknown')}")
-        print(f"Distance: {info.get('config', {}).get('params', {}).get('vectors', {}).get('distance', 'unknown')}")
+        print(
+            f"Vector Size: {info.get('config', {}).get('params', {}).get('vectors', {}).get('size', 'unknown')}"
+        )
+        print(
+            f"Distance: {info.get('config', {}).get('params', {}).get('vectors', {}).get('distance', 'unknown')}"
+        )
 
         if show_schema:
             print("\nCollection Schema")
@@ -413,7 +461,9 @@ async def _library_info(name: str, show_samples: bool, show_schema: bool):
             print("\nSample Documents")
             try:
                 # Get a few sample points
-                sample_results = await client.scroll_collection(collection_name, limit=3)
+                sample_results = await client.scroll_collection(
+                    collection_name, limit=3
+                )
 
                 if sample_results and "points" in sample_results:
                     for i, point in enumerate(sample_results["points"][:3], 1):
@@ -423,7 +473,11 @@ async def _library_info(name: str, show_samples: bool, show_schema: bool):
                         # Display key fields
                         for key, value in payload.items():
                             if key in ["title", "content", "filename", "source"]:
-                                display_value = str(value)[:100] + "..." if len(str(value)) > 100 else str(value)
+                                display_value = (
+                                    str(value)[:100] + "..."
+                                    if len(str(value)) > 100
+                                    else str(value)
+                                )
                                 print(f"  {key}: {display_value}")
 
                         print()
@@ -436,6 +490,7 @@ async def _library_info(name: str, show_samples: bool, show_schema: bool):
     except Exception as e:
         print(f"Error: Failed to get library info: {e}")
         raise typer.Exit(1)
+
 
 async def _rename_library(old_name: str, new_name: str, force: bool):
     """Rename a library collection."""
@@ -451,6 +506,7 @@ async def _rename_library(old_name: str, new_name: str, force: bool):
     except Exception as e:
         print(f"Error: Rename operation failed: {e}")
         raise typer.Exit(1)
+
 
 async def _copy_library(source: str, destination: str, description: str | None):
     """Copy library collection."""

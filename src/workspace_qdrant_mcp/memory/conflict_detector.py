@@ -1,4 +1,3 @@
-
 """
 Conflict detection for memory rules using semantic analysis.
 
@@ -28,10 +27,12 @@ class ConflictDetector:
     - Scope overlaps that might cause issues
     """
 
-    def __init__(self,
-                 anthropic_api_key: str | None = None,
-                 model: str = "claude-3-sonnet-20240229",
-                 enable_ai_analysis: bool = True):
+    def __init__(
+        self,
+        anthropic_api_key: str | None = None,
+        model: str = "claude-3-sonnet-20240229",
+        enable_ai_analysis: bool = True,
+    ):
         """
         Initialize conflict detector.
 
@@ -47,20 +48,25 @@ class ConflictDetector:
         if enable_ai_analysis:
             try:
                 import anthropic
+
                 api_key = anthropic_api_key or self._get_api_key_from_env()
                 if api_key:
                     self.anthropic_client = anthropic.Anthropic(api_key=api_key)
                     logger.info("Initialized Claude conflict detection")
                 else:
-                    logger.warning("No Anthropic API key found - disabling AI conflict detection")
+                    logger.warning(
+                        "No Anthropic API key found - disabling AI conflict detection"
+                    )
                     self.enable_ai_analysis = False
             except ImportError:
-                logger.warning("Anthropic library not installed - disabling AI conflict detection")
+                logger.warning(
+                    "Anthropic library not installed - disabling AI conflict detection"
+                )
                 self.enable_ai_analysis = False
 
-    async def detect_conflicts(self,
-                             new_rule: MemoryRule,
-                             existing_rules: list[MemoryRule]) -> list[MemoryRuleConflict]:
+    async def detect_conflicts(
+        self, new_rule: MemoryRule, existing_rules: list[MemoryRule]
+    ) -> list[MemoryRuleConflict]:
         """
         Detect conflicts between a new rule and existing rules.
 
@@ -75,19 +81,29 @@ class ConflictDetector:
 
         # First run rule-based detection (fast)
         for existing_rule in existing_rules:
-            rule_conflicts = await self._detect_rule_based_conflicts(new_rule, existing_rule)
+            rule_conflicts = await self._detect_rule_based_conflicts(
+                new_rule, existing_rule
+            )
             conflicts.extend(rule_conflicts)
 
         # Then run AI-based semantic analysis if enabled (slower but more accurate)
         if self.enable_ai_analysis and self.anthropic_client:
-            semantic_conflicts = await self._detect_semantic_conflicts(new_rule, existing_rules)
+            semantic_conflicts = await self._detect_semantic_conflicts(
+                new_rule, existing_rules
+            )
 
             # Merge conflicts, avoiding duplicates
             for semantic_conflict in semantic_conflicts:
                 # Check if we already found this conflict pair
                 existing_pair = any(
-                    (c.rule1.id == semantic_conflict.rule1.id and c.rule2.id == semantic_conflict.rule2.id) or
-                    (c.rule1.id == semantic_conflict.rule2.id and c.rule2.id == semantic_conflict.rule1.id)
+                    (
+                        c.rule1.id == semantic_conflict.rule1.id
+                        and c.rule2.id == semantic_conflict.rule2.id
+                    )
+                    or (
+                        c.rule1.id == semantic_conflict.rule2.id
+                        and c.rule2.id == semantic_conflict.rule1.id
+                    )
                     for c in conflicts
                 )
 
@@ -96,28 +112,44 @@ class ConflictDetector:
                 else:
                     # Enhance existing conflict with semantic information
                     for existing_conflict in conflicts:
-                        if ((existing_conflict.rule1.id == semantic_conflict.rule1.id and
-                             existing_conflict.rule2.id == semantic_conflict.rule2.id) or
-                            (existing_conflict.rule1.id == semantic_conflict.rule2.id and
-                             existing_conflict.rule2.id == semantic_conflict.rule1.id)):
-
+                        if (
+                            existing_conflict.rule1.id == semantic_conflict.rule1.id
+                            and existing_conflict.rule2.id == semantic_conflict.rule2.id
+                        ) or (
+                            existing_conflict.rule1.id == semantic_conflict.rule2.id
+                            and existing_conflict.rule2.id == semantic_conflict.rule1.id
+                        ):
                             # Enhance with semantic analysis if confidence is higher
-                            if semantic_conflict.confidence > existing_conflict.confidence:
-                                existing_conflict.confidence = semantic_conflict.confidence
-                                existing_conflict.description = semantic_conflict.description
+                            if (
+                                semantic_conflict.confidence
+                                > existing_conflict.confidence
+                            ):
+                                existing_conflict.confidence = (
+                                    semantic_conflict.confidence
+                                )
+                                existing_conflict.description = (
+                                    semantic_conflict.description
+                                )
                                 if semantic_conflict.resolution_suggestion:
-                                    existing_conflict.resolution_suggestion = semantic_conflict.resolution_suggestion
+                                    existing_conflict.resolution_suggestion = (
+                                        semantic_conflict.resolution_suggestion
+                                    )
                             break
 
         # Sort by severity and confidence
-        conflicts.sort(key=lambda c: (
-            {"critical": 4, "high": 3, "medium": 2, "low": 1}[c.severity],
-            c.confidence
-        ), reverse=True)
+        conflicts.sort(
+            key=lambda c: (
+                {"critical": 4, "high": 3, "medium": 2, "low": 1}[c.severity],
+                c.confidence,
+            ),
+            reverse=True,
+        )
 
         return conflicts
 
-    async def analyze_all_conflicts(self, rules: list[MemoryRule]) -> list[MemoryRuleConflict]:
+    async def analyze_all_conflicts(
+        self, rules: list[MemoryRule]
+    ) -> list[MemoryRuleConflict]:
         """
         Analyze all possible conflicts among a set of rules.
 
@@ -130,15 +162,15 @@ class ConflictDetector:
         all_conflicts = []
 
         for i, rule1 in enumerate(rules):
-            for rule2 in rules[i + 1:]:  # Avoid duplicate comparisons
+            for rule2 in rules[i + 1 :]:  # Avoid duplicate comparisons
                 conflicts = await self.detect_conflicts(rule1, [rule2])
                 all_conflicts.extend(conflicts)
 
         return all_conflicts
 
-    async def _detect_rule_based_conflicts(self,
-                                         rule1: MemoryRule,
-                                         rule2: MemoryRule) -> list[MemoryRuleConflict]:
+    async def _detect_rule_based_conflicts(
+        self, rule1: MemoryRule, rule2: MemoryRule
+    ) -> list[MemoryRuleConflict]:
         """
         Detect conflicts using rule-based analysis (fast, deterministic).
 
@@ -152,40 +184,45 @@ class ConflictDetector:
         conflicts = []
 
         # Authority conflicts - multiple absolute rules in same scope
-        if (rule1.authority == AuthorityLevel.ABSOLUTE and
-            rule2.authority == AuthorityLevel.ABSOLUTE):
-
+        if (
+            rule1.authority == AuthorityLevel.ABSOLUTE
+            and rule2.authority == AuthorityLevel.ABSOLUTE
+        ):
             # Check for scope overlap
             scope_overlap = self._check_scope_overlap(rule1.scope, rule2.scope)
             if scope_overlap:
-                conflicts.append(MemoryRuleConflict(
-                    rule1=rule1,
-                    rule2=rule2,
-                    conflict_type="authority",
-                    confidence=0.9,
-                    description=f"Both rules have absolute authority and overlapping scope: {scope_overlap}",
-                    severity="high",
-                    resolution_suggestion="Consider making one rule default authority or refining scopes"
-                ))
+                conflicts.append(
+                    MemoryRuleConflict(
+                        rule1=rule1,
+                        rule2=rule2,
+                        conflict_type="authority",
+                        confidence=0.9,
+                        description=f"Both rules have absolute authority and overlapping scope: {scope_overlap}",
+                        severity="high",
+                        resolution_suggestion="Consider making one rule default authority or refining scopes",
+                    )
+                )
 
         # Direct text contradictions (simple keyword detection)
         text_conflict = self._detect_text_contradictions(rule1.rule, rule2.rule)
         if text_conflict:
-            conflicts.append(MemoryRuleConflict(
-                rule1=rule1,
-                rule2=rule2,
-                conflict_type="direct",
-                confidence=text_conflict["confidence"],
-                description=text_conflict["description"],
-                severity="medium",
-                resolution_suggestion="Review rules for contradictory instructions"
-            ))
+            conflicts.append(
+                MemoryRuleConflict(
+                    rule1=rule1,
+                    rule2=rule2,
+                    conflict_type="direct",
+                    confidence=text_conflict["confidence"],
+                    description=text_conflict["description"],
+                    severity="medium",
+                    resolution_suggestion="Review rules for contradictory instructions",
+                )
+            )
 
         return conflicts
 
-    async def _detect_semantic_conflicts(self,
-                                       new_rule: MemoryRule,
-                                       existing_rules: list[MemoryRule]) -> list[MemoryRuleConflict]:
+    async def _detect_semantic_conflicts(
+        self, new_rule: MemoryRule, existing_rules: list[MemoryRule]
+    ) -> list[MemoryRuleConflict]:
         """
         Detect conflicts using Claude semantic analysis.
 
@@ -204,7 +241,7 @@ class ConflictDetector:
         # Analyze in batches to manage API costs and rate limits
         batch_size = 5
         for i in range(0, len(existing_rules), batch_size):
-            batch = existing_rules[i:i + batch_size]
+            batch = existing_rules[i : i + batch_size]
             batch_conflicts = await self._analyze_rule_batch(new_rule, batch)
             conflicts.extend(batch_conflicts)
 
@@ -214,9 +251,9 @@ class ConflictDetector:
 
         return conflicts
 
-    async def _analyze_rule_batch(self,
-                                new_rule: MemoryRule,
-                                rule_batch: list[MemoryRule]) -> list[MemoryRuleConflict]:
+    async def _analyze_rule_batch(
+        self, new_rule: MemoryRule, rule_batch: list[MemoryRule]
+    ) -> list[MemoryRuleConflict]:
         """
         Analyze conflicts for a batch of rules using Claude.
 
@@ -230,10 +267,14 @@ class ConflictDetector:
         try:
             # Prepare rules for analysis
             rules_text = []
-            rules_text.append(f"NEW RULE: {new_rule.rule} (Authority: {new_rule.authority.value}, Category: {new_rule.category.value})")
+            rules_text.append(
+                f"NEW RULE: {new_rule.rule} (Authority: {new_rule.authority.value}, Category: {new_rule.category.value})"
+            )
 
             for i, rule in enumerate(rule_batch):
-                rules_text.append(f"EXISTING RULE {i+1}: {rule.rule} (Authority: {rule.authority.value}, Category: {rule.category.value})")
+                rules_text.append(
+                    f"EXISTING RULE {i + 1}: {rule.rule} (Authority: {rule.authority.value}, Category: {rule.category.value})"
+                )
 
             rules_context = "\n".join(rules_text)
 
@@ -300,15 +341,23 @@ If no conflicts are found, return {{"conflicts": []}}.
                             continue
 
                     if rule1 and rule2:
-                        conflicts.append(MemoryRuleConflict(
-                            rule1=rule1,
-                            rule2=rule2,
-                            conflict_type=conflict_data.get("conflict_type", "semantic"),
-                            confidence=float(conflict_data.get("confidence", 0.5)),
-                            description=conflict_data.get("description", "Semantic conflict detected"),
-                            severity=conflict_data.get("severity", "medium"),
-                            resolution_suggestion=conflict_data.get("resolution_suggestion")
-                        ))
+                        conflicts.append(
+                            MemoryRuleConflict(
+                                rule1=rule1,
+                                rule2=rule2,
+                                conflict_type=conflict_data.get(
+                                    "conflict_type", "semantic"
+                                ),
+                                confidence=float(conflict_data.get("confidence", 0.5)),
+                                description=conflict_data.get(
+                                    "description", "Semantic conflict detected"
+                                ),
+                                severity=conflict_data.get("severity", "medium"),
+                                resolution_suggestion=conflict_data.get(
+                                    "resolution_suggestion"
+                                ),
+                            )
+                        )
 
                 return conflicts
 
@@ -335,9 +384,7 @@ If no conflicts are found, return {{"conflicts": []}}.
                 model=self.model,
                 max_tokens=2000,
                 temperature=0.1,  # Low temperature for consistent analysis
-                messages=[
-                    {"role": "user", "content": prompt}
-                ]
+                messages=[{"role": "user", "content": prompt}],
             )
 
             return response.content[0].text
@@ -362,7 +409,9 @@ If no conflicts are found, return {{"conflicts": []}}.
 
         return list(set(scope1) & set(scope2))
 
-    def _detect_text_contradictions(self, text1: str, text2: str) -> dict[str, Any] | None:
+    def _detect_text_contradictions(
+        self, text1: str, text2: str
+    ) -> dict[str, Any] | None:
         """
         Detect direct text contradictions using keyword analysis.
 
@@ -379,28 +428,28 @@ If no conflicts are found, return {{"conflicts": []}}.
 
         # Look for direct contradictions
         contradiction_patterns = [
-            (r'use\s+(\w+)', r'don\'?t\s+use\s+\1|avoid\s+\1|never\s+use\s+\1'),
-            (r'prefer\s+(\w+)', r'don\'?t\s+prefer\s+\1|avoid\s+\1'),
-            (r'always\s+(\w+)', r'never\s+\1|don\'?t\s+\1'),
-            (r'enable\s+(\w+)', r'disable\s+\1|turn\s+off\s+\1'),
+            (r"use\s+(\w+)", r"don\'?t\s+use\s+\1|avoid\s+\1|never\s+use\s+\1"),
+            (r"prefer\s+(\w+)", r"don\'?t\s+prefer\s+\1|avoid\s+\1"),
+            (r"always\s+(\w+)", r"never\s+\1|don\'?t\s+\1"),
+            (r"enable\s+(\w+)", r"disable\s+\1|turn\s+off\s+\1"),
         ]
 
         for positive_pattern, negative_pattern in contradiction_patterns:
             positive_matches = re.findall(positive_pattern, text1_lower)
             for match in positive_matches:
-                if re.search(negative_pattern.replace(r'\1', match), text2_lower):
+                if re.search(negative_pattern.replace(r"\1", match), text2_lower):
                     return {
                         "confidence": 0.8,
-                        "description": f"Direct contradiction: '{match}' usage conflict"
+                        "description": f"Direct contradiction: '{match}' usage conflict",
                     }
 
             # Check reverse direction
             positive_matches = re.findall(positive_pattern, text2_lower)
             for match in positive_matches:
-                if re.search(negative_pattern.replace(r'\1', match), text1_lower):
+                if re.search(negative_pattern.replace(r"\1", match), text1_lower):
                     return {
                         "confidence": 0.8,
-                        "description": f"Direct contradiction: '{match}' usage conflict"
+                        "description": f"Direct contradiction: '{match}' usage conflict",
                     }
 
         return None
@@ -408,9 +457,12 @@ If no conflicts are found, return {{"conflicts": []}}.
     def _get_api_key_from_env(self) -> str | None:
         """Get Anthropic API key from environment."""
         import os
+
         return os.getenv("ANTHROPIC_API_KEY")
 
-    def get_conflict_summary(self, conflicts: list[MemoryRuleConflict]) -> dict[str, Any]:
+    def get_conflict_summary(
+        self, conflicts: list[MemoryRuleConflict]
+    ) -> dict[str, Any]:
         """
         Generate a summary of conflicts.
 
@@ -426,7 +478,7 @@ If no conflicts are found, return {{"conflicts": []}}.
                 "by_severity": {},
                 "by_type": {},
                 "highest_confidence": 0.0,
-                "recommendations": []
+                "recommendations": [],
             }
 
         by_severity = {}
@@ -445,7 +497,9 @@ If no conflicts are found, return {{"conflicts": []}}.
         high_count = by_severity.get("high", 0)
 
         if critical_count > 0:
-            recommendations.append(f"Resolve {critical_count} critical conflicts before proceeding")
+            recommendations.append(
+                f"Resolve {critical_count} critical conflicts before proceeding"
+            )
         if high_count > 0:
             recommendations.append(f"Review {high_count} high-severity conflicts")
         if by_type.get("authority", 0) > 0:
@@ -456,5 +510,5 @@ If no conflicts are found, return {{"conflicts": []}}.
             "by_severity": by_severity,
             "by_type": by_type,
             "highest_confidence": max(c.confidence for c in conflicts),
-            "recommendations": recommendations
+            "recommendations": recommendations,
         }

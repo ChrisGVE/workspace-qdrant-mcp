@@ -1,4 +1,3 @@
-
 """
 Document ingestion engine for batch processing.
 
@@ -284,7 +283,10 @@ class DocumentIngestionEngine:
                 if any(fmt.lower() in parser_name_lower for fmt in format_filter):
                     include_parser = True
                 # Also check if any requested formats match parser extensions
-                elif any(f".{fmt.lower()}" in parser.supported_extensions for fmt in format_filter):
+                elif any(
+                    f".{fmt.lower()}" in parser.supported_extensions
+                    for fmt in format_filter
+                ):
                     include_parser = True
 
             if include_parser:

@@ -1,4 +1,3 @@
-
 """
 YAML metadata workflow for library document ingestion.
 
@@ -59,14 +58,12 @@ class DocumentTypeSchema:
 
         all_valid_fields = set(self.required_metadata + self.optional_metadata)
         unknown_fields = [
-            field for field in metadata.keys()
-            if field not in all_valid_fields and not field.startswith('_')
+            field
+            for field in metadata.keys()
+            if field not in all_valid_fields and not field.startswith("_")
         ]
 
-        return {
-            'missing_required': missing_required,
-            'unknown_fields': unknown_fields
-        }
+        return {"missing_required": missing_required, "unknown_fields": unknown_fields}
 
 
 @dataclass
@@ -87,7 +84,7 @@ class PendingDocument:
             return False
 
         validation = schema.validate_metadata(self.required_metadata)
-        return len(validation['missing_required']) == 0
+        return len(validation["missing_required"]) == 0
 
 
 @dataclass
@@ -103,107 +100,141 @@ class YamlMetadataFile:
     def to_yaml_dict(self) -> dict[str, Any]:
         """Convert to YAML-serializable dictionary."""
         return {
-            'metadata': {
-                'generated_at': self.generated_at,
-                'engine_version': self.engine_version,
-                'library_collection': self.library_collection,
-                'instructions': [
+            "metadata": {
+                "generated_at": self.generated_at,
+                "engine_version": self.engine_version,
+                "library_collection": self.library_collection,
+                "instructions": [
                     "Fill in the required metadata fields marked with '?'",
                     "You can modify detected metadata if it's incorrect",
                     "Remove files from pending_files if you don't want to process them",
-                    "Run 'wqm ingest yaml <this-file>' when complete"
-                ]
+                    "Run 'wqm ingest yaml <this-file>' when complete",
+                ],
             },
-            'document_types': {
+            "document_types": {
                 name: {
-                    'primary_version': schema.primary_version,
-                    'required_metadata': schema.required_metadata,
-                    'optional_metadata': schema.optional_metadata
-                } for name, schema in DOCUMENT_SCHEMAS.items()
+                    "primary_version": schema.primary_version,
+                    "required_metadata": schema.required_metadata,
+                    "optional_metadata": schema.optional_metadata,
+                }
+                for name, schema in DOCUMENT_SCHEMAS.items()
             },
-            'pending_files': [
+            "pending_files": [
                 {
-                    'path': doc.path,
-                    'document_type': doc.document_type,
-                    'confidence': doc.confidence,
-                    'detected_metadata': doc.detected_metadata,
-                    'required_metadata': doc.required_metadata,
-                    'extraction_errors': doc.extraction_errors if doc.extraction_errors else None
-                } for doc in self.pending_files
+                    "path": doc.path,
+                    "document_type": doc.document_type,
+                    "confidence": doc.confidence,
+                    "detected_metadata": doc.detected_metadata,
+                    "required_metadata": doc.required_metadata,
+                    "extraction_errors": doc.extraction_errors
+                    if doc.extraction_errors
+                    else None,
+                }
+                for doc in self.pending_files
             ],
-            'completed_files': self.completed_files
+            "completed_files": self.completed_files,
         }
 
     @classmethod
-    def from_yaml_dict(cls, data: dict[str, Any]) -> 'YamlMetadataFile':
+    def from_yaml_dict(cls, data: dict[str, Any]) -> "YamlMetadataFile":
         """Create from YAML dictionary."""
-        metadata = data.get('metadata', {})
-        pending_files_data = data.get('pending_files', [])
+        metadata = data.get("metadata", {})
+        pending_files_data = data.get("pending_files", [])
 
         pending_files = []
         for file_data in pending_files_data:
-            pending_files.append(PendingDocument(
-                path=file_data['path'],
-                detected_metadata=file_data.get('detected_metadata', {}),
-                required_metadata=file_data.get('required_metadata', {}),
-                document_type=file_data.get('document_type', 'unknown'),
-                confidence=file_data.get('confidence', 0.0),
-                extraction_errors=file_data.get('extraction_errors', []) or []
-            ))
+            pending_files.append(
+                PendingDocument(
+                    path=file_data["path"],
+                    detected_metadata=file_data.get("detected_metadata", {}),
+                    required_metadata=file_data.get("required_metadata", {}),
+                    document_type=file_data.get("document_type", "unknown"),
+                    confidence=file_data.get("confidence", 0.0),
+                    extraction_errors=file_data.get("extraction_errors", []) or [],
+                )
+            )
 
         return cls(
-            generated_at=metadata.get('generated_at', ''),
-            engine_version=metadata.get('engine_version', ''),
-            library_collection=metadata.get('library_collection', ''),
+            generated_at=metadata.get("generated_at", ""),
+            engine_version=metadata.get("engine_version", ""),
+            library_collection=metadata.get("library_collection", ""),
             pending_files=pending_files,
-            completed_files=data.get('completed_files', [])
+            completed_files=data.get("completed_files", []),
         )
 
 
 # Document type schemas based on PRD Task 6 research
 DOCUMENT_SCHEMAS = {
-    'book': DocumentTypeSchema(
-        name='book',
-        primary_version='edition',
-        required_metadata=['title', 'author', 'edition'],
-        optional_metadata=['isbn', 'publisher', 'year', 'language', 'pages', 'genre', 'tags']
+    "book": DocumentTypeSchema(
+        name="book",
+        primary_version="edition",
+        required_metadata=["title", "author", "edition"],
+        optional_metadata=[
+            "isbn",
+            "publisher",
+            "year",
+            "language",
+            "pages",
+            "genre",
+            "tags",
+        ],
     ),
-    'scientific_article': DocumentTypeSchema(
-        name='scientific_article',
-        primary_version='publication_date',
-        required_metadata=['title', 'authors', 'journal', 'publication_date'],
-        optional_metadata=['doi', 'volume', 'issue', 'pages', 'abstract', 'keywords', 'tags']
+    "scientific_article": DocumentTypeSchema(
+        name="scientific_article",
+        primary_version="publication_date",
+        required_metadata=["title", "authors", "journal", "publication_date"],
+        optional_metadata=[
+            "doi",
+            "volume",
+            "issue",
+            "pages",
+            "abstract",
+            "keywords",
+            "tags",
+        ],
     ),
-    'webpage': DocumentTypeSchema(
-        name='webpage',
-        primary_version='ingestion_date',
-        required_metadata=['title', 'url', 'ingestion_date'],
-        optional_metadata=['author', 'site_name', 'description', 'tags', 'last_modified']
+    "webpage": DocumentTypeSchema(
+        name="webpage",
+        primary_version="ingestion_date",
+        required_metadata=["title", "url", "ingestion_date"],
+        optional_metadata=[
+            "author",
+            "site_name",
+            "description",
+            "tags",
+            "last_modified",
+        ],
     ),
-    'report': DocumentTypeSchema(
-        name='report',
-        primary_version='publication_date',
-        required_metadata=['title', 'author', 'publication_date'],
-        optional_metadata=['organization', 'report_number', 'pages', 'abstract', 'tags']
+    "report": DocumentTypeSchema(
+        name="report",
+        primary_version="publication_date",
+        required_metadata=["title", "author", "publication_date"],
+        optional_metadata=[
+            "organization",
+            "report_number",
+            "pages",
+            "abstract",
+            "tags",
+        ],
     ),
-    'presentation': DocumentTypeSchema(
-        name='presentation',
-        primary_version='date',
-        required_metadata=['title', 'author', 'date'],
-        optional_metadata=['event', 'location', 'slides', 'duration', 'tags']
+    "presentation": DocumentTypeSchema(
+        name="presentation",
+        primary_version="date",
+        required_metadata=["title", "author", "date"],
+        optional_metadata=["event", "location", "slides", "duration", "tags"],
     ),
-    'manual': DocumentTypeSchema(
-        name='manual',
-        primary_version='version',
-        required_metadata=['title', 'version'],
-        optional_metadata=['author', 'product', 'company', 'date', 'pages', 'tags']
+    "manual": DocumentTypeSchema(
+        name="manual",
+        primary_version="version",
+        required_metadata=["title", "version"],
+        optional_metadata=["author", "product", "company", "date", "pages", "tags"],
     ),
-    'unknown': DocumentTypeSchema(
-        name='unknown',
-        primary_version='date',
-        required_metadata=['title'],
-        optional_metadata=['author', 'date', 'source', 'type', 'tags']
-    )
+    "unknown": DocumentTypeSchema(
+        name="unknown",
+        primary_version="date",
+        required_metadata=["title"],
+        optional_metadata=["author", "date", "source", "type", "tags"],
+    ),
 }
 
 
@@ -211,16 +242,10 @@ class DocumentTypeDetector:
     """Detects document types based on content and metadata analysis."""
 
     def __init__(self):
-        self.confidence_thresholds = {
-            'high': 0.8,
-            'medium': 0.5,
-            'low': 0.3
-        }
+        self.confidence_thresholds = {"high": 0.8, "medium": 0.5, "low": 0.3}
 
     async def detect_document_type(
-        self,
-        parsed_doc: ParsedDocument,
-        file_path: Path
+        self, parsed_doc: ParsedDocument, file_path: Path
     ) -> tuple[str, float]:
         """
         Detect the document type and confidence level.
@@ -237,41 +262,85 @@ class DocumentTypeDetector:
         filename = file_path.name.lower()
 
         # Initialize scores for each document type
-        type_scores = {doc_type: 0.0 for doc_type in DOCUMENT_SCHEMAS.keys() if doc_type != 'unknown'}
+        type_scores = {
+            doc_type: 0.0
+            for doc_type in DOCUMENT_SCHEMAS.keys()
+            if doc_type != "unknown"
+        }
 
         # File extension based scoring
-        if file_path.suffix.lower() == '.pdf':
-            type_scores['book'] += 0.2
-            type_scores['scientific_article'] += 0.3
-            type_scores['report'] += 0.3
-            type_scores['manual'] += 0.2
+        if file_path.suffix.lower() == ".pdf":
+            type_scores["book"] += 0.2
+            type_scores["scientific_article"] += 0.3
+            type_scores["report"] += 0.3
+            type_scores["manual"] += 0.2
 
         # Content pattern analysis
         patterns = {
-            'book': [
-                'chapter', 'isbn', 'publisher', 'copyright', 'edition',
-                'table of contents', 'bibliography', 'index'
+            "book": [
+                "chapter",
+                "isbn",
+                "publisher",
+                "copyright",
+                "edition",
+                "table of contents",
+                "bibliography",
+                "index",
             ],
-            'scientific_article': [
-                'abstract', 'keywords', 'doi:', 'journal', 'volume',
-                'references', 'methodology', 'conclusion', 'research'
+            "scientific_article": [
+                "abstract",
+                "keywords",
+                "doi:",
+                "journal",
+                "volume",
+                "references",
+                "methodology",
+                "conclusion",
+                "research",
             ],
-            'webpage': [
-                'http://', 'https://', 'www.', '.com', '.org', '.net',
-                'website', 'browser', 'url', 'link'
+            "webpage": [
+                "http://",
+                "https://",
+                "www.",
+                ".com",
+                ".org",
+                ".net",
+                "website",
+                "browser",
+                "url",
+                "link",
             ],
-            'report': [
-                'executive summary', 'findings', 'recommendations',
-                'analysis', 'report', 'study', 'survey', 'assessment'
+            "report": [
+                "executive summary",
+                "findings",
+                "recommendations",
+                "analysis",
+                "report",
+                "study",
+                "survey",
+                "assessment",
             ],
-            'presentation': [
-                'slide', 'presentation', 'powerpoint', 'keynote',
-                'agenda', 'outline', 'summary', 'overview'
+            "presentation": [
+                "slide",
+                "presentation",
+                "powerpoint",
+                "keynote",
+                "agenda",
+                "outline",
+                "summary",
+                "overview",
             ],
-            'manual': [
-                'manual', 'guide', 'instruction', 'how to', 'step by step',
-                'user guide', 'documentation', 'procedure', 'tutorial'
-            ]
+            "manual": [
+                "manual",
+                "guide",
+                "instruction",
+                "how to",
+                "step by step",
+                "user guide",
+                "documentation",
+                "procedure",
+                "tutorial",
+            ],
         }
 
         # Score based on pattern matches
@@ -281,12 +350,12 @@ class DocumentTypeDetector:
 
         # Filename analysis
         filename_patterns = {
-            'book': ['book', 'ebook', 'novel', 'guide'],
-            'scientific_article': ['paper', 'article', 'journal', 'research'],
-            'webpage': ['web', 'html', 'site'],
-            'report': ['report', 'analysis', 'study'],
-            'presentation': ['slides', 'presentation', 'ppt'],
-            'manual': ['manual', 'guide', 'instructions', 'howto']
+            "book": ["book", "ebook", "novel", "guide"],
+            "scientific_article": ["paper", "article", "journal", "research"],
+            "webpage": ["web", "html", "site"],
+            "report": ["report", "analysis", "study"],
+            "presentation": ["slides", "presentation", "ppt"],
+            "manual": ["manual", "guide", "instructions", "howto"],
         }
 
         for doc_type, keywords in filename_patterns.items():
@@ -294,23 +363,25 @@ class DocumentTypeDetector:
                 type_scores[doc_type] += 0.3
 
         # Metadata analysis
-        if 'title' in metadata:
-            title_lower = str(metadata['title']).lower()
+        if "title" in metadata:
+            title_lower = str(metadata["title"]).lower()
             # Boost scores based on title analysis
-            if any(word in title_lower for word in ['journal', 'paper', 'research']):
-                type_scores['scientific_article'] += 0.2
-            elif any(word in title_lower for word in ['manual', 'guide', 'instructions']):
-                type_scores['manual'] += 0.2
-            elif any(word in title_lower for word in ['report', 'analysis', 'study']):
-                type_scores['report'] += 0.2
+            if any(word in title_lower for word in ["journal", "paper", "research"]):
+                type_scores["scientific_article"] += 0.2
+            elif any(
+                word in title_lower for word in ["manual", "guide", "instructions"]
+            ):
+                type_scores["manual"] += 0.2
+            elif any(word in title_lower for word in ["report", "analysis", "study"]):
+                type_scores["report"] += 0.2
 
         # Find the best match
         best_type = max(type_scores.items(), key=lambda x: x[1])
         best_doc_type, confidence = best_type
 
         # Use 'unknown' if confidence is too low
-        if confidence < self.confidence_thresholds['low']:
-            return 'unknown', confidence
+        if confidence < self.confidence_thresholds["low"]:
+            return "unknown", confidence
 
         return best_doc_type, min(confidence, 1.0)
 
@@ -320,16 +391,14 @@ class MetadataExtractor:
 
     def __init__(self):
         self.parsers = {
-            '.pdf': PDFParser(),
-            '.md': MarkdownParser(),
-            '.txt': TextParser(),
-            '.pptx': PptxParser()
+            ".pdf": PDFParser(),
+            ".md": MarkdownParser(),
+            ".txt": TextParser(),
+            ".pptx": PptxParser(),
         }
 
     async def extract_enhanced_metadata(
-        self,
-        file_path: Path,
-        document_type: str
+        self, file_path: Path, document_type: str
     ) -> dict[str, Any]:
         """
         Extract enhanced metadata based on document type.
@@ -350,11 +419,11 @@ class MetadataExtractor:
         metadata = parsed_doc.metadata.copy()
 
         # Type-specific metadata extraction
-        if document_type == 'book':
+        if document_type == "book":
             metadata.update(await self._extract_book_metadata(parsed_doc, file_path))
-        elif document_type == 'scientific_article':
+        elif document_type == "scientific_article":
             metadata.update(await self._extract_article_metadata(parsed_doc, file_path))
-        elif document_type == 'webpage':
+        elif document_type == "webpage":
             metadata.update(await self._extract_webpage_metadata(parsed_doc, file_path))
 
         # Clean and standardize metadata
@@ -366,49 +435,45 @@ class MetadataExtractor:
         return self.parsers.get(extension)
 
     async def _extract_book_metadata(
-        self,
-        parsed_doc: ParsedDocument,
-        file_path: Path
+        self, parsed_doc: ParsedDocument, file_path: Path
     ) -> dict[str, Any]:
         """Extract book-specific metadata."""
         content = parsed_doc.content
         metadata = {}
 
         # Try to extract title from content if not in PDF metadata
-        if 'title' not in parsed_doc.metadata or not parsed_doc.metadata['title']:
+        if "title" not in parsed_doc.metadata or not parsed_doc.metadata["title"]:
             title = self._extract_title_from_content(content)
             if title:
-                metadata['title'] = title
+                metadata["title"] = title
 
         # Try to extract author information
         author = self._extract_author_from_content(content)
         if author:
-            metadata['author'] = author
+            metadata["author"] = author
 
         # Try to extract ISBN
         isbn = self._extract_isbn_from_content(content)
         if isbn:
-            metadata['isbn'] = isbn
+            metadata["isbn"] = isbn
 
         # Try to extract publisher
         publisher = self._extract_publisher_from_content(content)
         if publisher:
-            metadata['publisher'] = publisher
+            metadata["publisher"] = publisher
 
         # Extract year from various sources
         year = self._extract_year_from_content(content)
         if year:
-            metadata['year'] = year
+            metadata["year"] = year
 
         # Estimate edition (default to 1st if not found)
-        metadata['edition'] = '1st'
+        metadata["edition"] = "1st"
 
         return metadata
 
     async def _extract_article_metadata(
-        self,
-        parsed_doc: ParsedDocument,
-        file_path: Path
+        self, parsed_doc: ParsedDocument, file_path: Path
     ) -> dict[str, Any]:
         """Extract scientific article-specific metadata."""
         content = parsed_doc.content
@@ -417,52 +482,50 @@ class MetadataExtractor:
         # Extract title (usually at the beginning)
         title = self._extract_title_from_content(content)
         if title:
-            metadata['title'] = title
+            metadata["title"] = title
 
         # Extract authors (multiple authors support)
         authors = self._extract_authors_from_content(content)
         if authors:
-            metadata['authors'] = authors
+            metadata["authors"] = authors
 
         # Extract journal information
         journal = self._extract_journal_from_content(content)
         if journal:
-            metadata['journal'] = journal
+            metadata["journal"] = journal
 
         # Extract DOI
         doi = self._extract_doi_from_content(content)
         if doi:
-            metadata['doi'] = doi
+            metadata["doi"] = doi
 
         # Extract publication date
         pub_date = self._extract_publication_date_from_content(content)
         if pub_date:
-            metadata['publication_date'] = pub_date
+            metadata["publication_date"] = pub_date
 
         return metadata
 
     async def _extract_webpage_metadata(
-        self,
-        parsed_doc: ParsedDocument,
-        file_path: Path
+        self, parsed_doc: ParsedDocument, file_path: Path
     ) -> dict[str, Any]:
         """Extract webpage-specific metadata."""
         metadata = {}
 
         # For webpages, we'd need the original URL
         # For now, set ingestion date to current time
-        metadata['ingestion_date'] = datetime.now(timezone.utc).isoformat()
+        metadata["ingestion_date"] = datetime.now(timezone.utc).isoformat()
 
         # Try to extract title
         title = self._extract_title_from_content(parsed_doc.content)
         if title:
-            metadata['title'] = title
+            metadata["title"] = title
 
         return metadata
 
     def _extract_title_from_content(self, content: str) -> str | None:
         """Extract title from document content."""
-        lines = content.split('\n')
+        lines = content.split("\n")
 
         # Look for title in first few lines
         for _i, line in enumerate(lines[:10]):
@@ -470,8 +533,10 @@ class MetadataExtractor:
             if len(line) > 10 and len(line) < 200:
                 # Simple heuristic: likely title if it's not too short or long
                 # and doesn't contain common body text patterns
-                if not any(word in line.lower() for word in
-                          ['the', 'and', 'this', 'chapter', 'section', 'page']):
+                if not any(
+                    word in line.lower()
+                    for word in ["the", "and", "this", "chapter", "section", "page"]
+                ):
                     return line
 
         return None
@@ -481,13 +546,13 @@ class MetadataExtractor:
         import re
 
         # Look for "by [author]" pattern
-        by_pattern = r'by\s+([A-Z][a-z]+(?:\s+[A-Z][a-z]+)*)'
+        by_pattern = r"by\s+([A-Z][a-z]+(?:\s+[A-Z][a-z]+)*)"
         match = re.search(by_pattern, content, re.IGNORECASE)
         if match:
             return match.group(1)
 
         # Look for "Author: [name]" pattern
-        author_pattern = r'Author:\s*([A-Z][a-z]+(?:\s+[A-Z][a-z]+)*)'
+        author_pattern = r"Author:\s*([A-Z][a-z]+(?:\s+[A-Z][a-z]+)*)"
         match = re.search(author_pattern, content, re.IGNORECASE)
         if match:
             return match.group(1)
@@ -500,12 +565,12 @@ class MetadataExtractor:
 
         # Look for author list patterns common in papers
         patterns = [
-            r'Authors?:\s*([A-Z][^.]+)',
-            r'Written by:?\s*([A-Z][^.]+)',
-            r'^([A-Z][a-z]+(?:\s+[A-Z]\.\s*)?[A-Z][a-z]+(?:,\s*[A-Z][a-z]+(?:\s+[A-Z]\.\s*)?[A-Z][a-z]+)*)',
+            r"Authors?:\s*([A-Z][^.]+)",
+            r"Written by:?\s*([A-Z][^.]+)",
+            r"^([A-Z][a-z]+(?:\s+[A-Z]\.\s*)?[A-Z][a-z]+(?:,\s*[A-Z][a-z]+(?:\s+[A-Z]\.\s*)?[A-Z][a-z]+)*)",
         ]
 
-        lines = content.split('\n')[:20]  # Check first 20 lines
+        lines = content.split("\n")[:20]  # Check first 20 lines
 
         for pattern in patterns:
             for line in lines:
@@ -520,10 +585,10 @@ class MetadataExtractor:
         import re
 
         # ISBN-10 or ISBN-13 pattern
-        isbn_pattern = r'ISBN(?:-1[03])?\s*:?\s*([0-9-]{10,17})'
+        isbn_pattern = r"ISBN(?:-1[03])?\s*:?\s*([0-9-]{10,17})"
         match = re.search(isbn_pattern, content, re.IGNORECASE)
         if match:
-            return match.group(1).replace('-', '')
+            return match.group(1).replace("-", "")
 
         return None
 
@@ -532,9 +597,9 @@ class MetadataExtractor:
         import re
 
         patterns = [
-            r'Publisher:\s*([^.\n]+)',
-            r'Published by\s+([^.\n]+)',
-            r'©\s*\d{4}\s+([^.\n]+)',
+            r"Publisher:\s*([^.\n]+)",
+            r"Published by\s+([^.\n]+)",
+            r"©\s*\d{4}\s+([^.\n]+)",
         ]
 
         for pattern in patterns:
@@ -552,10 +617,10 @@ class MetadataExtractor:
 
         # Look for 4-digit years in common contexts
         year_patterns = [
-            r'©\s*(\d{4})',
-            r'Published in (\d{4})',
-            r'Copyright (\d{4})',
-            r'\b(19|20)\d{2}\b'
+            r"©\s*(\d{4})",
+            r"Published in (\d{4})",
+            r"Copyright (\d{4})",
+            r"\b(19|20)\d{2}\b",
         ]
 
         for pattern in year_patterns:
@@ -576,9 +641,9 @@ class MetadataExtractor:
         import re
 
         patterns = [
-            r'Journal:\s*([^.\n]+)',
-            r'Published in\s+([^.,\n]+)',
-            r'Appeared in\s+([^.,\n]+)',
+            r"Journal:\s*([^.\n]+)",
+            r"Published in\s+([^.,\n]+)",
+            r"Appeared in\s+([^.,\n]+)",
         ]
 
         for pattern in patterns:
@@ -594,7 +659,7 @@ class MetadataExtractor:
         """Extract DOI from content."""
         import re
 
-        doi_pattern = r'DOI:\s*(10\.\d+/[^\s]+)'
+        doi_pattern = r"DOI:\s*(10\.\d+/[^\s]+)"
         match = re.search(doi_pattern, content, re.IGNORECASE)
         if match:
             return match.group(1)
@@ -607,10 +672,10 @@ class MetadataExtractor:
 
         # Look for various date formats
         date_patterns = [
-            r'Published:\s*([A-Z][a-z]+ \d{1,2},? \d{4})',
-            r'Date:\s*([A-Z][a-z]+ \d{4})',
-            r'(\d{4}-\d{2}-\d{2})',
-            r'([A-Z][a-z]+,? \d{4})'
+            r"Published:\s*([A-Z][a-z]+ \d{1,2},? \d{4})",
+            r"Date:\s*([A-Z][a-z]+ \d{4})",
+            r"(\d{4}-\d{2}-\d{2})",
+            r"([A-Z][a-z]+,? \d{4})",
         ]
 
         for pattern in date_patterns:
@@ -625,13 +690,13 @@ class MetadataExtractor:
         cleaned = {}
 
         for key, value in metadata.items():
-            if value is None or value == '':
+            if value is None or value == "":
                 continue
 
             # Convert to string and clean
             if isinstance(value, str):
                 value = value.strip()
-                if value and value != '?':
+                if value and value != "?":
                     cleaned[key] = value
             else:
                 cleaned[key] = value
@@ -652,7 +717,7 @@ class YamlMetadataWorkflow:
         library_path: Path,
         library_collection: str,
         output_path: Path | None = None,
-        formats: list[str] | None = None
+        formats: list[str] | None = None,
     ) -> Path:
         """
         Generate YAML metadata file for documents in library path.
@@ -688,24 +753,26 @@ class YamlMetadataWorkflow:
             except Exception as e:
                 logger.error(f"Failed to process {doc_path}: {e}")
                 # Add as unknown type with error
-                pending_docs.append(PendingDocument(
-                    path=str(doc_path),
-                    detected_metadata={},
-                    required_metadata={'title': '?'},
-                    document_type='unknown',
-                    confidence=0.0,
-                    extraction_errors=[str(e)]
-                ))
+                pending_docs.append(
+                    PendingDocument(
+                        path=str(doc_path),
+                        detected_metadata={},
+                        required_metadata={"title": "?"},
+                        document_type="unknown",
+                        confidence=0.0,
+                        extraction_errors=[str(e)],
+                    )
+                )
 
         # Generate YAML file
         if not output_path:
-            output_path = library_path / 'metadata_completion.yaml'
+            output_path = library_path / "metadata_completion.yaml"
 
         yaml_file = YamlMetadataFile(
             generated_at=datetime.now(timezone.utc).isoformat(),
             engine_version="1.0.0",
             library_collection=library_collection,
-            pending_files=pending_docs
+            pending_files=pending_docs,
         )
 
         await self._save_yaml_file(yaml_file, output_path)
@@ -714,9 +781,7 @@ class YamlMetadataWorkflow:
         return output_path
 
     async def process_yaml_file(
-        self,
-        yaml_path: Path,
-        dry_run: bool = False
+        self, yaml_path: Path, dry_run: bool = False
     ) -> dict[str, Any]:
         """
         Process completed YAML metadata file and ingest documents.
@@ -735,12 +800,7 @@ class YamlMetadataWorkflow:
         yaml_file = await self._load_yaml_file(yaml_path)
 
         # Process documents with complete metadata
-        results = {
-            'processed': 0,
-            'skipped': 0,
-            'errors': [],
-            'remaining': []
-        }
+        results = {"processed": 0, "skipped": 0, "errors": [], "remaining": []}
 
         remaining_docs = []
 
@@ -748,17 +808,19 @@ class YamlMetadataWorkflow:
             try:
                 if doc.is_complete():
                     if not dry_run:
-                        await self._ingest_document_with_metadata(doc, yaml_file.library_collection)
-                    results['processed'] += 1
+                        await self._ingest_document_with_metadata(
+                            doc, yaml_file.library_collection
+                        )
+                    results["processed"] += 1
                     logger.info(f"Processed: {doc.path}")
                 else:
                     remaining_docs.append(doc)
-                    results['skipped'] += 1
+                    results["skipped"] += 1
                     logger.warning(f"Skipped incomplete metadata: {doc.path}")
 
             except Exception as e:
                 error_msg = f"Failed to process {doc.path}: {e}"
-                results['errors'].append(error_msg)
+                results["errors"].append(error_msg)
                 logger.error(error_msg)
                 remaining_docs.append(doc)
 
@@ -767,18 +829,16 @@ class YamlMetadataWorkflow:
             yaml_file.pending_files = remaining_docs
             await self._save_yaml_file(yaml_file, yaml_path)
 
-        results['remaining'] = len(remaining_docs)
+        results["remaining"] = len(remaining_docs)
 
         return results
 
     async def _find_documents(
-        self,
-        library_path: Path,
-        formats: list[str] | None = None
+        self, library_path: Path, formats: list[str] | None = None
     ) -> list[Path]:
         """Find documents in library path."""
         if not formats:
-            formats = ['pdf', 'txt', 'md', 'epub']
+            formats = ["pdf", "txt", "md", "epub"]
 
         documents = []
 
@@ -792,9 +852,7 @@ class YamlMetadataWorkflow:
         return sorted(set(documents))  # Remove duplicates and sort
 
     async def _process_document(
-        self,
-        doc_path: Path,
-        library_collection: str
+        self, doc_path: Path, library_collection: str
     ) -> PendingDocument | None:
         """Process a single document for metadata extraction."""
         try:
@@ -836,7 +894,7 @@ class YamlMetadataWorkflow:
                 detected_metadata=detected_metadata,
                 required_metadata=required_metadata,
                 document_type=doc_type,
-                confidence=confidence
+                confidence=confidence,
             )
 
         except Exception as e:
@@ -844,31 +902,35 @@ class YamlMetadataWorkflow:
             return PendingDocument(
                 path=str(doc_path),
                 detected_metadata={},
-                required_metadata={'title': '?'},
-                document_type='unknown',
+                required_metadata={"title": "?"},
+                document_type="unknown",
                 confidence=0.0,
-                extraction_errors=[str(e)]
+                extraction_errors=[str(e)],
             )
 
     async def _save_yaml_file(self, yaml_file: YamlMetadataFile, output_path: Path):
         """Save YAML file to disk."""
         yaml_data = yaml_file.to_yaml_dict()
 
-        with open(output_path, 'w', encoding='utf-8') as f:
-            yaml.dump(yaml_data, f, default_flow_style=False, sort_keys=False,
-                     allow_unicode=True, indent=2)
+        with open(output_path, "w", encoding="utf-8") as f:
+            yaml.dump(
+                yaml_data,
+                f,
+                default_flow_style=False,
+                sort_keys=False,
+                allow_unicode=True,
+                indent=2,
+            )
 
     async def _load_yaml_file(self, yaml_path: Path) -> YamlMetadataFile:
         """Load YAML file from disk."""
-        with open(yaml_path, encoding='utf-8') as f:
+        with open(yaml_path, encoding="utf-8") as f:
             data = yaml.safe_load(f)
 
         return YamlMetadataFile.from_yaml_dict(data)
 
     async def _ingest_document_with_metadata(
-        self,
-        doc: PendingDocument,
-        collection: str
+        self, doc: PendingDocument, collection: str
     ):
         """Ingest document with completed metadata into collection."""
         from ..tools.documents import add_document
@@ -888,8 +950,8 @@ class YamlMetadataWorkflow:
         final_metadata.update(doc.required_metadata)
 
         # Add document type information
-        final_metadata['document_type'] = doc.document_type
-        final_metadata['metadata_confidence'] = doc.confidence
+        final_metadata["document_type"] = doc.document_type
+        final_metadata["metadata_confidence"] = doc.confidence
 
         # Add to collection
         result = await add_document(
@@ -898,7 +960,7 @@ class YamlMetadataWorkflow:
             collection=collection,
             metadata=final_metadata,
             document_id=f"{doc_path.stem}_{parsed_doc.content_hash[:8]}",
-            chunk_text=True
+            chunk_text=True,
         )
 
         if result.get("error"):

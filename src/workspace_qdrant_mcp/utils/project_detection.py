@@ -1,4 +1,3 @@
-
 """
 Intelligent project detection with Git and GitHub integration.
 

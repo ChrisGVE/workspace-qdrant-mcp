@@ -1,4 +1,3 @@
-
 """
 Token counting and optimization for memory rules.
 
@@ -19,7 +18,8 @@ logger = logging.getLogger(__name__)
 
 class TokenizationMethod(Enum):
     """Methods for estimating token counts."""
-    SIMPLE = "simple"      # Simple character-based estimation
+
+    SIMPLE = "simple"  # Simple character-based estimation
     TIKTOKEN = "tiktoken"  # OpenAI's tiktoken library (more accurate)
     ANTHROPIC = "anthropic"  # Anthropic's tokenizer (most accurate for Claude)
 
@@ -44,8 +44,8 @@ class TokenUsage:
 
     # Context window information
     context_window_size: int = 200000  # Default Claude context window
-    percentage: float = 0.0            # Percentage of context window used
-    remaining_tokens: int = 0          # Tokens remaining in context window
+    percentage: float = 0.0  # Percentage of context window used
+    remaining_tokens: int = 0  # Tokens remaining in context window
 
     def __post_init__(self):
         """Calculate derived fields."""
@@ -72,7 +72,7 @@ class TokenUsage:
                 "size": self.context_window_size,
                 "percentage": self.percentage,
                 "remaining": self.remaining_tokens,
-            }
+            },
         }
 
 
@@ -97,9 +97,11 @@ class TokenCounter:
     Claude Code context window usage and determine which rules to inject.
     """
 
-    def __init__(self,
-                 method: TokenizationMethod = TokenizationMethod.SIMPLE,
-                 context_window_size: int = 200000):
+    def __init__(
+        self,
+        method: TokenizationMethod = TokenizationMethod.SIMPLE,
+        context_window_size: int = 200000,
+    ):
         """
         Initialize token counter.
 
@@ -115,21 +117,29 @@ class TokenCounter:
         if method == TokenizationMethod.TIKTOKEN:
             try:
                 import tiktoken
+
                 self.tokenizer = tiktoken.encoding_for_model("gpt-3.5-turbo")
                 logger.info("Initialized tiktoken tokenizer")
             except ImportError:
-                logger.warning("tiktoken not available, falling back to simple estimation")
+                logger.warning(
+                    "tiktoken not available, falling back to simple estimation"
+                )
                 self.method = TokenizationMethod.SIMPLE
 
         elif method == TokenizationMethod.ANTHROPIC:
             try:
                 import anthropic
+
                 # Note: Anthropic doesn't provide a public tokenizer yet
                 # Fall back to tiktoken or simple estimation
-                logger.warning("Anthropic tokenizer not available, falling back to simple estimation")
+                logger.warning(
+                    "Anthropic tokenizer not available, falling back to simple estimation"
+                )
                 self.method = TokenizationMethod.SIMPLE
             except ImportError:
-                logger.warning("Anthropic library not available, falling back to simple estimation")
+                logger.warning(
+                    "Anthropic library not available, falling back to simple estimation"
+                )
                 self.method = TokenizationMethod.SIMPLE
 
     def count_rule_tokens(self, rule: MemoryRule) -> int:
@@ -180,10 +190,9 @@ class TokenCounter:
             context_window_size=self.context_window_size,
         )
 
-    def optimize_rules_for_context(self,
-                                 rules: list[MemoryRule],
-                                 max_tokens: int,
-                                 preserve_absolute: bool = True) -> tuple[list[MemoryRule], TokenUsage]:
+    def optimize_rules_for_context(
+        self, rules: list[MemoryRule], max_tokens: int, preserve_absolute: bool = True
+    ) -> tuple[list[MemoryRule], TokenUsage]:
         """
         Optimize rule selection to fit within token budget.
 
@@ -211,8 +220,10 @@ class TokenCounter:
         # First pass: Include all absolute authority rules if preserve_absolute is True
         if preserve_absolute:
             for rule_info in rule_infos:
-                if (rule_info.rule.authority == AuthorityLevel.ABSOLUTE and
-                    used_tokens + rule_info.tokens <= max_tokens):
+                if (
+                    rule_info.rule.authority == AuthorityLevel.ABSOLUTE
+                    and used_tokens + rule_info.tokens <= max_tokens
+                ):
                     selected_rules.append(rule_info.rule)
                     used_tokens += rule_info.tokens
 
@@ -232,9 +243,9 @@ class TokenCounter:
 
         return selected_rules, usage
 
-    def suggest_memory_optimizations(self,
-                                   rules: list[MemoryRule],
-                                   target_tokens: int) -> dict[str, Any]:
+    def suggest_memory_optimizations(
+        self, rules: list[MemoryRule], target_tokens: int
+    ) -> dict[str, Any]:
         """
         Suggest optimizations to reduce memory token usage.
 
@@ -252,7 +263,7 @@ class TokenCounter:
                 "current_tokens": current_usage.total_tokens,
                 "target_tokens": target_tokens,
                 "optimization_needed": False,
-                "suggestions": ["Memory usage is already within target"]
+                "suggestions": ["Memory usage is already within target"],
             }
 
         tokens_to_reduce = current_usage.total_tokens - target_tokens
@@ -273,35 +284,53 @@ class TokenCounter:
         removable_rules = []
 
         for rule_info in rule_infos:
-            if rule_info.rule.authority == AuthorityLevel.DEFAULT:  # Don't suggest removing absolute rules
+            if (
+                rule_info.rule.authority == AuthorityLevel.DEFAULT
+            ):  # Don't suggest removing absolute rules
                 removable_rules.append(rule_info)
                 savings_from_removal += rule_info.tokens
                 if savings_from_removal >= tokens_to_reduce:
                     break
 
         if removable_rules:
-            suggestions.append(f"Remove {len(removable_rules)} lowest-priority default rules "
-                             f"(saves ~{savings_from_removal} tokens)")
-            potential_savings.append(("remove_low_priority", savings_from_removal, removable_rules))
+            suggestions.append(
+                f"Remove {len(removable_rules)} lowest-priority default rules "
+                f"(saves ~{savings_from_removal} tokens)"
+            )
+            potential_savings.append(
+                ("remove_low_priority", savings_from_removal, removable_rules)
+            )
 
         # Look for rules that could be shortened
         long_rules = [r for r in rule_infos if r.tokens > 50]  # Arbitrarily long rules
         if long_rules:
-            potential_shortening_savings = sum(max(0, r.tokens - 30) for r in long_rules)
-            suggestions.append(f"Shorten {len(long_rules)} verbose rules "
-                             f"(potential savings: ~{potential_shortening_savings} tokens)")
-            potential_savings.append(("shorten_rules", potential_shortening_savings, long_rules))
+            potential_shortening_savings = sum(
+                max(0, r.tokens - 30) for r in long_rules
+            )
+            suggestions.append(
+                f"Shorten {len(long_rules)} verbose rules "
+                f"(potential savings: ~{potential_shortening_savings} tokens)"
+            )
+            potential_savings.append(
+                ("shorten_rules", potential_shortening_savings, long_rules)
+            )
 
         # Look for duplicate or similar rules
         duplicate_groups = self._find_similar_rules(rules)
         if duplicate_groups:
             duplicate_savings = sum(
-                sum(self.count_rule_tokens(rule) for rule in group[1:])  # Keep first rule
+                sum(
+                    self.count_rule_tokens(rule) for rule in group[1:]
+                )  # Keep first rule
                 for group in duplicate_groups
             )
-            suggestions.append(f"Merge {len(duplicate_groups)} groups of similar rules "
-                             f"(saves ~{duplicate_savings} tokens)")
-            potential_savings.append(("merge_similar", duplicate_savings, duplicate_groups))
+            suggestions.append(
+                f"Merge {len(duplicate_groups)} groups of similar rules "
+                f"(saves ~{duplicate_savings} tokens)"
+            )
+            potential_savings.append(
+                ("merge_similar", duplicate_savings, duplicate_groups)
+            )
 
         return {
             "current_tokens": current_usage.total_tokens,
@@ -310,7 +339,7 @@ class TokenCounter:
             "optimization_needed": True,
             "suggestions": suggestions,
             "potential_savings": potential_savings,
-            "detailed_usage": current_usage.to_dict()
+            "detailed_usage": current_usage.to_dict(),
         }
 
     def _count_text_tokens(self, text: str) -> int:
@@ -341,7 +370,9 @@ class TokenCounter:
             Formatted rule text
         """
         # Simulate how rule might be injected into context
-        authority_prefix = "[ABSOLUTE]" if rule.authority == AuthorityLevel.ABSOLUTE else "[DEFAULT]"
+        authority_prefix = (
+            "[ABSOLUTE]" if rule.authority == AuthorityLevel.ABSOLUTE else "[DEFAULT]"
+        )
         scope_suffix = f" (Scope: {', '.join(rule.scope)})" if rule.scope else ""
 
         return f"{authority_prefix} {rule.rule}{scope_suffix}"
@@ -366,11 +397,11 @@ class TokenCounter:
 
         # Category importance
         category_scores = {
-            MemoryCategory.BEHAVIOR: 20.0,      # Core behavioral rules
-            MemoryCategory.PREFERENCE: 15.0,    # User preferences
-            MemoryCategory.AGENT_LIBRARY: 10.0, # Agent definitions
-            MemoryCategory.KNOWLEDGE: 8.0,      # Knowledge facts
-            MemoryCategory.CONTEXT: 5.0,        # Session context
+            MemoryCategory.BEHAVIOR: 20.0,  # Core behavioral rules
+            MemoryCategory.PREFERENCE: 15.0,  # User preferences
+            MemoryCategory.AGENT_LIBRARY: 10.0,  # Agent definitions
+            MemoryCategory.KNOWLEDGE: 8.0,  # Knowledge facts
+            MemoryCategory.CONTEXT: 5.0,  # Session context
         }
         score += category_scores.get(rule.category, 0.0)
 
@@ -381,6 +412,7 @@ class TokenCounter:
         # Recency (recently used rules are more important)
         if rule.last_used:
             import datetime
+
             days_since_use = (datetime.datetime.utcnow() - rule.last_used).days
             recency_score = max(0, 5.0 - (days_since_use * 0.1))  # Decay over time
             score += recency_score
@@ -419,7 +451,7 @@ class TokenCounter:
             # Find rules with high keyword overlap
             rule1_words = set(self._extract_keywords(rule1.rule))
 
-            for _j, rule2 in enumerate(rules[i + 1:], i + 1):
+            for _j, rule2 in enumerate(rules[i + 1 :], i + 1):
                 if rule2.id in processed:
                     continue
 
@@ -453,14 +485,45 @@ class TokenCounter:
         # Simple keyword extraction - remove common words and extract meaningful terms
 
         # Convert to lowercase and extract words
-        words = re.findall(r'\b\w+\b', text.lower())
+        words = re.findall(r"\b\w+\b", text.lower())
 
         # Filter out common stop words
         stop_words = {
-            'a', 'an', 'and', 'are', 'as', 'at', 'be', 'by', 'for', 'from',
-            'has', 'he', 'in', 'is', 'it', 'its', 'of', 'on', 'that', 'the',
-            'to', 'was', 'will', 'with', 'always', 'never', 'should', 'must',
-            'use', 'when', 'where', 'what', 'how', 'why', 'this'
+            "a",
+            "an",
+            "and",
+            "are",
+            "as",
+            "at",
+            "be",
+            "by",
+            "for",
+            "from",
+            "has",
+            "he",
+            "in",
+            "is",
+            "it",
+            "its",
+            "of",
+            "on",
+            "that",
+            "the",
+            "to",
+            "was",
+            "will",
+            "with",
+            "always",
+            "never",
+            "should",
+            "must",
+            "use",
+            "when",
+            "where",
+            "what",
+            "how",
+            "why",
+            "this",
         }
 
         keywords = [word for word in words if word not in stop_words and len(word) > 2]

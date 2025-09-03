@@ -163,7 +163,7 @@ impl PerformanceMetrics {
         *self.operation_counts.entry(operation.to_string()).or_insert(0) += 1;
         self.operation_durations
             .entry(operation.to_string())
-            .or_insert_with(Vec::new)
+            .or_default()
             .push(duration_ms);
     }
 
@@ -245,7 +245,6 @@ pub fn initialize_logging(config: LoggingConfig) -> Result<(), WorkspaceError> {
             
             let log_file = std::fs::OpenOptions::new()
                 .create(true)
-                .write(true)
                 .append(true)
                 .open(log_file_path)
                 .map_err(|e| {
@@ -323,7 +322,6 @@ pub fn initialize_logging(config: LoggingConfig) -> Result<(), WorkspaceError> {
             
             let log_file = std::fs::OpenOptions::new()
                 .create(true)
-                .write(true)
                 .append(true)
                 .open(log_file_path)
                 .map_err(|e| {

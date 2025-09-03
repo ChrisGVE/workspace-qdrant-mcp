@@ -1,4 +1,3 @@
-
 """
 Advanced search tools for workspace-qdrant-mcp.
 
@@ -171,7 +170,9 @@ async def search_workspace(
         # Resolve display names to actual collection names for Qdrant operations
         actual_collections = []
         for display_name in collections:
-            actual_name, _ = client.collection_manager.resolve_collection_name(display_name)
+            actual_name, _ = client.collection_manager.resolve_collection_name(
+                display_name
+            )
             actual_collections.append(actual_name)
 
         # Validate sparse mode has sparse embeddings
@@ -200,7 +201,12 @@ async def search_workspace(
                 all_results.extend(collection_results)
 
             except Exception as e:
-                logger.warning("Failed to search collection %s (actual: %s): %s", display_name, actual_name, e)
+                logger.warning(
+                    "Failed to search collection %s (actual: %s): %s",
+                    display_name,
+                    actual_name,
+                    e,
+                )
                 continue
 
         # Sort by score and limit results
@@ -264,7 +270,7 @@ async def _search_collection(
             )
 
             # Handle both real async calls and mocked synchronous returns
-            if hasattr(result_or_awaitable, '__await__'):
+            if hasattr(result_or_awaitable, "__await__"):
                 result = await result_or_awaitable
             else:
                 result = result_or_awaitable
@@ -384,7 +390,9 @@ async def search_collection_by_metadata(
             return {"error": f"Collection '{collection}' not found"}
 
         # Resolve display name to actual collection name
-        actual_collection, _ = client.collection_manager.resolve_collection_name(collection)
+        actual_collection, _ = client.collection_manager.resolve_collection_name(
+            collection
+        )
 
         # Build Qdrant filter
         qdrant_filter = _build_metadata_filter(metadata_filter)
@@ -459,11 +467,15 @@ def _build_metadata_filter(metadata_filter: dict) -> models.Filter:
             # For floats, convert to int if it's a whole number, otherwise to string
             if value.is_integer():
                 conditions.append(
-                    models.FieldCondition(key=key, match=models.MatchValue(value=int(value)))
+                    models.FieldCondition(
+                        key=key, match=models.MatchValue(value=int(value))
+                    )
                 )
             else:
                 conditions.append(
-                    models.FieldCondition(key=key, match=models.MatchValue(value=str(value)))
+                    models.FieldCondition(
+                        key=key, match=models.MatchValue(value=str(value))
+                    )
                 )
         elif isinstance(value, bool):
             conditions.append(

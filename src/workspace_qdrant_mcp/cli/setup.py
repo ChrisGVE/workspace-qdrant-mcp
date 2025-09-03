@@ -1,4 +1,3 @@
-
 """
 Interactive setup wizard for workspace-qdrant-mcp.
 
@@ -56,6 +55,7 @@ from ..utils.project_detection import ProjectDetector
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
+
 # Console output helper functions
 def get_confirmation(prompt: str, default: bool = False) -> bool:
     """Get user confirmation with y/n prompt."""
@@ -64,11 +64,12 @@ def get_confirmation(prompt: str, default: bool = False) -> bool:
         response = input(prompt + suffix).strip().lower()
         if not response:
             return default
-        if response in ['y', 'yes']:
+        if response in ["y", "yes"]:
             return True
-        elif response in ['n', 'no']:
+        elif response in ["n", "no"]:
             return False
         print("Please enter 'y' or 'n'")
+
 
 def get_int_input(prompt: str, default: int = None) -> int:
     """Get integer input from user."""
@@ -84,9 +85,11 @@ def get_int_input(prompt: str, default: int = None) -> int:
         except ValueError:
             print("Please enter a valid number")
 
+
 def get_input(prompt: str, default: str = None, password: bool = False) -> str:
     """Get string input from user."""
     import getpass
+
     if password:
         return getpass.getpass(f"{prompt}: ")
     elif default:
@@ -94,6 +97,7 @@ def get_input(prompt: str, default: str = None, password: bool = False) -> str:
         return response if response else default
     else:
         return input(f"{prompt}: ").strip()
+
 
 # Typer app instance
 app = typer.Typer(
@@ -254,17 +258,19 @@ class SetupWizard:
         print("System Requirements:")
         print(f"{'Component':<20} {'Status':<15} {'Details'}")
         print("-" * 70)
-        
+
         all_ok = True
         for name, (status, details) in requirements:
             status_text = "[OK]" if status else "[FAILED]"
             print(f"{name:<20} {status_text:<15} {details}")
-            
+
             if not status:
                 all_ok = False
 
         if not all_ok:
-            print("\nError: Some requirements are not met. Please fix the issues above.")
+            print(
+                "\nError: Some requirements are not met. Please fix the issues above."
+            )
 
         return all_ok
 
@@ -330,7 +336,9 @@ class SetupWizard:
 
         # API key (optional)
         api_key = None
-        if get_confirmation("Does your Qdrant server require an API key?", default=False):
+        if get_confirmation(
+            "Does your Qdrant server require an API key?", default=False
+        ):
             api_key = get_input("API key", password=True)
 
         # Advanced options
@@ -393,7 +401,9 @@ class SetupWizard:
 
     async def _configure_embedding(self) -> EmbeddingConfig | None:
         """Configure embedding service."""
-        print("\nBrain Embedding Model Configuration", )
+        print(
+            "\nBrain Embedding Model Configuration",
+        )
         print("Configure text embedding generation settings.\n")
 
         if self.non_interactive:
@@ -421,9 +431,12 @@ class SetupWizard:
             choice = get_int_input(
                 "\nSelect model (1-4) or press Enter for default",
                 default=1,
-                )
+            )
         else:
-            choice = get_int_input("\nSelect model (1-4)", default=1, )
+            choice = get_int_input(
+                "\nSelect model (1-4)",
+                default=1,
+            )
 
         if 1 <= choice <= len(available_models):
             model = available_models[choice - 1]
@@ -438,7 +451,7 @@ class SetupWizard:
             )
             print(
                 "Note: Sparse vectors improve search quality but add ~30% processing time",
-                )
+            )
 
         # Text processing settings
         chunk_size = 1000
@@ -448,11 +461,17 @@ class SetupWizard:
         if self.advanced_mode:
             print("\nText Processing Settings")
             chunk_size = get_int_input(
-                "Chunk size (characters)", default=1000, )
+                "Chunk size (characters)",
+                default=1000,
+            )
             chunk_overlap = get_int_input(
-                "Chunk overlap (characters)", default=200, )
+                "Chunk overlap (characters)",
+                default=200,
+            )
             batch_size = get_int_input(
-                "Batch size (documents per batch)", default=50, )
+                "Batch size (documents per batch)",
+                default=50,
+            )
 
         # Create and test configuration
         embedding_config = EmbeddingConfig(
@@ -464,7 +483,9 @@ class SetupWizard:
         )
 
         # Test embedding model
-        print("\nTesting embedding model...", )
+        print(
+            "\nTesting embedding model...",
+        )
         embedding_ok, message = await self._test_embedding_model(embedding_config)
 
         if embedding_ok:
@@ -506,7 +527,9 @@ class SetupWizard:
 
     async def _configure_workspace(self) -> WorkspaceConfig | None:
         """Configure workspace settings."""
-        print("\nBuild  Workspace Configuration", )
+        print(
+            "\nBuild  Workspace Configuration",
+        )
         print("Configure workspace collections and project settings.\n")
 
         if self.non_interactive:
@@ -516,18 +539,21 @@ class SetupWizard:
         project_info = self.project_detector.get_project_info()
         if project_info and project_info.get("main_project"):
             print(
-                f"Project: Detected project: {project_info['main_project']}", )
+                f"Project: Detected project: {project_info['main_project']}",
+            )
             if project_info.get("subprojects"):
                 print(
                     f"Subprojects: {', '.join(project_info['subprojects'])}",
-                    )
+                )
 
         # GitHub user for project detection
         github_user = None
         if get_confirmation(
             "\nDo you have a GitHub username for project detection?", default=True
         ):
-            github_user = get_input("GitHub username", )
+            github_user = get_input(
+                "GitHub username",
+            )
 
         # Collection configuration
         collections = ["project"]
@@ -541,25 +567,29 @@ class SetupWizard:
             collections_str = get_input(
                 "Project collection types (comma-separated)",
                 default="project",
-                )
+            )
             collections = [c.strip() for c in collections_str.split(",") if c.strip()]
 
             global_collections_str = get_input(
                 "Global collections (comma-separated)",
                 default="docs,references,standards",
-                )
+            )
             global_collections = [
                 c.strip() for c in global_collections_str.split(",") if c.strip()
             ]
 
             collection_prefix = (
                 get_input(
-                    "Collection prefix (optional)", default="", )
+                    "Collection prefix (optional)",
+                    default="",
+                )
                 or ""
             )
 
             max_collections = get_int_input(
-                "Maximum collections limit", default=100, )
+                "Maximum collections limit",
+                default=100,
+            )
         else:
             collection_prefix = ""
             max_collections = 100
@@ -581,16 +611,24 @@ class SetupWizard:
             )
 
             if is_valid:
-                print("[OK] Configuration is valid", )
+                print(
+                    "[OK] Configuration is valid",
+                )
                 return True
             else:
-                print("[ERROR] Configuration validation failed:", )
+                print(
+                    "[ERROR] Configuration validation failed:",
+                )
                 for issue in results.get("issues", []):
-                    print(f"  • {issue}", )
+                    print(
+                        f"  • {issue}",
+                    )
                 return False
 
         except Exception as e:
-            print(f"[ERROR] Configuration testing failed: {e}", )
+            print(
+                f"[ERROR] Configuration testing failed: {e}",
+            )
             return False
 
     async def _save_configuration(self) -> Path | None:
@@ -601,14 +639,16 @@ class SetupWizard:
             # Check if .env already exists
             if env_path.exists():
                 if not self.non_interactive:
-                    if not get_confirmation("\n[WARNING]  .env file already exists. Overwrite?"):
+                    if not get_confirmation(
+                        "\n[WARNING]  .env file already exists. Overwrite?"
+                    ):
                         backup_path = Path(
                             f".env.backup.{int(asyncio.get_event_loop().time())}"
                         )
                         env_path.rename(backup_path)
                         print(
                             f"Backup Existing .env backed up to {backup_path}",
-                            )
+                        )
 
             # Create configuration content
             config_content = self._generate_env_content()
@@ -617,11 +657,14 @@ class SetupWizard:
             env_path.write_text(config_content)
 
             print(
-                f"[OK] Configuration saved to {env_path.absolute()}", )
+                f"[OK] Configuration saved to {env_path.absolute()}",
+            )
             return env_path
 
         except Exception as e:
-            print(f"[ERROR] Failed to save configuration: {e}", )
+            print(
+                f"[ERROR] Failed to save configuration: {e}",
+            )
             return None
 
     def _generate_env_content(self) -> str:
@@ -724,10 +767,10 @@ class SetupWizard:
             if not claude_config_path:
                 print(
                     "[WARNING]  Claude Desktop configuration directory not found",
-                    )
+                )
                 print(
                     "You'll need to manually add the MCP server configuration.",
-                    )
+                )
                 self._show_manual_claude_config()
                 return False
 
@@ -738,7 +781,8 @@ class SetupWizard:
                     config_data = json.loads(claude_config_path.read_text())
                 except json.JSONDecodeError:
                     print(
-                        "[WARNING]  Invalid existing Claude configuration", )
+                        "[WARNING]  Invalid existing Claude configuration",
+                    )
                     config_data = {}
 
             # Add or update MCP server configuration
@@ -769,11 +813,13 @@ class SetupWizard:
 
             print(
                 f"[OK] Claude Desktop configuration updated: {claude_config_path}",
-                )
+            )
             return True
 
         except Exception as e:
-            print(f"[ERROR] Failed to setup Claude integration: {e}", )
+            print(
+                f"[ERROR] Failed to setup Claude integration: {e}",
+            )
             self._show_manual_claude_config()
             return False
 
@@ -894,7 +940,7 @@ Remove a document from the collection.
 
             print(
                 f"[OK] Created {len(samples)} sample documents in {sample_dir}/",
-                )
+            )
 
             # Ingest sample documents
             if not self.non_interactive:
@@ -906,7 +952,9 @@ Remove a document from the collection.
             return True
 
         except Exception as e:
-            print(f"[ERROR] Failed to create sample documents: {e}", )
+            print(
+                f"[ERROR] Failed to create sample documents: {e}",
+            )
             return False
 
     async def _ingest_sample_documents(self, sample_dir: Path) -> None:
@@ -946,19 +994,28 @@ Remove a document from the collection.
                         )
 
                         if "successfully" in result.lower():
-                            print(f"  [OK] {file_path.name}", )
+                            print(
+                                f"  [OK] {file_path.name}",
+                            )
                         else:
                             print(
-                                f"  [ERROR] {file_path.name}: {result}", )
+                                f"  [ERROR] {file_path.name}: {result}",
+                            )
 
                     except Exception as e:
-                        print(f"  [ERROR] {file_path.name}: {e}", )
+                        print(
+                            f"  [ERROR] {file_path.name}: {e}",
+                        )
 
             await client.close()
-            print("[OK] Sample documents ingested successfully", )
+            print(
+                "[OK] Sample documents ingested successfully",
+            )
 
         except Exception as e:
-            print(f"[ERROR] Failed to ingest sample documents: {e}", )
+            print(
+                f"[ERROR] Failed to ingest sample documents: {e}",
+            )
 
     async def _verify_installation(self) -> bool:
         """Run final system verification."""
@@ -970,64 +1027,94 @@ Remove a document from the collection.
             status = await client.get_status()
 
             if status.get("connected"):
-                print("[OK] System verification passed", )
+                print(
+                    "[OK] System verification passed",
+                )
 
                 # Show status summary
                 # Show status summary
                 print("System Status:")
                 print(f"  Qdrant Connection: Connected")
                 print(f"  Embedding Model: Loaded")
-                print(f"  Project Detection: {status.get('current_project', 'Unknown')}")
-                print(f"  Collections: {len(status.get('workspace_collections', []))} available")
+                print(
+                    f"  Project Detection: {status.get('current_project', 'Unknown')}"
+                )
+                print(
+                    f"  Collections: {len(status.get('workspace_collections', []))} available"
+                )
 
                 await client.close()
                 return True
             else:
-                print("[ERROR] System verification failed", )
+                print(
+                    "[ERROR] System verification failed",
+                )
                 await client.close()
                 return False
 
         except Exception as e:
-            print(f"[ERROR] System verification failed: {e}", )
+            print(
+                f"[ERROR] System verification failed: {e}",
+            )
             return False
 
     def _show_completion_message(self, config_path: Path, claude_success: bool) -> None:
         """Show setup completion message with next steps."""
         completion_text = []
         completion_text.append(
-            "Success Setup completed successfully!\n\n", )
+            "Success Setup completed successfully!\n\n",
+        )
 
-        completion_text.append("What's been configured:\n", )
         completion_text.append(
-            f"• Configuration saved to {config_path}\n", )
+            "What's been configured:\n",
+        )
         completion_text.append(
-            f"• Qdrant connection: {self.config.qdrant.url}\n", )
+            f"• Configuration saved to {config_path}\n",
+        )
         completion_text.append(
-            f"• Embedding model: {self.config.embedding.model}\n", )
+            f"• Qdrant connection: {self.config.qdrant.url}\n",
+        )
+        completion_text.append(
+            f"• Embedding model: {self.config.embedding.model}\n",
+        )
 
         if claude_success:
-            completion_text.append("• Claude Desktop integration: [OK]\n", )
+            completion_text.append(
+                "• Claude Desktop integration: [OK]\n",
+            )
         else:
             completion_text.append(
                 "• Claude Desktop integration: [WARNING]  Manual setup required\n",
-                )
+            )
 
-        completion_text.append("\nNext steps:\n", )
         completion_text.append(
-            "1. Restart Claude Desktop to load the new MCP server\n", )
+            "\nNext steps:\n",
+        )
         completion_text.append(
-            "2. Test the connection with a simple search\n", )
-        completion_text.append("3. Ingest your project documents\n", )
+            "1. Restart Claude Desktop to load the new MCP server\n",
+        )
         completion_text.append(
-            "4. Start using semantic search in Claude!\n", )
+            "2. Test the connection with a simple search\n",
+        )
+        completion_text.append(
+            "3. Ingest your project documents\n",
+        )
+        completion_text.append(
+            "4. Start using semantic search in Claude!\n",
+        )
 
-        completion_text.append("\nUseful commands:\n", )
         completion_text.append(
-            "• workspace-qdrant-test - Test system health\n", )
+            "\nUseful commands:\n",
+        )
         completion_text.append(
-            "• workspace-qdrant-ingest - Batch ingest documents\n", )
+            "• workspace-qdrant-test - Test system health\n",
+        )
         completion_text.append(
-            "• workspace-qdrant-health - Monitor system status\n", )
+            "• workspace-qdrant-ingest - Batch ingest documents\n",
+        )
+        completion_text.append(
+            "• workspace-qdrant-health - Monitor system status\n",
+        )
 
         print("=== Setup Complete ===")
         for line in completion_text:
@@ -1070,7 +1157,9 @@ def main(
     if result.success:
         raise typer.Exit(0)
     else:
-        print(f"\n[ERROR] Setup failed: {result.message}", )
+        print(
+            f"\n[ERROR] Setup failed: {result.message}",
+        )
         raise typer.Exit(1)
 
 

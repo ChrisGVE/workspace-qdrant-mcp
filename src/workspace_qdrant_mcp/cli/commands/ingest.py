@@ -32,39 +32,74 @@ logger = get_logger(__name__)
 ingest_app = create_command_app(
     name="ingest",
     help_text="Manual document processing and ingestion",
-    no_args_is_help=True
+    no_args_is_help=True,
 )
+
 
 @ingest_app.command("file")
 def ingest_file(
     path: str = typer.Argument(..., help="Path to file to ingest"),
-    collection: str = typer.Option(..., "--collection", "-c", help="Target collection name"),
-    chunk_size: int = typer.Option(1000, "--chunk-size", help="Maximum characters per text chunk"),
-    chunk_overlap: int = typer.Option(200, "--chunk-overlap", help="Character overlap between chunks"),
+    collection: str = typer.Option(
+        ..., "--collection", "-c", help="Target collection name"
+    ),
+    chunk_size: int = typer.Option(
+        1000, "--chunk-size", help="Maximum characters per text chunk"
+    ),
+    chunk_overlap: int = typer.Option(
+        200, "--chunk-overlap", help="Character overlap between chunks"
+    ),
     dry_run: bool = dry_run_option(),
     force: bool = force_option(),
 ):
     """Ingest a single file into collection."""
-    handle_async(_ingest_file(path, collection, chunk_size, chunk_overlap, dry_run, force))
+    handle_async(
+        _ingest_file(path, collection, chunk_size, chunk_overlap, dry_run, force)
+    )
+
 
 @ingest_app.command("folder")
 def ingest_folder(
     path: str = typer.Argument(..., help="Path to folder to ingest"),
-    collection: str = typer.Option(..., "--collection", "-c", help="Target collection name"),
-    formats: Optional[List[str]] = typer.Option(None, "--format", "-f", help="File formats to process (e.g. pdf,md,txt)"),
-    chunk_size: int = typer.Option(1000, "--chunk-size", help="Maximum characters per text chunk"),
-    chunk_overlap: int = typer.Option(200, "--chunk-overlap", help="Character overlap between chunks"),
-    recursive: bool = typer.Option(True, "--recursive/--no-recursive", help="Process subdirectories recursively"),
-    exclude: Optional[List[str]] = typer.Option(None, "--exclude", help="Glob patterns to exclude"),
-    concurrency: int = typer.Option(5, "--concurrency", help="Number of concurrent processing tasks"),
+    collection: str = typer.Option(
+        ..., "--collection", "-c", help="Target collection name"
+    ),
+    formats: Optional[List[str]] = typer.Option(
+        None, "--format", "-f", help="File formats to process (e.g. pdf,md,txt)"
+    ),
+    chunk_size: int = typer.Option(
+        1000, "--chunk-size", help="Maximum characters per text chunk"
+    ),
+    chunk_overlap: int = typer.Option(
+        200, "--chunk-overlap", help="Character overlap between chunks"
+    ),
+    recursive: bool = typer.Option(
+        True, "--recursive/--no-recursive", help="Process subdirectories recursively"
+    ),
+    exclude: Optional[List[str]] = typer.Option(
+        None, "--exclude", help="Glob patterns to exclude"
+    ),
+    concurrency: int = typer.Option(
+        5, "--concurrency", help="Number of concurrent processing tasks"
+    ),
     dry_run: bool = dry_run_option(),
     force: bool = force_option(),
 ):
     """Ingest all files in a folder."""
-    handle_async(_ingest_folder(
-        path, collection, formats, chunk_size, chunk_overlap,
-        recursive, exclude, concurrency, dry_run, force
-    ))
+    handle_async(
+        _ingest_folder(
+            path,
+            collection,
+            formats,
+            chunk_size,
+            chunk_overlap,
+            recursive,
+            exclude,
+            concurrency,
+            dry_run,
+            force,
+        )
+    )
+
 
 @ingest_app.command("yaml")
 def ingest_yaml_metadata(
@@ -72,44 +107,78 @@ def ingest_yaml_metadata(
     dry_run: bool = dry_run_option(),
     force: bool = force_option(),
 ):
-    """ Process completed YAML metadata file."""
+    """Process completed YAML metadata file."""
     handle_async(_ingest_yaml_metadata(path, dry_run, force))
+
 
 @ingest_app.command("generate-yaml")
 def generate_yaml_metadata(
     library_path: str = typer.Argument(..., help="Path to library folder"),
-    collection: str = typer.Option(..., "--collection", "-c", help="Target library collection name"),
-    output: Optional[str] = typer.Option(None, "--output", "-o", help="Output YAML file path"),
-    formats: Optional[List[str]] = typer.Option(None, "--format", "-f", help="File formats to process (e.g. pdf,md,txt)"),
+    collection: str = typer.Option(
+        ..., "--collection", "-c", help="Target library collection name"
+    ),
+    output: Optional[str] = typer.Option(
+        None, "--output", "-o", help="Output YAML file path"
+    ),
+    formats: Optional[List[str]] = typer.Option(
+        None, "--format", "-f", help="File formats to process (e.g. pdf,md,txt)"
+    ),
     force: bool = force_option(),
 ):
-    """ Generate YAML metadata file for library documents."""
-    handle_async(_generate_yaml_metadata(library_path, collection, output, formats, force))
+    """Generate YAML metadata file for library documents."""
+    handle_async(
+        _generate_yaml_metadata(library_path, collection, output, formats, force)
+    )
+
 
 @ingest_app.command("web")
 def ingest_web_pages(
     url: str = typer.Argument(..., help="Root URL to crawl"),
-    collection: str = typer.Option(..., "--collection", "-c", help="Target collection name"),
+    collection: str = typer.Option(
+        ..., "--collection", "-c", help="Target collection name"
+    ),
     max_depth: int = typer.Option(2, "--depth", help="Maximum crawl depth"),
-    max_pages: int = typer.Option(50, "--max-pages", help="Maximum number of pages to crawl"),
-    include_patterns: Optional[List[str]] = typer.Option(None, "--include", help="URL patterns to include"),
-    exclude_patterns: Optional[List[str]] = typer.Option(None, "--exclude", help="URL patterns to exclude"),
-    delay: float = typer.Option(1.0, "--delay", help="Delay between requests (seconds)"),
-    dry_run: bool = typer.Option(False, "--dry-run", help="Analyze URLs without crawling"),
+    max_pages: int = typer.Option(
+        50, "--max-pages", help="Maximum number of pages to crawl"
+    ),
+    include_patterns: Optional[List[str]] = typer.Option(
+        None, "--include", help="URL patterns to include"
+    ),
+    exclude_patterns: Optional[List[str]] = typer.Option(
+        None, "--exclude", help="URL patterns to exclude"
+    ),
+    delay: float = typer.Option(
+        1.0, "--delay", help="Delay between requests (seconds)"
+    ),
+    dry_run: bool = typer.Option(
+        False, "--dry-run", help="Analyze URLs without crawling"
+    ),
 ):
-    """ Crawl and ingest web pages."""
-    handle_async(_ingest_web_pages(
-        url, collection, max_depth, max_pages,
-        include_patterns, exclude_patterns, delay, dry_run
-    ))
+    """Crawl and ingest web pages."""
+    handle_async(
+        _ingest_web_pages(
+            url,
+            collection,
+            max_depth,
+            max_pages,
+            include_patterns,
+            exclude_patterns,
+            delay,
+            dry_run,
+        )
+    )
+
 
 @ingest_app.command("status")
 def ingestion_status(
-    collection: Optional[str] = typer.Option(None, "--collection", "-c", help="Filter by collection"),
+    collection: Optional[str] = typer.Option(
+        None, "--collection", "-c", help="Filter by collection"
+    ),
     recent: bool = typer.Option(False, "--recent", help="Show only recent ingestions"),
 ):
-    """ Show ingestion status and statistics."""
+    """Show ingestion status and statistics."""
     handle_async(_ingestion_status(collection, recent))
+
 
 # Async implementation functions
 async def _ingest_file(
@@ -118,12 +187,12 @@ async def _ingest_file(
     chunk_size: int,
     chunk_overlap: int,
     dry_run: bool,
-    force: bool
+    force: bool,
 ):
     """Ingest a single file."""
     # Validate file existence first, before connecting to daemon
     file_path = Path(path)
-    
+
     if not file_path.exists():
         print(f"Error: File not found: {path}")
         print("\nPlease check:")
@@ -137,7 +206,7 @@ async def _ingest_file(
         print("\nThe path appears to be a directory or special file.")
         print("To process a folder, use: wqm ingest folder")
         raise typer.Exit(1)
-    
+
     async def ingest_operation(daemon_client):
         # File validation already done above
 
@@ -147,9 +216,10 @@ async def _ingest_file(
             # Analyze file without processing
             file_info = {
                 "path": str(file_path),
-                "size_mb": round(file_path.stat().st_size / (1024*1024), 2),
+                "size_mb": round(file_path.stat().st_size / (1024 * 1024), 2),
                 "extension": file_path.suffix.lower(),
-                "supported": file_path.suffix.lower() in ['.pdf', '.txt', '.md', '.docx']
+                "supported": file_path.suffix.lower()
+                in [".pdf", ".txt", ".md", ".docx"],
             }
 
             # Display file analysis in plain text
@@ -159,9 +229,11 @@ async def _ingest_file(
             print(f"Extension: {file_info['extension']}")
             print(f"Supported: {'Yes' if file_info['supported'] else 'No'}")
 
-            if file_info['supported']:
+            if file_info["supported"]:
                 print("File can be processed with current settings")
-                estimated_chunks = max(1, int(file_info['size_mb'] * 1024 * 1024 / chunk_size))
+                estimated_chunks = max(
+                    1, int(file_info["size_mb"] * 1024 * 1024 / chunk_size)
+                )
                 print(f"Estimated chunks: ~{estimated_chunks}")
             else:
                 print(f"Error: Unsupported file format: {file_info['extension']}")
@@ -175,14 +247,14 @@ async def _ingest_file(
             metadata = {
                 "source": "cli",
                 "chunk_size": str(chunk_size),
-                "chunk_overlap": str(chunk_overlap)
+                "chunk_overlap": str(chunk_overlap),
             }
-            
+
             response = await daemon_client.process_document(
                 file_path=str(file_path),
                 collection=collection,
                 metadata=metadata,
-                chunk_text=True
+                chunk_text=True,
             )
 
             if response.success:
@@ -207,6 +279,7 @@ async def _ingest_file(
         print(f"Error: Ingestion failed: {e}")
         raise typer.Exit(1)
 
+
 async def _ingest_folder(
     path: str,
     collection: str,
@@ -217,7 +290,7 @@ async def _ingest_folder(
     exclude: Optional[List[str]],
     concurrency: int,
     dry_run: bool,
-    force: bool
+    force: bool,
 ):
     """Ingest all files in a folder."""
     try:
@@ -239,10 +312,10 @@ async def _ingest_folder(
 
         # Default formats if not specified
         if not formats:
-            formats = ['pdf', 'txt', 'md', 'docx']
+            formats = ["pdf", "txt", "md", "docx"]
         else:
             # Clean format specifications
-            formats = [fmt.strip().lower().lstrip('.') for fmt in formats]
+            formats = [fmt.strip().lower().lstrip(".") for fmt in formats]
 
         # Find files to process
         files = []
@@ -253,6 +326,7 @@ async def _ingest_folder(
         # Apply exclusion patterns
         if exclude:
             import fnmatch
+
             filtered_files = []
             for file_path in files:
                 exclude_file = False
@@ -273,13 +347,13 @@ async def _ingest_folder(
         if dry_run:
             # Show analysis summary
             print("Folder Analysis Summary:")
-            
+
             format_stats = {}
             total_size = 0
 
             for file_path in files:
-                ext = file_path.suffix.lower().lstrip('.')
-                size_mb = file_path.stat().st_size / (1024*1024)
+                ext = file_path.suffix.lower().lstrip(".")
+                size_mb = file_path.stat().st_size / (1024 * 1024)
 
                 if ext not in format_stats:
                     format_stats[ext] = {"count": 0, "size_mb": 0}
@@ -306,26 +380,31 @@ async def _ingest_folder(
                     metadata = {
                         "source": "cli",
                         "chunk_size": str(chunk_size),
-                        "chunk_overlap": str(chunk_overlap)
+                        "chunk_overlap": str(chunk_overlap),
                     }
-                    
+
                     response = await daemon_client.process_document(
                         file_path=str(file_path),
                         collection=collection,
                         metadata=metadata,
-                        chunk_text=True
+                        chunk_text=True,
                     )
 
                     processed += 1
                     if response.success:
                         results.append(response)
                     else:
-                        print(f"Error: Failed to process {file_path.name}: {response.message}")
+                        print(
+                            f"Error: Failed to process {file_path.name}: {response.message}"
+                        )
                         results.append(None)
-                        
+
                     # Show progress
-                    print(f"Progress: {processed}/{len(files)} files processed ({100*processed//len(files)}%)", end='\r')
-                    
+                    print(
+                        f"Progress: {processed}/{len(files)} files processed ({100 * processed // len(files)}%)",
+                        end="\r",
+                    )
+
                 except Exception as e:
                     processed += 1
                     print(f"Error: Failed to process {file_path.name}: {e}")
@@ -335,24 +414,27 @@ async def _ingest_folder(
             successful_results = [r for r in results if r is not None and r.success]
 
             print("\nFolder ingestion completed!")
-            print(f"Successfully processed: {len(successful_results)}/{len(files)} files")
+            print(
+                f"Successfully processed: {len(successful_results)}/{len(files)} files"
+            )
 
             if successful_results:
                 total_chunks = sum(r.chunks_added for r in successful_results)
                 print(f"Total chunks created: {total_chunks}")
-        
+
         await with_daemon_client(folder_operation)
 
     except Exception as e:
         print(f"Error: Folder ingestion failed: {e}")
         raise typer.Exit(1)
 
+
 async def _generate_yaml_metadata(
     library_path: str,
     collection: str,
     output: Optional[str],
     formats: Optional[List[str]],
-    force: bool
+    force: bool,
 ):
     """Generate YAML metadata file for library documents."""
     try:
@@ -367,15 +449,17 @@ async def _generate_yaml_metadata(
             raise typer.Exit(1)
 
         # Validate collection name (should start with _)
-        if not collection.startswith('_'):
+        if not collection.startswith("_"):
             print(f"Error: Library collection name must start with '_': {collection}")
             raise typer.Exit(1)
 
         # Check output path
-        output_path = Path(output) if output else lib_path / 'metadata_completion.yaml'
+        output_path = Path(output) if output else lib_path / "metadata_completion.yaml"
 
         if output_path.exists() and not force:
-            print(f"Error: Output file exists (use --force to overwrite): {output_path}")
+            print(
+                f"Error: Output file exists (use --force to overwrite): {output_path}"
+            )
             raise typer.Exit(1)
 
         print("Generating YAML Metadata for Library")
@@ -387,18 +471,19 @@ async def _generate_yaml_metadata(
         # is not yet integrated with daemon gRPC API
         from ...core.client import create_qdrant_client
         from ...core.config import Config
+
         config = Config()
         client = create_qdrant_client(config.qdrant_client_config)
         workflow = YamlMetadataWorkflow(client)
 
         # Generate YAML file
         print("Analyzing documents and extracting metadata...")
-        
+
         result_path = await workflow.generate_yaml_file(
             library_path=lib_path,
             library_collection=collection,
             output_path=output_path,
-            formats=formats
+            formats=formats,
         )
 
         if result_path:
@@ -419,6 +504,7 @@ async def _generate_yaml_metadata(
         print(f"Error: YAML generation failed: {e}")
         raise typer.Exit(1)
 
+
 async def _ingest_yaml_metadata(path: str, dry_run: bool, force: bool):
     """Process completed YAML metadata file."""
     try:
@@ -434,23 +520,21 @@ async def _ingest_yaml_metadata(path: str, dry_run: bool, force: bool):
         # is not yet integrated with daemon gRPC API
         from ...core.client import create_qdrant_client
         from ...core.config import Config
+
         config = Config()
         client = create_qdrant_client(config.qdrant_client_config)
         workflow = YamlMetadataWorkflow(client)
 
         # Process YAML file
         print("Processing documents with metadata...")
-        
-        results = await workflow.process_yaml_file(
-            yaml_path=yaml_path,
-            dry_run=dry_run
-        )
+
+        results = await workflow.process_yaml_file(yaml_path=yaml_path, dry_run=dry_run)
 
         # Display results
-        processed = results.get('processed', 0)
-        skipped = results.get('skipped', 0)
-        errors = results.get('errors', [])
-        remaining = results.get('remaining', 0)
+        processed = results.get("processed", 0)
+        skipped = results.get("skipped", 0)
+        errors = results.get("errors", [])
+        remaining = results.get("remaining", 0)
 
         if dry_run:
             print("YAML Metadata Analysis (Dry Run)")
@@ -485,13 +569,18 @@ async def _ingest_yaml_metadata(path: str, dry_run: bool, force: bool):
 
         # Show guidance for next steps
         if remaining > 0 and not dry_run:
-            print(f"\nNote: The YAML file has been updated with {remaining} remaining documents.")
-            print(f"   Complete their metadata and run 'wqm ingest yaml {yaml_path}' again.")
+            print(
+                f"\nNote: The YAML file has been updated with {remaining} remaining documents."
+            )
+            print(
+                f"   Complete their metadata and run 'wqm ingest yaml {yaml_path}' again."
+            )
 
     except Exception as e:
         print(f"Error: YAML processing failed: {e}")
         logger.exception("YAML metadata processing error")
         raise typer.Exit(1)
+
 
 async def _ingest_web_pages(
     url: str,
@@ -501,7 +590,7 @@ async def _ingest_web_pages(
     include_patterns: Optional[List[str]],
     exclude_patterns: Optional[List[str]],
     delay: float,
-    dry_run: bool
+    dry_run: bool,
 ):
     """Crawl and ingest web pages."""
     try:
@@ -512,7 +601,9 @@ async def _ingest_web_pages(
 
         if dry_run:
             print("Web crawling analysis (dry run)")
-            print(f"Would crawl {url} with max depth {max_depth} and max {max_pages} pages")
+            print(
+                f"Would crawl {url} with max depth {max_depth} and max {max_pages} pages"
+            )
             print("Web crawling feature will be implemented in a future task")
         else:
             print("Web crawling")
@@ -522,19 +613,23 @@ async def _ingest_web_pages(
         print(f"Error: Web crawling failed: {e}")
         raise typer.Exit(1)
 
+
 async def _ingestion_status(collection: Optional[str], recent: bool):
     """Show ingestion status and statistics."""
     try:
+
         async def status_operation(daemon_client):
             print("Ingestion Status")
 
             try:
                 # Get all collections or filter by specific collection
                 if collection:
-                    collections = [{'name': collection}]  # Simple format for single collection
+                    collections = [
+                        {"name": collection}
+                    ]  # Simple format for single collection
                 else:
                     response = await daemon_client.list_collections()
-                    collections = [{'name': name} for name in response.collection_names]
+                    collections = [{"name": name} for name in response.collection_names]
 
                 print("Collection Status:")
                 print(f"{'Collection':<30} {'Points':<10} {'Type':<10} {'Status':<10}")
@@ -563,28 +658,33 @@ async def _ingestion_status(collection: Optional[str], recent: bool):
 
                 # Show recent activity if requested
                 if recent:
-                    print("\nRecent activity tracking will be implemented in future updates")
-            
+                    print(
+                        "\nRecent activity tracking will be implemented in future updates"
+                    )
+
             except Exception as e:
                 print(f"Error: Status check failed: {e}")
                 raise typer.Exit(1)
-        
+
         await with_daemon_client(status_operation)
 
     except Exception as e:
         print(f"Error: Status check failed: {e}")
         raise typer.Exit(1)
 
+
 def _display_ingestion_result(result: IngestionResult, filename: str):
     """Display ingestion result summary."""
-    
+
     if result.success:
         print(f"Successfully ingested: {filename}")
         print("Processing Summary:")
         print(f"  Chunks created: {result.chunks_created}")
         print(f"  Total characters: {result.total_characters:,}")
         print(f"  Processing time: {result.processing_time_seconds:.2f}s")
-        print(f"  Average chunk size: {result.total_characters // max(1, result.chunks_created)} chars")
+        print(
+            f"  Average chunk size: {result.total_characters // max(1, result.chunks_created)} chars"
+        )
         print(f"Collection: {result.collection_name}")
     else:
         print(f"Error: Failed to ingest: {filename}")

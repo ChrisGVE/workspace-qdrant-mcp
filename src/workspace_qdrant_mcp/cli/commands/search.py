@@ -1,4 +1,3 @@
-
 """Search CLI commands.
 
 This module provides command-line search interface with different
@@ -40,85 +39,157 @@ Examples:
     wqm search global "python best practices"    # Search library collections
     wqm search all "error handling"              # Search everywhere
     wqm search memory "coding preferences"       # Search memory rules""",
-    no_args_is_help=True
+    no_args_is_help=True,
 )
+
 
 @search_app.command("project")
 def search_project(
     query: str = typer.Argument(..., help="Search query"),
     limit: int = typer.Option(10, "--limit", "-n", help="Maximum number of results"),
-    threshold: float = typer.Option(0.5, "--threshold", "-t", help="Minimum similarity threshold"),
-    format: str = typer.Option("table", "--format", "-f", help="Output format: table, json, detailed"),
-    collections: list[str] | None = typer.Option(None, "--collection", "-c", help="Specific collections to search"),
-    include_content: bool = typer.Option(False, "--content", help="Include document content in results"),
+    threshold: float = typer.Option(
+        0.5, "--threshold", "-t", help="Minimum similarity threshold"
+    ),
+    format: str = typer.Option(
+        "table", "--format", "-f", help="Output format: table, json, detailed"
+    ),
+    collections: list[str] | None = typer.Option(
+        None, "--collection", "-c", help="Specific collections to search"
+    ),
+    include_content: bool = typer.Option(
+        False, "--content", help="Include document content in results"
+    ),
 ):
     """Search current project collections.
-    
+
     Examples:
         wqm search project "async await patterns"
         wqm search project "error handling" --limit=5
         wqm search project "database" --format=json --content
     """
-    handle_async(_search_project(query, limit, threshold, format, collections, include_content))
+    handle_async(
+        _search_project(query, limit, threshold, format, collections, include_content)
+    )
+
 
 @search_app.command("collection")
 def search_collection(
     query: str = typer.Argument(..., help="Search query"),
-    collection: str = typer.Option(..., "--collection", "-c", help="Collection name to search"),
+    collection: str = typer.Option(
+        ..., "--collection", "-c", help="Collection name to search"
+    ),
     limit: int = typer.Option(10, "--limit", "-n", help="Maximum number of results"),
-    threshold: float = typer.Option(0.5, "--threshold", "-t", help="Minimum similarity threshold"),
-    format: str = typer.Option("table", "--format", "-f", help="Output format: table, json, detailed"),
-    include_content: bool = typer.Option(False, "--content", help="Include document content in results"),
-    with_vectors: bool = typer.Option(False, "--vectors", help="Include vector information"),
+    threshold: float = typer.Option(
+        0.5, "--threshold", "-t", help="Minimum similarity threshold"
+    ),
+    format: str = typer.Option(
+        "table", "--format", "-f", help="Output format: table, json, detailed"
+    ),
+    include_content: bool = typer.Option(
+        False, "--content", help="Include document content in results"
+    ),
+    with_vectors: bool = typer.Option(
+        False, "--vectors", help="Include vector information"
+    ),
 ):
     """Search specific collection."""
-    handle_async(_search_collection(query, collection, limit, threshold, format, include_content, with_vectors))
+    handle_async(
+        _search_collection(
+            query, collection, limit, threshold, format, include_content, with_vectors
+        )
+    )
+
 
 @search_app.command("global")
 def search_global(
     query: str = typer.Argument(..., help="Search query"),
     limit: int = typer.Option(10, "--limit", "-n", help="Maximum number of results"),
-    threshold: float = typer.Option(0.5, "--threshold", "-t", help="Minimum similarity threshold"),
-    format: str = typer.Option("table", "--format", "-f", help="Output format: table, json, detailed"),
-    exclude_projects: bool = typer.Option(False, "--exclude-projects", help="Search only global/library collections"),
-    include_content: bool = typer.Option(False, "--content", help="Include document content in results"),
+    threshold: float = typer.Option(
+        0.5, "--threshold", "-t", help="Minimum similarity threshold"
+    ),
+    format: str = typer.Option(
+        "table", "--format", "-f", help="Output format: table, json, detailed"
+    ),
+    exclude_projects: bool = typer.Option(
+        False, "--exclude-projects", help="Search only global/library collections"
+    ),
+    include_content: bool = typer.Option(
+        False, "--content", help="Include document content in results"
+    ),
 ):
     """Search global collections (library and system)."""
-    handle_async(_search_global(query, limit, threshold, format, exclude_projects, include_content))
+    handle_async(
+        _search_global(
+            query, limit, threshold, format, exclude_projects, include_content
+        )
+    )
+
 
 @search_app.command("all")
 def search_all(
     query: str = typer.Argument(..., help="Search query"),
     limit: int = typer.Option(10, "--limit", "-n", help="Maximum number of results"),
-    threshold: float = typer.Option(0.5, "--threshold", "-t", help="Minimum similarity threshold"),
-    format: str = typer.Option("table", "--format", "-f", help="Output format: table, json, detailed"),
-    group_by_collection: bool = typer.Option(True, "--group/--no-group", help="Group results by collection"),
-    include_content: bool = typer.Option(False, "--content", help="Include document content in results"),
+    threshold: float = typer.Option(
+        0.5, "--threshold", "-t", help="Minimum similarity threshold"
+    ),
+    format: str = typer.Option(
+        "table", "--format", "-f", help="Output format: table, json, detailed"
+    ),
+    group_by_collection: bool = typer.Option(
+        True, "--group/--no-group", help="Group results by collection"
+    ),
+    include_content: bool = typer.Option(
+        False, "--content", help="Include document content in results"
+    ),
 ):
     """Search all collections."""
-    handle_async(_search_all(query, limit, threshold, format, group_by_collection, include_content))
+    handle_async(
+        _search_all(
+            query, limit, threshold, format, group_by_collection, include_content
+        )
+    )
+
 
 @search_app.command("memory")
 def search_memory(
     query: str = typer.Argument(..., help="Search query for memory/knowledge graph"),
     limit: int = typer.Option(10, "--limit", "-n", help="Maximum number of results"),
-    category: str | None = typer.Option(None, "--category", help="Filter by memory category"),
-    authority: str | None = typer.Option(None, "--authority", help="Filter by authority level"),
-    format: str = typer.Option("table", "--format", "-f", help="Output format: table, json"),
+    category: str | None = typer.Option(
+        None, "--category", help="Filter by memory category"
+    ),
+    authority: str | None = typer.Option(
+        None, "--authority", help="Filter by authority level"
+    ),
+    format: str = typer.Option(
+        "table", "--format", "-f", help="Output format: table, json"
+    ),
 ):
     """Search memory rules and knowledge graph."""
     handle_async(_search_memory(query, limit, category, authority, format))
 
+
 @search_app.command("research")
 def research_query(
     query: str = typer.Argument(..., help="Research query"),
-    mode: str = typer.Option("comprehensive", "--mode", "-m", help="Research mode: quick, standard, comprehensive, deep"),
-    collections: list[str] | None = typer.Option(None, "--collection", "-c", help="Collections to include in research"),
-    output_file: str | None = typer.Option(None, "--output", "-o", help="Save research report to file"),
-    format: str = typer.Option("report", "--format", "-f", help="Output format: report, json, markdown"),
+    mode: str = typer.Option(
+        "comprehensive",
+        "--mode",
+        "-m",
+        help="Research mode: quick, standard, comprehensive, deep",
+    ),
+    collections: list[str] | None = typer.Option(
+        None, "--collection", "-c", help="Collections to include in research"
+    ),
+    output_file: str | None = typer.Option(
+        None, "--output", "-o", help="Save research report to file"
+    ),
+    format: str = typer.Option(
+        "report", "--format", "-f", help="Output format: report, json, markdown"
+    ),
 ):
     """Advanced research mode with analysis."""
     handle_async(_research_query(query, mode, collections, output_file, format))
+
 
 # Async implementation functions
 async def _search_project(
@@ -127,9 +198,10 @@ async def _search_project(
     threshold: float,
     format: str,
     collections: list[str] | None,
-    include_content: bool
+    include_content: bool,
 ):
     """Search current project collections."""
+
     async def search_operation(daemon_client):
         # Detect current project
         config = load_config()
@@ -142,7 +214,7 @@ async def _search_project(
         # Get project collections
         collections_response = await daemon_client.list_collections(include_stats=False)
         all_collections = [col.name for col in collections_response.collections]
-        
+
         project_prefix = f"{current_project}_"
 
         if collections:
@@ -156,8 +228,7 @@ async def _search_project(
         else:
             # Find all project collections
             project_collections = [
-                col for col in all_collections
-                if col.startswith(project_prefix)
+                col for col in all_collections if col.startswith(project_prefix)
             ]
 
         if not project_collections:
@@ -174,7 +245,7 @@ async def _search_project(
                     collections=[collection_name],
                     mode=SearchMode.SEARCH_MODE_HYBRID,
                     limit=limit,
-                    score_threshold=threshold
+                    score_threshold=threshold,
                 )
 
                 for result in search_response.results:
@@ -182,8 +253,12 @@ async def _search_project(
                         "score": result.score,
                         "collection": result.collection,
                         "id": result.id,
-                        "title": result.payload.get("title", {}).string_value if "title" in result.payload else "Untitled",
-                        "content": result.payload.get("content", {}).string_value if "content" in result.payload else "",
+                        "title": result.payload.get("title", {}).string_value
+                        if "title" in result.payload
+                        else "Untitled",
+                        "content": result.payload.get("content", {}).string_value
+                        if "content" in result.payload
+                        else "",
                     }
                     all_results.append(result_dict)
 
@@ -203,6 +278,7 @@ async def _search_project(
         print(f"Error: Project search failed: {e}")
         raise typer.Exit(1)
 
+
 async def _search_collection(
     query: str,
     collection: str,
@@ -210,9 +286,10 @@ async def _search_collection(
     threshold: float,
     format: str,
     include_content: bool,
-    with_vectors: bool
+    with_vectors: bool,
 ):
     """Search specific collection."""
+
     async def search_operation(daemon_client):
         print(f"Searching collection: {collection}")
 
@@ -231,7 +308,7 @@ async def _search_collection(
             collections=[collection],
             mode=SearchMode.SEARCH_MODE_HYBRID,
             limit=limit,
-            score_threshold=threshold
+            score_threshold=threshold,
         )
 
         # Convert results to display format
@@ -241,8 +318,12 @@ async def _search_collection(
                 "score": result.score,
                 "collection": result.collection,
                 "id": result.id,
-                "title": result.payload.get("title", {}).string_value if "title" in result.payload else "Untitled",
-                "content": result.payload.get("content", {}).string_value if "content" in result.payload else "",
+                "title": result.payload.get("title", {}).string_value
+                if "title" in result.payload
+                else "Untitled",
+                "content": result.payload.get("content", {}).string_value
+                if "content" in result.payload
+                else "",
             }
             if with_vectors:
                 result_dict["search_type"] = result.search_type
@@ -256,15 +337,17 @@ async def _search_collection(
         print(f"Error: Collection search failed: {e}")
         raise typer.Exit(1)
 
+
 async def _search_global(
     query: str,
     limit: int,
     threshold: float,
     format: str,
     exclude_projects: bool,
-    include_content: bool
+    include_content: bool,
 ):
     """Search global collections."""
+
     async def search_operation(daemon_client):
         print("Searching global collections")
 
@@ -279,7 +362,9 @@ async def _search_global(
             if name.startswith("_"):
                 global_collections.append(name)
             # Include system collections if not excluding projects
-            elif not exclude_projects and not any(name.startswith(f"{prefix}_") for prefix in ["docs", "code", "notes"]):
+            elif not exclude_projects and not any(
+                name.startswith(f"{prefix}_") for prefix in ["docs", "code", "notes"]
+            ):
                 global_collections.append(name)
 
         if not global_collections:
@@ -297,7 +382,7 @@ async def _search_global(
                     collections=[collection_name],
                     mode=SearchMode.SEARCH_MODE_HYBRID,
                     limit=limit,
-                    score_threshold=threshold
+                    score_threshold=threshold,
                 )
 
                 for result in search_response.results:
@@ -305,8 +390,12 @@ async def _search_global(
                         "score": result.score,
                         "collection": result.collection,
                         "id": result.id,
-                        "title": result.payload.get("title", {}).string_value if "title" in result.payload else "Untitled",
-                        "content": result.payload.get("content", {}).string_value if "content" in result.payload else "",
+                        "title": result.payload.get("title", {}).string_value
+                        if "title" in result.payload
+                        else "Untitled",
+                        "content": result.payload.get("content", {}).string_value
+                        if "content" in result.payload
+                        else "",
                     }
                     all_results.append(result_dict)
 
@@ -326,15 +415,17 @@ async def _search_global(
         print(f"Error: Global search failed: {e}")
         raise typer.Exit(1)
 
+
 async def _search_all(
     query: str,
     limit: int,
     threshold: float,
     format: str,
     group_by_collection: bool,
-    include_content: bool
+    include_content: bool,
 ):
     """Search all collections."""
+
     async def search_operation(daemon_client):
         print("Searching all collections")
 
@@ -354,7 +445,7 @@ async def _search_all(
             collections=collection_names,  # Search all collections at once
             mode=SearchMode.SEARCH_MODE_HYBRID,
             limit=limit,
-            score_threshold=threshold
+            score_threshold=threshold,
         )
 
         # Convert results to display format
@@ -364,8 +455,12 @@ async def _search_all(
                 "score": result.score,
                 "collection": result.collection,
                 "id": result.id,
-                "title": result.payload.get("title", {}).string_value if "title" in result.payload else "Untitled",
-                "content": result.payload.get("content", {}).string_value if "content" in result.payload else "",
+                "title": result.payload.get("title", {}).string_value
+                if "title" in result.payload
+                else "Untitled",
+                "content": result.payload.get("content", {}).string_value
+                if "content" in result.payload
+                else "",
             }
             all_results.append(result_dict)
 
@@ -380,23 +475,18 @@ async def _search_all(
         print(f"Error: Search all failed: {e}")
         raise typer.Exit(1)
 
+
 async def _search_memory(
-    query: str,
-    limit: int,
-    category: str | None,
-    authority: str | None,
-    format: str
+    query: str, limit: int, category: str | None, authority: str | None, format: str
 ):
     """Search memory rules and knowledge graph."""
+
     async def search_operation(daemon_client):
         print("Searching memory rules")
 
         # Search memory rules via daemon
         search_response = await daemon_client.search_memory_rules(
-            query=query,
-            limit=limit,
-            category=category,
-            authority=authority
+            query=query, limit=limit, category=category, authority=authority
         )
 
         if not search_response.matches:
@@ -407,33 +497,43 @@ async def _search_memory(
             rules_data = []
             for match in search_response.matches:
                 rule = match.rule
-                rules_data.append({
-                    "id": rule.rule_id,
-                    "name": rule.name,
-                    "rule": rule.rule_text,
-                    "category": rule.category,
-                    "authority": rule.authority,
-                    "scope": list(rule.scope),
-                    "source": rule.source,
-                    "score": match.score
-                })
+                rules_data.append(
+                    {
+                        "id": rule.rule_id,
+                        "name": rule.name,
+                        "rule": rule.rule_text,
+                        "category": rule.category,
+                        "authority": rule.authority,
+                        "scope": list(rule.scope),
+                        "source": rule.source,
+                        "score": match.score,
+                    }
+                )
             print(json.dumps(rules_data, indent=2))
         else:
             # Display as table
             print(f"Memory Search Results ({len(search_response.matches)} found)")
             print("=" * 80)
-            print(f"{'ID':<8} {'Name':<20} {'Rule':<30} {'Category':<12} {'Authority':<10}")
+            print(
+                f"{'ID':<8} {'Name':<20} {'Rule':<30} {'Category':<12} {'Authority':<10}"
+            )
             print("-" * 80)
 
             for match in search_response.matches:
                 rule = match.rule
                 rule_id = rule.rule_id[-8:]
                 name = rule.name[:19]
-                rule_text = rule.rule_text[:27] + "..." if len(rule.rule_text) > 30 else rule.rule_text
+                rule_text = (
+                    rule.rule_text[:27] + "..."
+                    if len(rule.rule_text) > 30
+                    else rule.rule_text
+                )
                 category = rule.category[:11]
                 authority = rule.authority
 
-                print(f"{rule_id:<8} {name:<20} {rule_text:<30} {category:<12} {authority:<10}")
+                print(
+                    f"{rule_id:<8} {name:<20} {rule_text:<30} {category:<12} {authority:<10}"
+                )
 
     try:
         await with_daemon_client(search_operation)
@@ -441,12 +541,13 @@ async def _search_memory(
         print(f"Error: Memory search failed: {e}")
         raise typer.Exit(1)
 
+
 async def _research_query(
     query: str,
     mode: str,
     collections: list[str] | None,
     output_file: str | None,
-    format: str
+    format: str,
 ):
     """Advanced research mode with analysis."""
     try:
@@ -460,7 +561,7 @@ async def _research_query(
             "quick": "Fast overview with top 5 results per collection",
             "standard": "Balanced search with analysis and 10 results per collection",
             "comprehensive": "Deep search with cross-references and 20 results per collection",
-            "deep": "Exhaustive analysis with relationships and unlimited results"
+            "deep": "Exhaustive analysis with relationships and unlimited results",
         }
 
         mode_description = research_modes.get(mode, "Unknown mode")
@@ -470,8 +571,12 @@ async def _research_query(
             print(f"Collections: {', '.join(collections)}")
 
         print("\nWarning: Research modes are not yet fully implemented")
-        print("This advanced functionality will be available in Task 13: Advanced search modes")
-        print("For now, use the basic search commands: project, collection, global, all")
+        print(
+            "This advanced functionality will be available in Task 13: Advanced search modes"
+        )
+        print(
+            "For now, use the basic search commands: project, collection, global, all"
+        )
 
         # Basic search as fallback
         print("\nPerforming basic search as fallback...")
@@ -481,12 +586,13 @@ async def _research_query(
         print(f"Error: Research query failed: {e}")
         raise typer.Exit(1)
 
+
 def _display_search_results(
     results: list[dict[str, Any]],
     query: str,
     format: str,
     include_content: bool,
-    with_vectors: bool = False
+    with_vectors: bool = False,
 ):
     """Display search results in specified format."""
 
@@ -502,7 +608,9 @@ def _display_search_results(
                 "score": result.get("score", 0),
                 "collection": result.get("collection", "unknown"),
                 "title": result.get("title", "Untitled"),
-                "content_preview": result.get("content", "")[:200] + "..." if result.get("content") else "",
+                "content_preview": result.get("content", "")[:200] + "..."
+                if result.get("content")
+                else "",
             }
             if include_content:
                 clean_result["full_content"] = result.get("content", "")
@@ -528,18 +636,23 @@ def _display_search_results(
         score = f"{result.get('score', 0):.3f}"
         collection = result.get("collection", "unknown")[:14]
         title = result.get("title", "Untitled")[:24]
-        
+
         content = result.get("content", "")
         preview = content[:29] if len(content) > 30 else content
-        preview = preview.replace('\n', ' ').replace('\t', ' ')
+        preview = preview.replace("\n", " ").replace("\t", " ")
 
         print(f"{score:<8} {collection:<15} {title:<25} {preview:<30}")
 
     # Summary
     avg_score = sum(r.get("score", 0) for r in results) / len(results) if results else 0
-    print(f"\nAverage score: {avg_score:.3f} | Best match: {results[0].get('score', 0):.3f}")
+    print(
+        f"\nAverage score: {avg_score:.3f} | Best match: {results[0].get('score', 0):.3f}"
+    )
 
-def _display_detailed_results(results: list[dict[str, Any]], query: str, include_content: bool):
+
+def _display_detailed_results(
+    results: list[dict[str, Any]], query: str, include_content: bool
+):
     """Display detailed search results with full content."""
 
     print(f"Detailed Results for: '{query}'")
@@ -561,9 +674,21 @@ def _display_detailed_results(results: list[dict[str, Any]], query: str, include
         content = result.get("content", "")
         if include_content and content:
             # Try to syntax highlight if it looks like code
-            if any(indicator in content.lower() for indicator in ["def ", "class ", "import ", "function", "var ", "const "]):
+            if any(
+                indicator in content.lower()
+                for indicator in [
+                    "def ",
+                    "class ",
+                    "import ",
+                    "function",
+                    "var ",
+                    "const ",
+                ]
+            ):
                 try:
-                    syntax = Syntax(content[:500], "python", theme="monokai", line_numbers=False)
+                    syntax = Syntax(
+                        content[:500], "python", theme="monokai", line_numbers=False
+                    )
                     # Code syntax highlighting not available in plain text mode
                     print(f"Code content (first 500 chars): {content[:500]}")
                 except:
@@ -581,7 +706,10 @@ def _display_detailed_results(results: list[dict[str, Any]], query: str, include
         if i < len(results):
             print()  # Spacing between results
 
-def _display_grouped_search_results(results: list[dict[str, Any]], query: str, format: str, include_content: bool):
+
+def _display_grouped_search_results(
+    results: list[dict[str, Any]], query: str, format: str, include_content: bool
+):
     """Display search results grouped by collection."""
 
     if not results:
@@ -602,12 +730,14 @@ def _display_grouped_search_results(results: list[dict[str, Any]], query: str, f
     for collection, collection_results in grouped.items():
         # Collection header
         collection_type = "Library" if collection.startswith("_") else "Project"
-        print(f"Collection: {collection} ({collection_type}) - {len(collection_results)} results")
+        print(
+            f"Collection: {collection} ({collection_type}) - {len(collection_results)} results"
+        )
 
         # Display results in plain text format
         print(f"{'Score':<8} {'Title':<25} {'Preview':<50}")
         print("-" * 83)
-        
+
         for result in collection_results[:5]:  # Show top 5 per collection
             score = f"{result.get('score', 0):.3f}"
             title = result.get("title", "Untitled")
@@ -616,11 +746,13 @@ def _display_grouped_search_results(results: list[dict[str, Any]], query: str, f
 
             content = result.get("content", "")
             preview = content[:47] + "..." if len(content) > 50 else content
-            preview = preview.replace('\n', ' ').replace('\t', ' ')
+            preview = preview.replace("\n", " ").replace("\t", " ")
 
             print(f"{score:<8} {title:<25} {preview:<50}")
 
         if len(collection_results) > 5:
-            print(f"... and {len(collection_results) - 5} more results in this collection")
+            print(
+                f"... and {len(collection_results) - 5} more results in this collection"
+            )
 
         print()  # Spacing between collections

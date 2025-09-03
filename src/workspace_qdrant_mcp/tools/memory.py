@@ -1,4 +1,3 @@
-
 """
 MCP tools for memory management.
 
@@ -60,7 +59,9 @@ def register_memory_tools(server: FastMCP):
             stats = await memory_manager.get_memory_stats()
 
             # Format rules for Claude Code injection
-            absolute_rules = [r for r in rules if r.authority == AuthorityLevel.ABSOLUTE]
+            absolute_rules = [
+                r for r in rules if r.authority == AuthorityLevel.ABSOLUTE
+            ]
             default_rules = [r for r in rules if r.authority == AuthorityLevel.DEFAULT]
 
             # Prepare session data
@@ -77,7 +78,7 @@ def register_memory_tools(server: FastMCP):
                             "name": rule.name,
                             "rule": rule.rule,
                             "scope": rule.scope,
-                            "category": rule.category.value
+                            "category": rule.category.value,
                         }
                         for rule in absolute_rules
                     ],
@@ -86,11 +87,11 @@ def register_memory_tools(server: FastMCP):
                             "name": rule.name,
                             "rule": rule.rule,
                             "scope": rule.scope,
-                            "category": rule.category.value
+                            "category": rule.category.value,
                         }
                         for rule in default_rules
-                    ]
-                }
+                    ],
+                },
             }
 
             # Include conflict information if any
@@ -102,22 +103,20 @@ def register_memory_tools(server: FastMCP):
                         "rule1_name": conflict.rule1.name,
                         "rule2_name": conflict.rule2.name,
                         "confidence": conflict.confidence,
-                        "resolution_options": conflict.resolution_options
+                        "resolution_options": conflict.resolution_options,
                     }
                     for conflict in conflicts
                 ]
                 session_data["status"] = "conflicts_require_resolution"
 
-            logger.info(f"Memory session initialized: {len(rules)} rules loaded, {len(conflicts)} conflicts")
+            logger.info(
+                f"Memory session initialized: {len(rules)} rules loaded, {len(conflicts)} conflicts"
+            )
             return session_data
 
         except Exception as e:
             logger.error(f"Failed to initialize memory session: {e}")
-            return {
-                "status": "error",
-                "error": str(e),
-                "total_rules": 0
-            }
+            return {"status": "error", "error": str(e), "total_rules": 0}
 
     @server.tool()
     async def add_memory_rule(
@@ -126,7 +125,7 @@ def register_memory_tools(server: FastMCP):
         rule: str,
         authority: str = "default",
         scope: list[str] | None = None,
-        source: str = "mcp_user"
+        source: str = "mcp_user",
     ) -> dict[str, Any]:
         """
         Add a new memory rule.
@@ -153,10 +152,7 @@ def register_memory_tools(server: FastMCP):
                 category_enum = MemoryCategory(category)
                 authority_enum = AuthorityLevel(authority)
             except ValueError as e:
-                return {
-                    "success": False,
-                    "error": f"Invalid parameter: {e}"
-                }
+                return {"success": False, "error": f"Invalid parameter: {e}"}
 
             # Ensure memory collection exists
             await memory_manager.initialize_memory_collection()
@@ -168,22 +164,19 @@ def register_memory_tools(server: FastMCP):
                 rule=rule,
                 authority=authority_enum,
                 scope=scope or [],
-                source=source
+                source=source,
             )
 
             logger.info(f"Added memory rule via MCP: {rule_id}")
             return {
                 "success": True,
                 "rule_id": rule_id,
-                "message": f"Added memory rule '{name}'"
+                "message": f"Added memory rule '{name}'",
             }
 
         except Exception as e:
             logger.error(f"Failed to add memory rule: {e}")
-            return {
-                "success": False,
-                "error": str(e)
-            }
+            return {"success": False, "error": str(e)}
 
     @server.tool()
     async def update_memory_from_conversation(message: str) -> dict[str, Any]:
@@ -206,7 +199,7 @@ def register_memory_tools(server: FastMCP):
             if not parsed:
                 return {
                     "detected": False,
-                    "message": "No memory update pattern detected"
+                    "message": "No memory update pattern detected",
                 }
 
             # If update detected, add it as a memory rule
@@ -220,7 +213,22 @@ def register_memory_tools(server: FastMCP):
 
             # Generate name from rule
             name_words = parsed["rule"].lower().split()[:2]
-            stop_words = {"the", "a", "an", "and", "or", "but", "in", "on", "at", "to", "for", "of", "with", "by"}
+            stop_words = {
+                "the",
+                "a",
+                "an",
+                "and",
+                "or",
+                "but",
+                "in",
+                "on",
+                "at",
+                "to",
+                "for",
+                "of",
+                "with",
+                "by",
+            }
             name_words = [w for w in name_words if w not in stop_words]
             name = "-".join(name_words) if name_words else "conversational-rule"
 
@@ -230,7 +238,7 @@ def register_memory_tools(server: FastMCP):
                 name=name,
                 rule=parsed["rule"],
                 authority=parsed["authority"],
-                source=parsed["source"]
+                source=parsed["source"],
             )
 
             logger.info(f"Added conversational memory rule: {rule_id}")
@@ -241,23 +249,19 @@ def register_memory_tools(server: FastMCP):
                 "category": parsed["category"].value,
                 "rule": parsed["rule"],
                 "authority": parsed["authority"].value,
-                "message": f"Added memory rule from conversation: '{parsed['rule']}'"
+                "message": f"Added memory rule from conversation: '{parsed['rule']}'",
             }
 
         except Exception as e:
             logger.error(f"Failed to process conversational memory update: {e}")
-            return {
-                "detected": True,
-                "rule_added": False,
-                "error": str(e)
-            }
+            return {"detected": True, "rule_added": False, "error": str(e)}
 
     @server.tool()
     async def search_memory_rules(
         query: str,
         category: str | None = None,
         authority: str | None = None,
-        limit: int = 5
+        limit: int = 5,
     ) -> dict[str, Any]:
         """
         Search memory rules by semantic similarity.
@@ -285,10 +289,7 @@ def register_memory_tools(server: FastMCP):
                 try:
                     category_enum = MemoryCategory(category)
                 except ValueError:
-                    return {
-                        "success": False,
-                        "error": f"Invalid category: {category}"
-                    }
+                    return {"success": False, "error": f"Invalid category: {category}"}
 
             if authority:
                 try:
@@ -296,7 +297,7 @@ def register_memory_tools(server: FastMCP):
                 except ValueError:
                     return {
                         "success": False,
-                        "error": f"Invalid authority: {authority}"
+                        "error": f"Invalid authority: {authority}",
                     }
 
             # Search memory rules
@@ -304,37 +305,40 @@ def register_memory_tools(server: FastMCP):
                 query=query,
                 limit=limit,
                 category=category_enum,
-                authority=authority_enum
+                authority=authority_enum,
             )
 
             # Format results
             formatted_results = []
             for rule, score in results:
-                formatted_results.append({
-                    "id": rule.id,
-                    "name": rule.name,
-                    "rule": rule.rule,
-                    "category": rule.category.value,
-                    "authority": rule.authority.value,
-                    "scope": rule.scope,
-                    "relevance_score": score,
-                    "created_at": rule.created_at.isoformat() if rule.created_at else None
-                })
+                formatted_results.append(
+                    {
+                        "id": rule.id,
+                        "name": rule.name,
+                        "rule": rule.rule,
+                        "category": rule.category.value,
+                        "authority": rule.authority.value,
+                        "scope": rule.scope,
+                        "relevance_score": score,
+                        "created_at": rule.created_at.isoformat()
+                        if rule.created_at
+                        else None,
+                    }
+                )
 
-            logger.info(f"Memory search returned {len(results)} results for query: {query}")
+            logger.info(
+                f"Memory search returned {len(results)} results for query: {query}"
+            )
             return {
                 "success": True,
                 "query": query,
                 "results": formatted_results,
-                "total_found": len(results)
+                "total_found": len(results),
             }
 
         except Exception as e:
             logger.error(f"Failed to search memory rules: {e}")
-            return {
-                "success": False,
-                "error": str(e)
-            }
+            return {"success": False, "error": str(e)}
 
     @server.tool()
     async def get_memory_stats() -> dict[str, Any]:
@@ -354,22 +358,28 @@ def register_memory_tools(server: FastMCP):
 
             return {
                 "total_rules": stats.total_rules,
-                "rules_by_category": {k.value: v for k, v in stats.rules_by_category.items()},
-                "rules_by_authority": {k.value: v for k, v in stats.rules_by_authority.items()},
+                "rules_by_category": {
+                    k.value: v for k, v in stats.rules_by_category.items()
+                },
+                "rules_by_authority": {
+                    k.value: v for k, v in stats.rules_by_authority.items()
+                },
                 "estimated_tokens": stats.estimated_tokens,
-                "last_optimization": stats.last_optimization.isoformat() if stats.last_optimization else None,
+                "last_optimization": stats.last_optimization.isoformat()
+                if stats.last_optimization
+                else None,
                 "token_status": (
-                    "low" if stats.estimated_tokens < 1000
-                    else "moderate" if stats.estimated_tokens < 2000
+                    "low"
+                    if stats.estimated_tokens < 1000
+                    else "moderate"
+                    if stats.estimated_tokens < 2000
                     else "high"
-                )
+                ),
             }
 
         except Exception as e:
             logger.error(f"Failed to get memory stats: {e}")
-            return {
-                "error": str(e)
-            }
+            return {"error": str(e)}
 
     @server.tool()
     async def detect_memory_conflicts() -> dict[str, Any]:
@@ -389,42 +399,37 @@ def register_memory_tools(server: FastMCP):
 
             formatted_conflicts = []
             for conflict in conflicts:
-                formatted_conflicts.append({
-                    "type": conflict.conflict_type,
-                    "description": conflict.description,
-                    "confidence": conflict.confidence,
-                    "rule1": {
-                        "id": conflict.rule1.id,
-                        "name": conflict.rule1.name,
-                        "rule": conflict.rule1.rule,
-                        "authority": conflict.rule1.authority.value
-                    },
-                    "rule2": {
-                        "id": conflict.rule2.id,
-                        "name": conflict.rule2.name,
-                        "rule": conflict.rule2.rule,
-                        "authority": conflict.rule2.authority.value
-                    },
-                    "resolution_options": conflict.resolution_options
-                })
+                formatted_conflicts.append(
+                    {
+                        "type": conflict.conflict_type,
+                        "description": conflict.description,
+                        "confidence": conflict.confidence,
+                        "rule1": {
+                            "id": conflict.rule1.id,
+                            "name": conflict.rule1.name,
+                            "rule": conflict.rule1.rule,
+                            "authority": conflict.rule1.authority.value,
+                        },
+                        "rule2": {
+                            "id": conflict.rule2.id,
+                            "name": conflict.rule2.name,
+                            "rule": conflict.rule2.rule,
+                            "authority": conflict.rule2.authority.value,
+                        },
+                        "resolution_options": conflict.resolution_options,
+                    }
+                )
 
             logger.info(f"Detected {len(conflicts)} memory conflicts")
-            return {
-                "conflicts_found": len(conflicts),
-                "conflicts": formatted_conflicts
-            }
+            return {"conflicts_found": len(conflicts), "conflicts": formatted_conflicts}
 
         except Exception as e:
             logger.error(f"Failed to detect memory conflicts: {e}")
-            return {
-                "error": str(e)
-            }
+            return {"error": str(e)}
 
     @server.tool()
     async def list_memory_rules(
-        category: str | None = None,
-        authority: str | None = None,
-        limit: int = 50
+        category: str | None = None, authority: str | None = None, limit: int = 50
     ) -> dict[str, Any]:
         """
         List memory rules with optional filtering.
@@ -451,10 +456,7 @@ def register_memory_tools(server: FastMCP):
                 try:
                     category_enum = MemoryCategory(category)
                 except ValueError:
-                    return {
-                        "success": False,
-                        "error": f"Invalid category: {category}"
-                    }
+                    return {"success": False, "error": f"Invalid category: {category}"}
 
             if authority:
                 try:
@@ -462,13 +464,12 @@ def register_memory_tools(server: FastMCP):
                 except ValueError:
                     return {
                         "success": False,
-                        "error": f"Invalid authority: {authority}"
+                        "error": f"Invalid authority: {authority}",
                     }
 
             # List memory rules
             rules = await memory_manager.list_memory_rules(
-                category=category_enum,
-                authority=authority_enum
+                category=category_enum, authority=authority_enum
             )
 
             # Apply limit
@@ -477,28 +478,31 @@ def register_memory_tools(server: FastMCP):
             # Format results
             formatted_rules = []
             for rule in rules:
-                formatted_rules.append({
-                    "id": rule.id,
-                    "name": rule.name,
-                    "rule": rule.rule,
-                    "category": rule.category.value,
-                    "authority": rule.authority.value,
-                    "scope": rule.scope,
-                    "source": rule.source,
-                    "created_at": rule.created_at.isoformat() if rule.created_at else None,
-                    "updated_at": rule.updated_at.isoformat() if rule.updated_at else None
-                })
+                formatted_rules.append(
+                    {
+                        "id": rule.id,
+                        "name": rule.name,
+                        "rule": rule.rule,
+                        "category": rule.category.value,
+                        "authority": rule.authority.value,
+                        "scope": rule.scope,
+                        "source": rule.source,
+                        "created_at": rule.created_at.isoformat()
+                        if rule.created_at
+                        else None,
+                        "updated_at": rule.updated_at.isoformat()
+                        if rule.updated_at
+                        else None,
+                    }
+                )
 
             logger.info(f"Listed {len(rules)} memory rules")
             return {
                 "success": True,
                 "total_returned": len(rules),
-                "rules": formatted_rules
+                "rules": formatted_rules,
             }
 
         except Exception as e:
             logger.error(f"Failed to list memory rules: {e}")
-            return {
-                "success": False,
-                "error": str(e)
-            }
+            return {"success": False, "error": str(e)}
