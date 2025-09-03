@@ -1,0 +1,436 @@
+name: Performance Monitoring
+
+on:
+  schedule:
+    # Run daily at 3 AM UTC
+    - cron: '0 3 * * *'
+  push:
+    branches: [ main ]
+    paths:
+      - 'src/**'
+      - 'rust-engine/**'
+      - 'tests/integration/test_performance_regression.py'
+  workflow_dispatch:
+    inputs:
+      baseline_update:
+        description: 'Update performance baselines'
+        required: false
+        default: false
+        type: boolean
+
+env:
+  PYTHON_VERSION: "3.11"
+  PERFORMANCE_THRESHOLD_REGRESSION: "20"  # Percent regression threshold
+
+jobs:
+  performance-benchmarks:
+    name: Performance Benchmarks
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    
+    services:
+      qdrant:
+        image: qdrant/qdrant:v1.7.4
+        ports:
+          - 6333:6333
+          - 6334:6334
+        env:
+          QDRANT__SERVICE__HTTP_PORT: 6333
+          QDRANT__SERVICE__GRPC_PORT: 6334
+        options: >-
+          --health-cmd "curl -f http://localhost:6333/health"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+    
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v4
+      with:
+        fetch-depth: 0
+    
+    - name: Set up Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: ${{ env.PYTHON_VERSION }}
+        cache: 'pip'
+    
+    - name: Install system dependencies
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y \
+          build-essential \
+          protobuf-compiler \
+          libprotobuf-dev \
+          pkg-config
+    
+    - name: Install Rust
+      uses: actions-rs/toolchain@v1
+      with:
+        toolchain: stable
+        profile: minimal
+        override: true
+    
+    - name: Install dependencies
+      run: |
+        python -m pip install --upgrade pip
+        pip install -e ".[dev]"
+        pip install pytest-benchmark matplotlib
+    
+    - name: Wait for Qdrant
+      run: |
+        timeout 60 bash -c 'until curl -f http://localhost:6333/health; do sleep 2; done'
+    
+    - name: Run performance benchmarks
+      env:
+        QDRANT_HOST: localhost
+        QDRANT_PORT: 6333
+        QDRANT_GRPC_PORT: 6334
+      run: |
+        python scripts/run_integration_tests.py \
+          --categories performance \
+          --no-coverage \
+          --verbose
+    
+    - name: Load previous baselines
+      id: load-baselines
+      run: |
+        if [ -f "tests/integration/performance_baselines.json" ]; then
+          echo "baselines-exist=true" >> $GITHUB_OUTPUT
+          echo "Previous baselines found"
+        else
+          echo "baselines-exist=false" >> $GITHUB_OUTPUT
+          echo "No previous baselines found"
+        fi
+    
+    - name: Compare with baselines
+      if: steps.load-baselines.outputs.baselines-exist == 'true'
+      run: |
+        python -c "
+        import json
+        import sys
+        from pathlib import Path
+        
+        # Load current benchmarks
+        bench_file = Path('performance_results/benchmarks.json')
+        baseline_file = Path('tests/integration/performance_baselines.json')
+        
+        if not bench_file.exists():
+            print('❌ No benchmark results found')
+            sys.exit(1)
+        
+        if not baseline_file.exists():
+            print('⚠️ No baseline file found - this will establish new baselines')
+            sys.exit(0)
+        
+        with open(bench_file) as f:
+            benchmarks = json.load(f)
+        
+        with open(baseline_file) as f:
+            baselines = json.load(f)
+        
+        regressions = []
+        improvements = []
+        threshold = float('${{ env.PERFORMANCE_THRESHOLD_REGRESSION }}') / 100
+        
+        # Simple comparison logic (would be more sophisticated in practice)
+        current_results = {}
+        for benchmark in benchmarks.get('benchmarks', []):
+            name = benchmark.get('name', '')
+            mean_time = benchmark.get('stats', {}).get('mean', 0)
+            current_results[name] = mean_time
+        
+        # Compare against baselines
+        for category, baseline_data in baselines.items():
+            if 'avg_processing_time_ms' in baseline_data:
+                baseline_time = baseline_data['avg_processing_time_ms'] / 1000
+                
+                # Find matching current result
+                matching_current = None
+                for name, time in current_results.items():
+                    if category.lower() in name.lower() or name.lower() in category.lower():
+                        matching_current = time
+                        break
+                
+                if matching_current:
+                    change = (matching_current - baseline_time) / baseline_time
+                    
+                    if change > threshold:
+                        regressions.append({
+                            'test': category,
+                            'baseline': baseline_time,
+                            'current': matching_current, 
+                            'change_percent': change * 100
+                        })
+                    elif change < -0.1:  # 10% improvement
+                        improvements.append({
+                            'test': category,
+                            'baseline': baseline_time,
+                            'current': matching_current,
+                            'improvement_percent': -change * 100
+                        })
+        
+        # Output results
+        if regressions:
+            print('❌ Performance Regressions Detected:')
+            for reg in regressions:
+                print(f\"  - {reg['test']}: {reg['change_percent']:.1f}% slower\")
+        
+        if improvements:
+            print('✅ Performance Improvements:') 
+            for imp in improvements:
+                print(f\"  - {imp['test']}: {imp['improvement_percent']:.1f}% faster\")
+        
+        if not regressions and not improvements:
+            print('📊 Performance stable - no significant changes')
+        
+        # Save results for artifact
+        results = {
+            'regressions': regressions,
+            'improvements': improvements,
+            'threshold_percent': float('${{ env.PERFORMANCE_THRESHOLD_REGRESSION }}'),
+            'timestamp': '$(date -u +%Y-%m-%dT%H:%M:%SZ)'
+        }
+        
+        with open('performance_comparison.json', 'w') as f:
+            json.dump(results, f, indent=2)
+        
+        # Exit with error if significant regressions
+        if regressions:
+            print(f'⚠️ Found {len(regressions)} performance regression(s)')
+            if '${{ github.event_name }}' == 'push':
+                sys.exit(1)  # Fail on push to main
+            else:
+                sys.exit(0)  # Don't fail scheduled runs
+        "
+    
+    - name: Update baselines
+      if: github.event.inputs.baseline_update == 'true' || (github.event_name == 'schedule' && steps.load-baselines.outputs.baselines-exist == 'false')
+      run: |
+        echo "Updating performance baselines..."
+        if [ -f "tests/integration/performance_baselines.json" ]; then
+          cp "tests/integration/performance_baselines.json" "performance_baselines_backup.json"
+          echo "Backed up existing baselines"
+        fi
+    
+    - name: Generate performance report
+      run: |
+        python -c "
+        import json
+        import datetime
+        from pathlib import Path
+        
+        # Generate performance report
+        report = {
+            'timestamp': datetime.datetime.utcnow().isoformat() + 'Z',
+            'commit': '${{ github.sha }}',
+            'ref': '${{ github.ref }}',
+            'event': '${{ github.event_name }}',
+            'summary': {}
+        }
+        
+        # Load benchmark results if available
+        bench_file = Path('performance_results/benchmarks.json')
+        if bench_file.exists():
+            with open(bench_file) as f:
+                benchmarks = json.load(f)
+            
+            report['benchmarks'] = benchmarks
+            report['summary']['benchmarks_run'] = len(benchmarks.get('benchmarks', []))
+            
+            # Calculate summary stats
+            times = []
+            for benchmark in benchmarks.get('benchmarks', []):
+                mean_time = benchmark.get('stats', {}).get('mean', 0)
+                if mean_time > 0:
+                    times.append(mean_time)
+            
+            if times:
+                report['summary']['avg_execution_time'] = sum(times) / len(times)
+                report['summary']['max_execution_time'] = max(times)
+                report['summary']['min_execution_time'] = min(times)
+        
+        # Load comparison results if available
+        comp_file = Path('performance_comparison.json')
+        if comp_file.exists():
+            with open(comp_file) as f:
+                comparison = json.load(f)
+            report['comparison'] = comparison
+        
+        # Save report
+        with open('performance_report.json', 'w') as f:
+            json.dump(report, f, indent=2)
+        
+        # Generate markdown summary
+        md_content = f'''# Performance Report
+        
+**Date:** {report['timestamp']}
+**Commit:** {report['commit'][:8]}
+**Event:** {report['event']}
+
+## Summary
+        '''
+        
+        if 'summary' in report:
+            summary = report['summary']
+            if 'benchmarks_run' in summary:
+                md_content += f\"\"\"
+- **Benchmarks Run:** {summary['benchmarks_run']}\"\"\"
+            
+            if 'avg_execution_time' in summary:
+                md_content += f\"\"\"
+- **Average Execution Time:** {summary['avg_execution_time']:.3f}s
+- **Min Time:** {summary['min_execution_time']:.3f}s  
+- **Max Time:** {summary['max_execution_time']:.3f}s\"\"\"
+        
+        if 'comparison' in report:
+            comp = report['comparison']
+            if comp.get('regressions'):
+                md_content += f\"\"\"
+
+## Performance Regressions ❌
+\"\"\"
+                for reg in comp['regressions']:
+                    md_content += f\"\"\"
+- **{reg['test']}**: {reg['change_percent']:.1f}% slower\"\"\"
+            
+            if comp.get('improvements'):
+                md_content += f\"\"\"
+
+## Performance Improvements ✅
+\"\"\"
+                for imp in comp['improvements']:
+                    md_content += f\"\"\"
+- **{imp['test']}**: {imp['improvement_percent']:.1f}% faster\"\"\"
+        
+        with open('performance_summary.md', 'w') as f:
+            f.write(md_content)
+        "
+    
+    - name: Upload performance artifacts
+      if: always()
+      uses: actions/upload-artifact@v3
+      with:
+        name: performance-results
+        path: |
+          performance_results/
+          performance_report.json
+          performance_summary.md
+          performance_comparison.json
+        retention-days: 90
+    
+    - name: Create issue for regressions
+      if: failure() && github.event_name == 'push'
+      uses: actions/github-script@v7
+      with:
+        script: |
+          const fs = require('fs');
+          
+          if (fs.existsSync('performance_comparison.json')) {
+            const comparison = JSON.parse(fs.readFileSync('performance_comparison.json', 'utf8'));
+            
+            if (comparison.regressions && comparison.regressions.length > 0) {
+              const body = `## Performance Regression Detected
+              
+**Commit:** ${{ github.sha }}
+**Branch:** ${{ github.ref }}
+              
+### Regressions:
+${comparison.regressions.map(r => `- **${r.test}**: ${r.change_percent.toFixed(1)}% slower`).join('\n')}
+              
+The performance regression threshold is ${comparison.threshold_percent}%.
+              
+Please investigate and optimize the affected components.`;
+              
+              github.rest.issues.create({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                title: `Performance Regression - ${new Date().toISOString().split('T')[0]}`,
+                body: body,
+                labels: ['performance', 'regression', 'priority-high']
+              });
+            }
+          }
+
+  performance-tracking:
+    name: Performance Tracking  
+    runs-on: ubuntu-latest
+    needs: performance-benchmarks
+    if: always()
+    
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v4
+    
+    - name: Download performance artifacts
+      uses: actions/download-artifact@v3
+      with:
+        name: performance-results
+    
+    - name: Update performance database
+      # In a real implementation, this would update a time-series database
+      run: |
+        echo "Updating performance tracking database..."
+        
+        # Create or append to performance history
+        if [ ! -f "performance_history.jsonl" ]; then
+          touch performance_history.jsonl
+        fi
+        
+        if [ -f "performance_report.json" ]; then
+          cat performance_report.json >> performance_history.jsonl
+          echo "" >> performance_history.jsonl
+        fi
+    
+    - name: Generate trend analysis
+      run: |
+        python -c "
+        import json
+        import datetime
+        from pathlib import Path
+        
+        # Simple trend analysis (would be more sophisticated with a proper database)
+        history_file = Path('performance_history.jsonl')
+        
+        if history_file.exists():
+            reports = []
+            with open(history_file) as f:
+                for line in f:
+                    line = line.strip()
+                    if line:
+                        try:
+                            reports.append(json.loads(line))
+                        except json.JSONDecodeError:
+                            continue
+            
+            print(f'📈 Performance history: {len(reports)} reports')
+            
+            if len(reports) >= 2:
+                # Simple trend check
+                recent = reports[-5:]  # Last 5 reports
+                if len(recent) >= 2:
+                    latest_avg = recent[-1].get('summary', {}).get('avg_execution_time', 0)
+                    previous_avg = recent[-2].get('summary', {}).get('avg_execution_time', 0)
+                    
+                    if latest_avg > 0 and previous_avg > 0:
+                        change = (latest_avg - previous_avg) / previous_avg * 100
+                        if abs(change) > 5:  # 5% change
+                            trend = 'slower' if change > 0 else 'faster'
+                            print(f'📊 Trend: {abs(change):.1f}% {trend} than previous run')
+                        else:
+                            print('📊 Performance stable')
+        else:
+            print('📈 No performance history available yet')
+        "
+    
+    - name: Commit performance data
+      if: github.event_name == 'schedule'
+      run: |
+        git config --local user.email "action@github.com"
+        git config --local user.name "GitHub Action"
+        
+        if [ -f "performance_history.jsonl" ] && [ -n "$(git diff --name-only performance_history.jsonl)" ]; then
+          git add performance_history.jsonl
+          git commit -m "chore: Update performance tracking data [skip ci]"
+          git push
+        fi
