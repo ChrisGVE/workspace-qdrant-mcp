@@ -151,7 +151,7 @@ ignore-decorators = "property"
 asyncio_mode = "auto"
 testpaths = ["tests"]
 pythonpath = ["."]
-addopts = "-v --tb=short --cov=src/workspace_qdrant_mcp --cov-report=term-missing --cov-report=html --cov-fail-under=5"
+addopts = "-v --tb=short --cov=src/workspace_qdrant_mcp --cov-report=term-missing --cov-report=html --cov-report=xml --cov-fail-under=80 --cov-branch"
 markers = [
   "unit: Unit tests",
   "integration: Integration tests",
@@ -160,34 +160,60 @@ markers = [
   "performance: Performance and benchmark tests",
   "requires_qdrant: Tests requiring Qdrant server",
   "requires_git: Tests requiring Git repository",
+  "regression: Regression tests for bug fixes",
+  "smoke: Smoke tests for basic functionality",
 ]
 timeout = 300
 filterwarnings = [
   "ignore::DeprecationWarning",
   "ignore::PendingDeprecationWarning",
+  "ignore::UserWarning:testcontainers",
 ]
 
 [tool.coverage.run]
 source = ["src"]
-omit = ["*/tests/*", "*/__init__.py", "*/conftest.py"]
+omit = [
+  "*/tests/*",
+  "*/__init__.py", 
+  "*/conftest.py",
+  "*/test_*.py",
+  "src/workspace_qdrant_mcp/cli/test_*.py",
+  "src/workspace_qdrant_mcp/tools/test_*.py"
+]
+branch = true
+parallel = true
 
 [tool.coverage.report]
 show_missing = true
 skip_covered = false
+precision = 2
+sort = "Cover"
 exclude_lines = [
   "pragma: no cover",
   "def __repr__",
   "if self.debug:",
   "if settings.DEBUG",
   "raise AssertionError",
-  "raise NotImplementedError",
+  "raise NotImplementedError", 
   "if 0:",
   "if __name__ == .__main__.:",
   "pass",
+  "@abstract",
+  "@abstractmethod",
+  "@pytest.fixture",
+  "# pragma: no cover",
+  "except ImportError:",
+  "except ModuleNotFoundError:",
 ]
+fail_under = 80
 
 [tool.coverage.html]
 directory = "htmlcov"
+skip_covered = false
+show_contexts = true
+
+[tool.coverage.xml]
+output = "coverage.xml"
 
 [dependency-groups]
 dev = [
