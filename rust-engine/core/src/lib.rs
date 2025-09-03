@@ -590,8 +590,10 @@ pub struct ProcessingEngine {
     /// IPC server for Python communication
     ipc_server: Option<IpcServer>,
     /// Storage client for Qdrant operations
+    #[allow(dead_code)]
     storage_client: Arc<StorageClient>,
     /// Document processor
+    #[allow(dead_code)]
     document_processor: Arc<DocumentProcessor>,
     /// Engine configuration
     config: Arc<Config>,

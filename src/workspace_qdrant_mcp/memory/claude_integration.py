@@ -1,4 +1,3 @@
-
 """
 Claude Code SDK integration for memory system.
 
@@ -38,10 +37,12 @@ class ClaudeCodeIntegration:
     - Token budget management for optimal rule injection
     """
 
-    def __init__(self,
-                 token_counter: TokenCounter,
-                 max_memory_tokens: int = 5000,
-                 claude_config_path: str | None = None):
+    def __init__(
+        self,
+        token_counter: TokenCounter,
+        max_memory_tokens: int = 5000,
+        claude_config_path: str | None = None,
+    ):
         """
         Initialize Claude Code integration.
 
@@ -57,9 +58,9 @@ class ClaudeCodeIntegration:
         # Cache for session contexts
         self._session_contexts: dict[str, MemoryContext] = {}
 
-    async def initialize_session(self,
-                                session: ClaudeCodeSession,
-                                available_rules: list[MemoryRule]) -> MemoryInjectionResult:
+    async def initialize_session(
+        self, session: ClaudeCodeSession, available_rules: list[MemoryRule]
+    ) -> MemoryInjectionResult:
         """
         Initialize a Claude Code session with memory rules.
 
@@ -80,9 +81,7 @@ class ClaudeCodeIntegration:
 
             # Optimize rules for token budget
             selected_rules, token_usage = self.token_counter.optimize_rules_for_context(
-                relevant_rules,
-                self.max_memory_tokens,
-                preserve_absolute=True
+                relevant_rules, self.max_memory_tokens, preserve_absolute=True
             )
 
             if not selected_rules:
@@ -92,11 +91,13 @@ class ClaudeCodeIntegration:
                     total_tokens_used=0,
                     remaining_context_tokens=session.context_window_size,
                     skipped_rules=[],
-                    errors=[]
+                    errors=[],
                 )
 
             # Generate memory injection content
-            injection_content = self._generate_injection_content(selected_rules, context)
+            injection_content = self._generate_injection_content(
+                selected_rules, context
+            )
 
             # Inject into Claude Code session (via configuration or system prompt)
             success = await self._inject_into_session(session, injection_content)
@@ -107,7 +108,8 @@ class ClaudeCodeIntegration:
                     rule.update_usage()
 
                 skipped_rules = [
-                    f"{rule.rule[:50]}..." for rule in relevant_rules
+                    f"{rule.rule[:50]}..."
+                    for rule in relevant_rules
                     if rule not in selected_rules
                 ]
 
@@ -115,9 +117,10 @@ class ClaudeCodeIntegration:
                     success=True,
                     rules_injected=len(selected_rules),
                     total_tokens_used=token_usage.total_tokens,
-                    remaining_context_tokens=session.context_window_size - token_usage.total_tokens,
+                    remaining_context_tokens=session.context_window_size
+                    - token_usage.total_tokens,
                     skipped_rules=skipped_rules,
-                    errors=[]
+                    errors=[],
                 )
             else:
                 return MemoryInjectionResult(
@@ -126,7 +129,7 @@ class ClaudeCodeIntegration:
                     total_tokens_used=0,
                     remaining_context_tokens=session.context_window_size,
                     skipped_rules=[],
-                    errors=["Failed to inject memory rules into session"]
+                    errors=["Failed to inject memory rules into session"],
                 )
 
         except Exception as e:
@@ -137,12 +140,12 @@ class ClaudeCodeIntegration:
                 total_tokens_used=0,
                 remaining_context_tokens=session.context_window_size,
                 skipped_rules=[],
-                errors=[str(e)]
+                errors=[str(e)],
             )
 
-    def detect_conversational_updates(self,
-                                    conversation_text: str,
-                                    session_context: MemoryContext | None = None) -> list[ConversationalUpdate]:
+    def detect_conversational_updates(
+        self, conversation_text: str, session_context: MemoryContext | None = None
+    ) -> list[ConversationalUpdate]:
         """
         Detect memory rule updates from conversational text.
 
@@ -158,57 +161,69 @@ class ClaudeCodeIntegration:
         # Pattern-based detection for common conversational updates
         patterns = [
             # "Note: call me Chris"
-            (r'note:?\s+call\s+me\s+(\w+)', lambda m: ConversationalUpdate(
-                text=conversation_text,
-                extracted_rule=f"User name is {m.group(1)}",
-                category=MemoryCategory.PREFERENCE,
-                authority=AuthorityLevel.ABSOLUTE,
-                scope=["user_preference"],
-                confidence=0.9
-            )),
-
+            (
+                r"note:?\s+call\s+me\s+(\w+)",
+                lambda m: ConversationalUpdate(
+                    text=conversation_text,
+                    extracted_rule=f"User name is {m.group(1)}",
+                    category=MemoryCategory.PREFERENCE,
+                    authority=AuthorityLevel.ABSOLUTE,
+                    scope=["user_preference"],
+                    confidence=0.9,
+                ),
+            ),
             # "Remember: I prefer X"
-            (r'remember:?\s+i\s+prefer\s+(.+?)(?:\.|$)', lambda m: ConversationalUpdate(
-                text=conversation_text,
-                extracted_rule=f"User prefers {m.group(1).strip()}",
-                category=MemoryCategory.PREFERENCE,
-                authority=AuthorityLevel.DEFAULT,
-                scope=["user_preference"],
-                confidence=0.8
-            )),
-
+            (
+                r"remember:?\s+i\s+prefer\s+(.+?)(?:\.|$)",
+                lambda m: ConversationalUpdate(
+                    text=conversation_text,
+                    extracted_rule=f"User prefers {m.group(1).strip()}",
+                    category=MemoryCategory.PREFERENCE,
+                    authority=AuthorityLevel.DEFAULT,
+                    scope=["user_preference"],
+                    confidence=0.8,
+                ),
+            ),
             # "Always use X for Y"
-            (r'always\s+use\s+(.+?)\s+for\s+(.+?)(?:\.|$)', lambda m: ConversationalUpdate(
-                text=conversation_text,
-                extracted_rule=f"Always use {m.group(1).strip()} for {m.group(2).strip()}",
-                category=MemoryCategory.BEHAVIOR,
-                authority=AuthorityLevel.ABSOLUTE,
-                scope=["behavior"],
-                confidence=0.9
-            )),
-
+            (
+                r"always\s+use\s+(.+?)\s+for\s+(.+?)(?:\.|$)",
+                lambda m: ConversationalUpdate(
+                    text=conversation_text,
+                    extracted_rule=f"Always use {m.group(1).strip()} for {m.group(2).strip()}",
+                    category=MemoryCategory.BEHAVIOR,
+                    authority=AuthorityLevel.ABSOLUTE,
+                    scope=["behavior"],
+                    confidence=0.9,
+                ),
+            ),
             # "Don't use X" or "Avoid X"
-            (r'(?:don\'?t\s+use|avoid)\s+(.+?)(?:\.|$)', lambda m: ConversationalUpdate(
-                text=conversation_text,
-                extracted_rule=f"Avoid using {m.group(1).strip()}",
-                category=MemoryCategory.BEHAVIOR,
-                authority=AuthorityLevel.DEFAULT,
-                scope=["behavior"],
-                confidence=0.8
-            )),
-
+            (
+                r"(?:don\'?t\s+use|avoid)\s+(.+?)(?:\.|$)",
+                lambda m: ConversationalUpdate(
+                    text=conversation_text,
+                    extracted_rule=f"Avoid using {m.group(1).strip()}",
+                    category=MemoryCategory.BEHAVIOR,
+                    authority=AuthorityLevel.DEFAULT,
+                    scope=["behavior"],
+                    confidence=0.8,
+                ),
+            ),
             # "I work on project X"
-            (r'i\s+work\s+on\s+(?:project\s+)?(.+?)(?:\.|$)', lambda m: ConversationalUpdate(
-                text=conversation_text,
-                extracted_rule=f"User works on project: {m.group(1).strip()}",
-                category=MemoryCategory.CONTEXT,
-                authority=AuthorityLevel.DEFAULT,
-                scope=["project_context"],
-                confidence=0.7
-            )),
+            (
+                r"i\s+work\s+on\s+(?:project\s+)?(.+?)(?:\.|$)",
+                lambda m: ConversationalUpdate(
+                    text=conversation_text,
+                    extracted_rule=f"User works on project: {m.group(1).strip()}",
+                    category=MemoryCategory.CONTEXT,
+                    authority=AuthorityLevel.DEFAULT,
+                    scope=["project_context"],
+                    confidence=0.7,
+                ),
+            ),
         ]
 
         import re
+
         text_lower = conversation_text.lower()
 
         for pattern, update_factory in patterns:
@@ -219,7 +234,9 @@ class ClaudeCodeIntegration:
                         # Add session context if available
                         if session_context:
                             if session_context.project_name:
-                                update.scope.append(f"project:{session_context.project_name}")
+                                update.scope.append(
+                                    f"project:{session_context.project_name}"
+                                )
                             if session_context.user_name:
                                 update.scope.append(f"user:{session_context.user_name}")
 
@@ -230,7 +247,9 @@ class ClaudeCodeIntegration:
 
         return updates
 
-    def process_conversational_update(self, update: ConversationalUpdate) -> MemoryRule | None:
+    def process_conversational_update(
+        self, update: ConversationalUpdate
+    ) -> MemoryRule | None:
         """
         Convert a conversational update into a memory rule.
 
@@ -253,8 +272,8 @@ class ClaudeCodeIntegration:
                 metadata={
                     "original_text": update.text,
                     "confidence": update.confidence,
-                    "extracted_at": datetime.utcnow().isoformat()
-                }
+                    "extracted_at": datetime.utcnow().isoformat(),
+                },
             )
         except Exception as e:
             logger.error(f"Failed to convert conversational update to rule: {e}")
@@ -272,9 +291,9 @@ class ClaudeCodeIntegration:
         """
         return self._session_contexts.get(session_id)
 
-    def update_session_context(self,
-                             session_id: str,
-                             context_updates: dict[str, Any]) -> bool:
+    def update_session_context(
+        self, session_id: str, context_updates: dict[str, Any]
+    ) -> bool:
         """
         Update the memory context for a session.
 
@@ -337,12 +356,12 @@ class ClaudeCodeIntegration:
             project_path=session.workspace_path,
             user_name=session.user_name,
             conversation_context=[],
-            active_scopes=active_scopes
+            active_scopes=active_scopes,
         )
 
-    def _filter_rules_by_context(self,
-                                rules: list[MemoryRule],
-                                context: MemoryContext) -> list[MemoryRule]:
+    def _filter_rules_by_context(
+        self, rules: list[MemoryRule], context: MemoryContext
+    ) -> list[MemoryRule]:
         """
         Filter rules based on session context relevance.
 
@@ -362,9 +381,9 @@ class ClaudeCodeIntegration:
 
         return relevant_rules
 
-    def _generate_injection_content(self,
-                                  rules: list[MemoryRule],
-                                  context: MemoryContext) -> str:
+    def _generate_injection_content(
+        self, rules: list[MemoryRule], context: MemoryContext
+    ) -> str:
         """
         Generate content for injecting into Claude Code session.
 
@@ -417,9 +436,9 @@ class ClaudeCodeIntegration:
 
         return "\n".join(content_parts)
 
-    async def _inject_into_session(self,
-                                 session: ClaudeCodeSession,
-                                 content: str) -> bool:
+    async def _inject_into_session(
+        self, session: ClaudeCodeSession, content: str
+    ) -> bool:
         """
         Inject memory rules into Claude Code session.
 
@@ -439,7 +458,9 @@ class ClaudeCodeIntegration:
             # Method 1: Write to session-specific configuration
             session_config_path = Path(session.workspace_path) / ".claude" / "memory.md"
 
-            if session_config_path.parent.exists() or session_config_path.parent.mkdir(parents=True, exist_ok=True):
+            if session_config_path.parent.exists() or session_config_path.parent.mkdir(
+                parents=True, exist_ok=True
+            ):
                 session_config_path.write_text(content, encoding="utf-8")
                 logger.info(f"Injected memory rules to {session_config_path}")
                 return True
@@ -473,9 +494,9 @@ class ClaudeCodeIntegration:
 
         return None
 
-    def create_system_prompt_injection(self,
-                                     rules: list[MemoryRule],
-                                     context: MemoryContext) -> str:
+    def create_system_prompt_injection(
+        self, rules: list[MemoryRule], context: MemoryContext
+    ) -> str:
         """
         Create a system prompt injection for memory rules.
 
@@ -488,7 +509,9 @@ class ClaudeCodeIntegration:
         """
         prompt_parts = []
 
-        prompt_parts.append("You are Claude Code with memory-driven behavior. Follow these rules:")
+        prompt_parts.append(
+            "You are Claude Code with memory-driven behavior. Follow these rules:"
+        )
         prompt_parts.append("")
 
         # Absolute rules first

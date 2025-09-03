@@ -1,4 +1,3 @@
-
 """
 CLI commands for workspace-qdrant-mcp.
 

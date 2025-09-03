@@ -18,7 +18,7 @@ from .types import (
 
 __all__ = [
     "AsyncIngestClient",
-    "GrpcConnectionManager", 
+    "GrpcConnectionManager",
     "ProcessDocumentRequest",
     "ProcessDocumentResponse",
     "ExecuteQueryRequest",

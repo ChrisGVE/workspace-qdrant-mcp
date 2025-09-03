@@ -1,4 +1,3 @@
-
 """
 Claude Code SDK integration for memory system.
 
@@ -72,20 +71,30 @@ class ClaudeIntegrationManager:
                 "memory_stats": {
                     "total_rules": stats.total_rules,
                     "estimated_tokens": stats.estimated_tokens,
-                    "rules_by_category": {k.value: v for k, v in stats.rules_by_category.items()},
-                    "rules_by_authority": {k.value: v for k, v in stats.rules_by_authority.items()}
+                    "rules_by_category": {
+                        k.value: v for k, v in stats.rules_by_category.items()
+                    },
+                    "rules_by_authority": {
+                        k.value: v for k, v in stats.rules_by_authority.items()
+                    },
                 },
                 "conflicts_detected": len(conflicts),
                 "system_context": await self._format_system_context(rules),
-                "rules_summary": self._create_rules_summary(rules)
+                "rules_summary": self._create_rules_summary(rules),
             }
 
             # Include conflict details if any
             if conflicts:
-                session_data["conflicts"] = [self._format_conflict(conflict) for conflict in conflicts]
-                session_data["conflict_resolution_prompt"] = self._generate_conflict_resolution_prompt(conflicts)
+                session_data["conflicts"] = [
+                    self._format_conflict(conflict) for conflict in conflicts
+                ]
+                session_data["conflict_resolution_prompt"] = (
+                    self._generate_conflict_resolution_prompt(conflicts)
+                )
 
-            logger.info(f"Claude session initialized: {len(rules)} rules, {len(conflicts)} conflicts")
+            logger.info(
+                f"Claude session initialized: {len(rules)} rules, {len(conflicts)} conflicts"
+            )
             return session_data
 
         except Exception as e:
@@ -93,10 +102,12 @@ class ClaudeIntegrationManager:
             return {
                 "status": "error",
                 "error": str(e),
-                "timestamp": datetime.utcnow().isoformat()
+                "timestamp": datetime.utcnow().isoformat(),
             }
 
-    async def format_system_rules_for_injection(self, rules: list[MemoryRule] | None = None) -> str:
+    async def format_system_rules_for_injection(
+        self, rules: list[MemoryRule] | None = None
+    ) -> str:
         """
         Format memory rules for injection into Claude Code system context.
 
@@ -130,7 +141,7 @@ class ClaudeIntegrationManager:
             if not parsed:
                 return {
                     "detected": False,
-                    "message": "No memory update pattern detected in message"
+                    "message": "No memory update pattern detected in message",
                 }
 
             # Generate a name for the rule
@@ -142,7 +153,7 @@ class ClaudeIntegrationManager:
                 name=name,
                 rule=parsed["rule"],
                 authority=parsed["authority"],
-                source=parsed["source"]
+                source=parsed["source"],
             )
 
             # Get updated system context
@@ -158,20 +169,15 @@ class ClaudeIntegrationManager:
                 "authority": parsed["authority"].value,
                 "rule_text": parsed["rule"],
                 "updated_system_context": updated_context,
-                "message": f"Added memory rule: {parsed['rule']}"
+                "message": f"Added memory rule: {parsed['rule']}",
             }
 
         except Exception as e:
             logger.error(f"Failed to handle conversational update: {e}")
-            return {
-                "detected": True,
-                "rule_added": False,
-                "error": str(e)
-            }
+            return {"detected": True, "rule_added": False, "error": str(e)}
 
     async def resolve_conflicts(
-        self,
-        conflict_resolutions: list[dict[str, Any]]
+        self, conflict_resolutions: list[dict[str, Any]]
     ) -> dict[str, Any]:
         """
         Apply conflict resolutions and update memory rules.
@@ -191,10 +197,9 @@ class ClaudeIntegrationManager:
                     await self._apply_conflict_resolution(resolution)
                     resolved_count += 1
                 except Exception as e:
-                    failed_resolutions.append({
-                        "resolution": resolution,
-                        "error": str(e)
-                    })
+                    failed_resolutions.append(
+                        {"resolution": resolution, "error": str(e)}
+                    )
                     logger.error(f"Failed to apply conflict resolution: {e}")
 
             # Get updated system context
@@ -205,15 +210,12 @@ class ClaudeIntegrationManager:
                 "resolved_conflicts": resolved_count,
                 "failed_resolutions": len(failed_resolutions),
                 "failures": failed_resolutions,
-                "updated_system_context": updated_context
+                "updated_system_context": updated_context,
             }
 
         except Exception as e:
             logger.error(f"Failed to resolve conflicts: {e}")
-            return {
-                "success": False,
-                "error": str(e)
-            }
+            return {"success": False, "error": str(e)}
 
     def _create_rules_summary(self, rules: list[MemoryRule]) -> dict[str, Any]:
         """Create a summary of memory rules for session initialization."""
@@ -233,10 +235,12 @@ class ClaudeIntegrationManager:
                     "name": rule.name,
                     "rule": rule.rule,
                     "category": rule.category.value,
-                    "authority": rule.authority.value
+                    "authority": rule.authority.value,
                 }
-                for rule in sorted(rules, key=lambda r: r.created_at or datetime.min, reverse=True)[:5]
-            ]
+                for rule in sorted(
+                    rules, key=lambda r: r.created_at or datetime.min, reverse=True
+                )[:5]
+            ],
         }
 
     async def _format_system_context(self, rules: list[MemoryRule]) -> str:
@@ -334,19 +338,21 @@ Session initialized with memory-driven context."""
                 "name": conflict.rule1.name,
                 "rule": conflict.rule1.rule,
                 "authority": conflict.rule1.authority.value,
-                "category": conflict.rule1.category.value
+                "category": conflict.rule1.category.value,
             },
             "rule2": {
                 "id": conflict.rule2.id,
                 "name": conflict.rule2.name,
                 "rule": conflict.rule2.rule,
                 "authority": conflict.rule2.authority.value,
-                "category": conflict.rule2.category.value
+                "category": conflict.rule2.category.value,
             },
-            "resolution_options": conflict.resolution_options
+            "resolution_options": conflict.resolution_options,
         }
 
-    def _generate_conflict_resolution_prompt(self, conflicts: list[MemoryConflict]) -> str:
+    def _generate_conflict_resolution_prompt(
+        self, conflicts: list[MemoryConflict]
+    ) -> str:
         """Generate a user-friendly conflict resolution prompt."""
         if not conflicts:
             return ""
@@ -378,7 +384,27 @@ Session initialized with memory-driven context."""
         """Generate a short name from rule text."""
         words = rule_text.lower().split()[:3]
         # Remove common words
-        stop_words = {"the", "a", "an", "and", "or", "but", "in", "on", "at", "to", "for", "of", "with", "by", "always", "never", "i", "me", "my"}
+        stop_words = {
+            "the",
+            "a",
+            "an",
+            "and",
+            "or",
+            "but",
+            "in",
+            "on",
+            "at",
+            "to",
+            "for",
+            "of",
+            "with",
+            "by",
+            "always",
+            "never",
+            "i",
+            "me",
+            "my",
+        }
         words = [w for w in words if w not in stop_words]
         # Take first 2 meaningful words
         name_words = words[:2] if len(words) >= 2 else words
@@ -419,7 +445,7 @@ Session initialized with memory-driven context."""
                 rule=merged_rule["rule"],
                 authority=AuthorityLevel(merged_rule["authority"]),
                 source="conflict_resolution",
-                replaces=[rule1_id, rule2_id]
+                replaces=[rule1_id, rule2_id],
             )
 
         elif resolution_type == "delete_rule":
@@ -431,7 +457,9 @@ Session initialized with memory-driven context."""
             raise ValueError(f"Unknown resolution type: {resolution_type}")
 
 
-def create_claude_integration(memory_manager: MemoryManager) -> ClaudeIntegrationManager:
+def create_claude_integration(
+    memory_manager: MemoryManager,
+) -> ClaudeIntegrationManager:
     """
     Factory function to create a Claude integration manager.
 

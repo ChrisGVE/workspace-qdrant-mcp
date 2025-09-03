@@ -1,7 +1,7 @@
 """
 Async gRPC client for communicating with the Rust ingestion engine.
 
-This module provides a high-level async Python client that wraps the 
+This module provides a high-level async Python client that wraps the
 generated gRPC stubs with connection management, error handling, and
 integration with the MCP server's async architecture.
 """
@@ -36,58 +36,57 @@ logger = logging.getLogger(__name__)
 class AsyncIngestClient:
     """
     Async gRPC client for the Rust ingestion engine.
-    
+
     Provides high-level Python async methods for document processing,
     search queries, file watching, and health monitoring.
     """
-    
+
     def __init__(
         self,
         host: str = "127.0.0.1",
         port: int = 50051,
-        connection_config: Optional[ConnectionConfig] = None
+        connection_config: Optional[ConnectionConfig] = None,
     ):
         """Initialize the async gRPC client.
-        
+
         Args:
             host: gRPC server host address
-            port: gRPC server port  
+            port: gRPC server port
             connection_config: Optional connection configuration
         """
         if connection_config:
             self.connection_config = connection_config
         else:
             self.connection_config = ConnectionConfig(host=host, port=port)
-        
+
         self.connection_manager = GrpcConnectionManager(self.connection_config)
         self._started = False
-        
-        logger.info("AsyncIngestClient initialized",
-                   host=host, port=port)
-    
+
+        logger.info("AsyncIngestClient initialized", host=host, port=port)
+
     async def start(self):
         """Start the client and connection management."""
         if not self._started:
             await self.connection_manager.start()
             self._started = True
             logger.info("AsyncIngestClient started")
-    
+
     async def stop(self):
         """Stop the client and clean up resources."""
         if self._started:
             await self.connection_manager.stop()
             self._started = False
             logger.info("AsyncIngestClient stopped")
-    
+
     async def __aenter__(self):
         """Async context manager entry."""
         await self.start()
         return self
-    
+
     async def __aexit__(self, exc_type, exc_val, exc_tb):
         """Async context manager exit."""
         await self.stop()
-    
+
     async def process_document(
         self,
         file_path: str,
@@ -95,11 +94,11 @@ class AsyncIngestClient:
         metadata: Optional[Dict[str, str]] = None,
         document_id: Optional[str] = None,
         chunk_text: bool = True,
-        timeout: float = 30.0
+        timeout: float = 30.0,
     ) -> ProcessDocumentResponse:
         """
         Process a document for ingestion into Qdrant.
-        
+
         Args:
             file_path: Path to the document file
             collection: Target collection name
@@ -107,35 +106,34 @@ class AsyncIngestClient:
             document_id: Optional custom document ID
             chunk_text: Whether to chunk large documents
             timeout: Request timeout in seconds
-            
+
         Returns:
             ProcessDocumentResponse with processing results
-            
+
         Raises:
             grpc.RpcError: If the request fails
             asyncio.TimeoutError: If request times out
         """
         if not self._started:
             await self.start()
-        
+
         request = ProcessDocumentRequest(
             file_path=file_path,
             collection=collection,
             metadata=metadata,
             document_id=document_id,
-            chunk_text=chunk_text
+            chunk_text=chunk_text,
         )
-        
+
         async def _process_doc(stub: IngestServiceStub):
             pb_request = request.to_pb()
             pb_response = await asyncio.wait_for(
-                stub.ProcessDocument(pb_request),
-                timeout=timeout
+                stub.ProcessDocument(pb_request), timeout=timeout
             )
             return ProcessDocumentResponse.from_pb(pb_response)
-        
+
         return await self.connection_manager.with_retry(_process_doc)
-    
+
     async def execute_query(
         self,
         query: str,
@@ -143,73 +141,71 @@ class AsyncIngestClient:
         mode: str = "hybrid",
         limit: int = 10,
         score_threshold: float = 0.7,
-        timeout: float = 15.0
+        timeout: float = 15.0,
     ) -> ExecuteQueryResponse:
         """
         Execute a search query against indexed documents.
-        
+
         Args:
             query: Search query text
             collections: Optional list of collections to search
-            mode: Search mode ("hybrid", "dense", "sparse")  
+            mode: Search mode ("hybrid", "dense", "sparse")
             limit: Maximum number of results
             score_threshold: Minimum relevance score
             timeout: Request timeout in seconds
-            
+
         Returns:
             ExecuteQueryResponse with search results
-            
+
         Raises:
             grpc.RpcError: If the request fails
             asyncio.TimeoutError: If request times out
         """
         if not self._started:
             await self.start()
-        
+
         request = ExecuteQueryRequest(
             query=query,
             collections=collections,
             mode=mode,
             limit=limit,
-            score_threshold=score_threshold
+            score_threshold=score_threshold,
         )
-        
+
         async def _execute_query(stub: IngestServiceStub):
             pb_request = request.to_pb()
             pb_response = await asyncio.wait_for(
-                stub.ExecuteQuery(pb_request),
-                timeout=timeout
+                stub.ExecuteQuery(pb_request), timeout=timeout
             )
             return ExecuteQueryResponse.from_pb(pb_response)
-        
+
         return await self.connection_manager.with_retry(_execute_query)
-    
+
     async def health_check(self, timeout: float = 5.0) -> HealthCheckResponse:
         """
         Perform a health check on the ingestion service.
-        
+
         Args:
             timeout: Request timeout in seconds
-            
+
         Returns:
             HealthCheckResponse with service health status
-            
+
         Raises:
             grpc.RpcError: If the request fails
             asyncio.TimeoutError: If request times out
         """
         if not self._started:
             await self.start()
-        
+
         async def _health_check(stub: IngestServiceStub):
             pb_response = await asyncio.wait_for(
-                stub.HealthCheck(Empty()),
-                timeout=timeout
+                stub.HealthCheck(Empty()), timeout=timeout
             )
             return HealthCheckResponse.from_pb(pb_response)
-        
+
         return await self.connection_manager.with_retry(_health_check)
-    
+
     async def start_watching(
         self,
         path: str,
@@ -221,13 +217,13 @@ class AsyncIngestClient:
         recursive_depth: int = -1,
         debounce_seconds: int = 5,
         update_frequency_ms: int = 1000,
-        watch_id: Optional[str] = None
+        watch_id: Optional[str] = None,
     ) -> AsyncIterator[Dict[str, Any]]:
         """
         Start watching a directory for file changes.
-        
+
         This returns an async iterator that yields watch events.
-        
+
         Args:
             path: Directory path to watch
             collection: Target collection for ingested files
@@ -239,16 +235,16 @@ class AsyncIngestClient:
             debounce_seconds: Debounce delay before processing
             update_frequency_ms: File system check frequency
             watch_id: Optional custom watch identifier
-            
+
         Yields:
             Dict containing watch event information
-            
+
         Raises:
             grpc.RpcError: If the request fails
         """
         if not self._started:
             await self.start()
-        
+
         request = StartWatchingRequest()
         request.path = path
         request.collection = collection
@@ -257,14 +253,14 @@ class AsyncIngestClient:
         request.recursive_depth = recursive_depth
         request.debounce_seconds = debounce_seconds
         request.update_frequency_ms = update_frequency_ms
-        
+
         if patterns:
             request.patterns.extend(patterns)
         if ignore_patterns:
             request.ignore_patterns.extend(ignore_patterns)
         if watch_id:
             request.watch_id = watch_id
-        
+
         async with self.connection_manager.get_stub() as stub:
             async for update in stub.StartWatching(request):
                 # Convert protobuf response to dict
@@ -275,84 +271,75 @@ class AsyncIngestClient:
                     "timestamp": update.timestamp.ToDatetime(),
                     "status": update.status,
                 }
-                
-                if update.HasField('error_message'):
+
+                if update.HasField("error_message"):
                     event_data["error_message"] = update.error_message
-                
+
                 yield event_data
-    
+
     async def stop_watching(
-        self,
-        watch_id: str,
-        timeout: float = 10.0
+        self, watch_id: str, timeout: float = 10.0
     ) -> Dict[str, Any]:
         """
         Stop watching a specific watch configuration.
-        
+
         Args:
             watch_id: Watch identifier to stop
             timeout: Request timeout in seconds
-            
+
         Returns:
             Dict with stop operation results
-            
+
         Raises:
             grpc.RpcError: If the request fails
             asyncio.TimeoutError: If request times out
         """
         if not self._started:
             await self.start()
-        
+
         async def _stop_watching(stub: IngestServiceStub):
             request = StopWatchingRequest()
             request.watch_id = watch_id
-            
+
             response = await asyncio.wait_for(
-                stub.StopWatching(request),
-                timeout=timeout
+                stub.StopWatching(request), timeout=timeout
             )
-            
-            return {
-                "success": response.success,
-                "message": response.message
-            }
-        
+
+            return {"success": response.success, "message": response.message}
+
         return await self.connection_manager.with_retry(_stop_watching)
-    
+
     async def get_stats(
         self,
         include_collection_stats: bool = True,
         include_watch_stats: bool = True,
-        timeout: float = 10.0
+        timeout: float = 10.0,
     ) -> Dict[str, Any]:
         """
         Get statistics and health information about the ingestion engine.
-        
+
         Args:
             include_collection_stats: Include collection statistics
-            include_watch_stats: Include watch statistics  
+            include_watch_stats: Include watch statistics
             timeout: Request timeout in seconds
-            
+
         Returns:
             Dict with engine statistics
-            
+
         Raises:
             grpc.RpcError: If the request fails
             asyncio.TimeoutError: If request times out
         """
         if not self._started:
             await self.start()
-        
+
         async def _get_stats(stub: IngestServiceStub):
             request = GetStatsRequest()
             request.include_collection_stats = include_collection_stats
             request.include_watch_stats = include_watch_stats
-            
-            response = await asyncio.wait_for(
-                stub.GetStats(request),
-                timeout=timeout
-            )
-            
+
+            response = await asyncio.wait_for(stub.GetStats(request), timeout=timeout)
+
             # Convert protobuf response to dict
             stats = {
                 "engine_stats": {
@@ -364,43 +351,47 @@ class AsyncIngestClient:
                     "version": response.engine_stats.version,
                 }
             }
-            
+
             if include_collection_stats:
                 stats["collection_stats"] = []
                 for col_stat in response.collection_stats:
-                    stats["collection_stats"].append({
-                        "name": col_stat.name,
-                        "document_count": col_stat.document_count,
-                        "total_size_bytes": col_stat.total_size_bytes,
-                        "last_updated": col_stat.last_updated.ToDatetime(),
-                    })
-            
+                    stats["collection_stats"].append(
+                        {
+                            "name": col_stat.name,
+                            "document_count": col_stat.document_count,
+                            "total_size_bytes": col_stat.total_size_bytes,
+                            "last_updated": col_stat.last_updated.ToDatetime(),
+                        }
+                    )
+
             if include_watch_stats:
                 stats["watch_stats"] = []
                 for watch_stat in response.watch_stats:
-                    stats["watch_stats"].append({
-                        "watch_id": watch_stat.watch_id,
-                        "path": watch_stat.path,
-                        "collection": watch_stat.collection,
-                        "status": watch_stat.status,
-                        "files_processed": watch_stat.files_processed,
-                        "files_failed": watch_stat.files_failed,
-                        "created_at": watch_stat.created_at.ToDatetime(),
-                        "last_activity": watch_stat.last_activity.ToDatetime(),
-                    })
-            
+                    stats["watch_stats"].append(
+                        {
+                            "watch_id": watch_stat.watch_id,
+                            "path": watch_stat.path,
+                            "collection": watch_stat.collection,
+                            "status": watch_stat.status,
+                            "files_processed": watch_stat.files_processed,
+                            "files_failed": watch_stat.files_failed,
+                            "created_at": watch_stat.created_at.ToDatetime(),
+                            "last_activity": watch_stat.last_activity.ToDatetime(),
+                        }
+                    )
+
             return stats
-        
+
         return await self.connection_manager.with_retry(_get_stats)
-    
+
     def get_connection_info(self) -> Dict[str, Any]:
         """Get information about the current gRPC connection."""
         return self.connection_manager.get_connection_info()
-    
+
     async def test_connection(self) -> bool:
         """
         Test if we can connect to the gRPC server.
-        
+
         Returns:
             True if connection is successful, False otherwise
         """
@@ -410,21 +401,21 @@ class AsyncIngestClient:
         except Exception as e:
             logger.warning("Connection test failed", error=str(e))
             return False
-    
+
     async def stream_processing_status(
         self,
         update_interval_seconds: int = 5,
         include_history: bool = True,
-        collection_filter: Optional[str] = None
+        collection_filter: Optional[str] = None,
     ) -> AsyncIterator[Dict[str, Any]]:
         """
         Stream real-time processing status updates.
-        
+
         Args:
             update_interval_seconds: How often to send updates
             include_history: Whether to include recent processing history
             collection_filter: Optional collection name to filter by
-            
+
         Yields:
             Dict containing processing status updates with:
             - timestamp: When the update was generated
@@ -435,17 +426,17 @@ class AsyncIngestClient:
         """
         if not self._started:
             await self.start()
-        
+
         from .ingestion_pb2 import StreamStatusRequest
-        
+
         request = StreamStatusRequest(
             update_interval_seconds=update_interval_seconds,
-            include_history=include_history
+            include_history=include_history,
         )
-        
+
         if collection_filter:
             request.collection_filter = collection_filter
-        
+
         async def _stream_status(stub: IngestServiceStub):
             async for update in stub.StreamProcessingStatus(request):
                 yield {
@@ -459,8 +450,12 @@ class AsyncIngestClient:
                             "status": task.status,
                             "progress_percent": task.progress_percent,
                             "started_at": task.started_at.ToJsonString(),
-                            "completed_at": task.completed_at.ToJsonString() if task.HasField("completed_at") else None,
-                            "error_message": task.error_message if task.HasField("error_message") else None
+                            "completed_at": task.completed_at.ToJsonString()
+                            if task.HasField("completed_at")
+                            else None,
+                            "error_message": task.error_message
+                            if task.HasField("error_message")
+                            else None,
                         }
                         for task in update.active_tasks
                     ],
@@ -473,8 +468,12 @@ class AsyncIngestClient:
                             "status": task.status,
                             "progress_percent": task.progress_percent,
                             "started_at": task.started_at.ToJsonString(),
-                            "completed_at": task.completed_at.ToJsonString() if task.HasField("completed_at") else None,
-                            "error_message": task.error_message if task.HasField("error_message") else None
+                            "completed_at": task.completed_at.ToJsonString()
+                            if task.HasField("completed_at")
+                            else None,
+                            "error_message": task.error_message
+                            if task.HasField("error_message")
+                            else None,
                         }
                         for task in update.recent_completed
                     ],
@@ -485,34 +484,38 @@ class AsyncIngestClient:
                         "active_tasks": update.current_stats.active_tasks,
                         "queued_tasks": update.current_stats.queued_tasks,
                         "average_processing_time": update.current_stats.average_processing_time.ToJsonString(),
-                        "last_activity": update.current_stats.last_activity.ToJsonString()
-                    } if update.HasField("current_stats") else None,
+                        "last_activity": update.current_stats.last_activity.ToJsonString(),
+                    }
+                    if update.HasField("current_stats")
+                    else None,
                     "queue_status": {
                         "total_queued": update.queue_status.total_queued,
                         "high_priority": update.queue_status.high_priority,
                         "normal_priority": update.queue_status.normal_priority,
                         "low_priority": update.queue_status.low_priority,
                         "urgent_priority": update.queue_status.urgent_priority,
-                        "collections_with_queued": list(update.queue_status.collections_with_queued),
-                        "estimated_completion_time": update.queue_status.estimated_completion_time.ToJsonString()
-                    } if update.HasField("queue_status") else None
+                        "collections_with_queued": list(
+                            update.queue_status.collections_with_queued
+                        ),
+                        "estimated_completion_time": update.queue_status.estimated_completion_time.ToJsonString(),
+                    }
+                    if update.HasField("queue_status")
+                    else None,
                 }
-        
+
         async for status_update in self.connection_manager.with_stream(_stream_status):
             yield status_update
-    
+
     async def stream_system_metrics(
-        self,
-        update_interval_seconds: int = 10,
-        include_detailed_metrics: bool = True
+        self, update_interval_seconds: int = 10, include_detailed_metrics: bool = True
     ) -> AsyncIterator[Dict[str, Any]]:
         """
         Stream real-time system metrics updates.
-        
+
         Args:
             update_interval_seconds: How often to send updates
             include_detailed_metrics: Whether to include detailed performance metrics
-            
+
         Yields:
             Dict containing system metrics with:
             - timestamp: When the update was generated
@@ -523,14 +526,14 @@ class AsyncIngestClient:
         """
         if not self._started:
             await self.start()
-        
+
         from .ingestion_pb2 import StreamMetricsRequest
-        
+
         request = StreamMetricsRequest(
             update_interval_seconds=update_interval_seconds,
-            include_detailed_metrics=include_detailed_metrics
+            include_detailed_metrics=include_detailed_metrics,
         )
-        
+
         async def _stream_metrics(stub: IngestServiceStub):
             async for update in stub.StreamSystemMetrics(request):
                 yield {
@@ -541,22 +544,26 @@ class AsyncIngestClient:
                         "memory_peak_bytes": update.resource_usage.memory_peak_bytes,
                         "open_files": update.resource_usage.open_files,
                         "active_connections": update.resource_usage.active_connections,
-                        "disk_usage_percent": update.resource_usage.disk_usage_percent
-                    } if update.HasField("resource_usage") else None,
+                        "disk_usage_percent": update.resource_usage.disk_usage_percent,
+                    }
+                    if update.HasField("resource_usage")
+                    else None,
                     "engine_stats": {
                         "started_at": update.engine_stats.started_at.ToJsonString(),
                         "uptime": update.engine_stats.uptime.ToJsonString(),
                         "total_documents_processed": update.engine_stats.total_documents_processed,
                         "total_documents_indexed": update.engine_stats.total_documents_indexed,
                         "active_watches": update.engine_stats.active_watches,
-                        "version": update.engine_stats.version
-                    } if update.HasField("engine_stats") else None,
+                        "version": update.engine_stats.version,
+                    }
+                    if update.HasField("engine_stats")
+                    else None,
                     "collection_stats": [
                         {
                             "name": stats.name,
                             "document_count": stats.document_count,
                             "total_size_bytes": stats.total_size_bytes,
-                            "last_updated": stats.last_updated.ToJsonString()
+                            "last_updated": stats.last_updated.ToJsonString(),
                         }
                         for stats in update.collection_stats
                     ],
@@ -571,28 +578,30 @@ class AsyncIngestClient:
                                 "component": bottleneck.component,
                                 "description": bottleneck.description,
                                 "severity": bottleneck.severity,
-                                "suggestion": bottleneck.suggestion
+                                "suggestion": bottleneck.suggestion,
                             }
                             for bottleneck in update.performance_metrics.bottlenecks
-                        ]
-                    } if update.HasField("performance_metrics") else None
+                        ],
+                    }
+                    if update.HasField("performance_metrics")
+                    else None,
                 }
-        
-        async for metrics_update in self.connection_manager.with_stream(_stream_metrics):
+
+        async for metrics_update in self.connection_manager.with_stream(
+            _stream_metrics
+        ):
             yield metrics_update
-    
+
     async def stream_queue_status(
-        self,
-        update_interval_seconds: int = 3,
-        collection_filter: Optional[str] = None
+        self, update_interval_seconds: int = 3, collection_filter: Optional[str] = None
     ) -> AsyncIterator[Dict[str, Any]]:
         """
         Stream real-time queue status updates.
-        
+
         Args:
             update_interval_seconds: How often to send updates
             collection_filter: Optional collection name to filter by
-            
+
         Yields:
             Dict containing queue status with:
             - timestamp: When the update was generated
@@ -602,16 +611,14 @@ class AsyncIngestClient:
         """
         if not self._started:
             await self.start()
-        
+
         from .ingestion_pb2 import StreamQueueRequest
-        
-        request = StreamQueueRequest(
-            update_interval_seconds=update_interval_seconds
-        )
-        
+
+        request = StreamQueueRequest(update_interval_seconds=update_interval_seconds)
+
         if collection_filter:
             request.collection_filter = collection_filter
-        
+
         async def _stream_queue(stub: IngestServiceStub):
             async for update in stub.StreamQueueStatus(request):
                 yield {
@@ -622,16 +629,20 @@ class AsyncIngestClient:
                         "normal_priority": update.queue_status.normal_priority,
                         "low_priority": update.queue_status.low_priority,
                         "urgent_priority": update.queue_status.urgent_priority,
-                        "collections_with_queued": list(update.queue_status.collections_with_queued),
-                        "estimated_completion_time": update.queue_status.estimated_completion_time.ToJsonString()
-                    } if update.HasField("queue_status") else None,
+                        "collections_with_queued": list(
+                            update.queue_status.collections_with_queued
+                        ),
+                        "estimated_completion_time": update.queue_status.estimated_completion_time.ToJsonString(),
+                    }
+                    if update.HasField("queue_status")
+                    else None,
                     "recent_additions": [
                         {
                             "file_path": file.file_path,
                             "collection": file.collection,
                             "priority": file.priority,
                             "queued_at": file.queued_at.ToJsonString(),
-                            "file_size_bytes": file.file_size_bytes
+                            "file_size_bytes": file.file_size_bytes,
                         }
                         for file in update.recent_additions
                     ],
@@ -643,11 +654,11 @@ class AsyncIngestClient:
                             "progress_percent": progress.progress_percent,
                             "current_stage": progress.current_stage,
                             "started_at": progress.started_at.ToJsonString(),
-                            "estimated_remaining": progress.estimated_remaining.ToJsonString()
+                            "estimated_remaining": progress.estimated_remaining.ToJsonString(),
                         }
                         for progress in update.active_processing
-                    ]
+                    ],
                 }
-        
+
         async for queue_update in self.connection_manager.with_stream(_stream_queue):
             yield queue_update

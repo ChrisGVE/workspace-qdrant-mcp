@@ -1,4 +1,3 @@
-
 """
 Memory system for workspace-qdrant-mcp.
 
@@ -63,7 +62,7 @@ class AuthorityLevel(Enum):
     """Authority levels for memory rules."""
 
     ABSOLUTE = "absolute"  # Non-negotiable, always follow
-    DEFAULT = "default"    # Follow unless explicitly overridden
+    DEFAULT = "default"  # Follow unless explicitly overridden
 
 
 @dataclass
@@ -197,7 +196,7 @@ class MemoryManager:
         qdrant_client: QdrantClient,
         naming_manager: CollectionNamingManager,
         embedding_dim: int = 384,
-        sparse_vector_generator: BM25SparseEncoder | None = None
+        sparse_vector_generator: BM25SparseEncoder | None = None,
     ):
         """
         Initialize the memory manager.
@@ -229,27 +228,24 @@ class MemoryManager:
             collection_names = {col.name for col in collections.collections}
 
             if self.MEMORY_COLLECTION in collection_names:
-                logger.info(f"Memory collection '{self.MEMORY_COLLECTION}' already exists")
+                logger.info(
+                    f"Memory collection '{self.MEMORY_COLLECTION}' already exists"
+                )
                 return True
 
             # Create collection with named vectors for hybrid search
             vector_config = {
-                "dense": VectorParams(
-                    size=self.embedding_dim,
-                    distance=Distance.COSINE
-                )
+                "dense": VectorParams(size=self.embedding_dim, distance=Distance.COSINE)
             }
 
             # Add sparse vector config if generator available
             if self.sparse_generator:
                 vector_config["sparse"] = VectorParams(
-                    size=self.sparse_generator.vector_size,
-                    distance=Distance.DOT
+                    size=self.sparse_generator.vector_size, distance=Distance.DOT
                 )
 
             self.client.create_collection(
-                collection_name=self.MEMORY_COLLECTION,
-                vectors_config=vector_config
+                collection_name=self.MEMORY_COLLECTION, vectors_config=vector_config
             )
 
             logger.info(f"Created memory collection '{self.MEMORY_COLLECTION}'")
@@ -270,7 +266,7 @@ class MemoryManager:
         conditions: dict[str, Any] | None = None,
         replaces: list[str] | None = None,
         metadata: dict[str, Any] | None = None,
-        embedding_vector: list[float] | None = None
+        embedding_vector: list[float] | None = None,
     ) -> str:
         """
         Add a new memory rule to the collection.
@@ -296,14 +292,14 @@ class MemoryManager:
         # Check if memory collection exists
         collections = self.client.get_collections()
         collection_names = {col.name for col in collections.collections}
-        
+
         if self.MEMORY_COLLECTION not in collection_names:
             # Collection doesn't exist, need to initialize first
             raise RuntimeError(
                 f"Memory collection '{self.MEMORY_COLLECTION}' doesn't exist. "
                 "Call initialize_memory_collection() first."
             )
-        
+
         # Generate unique ID
         rule_id = self._generate_rule_id()
 
@@ -318,7 +314,7 @@ class MemoryManager:
             source=source,
             conditions=conditions,
             replaces=replaces,
-            metadata=metadata
+            metadata=metadata,
         )
 
         # Generate embedding if not provided
@@ -348,15 +344,12 @@ class MemoryManager:
                 "replaces": replaces or [],
                 "created_at": memory_rule.created_at.isoformat(),
                 "updated_at": memory_rule.updated_at.isoformat(),
-                "metadata": metadata or {}
-            }
+                "metadata": metadata or {},
+            },
         )
 
         # Upsert to collection
-        self.client.upsert(
-            collection_name=self.MEMORY_COLLECTION,
-            points=[point]
-        )
+        self.client.upsert(collection_name=self.MEMORY_COLLECTION, points=[point])
 
         # Handle rule replacement if specified
         if replaces:
@@ -379,16 +372,16 @@ class MemoryManager:
             # Check if memory collection exists
             collections = self.client.get_collections()
             collection_names = {col.name for col in collections.collections}
-            
+
             if self.MEMORY_COLLECTION not in collection_names:
                 # Collection doesn't exist yet, rule cannot be found
-                logger.debug(f"Memory collection '{self.MEMORY_COLLECTION}' doesn't exist yet")
+                logger.debug(
+                    f"Memory collection '{self.MEMORY_COLLECTION}' doesn't exist yet"
+                )
                 return None
-            
+
             points = self.client.retrieve(
-                collection_name=self.MEMORY_COLLECTION,
-                ids=[rule_id],
-                with_payload=True
+                collection_name=self.MEMORY_COLLECTION, ids=[rule_id], with_payload=True
             )
 
             if not points:
@@ -405,7 +398,7 @@ class MemoryManager:
         self,
         category: MemoryCategory | None = None,
         authority: AuthorityLevel | None = None,
-        scope: str | None = None
+        scope: str | None = None,
     ) -> list[MemoryRule]:
         """
         List memory rules with optional filtering.
@@ -422,23 +415,29 @@ class MemoryManager:
             # Check if memory collection exists
             collections = self.client.get_collections()
             collection_names = {col.name for col in collections.collections}
-            
+
             if self.MEMORY_COLLECTION not in collection_names:
                 # Collection doesn't exist yet, return empty list
-                logger.debug(f"Memory collection '{self.MEMORY_COLLECTION}' doesn't exist yet")
+                logger.debug(
+                    f"Memory collection '{self.MEMORY_COLLECTION}' doesn't exist yet"
+                )
                 return []
-            
+
             # Build filter conditions
             conditions = []
 
             if category:
                 conditions.append(
-                    FieldCondition(key="category", match=MatchValue(value=category.value))
+                    FieldCondition(
+                        key="category", match=MatchValue(value=category.value)
+                    )
                 )
 
             if authority:
                 conditions.append(
-                    FieldCondition(key="authority", match=MatchValue(value=authority.value))
+                    FieldCondition(
+                        key="authority", match=MatchValue(value=authority.value)
+                    )
                 )
 
             if scope:
@@ -454,7 +453,7 @@ class MemoryManager:
                 collection_name=self.MEMORY_COLLECTION,
                 scroll_filter=search_filter,
                 limit=1000,  # Adjust based on expected memory rule count
-                with_payload=True
+                with_payload=True,
             )
 
             # Convert points to memory rules
@@ -476,7 +475,7 @@ class MemoryManager:
         self,
         rule_id: str,
         updates: dict[str, Any],
-        embedding_vector: list[float] | None = None
+        embedding_vector: list[float] | None = None,
     ) -> bool:
         """
         Update an existing memory rule.
@@ -514,7 +513,9 @@ class MemoryManager:
             if embedding_vector:
                 vectors["dense"] = embedding_vector
                 if self.sparse_generator:
-                    vectors["sparse"] = self.sparse_generator.generate_sparse_vector(existing_rule.rule)
+                    vectors["sparse"] = self.sparse_generator.generate_sparse_vector(
+                        existing_rule.rule
+                    )
 
             # Create updated point
             point = PointStruct(
@@ -531,15 +532,12 @@ class MemoryManager:
                     "replaces": existing_rule.replaces or [],
                     "created_at": existing_rule.created_at.isoformat(),
                     "updated_at": existing_rule.updated_at.isoformat(),
-                    "metadata": existing_rule.metadata or {}
-                }
+                    "metadata": existing_rule.metadata or {},
+                },
             )
 
             # Update in collection
-            self.client.upsert(
-                collection_name=self.MEMORY_COLLECTION,
-                points=[point]
-            )
+            self.client.upsert(collection_name=self.MEMORY_COLLECTION, points=[point])
 
             logger.info(f"Updated memory rule {rule_id}")
             return True
@@ -562,15 +560,16 @@ class MemoryManager:
             # Check if memory collection exists
             collections = self.client.get_collections()
             collection_names = {col.name for col in collections.collections}
-            
+
             if self.MEMORY_COLLECTION not in collection_names:
                 # Collection doesn't exist, rule cannot be deleted
-                logger.debug(f"Memory collection '{self.MEMORY_COLLECTION}' doesn't exist yet")
+                logger.debug(
+                    f"Memory collection '{self.MEMORY_COLLECTION}' doesn't exist yet"
+                )
                 return False
-            
+
             self.client.delete(
-                collection_name=self.MEMORY_COLLECTION,
-                points_selector=[rule_id]
+                collection_name=self.MEMORY_COLLECTION, points_selector=[rule_id]
             )
 
             logger.info(f"Deleted memory rule {rule_id}")
@@ -585,7 +584,7 @@ class MemoryManager:
         query: str,
         limit: int = 10,
         category: MemoryCategory | None = None,
-        authority: AuthorityLevel | None = None
+        authority: AuthorityLevel | None = None,
     ) -> list[tuple[MemoryRule, float]]:
         """
         Search memory rules by semantic similarity.
@@ -603,12 +602,14 @@ class MemoryManager:
             # Check if memory collection exists
             collections = self.client.get_collections()
             collection_names = {col.name for col in collections.collections}
-            
+
             if self.MEMORY_COLLECTION not in collection_names:
                 # Collection doesn't exist yet, return empty list
-                logger.debug(f"Memory collection '{self.MEMORY_COLLECTION}' doesn't exist yet")
+                logger.debug(
+                    f"Memory collection '{self.MEMORY_COLLECTION}' doesn't exist yet"
+                )
                 return []
-            
+
             # Generate query embedding (placeholder)
             query_vector = [0.0] * self.embedding_dim
 
@@ -617,12 +618,16 @@ class MemoryManager:
 
             if category:
                 conditions.append(
-                    FieldCondition(key="category", match=MatchValue(value=category.value))
+                    FieldCondition(
+                        key="category", match=MatchValue(value=category.value)
+                    )
                 )
 
             if authority:
                 conditions.append(
-                    FieldCondition(key="authority", match=MatchValue(value=authority.value))
+                    FieldCondition(
+                        key="authority", match=MatchValue(value=authority.value)
+                    )
                 )
 
             search_filter = Filter(must=conditions) if conditions else None
@@ -633,7 +638,7 @@ class MemoryManager:
                 query_vector=("dense", query_vector),
                 query_filter=search_filter,
                 limit=limit,
-                with_payload=True
+                with_payload=True,
             )
 
             # Convert to memory rules with scores
@@ -650,9 +655,7 @@ class MemoryManager:
             return []
 
     async def detect_conflicts(
-        self,
-        rules: list[MemoryRule] | None = None,
-        semantic_analysis: bool = True
+        self, rules: list[MemoryRule] | None = None, semantic_analysis: bool = True
     ) -> list[MemoryConflict]:
         """
         Detect conflicts between memory rules.
@@ -671,7 +674,7 @@ class MemoryManager:
 
         # Rule-based conflict detection
         for i, rule1 in enumerate(rules):
-            for rule2 in rules[i+1:]:
+            for rule2 in rules[i + 1 :]:
                 # Check for direct conflicts
                 if self._rules_conflict(rule1, rule2):
                     conflict = MemoryConflict(
@@ -683,8 +686,8 @@ class MemoryManager:
                         resolution_options=[
                             "Keep higher authority rule",
                             "Merge rules with conditions",
-                            "User resolution required"
-                        ]
+                            "User resolution required",
+                        ],
                     )
                     conflicts.append(conflict)
 
@@ -712,7 +715,9 @@ class MemoryManager:
         # Count by authority
         by_authority = {}
         for authority in AuthorityLevel:
-            by_authority[authority] = len([r for r in rules if r.authority == authority])
+            by_authority[authority] = len(
+                [r for r in rules if r.authority == authority]
+            )
 
         # Estimate token count (rough approximation)
         total_text = " ".join([r.rule for r in rules])
@@ -722,7 +727,7 @@ class MemoryManager:
             total_rules=len(rules),
             rules_by_category=by_category,
             rules_by_authority=by_authority,
-            estimated_tokens=int(estimated_tokens)
+            estimated_tokens=int(estimated_tokens),
         )
 
     async def optimize_memory(self, max_tokens: int = 2000) -> tuple[int, list[str]]:
@@ -744,7 +749,7 @@ class MemoryManager:
         actions = [
             "Identified redundant rules for consolidation",
             "Suggested merging similar preference rules",
-            "Recommended archiving unused agent definitions"
+            "Recommended archiving unused agent definitions",
         ]
 
         tokens_saved = stats.estimated_tokens - max_tokens
@@ -773,7 +778,7 @@ class MemoryManager:
                 replaces=payload.get("replaces") or None,
                 created_at=datetime.fromisoformat(payload["created_at"]),
                 updated_at=datetime.fromisoformat(payload["updated_at"]),
-                metadata=payload.get("metadata") or None
+                metadata=payload.get("metadata") or None,
             )
         except (KeyError, ValueError) as e:
             logger.error(f"Failed to convert point to memory rule: {e}")
@@ -803,16 +808,20 @@ class MemoryManager:
         rule2_lower = rule2.rule.lower()
 
         for keywords1, keywords2 in conflicting_pairs:
-            if (all(kw in rule1_lower for kw in keywords1) and
-                all(kw in rule2_lower for kw in keywords2)):
+            if all(kw in rule1_lower for kw in keywords1) and all(
+                kw in rule2_lower for kw in keywords2
+            ):
                 return True
-            if (all(kw in rule2_lower for kw in keywords1) and
-                all(kw in rule1_lower for kw in keywords2)):
+            if all(kw in rule2_lower for kw in keywords1) and all(
+                kw in rule1_lower for kw in keywords2
+            ):
                 return True
 
         return False
 
-    async def _handle_rule_replacement(self, new_rule_id: str, replaced_rule_ids: list[str]):
+    async def _handle_rule_replacement(
+        self, new_rule_id: str, replaced_rule_ids: list[str]
+    ):
         """
         Handle replacement of old rules by a new rule.
 
@@ -822,16 +831,19 @@ class MemoryManager:
         """
         for old_rule_id in replaced_rule_ids:
             await self.delete_memory_rule(old_rule_id)
-            logger.info(f"Deleted replaced rule {old_rule_id} (replaced by {new_rule_id})")
+            logger.info(
+                f"Deleted replaced rule {old_rule_id} (replaced by {new_rule_id})"
+            )
 
 
 # Utility functions for memory management
+
 
 def create_memory_manager(
     qdrant_client: QdrantClient,
     naming_manager: CollectionNamingManager,
     embedding_dim: int = 384,
-    sparse_vector_generator: BM25SparseEncoder | None = None
+    sparse_vector_generator: BM25SparseEncoder | None = None,
 ) -> MemoryManager:
     """
     Create a memory manager instance.
@@ -849,7 +861,7 @@ def create_memory_manager(
         qdrant_client=qdrant_client,
         naming_manager=naming_manager,
         embedding_dim=embedding_dim,
-        sparse_vector_generator=sparse_vector_generator
+        sparse_vector_generator=sparse_vector_generator,
     )
 
 
@@ -878,7 +890,7 @@ def parse_conversational_memory_update(message: str) -> dict[str, Any] | None:
             "category": MemoryCategory.PREFERENCE,
             "rule": content,
             "source": "conversational_note",
-            "authority": AuthorityLevel.DEFAULT
+            "authority": AuthorityLevel.DEFAULT,
         }
 
     # Pattern: "For future reference, <instruction>"
@@ -889,7 +901,7 @@ def parse_conversational_memory_update(message: str) -> dict[str, Any] | None:
             "category": MemoryCategory.BEHAVIOR,
             "rule": content,
             "source": "conversational_future",
-            "authority": AuthorityLevel.DEFAULT
+            "authority": AuthorityLevel.DEFAULT,
         }
 
     # Pattern: "Remember (that) I <preference>"
@@ -900,7 +912,7 @@ def parse_conversational_memory_update(message: str) -> dict[str, Any] | None:
             "category": MemoryCategory.PREFERENCE,
             "rule": f"User {content}",
             "source": "conversational_remember",
-            "authority": AuthorityLevel.DEFAULT
+            "authority": AuthorityLevel.DEFAULT,
         }
 
     # Pattern: "Always <behavior>" or "Never <behavior>"
@@ -912,7 +924,7 @@ def parse_conversational_memory_update(message: str) -> dict[str, Any] | None:
             "category": MemoryCategory.BEHAVIOR,
             "rule": f"{modifier.title()} {behavior}",
             "source": "conversational_behavior",
-            "authority": AuthorityLevel.ABSOLUTE
+            "authority": AuthorityLevel.ABSOLUTE,
         }
 
     return None

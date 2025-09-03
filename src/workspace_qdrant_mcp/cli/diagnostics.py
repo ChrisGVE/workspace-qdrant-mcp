@@ -1,4 +1,3 @@
-
 """
 Connection testing and diagnostic utilities for workspace-qdrant-mcp.
 

@@ -1,4 +1,3 @@
-
 """
 Structured logging implementation for workspace-qdrant-mcp.
 
@@ -16,15 +15,15 @@ Features:
 Example:
     ```python
     from workspace_qdrant_mcp.observability import get_logger, LogContext
-    
+
     logger = get_logger(__name__)
-    
+
     # Basic structured logging
-    logger.info("Processing document", 
-                document_id="doc123", 
-                collection="my-project", 
+    logger.info("Processing document",
+                document_id="doc123",
+                collection="my-project",
                 size_bytes=1024)
-    
+
     # Context-aware logging
     with LogContext(operation="search", query_id="q456"):
         logger.debug("Starting hybrid search")
@@ -48,17 +47,19 @@ import structlog
 from structlog.contextvars import bind_contextvars, clear_contextvars
 
 # Context variables for request/operation tracking
-_log_context: ContextVar[Dict[str, Any]] = ContextVar('log_context', default={})
+_log_context: ContextVar[Dict[str, Any]] = ContextVar("log_context", default={})
 
 
 class JSONFormatter(logging.Formatter):
     """JSON formatter for structured logging output."""
-    
+
     def format(self, record: logging.LogRecord) -> str:
         """Format log record as JSON with structured fields."""
         # Base log entry structure
         log_entry = {
-            "timestamp": datetime.fromtimestamp(record.created, tz=timezone.utc).isoformat(),
+            "timestamp": datetime.fromtimestamp(
+                record.created, tz=timezone.utc
+            ).isoformat(),
             "level": record.levelname,
             "logger": record.name,
             "message": record.getMessage(),
@@ -66,79 +67,81 @@ class JSONFormatter(logging.Formatter):
             "function": record.funcName,
             "line": record.lineno,
         }
-        
+
         # Add context from contextvars
         context = _log_context.get({})
         if context:
             log_entry.update(context)
-        
+
         # Add extra fields from log record
-        if hasattr(record, 'extra_fields'):
+        if hasattr(record, "extra_fields"):
             log_entry.update(record.extra_fields)
-        
+
         # Add exception info if present
         if record.exc_info:
             log_entry["exception"] = self.formatException(record.exc_info)
-        
+
         # Add thread/process info for debugging
-        log_entry.update({
-            "thread_id": record.thread,
-            "thread_name": record.threadName,
-            "process_id": record.process,
-        })
-        
-        return json.dumps(log_entry, ensure_ascii=False, separators=(',', ':'))
+        log_entry.update(
+            {
+                "thread_id": record.thread,
+                "thread_name": record.threadName,
+                "process_id": record.process,
+            }
+        )
+
+        return json.dumps(log_entry, ensure_ascii=False, separators=(",", ":"))
 
 
 class StructuredLogger:
     """Enhanced logger with structured logging capabilities."""
-    
+
     def __init__(self, name: str):
         self.name = name
         self._logger = logging.getLogger(name)
-    
+
     def _log_with_extra(self, level: int, msg: str, *args, **kwargs):
         """Log message with extra structured fields."""
         # Extract extra fields from kwargs
         extra_fields = {}
         log_kwargs = {}
-        
+
         for key, value in kwargs.items():
-            if key in ('exc_info', 'stack_info', 'stacklevel'):
+            if key in ("exc_info", "stack_info", "stacklevel"):
                 log_kwargs[key] = value
             else:
                 extra_fields[key] = value
-        
+
         # Create a custom LogRecord with extra fields
         if extra_fields:
-            extra = {'extra_fields': extra_fields}
-            log_kwargs['extra'] = extra
-        
+            extra = {"extra_fields": extra_fields}
+            log_kwargs["extra"] = extra
+
         self._logger.log(level, msg, *args, **log_kwargs)
-    
+
     def debug(self, msg: str, *args, **kwargs):
         """Log debug message with structured fields."""
         self._log_with_extra(logging.DEBUG, msg, *args, **kwargs)
-    
+
     def info(self, msg: str, *args, **kwargs):
         """Log info message with structured fields."""
         self._log_with_extra(logging.INFO, msg, *args, **kwargs)
-    
+
     def warning(self, msg: str, *args, **kwargs):
         """Log warning message with structured fields."""
         self._log_with_extra(logging.WARNING, msg, *args, **kwargs)
-    
+
     def error(self, msg: str, *args, **kwargs):
         """Log error message with structured fields."""
         self._log_with_extra(logging.ERROR, msg, *args, **kwargs)
-    
+
     def critical(self, msg: str, *args, **kwargs):
         """Log critical message with structured fields."""
         self._log_with_extra(logging.CRITICAL, msg, *args, **kwargs)
-    
+
     def exception(self, msg: str, *args, **kwargs):
         """Log exception with traceback and structured fields."""
-        kwargs.setdefault('exc_info', True)
+        kwargs.setdefault("exc_info", True)
         self._log_with_extra(logging.ERROR, msg, *args, **kwargs)
 
 
@@ -151,7 +154,7 @@ def configure_logging(
     console_output: bool = True,
 ) -> None:
     """Configure structured logging for the application.
-    
+
     Args:
         level: Logging level (DEBUG, INFO, WARNING, ERROR, CRITICAL)
         json_format: Use JSON formatting for structured logs
@@ -163,31 +166,31 @@ def configure_logging(
     # Convert string level to logging level
     if isinstance(level, str):
         level = getattr(logging, level.upper())
-    
+
     # Configure root logger
     root_logger = logging.getLogger()
     root_logger.setLevel(level)
-    
+
     # Clear existing handlers
     for handler in root_logger.handlers[:]:
         root_logger.removeHandler(handler)
-    
+
     # Set up formatters
     if json_format:
         formatter = JSONFormatter()
     else:
         formatter = logging.Formatter(
-            '%(asctime)s - %(name)s - %(levelname)s - %(message)s',
-            datefmt='%Y-%m-%d %H:%M:%S'
+            "%(asctime)s - %(name)s - %(levelname)s - %(message)s",
+            datefmt="%Y-%m-%d %H:%M:%S",
         )
-    
+
     # Console handler
     if console_output:
         console_handler = logging.StreamHandler(sys.stdout)
         console_handler.setLevel(level)
         console_handler.setFormatter(formatter)
         root_logger.addHandler(console_handler)
-    
+
     # File handler with rotation
     if log_file:
         log_file.parent.mkdir(parents=True, exist_ok=True)
@@ -195,12 +198,12 @@ def configure_logging(
             filename=log_file,
             maxBytes=max_file_size,
             backupCount=backup_count,
-            encoding='utf-8'
+            encoding="utf-8",
         )
         file_handler.setLevel(level)
         file_handler.setFormatter(formatter)
         root_logger.addHandler(file_handler)
-    
+
     # Configure specific loggers to avoid excessive verbosity
     logging.getLogger("httpx").setLevel(logging.WARNING)
     logging.getLogger("httpcore").setLevel(logging.WARNING)
@@ -211,10 +214,10 @@ def configure_logging(
 
 def get_logger(name: str) -> StructuredLogger:
     """Get a structured logger for the given name.
-    
+
     Args:
         name: Logger name, typically __name__
-        
+
     Returns:
         StructuredLogger instance with JSON formatting support
     """
@@ -224,10 +227,10 @@ def get_logger(name: str) -> StructuredLogger:
 @contextmanager
 def LogContext(**context):
     """Context manager for adding structured context to all log messages.
-    
+
     Args:
         **context: Key-value pairs to add to log context
-        
+
     Example:
         ```python
         with LogContext(operation="search", user_id="user123"):
@@ -237,13 +240,13 @@ def LogContext(**context):
     """
     # Get current context
     current_context = _log_context.get({})
-    
+
     # Merge with new context
     new_context = {**current_context, **context}
-    
+
     # Set new context
     token = _log_context.set(new_context)
-    
+
     try:
         yield
     finally:
@@ -253,18 +256,18 @@ def LogContext(**context):
 
 class PerformanceLogger:
     """Logger for performance monitoring and timing operations."""
-    
+
     def __init__(self, logger: StructuredLogger):
         self.logger = logger
-    
+
     @contextmanager
     def time_operation(self, operation: str, **context):
         """Context manager for timing operations with structured logging.
-        
+
         Args:
             operation: Name of the operation being timed
             **context: Additional context fields
-            
+
         Example:
             ```python
             perf_logger = PerformanceLogger(logger)
@@ -274,37 +277,39 @@ class PerformanceLogger:
             ```
         """
         start_time = time.perf_counter()
-        
-        self.logger.debug("Operation started", 
-                         operation=operation, 
-                         **context)
-        
+
+        self.logger.debug("Operation started", operation=operation, **context)
+
         try:
             yield
-            
+
             duration = time.perf_counter() - start_time
-            self.logger.info("Operation completed", 
-                           operation=operation,
-                           duration_seconds=duration,
-                           success=True,
-                           **context)
-            
+            self.logger.info(
+                "Operation completed",
+                operation=operation,
+                duration_seconds=duration,
+                success=True,
+                **context,
+            )
+
         except Exception as e:
             duration = time.perf_counter() - start_time
-            self.logger.error("Operation failed",
-                            operation=operation,
-                            duration_seconds=duration,
-                            success=False,
-                            error_type=type(e).__name__,
-                            error_message=str(e),
-                            **context,
-                            exc_info=True)
+            self.logger.error(
+                "Operation failed",
+                operation=operation,
+                duration_seconds=duration,
+                success=False,
+                error_type=type(e).__name__,
+                error_message=str(e),
+                **context,
+                exc_info=True,
+            )
             raise
 
 
 def setup_logging_from_env() -> None:
     """Set up logging configuration from environment variables.
-    
+
     Environment Variables:
         LOG_LEVEL: Logging level (default: INFO)
         LOG_FORMAT: json or text (default: json)
@@ -320,10 +325,10 @@ def setup_logging_from_env() -> None:
     console_output = os.getenv("LOG_CONSOLE", "true").lower() == "true"
     max_file_size = int(os.getenv("LOG_MAX_FILE_SIZE", str(10 * 1024 * 1024)))
     backup_count = int(os.getenv("LOG_BACKUP_COUNT", "5"))
-    
+
     # Convert log file path if provided
     log_file = Path(log_file_path) if log_file_path else None
-    
+
     # Configure logging
     configure_logging(
         level=level,

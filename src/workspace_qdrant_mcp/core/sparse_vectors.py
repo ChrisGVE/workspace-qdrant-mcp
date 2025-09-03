@@ -1,4 +1,3 @@
-
 """
 Advanced sparse vector encoding with dual BM25 implementation strategies.
 
@@ -95,14 +94,17 @@ try:
 except ImportError:
     rank_bm25 = None
 
+
 # Use simple tokenizer to avoid NLTK data dependency issues
 def word_tokenize(text: str) -> list[str]:
     """Simple word tokenizer for BM25 processing."""
     import re
+
     # Simple tokenization
     text = text.lower()
     tokens = re.findall(r"\b[a-zA-Z]+\b", text)
     return [token for token in tokens if len(token) > 2]
+
 
 logger = logging.getLogger(__name__)
 
@@ -274,7 +276,10 @@ class BM25SparseEncoder:
 
                 # Try to use run_in_executor for async loading, fall back to sync if mocked
                 executor_result = asyncio.get_event_loop().run_in_executor(
-                    None, lambda: SparseTextEmbedding(model_name="Qdrant/bm25", max_length=512)
+                    None,
+                    lambda: SparseTextEmbedding(
+                        model_name="Qdrant/bm25", max_length=512
+                    ),
                 )
 
                 # Handle both real futures and mocked return values
@@ -310,7 +315,11 @@ class BM25SparseEncoder:
             self.vectorizer.fit_transform(training_corpus)
             feature_names = self.vectorizer.get_feature_names_out()
             # Convert to list if it's a numpy array, otherwise use as-is (for mocking)
-            self.vocabulary = feature_names.tolist() if hasattr(feature_names, 'tolist') else list(feature_names)
+            self.vocabulary = (
+                feature_names.tolist()
+                if hasattr(feature_names, "tolist")
+                else list(feature_names)
+            )
 
             # Initialize BM25 model
             tokenized_corpus = [word_tokenize(doc) for doc in training_corpus]
@@ -376,8 +385,14 @@ class BM25SparseEncoder:
                 # Handle both tuple format (for tests) and object format (real FastEmbed)
                 if isinstance(embedding, tuple):
                     indices, values = embedding
-                    indices = indices.tolist() if hasattr(indices, 'tolist') else list(indices)
-                    values = values.tolist() if hasattr(values, 'tolist') else list(values)
+                    indices = (
+                        indices.tolist()
+                        if hasattr(indices, "tolist")
+                        else list(indices)
+                    )
+                    values = (
+                        values.tolist() if hasattr(values, "tolist") else list(values)
+                    )
                 else:
                     indices = embedding.indices.tolist()
                     values = embedding.values.tolist()
@@ -498,8 +513,14 @@ class BM25SparseEncoder:
                 # Handle both tuple format (for tests) and object format (real FastEmbed)
                 if isinstance(embedding, tuple):
                     indices, values = embedding
-                    indices = indices.tolist() if hasattr(indices, 'tolist') else list(indices)
-                    values = values.tolist() if hasattr(values, 'tolist') else list(values)
+                    indices = (
+                        indices.tolist()
+                        if hasattr(indices, "tolist")
+                        else list(indices)
+                    )
+                    values = (
+                        values.tolist() if hasattr(values, "tolist") else list(values)
+                    )
                 else:
                     indices = embedding.indices.tolist()
                     values = embedding.values.tolist()

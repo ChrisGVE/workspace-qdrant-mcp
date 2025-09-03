@@ -1,4 +1,3 @@
-
 """
 Watch service integration layer.
 
@@ -73,13 +72,17 @@ class WatchService:
             raise ValueError(f"Path is not a directory: {path}")
 
         # Validate collection (must be library collection)
-        if not collection.startswith('_'):
-            raise ValueError(f"Collection must start with underscore (library collection): {collection}")
+        if not collection.startswith("_"):
+            raise ValueError(
+                f"Collection must start with underscore (library collection): {collection}"
+            )
 
         # Check if collection exists
         available_collections = await self.client.list_collections()
         if collection not in available_collections:
-            raise ValueError(f"Collection '{collection}' not found. Create it first with: wqm library create {collection[1:]}")
+            raise ValueError(
+                f"Collection '{collection}' not found. Create it first with: wqm library create {collection[1:]}"
+            )
 
         # Add the watch
         watch_id = await self.watch_manager.add_watch(
@@ -130,39 +133,49 @@ class WatchService:
 
         # Aggregate statistics
         total_watches = len(status)
-        active_watches = sum(1 for s in status.values() if s['config']['status'] == 'active')
-        paused_watches = sum(1 for s in status.values() if s['config']['status'] == 'paused')
-        running_watches = sum(1 for s in status.values() if s['running'])
+        active_watches = sum(
+            1 for s in status.values() if s["config"]["status"] == "active"
+        )
+        paused_watches = sum(
+            1 for s in status.values() if s["config"]["status"] == "paused"
+        )
+        running_watches = sum(1 for s in status.values() if s["running"])
 
-        total_files_processed = sum(s['config']['files_processed'] for s in status.values())
-        total_errors = sum(s['config']['errors_count'] for s in status.values())
+        total_files_processed = sum(
+            s["config"]["files_processed"] for s in status.values()
+        )
+        total_errors = sum(s["config"]["errors_count"] for s in status.values())
 
         # Recent activity (last 24 hours)
         from datetime import datetime, timedelta, timezone
+
         cutoff = datetime.now(timezone.utc) - timedelta(hours=24)
         recent_events = [
-            event for event in self.activity_log
-            if datetime.fromisoformat(event.timestamp.replace('Z', '+00:00')) > cutoff
+            event
+            for event in self.activity_log
+            if datetime.fromisoformat(event.timestamp.replace("Z", "+00:00")) > cutoff
         ]
 
-        recent_added = sum(1 for e in recent_events if e.change_type == 'added')
-        recent_modified = sum(1 for e in recent_events if e.change_type == 'modified')
-        recent_deleted = sum(1 for e in recent_events if e.change_type == 'deleted')
+        recent_added = sum(1 for e in recent_events if e.change_type == "added")
+        recent_modified = sum(1 for e in recent_events if e.change_type == "modified")
+        recent_deleted = sum(1 for e in recent_events if e.change_type == "deleted")
 
         return {
-            'total_watches': total_watches,
-            'active_watches': active_watches,
-            'paused_watches': paused_watches,
-            'running_watches': running_watches,
-            'monitored_directories': sum(1 for s in status.values() if s['path_exists']),
-            'total_files_processed': total_files_processed,
-            'total_errors': total_errors,
-            'recent_activity': {
-                'files_added': recent_added,
-                'files_modified': recent_modified,
-                'files_deleted': recent_deleted,
+            "total_watches": total_watches,
+            "active_watches": active_watches,
+            "paused_watches": paused_watches,
+            "running_watches": running_watches,
+            "monitored_directories": sum(
+                1 for s in status.values() if s["path_exists"]
+            ),
+            "total_files_processed": total_files_processed,
+            "total_errors": total_errors,
+            "recent_activity": {
+                "files_added": recent_added,
+                "files_modified": recent_modified,
+                "files_deleted": recent_deleted,
             },
-            'watches': status,
+            "watches": status,
         }
 
     async def sync_watched_folders(
@@ -178,9 +191,11 @@ class WatchService:
 
         if path:
             # Sync specific path
-            matching_watches = [w for w in watches if Path(w.path) == Path(path).resolve()]
+            matching_watches = [
+                w for w in watches if Path(w.path) == Path(path).resolve()
+            ]
             if not matching_watches:
-                return {'error': f'No watch found for path: {path}'}
+                return {"error": f"No watch found for path: {path}"}
             watches = matching_watches
 
         for watch_config in watches:
@@ -195,16 +210,16 @@ class WatchService:
                 )
 
                 results[watch_config.id] = {
-                    'success': result.success,
-                    'message': result.message,
-                    'stats': result.stats.__dict__,
+                    "success": result.success,
+                    "message": result.message,
+                    "stats": result.stats.__dict__,
                 }
 
             except Exception as e:
                 results[watch_config.id] = {
-                    'success': False,
-                    'message': f'Sync failed: {e}',
-                    'stats': None,
+                    "success": False,
+                    "message": f"Sync failed: {e}",
+                    "stats": None,
                 }
 
         return results
@@ -227,7 +242,9 @@ class WatchService:
 
             # Verify the file still exists and is readable
             if not file_path_obj.exists():
-                logger.warning(f"File no longer exists, skipping ingestion: {file_path}")
+                logger.warning(
+                    f"File no longer exists, skipping ingestion: {file_path}"
+                )
                 return
 
             if not file_path_obj.is_file():
@@ -267,10 +284,12 @@ class WatchService:
 
         # Keep log size manageable
         if len(self.activity_log) > self.max_activity_log:
-            self.activity_log = self.activity_log[-self.max_activity_log//2:]
+            self.activity_log = self.activity_log[-self.max_activity_log // 2 :]
 
         # Log the event
-        logger.debug(f"Watch event: {event.change_type} {event.file_path} -> {event.collection}")
+        logger.debug(
+            f"Watch event: {event.change_type} {event.file_path} -> {event.collection}"
+        )
 
 
 def create_status_table(status_data: dict[str, Any]) -> Table:
@@ -283,24 +302,30 @@ def create_status_table(status_data: dict[str, Any]) -> Table:
     table.add_column("Details", style="dim", width=30)
 
     # System overview
-    table.add_row("Total Watches", str(status_data['total_watches']), "Configured watches")
-    table.add_row("Active", str(status_data['active_watches']), "Ready to monitor")
-    table.add_row("Running", str(status_data['running_watches']), "Currently monitoring")
-    table.add_row("Paused", str(status_data['paused_watches']), "Temporarily stopped")
+    table.add_row(
+        "Total Watches", str(status_data["total_watches"]), "Configured watches"
+    )
+    table.add_row("Active", str(status_data["active_watches"]), "Ready to monitor")
+    table.add_row(
+        "Running", str(status_data["running_watches"]), "Currently monitoring"
+    )
+    table.add_row("Paused", str(status_data["paused_watches"]), "Temporarily stopped")
 
     table.add_section()
 
     # Activity stats
-    table.add_row("Files Processed", str(status_data['total_files_processed']), "All time")
-    table.add_row("Errors", str(status_data['total_errors']), "Processing failures")
+    table.add_row(
+        "Files Processed", str(status_data["total_files_processed"]), "All time"
+    )
+    table.add_row("Errors", str(status_data["total_errors"]), "Processing failures")
 
     table.add_section()
 
     # Recent activity (24h)
-    recent = status_data['recent_activity']
-    table.add_row("Added (24h)", str(recent['files_added']), "New files detected")
-    table.add_row("Modified (24h)", str(recent['files_modified']), "Changed files")
-    table.add_row("Deleted (24h)", str(recent['files_deleted']), "Removed files")
+    recent = status_data["recent_activity"]
+    table.add_row("Added (24h)", str(recent["files_added"]), "New files detected")
+    table.add_row("Modified (24h)", str(recent["files_modified"]), "Changed files")
+    table.add_row("Deleted (24h)", str(recent["files_deleted"]), "Removed files")
 
     return table
 
@@ -317,30 +342,30 @@ def create_watches_table(watches_status: dict[str, dict[str, Any]]) -> Table:
     table.add_column("Errors", justify="right", width=8)
 
     for watch_id, watch_info in watches_status.items():
-        config = watch_info['config']
+        config = watch_info["config"]
 
         # Status indicator
-        if watch_info['running']:
+        if watch_info["running"]:
             status = "[green]RUNNING[/green]"
-        elif config['status'] == 'paused':
+        elif config["status"] == "paused":
             status = "[yellow]PAUSED[/yellow]"
-        elif config['status'] == 'error':
+        elif config["status"] == "error":
             status = "[red]ERROR[/red]"
         else:
             status = "[dim]STOPPED[/dim]"
 
         # Path display
-        path = config['path']
+        path = config["path"]
         if len(path) > 30:
             path = "..." + path[-27:]
 
         table.add_row(
             watch_id[:10] + "..." if len(watch_id) > 10 else watch_id,
             path,
-            config['collection'],
+            config["collection"],
             status,
-            str(config['files_processed']),
-            str(config['errors_count']),
+            str(config["files_processed"]),
+            str(config["errors_count"]),
         )
 
     return table

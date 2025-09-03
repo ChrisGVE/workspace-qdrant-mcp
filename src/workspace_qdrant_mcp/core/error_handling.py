@@ -38,6 +38,7 @@ logger = structlog.get_logger(__name__)
 
 class ErrorSeverity(Enum):
     """Error severity levels for monitoring and alerting"""
+
     LOW = "low"
     MEDIUM = "medium"
     HIGH = "high"
@@ -46,6 +47,7 @@ class ErrorSeverity(Enum):
 
 class ErrorCategory(Enum):
     """Error categories for classification"""
+
     CONFIGURATION = "configuration"
     NETWORK = "network"
     DATABASE = "database"
@@ -226,7 +228,11 @@ class TimeoutError(WorkspaceError):
     """Timeout errors"""
 
     def __init__(
-        self, message: str, operation: Optional[str] = None, duration_ms: Optional[int] = None, **kwargs
+        self,
+        message: str,
+        operation: Optional[str] = None,
+        duration_ms: Optional[int] = None,
+        **kwargs,
     ):
         context = kwargs.pop("context", {})
         context.update({"operation": operation, "duration_ms": duration_ms})
@@ -252,11 +258,13 @@ class CircuitBreakerOpenError(WorkspaceError):
         **kwargs,
     ):
         context = kwargs.pop("context", {})
-        context.update({
-            "service": service,
-            "failure_count": failure_count,
-            "last_failure": last_failure,
-        })
+        context.update(
+            {
+                "service": service,
+                "failure_count": failure_count,
+                "last_failure": last_failure,
+            }
+        )
         super().__init__(
             message,
             category=ErrorCategory.CIRCUIT_BREAKER,
@@ -270,6 +278,7 @@ class CircuitBreakerOpenError(WorkspaceError):
 @dataclass
 class ErrorRecoveryStrategy:
     """Configuration for error recovery behavior"""
+
     max_retries: int = 3
     base_delay_ms: int = 100
     max_delay_ms: int = 30000
@@ -325,6 +334,7 @@ class ErrorRecoveryStrategy:
 @dataclass
 class CircuitBreakerState:
     """Circuit breaker state tracking"""
+
     name: str
     failure_threshold: int = 5
     reset_timeout_ms: int = 60000
@@ -337,16 +347,17 @@ class CircuitBreakerState:
         """Check if request should be allowed"""
         if self.state == "closed":
             return True
-        
+
         if self.state == "open":
             if (
                 self.last_failure_time
-                and (time.time() - self.last_failure_time) * 1000 > self.reset_timeout_ms
+                and (time.time() - self.last_failure_time) * 1000
+                > self.reset_timeout_ms
             ):
                 self.state = "half-open"
                 return True
             return False
-        
+
         # half-open: allow one test request
         return True
 
@@ -360,7 +371,7 @@ class CircuitBreakerState:
         """Record failed operation"""
         self.failure_count += 1
         self.last_failure_time = time.time()
-        
+
         if self.failure_count >= self.failure_threshold:
             self.state = "open"
 
@@ -394,7 +405,7 @@ class ErrorMonitor:
         """Report error for monitoring"""
         self.stats["total_errors"] += 1
         category = error.category.value
-        
+
         if category not in self.stats["errors_by_category"]:
             self.stats["errors_by_category"][category] = 0
         self.stats["errors_by_category"][category] += 1
@@ -418,7 +429,9 @@ class ErrorMonitor:
         elif error.severity == ErrorSeverity.MEDIUM:
             logger.warning("Error reported", error=str(error), **log_context)
         else:
-            logger.error("Error reported", error=str(error), **log_context, exc_info=error.cause)
+            logger.error(
+                "Error reported", error=str(error), **log_context, exc_info=error.cause
+            )
 
     def report_recovery(self, error_category: str, attempt: int):
         """Report successful error recovery"""
@@ -602,22 +615,22 @@ async def error_context(context_name: str, **context_data):
     """Context manager for error tracking and structured logging"""
     # Add context to structlog
     structlog.contextvars.bind_contextvars(**context_data, operation=context_name)
-    
+
     start_time = time.time()
     try:
         logger.debug("Operation started", operation=context_name, context=context_data)
         yield
-        
+
         duration_ms = (time.time() - start_time) * 1000
         logger.debug(
             "Operation completed successfully",
             operation=context_name,
             duration_ms=duration_ms,
         )
-        
+
     except Exception as e:
         duration_ms = (time.time() - start_time) * 1000
-        
+
         # Convert to WorkspaceError if needed
         if not isinstance(e, WorkspaceError):
             error = WorkspaceError(
@@ -628,9 +641,9 @@ async def error_context(context_name: str, **context_data):
             )
         else:
             error = e
-        
+
         error_monitor.report_error(error, context_name)
-        
+
         logger.error(
             "Operation failed",
             operation=context_name,
@@ -639,16 +652,18 @@ async def error_context(context_name: str, **context_data):
             exc_info=e,
         )
         raise
-    
+
     finally:
         # Clear context
         structlog.contextvars.clear_contextvars()
 
 
-async def safe_shutdown(cleanup_functions: List[Callable], timeout_seconds: float = 30.0):
+async def safe_shutdown(
+    cleanup_functions: List[Callable], timeout_seconds: float = 30.0
+):
     """Safely shutdown with proper async cleanup instead of os._exit"""
     logger.info("Starting graceful shutdown", timeout_seconds=timeout_seconds)
-    
+
     async def run_cleanup():
         for cleanup_func in cleanup_functions:
             try:
@@ -656,7 +671,9 @@ async def safe_shutdown(cleanup_functions: List[Callable], timeout_seconds: floa
                     await cleanup_func()
                 else:
                     cleanup_func()
-                logger.debug("Cleanup function completed", function=cleanup_func.__name__)
+                logger.debug(
+                    "Cleanup function completed", function=cleanup_func.__name__
+                )
             except Exception as e:
                 logger.error(
                     "Error during cleanup",
@@ -664,7 +681,7 @@ async def safe_shutdown(cleanup_functions: List[Callable], timeout_seconds: floa
                     error=str(e),
                     exc_info=e,
                 )
-    
+
     try:
         await asyncio.wait_for(run_cleanup(), timeout=timeout_seconds)
         logger.info("Graceful shutdown completed successfully")
@@ -675,9 +692,10 @@ async def safe_shutdown(cleanup_functions: List[Callable], timeout_seconds: floa
         )
     except Exception as e:
         logger.error("Error during shutdown", error=str(e), exc_info=e)
-    
+
     # Clean exit without os._exit
     import sys
+
     sys.exit(0)
 
 

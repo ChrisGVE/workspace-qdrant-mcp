@@ -1,4 +1,3 @@
-
 """
 Observability module for workspace-qdrant-mcp.
 
@@ -15,10 +14,10 @@ Key Components:
 Example:
     ```python
     from workspace_qdrant_mcp.observability import get_logger, MetricsCollector
-    
+
     logger = get_logger(__name__)
     metrics = MetricsCollector()
-    
+
     logger.info("Operation started", operation="search", query="example")
     with metrics.timer("search_duration"):
         # Perform search operation
@@ -41,7 +40,7 @@ from .monitoring import (
 
 __all__ = [
     "get_logger",
-    "configure_logging", 
+    "configure_logging",
     "LogContext",
     "PerformanceLogger",
     "MetricsCollector",

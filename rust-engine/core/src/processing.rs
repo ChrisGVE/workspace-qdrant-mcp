@@ -318,6 +318,7 @@ pub struct Pipeline {
     /// Request queue with timeout handling
     request_queue: Arc<RequestQueue>,
     /// Queue configuration
+    #[allow(dead_code)]
     queue_config: QueueConfig,
     /// Checkpoint manager for data consistency
     checkpoint_manager: Arc<CheckpointManager>,
@@ -337,6 +338,7 @@ struct RunningTask {
     /// Whether the task is in a preemptible state
     is_preemptible: bool,
     /// Progress tracking for consistency checks
+    #[allow(dead_code)]
     last_progress_update: Instant,
 }
 
@@ -736,16 +738,16 @@ impl Pipeline {
         let mut output = String::new();
         
         // Pipeline metrics
-        output.push_str(&format!("# HELP wqm_tasks_total Total number of tasks processed\n"));
-        output.push_str(&format!("# TYPE wqm_tasks_total counter\n"));
+        output.push_str("# HELP wqm_tasks_total Total number of tasks processed\n");
+        output.push_str("# TYPE wqm_tasks_total counter\n");
         output.push_str(&format!("wqm_tasks_completed {{}} {}\n", metrics.pipeline.tasks_completed));
         output.push_str(&format!("wqm_tasks_failed {{}} {}\n", metrics.pipeline.tasks_failed));
         output.push_str(&format!("wqm_tasks_cancelled {{}} {}\n", metrics.pipeline.tasks_cancelled));
         output.push_str(&format!("wqm_tasks_timed_out {{}} {}\n", metrics.pipeline.tasks_timed_out));
         
         // Queue metrics
-        output.push_str(&format!("# HELP wqm_queue_size Current queue size\n"));
-        output.push_str(&format!("# TYPE wqm_queue_size gauge\n"));
+        output.push_str("# HELP wqm_queue_size Current queue size\n");
+        output.push_str("# TYPE wqm_queue_size gauge\n");
         output.push_str(&format!("wqm_queue_total {{}} {}\n", metrics.queue.total_queued));
         
         for (priority, count) in &metrics.queue.queued_by_priority {
@@ -753,22 +755,22 @@ impl Pipeline {
         }
         
         // Performance metrics
-        output.push_str(&format!("# HELP wqm_task_duration_seconds Task execution duration\n"));
-        output.push_str(&format!("# TYPE wqm_task_duration_seconds histogram\n"));
+        output.push_str("# HELP wqm_task_duration_seconds Task execution duration\n");
+        output.push_str("# TYPE wqm_task_duration_seconds histogram\n");
         output.push_str(&format!("wqm_task_duration_average {{}} {}\n", metrics.performance.average_task_duration_ms / 1000.0));
         output.push_str(&format!("wqm_task_duration_p95 {{}} {}\n", metrics.performance.p95_task_duration_ms / 1000.0));
         output.push_str(&format!("wqm_task_duration_p99 {{}} {}\n", metrics.performance.p99_task_duration_ms / 1000.0));
         
         // Preemption metrics
-        output.push_str(&format!("# HELP wqm_preemptions_total Total preemptions\n"));
-        output.push_str(&format!("# TYPE wqm_preemptions_total counter\n"));
+        output.push_str("# HELP wqm_preemptions_total Total preemptions\n");
+        output.push_str("# TYPE wqm_preemptions_total counter\n");
         output.push_str(&format!("wqm_preemptions_total {{}} {}\n", metrics.preemption.preemptions_total));
         output.push_str(&format!("wqm_preemptions_graceful {{}} {}\n", metrics.preemption.graceful_preemptions));
         output.push_str(&format!("wqm_preemptions_forced {{}} {}\n", metrics.preemption.forced_aborts));
         
         // Checkpoint metrics
-        output.push_str(&format!("# HELP wqm_checkpoints_active Active checkpoints\n"));
-        output.push_str(&format!("# TYPE wqm_checkpoints_active gauge\n"));
+        output.push_str("# HELP wqm_checkpoints_active Active checkpoints\n");
+        output.push_str("# TYPE wqm_checkpoints_active gauge\n");
         output.push_str(&format!("wqm_checkpoints_active {{}} {}\n", metrics.checkpoints.active_checkpoints));
         output.push_str(&format!("wqm_rollbacks_total {{}} {}\n", metrics.checkpoints.rollbacks_executed));
         
@@ -1036,6 +1038,7 @@ impl Pipeline {
     }
     
     /// Get preemption score for a task (higher = more likely to be preempted)
+    #[allow(dead_code)]
     fn get_preemption_score(
         task_priority: TaskPriority,
         start_time: Instant,
@@ -1566,6 +1569,7 @@ struct QueuedRequest {
     content_hash: Option<u64>,
     priority_boosted: bool,
     original_priority: TaskPriority,
+    #[allow(dead_code)]
     retry_count: usize,
 }
 
@@ -2074,6 +2078,7 @@ pub struct MetricsCollector {
     response_times_by_priority: Arc<RwLock<HashMap<TaskPriority, AtomicU64>>>,
     
     /// Performance sampling interval
+    #[allow(dead_code)]
     sample_window: Duration,
 }
 
@@ -2222,7 +2227,7 @@ impl MetricsCollector {
         sorted.sort_unstable();
         
         let index = ((sorted.len() as f64 - 1.0) * percentile / 100.0) as usize;
-        sorted.get(index).unwrap_or(&0).clone() as f64
+        *sorted.get(index).unwrap_or(&0) as f64
     }
     
     /// Get current system resource metrics

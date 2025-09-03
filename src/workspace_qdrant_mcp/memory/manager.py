@@ -1,4 +1,3 @@
-
 """
 Memory system manager.
 
@@ -45,10 +44,12 @@ class MemoryManager:
     This is the primary interface for all memory system functionality.
     """
 
-    def __init__(self,
-                 config: Config | None = None,
-                 qdrant_client: QdrantWorkspaceClient | None = None,
-                 embedding_service: EmbeddingService | None = None):
+    def __init__(
+        self,
+        config: Config | None = None,
+        qdrant_client: QdrantWorkspaceClient | None = None,
+        embedding_service: EmbeddingService | None = None,
+    ):
         """
         Initialize memory manager.
 
@@ -73,12 +74,14 @@ class MemoryManager:
         # Initialize memory components
         self.schema = MemoryCollectionSchema(self.qdrant_client, self.embedding_service)
         self.conflict_detector = ConflictDetector(
-            enable_ai_analysis=getattr(self.config, 'enable_memory_ai_analysis', True)
+            enable_ai_analysis=getattr(self.config, "enable_memory_ai_analysis", True)
         )
-        self.token_counter = TokenCounter(context_window_size=200000)  # Claude context window
+        self.token_counter = TokenCounter(
+            context_window_size=200000
+        )  # Claude context window
         self.claude_integration = ClaudeCodeIntegration(
             token_counter=self.token_counter,
-            max_memory_tokens=getattr(self.config, 'max_memory_tokens', 5000)
+            max_memory_tokens=getattr(self.config, "max_memory_tokens", 5000),
         )
 
         # Internal state
@@ -98,7 +101,7 @@ class MemoryManager:
                 return False
 
             # Initialize embedding service
-            if hasattr(self.embedding_service, 'initialize'):
+            if hasattr(self.embedding_service, "initialize"):
                 await self.embedding_service.initialize()
 
             self._initialized = True
@@ -109,8 +112,9 @@ class MemoryManager:
             logger.error(f"Failed to initialize memory system: {e}")
             return False
 
-    async def add_rule(self, rule: MemoryRule,
-                      check_conflicts: bool = True) -> tuple[str, list[MemoryRuleConflict]]:
+    async def add_rule(
+        self, rule: MemoryRule, check_conflicts: bool = True
+    ) -> tuple[str, list[MemoryRuleConflict]]:
         """
         Add a new memory rule.
 
@@ -130,13 +134,19 @@ class MemoryManager:
             # Check for conflicts if requested
             if check_conflicts:
                 existing_rules = await self.list_rules()
-                conflicts = await self.conflict_detector.detect_conflicts(rule, existing_rules)
+                conflicts = await self.conflict_detector.detect_conflicts(
+                    rule, existing_rules
+                )
 
                 # Log conflicts but don't prevent addition (user decision)
                 if conflicts:
-                    logger.warning(f"Found {len(conflicts)} potential conflicts for new rule")
+                    logger.warning(
+                        f"Found {len(conflicts)} potential conflicts for new rule"
+                    )
                     for conflict in conflicts:
-                        logger.warning(f"  - {conflict.severity}: {conflict.description}")
+                        logger.warning(
+                            f"  - {conflict.severity}: {conflict.description}"
+                        )
 
             # Store the rule
             success = await self.schema.store_rule(rule)
@@ -217,10 +227,12 @@ class MemoryManager:
             logger.error(f"Failed to delete memory rule {rule_id}: {e}")
             return False
 
-    async def list_rules(self,
-                        category_filter: MemoryCategory | None = None,
-                        authority_filter: AuthorityLevel | None = None,
-                        source_filter: str | None = None) -> list[MemoryRule]:
+    async def list_rules(
+        self,
+        category_filter: MemoryCategory | None = None,
+        authority_filter: AuthorityLevel | None = None,
+        source_filter: str | None = None,
+    ) -> list[MemoryRule]:
         """
         List memory rules with optional filtering.
 
@@ -238,13 +250,12 @@ class MemoryManager:
         return await self.schema.list_all_rules(
             category_filter=category_filter,
             authority_filter=authority_filter,
-            source_filter=source_filter
+            source_filter=source_filter,
         )
 
-    async def search_rules(self,
-                          query: str,
-                          limit: int = 10,
-                          **filters) -> list[tuple[MemoryRule, float]]:
+    async def search_rules(
+        self, query: str, limit: int = 10, **filters
+    ) -> list[tuple[MemoryRule, float]]:
         """
         Search memory rules using semantic similarity.
 
@@ -303,9 +314,9 @@ class MemoryManager:
         rules = await self.list_rules()
         return self.token_counter.count_rules_tokens(rules)
 
-    async def optimize_rules_for_context(self,
-                                       context: MemoryContext,
-                                       max_tokens: int = 5000) -> tuple[list[MemoryRule], TokenUsage]:
+    async def optimize_rules_for_context(
+        self, context: MemoryContext, max_tokens: int = 5000
+    ) -> tuple[list[MemoryRule], TokenUsage]:
         """
         Optimize rule selection for a specific context.
 
@@ -324,16 +335,14 @@ class MemoryManager:
         context_scopes = context.to_scope_list()
 
         relevant_rules = [
-            rule for rule in all_rules
-            if rule.matches_scope(context_scopes)
+            rule for rule in all_rules if rule.matches_scope(context_scopes)
         ]
 
         return self.token_counter.optimize_rules_for_context(
             relevant_rules, max_tokens, preserve_absolute=True
         )
 
-    async def suggest_optimizations(self,
-                                  target_tokens: int = 3000) -> dict[str, Any]:
+    async def suggest_optimizations(self, target_tokens: int = 3000) -> dict[str, Any]:
         """
         Suggest optimizations to reduce memory token usage.
 
@@ -349,9 +358,9 @@ class MemoryManager:
         rules = await self.list_rules()
         return self.token_counter.suggest_memory_optimizations(rules, target_tokens)
 
-    async def process_conversational_text(self,
-                                        text: str,
-                                        session_context: MemoryContext | None = None) -> list[MemoryRule]:
+    async def process_conversational_text(
+        self, text: str, session_context: MemoryContext | None = None
+    ) -> list[MemoryRule]:
         """
         Process conversational text for memory updates.
 
@@ -366,7 +375,9 @@ class MemoryManager:
             await self.initialize()
 
         # Detect conversational updates
-        updates = self.claude_integration.detect_conversational_updates(text, session_context)
+        updates = self.claude_integration.detect_conversational_updates(
+            text, session_context
+        )
 
         new_rules = []
         for update in updates:
@@ -379,7 +390,9 @@ class MemoryManager:
                     rule_id, conflicts = await self.add_rule(rule, check_conflicts=True)
 
                     if conflicts:
-                        logger.info(f"Added conversational rule with {len(conflicts)} conflicts: {rule.rule}")
+                        logger.info(
+                            f"Added conversational rule with {len(conflicts)} conflicts: {rule.rule}"
+                        )
                     else:
                         logger.info(f"Added conversational rule: {rule.rule}")
 
@@ -390,8 +403,9 @@ class MemoryManager:
 
         return new_rules
 
-    async def initialize_claude_session(self,
-                                      session: ClaudeCodeSession) -> MemoryInjectionResult:
+    async def initialize_claude_session(
+        self, session: ClaudeCodeSession
+    ) -> MemoryInjectionResult:
         """
         Initialize a Claude Code session with memory rules.
 
@@ -431,7 +445,7 @@ class MemoryManager:
             "collection": collection_stats,
             "token_usage": token_usage.to_dict(),
             "conflicts": conflict_summary,
-            "last_updated": datetime.utcnow().isoformat()
+            "last_updated": datetime.utcnow().isoformat(),
         }
 
     async def export_rules(self) -> list[dict[str, Any]]:
@@ -447,9 +461,9 @@ class MemoryManager:
         rules = await self.list_rules()
         return [rule.to_dict() for rule in rules]
 
-    async def import_rules(self,
-                         rule_dicts: list[dict[str, Any]],
-                         overwrite_existing: bool = False) -> tuple[int, int, list[str]]:
+    async def import_rules(
+        self, rule_dicts: list[dict[str, Any]], overwrite_existing: bool = False
+    ) -> tuple[int, int, list[str]]:
         """
         Import memory rules from serialized format.
 

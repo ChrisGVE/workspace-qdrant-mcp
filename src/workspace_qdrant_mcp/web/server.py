@@ -1,4 +1,3 @@
-
 """FastAPI web server for memory curation interface."""
 
 import asyncio
@@ -60,7 +59,7 @@ class MemoryWebServer:
             host=self.host,
             port=self.port,
             log_level="info",
-            access_log=False
+            access_log=False,
         )
         server = uvicorn.Server(config)
         await server.serve()
@@ -71,7 +70,7 @@ def create_web_app(memory_manager: MemoryManager) -> FastAPI:
     app = FastAPI(
         title="Memory Curation Interface",
         description="Web interface for managing memory rules",
-        version="1.0.0"
+        version="1.0.0",
     )
 
     # Add CORS middleware for development
@@ -116,7 +115,7 @@ def create_web_app(memory_manager: MemoryManager) -> FastAPI:
     async def get_rules(
         category: str | None = None,
         authority: str | None = None,
-        scope: str | None = None
+        scope: str | None = None,
     ):
         """Get all memory rules with optional filtering."""
         try:
@@ -126,9 +125,7 @@ def create_web_app(memory_manager: MemoryManager) -> FastAPI:
 
             # Get rules from memory manager
             rules = await memory_manager.list_memory_rules(
-                category=category_enum,
-                authority=authority_enum,
-                scope=scope
+                category=category_enum, authority=authority_enum, scope=scope
             )
 
             # Convert to JSON-serializable format
@@ -142,8 +139,12 @@ def create_web_app(memory_manager: MemoryManager) -> FastAPI:
                     "authority": rule.authority.value,
                     "scope": rule.scope,
                     "source": rule.source,
-                    "created_at": rule.created_at.isoformat() if rule.created_at else None,
-                    "updated_at": rule.updated_at.isoformat() if rule.updated_at else None
+                    "created_at": rule.created_at.isoformat()
+                    if rule.created_at
+                    else None,
+                    "updated_at": rule.updated_at.isoformat()
+                    if rule.updated_at
+                    else None,
                 }
                 rules_data.append(rule_dict)
 
@@ -169,7 +170,7 @@ def create_web_app(memory_manager: MemoryManager) -> FastAPI:
                 "scope": rule.scope,
                 "source": rule.source,
                 "created_at": rule.created_at.isoformat() if rule.created_at else None,
-                "updated_at": rule.updated_at.isoformat() if rule.updated_at else None
+                "updated_at": rule.updated_at.isoformat() if rule.updated_at else None,
             }
 
         except HTTPException:
@@ -203,7 +204,7 @@ def create_web_app(memory_manager: MemoryManager) -> FastAPI:
                 rule=rule,
                 authority=authority_enum,
                 scope=scope_list,
-                source="web_user"
+                source="web_user",
             )
 
             return {"id": rule_id, "message": "Rule created successfully"}
@@ -230,7 +231,9 @@ def create_web_app(memory_manager: MemoryManager) -> FastAPI:
             if authority is not None:
                 updates["authority"] = AuthorityLevel(authority)
             if scope is not None:
-                scope_list = [s.strip() for s in scope.split(",") if s.strip()] if scope else []
+                scope_list = (
+                    [s.strip() for s in scope.split(",") if s.strip()] if scope else []
+                )
                 updates["scope"] = scope_list
 
             if not updates:
@@ -273,9 +276,16 @@ def create_web_app(memory_manager: MemoryManager) -> FastAPI:
             return {
                 "total_rules": stats.total_rules,
                 "estimated_tokens": stats.estimated_tokens,
-                "rules_by_category": {cat.value: count for cat, count in stats.rules_by_category.items()},
-                "rules_by_authority": {auth.value: count for auth, count in stats.rules_by_authority.items()},
-                "last_optimization": stats.last_optimization.isoformat() if stats.last_optimization else None
+                "rules_by_category": {
+                    cat.value: count for cat, count in stats.rules_by_category.items()
+                },
+                "rules_by_authority": {
+                    auth.value: count
+                    for auth, count in stats.rules_by_authority.items()
+                },
+                "last_optimization": stats.last_optimization.isoformat()
+                if stats.last_optimization
+                else None,
             }
 
         except Exception as e:
@@ -305,7 +315,7 @@ def create_web_app(memory_manager: MemoryManager) -> FastAPI:
                         "rule": conflict.rule2.rule,
                         "authority": conflict.rule2.authority.value,
                     },
-                    "resolution_options": conflict.resolution_options
+                    "resolution_options": conflict.resolution_options,
                 }
                 conflicts_data.append(conflict_dict)
 
@@ -319,13 +329,11 @@ def create_web_app(memory_manager: MemoryManager) -> FastAPI:
         """Get available enum values for dropdowns."""
         return {
             "categories": [cat.value for cat in MemoryCategory],
-            "authorities": [auth.value for auth in AuthorityLevel]
+            "authorities": [auth.value for auth in AuthorityLevel],
         }
 
     @app.get("/api/optimize/suggestions")
-    async def get_optimization_suggestions(
-        target_tokens: int = 2000
-    ):
+    async def get_optimization_suggestions(target_tokens: int = 2000):
         """Get memory optimization suggestions."""
         try:
             # Get all rules
@@ -343,8 +351,7 @@ def create_web_app(memory_manager: MemoryManager) -> FastAPI:
 
     @app.post("/api/optimize/preview")
     async def preview_optimization(
-        target_tokens: int = Form(...),
-        preserve_absolute: bool = Form(True)
+        target_tokens: int = Form(...), preserve_absolute: bool = Form(True)
     ):
         """Preview rule optimization without applying changes."""
         try:
@@ -352,8 +359,10 @@ def create_web_app(memory_manager: MemoryManager) -> FastAPI:
             rules = await memory_manager.list_memory_rules()
 
             # Get optimized rules
-            optimized_rules, token_usage = memory_manager.token_counter.optimize_rules_for_context(
-                rules, target_tokens, preserve_absolute
+            optimized_rules, token_usage = (
+                memory_manager.token_counter.optimize_rules_for_context(
+                    rules, target_tokens, preserve_absolute
+                )
             )
 
             # Convert to JSON-serializable format
@@ -369,7 +378,7 @@ def create_web_app(memory_manager: MemoryManager) -> FastAPI:
                     "rule": rule.rule,
                     "authority": rule.authority.value,
                     "category": rule.category.value,
-                    "tokens": memory_manager.token_counter.count_rule_tokens(rule)
+                    "tokens": memory_manager.token_counter.count_rule_tokens(rule),
                 }
 
                 if rule.id in optimized_ids:
@@ -378,22 +387,22 @@ def create_web_app(memory_manager: MemoryManager) -> FastAPI:
                     removed_data.append(rule_dict)
 
             return {
-                "current_tokens": memory_manager.token_counter.count_rules_tokens(rules).total_tokens,
+                "current_tokens": memory_manager.token_counter.count_rules_tokens(
+                    rules
+                ).total_tokens,
                 "target_tokens": target_tokens,
                 "optimized_tokens": token_usage.total_tokens,
                 "rules_kept": len(optimized_rules),
                 "rules_removed": len(rules) - len(optimized_rules),
                 "optimized_rules": optimized_data,
-                "removed_rules": removed_data
+                "removed_rules": removed_data,
             }
 
         except Exception as e:
             raise HTTPException(status_code=500, detail=str(e))
 
     @app.post("/api/rules/reorder")
-    async def reorder_rules(
-        rule_ids: list[str] = Form(...)
-    ):
+    async def reorder_rules(rule_ids: list[str] = Form(...)):
         """Reorder rules by priority (drag and drop)."""
         try:
             # This would need to be implemented with rule priority updates
@@ -408,14 +417,18 @@ def create_web_app(memory_manager: MemoryManager) -> FastAPI:
         """Preview imported rules without applying them."""
         try:
             # Parse the imported file
-            if filename.endswith('.json'):
-                import_data = json.loads(file.decode('utf-8'))
+            if filename.endswith(".json"):
+                import_data = json.loads(file.decode("utf-8"))
             else:
-                raise HTTPException(status_code=400, detail="Only JSON files are supported")
+                raise HTTPException(
+                    status_code=400, detail="Only JSON files are supported"
+                )
 
             # Validate the data structure
             if not isinstance(import_data, list):
-                raise HTTPException(status_code=400, detail="Expected an array of rules")
+                raise HTTPException(
+                    status_code=400, detail="Expected an array of rules"
+                )
 
             # Get current rules for conflict detection
             current_rules = await memory_manager.list_memory_rules()
@@ -429,58 +442,65 @@ def create_web_app(memory_manager: MemoryManager) -> FastAPI:
             for i, rule_data in enumerate(import_data):
                 try:
                     # Basic validation
-                    required_fields = ['name', 'rule', 'category', 'authority']
+                    required_fields = ["name", "rule", "category", "authority"]
                     if not all(field in rule_data for field in required_fields):
-                        invalid_rules.append({
-                            "index": i,
-                            "rule": rule_data,
-                            "error": f"Missing required fields. Expected: {required_fields}"
-                        })
+                        invalid_rules.append(
+                            {
+                                "index": i,
+                                "rule": rule_data,
+                                "error": f"Missing required fields. Expected: {required_fields}",
+                            }
+                        )
                         continue
 
                     # Validate enum values
-                    if rule_data['category'] not in [cat.value for cat in MemoryCategory]:
-                        invalid_rules.append({
-                            "index": i,
-                            "rule": rule_data,
-                            "error": f"Invalid category: {rule_data['category']}"
-                        })
+                    if rule_data["category"] not in [
+                        cat.value for cat in MemoryCategory
+                    ]:
+                        invalid_rules.append(
+                            {
+                                "index": i,
+                                "rule": rule_data,
+                                "error": f"Invalid category: {rule_data['category']}",
+                            }
+                        )
                         continue
 
-                    if rule_data['authority'] not in [auth.value for auth in AuthorityLevel]:
-                        invalid_rules.append({
-                            "index": i,
-                            "rule": rule_data,
-                            "error": f"Invalid authority: {rule_data['authority']}"
-                        })
+                    if rule_data["authority"] not in [
+                        auth.value for auth in AuthorityLevel
+                    ]:
+                        invalid_rules.append(
+                            {
+                                "index": i,
+                                "rule": rule_data,
+                                "error": f"Invalid authority: {rule_data['authority']}",
+                            }
+                        )
                         continue
 
                     # Check for name conflicts
-                    if rule_data['name'].lower() in current_rule_names:
-                        conflicts.append({
-                            "index": i,
-                            "rule": rule_data,
-                            "conflict_type": "name_duplicate"
-                        })
+                    if rule_data["name"].lower() in current_rule_names:
+                        conflicts.append(
+                            {
+                                "index": i,
+                                "rule": rule_data,
+                                "conflict_type": "name_duplicate",
+                            }
+                        )
 
-                    valid_rules.append({
-                        "index": i,
-                        "rule": rule_data
-                    })
+                    valid_rules.append({"index": i, "rule": rule_data})
 
                 except Exception as e:
-                    invalid_rules.append({
-                        "index": i,
-                        "rule": rule_data,
-                        "error": str(e)
-                    })
+                    invalid_rules.append(
+                        {"index": i, "rule": rule_data, "error": str(e)}
+                    )
 
             return {
                 "total_rules": len(import_data),
                 "valid_rules": valid_rules,
                 "invalid_rules": invalid_rules,
                 "conflicts": conflicts,
-                "can_import": len(valid_rules) > 0
+                "can_import": len(valid_rules) > 0,
             }
 
         except json.JSONDecodeError:
@@ -490,8 +510,7 @@ def create_web_app(memory_manager: MemoryManager) -> FastAPI:
 
     @app.post("/api/import/apply")
     async def apply_import(
-        rules_to_import: str = Form(...),
-        conflict_resolution: str = Form("skip")
+        rules_to_import: str = Form(...), conflict_resolution: str = Form("skip")
     ):
         """Apply the import of selected rules."""
         try:
@@ -505,52 +524,60 @@ def create_web_app(memory_manager: MemoryManager) -> FastAPI:
                 try:
                     # Parse scope
                     scope_list = []
-                    if 'scope' in rule_data and rule_data['scope']:
-                        if isinstance(rule_data['scope'], list):
-                            scope_list = rule_data['scope']
+                    if "scope" in rule_data and rule_data["scope"]:
+                        if isinstance(rule_data["scope"], list):
+                            scope_list = rule_data["scope"]
                         else:
-                            scope_list = [s.strip() for s in str(rule_data['scope']).split(",") if s.strip()]
+                            scope_list = [
+                                s.strip()
+                                for s in str(rule_data["scope"]).split(",")
+                                if s.strip()
+                            ]
 
                     # Convert to enums
-                    category_enum = MemoryCategory(rule_data['category'])
-                    authority_enum = AuthorityLevel(rule_data['authority'])
+                    category_enum = MemoryCategory(rule_data["category"])
+                    authority_enum = AuthorityLevel(rule_data["authority"])
 
                     # Check if rule already exists
                     existing_rules = await memory_manager.list_memory_rules()
                     existing_names = [rule.name.lower() for rule in existing_rules]
 
-                    if rule_data['name'].lower() in existing_names:
+                    if rule_data["name"].lower() in existing_names:
                         if conflict_resolution == "skip":
                             continue
                         elif conflict_resolution == "overwrite":
                             # Find and delete existing rule
                             for existing_rule in existing_rules:
-                                if existing_rule.name.lower() == rule_data['name'].lower():
-                                    await memory_manager.delete_memory_rule(existing_rule.id)
+                                if (
+                                    existing_rule.name.lower()
+                                    == rule_data["name"].lower()
+                                ):
+                                    await memory_manager.delete_memory_rule(
+                                        existing_rule.id
+                                    )
                                     break
 
                     # Add the rule
                     await memory_manager.add_memory_rule(
                         category=category_enum,
-                        name=rule_data['name'],
-                        rule=rule_data['rule'],
+                        name=rule_data["name"],
+                        rule=rule_data["rule"],
                         authority=authority_enum,
                         scope=scope_list,
-                        source="web_import"
+                        source="web_import",
                     )
 
                     imported_count += 1
 
                 except Exception as e:
-                    errors.append({
-                        "rule_name": rule_data.get('name', 'Unknown'),
-                        "error": str(e)
-                    })
+                    errors.append(
+                        {"rule_name": rule_data.get("name", "Unknown"), "error": str(e)}
+                    )
 
             return {
                 "imported_count": imported_count,
                 "errors": errors,
-                "message": f"Successfully imported {imported_count} rules"
+                "message": f"Successfully imported {imported_count} rules",
             }
 
         except Exception as e:

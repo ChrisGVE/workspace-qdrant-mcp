@@ -1,4 +1,3 @@
-
 from ...observability import get_logger
 
 logger = get_logger(__name__)
@@ -20,33 +19,35 @@ logger = logging.getLogger(__name__)
 
 class ErrorSeverity(Enum):
     """Severity levels for parsing errors."""
-    LOW = "low"          # Recoverable errors, warnings
-    MEDIUM = "medium"    # Significant issues but parsing can continue
-    HIGH = "high"        # Critical errors that prevent parsing
+
+    LOW = "low"  # Recoverable errors, warnings
+    MEDIUM = "medium"  # Significant issues but parsing can continue
+    HIGH = "high"  # Critical errors that prevent parsing
     CRITICAL = "critical"  # System-level failures
 
 
 class ErrorCategory(Enum):
     """Categories of parsing errors."""
-    FILE_ACCESS = "file_access"        # File not found, permission issues
-    FILE_FORMAT = "file_format"        # Unsupported or invalid format
+
+    FILE_ACCESS = "file_access"  # File not found, permission issues
+    FILE_FORMAT = "file_format"  # Unsupported or invalid format
     FILE_CORRUPTION = "file_corruption"  # Corrupted or malformed files
-    ENCODING = "encoding"              # Character encoding issues
-    MEMORY = "memory"                  # Memory-related errors
-    PARSING = "parsing"                # General parsing failures
-    VALIDATION = "validation"          # Content validation failures
-    NETWORK = "network"                # Network-related issues (future use)
-    SYSTEM = "system"                  # System-level failures
+    ENCODING = "encoding"  # Character encoding issues
+    MEMORY = "memory"  # Memory-related errors
+    PARSING = "parsing"  # General parsing failures
+    VALIDATION = "validation"  # Content validation failures
+    NETWORK = "network"  # Network-related issues (future use)
+    SYSTEM = "system"  # System-level failures
 
 
 class ParsingError(Exception):
     """
     Base exception class for all parsing errors.
-    
+
     Provides structured error information including severity, category,
     recovery suggestions, and detailed context for debugging.
     """
-    
+
     def __init__(
         self,
         message: str,
@@ -60,7 +61,7 @@ class ParsingError(Exception):
     ):
         """
         Initialize parsing error.
-        
+
         Args:
             message: Human-readable error message
             file_path: Path to the file being parsed
@@ -80,13 +81,13 @@ class ParsingError(Exception):
         self.context = context or {}
         self.recovery_suggestions = recovery_suggestions or []
         self.original_exception = original_exception
-    
+
     def _generate_error_code(self) -> str:
         """Generate a unique error code based on class and category."""
         class_name = self.__class__.__name__.upper()
         category_code = self.category.value.upper()
         return f"{class_name}_{category_code}"
-    
+
     def to_dict(self) -> Dict[str, Any]:
         """Convert error to dictionary for structured logging."""
         return {
@@ -98,14 +99,16 @@ class ParsingError(Exception):
             "error_code": self.error_code,
             "context": self.context,
             "recovery_suggestions": self.recovery_suggestions,
-            "original_exception": str(self.original_exception) if self.original_exception else None,
+            "original_exception": str(self.original_exception)
+            if self.original_exception
+            else None,
         }
-    
+
     def log_error(self, logger_instance: Optional[logging.Logger] = None) -> None:
         """Log error with appropriate severity level."""
         log = logger_instance or logger
         error_dict = self.to_dict()
-        
+
         if self.severity == ErrorSeverity.CRITICAL:
             log.critical(f"Critical parsing error: {self.message}", extra=error_dict)
         elif self.severity == ErrorSeverity.HIGH:
@@ -118,8 +121,10 @@ class ParsingError(Exception):
 
 class FileAccessError(ParsingError):
     """Errors related to file access and permissions."""
-    
-    def __init__(self, message: str, file_path: Optional[Union[str, Path]] = None, **kwargs):
+
+    def __init__(
+        self, message: str, file_path: Optional[Union[str, Path]] = None, **kwargs
+    ):
         super().__init__(
             message,
             file_path=file_path,
@@ -129,57 +134,61 @@ class FileAccessError(ParsingError):
                 "Verify file permissions",
                 "Ensure file is not locked by another process",
             ],
-            **kwargs
+            **kwargs,
         )
 
 
 class FileFormatError(ParsingError):
     """Errors related to unsupported or invalid file formats."""
-    
+
     def __init__(
         self,
         message: str,
         file_path: Optional[Union[str, Path]] = None,
         detected_format: Optional[str] = None,
         expected_formats: Optional[list[str]] = None,
-        **kwargs
+        **kwargs,
     ):
         context = kwargs.get("context", {})
-        context.update({
-            "detected_format": detected_format,
-            "expected_formats": expected_formats,
-        })
-        
+        context.update(
+            {
+                "detected_format": detected_format,
+                "expected_formats": expected_formats,
+            }
+        )
+
         recovery_suggestions = [
             "Verify the file format is supported",
             "Check file extension matches content",
         ]
         if expected_formats:
-            recovery_suggestions.append(f"Supported formats: {', '.join(expected_formats)}")
-        
+            recovery_suggestions.append(
+                f"Supported formats: {', '.join(expected_formats)}"
+            )
+
         super().__init__(
             message,
             file_path=file_path,
             category=ErrorCategory.FILE_FORMAT,
             context=context,
             recovery_suggestions=recovery_suggestions,
-            **kwargs
+            **kwargs,
         )
 
 
 class FileCorruptionError(ParsingError):
     """Errors related to corrupted or malformed files."""
-    
+
     def __init__(
         self,
         message: str,
         file_path: Optional[Union[str, Path]] = None,
         corruption_type: Optional[str] = None,
-        **kwargs
+        **kwargs,
     ):
         context = kwargs.get("context", {})
         context.update({"corruption_type": corruption_type})
-        
+
         super().__init__(
             message,
             file_path=file_path,
@@ -191,27 +200,29 @@ class FileCorruptionError(ParsingError):
                 "Verify file integrity",
                 "Use file repair tools if available",
             ],
-            **kwargs
+            **kwargs,
         )
 
 
 class EncodingError(ParsingError):
     """Errors related to character encoding issues."""
-    
+
     def __init__(
         self,
         message: str,
         file_path: Optional[Union[str, Path]] = None,
         detected_encoding: Optional[str] = None,
         attempted_encodings: Optional[list[str]] = None,
-        **kwargs
+        **kwargs,
     ):
         context = kwargs.get("context", {})
-        context.update({
-            "detected_encoding": detected_encoding,
-            "attempted_encodings": attempted_encodings,
-        })
-        
+        context.update(
+            {
+                "detected_encoding": detected_encoding,
+                "attempted_encodings": attempted_encodings,
+            }
+        )
+
         super().__init__(
             message,
             file_path=file_path,
@@ -223,27 +234,29 @@ class EncodingError(ParsingError):
                 "Use encoding detection tools",
                 "Check for byte order marks (BOM)",
             ],
-            **kwargs
+            **kwargs,
         )
 
 
 class MemoryError(ParsingError):
     """Errors related to memory limitations during parsing."""
-    
+
     def __init__(
         self,
         message: str,
         file_path: Optional[Union[str, Path]] = None,
         file_size: Optional[int] = None,
         memory_usage: Optional[int] = None,
-        **kwargs
+        **kwargs,
     ):
         context = kwargs.get("context", {})
-        context.update({
-            "file_size": file_size,
-            "memory_usage": memory_usage,
-        })
-        
+        context.update(
+            {
+                "file_size": file_size,
+                "memory_usage": memory_usage,
+            }
+        )
+
         super().__init__(
             message,
             file_path=file_path,
@@ -256,23 +269,23 @@ class MemoryError(ParsingError):
                 "Increase available memory",
                 "Close other applications to free memory",
             ],
-            **kwargs
+            **kwargs,
         )
 
 
 class ValidationError(ParsingError):
     """Errors related to content validation failures."""
-    
+
     def __init__(
         self,
         message: str,
         file_path: Optional[Union[str, Path]] = None,
         validation_rule: Optional[str] = None,
-        **kwargs
+        **kwargs,
     ):
         context = kwargs.get("context", {})
         context.update({"validation_rule": validation_rule})
-        
+
         super().__init__(
             message,
             file_path=file_path,
@@ -284,23 +297,23 @@ class ValidationError(ParsingError):
                 "Check if content meets expected format",
                 "Consider using less strict validation",
             ],
-            **kwargs
+            **kwargs,
         )
 
 
 class ParsingTimeout(ParsingError):
     """Errors related to parsing timeouts."""
-    
+
     def __init__(
         self,
         message: str,
         file_path: Optional[Union[str, Path]] = None,
         timeout_seconds: Optional[int] = None,
-        **kwargs
+        **kwargs,
     ):
         context = kwargs.get("context", {})
         context.update({"timeout_seconds": timeout_seconds})
-        
+
         super().__init__(
             message,
             file_path=file_path,
@@ -313,13 +326,13 @@ class ParsingTimeout(ParsingError):
                 "Check system performance",
                 "Consider using asynchronous processing",
             ],
-            **kwargs
+            **kwargs,
         )
 
 
 class SystemError(ParsingError):
     """System-level errors that affect parsing operations."""
-    
+
     def __init__(self, message: str, **kwargs):
         super().__init__(
             message,
@@ -331,29 +344,29 @@ class SystemError(ParsingError):
                 "Check for system updates",
                 "Contact system administrator",
             ],
-            **kwargs
+            **kwargs,
         )
 
 
 class ErrorHandler:
     """
     Centralized error handling and recovery system.
-    
+
     Provides standardized error handling across all parsers with
     logging, recovery suggestions, and error statistics tracking.
     """
-    
+
     def __init__(self, logger_instance: Optional[logging.Logger] = None):
         """
         Initialize error handler.
-        
+
         Args:
             logger_instance: Custom logger instance to use
         """
         self.logger = logger_instance or logger
         self.error_counts: Dict[str, int] = {}
         self.recovery_attempts: Dict[str, int] = {}
-    
+
     def handle_error(
         self,
         error: Exception,
@@ -363,31 +376,31 @@ class ErrorHandler:
     ) -> ParsingError:
         """
         Handle and classify parsing errors.
-        
+
         Args:
             error: Original exception
             file_path: Path to file being parsed
             context: Additional context information
             auto_recover: Whether to attempt automatic recovery
-            
+
         Returns:
             Classified ParsingError instance
         """
         # Classify error based on type and message
         parsing_error = self._classify_error(error, file_path, context)
-        
+
         # Log the error
         parsing_error.log_error(self.logger)
-        
+
         # Track error statistics
         self._track_error(parsing_error)
-        
+
         # Attempt recovery if enabled
         if auto_recover and parsing_error.recovery_suggestions:
             self._attempt_recovery(parsing_error)
-        
+
         return parsing_error
-    
+
     def _classify_error(
         self,
         error: Exception,
@@ -397,7 +410,7 @@ class ErrorHandler:
         """Classify generic exception into specific ParsingError type."""
         error_message = str(error)
         error_lower = error_message.lower()
-        
+
         # File access errors
         if isinstance(error, FileNotFoundError):
             return FileAccessError(
@@ -406,7 +419,7 @@ class ErrorHandler:
                 context=context,
                 original_exception=error,
             )
-        
+
         if isinstance(error, PermissionError):
             return FileAccessError(
                 f"Permission denied: {error_message}",
@@ -414,7 +427,7 @@ class ErrorHandler:
                 context=context,
                 original_exception=error,
             )
-        
+
         # Memory errors
         if isinstance(error, MemoryError) or "memory" in error_lower:
             return MemoryError(
@@ -423,16 +436,19 @@ class ErrorHandler:
                 context=context,
                 original_exception=error,
             )
-        
+
         # Encoding errors
-        if isinstance(error, (UnicodeError, UnicodeDecodeError)) or "encoding" in error_lower:
+        if (
+            isinstance(error, (UnicodeError, UnicodeDecodeError))
+            or "encoding" in error_lower
+        ):
             return EncodingError(
                 f"Encoding error: {error_message}",
                 file_path=file_path,
                 context=context,
                 original_exception=error,
             )
-        
+
         # Timeout errors
         if "timeout" in error_lower or isinstance(error, TimeoutError):
             return ParsingTimeout(
@@ -441,16 +457,19 @@ class ErrorHandler:
                 context=context,
                 original_exception=error,
             )
-        
+
         # File format/corruption errors
-        if any(keyword in error_lower for keyword in ["corrupt", "invalid", "malformed", "damaged"]):
+        if any(
+            keyword in error_lower
+            for keyword in ["corrupt", "invalid", "malformed", "damaged"]
+        ):
             return FileCorruptionError(
                 f"File corruption detected: {error_message}",
                 file_path=file_path,
                 context=context,
                 original_exception=error,
             )
-        
+
         # Generic parsing error
         return ParsingError(
             f"Parsing failed: {error_message}",
@@ -458,32 +477,34 @@ class ErrorHandler:
             context=context,
             original_exception=error,
         )
-    
+
     def _track_error(self, error: ParsingError) -> None:
         """Track error statistics."""
         error_key = f"{error.category.value}_{error.severity.value}"
         self.error_counts[error_key] = self.error_counts.get(error_key, 0) + 1
-    
+
     def _attempt_recovery(self, error: ParsingError) -> bool:
         """
         Attempt automatic error recovery.
-        
+
         Args:
             error: ParsingError to attempt recovery for
-            
+
         Returns:
             True if recovery was attempted
         """
         recovery_key = error.error_code
-        self.recovery_attempts[recovery_key] = self.recovery_attempts.get(recovery_key, 0) + 1
-        
+        self.recovery_attempts[recovery_key] = (
+            self.recovery_attempts.get(recovery_key, 0) + 1
+        )
+
         # Log recovery attempt
         self.logger.info(
             f"Attempting recovery for {error.error_code}: {error.recovery_suggestions[0] if error.recovery_suggestions else 'No suggestions'}"
         )
-        
+
         return True
-    
+
     def get_error_statistics(self) -> Dict[str, Any]:
         """Get error handling statistics."""
         return {
@@ -492,7 +513,7 @@ class ErrorHandler:
             "total_errors": sum(self.error_counts.values()),
             "total_recovery_attempts": sum(self.recovery_attempts.values()),
         }
-    
+
     def reset_statistics(self) -> None:
         """Reset error statistics."""
         self.error_counts.clear()
@@ -511,13 +532,13 @@ def handle_parsing_error(
 ) -> ParsingError:
     """
     Handle parsing error using global error handler.
-    
+
     Args:
         error: Original exception
-        file_path: Path to file being parsed  
+        file_path: Path to file being parsed
         context: Additional context information
         auto_recover: Whether to attempt automatic recovery
-        
+
     Returns:
         Classified ParsingError instance
     """

@@ -1,4 +1,3 @@
-
 """
 Memory collection schema for Qdrant storage.
 
@@ -101,13 +100,15 @@ class MemoryCollectionSchema:
                         "created_at": "datetime",
                         "updated_at": "datetime",
                         "use_count": "integer",
-                    }
+                    },
                 )
 
                 logger.info("Successfully created memory collection")
                 return True
             else:
-                logger.debug(f"Memory collection '{self.COLLECTION_NAME}' already exists")
+                logger.debug(
+                    f"Memory collection '{self.COLLECTION_NAME}' already exists"
+                )
 
                 # Verify collection schema is compatible
                 collection_info = await self.client.get_collection(self.COLLECTION_NAME)
@@ -150,30 +151,22 @@ class MemoryCollectionSchema:
                 "scope": rule.scope,
                 "tags": rule.tags,
                 "source": rule.source,
-
                 # Timestamps (convert to ISO strings for Qdrant)
                 "created_at": rule.created_at.isoformat(),
                 "updated_at": rule.updated_at.isoformat() if rule.updated_at else None,
                 "last_used": rule.last_used.isoformat() if rule.last_used else None,
-
                 # Usage statistics
                 "use_count": rule.use_count,
-
                 # Extended metadata
                 "metadata": rule.metadata,
             }
 
             # Create point for insertion
-            point = PointStruct(
-                id=rule.id,
-                vector=embedding,
-                payload=payload
-            )
+            point = PointStruct(id=rule.id, vector=embedding, payload=payload)
 
             # Insert point into collection
             await self.client.upsert(
-                collection_name=self.COLLECTION_NAME,
-                points=[point]
+                collection_name=self.COLLECTION_NAME, points=[point]
             )
 
             logger.debug(f"Stored memory rule: {rule.id}")
@@ -208,9 +201,7 @@ class MemoryCollectionSchema:
         """
         try:
             points = await self.client.retrieve(
-                collection_name=self.COLLECTION_NAME,
-                ids=[rule_id],
-                with_payload=True
+                collection_name=self.COLLECTION_NAME, ids=[rule_id], with_payload=True
             )
 
             if not points:
@@ -235,8 +226,7 @@ class MemoryCollectionSchema:
         """
         try:
             result = await self.client.delete(
-                collection_name=self.COLLECTION_NAME,
-                points_selector=[rule_id]
+                collection_name=self.COLLECTION_NAME, points_selector=[rule_id]
             )
 
             return result.status == "completed"
@@ -245,13 +235,15 @@ class MemoryCollectionSchema:
             logger.error(f"Failed to delete memory rule {rule_id}: {e}")
             return False
 
-    async def search_rules(self,
-                          query: str,
-                          limit: int = 10,
-                          category_filter: MemoryCategory | None = None,
-                          authority_filter: AuthorityLevel | None = None,
-                          scope_filter: list[str] | None = None,
-                          tag_filter: list[str] | None = None) -> list[tuple[MemoryRule, float]]:
+    async def search_rules(
+        self,
+        query: str,
+        limit: int = 10,
+        category_filter: MemoryCategory | None = None,
+        authority_filter: AuthorityLevel | None = None,
+        scope_filter: list[str] | None = None,
+        tag_filter: list[str] | None = None,
+    ) -> list[tuple[MemoryRule, float]]:
         """
         Search for memory rules using semantic similarity and filters.
 
@@ -280,12 +272,16 @@ class MemoryCollectionSchema:
 
             if category_filter:
                 filter_conditions.append(
-                    FieldCondition(key="category", match=MatchValue(value=category_filter.value))
+                    FieldCondition(
+                        key="category", match=MatchValue(value=category_filter.value)
+                    )
                 )
 
             if authority_filter:
                 filter_conditions.append(
-                    FieldCondition(key="authority", match=MatchValue(value=authority_filter.value))
+                    FieldCondition(
+                        key="authority", match=MatchValue(value=authority_filter.value)
+                    )
                 )
 
             if scope_filter:
@@ -302,10 +298,12 @@ class MemoryCollectionSchema:
             search_result = await self.client.search(
                 collection_name=self.COLLECTION_NAME,
                 query_vector=query_embedding,
-                query_filter=Filter(must=filter_conditions) if filter_conditions else None,
+                query_filter=Filter(must=filter_conditions)
+                if filter_conditions
+                else None,
                 limit=limit,
                 with_payload=True,
-                with_vectors=False
+                with_vectors=False,
             )
 
             # Convert results to rules
@@ -321,10 +319,12 @@ class MemoryCollectionSchema:
             logger.error(f"Failed to search memory rules: {e}")
             return []
 
-    async def list_all_rules(self,
-                           category_filter: MemoryCategory | None = None,
-                           authority_filter: AuthorityLevel | None = None,
-                           source_filter: str | None = None) -> list[MemoryRule]:
+    async def list_all_rules(
+        self,
+        category_filter: MemoryCategory | None = None,
+        authority_filter: AuthorityLevel | None = None,
+        source_filter: str | None = None,
+    ) -> list[MemoryRule]:
         """
         List all memory rules with optional filtering.
 
@@ -342,12 +342,16 @@ class MemoryCollectionSchema:
 
             if category_filter:
                 filter_conditions.append(
-                    FieldCondition(key="category", match=MatchValue(value=category_filter.value))
+                    FieldCondition(
+                        key="category", match=MatchValue(value=category_filter.value)
+                    )
                 )
 
             if authority_filter:
                 filter_conditions.append(
-                    FieldCondition(key="authority", match=MatchValue(value=authority_filter.value))
+                    FieldCondition(
+                        key="authority", match=MatchValue(value=authority_filter.value)
+                    )
                 )
 
             if source_filter:
@@ -362,11 +366,13 @@ class MemoryCollectionSchema:
             while True:
                 scroll_result = await self.client.scroll(
                     collection_name=self.COLLECTION_NAME,
-                    scroll_filter=Filter(must=filter_conditions) if filter_conditions else None,
+                    scroll_filter=Filter(must=filter_conditions)
+                    if filter_conditions
+                    else None,
                     limit=100,  # Process in batches
                     offset=offset,
                     with_payload=True,
-                    with_vectors=False
+                    with_vectors=False,
                 )
 
                 points = scroll_result[0]  # (points, next_offset)
@@ -407,18 +413,26 @@ class MemoryCollectionSchema:
             for category in MemoryCategory:
                 count_result = await self.client.count(
                     collection_name=self.COLLECTION_NAME,
-                    count_filter=Filter(must=[
-                        FieldCondition(key="category", match=MatchValue(value=category.value))
-                    ])
+                    count_filter=Filter(
+                        must=[
+                            FieldCondition(
+                                key="category", match=MatchValue(value=category.value)
+                            )
+                        ]
+                    ),
                 )
                 categories[category.value] = count_result.count
 
             for authority in AuthorityLevel:
                 count_result = await self.client.count(
                     collection_name=self.COLLECTION_NAME,
-                    count_filter=Filter(must=[
-                        FieldCondition(key="authority", match=MatchValue(value=authority.value))
-                    ])
+                    count_filter=Filter(
+                        must=[
+                            FieldCondition(
+                                key="authority", match=MatchValue(value=authority.value)
+                            )
+                        ]
+                    ),
                 )
                 authorities[authority.value] = count_result.count
 
@@ -427,7 +441,9 @@ class MemoryCollectionSchema:
                 "categories": categories,
                 "authorities": authorities,
                 "collection_size_bytes": collection_info.segments_count,
-                "indexed_fields": list(collection_info.payload_schema.keys()) if collection_info.payload_schema else [],
+                "indexed_fields": list(collection_info.payload_schema.keys())
+                if collection_info.payload_schema
+                else [],
             }
 
         except Exception as e:
@@ -448,11 +464,15 @@ class MemoryCollectionSchema:
             # Check vector configuration
             vector_config = collection_info.config.params.vectors
             if vector_config.size != self.VECTOR_DIMENSION:
-                logger.error(f"Vector dimension mismatch: expected {self.VECTOR_DIMENSION}, got {vector_config.size}")
+                logger.error(
+                    f"Vector dimension mismatch: expected {self.VECTOR_DIMENSION}, got {vector_config.size}"
+                )
                 return False
 
             if vector_config.distance != self.DISTANCE_METRIC:
-                logger.error(f"Distance metric mismatch: expected {self.DISTANCE_METRIC}, got {vector_config.distance}")
+                logger.error(
+                    f"Distance metric mismatch: expected {self.DISTANCE_METRIC}, got {vector_config.distance}"
+                )
                 return False
 
             return True
