@@ -38,7 +38,7 @@ class ProcessDocumentRequest:
 
     file_path: str
     collection: str
-    metadata: Optional[Dict[str, str]] = None
+    metadata: Optional[dict[str, str]] = None
     document_id: Optional[str] = None
     chunk_text: bool = True
 
@@ -67,7 +67,7 @@ class ProcessDocumentResponse:
     message: str
     document_id: Optional[str] = None
     chunks_added: int = 0
-    applied_metadata: Optional[Dict[str, str]] = None
+    applied_metadata: Optional[dict[str, str]] = None
 
     @classmethod
     def from_pb(
@@ -92,7 +92,7 @@ class ExecuteQueryRequest:
     """Request to execute a search query."""
 
     query: str
-    collections: Optional[List[str]] = None
+    collections: Optional[list[str]] = None
     mode: str = "hybrid"  # "hybrid", "dense", "sparse"
     limit: int = 10
     score_threshold: float = 0.7
@@ -124,7 +124,7 @@ class SearchResult:
 
     id: str
     score: float
-    payload: Dict[str, Any]
+    payload: dict[str, Any]
     collection: str
     search_type: str
 
@@ -159,9 +159,9 @@ class ExecuteQueryResponse:
 
     query: str
     mode: str
-    collections_searched: List[str]
+    collections_searched: list[str]
     total_results: int
-    results: List[SearchResult]
+    results: list[SearchResult]
 
     @classmethod
     def from_pb(cls, pb_response: PbExecuteQueryResponse) -> "ExecuteQueryResponse":
@@ -204,7 +204,7 @@ class HealthCheckResponse:
 
     status: str  # "healthy", "degraded", "unhealthy"
     message: str
-    services: List[Dict[str, Any]]
+    services: list[dict[str, Any]]
 
     @classmethod
     def from_pb(cls, pb_response: PbHealthResponse) -> "HealthCheckResponse":
@@ -231,7 +231,7 @@ class HealthCheckResponse:
 
 
 # Utility functions for type conversions
-def dict_to_metadata_map(metadata: Optional[Dict[str, str]]) -> Dict[str, str]:
+def dict_to_metadata_map(metadata: Optional[dict[str, str]]) -> dict[str, str]:
     """Convert dict to protobuf string map."""
     return metadata or {}
 
