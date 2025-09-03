@@ -16,14 +16,14 @@ from ...core.yaml_config import load_config
 from ...core.yaml_metadata import YamlMetadataWorkflow
 from ...observability import get_logger
 from ..utils import (
-    handle_async,
     create_command_app,
     dry_run_option,
+    error_message,
     force_option,
-    verbose_option,
+    handle_async,
     success_message,
+    verbose_option,
     warning_message,
-    error_message
 )
 
 logger = get_logger(__name__)
@@ -385,8 +385,8 @@ async def _generate_yaml_metadata(
 
         # Create workflow - this still needs direct client as YAML metadata workflow
         # is not yet integrated with daemon gRPC API
-        from ...core.config import Config
         from ...core.client import create_qdrant_client
+        from ...core.config import Config
         config = Config()
         client = create_qdrant_client(config.qdrant_client_config)
         workflow = YamlMetadataWorkflow(client)
@@ -432,8 +432,8 @@ async def _ingest_yaml_metadata(path: str, dry_run: bool, force: bool):
 
         # Create workflow - this still needs direct client as YAML metadata workflow
         # is not yet integrated with daemon gRPC API
-        from ...core.config import Config
         from ...core.client import create_qdrant_client
+        from ...core.config import Config
         config = Config()
         client = create_qdrant_client(config.qdrant_client_config)
         workflow = YamlMetadataWorkflow(client)

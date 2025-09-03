@@ -8,26 +8,26 @@ integration with the MCP server's async architecture.
 
 import asyncio
 import logging
-from typing import Dict, List, Optional, Any, AsyncIterator
 from contextlib import asynccontextmanager
+from typing import Any, AsyncIterator, Dict, List, Optional
 
 import grpc
 from google.protobuf.empty_pb2 import Empty
 
-from .connection_manager import GrpcConnectionManager, ConnectionConfig
+from .connection_manager import ConnectionConfig, GrpcConnectionManager
+from .ingestion_pb2 import (
+    GetStatsRequest,
+    StartWatchingRequest,
+    StopWatchingRequest,
+)
+from .ingestion_pb2_grpc import IngestServiceStub
 from .types import (
-    ProcessDocumentRequest,
-    ProcessDocumentResponse,
     ExecuteQueryRequest,
     ExecuteQueryResponse,
     HealthCheckRequest,
     HealthCheckResponse,
-)
-from .ingestion_pb2_grpc import IngestServiceStub
-from .ingestion_pb2 import (
-    StartWatchingRequest,
-    StopWatchingRequest,
-    GetStatsRequest,
+    ProcessDocumentRequest,
+    ProcessDocumentResponse,
 )
 
 logger = logging.getLogger(__name__)

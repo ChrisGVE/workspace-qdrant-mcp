@@ -1,5 +1,6 @@
 
 from ...observability import get_logger
+
 logger = get_logger(__name__)
 """
 Base document parser interface and data structures.
@@ -19,7 +20,12 @@ from typing import Any, Optional, Union
 
 from .exceptions import ParsingError, handle_parsing_error
 from .file_detector import FileDetector, detect_file_type
-from .progress import ProgressTracker, ProgressPhase, ProgressUnit, create_progress_tracker
+from .progress import (
+    ProgressPhase,
+    ProgressTracker,
+    ProgressUnit,
+    create_progress_tracker,
+)
 
 
 @dataclass

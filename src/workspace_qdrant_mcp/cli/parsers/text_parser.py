@@ -1,5 +1,6 @@
 
 from ...observability import get_logger
+
 logger = get_logger(__name__)
 """
 Plain text document parser.
@@ -16,8 +17,8 @@ from typing import Any, Optional, Union
 import chardet
 
 from .base import DocumentParser, ParsedDocument
-from .exceptions import handle_parsing_error, EncodingError
-from .progress import ProgressTracker, ProgressPhase, ProgressUnit
+from .exceptions import EncodingError, handle_parsing_error
+from .progress import ProgressPhase, ProgressTracker, ProgressUnit
 
 logger = logging.getLogger(__name__)
 

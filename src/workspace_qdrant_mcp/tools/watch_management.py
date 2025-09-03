@@ -14,19 +14,19 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 from ..core.client import QdrantWorkspaceClient
+from ..core.persistent_file_watcher import PersistentWatchManager
 from ..core.watch_config import (
     PersistentWatchConfigManager,
     WatchConfigurationPersistent,
 )
-from ..core.persistent_file_watcher import PersistentWatchManager
+from ..core.watch_sync import (
+    ConfigChangeEvent,
+    SynchronizedWatchConfigManager,
+)
 from ..core.watch_validation import (
-    WatchPathValidator,
     WatchErrorRecovery,
     WatchHealthMonitor,
-)
-from ..core.watch_sync import (
-    SynchronizedWatchConfigManager,
-    ConfigChangeEvent,
+    WatchPathValidator,
 )
 
 logger = logging.getLogger(__name__)

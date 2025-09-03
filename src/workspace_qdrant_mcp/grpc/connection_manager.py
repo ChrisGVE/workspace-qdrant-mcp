@@ -8,15 +8,15 @@ including connection pooling, health checks, and automatic reconnection.
 import asyncio
 import logging
 from contextlib import asynccontextmanager
-from typing import AsyncIterator, Optional, Dict, Any
 from datetime import datetime, timedelta
+from typing import Any, AsyncIterator, Dict, Optional
 
 import grpc
 import grpc.aio
+from google.protobuf.empty_pb2 import Empty
 from grpc import ChannelConnectivity
 
 from .ingestion_pb2_grpc import IngestServiceStub
-from google.protobuf.empty_pb2 import Empty
 
 logger = logging.getLogger(__name__)
 

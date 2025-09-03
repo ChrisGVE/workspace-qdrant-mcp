@@ -1,5 +1,6 @@
 
 from ...observability import get_logger
+
 logger = get_logger(__name__)
 """
 EPUB document parser for extracting text content and metadata.
@@ -15,8 +16,8 @@ from typing import Any
 
 try:
     import ebooklib
-    from ebooklib import epub
     from bs4 import BeautifulSoup
+    from ebooklib import epub
     EPUB_AVAILABLE = True
 except ImportError:
     EPUB_AVAILABLE = False

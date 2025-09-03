@@ -1,5 +1,6 @@
 
 from ...observability import get_logger
+
 logger = get_logger(__name__)
 """
 Microsoft PowerPoint PPTX presentation parser for extracting text content and metadata.

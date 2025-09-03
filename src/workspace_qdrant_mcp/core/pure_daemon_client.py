@@ -8,12 +8,12 @@ process spawning for a cleaner, more reliable architecture.
 import asyncio
 import logging
 import os
-from typing import Any, Dict, List, Optional
 from datetime import datetime, timezone
+from typing import Any, Dict, List, Optional
 
+from ..observability import get_logger
 from .client import QdrantWorkspaceClient
 from .daemon_client import DaemonClient, DaemonError
-from ..observability import get_logger
 
 logger = get_logger(__name__)
 

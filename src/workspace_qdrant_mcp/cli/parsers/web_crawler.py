@@ -1,5 +1,6 @@
 
 from ...observability import get_logger
+
 logger = get_logger(__name__)
 """
 Secure web content crawler with comprehensive security hardening.
@@ -22,9 +23,9 @@ from urllib.parse import urljoin, urlparse, urlunparse
 from urllib.robotparser import RobotFileParser
 
 try:
-    import aiohttp
     import aiofiles
-    from aiohttp import ClientTimeout, ClientSession
+    import aiohttp
+    from aiohttp import ClientSession, ClientTimeout
     AIOHTTP_AVAILABLE = True
 except ImportError:
     AIOHTTP_AVAILABLE = False
@@ -41,8 +42,8 @@ try:
 except ImportError:
     MAGIC_AVAILABLE = False
 
-from .html_parser import HtmlParser
 from .exceptions import ParsingError
+from .html_parser import HtmlParser
 
 logger = logging.getLogger(__name__)
 

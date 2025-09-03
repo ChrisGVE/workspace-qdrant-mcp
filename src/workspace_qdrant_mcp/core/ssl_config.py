@@ -34,8 +34,9 @@ Example:
 import contextlib
 import ssl
 import warnings
-from typing import Dict, Any, Optional, ContextManager
+from typing import Any, ContextManager, Dict, Optional
 from urllib.parse import urlparse
+
 import urllib3
 
 from ..observability import get_logger

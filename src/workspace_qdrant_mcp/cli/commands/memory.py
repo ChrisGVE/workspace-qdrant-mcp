@@ -14,6 +14,7 @@ import typer
 from qdrant_client import QdrantClient
 
 from ...core.collection_naming import create_naming_manager
+from ...core.config import Config
 from ...core.daemon_client import get_daemon_client, with_daemon_client
 from ...core.memory import (
     AuthorityLevel,
@@ -22,23 +23,22 @@ from ...core.memory import (
     create_memory_manager,
     parse_conversational_memory_update,
 )
-from ...core.config import Config
 from ...core.ssl_config import get_ssl_manager
 from ...observability import get_logger
 from ..utils import (
     CLIError,
-    handle_cli_error,
-    handle_async,
-    format_table,
     confirm,
-    prompt_input,
     create_command_app,
-    verbose_option,
-    json_output_option,
+    error_message,
     force_option,
+    format_table,
+    handle_async,
+    handle_cli_error,
+    json_output_option,
+    prompt_input,
     success_message,
+    verbose_option,
     warning_message,
-    error_message
 )
 
 logger = get_logger(__name__)

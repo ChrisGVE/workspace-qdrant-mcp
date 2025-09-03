@@ -42,66 +42,69 @@ import logging
 import os
 import signal
 from datetime import datetime, timezone
-from typing import Optional, List
+from typing import List, Optional
 
 import typer
 from fastmcp import FastMCP
 from pydantic import BaseModel
 
-# Import observability system
-from .observability import (
-    get_logger,
-    configure_logging,
-    metrics_instance,
-    health_checker_instance,
-    monitor_async,
-    record_operation,
-    LogContext
+from .core.advanced_watch_config import (
+    AdvancedConfigValidator,
+    AdvancedWatchConfig,
+    CollectionTargeting,
+    FileFilterConfig,
+    PerformanceConfig,
+    RecursiveConfig,
 )
+from .core.auto_ingestion import AutoIngestionManager
+from .core.client import QdrantWorkspaceClient
 from .core.error_handling import (
-    error_context,
-    safe_shutdown,
-    with_error_handling,
+    ConfigurationError,
+    DatabaseError,
     ErrorRecoveryStrategy,
     NetworkError,
-    DatabaseError,
-    ConfigurationError,
+    error_context,
     get_error_stats,
+    safe_shutdown,
+    with_error_handling,
 )
-from .observability.endpoints import add_observability_routes, setup_observability_middleware
-
-from .core.client import QdrantWorkspaceClient
-from .core.yaml_config import load_config, WorkspaceConfig
 from .core.hybrid_search import HybridSearchEngine
+from .core.watch_validation import (
+    ValidationResult,
+    WatchPathValidator,
+)
+from .core.yaml_config import WorkspaceConfig, load_config
+
+# Import observability system
+from .observability import (
+    LogContext,
+    configure_logging,
+    get_logger,
+    health_checker_instance,
+    metrics_instance,
+    monitor_async,
+    record_operation,
+)
+from .observability.endpoints import (
+    add_observability_routes,
+    setup_observability_middleware,
+)
 from .tools.documents import (
     add_document,
     get_document,
+)
+from .tools.grpc_tools import (
+    get_grpc_engine_stats,
+    process_document_via_grpc,
+    search_via_grpc,
+    test_grpc_connection,
 )
 from .tools.memory import register_memory_tools
 from .tools.research import research_workspace as research_workspace_impl
 from .tools.scratchbook import ScratchbookManager, update_scratchbook
 from .tools.search import search_collection_by_metadata, search_workspace
 from .tools.watch_management import WatchToolsManager
-from .core.advanced_watch_config import (
-    AdvancedWatchConfig,
-    FileFilterConfig,
-    RecursiveConfig,
-    PerformanceConfig,
-    CollectionTargeting,
-    AdvancedConfigValidator,
-)
-from .core.watch_validation import (
-    WatchPathValidator,
-    ValidationResult,
-)
 from .utils.config_validator import ConfigValidator
-from .tools.grpc_tools import (
-    test_grpc_connection,
-    get_grpc_engine_stats,
-    process_document_via_grpc,
-    search_via_grpc,
-)
-from .core.auto_ingestion import AutoIngestionManager
 
 # Initialize structured logging
 logger = get_logger(__name__)
@@ -2049,8 +2052,9 @@ async def initialize_workspace(config_file: Optional[str] = None) -> None:
                qdrant_url=config.qdrant.url,
                daemon_address=f"{config.daemon.grpc.host}:{config.daemon.grpc.port}")
     
-    from .utils.project_detection import ProjectDetector
     import os
+
+    from .utils.project_detection import ProjectDetector
     
     # Detect project information for workspace context
     project_path = os.getcwd()

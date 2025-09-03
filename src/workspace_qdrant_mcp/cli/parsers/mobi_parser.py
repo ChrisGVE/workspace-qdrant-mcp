@@ -1,5 +1,6 @@
 
 from ...observability import get_logger
+
 logger = get_logger(__name__)
 """
 MOBI document parser for extracting text content and metadata.
@@ -13,9 +14,9 @@ basic functionality using the mobidedrm approach or falls back to text extractio
 """
 
 import logging
+import struct
 from pathlib import Path
 from typing import Any
-import struct
 
 from .base import DocumentParser, ParsedDocument
 

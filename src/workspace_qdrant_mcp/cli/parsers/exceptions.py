@@ -1,5 +1,6 @@
 
 from ...observability import get_logger
+
 logger = get_logger(__name__)
 """
 Unified error handling system for document parsers.
@@ -11,8 +12,8 @@ and recovery mechanisms.
 
 import logging
 from enum import Enum
-from typing import Any, Dict, Optional, Union
 from pathlib import Path
+from typing import Any, Dict, Optional, Union
 
 logger = logging.getLogger(__name__)
 

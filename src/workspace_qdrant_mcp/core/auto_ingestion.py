@@ -30,9 +30,9 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Set
 
-from ..tools.watch_management import WatchToolsManager
 from ..core.client import QdrantWorkspaceClient
 from ..core.config import AutoIngestionConfig
+from ..tools.watch_management import WatchToolsManager
 from ..utils.project_detection import ProjectDetector
 
 logger = logging.getLogger(__name__)

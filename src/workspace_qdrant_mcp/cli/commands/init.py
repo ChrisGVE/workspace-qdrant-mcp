@@ -16,7 +16,8 @@ from enum import Enum
 import typer
 from typer.completion import get_completion_script
 
-from ..utils import CLIError, handle_cli_error, create_command_app, success_message
+from ..utils import CLIError, create_command_app, handle_cli_error, success_message
+
 
 # Available shells for completion
 class Shell(str, Enum):

@@ -30,13 +30,14 @@ Example:
 """
 
 import time
-from typing import Dict, Any, Optional
+from typing import Any, Dict, Optional
+
 from fastapi import FastAPI, HTTPException, Request, Response
 from fastapi.responses import JSONResponse, PlainTextResponse
 
+from .health import HealthStatus, health_checker_instance
 from .logger import get_logger
 from .metrics import metrics_instance
-from .health import health_checker_instance, HealthStatus
 
 logger = get_logger(__name__)
 

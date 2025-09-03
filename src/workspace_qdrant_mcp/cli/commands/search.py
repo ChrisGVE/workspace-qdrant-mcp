@@ -18,13 +18,13 @@ from ...grpc.ingestion_pb2 import SearchMode
 from ...observability import get_logger
 from ...utils.project_detection import ProjectDetector
 from ..utils import (
-    handle_async,
     create_command_app,
+    error_message,
+    handle_async,
     json_output_option,
-    verbose_option,
     success_message,
+    verbose_option,
     warning_message,
-    error_message
 )
 
 logger = get_logger(__name__)

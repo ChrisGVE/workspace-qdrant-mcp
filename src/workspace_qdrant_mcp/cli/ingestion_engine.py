@@ -19,16 +19,16 @@ from typing import Any
 from ..core.client import QdrantWorkspaceClient
 from ..tools.documents import add_document
 from .parsers import (
+    CodeParser,
     DocumentParser,
+    DocxParser,
+    EpubParser,
     HtmlParser,
     MarkdownParser,
+    MobiParser,
     PDFParser,
     PptxParser,
     TextParser,
-    DocxParser,
-    EpubParser,
-    CodeParser,
-    MobiParser,
     WebParser,
 )
 

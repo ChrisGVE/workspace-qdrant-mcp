@@ -11,20 +11,20 @@ from typing import Any, Dict, List, Optional
 
 import typer
 
-from ...core.daemon_client import get_daemon_client, with_daemon_client
 from ...core.collection_naming import CollectionNameError, validate_collection_name
 from ...core.config import Config
+from ...core.daemon_client import get_daemon_client, with_daemon_client
 from ...observability import get_logger
 from ..utils import (
-    handle_async,
-    create_command_app,
-    force_option,
-    verbose_option,
-    json_output_option,
     confirm,
+    create_command_app,
+    error_message,
+    force_option,
+    handle_async,
+    json_output_option,
     success_message,
+    verbose_option,
     warning_message,
-    error_message
 )
 
 logger = get_logger(__name__)

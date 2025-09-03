@@ -33,16 +33,17 @@ Example:
     ```
 """
 
+import asyncio
+import os
 import time
+import weakref
+from collections import defaultdict, deque
 from contextlib import contextmanager
 from dataclasses import dataclass, field
 from threading import Lock
-from typing import Dict, List, Optional, Any, Set
-import asyncio
-import weakref
-from collections import defaultdict, deque
+from typing import Any, Dict, List, Optional, Set
+
 import psutil
-import os
 
 from .logger import get_logger
 

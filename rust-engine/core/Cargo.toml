@@ -36,6 +36,17 @@ notify = { version = "6.1", features = ["serde"] }
 walkdir = "2.4"
 glob = "0.3"
 
+# Platform-specific file watching dependencies - temporarily commented out for compilation
+# [target.'cfg(target_os = "macos")'.dependencies]
+# fsevents-sys = "0.3"  
+# kqueue = "1.0"
+
+# [target.'cfg(target_os = "linux")'.dependencies]
+# inotify = "0.10"
+
+# [target.'cfg(target_os = "windows")'.dependencies] 
+# windows = { version = "0.52", features = ["Win32_Foundation", "Win32_System_IO"] }
+
 # Vector database client  
 qdrant-client = "1.15"
 

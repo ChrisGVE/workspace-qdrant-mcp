@@ -15,17 +15,17 @@ import typer
 from ...core.client import QdrantWorkspaceClient
 from ...core.config import Config
 from ...observability import get_logger
-from ..watch_service import WatchService
 from ..utils import (
-    handle_async,
-    create_command_app,
-    force_option,
-    verbose_option,
     confirm,
+    create_command_app,
+    error_message,
+    force_option,
+    handle_async,
     success_message,
+    verbose_option,
     warning_message,
-    error_message
 )
+from ..watch_service import WatchService
 
 logger = get_logger(__name__)
 

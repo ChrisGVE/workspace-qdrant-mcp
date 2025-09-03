@@ -21,16 +21,16 @@ import subprocess
 import sys
 import tempfile
 from pathlib import Path
-from typing import Dict, Any, Optional
+from typing import Any, Dict, Optional
 
 import typer
 from rich.console import Console
-from rich.table import Table
 from rich.panel import Panel
+from rich.table import Table
 from rich.text import Text
 
-from ...observability import get_logger
 from ...core.daemon_manager import DaemonManager, get_daemon_manager
+from ...observability import get_logger
 from ..utils import handle_async_command
 
 # Initialize app and logger
