@@ -7,57 +7,78 @@ to communicate with the daemon, eliminating direct Qdrant client usage and code 
 
 import asyncio
 import logging
-from pathlib import Path
-from typing import Any, Dict, List, Optional, Iterator
 from contextlib import asynccontextmanager
+from pathlib import Path
+from typing import Any, Dict, Iterator, List, Optional
 
 import grpc
 from google.protobuf.empty_pb2 import Empty
 from google.protobuf.timestamp_pb2 import Timestamp
 
 from ..grpc.ingestion_pb2 import (
-    # Document processing
-    ProcessDocumentRequest, ProcessDocumentResponse,
-    ProcessFolderRequest, ProcessFolderProgress,
-    
-    # File watching
-    StartWatchingRequest, WatchingUpdate, StopWatchingRequest, StopWatchingResponse,
-    ListWatchesRequest, ListWatchesResponse, ConfigureWatchRequest, ConfigureWatchResponse,
-    
-    # Search operations
-    ExecuteQueryRequest, ExecuteQueryResponse,
-    ListCollectionsRequest, ListCollectionsResponse,
-    GetCollectionInfoRequest, CollectionInfo,
-    CreateCollectionRequest, CreateCollectionResponse,
-    DeleteCollectionRequest, DeleteCollectionResponse,
-    
-    # Document management
-    ListDocumentsRequest, ListDocumentsResponse,
-    GetDocumentRequest, GetDocumentResponse,
-    DeleteDocumentRequest, DeleteDocumentResponse,
-    
-    # Configuration management
-    LoadConfigurationRequest, LoadConfigurationResponse,
-    SaveConfigurationRequest, SaveConfigurationResponse,
-    ValidateConfigurationRequest, ValidateConfigurationResponse,
-    
     # Memory operations
-    AddMemoryRuleRequest, AddMemoryRuleResponse,
-    ListMemoryRulesRequest, ListMemoryRulesResponse,
-    DeleteMemoryRuleRequest, DeleteMemoryRuleResponse,
-    SearchMemoryRulesRequest, SearchMemoryRulesResponse,
-    
+    AddMemoryRuleRequest,
+    AddMemoryRuleResponse,
+    CollectionInfo,
+    ConfigureWatchRequest,
+    ConfigureWatchResponse,
+    CreateCollectionRequest,
+    CreateCollectionResponse,
+    DeleteCollectionRequest,
+    DeleteCollectionResponse,
+    DeleteDocumentRequest,
+    DeleteDocumentResponse,
+    DeleteMemoryRuleRequest,
+    DeleteMemoryRuleResponse,
+    # Search operations
+    ExecuteQueryRequest,
+    ExecuteQueryResponse,
+    GetCollectionInfoRequest,
+    GetDocumentRequest,
+    GetDocumentResponse,
+    GetProcessingStatusRequest,
     # Status and monitoring
-    GetStatsRequest, GetStatsResponse,
-    GetProcessingStatusRequest, ProcessingStatusResponse,
-    SystemStatusResponse, HealthResponse,
-    
+    GetStatsRequest,
+    GetStatsResponse,
+    HealthResponse,
+    HealthStatus,
+    ListCollectionsRequest,
+    ListCollectionsResponse,
+    # Document management
+    ListDocumentsRequest,
+    ListDocumentsResponse,
+    ListMemoryRulesRequest,
+    ListMemoryRulesResponse,
+    ListWatchesRequest,
+    ListWatchesResponse,
+    # Configuration management
+    LoadConfigurationRequest,
+    LoadConfigurationResponse,
+    # Document processing
+    ProcessDocumentRequest,
+    ProcessDocumentResponse,
+    ProcessFolderProgress,
+    ProcessFolderRequest,
+    ProcessingStatusResponse,
+    SaveConfigurationRequest,
+    SaveConfigurationResponse,
+    SearchMemoryRulesRequest,
+    SearchMemoryRulesResponse,
     # Enums
-    SearchMode, WatchStatus, HealthStatus
+    SearchMode,
+    # File watching
+    StartWatchingRequest,
+    StopWatchingRequest,
+    StopWatchingResponse,
+    SystemStatusResponse,
+    ValidateConfigurationRequest,
+    ValidateConfigurationResponse,
+    WatchingUpdate,
+    WatchStatus,
 )
 from ..grpc.ingestion_pb2_grpc import IngestServiceStub
 from ..observability import get_logger
-from .yaml_config import load_config, WorkspaceConfig
+from .yaml_config import WorkspaceConfig, load_config
 
 logger = get_logger(__name__)
 

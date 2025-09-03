@@ -29,7 +29,7 @@ from rich.table import Table
 from ..core.client import QdrantWorkspaceClient
 from ..core.config import Config
 from .ingestion_engine import DocumentIngestionEngine, IngestionResult, IngestionStats
-from .parsers import WebIngestionInterface, SecurityConfig, create_secure_web_parser
+from .parsers import SecurityConfig, WebIngestionInterface, create_secure_web_parser
 
 # Configure logging
 logger = logging.getLogger(__name__)

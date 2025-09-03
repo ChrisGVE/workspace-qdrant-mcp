@@ -44,7 +44,7 @@ from ..utils.project_detection import ProjectDetector
 from .collections import WorkspaceCollectionManager
 from .config import Config
 from .embeddings import EmbeddingService
-from .ssl_config import get_ssl_manager, create_secure_qdrant_config
+from .ssl_config import create_secure_qdrant_config, get_ssl_manager
 
 logger = get_logger(__name__)
 

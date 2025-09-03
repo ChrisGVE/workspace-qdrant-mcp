@@ -41,7 +41,7 @@ import json
 import time
 from datetime import datetime, timedelta
 from pathlib import Path
-from typing import Dict, Any, Optional, List
+from typing import Any, Dict, List, Optional
 
 import typer
 from rich.console import Console
@@ -49,13 +49,13 @@ from rich.layout import Layout
 from rich.live import Live
 from rich.panel import Panel
 from rich.progress import (
+    BarColumn,
+    MofNCompleteColumn,
     Progress,
     SpinnerColumn,
-    TextColumn,
-    BarColumn,
     TaskProgressColumn,
+    TextColumn,
     TimeElapsedColumn,
-    MofNCompleteColumn,
 )
 from rich.table import Table
 from rich.text import Text
@@ -63,21 +63,21 @@ from rich.tree import Tree
 
 from ..core.client import QdrantWorkspaceClient
 from ..core.config import Config
-from ..observability import get_logger, configure_logging
+from ..observability import configure_logging, get_logger
 from ..tools.grpc_tools import (
-    get_grpc_engine_stats, 
-    test_grpc_connection,
+    get_grpc_engine_stats,
     stream_processing_status_grpc,
+    stream_queue_status_grpc,
     stream_system_metrics_grpc,
-    stream_queue_status_grpc
+    test_grpc_connection,
 )
 from ..tools.state_management import (
-    get_processing_status,
-    get_queue_stats,
+    get_database_stats,
     get_failed_files,
     get_processing_analytics,
+    get_processing_status,
+    get_queue_stats,
     get_watch_folder_configs,
-    get_database_stats,
 )
 from ..tools.watch_management import WatchToolsManager
 

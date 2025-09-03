@@ -38,9 +38,10 @@ import asyncio
 import time
 from dataclasses import dataclass, field
 from enum import Enum
-from typing import Dict, List, Optional, Any, Callable, Awaitable
-import psutil
 from pathlib import Path
+from typing import Any, Awaitable, Callable, Dict, List, Optional
+
+import psutil
 
 from .logger import get_logger
 from .metrics import metrics_instance

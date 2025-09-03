@@ -1,5 +1,6 @@
 
 from ...observability import get_logger
+
 logger = get_logger(__name__)
 """
 Web content parser that integrates secure crawling with document parsing.
@@ -16,7 +17,7 @@ from urllib.parse import urlparse
 
 from .base import DocumentParser, ParsedDocument
 from .exceptions import ParsingError
-from .web_crawler import SecureWebCrawler, SecurityConfig, CrawlResult
+from .web_crawler import CrawlResult, SecureWebCrawler, SecurityConfig
 
 logger = logging.getLogger(__name__)
 

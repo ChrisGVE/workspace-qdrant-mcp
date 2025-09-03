@@ -20,15 +20,15 @@ from ...core.config import Config
 from ...observability import get_logger
 from ...utils.project_detection import ProjectDetector
 from ..utils import (
-    handle_async,
-    create_command_app,
-    verbose_option,
-    json_output_option,
-    force_option,
     config_path_option,
-    success_message,
+    create_command_app,
     error_message,
-    warning_message
+    force_option,
+    handle_async,
+    json_output_option,
+    success_message,
+    verbose_option,
+    warning_message,
 )
 
 logger = get_logger(__name__)
@@ -129,8 +129,8 @@ async def _system_status(verbose: bool, json_output: bool):
 
 async def _watch_status(verbose: bool):
     """Watch system status with continuous refresh."""
-    import time
     import os
+    import time
 
     print("Watching system status (Ctrl+C to stop)\n")
 

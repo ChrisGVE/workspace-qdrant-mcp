@@ -1,5 +1,6 @@
 
 from ...observability import get_logger
+
 logger = get_logger(__name__)
 """
 Source code file parser for extracting text content and metadata from programming files.
@@ -10,14 +11,14 @@ function/class definitions, and language-specific metadata.
 """
 
 import logging
+import re
 from pathlib import Path
 from typing import Any
-import re
 
 try:
     from pygments import highlight
-    from pygments.lexers import get_lexer_for_filename, get_lexer_by_name
     from pygments.formatters import NullFormatter
+    from pygments.lexers import get_lexer_by_name, get_lexer_for_filename
     from pygments.util import ClassNotFound
     PYGMENTS_AVAILABLE = True
 except ImportError:

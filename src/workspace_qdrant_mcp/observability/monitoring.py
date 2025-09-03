@@ -36,14 +36,14 @@ Example:
 
 import asyncio
 import functools
+import inspect
 import time
 import uuid
 from contextlib import asynccontextmanager, contextmanager
 from dataclasses import dataclass
-from typing import Any, Callable, Dict, Optional, TypeVar, Union, Awaitable
-import inspect
+from typing import Any, Awaitable, Callable, Dict, Optional, TypeVar, Union
 
-from .logger import get_logger, LogContext
+from .logger import LogContext, get_logger
 from .metrics import metrics_instance, record_operation
 
 logger = get_logger(__name__)

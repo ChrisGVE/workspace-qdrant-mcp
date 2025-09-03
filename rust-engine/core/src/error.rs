@@ -680,7 +680,7 @@ impl ErrorRecovery {
         operation_name: &str,
         operation: F,
         strategy: ErrorRecoveryStrategy,
-    ) -> Result<T, WorkspaceError>
+    ) -> std::result::Result<T, WorkspaceError>
     where
         F: Fn() -> std::pin::Pin<Box<dyn std::future::Future<Output = std::result::Result<T, E>> + Send + 'static>>,
         E: std::error::Error + Send + Sync + 'static,

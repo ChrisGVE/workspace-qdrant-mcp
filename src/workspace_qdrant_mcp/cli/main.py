@@ -62,8 +62,7 @@ if len(sys.argv) >= 2 and (sys.argv[1] == "--version" or sys.argv[1] == "-v"):
 # Import heavy modules only after version check passes
 import typer
 
-from ..observability import get_logger, configure_logging
-
+from ..observability import configure_logging, get_logger
 from .commands.admin import admin_app
 from .commands.ingest import ingest_app
 from .commands.init import init_app

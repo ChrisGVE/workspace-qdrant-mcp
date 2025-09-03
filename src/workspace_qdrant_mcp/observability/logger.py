@@ -39,14 +39,13 @@ import os
 import sys
 import time
 from contextlib import contextmanager
+from contextvars import ContextVar
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, Optional, Union
-from contextvars import ContextVar
 
 import structlog
 from structlog.contextvars import bind_contextvars, clear_contextvars
-
 
 # Context variables for request/operation tracking
 _log_context: ContextVar[Dict[str, Any]] = ContextVar('log_context', default={})

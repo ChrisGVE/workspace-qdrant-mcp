@@ -1,5 +1,6 @@
 
 from ...observability import get_logger
+
 logger = get_logger(__name__)
 """
 HTML and web content parser for extracting text content and metadata.
@@ -19,8 +20,8 @@ if TYPE_CHECKING:
     from bs4 import BeautifulSoup
 
 try:
-    from bs4 import BeautifulSoup, Comment
     import chardet
+    from bs4 import BeautifulSoup, Comment
     BS4_AVAILABLE = True
 except ImportError:
     BS4_AVAILABLE = False

@@ -6,11 +6,11 @@ This is a simplified version that avoids threading issues while providing
 environment-based configuration loading, validation, and YAML support.
 """
 
+import logging
 import os
 import re
-import logging
 from pathlib import Path
-from typing import Optional, Any, Dict, List, Union
+from typing import Any, Dict, List, Optional, Union
 
 try:
     import yaml

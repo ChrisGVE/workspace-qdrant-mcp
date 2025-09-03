@@ -10,9 +10,9 @@ The client automatically falls back to direct mode if the gRPC server is unavail
 
 import asyncio
 import logging
-from typing import Dict, List, Optional, Any, Union
 from datetime import datetime
 from pathlib import Path
+from typing import Any, Dict, List, Optional, Union
 
 from ..grpc.client import AsyncIngestClient
 from ..grpc.connection_manager import ConnectionConfig

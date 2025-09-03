@@ -5,20 +5,30 @@ This module provides Python-friendly wrappers and type definitions
 for the protobuf-generated classes.
 """
 
-from typing import Dict, List, Optional, Any, Union
 from dataclasses import dataclass
 from datetime import datetime
+from typing import Any, Dict, List, Optional, Union
 
-from .ingestion_pb2 import (  # type: ignore[attr-defined]
-    ProcessDocumentRequest as PbProcessDocumentRequest,
-    ProcessDocumentResponse as PbProcessDocumentResponse,
+from .ingestion_pb2 import (
     ExecuteQueryRequest as PbExecuteQueryRequest,
+)
+from .ingestion_pb2 import (
     ExecuteQueryResponse as PbExecuteQueryResponse,
+)
+from .ingestion_pb2 import (
     HealthResponse as PbHealthResponse,
+)
+from .ingestion_pb2 import (
+    HealthStatus,
     SearchMode,
     WatchEventType,
     WatchStatus,
-    HealthStatus,
+)
+from .ingestion_pb2 import (  # type: ignore[attr-defined]
+    ProcessDocumentRequest as PbProcessDocumentRequest,
+)
+from .ingestion_pb2 import (
+    ProcessDocumentResponse as PbProcessDocumentResponse,
 )
 
 

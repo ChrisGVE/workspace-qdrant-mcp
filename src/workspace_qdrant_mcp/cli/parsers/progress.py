@@ -1,5 +1,6 @@
 
 from ...observability import get_logger
+
 logger = get_logger(__name__)
 """
 Progress reporting infrastructure for document parsing operations.
@@ -9,14 +10,15 @@ and batch operations, including memory usage monitoring and performance metrics.
 """
 
 import logging
-import psutil
-import time
 import threading
+import time
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 from enum import Enum
-from typing import Any, Callable, Dict, Optional, Union
 from pathlib import Path
+from typing import Any, Callable, Dict, Optional, Union
+
+import psutil
 
 logger = logging.getLogger(__name__)
 

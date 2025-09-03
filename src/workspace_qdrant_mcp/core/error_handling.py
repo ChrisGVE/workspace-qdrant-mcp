@@ -13,9 +13,10 @@ import traceback
 from contextlib import asynccontextmanager
 from dataclasses import dataclass, field
 from enum import Enum
-from typing import Any, Callable, Dict, List, Optional, Type, Union
-import structlog
 from functools import wraps
+from typing import Any, Callable, Dict, List, Optional, Type, Union
+
+import structlog
 
 # Configure structured logging
 structlog.configure(

@@ -31,19 +31,19 @@ import asyncio
 import json
 import time
 from pathlib import Path
-from typing import Dict, Any, Optional
+from typing import Any, Dict, Optional
 
 import typer
 
+from ..core.client import QdrantWorkspaceClient
+from ..core.config import Config
 from ..observability import (
-    get_logger,
+    HealthStatus,
     configure_logging,
+    get_logger,
     health_checker_instance,
     metrics_instance,
-    HealthStatus
 )
-from ..core.config import Config
-from ..core.client import QdrantWorkspaceClient
 
 logger = get_logger(__name__)
 

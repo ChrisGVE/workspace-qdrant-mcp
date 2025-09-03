@@ -8,12 +8,12 @@ the Rust-based ingestion engine daemon.
 from .client import AsyncIngestClient
 from .connection_manager import GrpcConnectionManager
 from .types import (
-    ProcessDocumentRequest,
-    ProcessDocumentResponse,
     ExecuteQueryRequest,
     ExecuteQueryResponse,
     HealthCheckRequest,
     HealthCheckResponse,
+    ProcessDocumentRequest,
+    ProcessDocumentResponse,
 )
 
 __all__ = [
