@@ -13,7 +13,7 @@ use std::sync::Arc;
 use tokio::sync::RwLock;
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
-use ort::{environment::Environment, session::{Session, SessionBuilder}, value::Value};
+use ort::{Environment, Session, Value};
 use tokenizers::Tokenizer;
 // use uuid::Uuid;  // Currently unused
 use ahash::AHashMap;
@@ -461,9 +461,7 @@ impl EmbeddingGenerator {
         let bm25 = Arc::new(RwLock::new(BM25::new(config.bm25_k1, config.bm25_b)));
         
         // Initialize ONNX Runtime environment
-        let onnx_env = Arc::new(Environment::builder()
-            .with_name("embedding-generator")
-            .build()
+        let onnx_env = Arc::new(Environment::new(ort::LoggingLevel::Warning, "embedding-generator")
             .map_err(|e| EmbeddingError::OnnxError { 
                 message: format!("Failed to initialize ONNX environment: {}", e)
             })?);
@@ -489,7 +487,7 @@ impl EmbeddingGenerator {
         
         // Load ONNX session
         let model_path = self.model_manager.get_model_path(model_name);
-        let session = SessionBuilder::new(&self.onnx_env)
+        let session = Session::builder()
             .map_err(|e| EmbeddingError::OnnxError {
                 message: format!("Failed to create session builder: {}", e)
             })?
