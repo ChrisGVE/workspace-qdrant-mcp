@@ -1,7 +1,4 @@
 
-from ...observability import get_logger
-from ...core.ssl_config import get_ssl_manager
-logger = get_logger(__name__)
 """Memory management CLI commands.
 
 This module provides the wqm memory commands for managing user preferences,
@@ -15,6 +12,7 @@ from typing import List, Optional
 
 import typer
 from qdrant_client import QdrantClient
+
 from ...core.collection_naming import create_naming_manager
 from ...core.config import Config
 from ...core.memory import (
@@ -24,85 +22,39 @@ from ...core.memory import (
     create_memory_manager,
     parse_conversational_memory_update,
 )
-
-# Plain text console - no Rich formatting
-
-def format_plain_table(headers, rows, title=None):
-    """Format data as a plain text table with aligned columns."""
-    if not rows:
-        return "No data to display"
-    
-    # Calculate column widths
-    col_widths = [len(header) for header in headers]
-    for row in rows:
-        for i, cell in enumerate(row):
-            col_widths[i] = max(col_widths[i], len(str(cell)))
-    
-    # Build table
-    lines = []
-    if title:
-        lines.append(f"\n{title}")
-        lines.append("=" * len(title))
-    
-    # Header row
-    header_line = "  ".join(header.ljust(col_widths[i]) for i, header in enumerate(headers))
-    lines.append(header_line)
-    lines.append("-" * len(header_line))
-    
-    # Data rows
-    for row in rows:
-        row_line = "  ".join(str(cell).ljust(col_widths[i]) for i, cell in enumerate(row))
-        lines.append(row_line)
-    
-    return "\n".join(lines)
-
-def get_user_input(prompt: str, default: str = None) -> str:
-    """Get user input with optional default value."""
-    if default:
-        full_prompt = f"{prompt} [{default}]: "
-    else:
-        full_prompt = f"{prompt}: "
-    
-    response = input(full_prompt).strip()
-    return response if response else (default or "")
-
-def get_user_confirmation(prompt: str, default: bool = True) -> bool:
-    """Get yes/no confirmation from user."""
-    suffix = " [Y/n]: " if default else " [y/N]: "
-    while True:
-        response = input(prompt + suffix).strip().lower()
-        if not response:
-            return default
-        if response in ('y', 'yes'):
-            return True
-        if response in ('n', 'no'):
-            return False
-        print("Please enter 'y' or 'n'")
-
-# Create the memory app
-memory_app = typer.Typer(
-    help="Memory rules and LLM behavior management",
-    no_args_is_help=True,
-    rich_markup_mode=None  # Disable Rich formatting completely
+from ...core.ssl_config import get_ssl_manager
+from ...observability import get_logger
+from ..utils import (
+    CLIError,
+    handle_cli_error,
+    handle_async,
+    format_table,
+    confirm,
+    prompt_input,
+    create_command_app,
+    verbose_option,
+    json_output_option,
+    force_option,
+    success_message,
+    warning_message,
+    error_message
 )
 
-def handle_async(coro):
-    """Helper to run async commands."""
-    try:
-        return asyncio.run(coro)
-    except KeyboardInterrupt:
-        print("\nOperation cancelled by user")
-        raise typer.Exit(1)
-    except Exception as e:
-        print(f"Error: {e}")
-        raise typer.Exit(1)
+logger = get_logger(__name__)
+
+# Create the memory app using shared utilities
+memory_app = create_command_app(
+    name="memory",
+    help_text="Memory rules and LLM behavior management",
+    no_args_is_help=True
+)
 
 @memory_app.command("list")
 def list_rules(
     category: str | None = typer.Option(None, "--category", "-c", help="Filter by category"),
     authority: str | None = typer.Option(None, "--authority", "-a", help="Filter by authority level"),
     scope: str | None = typer.Option(None, "--scope", "-s", help="Filter by scope containing this value"),
-    json_output: bool = typer.Option(False, "--json", help="Output as JSON"),
+    json_output: bool = json_output_option(),
 ):
     """ Show all memory rules."""
     handle_async(_list_memory_rules(category, authority, scope, json_output))
@@ -140,7 +92,7 @@ def edit_rule(
 @memory_app.command("remove")
 def remove_rule(
     rule_id: str = typer.Argument(..., help="Memory rule ID to remove"),
-    force: bool = typer.Option(False, "--force", "-f", help="Skip confirmation"),
+    force: bool = force_option(),
 ):
     """ Remove memory rule."""
     handle_async(_remove_memory_rule(rule_id, force))
@@ -253,7 +205,7 @@ async def _list_memory_rules(
                     scope_text
                 ])
             
-            table_output = format_plain_table(headers, table_rows, f"Memory Rules ({len(rules)} found)")
+            table_output = format_table(headers, table_rows, f"Memory Rules ({len(rules)} found)")
             print(table_output)
 
             # Show summary
@@ -295,25 +247,25 @@ async def _add_memory_rule(
             
             # Get rule text if not provided
             if not rule:
-                rule = get_user_input("Rule text")
+                rule = prompt_input("Rule text")
             else:
                 print(f"Rule text: {rule}")
 
             if not category:
                 category_choices = [c.value for c in MemoryCategory]
                 print(f"Category choices: {', '.join(category_choices)}")
-                category = get_user_input("Category", "preference")
+                category = prompt_input("Category", "preference")
 
             # Generate name from rule if not provided
-            name = get_user_input("Short name", _generate_name_from_rule(rule))
+            name = prompt_input("Short name", _generate_name_from_rule(rule))
 
             if authority not in [a.value for a in AuthorityLevel]:
                 authority_choices = [a.value for a in AuthorityLevel]
                 print(f"Authority level choices: {', '.join(authority_choices)}")
-                authority = get_user_input("Authority level", "default")
+                authority = prompt_input("Authority level", "default")
 
             if not scope:
-                scope_input = get_user_input("Scope (comma-separated, optional)", "")
+                scope_input = prompt_input("Scope (comma-separated, optional)", "")
                 scope = scope_input if scope_input else None
         else:
             # Non-interactive mode - rule should be provided
@@ -376,21 +328,21 @@ async def _edit_memory_rule(rule_id: str):
         # Collect updates
         updates = {}
 
-        new_rule = get_user_input("New rule text")
+        new_rule = prompt_input("New rule text")
         if new_rule != rule.rule:
             updates["rule"] = new_rule
 
-        new_name = get_user_input("New name")
+        new_name = prompt_input("New name")
         if new_name != rule.name:
             updates["name"] = new_name
 
         authority_choices = [a.value for a in AuthorityLevel]
-        new_authority = get_user_input("Authority level")
+        new_authority = prompt_input("Authority level")
         if new_authority != rule.authority.value:
             updates["authority"] = AuthorityLevel(new_authority)
 
         scope_str = ", ".join(rule.scope) if rule.scope else ""
-        new_scope = get_user_input("Scope (comma-separated)", scope_str)
+        new_scope = prompt_input("Scope (comma-separated)", scope_str)
         new_scope_list = [s.strip() for s in new_scope.split(",") if s.strip()] if new_scope else []
         if new_scope_list != rule.scope:
             updates["scope"] = new_scope_list
@@ -404,7 +356,7 @@ async def _edit_memory_rule(rule_id: str):
         for key, value in updates.items():
             print(f"  {key}: {getattr(rule, key)} → {value}")
 
-        if not get_user_confirmation("\nApply changes?"):
+        if not confirm("\nApply changes?"):
             print("Changes cancelled.")
             return
 
@@ -449,7 +401,7 @@ async def _remove_memory_rule(rule_id: str, force: bool):
             print(f"Rule: {rule.rule}")
             print(f"Authority: {rule.authority.value}")
 
-            if not get_user_confirmation("\nAre you sure you want to delete this rule?"):
+            if not confirm("\nAre you sure you want to delete this rule?"):
                 print("Deletion cancelled.")
                 return
 
@@ -557,7 +509,7 @@ async def _trim_memory(max_tokens: int, dry_run: bool):
         print(f"\nEstimated tokens saved: {tokens_saved}")
 
         if not dry_run:
-            if get_user_confirmation("\nApply optimizations?"):
+            if confirm("\nApply optimizations?"):
                 print(" Memory optimization applied")
             else:
                 print("Optimization cancelled.")
@@ -609,11 +561,11 @@ async def _detect_conflicts(auto_resolve: bool):
                 # Placeholder for auto-resolution logic
                 print(" Conflict resolved automatically\n")
             else:
-                if get_user_confirmation(f"Resolve conflict {i}?"):
+                if confirm(f"Resolve conflict {i}?"):
                     # Interactive resolution
                     choices = [str(j) for j in range(1, len(conflict.resolution_options) + 1)]
                     print(f"Choose resolution option (1-{len(conflict.resolution_options)}):")
-                    choice = get_user_input("Choice", "1")
+                    choice = prompt_input("Choice", "1")
                     print(f" Applied resolution option {choice}\n")
                 else:
                     print("Conflict skipped\n")
@@ -634,7 +586,7 @@ async def _parse_conversational_update(message: str):
             print(f"  Authority: {result['authority'].value}")
             print(f"  Source: {result['source']}")
 
-            if get_user_confirmation("\nAdd this as a memory rule?"):
+            if confirm("\nAdd this as a memory rule?"):
                 config = Config()
                 ssl_manager = get_ssl_manager()
                 

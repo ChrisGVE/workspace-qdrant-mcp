@@ -17,7 +17,7 @@ import typer
 from ...core.client import QdrantWorkspaceClient
 from ...core.config import Config
 from ..watch_service import WatchService
-from .memory import get_user_confirmation
+from ..utils import confirm
 
 # Create the watch app
 watch_app = typer.Typer(
@@ -301,7 +301,7 @@ async def _remove_watch(path: str | None, collection: str | None, all: bool, for
         # Confirm removal
         if not force:
             action = "all watches" if all else f"watches for {collection}" if collection else f"watch for {path}"
-            if not get_user_confirmation("\nAre you sure you want to remove {action}?"):
+            if not confirm("\nAre you sure you want to remove {action}?"):
                 print("Operation cancelled")
                 return
 
