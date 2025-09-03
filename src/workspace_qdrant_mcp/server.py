@@ -61,7 +61,7 @@ from .observability import (
 from .observability.endpoints import add_observability_routes, setup_observability_middleware
 
 from .core.client import QdrantWorkspaceClient
-from .core.config import Config
+from .core.yaml_config import load_config, WorkspaceConfig
 from .core.hybrid_search import HybridSearchEngine
 from .tools.documents import (
     add_document,
@@ -1980,68 +1980,46 @@ async def initialize_workspace(config_file: Optional[str] = None) -> None:
     
     logger.info("Starting workspace initialization")
 
-    # Load configuration from YAML file if provided, otherwise use environment variables
+    # Load configuration using new YAML-first system
     logger.debug("Loading configuration", config_file=config_file)
     try:
-        if config_file:
-            config = Config.from_yaml(config_file)
-            logger.info("Configuration loaded from YAML file", config_file=config_file)
-        else:
-            config = Config()
-            logger.debug("Configuration loaded from environment variables")
+        config = load_config(config_file)
+        logger.info("Configuration loaded successfully", 
+                   config_source="YAML file" if config_file else "hierarchy",
+                   config_file=config_file)
     except Exception as e:
         logger.error("Failed to load configuration", config_file=config_file, error=str(e))
         raise RuntimeError(f"Configuration loading failed: {e}") from e
 
-    # Validate configuration
-    validator = ConfigValidator(config)
-    is_valid, validation_results = validator.validate_all()
+    # Configuration is already validated by the YAML loader with JSON schema
+    logger.info("Configuration validation completed successfully")
 
-    if not is_valid:
-        logger.critical("Configuration validation failed",
-                       issues_count=len(validation_results["issues"]),
-                       issues=validation_results["issues"])
-        raise RuntimeError("Configuration validation failed")
-
-    # Log warnings if any
-    if validation_results["warnings"]:
-        logger.warning("Configuration has warnings",
-                      warnings_count=len(validation_results["warnings"]),
-                      warnings=validation_results["warnings"])
-
-    # Initialize workspace client (gRPC-enabled or direct based on config)
-    if config.grpc.enabled:
-        logger.info("Initializing gRPC-enabled workspace client with daemon management", 
-                   qdrant_url=config.qdrant.url,
-                   grpc_address=f"{config.grpc.host}:{config.grpc.port}",
-                   fallback_enabled=config.grpc.fallback_to_direct)
-        from .core.grpc_client import GrpcWorkspaceClient
-        from .utils.project_detection import ProjectDetector
-        import os
-        
-        # Detect project information for daemon management
-        project_path = os.getcwd()
-        project_detector = ProjectDetector()
-        project_info = await project_detector.detect_project_structure()
-        project_name = project_info.get("main_project", "default")
-        
-        logger.debug("Detected project for daemon management", 
-                    project_name=project_name,
-                    project_path=project_path)
-        
-        workspace_client = GrpcWorkspaceClient(
-            config=config,
-            grpc_enabled=True,
-            grpc_host=config.grpc.host,
-            grpc_port=config.grpc.port,
-            fallback_to_direct=config.grpc.fallback_to_direct,
-            auto_start_daemon=True,  # Enable automatic daemon startup
-            project_name=project_name,
-            project_path=project_path
-        )
-    else:
-        logger.info("Initializing direct Qdrant workspace client", qdrant_url=config.qdrant.url)
-        workspace_client = QdrantWorkspaceClient(config)
+    # Initialize workspace client with new YAML configuration
+    logger.info("Initializing workspace client with daemon communication", 
+               qdrant_url=config.qdrant.url,
+               daemon_address=f"{config.daemon.grpc.host}:{config.daemon.grpc.port}")
+    
+    from .utils.project_detection import ProjectDetector
+    import os
+    
+    # Detect project information for workspace context
+    project_path = os.getcwd()
+    project_detector = ProjectDetector()
+    project_info = project_detector.get_project_info(project_path)
+    project_name = project_info.get("main_project", "default")
+    
+    logger.debug("Detected project for workspace context", 
+                project_name=project_name,
+                project_path=project_path)
+    
+    # Create workspace client (will use direct Qdrant until daemon is ready)
+    workspace_client = QdrantWorkspaceClient(
+        qdrant_url=config.qdrant.url,
+        api_key=config.qdrant.api_key,
+        timeout_seconds=config.qdrant.timeout_seconds,
+        project_name=project_name,
+        project_path=project_path
+    )
 
     # Initialize collections for current project
     logger.debug("Initializing workspace collections")
