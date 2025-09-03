@@ -16,8 +16,8 @@ import typer
 from rich.progress import BarColumn, Progress, SpinnerColumn, TextColumn
 
 from ...cli.ingestion_engine import DocumentIngestionEngine, IngestionResult
-from ...core.client import create_qdrant_client
-from ...core.config import Config
+from ...core.daemon_client import get_daemon_client, with_daemon_client
+from ...core.yaml_config import load_config
 from ...core.yaml_metadata import YamlMetadataWorkflow
 
 logger = logging.getLogger(__name__)
@@ -127,7 +127,7 @@ async def _ingest_file(
     force: bool
 ):
     """Ingest a single file."""
-    try:
+    async def ingest_operation(daemon_client):
         file_path = Path(path)
 
         if not file_path.exists():
@@ -138,19 +138,8 @@ async def _ingest_file(
             print(f"❌ Path is not a file: {path}")
             raise typer.Exit(1)
 
-        config = Config()
-        client = create_qdrant_client(config.qdrant_client_config)
-
-        # Initialize ingestion engine
-        engine = DocumentIngestionEngine(
-            client=client,
-            collection_name=collection,
-            chunk_size=chunk_size,
-            chunk_overlap=chunk_overlap
-        )
-
         if dry_run:
-            print(f" Analyzing File: {file_path.name}")
+            print(f"📄 Analyzing File: {file_path.name}")
 
             # Analyze file without processing
             file_info = {
@@ -160,19 +149,15 @@ async def _ingest_file(
                 "supported": file_path.suffix.lower() in ['.pdf', '.txt', '.md', '.epub', '.docx', '.pptx', '.html', '.htm', '.mobi', '.azw', '.py', '.js', '.java', '.cpp', '.go', '.rs', '.rb', '.php']
             }
 
-            info_table = Table(title="File Analysis")
-            info_table.add_column("Property", style="cyan")
-            info_table.add_column("Value", style="white")
-
-            info_table.add_row("Path", file_info["path"])
-            info_table.add_row("Size", f"{file_info['size_mb']} MB")
-            info_table.add_row("Extension", file_info["extension"])
-            info_table.add_row("Supported", " Yes" if file_info["supported"] else "❌ No")
-
-            print(info_table)
+            # Display file analysis in plain text
+            print("File Analysis:")
+            print(f"Path: {file_info['path']}")
+            print(f"Size: {file_info['size_mb']} MB")
+            print(f"Extension: {file_info['extension']}")
+            print(f"Supported: {'✅ Yes' if file_info['supported'] else '❌ No'}")
 
             if file_info["supported"]:
-                print(" File can be processed with current settings")
+                print("✅ File can be processed with current settings")
                 estimated_chunks = max(1, int(file_info["size_mb"] * 1024 * 1024 / chunk_size))
                 print(f"Estimated chunks: ~{estimated_chunks}")
             else:
@@ -182,22 +167,39 @@ async def _ingest_file(
 
         print(f"📄 Ingesting File: {file_path.name}")
 
-        with Progress(
-            SpinnerColumn(),
-            TextColumn("[progress.description]{task.description}"),
-            BarColumn(),
-            console=console,
-        ) as progress:
-            task = progress.add_task("Processing file...", total=100)
-
-            # Process the file
-            result = await engine.ingest_file(
-                file_path=file_path,
-                progress_callback=lambda p: progress.update(task, completed=p)
+        # Process the file via daemon
+        try:
+            metadata = {
+                "source": "cli",
+                "chunk_size": str(chunk_size),
+                "chunk_overlap": str(chunk_overlap)
+            }
+            
+            response = await daemon_client.process_document(
+                file_path=str(file_path),
+                collection=collection,
+                metadata=metadata,
+                chunk_text=True
             )
 
-            _display_ingestion_result(result, file_path.name)
+            if response.success:
+                print(f"✅ Document processed successfully")
+                print(f"Document ID: {response.document_id}")
+                print(f"Chunks added: {response.chunks_added}")
+                if response.applied_metadata:
+                    print("Applied metadata:")
+                    for key, value in response.applied_metadata.items():
+                        print(f"  {key}: {value}")
+            else:
+                print(f"❌ Processing failed: {response.message}")
+                raise typer.Exit(1)
 
+        except Exception as e:
+            print(f"❌ Processing failed: {e}")
+            raise typer.Exit(1)
+
+    try:
+        await with_daemon_client(ingest_operation)
     except Exception as e:
         print(f"❌ Ingestion failed: {e}")
         raise typer.Exit(1)
