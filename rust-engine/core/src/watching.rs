@@ -17,6 +17,9 @@ use thiserror::Error;
 
 use crate::processing::{TaskSubmitter, TaskPriority, TaskSource, TaskPayload};
 
+pub mod platform;
+pub use platform::{PlatformWatcherConfig, PlatformWatcherFactory, PlatformWatchingStats};
+
 /// Errors that can occur during file watching
 #[derive(Error, Debug)]
 pub enum WatchingError {
