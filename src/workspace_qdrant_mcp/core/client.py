@@ -44,6 +44,7 @@ from ..utils.project_detection import ProjectDetector
 from .collections import WorkspaceCollectionManager
 from .config import Config
 from .embeddings import EmbeddingService
+from .ssl_config import get_ssl_manager, create_secure_qdrant_config
 
 logger = get_logger(__name__)
 
@@ -134,18 +135,42 @@ class QdrantWorkspaceClient:
             return
 
         try:
-            # Suppress SSL warnings for localhost connections to avoid cluttering output
-            if "localhost" in self.config.qdrant.url or "127.0.0.1" in self.config.qdrant.url:
-                import urllib3
-                urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
+            # Create secure Qdrant client configuration with context-aware SSL handling
+            ssl_manager = get_ssl_manager()
             
-            # Initialize Qdrant client
-            self.client = QdrantClient(**self.config.qdrant_client_config)
-
-            # Test connection
-            await asyncio.get_event_loop().run_in_executor(
-                None, self.client.get_collections
+            # Determine environment from config or fall back to development
+            environment = getattr(self.config, 'environment', 'development')
+            
+            # Get authentication credentials from config if available
+            auth_token = getattr(self.config.security, 'qdrant_auth_token', None) if hasattr(self.config, 'security') else None
+            api_key = getattr(self.config.security, 'qdrant_api_key', None) if hasattr(self.config, 'security') else None
+            
+            # Create secure client configuration
+            secure_config = create_secure_qdrant_config(
+                base_config=self.config.qdrant_client_config,
+                url=self.config.qdrant.url,
+                environment=environment,
+                auth_token=auth_token,
+                api_key=api_key
             )
+            
+            # Use SSL context manager for localhost connections in development
+            if ssl_manager.is_localhost_url(self.config.qdrant.url) and environment == 'development':
+                with ssl_manager.for_localhost():
+                    self.client = QdrantClient(**secure_config)
+            else:
+                self.client = QdrantClient(**secure_config)
+
+            # Test connection with appropriate SSL context
+            if ssl_manager.is_localhost_url(self.config.qdrant.url) and environment == 'development':
+                with ssl_manager.for_localhost():
+                    await asyncio.get_event_loop().run_in_executor(
+                        None, self.client.get_collections
+                    )
+            else:
+                await asyncio.get_event_loop().run_in_executor(
+                    None, self.client.get_collections
+                )
 
             logger.info("Connected to Qdrant at %s", self.config.qdrant.url)
 

@@ -36,6 +36,20 @@ class SecurityConfig(BaseModel):
     max_requests_per_minute: int = 1000
     request_size_limit: int = 1048576  # 1MB default
     authentication_required: bool = False
+    
+    # SSL/TLS Configuration
+    ssl_verify_certificates: bool = True
+    ssl_ca_cert_path: Optional[str] = None
+    ssl_client_cert_path: Optional[str] = None
+    ssl_client_key_path: Optional[str] = None
+    
+    # Authentication Configuration
+    qdrant_auth_token: Optional[str] = None
+    qdrant_api_key: Optional[str] = None
+    
+    # Environment-specific SSL behavior
+    development_allow_insecure_localhost: bool = True
+    production_enforce_ssl: bool = True
 
 
 class MonitoringConfig(BaseModel):
