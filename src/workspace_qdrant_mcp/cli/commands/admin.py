@@ -1,6 +1,4 @@
 
-from ...observability import get_logger
-logger = get_logger(__name__)
 """Administrative CLI commands for system management.
 
 This module provides comprehensive system administration capabilities
@@ -18,40 +16,42 @@ import typer
 
 from ...core.client import QdrantWorkspaceClient, create_qdrant_client
 from ...core.config import Config
+from ...observability import get_logger
 from ...utils.project_detection import ProjectDetector
-
-# Create the admin app
-admin_app = typer.Typer(
-    help="""System administration and configuration
-    
-    Monitor system health, manage configuration, and control processing engines.
-    
-    Examples:
-        wqm admin status                 # Show comprehensive system status
-        wqm admin health                 # Run health checks
-        wqm admin collections            # List all collections
-        wqm admin start-engine           # Start Rust processing engine
-        wqm admin config show           # Show current configuration
-    """,
-    no_args_is_help=True,
-    rich_markup_mode=None  # Disable Rich formatting completely
+from ..utils import (
+    handle_async,
+    create_command_app,
+    verbose_option,
+    json_output_option,
+    force_option,
+    config_path_option,
+    success_message,
+    error_message,
+    warning_message
 )
 
-def handle_async(coro):
-    """Helper to run async commands."""
-    try:
-        return asyncio.run(coro)
-    except KeyboardInterrupt:
-        print("\nOperation cancelled by user")
-        raise typer.Exit(1)
-    except Exception as e:
-        print(f"Error: {e}")
-        raise typer.Exit(1)
+logger = get_logger(__name__)
+
+# Create the admin app using shared utilities
+admin_app = create_command_app(
+    name="admin",
+    help_text="""System administration and configuration.
+    
+Monitor system health, manage configuration, and control processing engines.
+    
+Examples:
+    wqm admin status                 # Show comprehensive system status
+    wqm admin health                 # Run health checks
+    wqm admin collections            # List all collections
+    wqm admin start-engine           # Start Rust processing engine
+    wqm admin config --show          # Show current configuration""",
+    no_args_is_help=True
+)
 
 @admin_app.command("status")
 def system_status(
-    verbose: bool = typer.Option(False, "--verbose", "-v", help="Show detailed status"),
-    json_output: bool = typer.Option(False, "--json", help="Output as JSON"),
+    verbose: bool = verbose_option(),
+    json_output: bool = json_output_option(),
     watch: bool = typer.Option(False, "--watch", "-w", help="Watch status continuously (5s refresh)"),
 ):
     """Show comprehensive system status."""
@@ -71,15 +71,15 @@ def config_management(
 
 @admin_app.command("start-engine")
 def start_engine(
-    force: bool = typer.Option(False, "--force", help="Force start even if already running"),
-    config_path: str | None = typer.Option(None, "--config", help="Custom config path"),
+    force: bool = force_option(),
+    config_path: str | None = config_path_option(),
 ):
     """Start the Rust processing engine."""
     handle_async(_start_engine(force, config_path))
 
 @admin_app.command("stop-engine")
 def stop_engine(
-    force: bool = typer.Option(False, "--force", help="Force stop without graceful shutdown"),
+    force: bool = force_option(),
     timeout: int = typer.Option(30, "--timeout", help="Shutdown timeout in seconds"),
 ):
     """Stop the Rust processing engine."""
@@ -87,7 +87,7 @@ def stop_engine(
 
 @admin_app.command("restart-engine")
 def restart_engine(
-    config_path: str | None = typer.Option(None, "--config", help="Custom config path"),
+    config_path: str | None = config_path_option(),
 ):
     """Restart engine with new configuration."""
     handle_async(_restart_engine(config_path))
