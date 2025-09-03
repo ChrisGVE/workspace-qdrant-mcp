@@ -47,6 +47,11 @@ service IngestService {
   rpc GetProcessingStatus(GetProcessingStatusRequest) returns (ProcessingStatusResponse);
   rpc GetSystemStatus(google.protobuf.Empty) returns (SystemStatusResponse);
   rpc HealthCheck(google.protobuf.Empty) returns (HealthResponse);
+  
+  // Real-time status streaming
+  rpc StreamProcessingStatus(StreamStatusRequest) returns (stream ProcessingStatusUpdate);
+  rpc StreamSystemMetrics(StreamMetricsRequest) returns (stream SystemMetricsUpdate);
+  rpc StreamQueueStatus(StreamQueueRequest) returns (stream QueueStatusUpdate);
 }
 
 // Document processing messages
@@ -541,4 +546,88 @@ message ResourceUsage {
   int32 open_files = 4;
   int32 active_connections = 5;
   double disk_usage_percent = 6;
+}
+
+// Streaming status messages
+message StreamStatusRequest {
+  int32 update_interval_seconds = 1;
+  bool include_history = 2;
+  optional string collection_filter = 3;
+}
+
+message ProcessingStatusUpdate {
+  google.protobuf.Timestamp timestamp = 1;
+  repeated ProcessingTask active_tasks = 2;
+  repeated ProcessingTask recent_completed = 3;
+  ProcessingStats current_stats = 4;
+  QueueStatus queue_status = 5;
+}
+
+message StreamMetricsRequest {
+  int32 update_interval_seconds = 1;
+  bool include_detailed_metrics = 2;
+}
+
+message SystemMetricsUpdate {
+  google.protobuf.Timestamp timestamp = 1;
+  ResourceUsage resource_usage = 2;
+  EngineStats engine_stats = 3;
+  repeated CollectionStats collection_stats = 4;
+  PerformanceMetrics performance_metrics = 5;
+}
+
+message StreamQueueRequest {
+  int32 update_interval_seconds = 1;
+  optional string collection_filter = 2;
+}
+
+message QueueStatusUpdate {
+  google.protobuf.Timestamp timestamp = 1;
+  QueueStatus queue_status = 2;
+  repeated QueuedFile recent_additions = 3;
+  repeated ProcessingProgress active_processing = 4;
+}
+
+message QueueStatus {
+  int32 total_queued = 1;
+  int32 high_priority = 2;
+  int32 normal_priority = 3;
+  int32 low_priority = 4;
+  int32 urgent_priority = 5;
+  repeated string collections_with_queued = 6;
+  google.protobuf.Duration estimated_completion_time = 7;
+}
+
+message QueuedFile {
+  string file_path = 1;
+  string collection = 2;
+  string priority = 3;
+  google.protobuf.Timestamp queued_at = 4;
+  int64 file_size_bytes = 5;
+}
+
+message ProcessingProgress {
+  string task_id = 1;
+  string file_path = 2;
+  string collection = 3;
+  double progress_percent = 4;
+  string current_stage = 5;
+  google.protobuf.Timestamp started_at = 6;
+  google.protobuf.Duration estimated_remaining = 7;
+}
+
+message PerformanceMetrics {
+  double processing_rate_files_per_hour = 1;
+  google.protobuf.Duration average_processing_time = 2;
+  double success_rate_percent = 3;
+  int32 concurrent_tasks = 4;
+  int64 throughput_bytes_per_second = 5;
+  repeated BottleneckInfo bottlenecks = 6;
+}
+
+message BottleneckInfo {
+  string component = 1;
+  string description = 2;
+  double severity = 3;
+  string suggestion = 4;
 }
