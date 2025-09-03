@@ -292,6 +292,91 @@ impl WorkspaceError {
             Self::Validation { .. } => ErrorSeverity::Low,
         }
     }
+
+    /// Convert error to dictionary for structured logging
+    pub fn to_dict(&self) -> std::collections::HashMap<String, String> {
+        let mut dict = std::collections::HashMap::new();
+        
+        dict.insert("error_type".to_string(), self.category().to_string());
+        dict.insert("severity".to_string(), self.severity().to_string());
+        dict.insert("retryable".to_string(), self.is_retryable().to_string());
+        dict.insert("message".to_string(), self.to_string());
+        
+        match self {
+            Self::Configuration { message, .. } => {
+                dict.insert("config_message".to_string(), message.clone());
+            }
+            Self::Network { message, attempt, max_attempts, .. } => {
+                dict.insert("network_message".to_string(), message.clone());
+                dict.insert("attempt".to_string(), attempt.to_string());
+                dict.insert("max_attempts".to_string(), max_attempts.to_string());
+            }
+            Self::QdrantConnection { message, url, .. } => {
+                dict.insert("qdrant_message".to_string(), message.clone());
+                dict.insert("url".to_string(), url.clone());
+            }
+            Self::FileSystem { message, path, operation, .. } => {
+                dict.insert("fs_message".to_string(), message.clone());
+                dict.insert("path".to_string(), path.clone());
+                dict.insert("operation".to_string(), operation.clone());
+            }
+            Self::DocumentProcessing { message, file_path, document_type, .. } => {
+                dict.insert("doc_message".to_string(), message.clone());
+                dict.insert("file_path".to_string(), file_path.clone());
+                dict.insert("document_type".to_string(), document_type.clone());
+            }
+            Self::Embedding { message, model, retry_count, .. } => {
+                dict.insert("emb_message".to_string(), message.clone());
+                dict.insert("model".to_string(), model.clone());
+                dict.insert("retry_count".to_string(), retry_count.to_string());
+            }
+            Self::IpcCommunication { message, endpoint, .. } => {
+                dict.insert("ipc_message".to_string(), message.clone());
+                dict.insert("endpoint".to_string(), endpoint.clone());
+            }
+            Self::TaskProcessing { message, task_id, priority, .. } => {
+                dict.insert("task_message".to_string(), message.clone());
+                dict.insert("task_id".to_string(), task_id.clone());
+                dict.insert("priority".to_string(), priority.clone());
+            }
+            Self::Validation { message, field } => {
+                dict.insert("val_message".to_string(), message.clone());
+                if let Some(field) = field {
+                    dict.insert("field".to_string(), field.clone());
+                }
+            }
+            Self::Timeout { message, duration_ms, operation } => {
+                dict.insert("timeout_message".to_string(), message.clone());
+                dict.insert("duration_ms".to_string(), duration_ms.to_string());
+                dict.insert("operation".to_string(), operation.clone());
+            }
+            Self::ResourceExhaustion { message, resource_type, current_usage, limit } => {
+                dict.insert("resource_message".to_string(), message.clone());
+                dict.insert("resource_type".to_string(), resource_type.clone());
+                if let Some(usage) = current_usage {
+                    dict.insert("current_usage".to_string(), usage.to_string());
+                }
+                if let Some(limit) = limit {
+                    dict.insert("limit".to_string(), limit.to_string());
+                }
+            }
+            Self::CircuitBreakerOpen { service, failure_count, last_failure } => {
+                dict.insert("service".to_string(), service.clone());
+                dict.insert("failure_count".to_string(), failure_count.to_string());
+                dict.insert("last_failure".to_string(), last_failure.clone());
+            }
+            Self::Authentication { message, service } => {
+                dict.insert("auth_message".to_string(), message.clone());
+                dict.insert("service".to_string(), service.clone());
+            }
+            Self::Internal { message, component, .. } => {
+                dict.insert("internal_message".to_string(), message.clone());
+                dict.insert("component".to_string(), component.clone());
+            }
+        }
+        
+        dict
+    }
 }
 
 /// Error severity levels for monitoring and alerting
