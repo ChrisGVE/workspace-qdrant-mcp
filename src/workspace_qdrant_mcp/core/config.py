@@ -589,7 +589,7 @@ class Config(BaseSettings):
                 logger.info("Configuration errors:")
                 for issue in issues:
                     logger.info("  - {issue}")
-                sys.exit(1)
+                raise ConfigurationError("Configuration validation failed")
             ```
         """
         issues = []

@@ -1590,15 +1590,15 @@ def main(
                 console.print(f"\nWarning: Failed to save report: {e}", style="yellow")
 
         # Exit with appropriate code
-        sys.exit(0 if report.overall_success else 1)
+        raise typer.Exit(0 if report.overall_success else 1)
 
     except KeyboardInterrupt:
         console.print("\nError: Diagnostics cancelled by user", style="red")
-        sys.exit(1)
+        raise typer.Exit(1)
     except Exception as e:
         console.print(f"\nError: Diagnostics failed: {e}", style="red")
         logger.error(f"Diagnostics failed: {e}", exc_info=True)
-        sys.exit(1)
+        raise typer.Exit(1)
 
 
 if __name__ == "__main__":

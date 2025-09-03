@@ -945,15 +945,15 @@ def main(
                     health_report.overall_health, 2
                 )
 
-                sys.exit(exit_code)
+                raise typer.Exit(exit_code)
 
         except KeyboardInterrupt:
             console.print("\nError: Health monitoring cancelled by user", style="red")
-            sys.exit(1)
+            raise typer.Exit(1)
         except Exception as e:
             console.print(f"\nError: Health monitoring failed: {e}", style="red")
             logger.error(f"Health monitoring failed: {e}", exc_info=True)
-            sys.exit(1)
+            raise typer.Exit(1)
         finally:
             if monitor:
                 await monitor.close()

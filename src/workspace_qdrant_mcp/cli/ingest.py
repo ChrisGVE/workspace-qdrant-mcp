@@ -308,12 +308,12 @@ async def _run_ingestion(
         _display_results(result)
 
         # Exit with appropriate code
-        sys.exit(0 if result.success else 1)
+        raise typer.Exit(0 if result.success else 1)
 
     except Exception as e:
         console.print(f"❌ Error: {e}", style="red")
         logger.error(f"Ingestion failed: {e}", exc_info=True)
-        sys.exit(1)
+        raise typer.Exit(1)
 
     finally:
         if "client" in locals():
@@ -503,7 +503,7 @@ async def _show_formats() -> None:
 
     except Exception as e:
         console.print(f"❌ Error getting format info: {e}", style="red")
-        sys.exit(1)
+        raise typer.Exit(1)
 
 
 async def _estimate_processing(
@@ -589,7 +589,7 @@ async def _estimate_processing(
 
     except Exception as e:
         console.print(f"❌ Error during estimation: {e}", style="red")
-        sys.exit(1)
+        raise typer.Exit(1)
 
 
 async def _run_web_ingestion(
@@ -731,12 +731,12 @@ async def _run_web_ingestion(
                 console.print(f"🔗 Text chunks created: {result['chunks_created']}", style="cyan")
         else:
             console.print(f"❌ Ingestion failed: {result.get('error', 'Unknown error')}", style="red")
-            sys.exit(1)
+            raise typer.Exit(1)
     
     except Exception as e:
         console.print(f"❌ Web ingestion failed: {e}", style="red")
         logger.error(f"Web ingestion error: {e}", exc_info=True)
-        sys.exit(1)
+        raise typer.Exit(1)
     
     finally:
         if 'client' in locals():

@@ -764,11 +764,14 @@ def validate_config_cmd(
 
             validator.print_validation_results(results)
 
-            sys.exit(0 if is_valid else 1)
+            # Raise exception instead of sys.exit for proper error handling
+            if not is_valid:
+                raise typer.Exit(code=1)
+            raise typer.Exit(code=0)
 
     except Exception as e:
         typer.echo(typer.style(f"Configuration error: {e}", fg=typer.colors.RED))
-        sys.exit(1)
+        raise typer.Exit(code=1)
 
 
 def validate_config_cli() -> None:
