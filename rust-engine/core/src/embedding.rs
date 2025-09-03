@@ -13,7 +13,7 @@ use std::sync::Arc;
 use tokio::sync::RwLock;
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
-use ort::{environment::Environment, session::Session, value::Value};
+use ort::{Session, Value};
 use tokenizers::Tokenizer;
 // use uuid::Uuid;  // Currently unused
 use ahash::AHashMap;
@@ -447,7 +447,7 @@ pub struct EmbeddingGenerator {
     preprocessor: TextPreprocessor,
     cache: EmbeddingCache,
     bm25: Arc<RwLock<BM25>>,
-    onnx_env: Arc<Environment>,
+    // ONNX Runtime environment removed for simplicity
     sessions: Arc<RwLock<AHashMap<String, Session>>>,
     tokenizers: Arc<RwLock<AHashMap<String, Tokenizer>>>,
 }
@@ -460,11 +460,7 @@ impl EmbeddingGenerator {
         let cache = EmbeddingCache::new(config.max_cache_size);
         let bm25 = Arc::new(RwLock::new(BM25::new(config.bm25_k1, config.bm25_b)));
         
-        // Initialize ONNX Runtime environment
-        let onnx_env = Arc::new(Environment::new(ort::LogLevel::Warning, "embedding-generator")
-            .map_err(|e| EmbeddingError::OnnxError { 
-                message: format!("Failed to initialize ONNX environment: {}", e)
-            })?);
+        // ONNX Runtime environment initialization simplified
         
         Ok(Self {
             config,
@@ -472,7 +468,6 @@ impl EmbeddingGenerator {
             preprocessor,
             cache,
             bm25,
-            onnx_env,
             sessions: Arc::new(RwLock::new(AHashMap::new())),
             tokenizers: Arc::new(RwLock::new(AHashMap::new())),
         })
@@ -487,10 +482,7 @@ impl EmbeddingGenerator {
         
         // Load ONNX session
         let model_path = self.model_manager.get_model_path(model_name);
-        let session = Session::builder(&self.onnx_env)
-            .map_err(|e| EmbeddingError::OnnxError {
-                message: format!("Failed to create session builder: {}", e)
-            })?
+        let session = Session::builder()?
             .with_model_from_file(&model_path)
             .map_err(|e| EmbeddingError::OnnxError {
                 message: format!("Failed to load model from {}: {}", model_path.display(), e)
@@ -586,14 +578,17 @@ impl EmbeddingGenerator {
                 .clone()
         };
         
-        let session = {
+        // Get the session - we'll need to handle mutability properly
+        let session_exists = {
             let sessions = self.sessions.read().await;
-            sessions.get(model_name)
-                .ok_or_else(|| EmbeddingError::ModelNotFound {
-                    model_name: model_name.to_string(),
-                })?
-                .clone()
+            sessions.contains_key(model_name)
         };
+        
+        if !session_exists {
+            return Err(EmbeddingError::ModelNotFound {
+                model_name: model_name.to_string(),
+            });
+        }
         
         // Tokenize the text
         let encoding = tokenizer.encode(preprocessed.cleaned.as_str(), false)
@@ -618,25 +613,32 @@ impl EmbeddingGenerator {
                 message: format!("Failed to create attention_mask tensor: {}", e)
             })?;
         
-        // Run inference
-        let inputs = vec![
-            ("input_ids", input_ids_tensor),
-            ("attention_mask", attention_mask_tensor),
-        ];
-        let outputs = session.run(inputs)
-            .map_err(|e| EmbeddingError::OnnxError {
-                message: format!("ONNX inference failed: {}", e)
+        // Run inference with write lock on session
+        let embedding_vec = {
+            let mut sessions = self.sessions.write().await;
+            let session = sessions.get_mut(model_name).unwrap();
+            
+            let inputs = vec![
+                ("input_ids", input_ids_tensor),
+                ("attention_mask", attention_mask_tensor),
+            ];
+            let outputs = session.run(inputs)
+                .map_err(|e| EmbeddingError::OnnxError {
+                    message: format!("ONNX inference failed: {}", e)
+                })?;
+            
+            // Extract embedding from output (try first output)
+            let embedding_tensor = outputs.get(0).ok_or_else(|| EmbeddingError::OnnxError {
+                message: "No output tensor found".to_string()
             })?;
-        
-        // Extract embedding from output
-        let embedding_tensor = &outputs["last_hidden_state"];
-        let embedding_data = embedding_tensor.try_extract_tensor::<f32>()
-            .map_err(|e| EmbeddingError::OnnxError {
-                message: format!("Failed to extract embedding tensor: {}", e)
-            })?;
-        
-        // Convert to vector (assuming output is [1, embedding_dim])
-        let embedding_vec: Vec<f32> = embedding_data.view().iter().cloned().collect();
+            let embedding_data = embedding_tensor.try_extract_tensor::<f32>()
+                .map_err(|e| EmbeddingError::OnnxError {
+                    message: format!("Failed to extract embedding tensor: {}", e)
+                })?;
+            
+            // Convert to vector (assuming output is [1, embedding_dim])
+            embedding_data.1.to_vec()
+        };
         
         Ok(DenseEmbedding {
             vector: embedding_vec,

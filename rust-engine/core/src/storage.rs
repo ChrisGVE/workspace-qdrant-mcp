@@ -8,10 +8,10 @@ use std::sync::Arc;
 use std::time::Duration;
 use qdrant_client::{Qdrant, QdrantError};
 use qdrant_client::qdrant::{PointStruct, SearchPoints, UpsertPoints};
-use qdrant_client::qdrant::{CreateCollection, DeleteCollection, CollectionExists, Distance, VectorParams, VectorsConfig};
-use qdrant_client::qdrant::{Datatype, MultiVectorConfig};
+use qdrant_client::qdrant::{CreateCollection, DeleteCollection, Distance, VectorParams, VectorsConfig};
+use qdrant_client::qdrant::Datatype;
 use serde::{Serialize, Deserialize};
-use tokio::time::{sleep, timeout};
+use tokio::time::sleep;
 use thiserror::Error;
 use tracing::{debug, info, warn, error};
 
@@ -232,7 +232,7 @@ impl StorageClient {
         &self,
         collection_name: &str,
         dense_vector_size: Option<u64>,
-        sparse_vector_size: Option<u64>,
+        _sparse_vector_size: Option<u64>,
     ) -> Result<(), StorageError> {
         info!("Creating collection: {}", collection_name);
         
@@ -295,16 +295,12 @@ impl StorageClient {
     pub async fn collection_exists(&self, collection_name: &str) -> Result<bool, StorageError> {
         debug!("Checking if collection exists: {}", collection_name);
         
-        let request = CollectionExists {
-            collection_name: collection_name.to_string(),
-        };
-        
         let response = self.retry_operation(|| async {
-            self.client.collection_exists(request.clone()).await
+            self.client.collection_exists(collection_name).await
                 .map_err(|e| StorageError::Collection(e.to_string()))
         }).await?;
         
-        Ok(response.result.unwrap_or(false))
+        Ok(response)
     }
     
     /// Insert a single document point
@@ -317,8 +313,15 @@ impl StorageClient {
         
         let qdrant_point = self.convert_to_qdrant_point(point)?;
         
+        let upsert_points = UpsertPoints {
+            collection_name: collection_name.to_string(),
+            points: vec![qdrant_point],
+            wait: Some(true),
+            ..Default::default()
+        };
+        
         self.retry_operation(|| async {
-            self.client.upsert_points(collection_name, None, vec![qdrant_point.clone()], None).await
+            self.client.upsert_points(upsert_points.clone()).await
                 .map_err(|e| StorageError::Point(e.to_string()))
         }).await?;
         
@@ -348,8 +351,15 @@ impl StorageClient {
                 
             match qdrant_points {
                 Ok(points_batch) => {
+                    let upsert_points = UpsertPoints {
+                        collection_name: collection_name.to_string(),
+                        points: points_batch,
+                        wait: Some(false), // Don't wait for batch operations
+                        ..Default::default()
+                    };
+                    
                     match self.retry_operation(|| async {
-                        self.client.upsert_points(collection_name, None, points_batch.clone(), None).await
+                        self.client.upsert_points(upsert_points.clone()).await
                             .map_err(|e| StorageError::Batch(e.to_string()))
                     }).await {
                         Ok(_) => successful += chunk.len(),
