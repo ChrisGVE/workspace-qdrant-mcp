@@ -85,6 +85,12 @@ from .core.watch_validation import (
     ValidationResult,
 )
 from .utils.config_validator import ConfigValidator
+from .tools.grpc_tools import (
+    test_grpc_connection,
+    get_grpc_engine_stats,
+    process_document_via_grpc,
+    search_via_grpc,
+)
 
 # Initialize structured logging
 logger = get_logger(__name__)
@@ -1701,6 +1707,117 @@ async def get_watch_change_history(watch_id: str = None, limit: int = 20) -> dic
         }
 
 
+@app.tool()
+async def test_grpc_connection_tool(
+    host: str = "127.0.0.1",
+    port: int = 50051,
+    timeout: float = 10.0
+) -> dict:
+    """
+    Test gRPC connection to the Rust ingestion engine.
+    
+    Args:
+        host: gRPC server host address
+        port: gRPC server port
+        timeout: Connection timeout in seconds
+        
+    Returns:
+        Dict with connection test results including health status and performance metrics
+    """
+    return await test_grpc_connection(host, port, timeout)
+
+
+@app.tool()
+async def get_grpc_engine_stats_tool(
+    host: str = "127.0.0.1",
+    port: int = 50051,
+    include_collections: bool = True,
+    include_watches: bool = True,
+    timeout: float = 15.0
+) -> dict:
+    """
+    Get comprehensive statistics from the Rust ingestion engine.
+    
+    Args:
+        host: gRPC server host address
+        port: gRPC server port
+        include_collections: Include collection statistics in results
+        include_watches: Include file watch statistics in results
+        timeout: Request timeout in seconds
+        
+    Returns:
+        Dict with engine statistics or error information
+    """
+    return await get_grpc_engine_stats(host, port, include_collections, include_watches, timeout)
+
+
+@app.tool()
+async def process_document_via_grpc_tool(
+    file_path: str,
+    collection: str,
+    host: str = "127.0.0.1",
+    port: int = 50051,
+    metadata: dict = None,
+    document_id: str = None,
+    chunk_text: bool = True,
+    timeout: float = 60.0
+) -> dict:
+    """
+    Process a document directly via gRPC bypassing hybrid client.
+    
+    Useful for testing gRPC functionality or when specifically wanting
+    to use the Rust engine for document processing.
+    
+    Args:
+        file_path: Path to document file to process
+        collection: Target collection name
+        host: gRPC server host address
+        port: gRPC server port
+        metadata: Optional document metadata dictionary
+        document_id: Optional custom document identifier
+        chunk_text: Whether to chunk large documents
+        timeout: Processing timeout in seconds
+        
+    Returns:
+        Dict with processing results from the Rust engine
+    """
+    return await process_document_via_grpc(
+        file_path, collection, host, port, metadata, document_id, chunk_text, timeout
+    )
+
+
+@app.tool()
+async def search_via_grpc_tool(
+    query: str,
+    collections: list = None,
+    host: str = "127.0.0.1",
+    port: int = 50051,
+    mode: str = "hybrid",
+    limit: int = 10,
+    score_threshold: float = 0.7,
+    timeout: float = 30.0
+) -> dict:
+    """
+    Execute search directly via gRPC bypassing hybrid client.
+    
+    Args:
+        query: Search query text
+        collections: Optional list of collections to search
+        host: gRPC server host address
+        port: gRPC server port
+        mode: Search mode ("hybrid", "dense", "sparse")
+        limit: Maximum number of results to return
+        score_threshold: Minimum relevance score threshold
+        timeout: Search timeout in seconds
+        
+    Returns:
+        Dict with search results from the Rust engine
+    """
+    return await search_via_grpc(
+        query, collections, host, port, mode, limit, score_threshold, timeout
+    )
+
+
 def _format_time_ago(timestamp_dt: datetime) -> str:
     """Format timestamp as human-readable time ago."""
     now = datetime.now(timezone.utc)
@@ -1881,9 +1998,23 @@ async def initialize_workspace(config_file: Optional[str] = None) -> None:
                       warnings_count=len(validation_results["warnings"]),
                       warnings=validation_results["warnings"])
 
-    # Initialize Qdrant workspace client
-    logger.info("Initializing Qdrant workspace client", qdrant_url=config.qdrant.url)
-    workspace_client = QdrantWorkspaceClient(config)
+    # Initialize workspace client (gRPC-enabled or direct based on config)
+    if config.grpc.enabled:
+        logger.info("Initializing gRPC-enabled workspace client", 
+                   qdrant_url=config.qdrant.url,
+                   grpc_address=f"{config.grpc.host}:{config.grpc.port}",
+                   fallback_enabled=config.grpc.fallback_to_direct)
+        from .core.grpc_client import GrpcWorkspaceClient
+        workspace_client = GrpcWorkspaceClient(
+            config=config,
+            grpc_enabled=True,
+            grpc_host=config.grpc.host,
+            grpc_port=config.grpc.port,
+            fallback_to_direct=config.grpc.fallback_to_direct
+        )
+    else:
+        logger.info("Initializing direct Qdrant workspace client", qdrant_url=config.qdrant.url)
+        workspace_client = QdrantWorkspaceClient(config)
 
     # Initialize collections for current project
     logger.debug("Initializing workspace collections")
