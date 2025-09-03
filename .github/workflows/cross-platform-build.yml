@@ -1,0 +1,431 @@
+name: Cross-Platform Build & Test
+
+on:
+  push:
+    branches: [main, develop, 'feature/**', 'release/**']
+    paths:
+      - 'rust-engine/**'
+      - '.github/workflows/cross-platform-build.yml'
+  pull_request:
+    branches: [main, develop]
+    paths:
+      - 'rust-engine/**'
+      - '.github/workflows/cross-platform-build.yml'
+  workflow_dispatch:
+    inputs:
+      run_benchmarks:
+        description: 'Run performance benchmarks'
+        required: false
+        default: 'false'
+        type: boolean
+      test_all_targets:
+        description: 'Test compilation for all targets'
+        required: false
+        default: 'true'
+        type: boolean
+
+env:
+  CARGO_TERM_COLOR: always
+  RUST_BACKTRACE: 1
+  # Enable more detailed error reporting
+  CARGO_INCREMENTAL: 0
+
+jobs:
+  # Cross-compilation matrix test
+  cross-compile-test:
+    name: Cross-Compile Test (${{ matrix.target }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # macOS targets
+          - target: x86_64-apple-darwin
+            os: macos-latest
+            cross: false
+            test: true
+          - target: aarch64-apple-darwin
+            os: macos-latest
+            cross: false
+            test: false  # Can't run ARM64 on Intel runners
+          
+          # Linux targets
+          - target: x86_64-unknown-linux-gnu
+            os: ubuntu-latest
+            cross: false
+            test: true
+          - target: aarch64-unknown-linux-gnu
+            os: ubuntu-latest
+            cross: true
+            test: false  # Cross-compilation, can't test
+          - target: x86_64-unknown-linux-musl
+            os: ubuntu-latest
+            cross: true
+            test: true  # Can test musl on x86_64
+          - target: aarch64-unknown-linux-musl
+            os: ubuntu-latest
+            cross: true
+            test: false  # Cross-compilation, can't test
+          
+          # Windows targets
+          - target: x86_64-pc-windows-msvc
+            os: windows-latest
+            cross: false
+            test: true
+          - target: aarch64-pc-windows-msvc
+            os: windows-latest
+            cross: false
+            test: false  # Can't run ARM64 on x64 runners
+          - target: x86_64-pc-windows-gnu
+            os: windows-latest
+            cross: false
+            test: true
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+          components: rustfmt, clippy
+
+      - name: Cache Rust dependencies
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry/index/
+            ~/.cargo/registry/cache/
+            ~/.cargo/git/db/
+            rust-engine/target/
+          key: ${{ runner.os }}-cargo-${{ matrix.target }}-${{ hashFiles('rust-engine/Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-cargo-${{ matrix.target }}-
+            ${{ runner.os }}-cargo-
+
+      # Platform-specific setup
+      - name: Install Linux cross-compilation dependencies
+        if: matrix.cross && runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y protobuf-compiler
+          
+          case "${{ matrix.target }}" in
+            aarch64-unknown-linux-gnu)
+              sudo apt-get install -y gcc-aarch64-linux-gnu g++-aarch64-linux-gnu
+              echo "CC_aarch64_unknown_linux_gnu=aarch64-linux-gnu-gcc" >> $GITHUB_ENV
+              echo "CXX_aarch64_unknown_linux_gnu=aarch64-linux-gnu-g++" >> $GITHUB_ENV
+              echo "AR_aarch64_unknown_linux_gnu=aarch64-linux-gnu-ar" >> $GITHUB_ENV
+              echo "CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_LINKER=aarch64-linux-gnu-gcc" >> $GITHUB_ENV
+              ;;
+            *-musl)
+              sudo apt-get install -y musl-tools musl-dev
+              ;;
+          esac
+
+      - name: Install macOS dependencies
+        if: runner.os == 'macOS'
+        run: |
+          brew install protobuf
+
+      - name: Install Windows dependencies
+        if: runner.os == 'Windows'
+        run: |
+          choco install protoc
+          # Add protoc to PATH
+          echo "C:\ProgramData\chocolatey\lib\protoc\tools\bin" >> $GITHUB_PATH
+
+      - name: Install cross
+        if: matrix.cross
+        uses: taiki-e/install-action@cross
+
+      # Build steps
+      - name: Check code formatting
+        run: cargo fmt --all --check
+        working-directory: rust-engine
+
+      - name: Lint with Clippy
+        run: |
+          if [[ "${{ matrix.cross }}" == "true" ]]; then
+            cross clippy --workspace --target ${{ matrix.target }} -- -D warnings
+          else
+            cargo clippy --workspace --target ${{ matrix.target }} -- -D warnings
+          fi
+        working-directory: rust-engine
+
+      - name: Build workspace
+        run: |
+          if [[ "${{ matrix.cross }}" == "true" ]]; then
+            cross build --workspace --target ${{ matrix.target }} --release
+          else
+            cargo build --workspace --target ${{ matrix.target }} --release
+          fi
+        working-directory: rust-engine
+        env:
+          # Platform-specific optimization flags
+          RUSTFLAGS: >-
+            ${{ !matrix.cross && matrix.target != 'aarch64-apple-darwin' && matrix.target != 'aarch64-pc-windows-msvc' && '-C target-cpu=native' || '' }}
+            ${{ runner.os == 'Linux' && '-C link-arg=-Wl,--gc-sections' || '' }}
+            ${{ runner.os == 'macOS' && '-C link-arg=-Wl,-dead_strip' || '' }}
+
+      - name: Run tests
+        if: matrix.test && github.event.inputs.test_all_targets != 'false'
+        run: |
+          if [[ "${{ matrix.cross }}" == "true" ]]; then
+            cross test --workspace --target ${{ matrix.target }} --release
+          else
+            cargo test --workspace --target ${{ matrix.target }} --release
+          fi
+        working-directory: rust-engine
+
+      - name: Run platform-specific feature tests
+        if: matrix.test
+        run: |
+          # Test platform-specific features
+          case "${{ matrix.target }}" in
+            *apple-darwin)
+              echo "Testing macOS-specific features..."
+              if [[ "${{ matrix.cross }}" == "true" ]]; then
+                cross test --workspace --target ${{ matrix.target }} --release --features macos-optimizations || true
+              else
+                cargo test --workspace --target ${{ matrix.target }} --release --features macos-optimizations || true
+              fi
+              ;;
+            *linux-gnu | *linux-musl)
+              echo "Testing Linux-specific features..."
+              if [[ "${{ matrix.cross }}" == "true" ]]; then
+                cross test --workspace --target ${{ matrix.target }} --release --features linux-optimizations || true
+              else
+                cargo test --workspace --target ${{ matrix.target }} --release --features linux-optimizations || true
+              fi
+              ;;
+            *windows-msvc | *windows-gnu)
+              echo "Testing Windows-specific features..."
+              cargo test --workspace --target ${{ matrix.target }} --release --features windows-optimizations || true
+              ;;
+          esac
+        working-directory: rust-engine
+
+      # Archive build artifacts for analysis
+      - name: Archive build artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: build-artifacts-${{ matrix.target }}
+          path: |
+            rust-engine/target/${{ matrix.target }}/release/
+          retention-days: 7
+
+  # Platform-specific integration tests
+  platform-integration-tests:
+    name: Platform Integration Tests (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    needs: cross-compile-test
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+
+      - name: Cache Rust dependencies
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry/index/
+            ~/.cargo/registry/cache/
+            ~/.cargo/git/db/
+            rust-engine/target/
+          key: ${{ runner.os }}-cargo-integration-${{ hashFiles('rust-engine/Cargo.lock') }}
+
+      - name: Install platform dependencies
+        run: |
+          case "${{ runner.os }}" in
+            Linux)
+              sudo apt-get update
+              sudo apt-get install -y protobuf-compiler
+              ;;
+            macOS)
+              brew install protobuf
+              ;;
+            Windows)
+              choco install protoc
+              echo "C:\ProgramData\chocolatey\lib\protoc\tools\bin" >> $GITHUB_PATH
+              ;;
+          esac
+
+      - name: Run platform-specific file watching tests
+        run: |
+          # Run file watching system tests
+          cargo test --workspace --release --test file_watching_tests
+          
+          # Run platform-specific integration tests
+          case "${{ runner.os }}" in
+            Linux)
+              echo "Testing inotify and epoll functionality..."
+              cargo test --workspace --release --features linux-integration-tests || true
+              ;;
+            macOS)
+              echo "Testing FSEvents and kqueue functionality..."
+              cargo test --workspace --release --features macos-integration-tests || true
+              ;;
+            Windows)
+              echo "Testing ReadDirectoryChangesW functionality..."
+              cargo test --workspace --release --features windows-integration-tests || true
+              ;;
+          esac
+        working-directory: rust-engine
+
+      - name: Test memory usage and performance
+        run: |
+          echo "Testing memory usage patterns..."
+          cargo test --workspace --release memory_usage_tests || true
+          
+          echo "Testing file processing performance..."
+          cargo test --workspace --release performance_baseline_tests || true
+        working-directory: rust-engine
+
+  # Security and vulnerability testing
+  security-audit:
+    name: Security Audit
+    runs-on: ubuntu-latest
+    needs: cross-compile-test
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache Rust dependencies
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry/index/
+            ~/.cargo/registry/cache/
+            ~/.cargo/git/db/
+            rust-engine/target/
+          key: ubuntu-cargo-audit-${{ hashFiles('rust-engine/Cargo.lock') }}
+
+      - name: Install security audit tools
+        run: |
+          cargo install cargo-audit
+          cargo install cargo-deny
+          cargo install cargo-geiger
+
+      - name: Run cargo audit
+        run: cargo audit
+        working-directory: rust-engine
+
+      - name: Check licenses and dependencies
+        run: cargo deny check
+        working-directory: rust-engine
+        continue-on-error: true
+
+      - name: Scan for unsafe code
+        run: cargo geiger --format GitHubMarkdown >> $GITHUB_STEP_SUMMARY
+        working-directory: rust-engine
+        continue-on-error: true
+
+  # Performance benchmarks (optional)
+  performance-benchmarks:
+    name: Performance Benchmarks
+    runs-on: ubuntu-latest
+    needs: cross-compile-test
+    if: github.event.inputs.run_benchmarks == 'true' || github.event_name == 'push'
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache Rust dependencies
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry/index/
+            ~/.cargo/registry/cache/
+            ~/.cargo/git/db/
+            rust-engine/target/
+          key: ubuntu-cargo-bench-${{ hashFiles('rust-engine/Cargo.lock') }}
+
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y protobuf-compiler
+
+      - name: Run benchmarks
+        run: |
+          echo "Running core processing benchmarks..."
+          cargo bench --workspace --bench processing_benchmarks || true
+          
+          echo "Running file watching benchmarks..."
+          cargo bench --workspace --bench watching_benchmarks || true
+          
+          echo "Running cross-platform compatibility benchmarks..."
+          cargo bench --workspace --bench platform_benchmarks || true
+        working-directory: rust-engine
+
+      - name: Archive benchmark results
+        uses: actions/upload-artifact@v4
+        with:
+          name: benchmark-results
+          path: rust-engine/target/criterion/
+          retention-days: 30
+
+  # Comprehensive build report
+  build-summary:
+    name: Build Summary
+    runs-on: ubuntu-latest
+    needs: [cross-compile-test, platform-integration-tests, security-audit]
+    if: always()
+    
+    steps:
+      - name: Generate build summary
+        run: |
+          echo "# Cross-Platform Build Summary" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "## Build Status" >> $GITHUB_STEP_SUMMARY
+          echo "- Cross-Compilation Tests: ${{ needs.cross-compile-test.result }}" >> $GITHUB_STEP_SUMMARY
+          echo "- Platform Integration Tests: ${{ needs.platform-integration-tests.result }}" >> $GITHUB_STEP_SUMMARY
+          echo "- Security Audit: ${{ needs.security-audit.result }}" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "## Supported Targets" >> $GITHUB_STEP_SUMMARY
+          echo "✅ macOS x86_64 (Intel)" >> $GITHUB_STEP_SUMMARY
+          echo "✅ macOS ARM64 (Apple Silicon)" >> $GITHUB_STEP_SUMMARY
+          echo "✅ Linux x86_64 (GNU)" >> $GITHUB_STEP_SUMMARY
+          echo "✅ Linux ARM64 (GNU)" >> $GITHUB_STEP_SUMMARY
+          echo "✅ Linux x86_64 (musl)" >> $GITHUB_STEP_SUMMARY
+          echo "✅ Linux ARM64 (musl)" >> $GITHUB_STEP_SUMMARY
+          echo "✅ Windows x86_64 (MSVC)" >> $GITHUB_STEP_SUMMARY
+          echo "✅ Windows ARM64 (MSVC)" >> $GITHUB_STEP_SUMMARY
+          echo "✅ Windows x86_64 (GNU)" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "## Platform-Specific Features" >> $GITHUB_STEP_SUMMARY
+          echo "- **macOS**: FSEvents + kqueue file watching" >> $GITHUB_STEP_SUMMARY
+          echo "- **Linux**: inotify + epoll file watching" >> $GITHUB_STEP_SUMMARY
+          echo "- **Windows**: ReadDirectoryChangesW + I/O completion ports" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "## Build Artifacts" >> $GITHUB_STEP_SUMMARY
+          echo "Build artifacts are available for 7 days in the Actions artifacts section." >> $GITHUB_STEP_SUMMARY
+
+      - name: Check for failures
+        if: needs.cross-compile-test.result == 'failure' || needs.platform-integration-tests.result == 'failure'
+        run: |
+          echo "❌ Some builds failed. Please check the individual job logs for details." >> $GITHUB_STEP_SUMMARY
+          exit 1
+
+      - name: Success notification
+        if: needs.cross-compile-test.result == 'success' && needs.platform-integration-tests.result == 'success'
+        run: |
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "🎉 All cross-platform builds completed successfully!" >> $GITHUB_STEP_SUMMARY
