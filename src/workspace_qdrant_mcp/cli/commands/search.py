@@ -612,31 +612,21 @@ def _display_grouped_search_results(results: list[dict[str, Any]], query: str, f
         collection_type = "Library" if collection.startswith("_") else "Project"
         print(f"Collection: {collection} ({collection_type}) - {len(collection_results)} results")
 
-        # Results table for this collection
         # Display results in plain text format
-        table.add_column("Score", justify="right", style="green", width=8)
-        table.add_column("Title", style="bold", width=25)
-        table.add_column("Preview", width=60)
-
+        print(f"{'Score':<8} {'Title':<25} {'Preview':<50}")
+        print("-" * 83)
+        
         for result in collection_results[:5]:  # Show top 5 per collection
             score = f"{result.get('score', 0):.3f}"
-            title = result.get("title", "Untitled")[:23] + "..." if len(result.get("title", "")) > 25 else result.get("title", "Untitled")
+            title = result.get("title", "Untitled")
+            if len(title) > 23:
+                title = title[:23] + "..."
 
             content = result.get("content", "")
-            preview = content[:57] + "..." if len(content) > 60 else content
+            preview = content[:47] + "..." if len(content) > 50 else content
+            preview = preview.replace('\n', ' ').replace('\t', ' ')
 
-            table.add_row(score, title, preview)
-
-        # Convert Rich table to plain text format
-    print(f"{'Score':<8} {'Collection':<20} {'Content Preview':<50}")
-    print("-" * 78)
-    
-    for i, result in enumerate(results[:limit] if limit else results):
-        score = f"{result.get('score', 0):.3f}"
-        collection = result.get('collection_name', 'unknown')[:18]
-        preview = str(result.get('content', ''))[:47] if result.get('content') else 'N/A'
-        preview = preview.replace('\n', ' ').replace('\t', ' ')
-        print(f"{score:<8} {collection:<20} {preview:<50}")
+            print(f"{score:<8} {title:<25} {preview:<50}")
 
         if len(collection_results) > 5:
             print(f"... and {len(collection_results) - 5} more results in this collection")
