@@ -153,6 +153,49 @@ class WorkspaceConfig(BaseModel):
     auto_create_collections: bool = False
 
 
+class GrpcConfig(BaseModel):
+    """Configuration for gRPC communication with the Rust ingestion engine.
+
+    Controls whether to use the high-performance Rust-based ingestion engine
+    via gRPC for document processing, file watching, and search operations.
+    Provides fallback options and connection management settings.
+
+    Attributes:
+        enabled: Whether to attempt gRPC connections to the Rust engine
+        host: gRPC server host address (typically localhost for local engine)
+        port: gRPC server port (default 50051 for gRPC convention)
+        fallback_to_direct: Fall back to direct Qdrant access if gRPC fails
+        connection_timeout: Timeout for establishing gRPC connections (seconds)
+        max_retries: Maximum number of retry attempts for failed operations
+        retry_backoff_multiplier: Exponential backoff multiplier for retries
+        health_check_interval: Interval between background health checks (seconds)
+        max_message_length: Maximum message size for gRPC operations (bytes)
+        keepalive_time: Keep-alive ping interval (seconds)
+
+    Usage Patterns:
+        - enabled=true + fallback_to_direct=true: Hybrid mode (recommended)
+        - enabled=true + fallback_to_direct=false: gRPC-only mode (high performance)
+        - enabled=false: Direct mode only (Python-only operations)
+
+    Performance Benefits:
+        - File processing: ~2-5x faster than Python implementation
+        - Large document ingestion: Significant memory efficiency improvements
+        - Concurrent operations: Better resource utilization
+        - File watching: Native filesystem event handling
+    """
+
+    enabled: bool = False
+    host: str = "127.0.0.1" 
+    port: int = 50051
+    fallback_to_direct: bool = True
+    connection_timeout: float = 10.0
+    max_retries: int = 3
+    retry_backoff_multiplier: float = 1.5
+    health_check_interval: float = 30.0
+    max_message_length: int = 100 * 1024 * 1024  # 100MB
+    keepalive_time: int = 30
+
+
 class Config(BaseSettings):
     """Main configuration class with hierarchical settings management.
 
@@ -203,6 +246,7 @@ class Config(BaseSettings):
     qdrant: QdrantConfig = Field(default_factory=QdrantConfig)
     embedding: EmbeddingConfig = Field(default_factory=EmbeddingConfig)
     workspace: WorkspaceConfig = Field(default_factory=WorkspaceConfig)
+    grpc: GrpcConfig = Field(default_factory=GrpcConfig)
 
     def __init__(self, config_file: Optional[str] = None, **kwargs) -> None:
         """Initialize configuration with YAML file, environment and legacy variable loading.
