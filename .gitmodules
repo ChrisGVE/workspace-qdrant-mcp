@@ -1,3 +1,9 @@
 [submodule "external/mcp-server-qdrant-retrieve"]
 	path = external/mcp-server-qdrant-retrieve
 	url = https://github.com/gergelyszerovay/mcp-server-qdrant-retrieve.git
+[submodule "external/qdrant-web-ui"]
+	path = external/qdrant-web-ui
+	url = https://github.com/ChrisGVE/qdrant-web-ui.git
+[submodule "web-ui"]
+	path = web-ui
+	url = https://github.com/ChrisGVE/qdrant-web-ui.git
