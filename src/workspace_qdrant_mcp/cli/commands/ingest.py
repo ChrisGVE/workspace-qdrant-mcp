@@ -54,11 +54,11 @@ def ingest_file(
 def ingest_folder(
     path: str = typer.Argument(..., help="Path to folder to ingest"),
     collection: str = typer.Option(..., "--collection", "-c", help="Target collection name"),
-    formats: list | None = typer.Option(None, "--format", "-f", help="File formats to process (e.g. pdf,md,txt)"),
+    formats: Optional[List[str]] = typer.Option(None, "--format", "-f", help="File formats to process (e.g. pdf,md,txt)"),
     chunk_size: int = typer.Option(1000, "--chunk-size", help="Maximum characters per text chunk"),
     chunk_overlap: int = typer.Option(200, "--chunk-overlap", help="Character overlap between chunks"),
     recursive: bool = typer.Option(True, "--recursive/--no-recursive", help="Process subdirectories recursively"),
-    exclude: list | None = typer.Option(None, "--exclude", help="Glob patterns to exclude"),
+    exclude: Optional[List[str]] = typer.Option(None, "--exclude", help="Glob patterns to exclude"),
     concurrency: int = typer.Option(5, "--concurrency", help="Number of concurrent processing tasks"),
     dry_run: bool = typer.Option(False, "--dry-run", help="Analyze files without ingesting"),
     force: bool = typer.Option(False, "--force", help="Overwrite existing documents"),
@@ -82,8 +82,8 @@ def ingest_yaml_metadata(
 def generate_yaml_metadata(
     library_path: str = typer.Argument(..., help="Path to library folder"),
     collection: str = typer.Option(..., "--collection", "-c", help="Target library collection name"),
-    output: str | None = typer.Option(None, "--output", "-o", help="Output YAML file path"),
-    formats: list | None = typer.Option(None, "--format", "-f", help="File formats to process (e.g. pdf,md,txt)"),
+    output: Optional[str] = typer.Option(None, "--output", "-o", help="Output YAML file path"),
+    formats: Optional[List[str]] = typer.Option(None, "--format", "-f", help="File formats to process (e.g. pdf,md,txt)"),
     force: bool = typer.Option(False, "--force", help="Overwrite existing YAML file"),
 ):
     """ Generate YAML metadata file for library documents."""
@@ -95,8 +95,8 @@ def ingest_web_pages(
     collection: str = typer.Option(..., "--collection", "-c", help="Target collection name"),
     max_depth: int = typer.Option(2, "--depth", help="Maximum crawl depth"),
     max_pages: int = typer.Option(50, "--max-pages", help="Maximum number of pages to crawl"),
-    include_patterns: list | None = typer.Option(None, "--include", help="URL patterns to include"),
-    exclude_patterns: list | None = typer.Option(None, "--exclude", help="URL patterns to exclude"),
+    include_patterns: Optional[List[str]] = typer.Option(None, "--include", help="URL patterns to include"),
+    exclude_patterns: Optional[List[str]] = typer.Option(None, "--exclude", help="URL patterns to exclude"),
     delay: float = typer.Option(1.0, "--delay", help="Delay between requests (seconds)"),
     dry_run: bool = typer.Option(False, "--dry-run", help="Analyze URLs without crawling"),
 ):
@@ -108,7 +108,7 @@ def ingest_web_pages(
 
 @ingest_app.command("status")
 def ingestion_status(
-    collection: str | None = typer.Option(None, "--collection", "-c", help="Filter by collection"),
+    collection: Optional[str] = typer.Option(None, "--collection", "-c", help="Filter by collection"),
     recent: bool = typer.Option(False, "--recent", help="Show only recent ingestions"),
 ):
     """ Show ingestion status and statistics."""
@@ -204,11 +204,11 @@ async def _ingest_file(
 async def _ingest_folder(
     path: str,
     collection: str,
-    formats: list | None,
+    formats: Optional[List[str]],
     chunk_size: int,
     chunk_overlap: int,
     recursive: bool,
-    exclude: list | None,
+    exclude: Optional[List[str]],
     concurrency: int,
     dry_run: bool,
     force: bool
@@ -282,8 +282,8 @@ async def _ingest_folder(
             for ext, stats in format_stats.items():
                 summary_table.add_row(
                     f".{ext}",
-                    str(stats["count"]),
-                    f"{stats["size_mb"]:.2f}"
+                    str(stats['count']),
+                    f"{stats['size_mb']:.2f}"
                 )
 
             summary_table.add_row(
@@ -367,8 +367,8 @@ async def _ingest_folder(
 async def _generate_yaml_metadata(
     library_path: str,
     collection: str,
-    output: str | None,
-    formats: list | None,
+    output: Optional[str],
+    formats: Optional[List[str]],
     force: bool
 ):
     """Generate YAML metadata file for library documents."""
@@ -546,8 +546,8 @@ async def _ingest_web_pages(
     collection: str,
     max_depth: int,
     max_pages: int,
-    include_patterns: list | None,
-    exclude_patterns: list | None,
+    include_patterns: Optional[List[str]],
+    exclude_patterns: Optional[List[str]],
     delay: float,
     dry_run: bool
 ):
@@ -570,7 +570,7 @@ async def _ingest_web_pages(
         print(f"Error: Web crawling failed: {e}")
         raise typer.Exit(1)
 
-async def _ingestion_status(collection: str | None, recent: bool):
+async def _ingestion_status(collection: Optional[str], recent: bool):
     """Show ingestion status and statistics."""
     try:
         print(" Ingestion Status")

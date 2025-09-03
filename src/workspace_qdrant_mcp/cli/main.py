@@ -65,8 +65,7 @@ import typer
 from ..observability import get_logger, configure_logging
 
 from .commands.admin import admin_app
-# TODO: Fix syntax errors in ingest.py before re-enabling
-# from .commands.ingest import ingest_app
+from .commands.ingest import ingest_app
 from .commands.init import init_app
 from .commands.library import library_app
 
@@ -90,8 +89,7 @@ logger = get_logger(__name__)
 app.add_typer(init_app, name="init", help="Initialize shell completion for wqm")
 app.add_typer(memory_app, name="memory", help="Memory rules and LLM behavior management")
 app.add_typer(admin_app, name="admin", help="System administration and configuration")
-# TODO: Re-enable after fixing ingest.py
-# app.add_typer(ingest_app, name="ingest", help="Manual document processing")
+app.add_typer(ingest_app, name="ingest", help="Manual document processing")
 app.add_typer(search_app, name="search", help="Command-line search interface")
 app.add_typer(library_app, name="library", help="Library collection management")
 app.add_typer(watch_app, name="watch", help="Folder watching configuration")
