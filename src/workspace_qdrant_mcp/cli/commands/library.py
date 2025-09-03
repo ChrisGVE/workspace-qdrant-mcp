@@ -11,7 +11,7 @@ from typing import Any, Dict, List, Optional
 
 import typer
 
-from ...core.client import create_qdrant_client
+from ...core.daemon_client import get_daemon_client, with_daemon_client
 from ...core.collection_naming import CollectionNameError, validate_collection_name
 from ...core.config import Config
 from ...observability import get_logger
