@@ -124,16 +124,25 @@ async def _ingest_file(
     force: bool
 ):
     """Ingest a single file."""
+    # Validate file existence first, before connecting to daemon
+    file_path = Path(path)
+    
+    if not file_path.exists():
+        print(f"❌ File not found: {path}")
+        print("\nPlease check:")
+        print("• File path is correct and accessible")
+        print("• File has not been moved or deleted")
+        print("• You have read permissions for this file")
+        raise typer.Exit(1)
+
+    if not file_path.is_file():
+        print(f"❌ Path is not a regular file: {path}")
+        print("\nThe path appears to be a directory or special file.")
+        print("To process a folder, use: wqm ingest folder")
+        raise typer.Exit(1)
+    
     async def ingest_operation(daemon_client):
-        file_path = Path(path)
-
-        if not file_path.exists():
-            print(f"Error: File not found: {path}")
-            raise typer.Exit(1)
-
-        if not file_path.is_file():
-            print(f"Error: Path is not a file: {path}")
-            raise typer.Exit(1)
+        # File validation already done above
 
         if dry_run:
             print(f"Analyzing File: {file_path.name}")
@@ -218,11 +227,17 @@ async def _ingest_folder(
         folder_path = Path(path)
 
         if not folder_path.exists():
-            print(f"Error: Folder not found: {path}")
+            print(f"❌ Folder not found: {path}")
+            print("\nPlease check:")
+            print("• Folder path is correct and accessible")
+            print("• Folder has not been moved or deleted")
+            print("• You have read permissions for this folder")
             raise typer.Exit(1)
 
         if not folder_path.is_dir():
-            print(f"Error: Path is not a directory: {path}")
+            print(f"❌ Path is not a directory: {path}")
+            print("\nThe path appears to be a file, not a folder.")
+            print("To process a single file, use: wqm ingest file")
             raise typer.Exit(1)
 
         # Default formats if not specified
