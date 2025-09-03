@@ -107,7 +107,7 @@ def pause_watches(
     collection: str | None = typer.Option(None, "--collection", "-c", help="Pause all watches for collection"),
     all: bool = typer.Option(False, "--all", help="Pause all watches"),
 ):
-    """⏸ Pause all or specific watches."""
+    """Pause all or specific watches."""
     handle_async(_pause_watches(path, collection, all))
 
 
@@ -117,7 +117,7 @@ def resume_watches(
     collection: str | None = typer.Option(None, "--collection", "-c", help="Resume all watches for collection"),
     all: bool = typer.Option(False, "--all", help="Resume all watches"),
 ):
-    """▶ Resume paused watches."""
+    """Resume paused watches."""
     handle_async(_resume_watches(path, collection, all))
 
 
@@ -127,7 +127,7 @@ def sync_watched_folders(
     dry_run: bool = typer.Option(False, "--dry-run", help="Show what would be synced"),
     force: bool = typer.Option(False, "--force", help="Force sync all files"),
 ):
-    """🔄 Sync watched folders manually."""
+    """Sync watched folders manually."""
     handle_async(_sync_watched_folders(path, dry_run, force))
 
 
@@ -251,7 +251,7 @@ async def _remove_watch(path: str | None, collection: str | None, all: bool, for
         elif path:
             print(f" Remove Watch: {path}")
         else:
-            print("❌ Must specify --all, --collection, or a path/watch ID")
+            print("Error: Must specify --all, --collection, or a path/watch ID")
             raise typer.Exit(1)
 
         # Find watches to remove
@@ -268,7 +268,7 @@ async def _remove_watch(path: str | None, collection: str | None, all: bool, for
             if matches:
                 watches_to_remove = matches
             else:
-                print(f"❌ No watch found for: {path}")
+                print(f"Error: No watch found for: {path}")
                 raise typer.Exit(1)
 
         if not watches_to_remove:
@@ -294,12 +294,12 @@ async def _remove_watch(path: str | None, collection: str | None, all: bool, for
                 removed_count += 1
                 print(f" Removed watch: {watch.path}")
             else:
-                print(f"❌ Failed to remove watch: {watch.path}")
+                print(f"Error: Failed to remove watch: {watch.path}")
 
         print(f"\nSuccessfully removed {removed_count} watch(es)[/green]")
 
     except Exception as e:
-        print(f"❌ Failed to remove watches: {e}")
+        print(f"Error: Failed to remove watches: {e}")
         raise typer.Exit(1)
 
 
@@ -358,7 +358,7 @@ async def _watch_status(detailed: bool, recent: bool):
             print("Start them with: wqm watch resume --all")
 
     except Exception as e:
-        print(f"❌ Failed to get watch status: {e}")
+        print(f"Error: Failed to get watch status: {e}")
         raise typer.Exit(1)
 
 
@@ -368,12 +368,12 @@ async def _pause_watches(path: str | None, collection: str | None, all: bool):
         service = await _get_watch_service()
 
         if all:
-            print("⏸ Pausing All Watches")
+            print("Pausing all watches")
             await service.stop_all_watches()
             print(" All watches paused")
 
         elif collection:
-            print(f"⏸ Pausing Watches for Collection: {collection}")
+            print(f"Pausing watches for collection: {collection}")
             watches = await service.list_watches(collection=collection)
             paused_count = 0
             for watch in watches:
@@ -382,29 +382,29 @@ async def _pause_watches(path: str | None, collection: str | None, all: bool):
             print(f" Paused {paused_count} watch(es)[/green]")
 
         elif path:
-            print(f"⏸ Pausing Watch: {path}")
+            print(f"Pausing watch: {path}")
             # Find watch by path or ID
             all_watches = await service.list_watches()
             matches = [w for w in all_watches if w.id == path or Path(w.path) == Path(path).resolve()]
 
             if not matches:
-                print(f"❌ No watch found for: {path}")
+                print(f"Error: No watch found for: {path}")
                 raise typer.Exit(1)
 
             for watch in matches:
                 if await service.pause_watch(watch.id):
                     print(f" Paused watch: {watch.path}")
                 else:
-                    print(f"❌ Failed to pause watch: {watch.path}")
+                    print(f"Error: Failed to pause watch: {watch.path}")
         else:
-            print("❌ Must specify --all, --collection, or a path/watch ID")
+            print("Error: Must specify --all, --collection, or a path/watch ID")
             raise typer.Exit(1)
 
         print("\nFile monitoring is stopped but configurations are preserved")
         print("Resume with: wqm watch resume")
 
     except Exception as e:
-        print(f"❌ Failed to pause watches: {e}")
+        print(f"Error: Failed to pause watches: {e}")
         raise typer.Exit(1)
 
 
@@ -414,12 +414,12 @@ async def _resume_watches(path: str | None, collection: str | None, all: bool):
         service = await _get_watch_service()
 
         if all:
-            print("▶ Resuming All Watches")
+            print("Resuming all watches")
             await service.start_all_watches()
             print(" All watches resumed")
 
         elif collection:
-            print(f"▶ Resuming Watches for Collection: {collection}")
+            print(f"Resuming watches for collection: {collection}")
             watches = await service.list_watches(collection=collection)
             resumed_count = 0
             for watch in watches:
@@ -428,28 +428,28 @@ async def _resume_watches(path: str | None, collection: str | None, all: bool):
             print(f" Resumed {resumed_count} watch(es)[/green]")
 
         elif path:
-            print(f"▶ Resuming Watch: {path}")
+            print(f"Resuming watch: {path}")
             # Find watch by path or ID
             all_watches = await service.list_watches()
             matches = [w for w in all_watches if w.id == path or Path(w.path) == Path(path).resolve()]
 
             if not matches:
-                print(f"❌ No watch found for: {path}")
+                print(f"Error: No watch found for: {path}")
                 raise typer.Exit(1)
 
             for watch in matches:
                 if await service.resume_watch(watch.id):
                     print(f" Resumed watch: {watch.path}")
                 else:
-                    print(f"❌ Failed to resume watch: {watch.path}")
+                    print(f"Error: Failed to resume watch: {watch.path}")
         else:
-            print("❌ Must specify --all, --collection, or a path/watch ID")
+            print("Error: Must specify --all, --collection, or a path/watch ID")
             raise typer.Exit(1)
 
         print("\nFile monitoring restarted - new files will be automatically ingested")
 
     except Exception as e:
-        print(f"❌ Failed to resume watches: {e}")
+        print(f"Error: Failed to resume watches: {e}")
         raise typer.Exit(1)
 
 
@@ -459,9 +459,9 @@ async def _sync_watched_folders(path: str | None, dry_run: bool, force: bool):
         service = await _get_watch_service()
 
         if path:
-            print(f"🔄 Syncing Watch: {path}")
+            print(f"Syncing watch: {path}")
         else:
-            print("🔄 Syncing All Watched Folders")
+            print("Syncing all watched folders")
 
         if dry_run:
             print("DRY RUN - No files will be processed")
@@ -470,7 +470,7 @@ async def _sync_watched_folders(path: str | None, dry_run: bool, force: bool):
         results = await service.sync_watched_folders(path=path, dry_run=dry_run, force=force)
 
         if 'error' in results:
-            print(f"❌ {results['error']}")
+            print(f"Error: {results['error']}")
             raise typer.Exit(1)
 
         # Show results
@@ -487,7 +487,7 @@ async def _sync_watched_folders(path: str | None, dry_run: bool, force: bool):
                         print(f"   {stats['files_failed']} files failed")
                         total_errors += stats['files_failed']
             else:
-                print(f"\n❌ Watch {watch_id}: {result['message']}")
+                print(f"\nError: Watch {watch_id}: {result['message']}")
                 total_errors += 1
 
         # Summary
@@ -507,5 +507,5 @@ async def _sync_watched_folders(path: str | None, dry_run: bool, force: bool):
             print("Add watches with: wqm watch add <path> --collection=<library>")
 
     except Exception as e:
-        print(f"❌ Failed to sync watches: {e}")
+        print(f"Error: Failed to sync watches: {e}")
         raise typer.Exit(1)
