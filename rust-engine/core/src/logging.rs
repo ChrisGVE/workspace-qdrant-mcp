@@ -704,7 +704,7 @@ mod tests {
 
     #[test]
     fn test_initialize_logging_console_only() {
-        let config = LoggingConfig {
+        let _config = LoggingConfig {
             console_output: true,
             file_logging: false,
             json_format: false,
@@ -719,7 +719,7 @@ mod tests {
     #[test]
     fn test_initialize_logging_with_file() {
         let temp_file = NamedTempFile::new().unwrap();
-        let config = LoggingConfig {
+        let _config = LoggingConfig {
             console_output: false,
             file_logging: true,
             log_file_path: Some(temp_file.path().to_path_buf()),
