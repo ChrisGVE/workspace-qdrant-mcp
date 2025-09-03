@@ -24,6 +24,23 @@ opt-level = 0
 debug = true
 split-debuginfo = "unpacked"
 
+# Cross-platform compilation targets
+[workspace.metadata.cross-compilation]
+targets = [
+    "x86_64-apple-darwin",     # macOS Intel
+    "aarch64-apple-darwin",    # macOS Apple Silicon
+    "x86_64-unknown-linux-gnu", # Linux x86_64
+    "aarch64-unknown-linux-gnu", # Linux ARM64
+    "x86_64-pc-windows-msvc",  # Windows x86_64
+    "aarch64-pc-windows-msvc", # Windows ARM64
+]
+
+# Platform-specific optimization flags
+[workspace.metadata.platform-flags]
+macos = ["-C", "target-cpu=native", "-C", "link-arg=-Wl,-dead_strip"]
+linux = ["-C", "target-cpu=native", "-C", "link-arg=-Wl,--gc-sections"]
+windows = ["-C", "target-cpu=native"]
+
 # Workspace-level dependencies that crates can inherit
 [workspace.dependencies]
 # Async runtime and utilities
@@ -55,6 +72,30 @@ tracing = { version = "0.1", features = ["log", "attributes", "std"] }
 # Python integration
 pyo3 = { version = "0.24", features = ["extension-module", "abi3"] }
 pyo3-asyncio = { version = "0.21", features = ["tokio-runtime"] }
+
+# Platform-specific file watching
+notify = { version = "6.1", features = ["serde"] }
+# macOS-specific dependencies
+[target.'cfg(target_os = "macos")'.workspace.dependencies]
+fsevents-sys = "4.1"
+kqueue = "1.0"
+
+# Linux-specific dependencies
+[target.'cfg(target_os = "linux")'.workspace.dependencies]
+inotify = { version = "0.10", default-features = false }
+epoll = "4.3"
+
+# Windows-specific dependencies
+[target.'cfg(target_os = "windows")'.workspace.dependencies]
+winapi = { version = "0.3", features = [
+    "winnt", "processthreadsapi", "fileapi", "handleapi",
+    "winbase", "minwinbase", "sysinfoapi", "errhandlingapi"
+] }
+windows = { version = "0.52", features = [
+    "Win32_Storage_FileSystem",
+    "Win32_System_IO",
+    "Win32_Foundation"
+] }
 
 [workspace.metadata.docs.rs]
 all-features = true
