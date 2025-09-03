@@ -1,0 +1,119 @@
+version: '3.8'
+
+services:
+  qdrant:
+    image: qdrant/qdrant:v1.7.4
+    container_name: qdrant-integration-test
+    ports:
+      - "6333:6333"
+      - "6334:6334"
+    environment:
+      - QDRANT__SERVICE__HTTP_PORT=6333
+      - QDRANT__SERVICE__GRPC_PORT=6334
+      - QDRANT__STORAGE__STORAGE_PATH=/qdrant/storage
+      - QDRANT__LOG_LEVEL=INFO
+    volumes:
+      - qdrant_storage:/qdrant/storage
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:6333/health"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+      start_period: 10s
+    restart: unless-stopped
+    networks:
+      - integration-test
+
+  # Optional: Additional Qdrant instance for multi-instance testing
+  qdrant-secondary:
+    image: qdrant/qdrant:v1.7.4
+    container_name: qdrant-integration-test-secondary
+    ports:
+      - "6335:6333"
+      - "6336:6334"
+    environment:
+      - QDRANT__SERVICE__HTTP_PORT=6333
+      - QDRANT__SERVICE__GRPC_PORT=6334
+      - QDRANT__STORAGE__STORAGE_PATH=/qdrant/storage
+      - QDRANT__LOG_LEVEL=INFO
+    volumes:
+      - qdrant_storage_secondary:/qdrant/storage
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:6333/health"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+      start_period: 10s
+    restart: unless-stopped
+    networks:
+      - integration-test
+    profiles:
+      - multi-instance
+
+  # Integration test runner service
+  test-runner:
+    build:
+      context: ../../
+      dockerfile: docker/integration-tests/Dockerfile
+    container_name: integration-test-runner
+    environment:
+      - QDRANT_HOST=qdrant
+      - QDRANT_PORT=6333
+      - QDRANT_GRPC_PORT=6334
+      - PYTHONPATH=/app
+      - TEST_ENV=integration
+      - INTEGRATION_TESTING=1
+    volumes:
+      - ../../:/app
+      - /var/run/docker.sock:/var/run/docker.sock  # For testcontainers
+      - test_results:/app/test_results
+      - coverage_reports:/app/htmlcov
+    working_dir: /app
+    depends_on:
+      qdrant:
+        condition: service_healthy
+    networks:
+      - integration-test
+    profiles:
+      - test-runner
+
+  # Performance monitoring service
+  performance-monitor:
+    build:
+      context: ../../
+      dockerfile: docker/integration-tests/Dockerfile.performance
+    container_name: performance-monitor
+    environment:
+      - QDRANT_HOST=qdrant
+      - QDRANT_PORT=6333
+      - QDRANT_GRPC_PORT=6334
+      - MONITOR_INTERVAL=60
+    volumes:
+      - ../../:/app
+      - performance_data:/app/performance_results
+    depends_on:
+      qdrant:
+        condition: service_healthy
+    networks:
+      - integration-test
+    profiles:
+      - monitoring
+
+volumes:
+  qdrant_storage:
+    driver: local
+  qdrant_storage_secondary:
+    driver: local
+  test_results:
+    driver: local
+  coverage_reports:
+    driver: local
+  performance_data:
+    driver: local
+
+networks:
+  integration-test:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 172.20.0.0/16

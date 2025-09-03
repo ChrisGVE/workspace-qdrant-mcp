@@ -1,0 +1,332 @@
+name: Integration Tests
+
+on:
+  push:
+    branches: [ main, develop ]
+  pull_request:
+    branches: [ main ]
+  schedule:
+    # Run nightly at 2 AM UTC
+    - cron: '0 2 * * *'
+  workflow_dispatch:
+    inputs:
+      test_categories:
+        description: 'Test categories to run'
+        required: false
+        default: 'integration'
+        type: choice
+        options:
+          - integration
+          - all
+          - smoke
+          - performance
+          - regression
+      coverage_threshold:
+        description: 'Coverage threshold percentage'
+        required: false
+        default: '80'
+        type: string
+
+env:
+  PYTHON_VERSION: "3.11"
+  COVERAGE_THRESHOLD: ${{ github.event.inputs.coverage_threshold || '80' }}
+  TEST_CATEGORIES: ${{ github.event.inputs.test_categories || 'integration' }}
+
+jobs:
+  integration-tests:
+    name: Integration Tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    
+    services:
+      qdrant:
+        image: qdrant/qdrant:v1.7.4
+        ports:
+          - 6333:6333
+          - 6334:6334
+        env:
+          QDRANT__SERVICE__HTTP_PORT: 6333
+          QDRANT__SERVICE__GRPC_PORT: 6334
+        options: >-
+          --health-cmd "curl -f http://localhost:6333/health"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+    
+    strategy:
+      fail-fast: false
+      matrix:
+        test-suite:
+          - name: "Core Integration"
+            categories: "integration"
+            timeout: 30
+          - name: "Performance"
+            categories: "performance"
+            timeout: 45
+          - name: "Error Recovery"
+            categories: "regression"
+            timeout: 25
+    
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v4
+      with:
+        fetch-depth: 0  # Full history for better coverage analysis
+    
+    - name: Set up Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: ${{ env.PYTHON_VERSION }}
+        cache: 'pip'
+    
+    - name: Install system dependencies
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y \
+          build-essential \
+          protobuf-compiler \
+          libprotobuf-dev \
+          pkg-config \
+          curl
+    
+    - name: Install Rust
+      uses: actions-rs/toolchain@v1
+      with:
+        toolchain: stable
+        profile: minimal
+        override: true
+    
+    - name: Cache Rust dependencies
+      uses: actions/cache@v3
+      with:
+        path: |
+          ~/.cargo/registry
+          ~/.cargo/git
+          rust-engine/target
+        key: ${{ runner.os }}-rust-${{ hashFiles('rust-engine/**/Cargo.lock') }}
+        restore-keys: |
+          ${{ runner.os }}-rust-
+    
+    - name: Install Python dependencies
+      run: |
+        python -m pip install --upgrade pip
+        pip install -e ".[dev]"
+        pip install testcontainers pytest-benchmark pytest-timeout pytest-xdist
+    
+    - name: Wait for Qdrant to be ready
+      run: |
+        echo "Waiting for Qdrant to be ready..."
+        timeout 60 bash -c 'until curl -f http://localhost:6333/health; do sleep 2; done'
+        echo "Qdrant is ready!"
+    
+    - name: Verify Docker is available
+      run: |
+        docker --version
+        docker ps
+        echo "Docker is available for testcontainers"
+    
+    - name: Run integration test suite
+      env:
+        QDRANT_HOST: localhost
+        QDRANT_PORT: 6333
+        QDRANT_GRPC_PORT: 6334
+        DOCKER_HOST: unix:///var/run/docker.sock
+      run: |
+        python scripts/run_integration_tests.py \
+          --categories ${{ matrix.test-suite.categories }} \
+          --coverage-threshold ${{ env.COVERAGE_THRESHOLD }} \
+          --verbose \
+          --parallel
+      timeout-minutes: ${{ matrix.test-suite.timeout }}
+    
+    - name: Upload coverage reports
+      if: always()
+      uses: codecov/codecov-action@v3
+      with:
+        file: ./coverage.xml
+        flags: integration,${{ matrix.test-suite.categories }}
+        name: integration-${{ matrix.test-suite.name }}
+        fail_ci_if_error: false
+    
+    - name: Upload HTML coverage report
+      if: always()
+      uses: actions/upload-artifact@v3
+      with:
+        name: coverage-html-${{ matrix.test-suite.name }}
+        path: htmlcov/
+        retention-days: 30
+    
+    - name: Upload performance benchmarks
+      if: always() && matrix.test-suite.categories == 'performance'
+      uses: actions/upload-artifact@v3
+      with:
+        name: performance-benchmarks
+        path: performance_results/
+        retention-days: 30
+    
+    - name: Upload test results
+      if: always()
+      uses: actions/upload-artifact@v3
+      with:
+        name: test-results-${{ matrix.test-suite.name }}
+        path: test_results/
+        retention-days: 30
+    
+    - name: Comment PR with test results
+      if: github.event_name == 'pull_request' && always()
+      uses: actions/github-script@v7
+      with:
+        script: |
+          const fs = require('fs');
+          const path = 'test_results/integration_test_summary.md';
+          
+          if (fs.existsSync(path)) {
+            const summary = fs.readFileSync(path, 'utf8');
+            
+            github.rest.issues.createComment({
+              issue_number: context.issue.number,
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              body: `## Integration Test Results - ${{ matrix.test-suite.name }}\n\n${summary}`
+            });
+          }
+
+  performance-regression-check:
+    name: Performance Regression Check
+    runs-on: ubuntu-latest
+    needs: integration-tests
+    if: github.event_name == 'pull_request'
+    
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v4
+    
+    - name: Download performance benchmarks
+      uses: actions/download-artifact@v3
+      with:
+        name: performance-benchmarks
+        path: performance_results/
+    
+    - name: Check for performance regressions
+      run: |
+        if [ -f "performance_results/benchmarks.json" ]; then
+          python -c "
+          import json
+          import sys
+          
+          # Load benchmark results
+          with open('performance_results/benchmarks.json') as f:
+              benchmarks = json.load(f)
+          
+          # Simple regression check (would be more sophisticated in practice)
+          regressions = []
+          for benchmark in benchmarks.get('benchmarks', []):
+              name = benchmark.get('name', '')
+              mean_time = benchmark.get('stats', {}).get('mean', 0)
+              
+              # Example threshold: flag if any test takes longer than 5 seconds
+              if mean_time > 5.0:
+                  regressions.append(f'{name}: {mean_time:.2f}s')
+          
+          if regressions:
+              print('⚠️ Performance regressions detected:')
+              for reg in regressions:
+                  print(f'  - {reg}')
+              sys.exit(1)
+          else:
+              print('✅ No performance regressions detected')
+          "
+        else
+          echo "No benchmark results found"
+        fi
+
+  coverage-report:
+    name: Coverage Report
+    runs-on: ubuntu-latest
+    needs: integration-tests
+    if: always()
+    
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v4
+    
+    - name: Download all coverage artifacts
+      uses: actions/download-artifact@v3
+    
+    - name: Combine coverage reports
+      run: |
+        # Install coverage tools
+        python -m pip install coverage[toml]
+        
+        # Find all coverage files
+        find . -name "coverage.xml" -type f
+        
+        # Combine HTML reports (simplified - in practice would merge properly)
+        mkdir -p combined_coverage
+        if [ -d "coverage-html-Core Integration" ]; then
+          cp -r "coverage-html-Core Integration"/* combined_coverage/
+        fi
+    
+    - name: Generate coverage summary
+      run: |
+        echo "# Coverage Summary" > coverage_summary.md
+        echo "" >> coverage_summary.md
+        
+        # Extract coverage percentage from XML if available
+        if [ -f coverage.xml ]; then
+          python -c "
+          import xml.etree.ElementTree as ET
+          try:
+              tree = ET.parse('coverage.xml')
+              root = tree.getroot()
+              coverage = root.attrib.get('line-rate', 0)
+              coverage_pct = float(coverage) * 100
+              print(f'**Total Coverage:** {coverage_pct:.1f}%')
+              
+              # Check if meets threshold
+              threshold = float('${{ env.COVERAGE_THRESHOLD }}')
+              if coverage_pct >= threshold:
+                  print('✅ Coverage threshold met')
+              else:
+                  print(f'❌ Coverage below threshold ({threshold}%)')
+          except Exception as e:
+              print(f'Could not parse coverage: {e}')
+          " >> coverage_summary.md
+        fi
+    
+    - name: Comment PR with coverage summary
+      if: github.event_name == 'pull_request'
+      uses: actions/github-script@v7
+      with:
+        script: |
+          const fs = require('fs');
+          if (fs.existsSync('coverage_summary.md')) {
+            const summary = fs.readFileSync('coverage_summary.md', 'utf8');
+            
+            github.rest.issues.createComment({
+              issue_number: context.issue.number,
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              body: summary
+            });
+          }
+
+  integration-test-summary:
+    name: Integration Test Summary
+    runs-on: ubuntu-latest
+    needs: [integration-tests, coverage-report]
+    if: always()
+    
+    steps:
+    - name: Check test results
+      run: |
+        echo "Integration test suite completed"
+        echo "Results from matrix jobs:"
+        echo "${{ toJson(needs.integration-tests.result) }}"
+        
+        if [[ "${{ needs.integration-tests.result }}" == "failure" ]]; then
+          echo "❌ Some integration tests failed"
+          exit 1
+        else
+          echo "✅ All integration tests passed"
+        fi
