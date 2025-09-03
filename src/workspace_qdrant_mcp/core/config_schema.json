@@ -13,7 +13,7 @@
         },
         "api_key": {
           "type": "string",
-          "pattern": "^(\\$\\{[A-Z_]+\\}|[a-zA-Z0-9_-]+)$"
+          "type": "string"
         },
         "timeout_seconds": {
           "type": "integer",
@@ -137,7 +137,7 @@
           "properties": {
             "api_key": {
               "type": "string",
-              "pattern": "^\\$\\{[A-Z_]+\\}$"
+              "type": "string"
             },
             "model": {
               "type": "string",
@@ -151,7 +151,7 @@
           "properties": {
             "api_key": {
               "type": "string",
-              "pattern": "^\\$\\{[A-Z_]+\\}$"
+              "type": "string"
             },
             "model": {
               "type": "string",
