@@ -14,6 +14,7 @@ pub mod config;
 pub mod embedding;
 pub mod error;
 pub mod ipc;
+pub mod logging;
 pub mod processing;
 pub mod storage;
 pub mod watching;
@@ -29,6 +30,10 @@ pub use crate::embedding::{
 pub use crate::error::{
     WorkspaceError, ErrorSeverity, ErrorRecoveryStrategy, 
     CircuitBreaker, ErrorMonitor, ErrorRecovery, Result
+};
+pub use crate::logging::{
+    LoggingConfig, PerformanceMetrics, initialize_logging,
+    track_async_operation, log_error_with_context, LoggingErrorMonitor
 };
 
 /// Core processing errors
