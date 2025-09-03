@@ -1,0 +1,470 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "workspace-qdrant-mcp Configuration Schema",
+  "type": "object",
+  "properties": {
+    "qdrant": {
+      "type": "object",
+      "properties": {
+        "url": {
+          "type": "string",
+          "format": "uri",
+          "default": "http://localhost:6333"
+        },
+        "api_key": {
+          "type": "string",
+          "pattern": "^(\\$\\{[A-Z_]+\\}|[a-zA-Z0-9_-]+)$"
+        },
+        "timeout_seconds": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 300,
+          "default": 30
+        },
+        "retry_count": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 10,
+          "default": 3
+        },
+        "use_https": {
+          "type": "boolean",
+          "default": false
+        },
+        "verify_ssl": {
+          "type": "boolean",
+          "default": true
+        }
+      },
+      "required": ["url"],
+      "additionalProperties": false
+    },
+    "daemon": {
+      "type": "object",
+      "properties": {
+        "database_path": {
+          "type": "string",
+          "default": "~/.config/workspace-qdrant/state.db"
+        },
+        "max_concurrent_jobs": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 20,
+          "default": 4
+        },
+        "job_timeout_seconds": {
+          "type": "integer",
+          "minimum": 30,
+          "maximum": 3600,
+          "default": 300
+        },
+        "priority_levels": {
+          "type": "object",
+          "properties": {
+            "mcp_server": {
+              "type": "string",
+              "enum": ["low", "medium", "high"],
+              "default": "high"
+            },
+            "cli_commands": {
+              "type": "string",
+              "enum": ["low", "medium", "high"],
+              "default": "medium"
+            },
+            "background_watching": {
+              "type": "string",
+              "enum": ["low", "medium", "high"],
+              "default": "low"
+            }
+          },
+          "additionalProperties": false
+        },
+        "max_memory_mb": {
+          "type": "integer",
+          "minimum": 256,
+          "maximum": 8192,
+          "default": 1024
+        },
+        "max_cpu_percent": {
+          "type": "integer",
+          "minimum": 10,
+          "maximum": 100,
+          "default": 80
+        },
+        "grpc": {
+          "type": "object",
+          "properties": {
+            "host": {
+              "type": "string",
+              "default": "127.0.0.1"
+            },
+            "port": {
+              "type": "integer",
+              "minimum": 1024,
+              "maximum": 65535,
+              "default": 50051
+            },
+            "max_message_size_mb": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 1024,
+              "default": 100
+            }
+          },
+          "additionalProperties": false
+        }
+      },
+      "additionalProperties": false
+    },
+    "embedding": {
+      "type": "object",
+      "properties": {
+        "provider": {
+          "type": "string",
+          "enum": ["fastembed", "openai", "huggingface"],
+          "default": "fastembed"
+        },
+        "dense_model": {
+          "type": "string",
+          "default": "sentence-transformers/all-MiniLM-L6-v2"
+        },
+        "sparse_model": {
+          "type": "string",
+          "default": "prithivida/Splade_PP_en_v1"
+        },
+        "openai": {
+          "type": "object",
+          "properties": {
+            "api_key": {
+              "type": "string",
+              "pattern": "^\\$\\{[A-Z_]+\\}$"
+            },
+            "model": {
+              "type": "string",
+              "default": "text-embedding-3-small"
+            }
+          },
+          "additionalProperties": false
+        },
+        "huggingface": {
+          "type": "object",
+          "properties": {
+            "api_key": {
+              "type": "string",
+              "pattern": "^\\$\\{[A-Z_]+\\}$"
+            },
+            "model": {
+              "type": "string",
+              "default": "sentence-transformers/all-MiniLM-L6-v2"
+            }
+          },
+          "additionalProperties": false
+        }
+      },
+      "additionalProperties": false
+    },
+    "collections": {
+      "type": "object",
+      "properties": {
+        "auto_create": {
+          "type": "boolean",
+          "default": false
+        },
+        "default_global": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "default": ["scratchbook"]
+        },
+        "settings": {
+          "type": "object",
+          "patternProperties": {
+            "^[a-zA-Z0-9_-]+$": {
+              "type": "object",
+              "properties": {
+                "description": {
+                  "type": "string"
+                },
+                "auto_ingest": {
+                  "type": "boolean",
+                  "default": false
+                }
+              },
+              "additionalProperties": false
+            }
+          },
+          "additionalProperties": false
+        },
+        "reserved_prefixes": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "default": ["_", "system_", "temp_"]
+        }
+      },
+      "additionalProperties": false
+    },
+    "watching": {
+      "type": "object",
+      "properties": {
+        "auto_watch_project": {
+          "type": "boolean",
+          "default": true
+        },
+        "debounce_seconds": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 60,
+          "default": 5
+        },
+        "max_file_size_mb": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 1024,
+          "default": 50
+        },
+        "include_patterns": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "ignore_patterns": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "recursive": {
+          "type": "boolean",
+          "default": true
+        },
+        "max_depth": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 20,
+          "default": 5
+        },
+        "follow_symlinks": {
+          "type": "boolean",
+          "default": false
+        }
+      },
+      "additionalProperties": false
+    },
+    "processing": {
+      "type": "object",
+      "properties": {
+        "chunk_size": {
+          "type": "integer",
+          "minimum": 100,
+          "maximum": 5000,
+          "default": 1000
+        },
+        "chunk_overlap": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 1000,
+          "default": 200
+        },
+        "min_chunk_size": {
+          "type": "integer",
+          "minimum": 50,
+          "maximum": 500,
+          "default": 100
+        },
+        "pdf": {
+          "type": "object",
+          "properties": {
+            "extract_images": {
+              "type": "boolean",
+              "default": false
+            },
+            "extract_tables": {
+              "type": "boolean",
+              "default": true
+            }
+          },
+          "additionalProperties": false
+        },
+        "docx": {
+          "type": "object",
+          "properties": {
+            "extract_images": {
+              "type": "boolean",
+              "default": false
+            },
+            "extract_styles": {
+              "type": "boolean",
+              "default": false
+            }
+          },
+          "additionalProperties": false
+        },
+        "code": {
+          "type": "object",
+          "properties": {
+            "include_comments": {
+              "type": "boolean",
+              "default": true
+            },
+            "language_detection": {
+              "type": "boolean",
+              "default": true
+            }
+          },
+          "additionalProperties": false
+        }
+      },
+      "additionalProperties": false
+    },
+    "web_ui": {
+      "type": "object",
+      "properties": {
+        "enabled": {
+          "type": "boolean",
+          "default": true
+        },
+        "host": {
+          "type": "string",
+          "default": "127.0.0.1"
+        },
+        "port": {
+          "type": "integer",
+          "minimum": 1024,
+          "maximum": 65535,
+          "default": 3000
+        },
+        "auto_launch": {
+          "type": "boolean",
+          "default": false
+        },
+        "cors_origins": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "format": "uri"
+          }
+        },
+        "auth_required": {
+          "type": "boolean",
+          "default": false
+        }
+      },
+      "additionalProperties": false
+    },
+    "logging": {
+      "type": "object",
+      "properties": {
+        "level": {
+          "type": "string",
+          "enum": ["DEBUG", "INFO", "WARN", "ERROR"],
+          "default": "INFO"
+        },
+        "format": {
+          "type": "string",
+          "enum": ["json", "text"],
+          "default": "json"
+        },
+        "file_path": {
+          "type": "string",
+          "default": "~/.config/workspace-qdrant/logs/daemon.log"
+        },
+        "max_file_size_mb": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 100,
+          "default": 10
+        },
+        "backup_count": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 20,
+          "default": 5
+        },
+        "components": {
+          "type": "object",
+          "patternProperties": {
+            "^[a-zA-Z0-9_]+$": {
+              "type": "string",
+              "enum": ["DEBUG", "INFO", "WARN", "ERROR"]
+            }
+          },
+          "additionalProperties": false
+        }
+      },
+      "additionalProperties": false
+    },
+    "monitoring": {
+      "type": "object",
+      "properties": {
+        "enabled": {
+          "type": "boolean",
+          "default": true
+        },
+        "metrics_port": {
+          "type": "integer",
+          "minimum": 1024,
+          "maximum": 65535,
+          "default": 9090
+        },
+        "health_check_interval_seconds": {
+          "type": "integer",
+          "minimum": 10,
+          "maximum": 300,
+          "default": 60
+        },
+        "thresholds": {
+          "type": "object",
+          "properties": {
+            "max_response_time_ms": {
+              "type": "integer",
+              "minimum": 100,
+              "maximum": 10000,
+              "default": 1000
+            },
+            "max_memory_usage_mb": {
+              "type": "integer",
+              "minimum": 128,
+              "maximum": 4096,
+              "default": 512
+            },
+            "max_cpu_usage_percent": {
+              "type": "integer",
+              "minimum": 10,
+              "maximum": 100,
+              "default": 70
+            }
+          },
+          "additionalProperties": false
+        }
+      },
+      "additionalProperties": false
+    },
+    "development": {
+      "type": "object",
+      "properties": {
+        "debug_mode": {
+          "type": "boolean",
+          "default": false
+        },
+        "profile_performance": {
+          "type": "boolean",
+          "default": false
+        },
+        "mock_embedding": {
+          "type": "boolean",
+          "default": false
+        },
+        "test_data_path": {
+          "type": "string",
+          "default": "tests/data"
+        }
+      },
+      "additionalProperties": false
+    }
+  },
+  "additionalProperties": false
+}
