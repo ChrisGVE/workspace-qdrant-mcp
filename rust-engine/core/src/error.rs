@@ -428,9 +428,9 @@ impl CircuitBreaker {
     }
 
     /// Execute an operation with circuit breaker protection
-    pub async fn execute<F, T, E>(&mut self, operation: F) -> Result<T, WorkspaceError>
+    pub async fn execute<F, T, E>(&mut self, operation: F) -> std::result::Result<T, WorkspaceError>
     where
-        F: std::future::Future<Output = Result<T, E>>,
+        F: std::future::Future<Output = std::result::Result<T, E>>,
         E: std::error::Error + Send + Sync + 'static,
     {
         match self.state {
@@ -682,7 +682,7 @@ impl ErrorRecovery {
         strategy: ErrorRecoveryStrategy,
     ) -> Result<T, WorkspaceError>
     where
-        F: Fn() -> std::pin::Pin<Box<dyn std::future::Future<Output = Result<T, E>> + Send + '_>>,
+        F: Fn() -> std::pin::Pin<Box<dyn std::future::Future<Output = std::result::Result<T, E>> + Send + 'static>>,
         E: std::error::Error + Send + Sync + 'static,
     {
         let mut attempt = 1;
@@ -767,8 +767,7 @@ impl Default for ErrorRecovery {
     }
 }
 
-// Re-export for backward compatibility with existing ProcessingError
-pub use crate::processing::ProcessingError;
+// Note: ProcessingError will be defined in processing module
 
 // Type alias for common result type
 pub type Result<T> = std::result::Result<T, WorkspaceError>;

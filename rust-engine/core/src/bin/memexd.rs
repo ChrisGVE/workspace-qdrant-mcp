@@ -10,7 +10,12 @@ use std::process;
 use tokio::signal;
 use tracing::{error, info, warn};
 use tracing_subscriber::{EnvFilter, FmtSubscriber};
-use workspace_qdrant_core::{ProcessingEngine, config::Config};
+use workspace_qdrant_core::{
+    ProcessingEngine, config::Config, 
+    LoggingConfig, initialize_logging,
+    ErrorRecovery, ErrorRecoveryStrategy,
+    track_async_operation, LoggingErrorMonitor,
+};
 
 /// Command-line arguments for memexd daemon
 #[derive(Debug, Clone)]
@@ -96,21 +101,34 @@ fn parse_args() -> DaemonArgs {
     }
 }
 
-/// Initialize logging based on the specified level
-fn init_logging(log_level: &str) -> Result<(), Box<dyn std::error::Error>> {
-    let filter = EnvFilter::try_from_default_env()
-        .or_else(|_| EnvFilter::try_new(log_level))?;
-
-    let subscriber = FmtSubscriber::builder()
-        .with_env_filter(filter)
-        .with_target(true)
-        .with_thread_ids(true)
-        .with_file(true)
-        .with_line_number(true)
-        .finish();
-
-    tracing::subscriber::set_global_default(subscriber)?;
-    Ok(())
+/// Initialize comprehensive logging based on the specified level
+fn init_logging(log_level: &str, foreground: bool) -> Result<(), Box<dyn std::error::Error>> {
+    let mut config = if foreground {
+        LoggingConfig::development()
+    } else {
+        LoggingConfig::production()
+    };
+    
+    // Parse log level
+    use tracing::Level;
+    config.level = match log_level.to_lowercase().as_str() {
+        "error" => Level::ERROR,
+        "warn" => Level::WARN,
+        "info" => Level::INFO,
+        "debug" => Level::DEBUG,
+        "trace" => Level::TRACE,
+        _ => Level::INFO,
+    };
+    
+    // Configure based on daemon mode
+    if !foreground {
+        // For daemon mode, use structured JSON logging with file output
+        config.json_format = true;
+        config.file_logging = true;
+        config.log_file_path = Some(PathBuf::from("/var/log/memexd.log"));
+    }
+    
+    initialize_logging(config).map_err(|e| Box::new(e) as Box<dyn std::error::Error>)
 }
 
 /// Create PID file with current process ID
@@ -277,8 +295,8 @@ async fn run_daemon(config: Config, args: DaemonArgs) -> Result<(), Box<dyn std:
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let args = parse_args();
     
-    // Initialize logging early
-    init_logging(&args.log_level)?;
+    // Initialize comprehensive logging early
+    init_logging(&args.log_level, args.foreground)?;
     
     info!("memexd daemon starting up");
     info!("Command-line arguments: {:?}", args);
