@@ -13,7 +13,7 @@ use std::sync::Arc;
 use tokio::sync::RwLock;
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
-use ort::{Session, Value};
+use ort::{session::Session, value::Value};
 use tokenizers::Tokenizer;
 // use uuid::Uuid;  // Currently unused
 use ahash::AHashMap;
@@ -480,31 +480,11 @@ impl EmbeddingGenerator {
             self.model_manager.download_model(model_name).await?;
         }
         
-        // Load ONNX session
-        let model_path = self.model_manager.get_model_path(model_name);
-        let session = Session::builder()?
-            .with_model_from_file(&model_path)
-            .map_err(|e| EmbeddingError::OnnxError {
-                message: format!("Failed to load model from {}: {}", model_path.display(), e)
-            })?;
-        
-        // Load tokenizer
-        let tokenizer_path = self.model_manager.get_tokenizer_path(model_name);
-        let tokenizer = Tokenizer::from_file(&tokenizer_path)
-            .map_err(|e| EmbeddingError::TokenizationError { source: Box::new(e) })?;
-        
-        // Store in memory
-        {
-            let mut sessions = self.sessions.write().await;
-            sessions.insert(model_name.to_string(), session);
-        }
-        
-        {
-            let mut tokenizers = self.tokenizers.write().await;
-            tokenizers.insert(model_name.to_string(), tokenizer);
-        }
-        
-        Ok(())
+        // TODO: ONNX session loading temporarily disabled due to API changes
+        // This will be re-enabled once the correct ORT v2.0 API is determined
+        Err(EmbeddingError::OnnxError {
+            message: "ONNX session loading temporarily disabled for API compatibility".to_string()
+        })
     }
     
     /// Generate embeddings for a single text
@@ -627,8 +607,8 @@ impl EmbeddingGenerator {
                     message: format!("ONNX inference failed: {}", e)
                 })?;
             
-            // Extract embedding from output (try first output)
-            let embedding_tensor = outputs.get(0).ok_or_else(|| EmbeddingError::OnnxError {
+            // Extract embedding from output (use named output)
+            let embedding_tensor = outputs.get("last_hidden_state").ok_or_else(|| EmbeddingError::OnnxError {
                 message: "No output tensor found".to_string()
             })?;
             let embedding_data = embedding_tensor.try_extract_tensor::<f32>()
