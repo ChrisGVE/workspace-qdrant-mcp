@@ -1,4 +1,3 @@
-
 """Administrative CLI commands for system management.
 
 This module provides comprehensive system administration capabilities
@@ -10,7 +9,7 @@ import json
 import subprocess
 import sys
 from pathlib import Path
-from typing import Any, Dict, Optional
+from typing import Any, Optional
 
 import psutil
 import typer
@@ -37,29 +36,33 @@ logger = get_logger(__name__)
 admin_app = create_command_app(
     name="admin",
     help_text="""System administration and configuration.
-    
+
 Monitor system health, manage configuration, and control processing engines.
-    
+
 Examples:
     wqm admin status                 # Show comprehensive system status
     wqm admin health                 # Run health checks
     wqm admin collections            # List all collections
     wqm admin start-engine           # Start Rust processing engine
     wqm admin config --show          # Show current configuration""",
-    no_args_is_help=True
+    no_args_is_help=True,
 )
+
 
 @admin_app.command("status")
 def system_status(
     verbose: bool = verbose_option(),
     json_output: bool = json_output_option(),
-    watch: bool = typer.Option(False, "--watch", "-w", help="Watch status continuously (5s refresh)"),
+    watch: bool = typer.Option(
+        False, "--watch", "-w", help="Watch status continuously (5s refresh)"
+    ),
 ):
     """Show comprehensive system status."""
     if watch:
         handle_async(_watch_status(verbose))
     else:
         handle_async(_system_status(verbose, json_output))
+
 
 @admin_app.command("config")
 def config_management(
@@ -70,6 +73,7 @@ def config_management(
     """Configuration management."""
     handle_async(_config_management(show, validate, path))
 
+
 @admin_app.command("start-engine")
 def start_engine(
     force: bool = force_option(),
@@ -77,6 +81,7 @@ def start_engine(
 ):
     """Start the Rust processing engine."""
     handle_async(_start_engine(force, config_path))
+
 
 @admin_app.command("stop-engine")
 def stop_engine(
@@ -86,6 +91,7 @@ def stop_engine(
     """Stop the Rust processing engine."""
     handle_async(_stop_engine(force, timeout))
 
+
 @admin_app.command("restart-engine")
 def restart_engine(
     config_path: str | None = config_path_option(),
@@ -93,14 +99,18 @@ def restart_engine(
     """Restart engine with new configuration."""
     handle_async(_restart_engine(config_path))
 
+
 @admin_app.command("collections")
 def list_collections(
     project: str | None = typer.Option(None, "--project", help="Filter by project"),
     stats: bool = typer.Option(False, "--stats", help="Include collection statistics"),
-    library: bool = typer.Option(False, "--library", help="Show only library collections (_prefixed)"),
+    library: bool = typer.Option(
+        False, "--library", help="Show only library collections (_prefixed)"
+    ),
 ):
     """List and manage collections."""
     handle_async(_list_collections(project, stats, library))
+
 
 @admin_app.command("health")
 def health_check(
@@ -110,8 +120,9 @@ def health_check(
     """Comprehensive health check."""
     handle_async(_health_check(deep, timeout))
 
+
 # Async implementation functions
-async def _system_status(verbose: bool, json_output: bool):
+async def _system_status(verbose: bool, json_output: bool) -> None:
     """Show comprehensive system status."""
     try:
         config = Config()
@@ -125,9 +136,10 @@ async def _system_status(verbose: bool, json_output: bool):
 
     except Exception as e:
         print(f"Error getting system status: {e}")
-        raise typer.Exit(1)
+        raise typer.Exit(1) from e
 
-async def _watch_status(verbose: bool):
+
+async def _watch_status(verbose: bool) -> None:
     """Watch system status with continuous refresh."""
     import os
     import time
@@ -137,7 +149,7 @@ async def _watch_status(verbose: bool):
     try:
         while True:
             # Clear screen
-            clear_cmd = ['clear'] if os.name == 'posix' else ['cls']
+            clear_cmd = ["clear"] if os.name == "posix" else ["cls"]
             subprocess.run(clear_cmd, check=False, capture_output=False)
 
             config = Config()
@@ -152,6 +164,7 @@ async def _watch_status(verbose: bool):
     except KeyboardInterrupt:
         print("\nStatus monitoring stopped")
 
+
 async def _collect_status_data(config: Config) -> dict[str, Any]:
     """Collect comprehensive status information."""
     from datetime import datetime
@@ -163,38 +176,47 @@ async def _collect_status_data(config: Config) -> dict[str, Any]:
         "rust_engine": {"status": "unknown"},
         "system": {},
         "project": {},
-        "collections": {}
+        "collections": {},
     }
 
     # Test Qdrant connectivity
     try:
         # Use raw Qdrant client for basic connectivity test
         from qdrant_client import QdrantClient
+
         # Only pass api_key if it's configured and we're using HTTPS
-        client_kwargs = {'url': config.qdrant.url, 'timeout': 5}
-        if (hasattr(config.qdrant, 'api_key') and config.qdrant.api_key and 
-            config.qdrant.api_key.strip() and config.qdrant.url.startswith('https')):
-            client_kwargs['api_key'] = config.qdrant.api_key
+        client_kwargs = {"url": config.qdrant.url, "timeout": 5}
+        if (
+            hasattr(config.qdrant, "api_key")
+            and config.qdrant.api_key
+            and config.qdrant.api_key.strip()
+            and config.qdrant.url.startswith("https")
+        ):
+            client_kwargs["api_key"] = config.qdrant.api_key
         raw_client = QdrantClient(**client_kwargs)
-        
+
         # Get collections directly from API
         collections_response = raw_client.get_collections()
-        collections = collections_response.collections if hasattr(collections_response, 'collections') else []
-        
+        collections = (
+            collections_response.collections
+            if hasattr(collections_response, "collections")
+            else []
+        )
+
         status_data["qdrant"] = {
             "status": "healthy",
             "url": config.qdrant.url,
             "collections_count": len(collections),
-            "version": "1.x"  # TODO: Get actual version from info API
+            "version": "1.x",  # TODO: Get actual version from info API
         }
-        
+
         # Clean up
         raw_client.close()
     except Exception as e:
         status_data["qdrant"] = {
             "status": "error",
             "error": str(e),
-            "url": config.qdrant.url if hasattr(config, 'qdrant') else "unknown"
+            "url": config.qdrant.url if hasattr(config, "qdrant") else "unknown",
         }
 
     # Check Rust Engine (placeholder - will be implemented with Rust integration)
@@ -202,13 +224,10 @@ async def _collect_status_data(config: Config) -> dict[str, Any]:
         # TODO: Implement actual Rust engine status check
         status_data["rust_engine"] = {
             "status": "not_implemented",
-            "message": "Rust engine status checking will be implemented in Task 11"
+            "message": "Rust engine status checking will be implemented in Task 11",
         }
     except Exception as e:
-        status_data["rust_engine"] = {
-            "status": "error",
-            "error": str(e)
-        }
+        status_data["rust_engine"] = {"status": "error", "error": str(e)}
 
     # System resources
     try:
@@ -217,44 +236,50 @@ async def _collect_status_data(config: Config) -> dict[str, Any]:
             "memory": {
                 "percent": psutil.virtual_memory().percent,
                 "used_gb": round(psutil.virtual_memory().used / (1024**3), 2),
-                "total_gb": round(psutil.virtual_memory().total / (1024**3), 2)
+                "total_gb": round(psutil.virtual_memory().total / (1024**3), 2),
             },
             "disk": {
-                "percent": psutil.disk_usage('/').percent,
-                "free_gb": round(psutil.disk_usage('/').free / (1024**3), 2),
-                "total_gb": round(psutil.disk_usage('/').total / (1024**3), 2)
-            }
+                "percent": psutil.disk_usage("/").percent,
+                "free_gb": round(psutil.disk_usage("/").free / (1024**3), 2),
+                "total_gb": round(psutil.disk_usage("/").total / (1024**3), 2),
+            },
         }
     except Exception as e:
         status_data["system"] = {"error": str(e)}
 
     # Project detection
     try:
-        detector = ProjectDetector(config.workspace.github_user if hasattr(config, 'workspace') else None)
+        detector = ProjectDetector(
+            config.workspace.github_user if hasattr(config, "workspace") else None
+        )
         project_info = detector.get_project_info(str(Path.cwd()))
         main_project = project_info["main_project"]
         subprojects = project_info["subprojects"]
-        
+
         status_data["project"] = {
             "current_dir": str(Path.cwd()),
             "detected_projects": 1 + len(subprojects),
             "current_project": main_project,
-            "subprojects": len(subprojects)
+            "subprojects": len(subprojects),
         }
     except Exception as e:
         status_data["project"] = {"error": str(e)}
 
     return status_data
 
-def _display_status_panel(status_data: dict[str, Any], verbose: bool):
+
+def _display_status_panel(status_data: dict[str, Any], verbose: bool) -> None:
     """Display status in plain text format."""
 
     # Overall health assessment
     qdrant_healthy = status_data["qdrant"]["status"] == "healthy"
-    rust_healthy = status_data["rust_engine"]["status"] in ["healthy", "not_implemented"]
+    rust_healthy = status_data["rust_engine"]["status"] in [
+        "healthy",
+        "not_implemented",
+    ]
     overall_healthy = qdrant_healthy and rust_healthy
 
-    health_text = 'HEALTHY' if overall_healthy else 'UNHEALTHY'
+    health_text = "HEALTHY" if overall_healthy else "UNHEALTHY"
 
     # Main status display
     print(f"System Health: {health_text}")
@@ -267,26 +292,42 @@ def _display_status_panel(status_data: dict[str, Any], verbose: bool):
     # Qdrant Database
     qdrant = status_data["qdrant"]
     if qdrant["status"] == "healthy":
-        print(f"Qdrant DB        | CONNECTED    | {qdrant.get('collections_count', 0)} collections | {qdrant.get('url', 'unknown')}")
+        print(
+            f"Qdrant DB        | CONNECTED    | {qdrant.get('collections_count', 0)} collections | {qdrant.get('url', 'unknown')}"
+        )
     else:
-        print(f"Qdrant DB        | ERROR        | {qdrant.get('error', 'Connection failed')}")
+        print(
+            f"Qdrant DB        | ERROR        | {qdrant.get('error', 'Connection failed')}"
+        )
 
     # Rust Engine - Show more useful status
     rust_engine = status_data["rust_engine"]
     if rust_engine["status"] == "healthy":
-        print(f"Rust Engine      | RUNNING      | Tasks: {rust_engine.get('active_tasks', 0)}A/{rust_engine.get('queued_tasks', 0)}Q")
+        print(
+            f"Rust Engine      | RUNNING      | Tasks: {rust_engine.get('active_tasks', 0)}A/{rust_engine.get('queued_tasks', 0)}Q"
+        )
     elif rust_engine["status"] == "not_implemented":
-        print(f"Rust Engine      | NOT READY    | Engine integration pending")
+        print("Rust Engine      | NOT READY    | Engine integration pending")
     else:
-        print(f"Rust Engine      | ERROR        | {rust_engine.get('error', 'Unknown error')}")
+        print(
+            f"Rust Engine      | ERROR        | {rust_engine.get('error', 'Unknown error')}"
+        )
 
     # Project Context
     project = status_data["project"]
     if "error" not in project:
-        subproject_info = f" + {project.get('subprojects', 0)} sub" if project.get('subprojects', 0) > 0 else ""
-        print(f"Project          | DETECTED     | {project.get('current_project', 'unknown')}{subproject_info} | {project.get('detected_projects', 0)} total")
+        subproject_info = (
+            f" + {project.get('subprojects', 0)} sub"
+            if project.get("subprojects", 0) > 0
+            else ""
+        )
+        print(
+            f"Project          | DETECTED     | {project.get('current_project', 'unknown')}{subproject_info} | {project.get('detected_projects', 0)} total"
+        )
     else:
-        print(f"Project          | WARNING      | {project.get('error', 'Detection failed')}")
+        print(
+            f"Project          | WARNING      | {project.get('error', 'Detection failed')}"
+        )
 
     # System resources (if verbose)
     if verbose and "error" not in status_data["system"]:
@@ -294,19 +335,24 @@ def _display_status_panel(status_data: dict[str, Any], verbose: bool):
 
         print("\nSystem Resources:")
         print("-" * 50)
-        
+
         # CPU
         print(f"CPU              | {system['cpu_percent']:.1f}%     | System load")
 
         # Memory
         mem = system["memory"]
-        print(f"Memory           | {mem['percent']:.1f}%     | {mem['used_gb']:.1f}GB / {mem['total_gb']:.1f}GB")
+        print(
+            f"Memory           | {mem['percent']:.1f}%     | {mem['used_gb']:.1f}GB / {mem['total_gb']:.1f}GB"
+        )
 
         # Disk
         disk = system["disk"]
-        print(f"Disk             | {disk['percent']:.1f}%     | {disk['free_gb']:.1f}GB free / {disk['total_gb']:.1f}GB total")
+        print(
+            f"Disk             | {disk['percent']:.1f}%     | {disk['free_gb']:.1f}GB free / {disk['total_gb']:.1f}GB total"
+        )
 
-async def _config_management(show: bool, validate: bool, path: str | None):
+
+async def _config_management(show: bool, validate: bool, path: str | None) -> None:
     """Configuration management operations."""
     try:
         config = Config()
@@ -316,11 +362,11 @@ async def _config_management(show: bool, validate: bool, path: str | None):
             print("=" * 50)
 
             # Add key configuration values
-            if hasattr(config, 'qdrant'):
+            if hasattr(config, "qdrant"):
                 print(f"Qdrant URL:         {config.qdrant.url}")
-            if hasattr(config, 'embedding'):
+            if hasattr(config, "embedding"):
                 print(f"Embedding Model:    {config.embedding.model}")
-            if hasattr(config, 'workspace'):
+            if hasattr(config, "workspace"):
                 print(f"Collection Prefix:  {config.workspace.collection_prefix}")
 
         if validate:
@@ -333,11 +379,16 @@ async def _config_management(show: bool, validate: bool, path: str | None):
             try:
                 # Use raw Qdrant client for validation
                 from qdrant_client import QdrantClient
+
                 # Only pass api_key if it's configured and we're using HTTPS
-                client_kwargs = {'url': config.qdrant.url, 'timeout': 5}
-                if (hasattr(config.qdrant, 'api_key') and config.qdrant.api_key and 
-                    config.qdrant.api_key.strip() and config.qdrant.url.startswith('https')):
-                    client_kwargs['api_key'] = config.qdrant.api_key
+                client_kwargs = {"url": config.qdrant.url, "timeout": 5}
+                if (
+                    hasattr(config.qdrant, "api_key")
+                    and config.qdrant.api_key
+                    and config.qdrant.api_key.strip()
+                    and config.qdrant.url.startswith("https")
+                ):
+                    client_kwargs["api_key"] = config.qdrant.api_key
                 raw_client = QdrantClient(**client_kwargs)
                 collections = raw_client.get_collections()
                 raw_client.close()
@@ -356,7 +407,8 @@ async def _config_management(show: bool, validate: bool, path: str | None):
         print(f"Configuration error: {e}")
         raise typer.Exit(1)
 
-async def _start_engine(force: bool, config_path: str | None):
+
+async def _start_engine(force: bool, config_path: str | None) -> None:
     """Start the Rust processing engine."""
     print("Starting Rust Engine")
     print("=" * 50)
@@ -373,7 +425,8 @@ async def _start_engine(force: bool, config_path: str | None):
         print(f"Failed to start engine: {e}")
         raise typer.Exit(1)
 
-async def _stop_engine(force: bool, timeout: int):
+
+async def _stop_engine(force: bool, timeout: int) -> None:
     """Stop the Rust processing engine."""
     print("Stopping Rust Engine")
     print("=" * 50)
@@ -392,7 +445,8 @@ async def _stop_engine(force: bool, timeout: int):
         print(f"Failed to stop engine: {e}")
         raise typer.Exit(1)
 
-async def _restart_engine(config_path: str | None):
+
+async def _restart_engine(config_path: str | None) -> None:
     """Restart engine with new configuration."""
     print("Restarting Rust Engine")
     print("=" * 50)
@@ -406,40 +460,58 @@ async def _restart_engine(config_path: str | None):
         print(f"Failed to restart engine: {e}")
         raise typer.Exit(1)
 
-async def _list_collections(project: str | None, stats: bool, library: bool):
+
+async def _list_collections(project: str | None, stats: bool, library: bool) -> None:
     """List and manage collections."""
     try:
         config = Config()
         # Use raw Qdrant client to get collections
         from qdrant_client import QdrantClient
+
         # Only pass api_key if it's configured and we're using HTTPS
-        client_kwargs = {'url': config.qdrant.url, 'timeout': 10}
-        if (hasattr(config.qdrant, 'api_key') and config.qdrant.api_key and 
-            config.qdrant.api_key.strip() and config.qdrant.url.startswith('https')):
-            client_kwargs['api_key'] = config.qdrant.api_key
+        client_kwargs = {"url": config.qdrant.url, "timeout": 10}
+        if (
+            hasattr(config.qdrant, "api_key")
+            and config.qdrant.api_key
+            and config.qdrant.api_key.strip()
+            and config.qdrant.url.startswith("https")
+        ):
+            client_kwargs["api_key"] = config.qdrant.api_key
         raw_client = QdrantClient(**client_kwargs)
-        
+
         collections_response = raw_client.get_collections()
-        all_collections = [{'name': col.name} for col in collections_response.collections]
-        
+        all_collections = [
+            {"name": col.name} for col in collections_response.collections
+        ]
+
         # Filter collections
         if library:
-            collections = [col for col in all_collections if col.get("name", "").startswith("_")]
+            collections = [
+                col for col in all_collections if col.get("name", "").startswith("_")
+            ]
         elif project:
-            prefix = f"{config.workspace.collection_prefix}{project}_" if hasattr(config, 'workspace') else f"{project}_"
-            collections = [col for col in all_collections if col.get("name", "").startswith(prefix)]
+            prefix = (
+                f"{config.workspace.collection_prefix}{project}_"
+                if hasattr(config, "workspace")
+                else f"{project}_"
+            )
+            collections = [
+                col for col in all_collections if col.get("name", "").startswith(prefix)
+            ]
         else:
             collections = all_collections
 
         if not collections:
-            filter_desc = "library " if library else f"project '{project}' " if project else ""
+            filter_desc = (
+                "library " if library else f"project '{project}' " if project else ""
+            )
             print(f"No {filter_desc}collections found.")
             return
 
         # Display collections table
         print(f"Collections ({len(collections)} found)")
         print("=" * 50)
-        
+
         if stats:
             print(f"{'Name':<30} {'Type':<10} {'Points':<10} {'Vectors':<10}")
             print("-" * 60)
@@ -454,8 +526,12 @@ async def _list_collections(project: str | None, stats: bool, library: bool):
             if stats:
                 try:
                     info = raw_client.get_collection(name)
-                    points = str(info.points_count if hasattr(info, 'points_count') else "?")
-                    vectors = str(info.vectors_count if hasattr(info, 'vectors_count') else "?")
+                    points = str(
+                        info.points_count if hasattr(info, "points_count") else "?"
+                    )
+                    vectors = str(
+                        info.vectors_count if hasattr(info, "vectors_count") else "?"
+                    )
                     print(f"{name:<30} {col_type:<10} {points:<10} {vectors:<10}")
                 except Exception:
                     print(f"{name:<30} {col_type:<10} {'?':<10} {'?':<10}")
@@ -464,12 +540,13 @@ async def _list_collections(project: str | None, stats: bool, library: bool):
 
         # Clean up
         raw_client.close()
-        
+
     except Exception as e:
         print(f"Error listing collections: {e}")
         raise typer.Exit(1)
 
-async def _health_check(deep: bool, timeout: int):
+
+async def _health_check(deep: bool, timeout: int) -> None:
     """Comprehensive health check."""
     print("System Health Check")
     print("=" * 50)
@@ -482,13 +559,18 @@ async def _health_check(deep: bool, timeout: int):
         config = Config()
         # Use raw Qdrant client for health check
         from qdrant_client import QdrantClient
+
         # Only pass api_key if it's configured and we're using HTTPS
-        client_kwargs = {'url': config.qdrant.url, 'timeout': timeout}
-        if (hasattr(config.qdrant, 'api_key') and config.qdrant.api_key and 
-            config.qdrant.api_key.strip() and config.qdrant.url.startswith('https')):
-            client_kwargs['api_key'] = config.qdrant.api_key
+        client_kwargs = {"url": config.qdrant.url, "timeout": timeout}
+        if (
+            hasattr(config.qdrant, "api_key")
+            and config.qdrant.api_key
+            and config.qdrant.api_key.strip()
+            and config.qdrant.url.startswith("https")
+        ):
+            client_kwargs["api_key"] = config.qdrant.api_key
         raw_client = QdrantClient(**client_kwargs)
-        
+
         # Test basic connectivity
         collections = raw_client.get_collections()
         raw_client.close()
@@ -516,7 +598,7 @@ async def _health_check(deep: bool, timeout: int):
     if deep:
         print("Checking disk space...")
         try:
-            disk = psutil.disk_usage('/')
+            disk = psutil.disk_usage("/")
             if disk.percent < 85:
                 health_results.append(("Disk Space", f"{disk.percent:.1f}%", "ok"))
             elif disk.percent < 95:
