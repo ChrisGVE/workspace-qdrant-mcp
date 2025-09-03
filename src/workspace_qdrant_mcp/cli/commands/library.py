@@ -1,6 +1,4 @@
 
-from ...observability import get_logger
-logger = get_logger(__name__)
 """Library collection management CLI commands.
 
 This module provides management for readonly library collections
@@ -16,35 +14,37 @@ import typer
 from ...core.client import create_qdrant_client
 from ...core.collection_naming import CollectionNameError, validate_collection_name
 from ...core.config import Config
-
-
-# Create the library app
-library_app = typer.Typer(
-    help="""Library collection management
-    
-    Manage readonly library collections for reference materials.
-    
-    Examples:
-        wqm library list                    # Show all library collections
-        wqm library create technical-docs   # Create new library collection
-        wqm library status                  # Show library statistics
-        wqm library info tech-docs          # Show collection details
-        wqm library remove old-docs         # Remove library collection
-    """,
-    no_args_is_help=True,
-    rich_markup_mode=None  # Disable Rich formatting completely
+from ...observability import get_logger
+from ..utils import (
+    handle_async,
+    create_command_app,
+    force_option,
+    verbose_option,
+    json_output_option,
+    confirm,
+    success_message,
+    warning_message,
+    error_message
 )
 
-def handle_async(coro):
-    """Helper to run async commands."""
-    try:
-        return asyncio.run(coro)
-    except KeyboardInterrupt:
-        print("\nOperation cancelled by user")
-        raise typer.Exit(1)
-    except Exception as e:
-        print(f"Error: {e}")
-        raise typer.Exit(1)
+logger = get_logger(__name__)
+
+
+# Create the library app using shared utilities
+library_app = create_command_app(
+    name="library",
+    help_text="""Library collection management.
+    
+Manage readonly library collections for reference materials.
+    
+Examples:
+    wqm library list                    # Show all library collections
+    wqm library create technical-docs   # Create new library collection
+    wqm library status                  # Show library statistics
+    wqm library info tech-docs          # Show collection details
+    wqm library remove old-docs         # Remove library collection""",
+    no_args_is_help=True
+)
 
 @library_app.command("list")
 def list_libraries(

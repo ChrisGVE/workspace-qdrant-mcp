@@ -1,6 +1,4 @@
 
-from ...observability import get_logger
-logger = get_logger(__name__)
 """File watching CLI commands.
 
 This module provides management for library folder watching,
@@ -16,37 +14,36 @@ import typer
 
 from ...core.client import QdrantWorkspaceClient
 from ...core.config import Config
+from ...observability import get_logger
 from ..watch_service import WatchService
-from ..utils import confirm
-
-# Create the watch app
-watch_app = typer.Typer(
-    help="""Folder watching configuration
-    
-    Configure automatic folder watching for library collections.
-    
-    Examples:
-        wqm watch list                      # Show all watch configurations
-        wqm watch add ~/docs --collection=docs  # Watch folder for changes
-        wqm watch remove ~/docs             # Stop watching folder
-        wqm watch status                    # Show watch service status
-        wqm watch enable --name=docs-watch  # Enable specific watch
-    """,
-    no_args_is_help=True,
-    rich_markup_mode=None  # Disable Rich formatting completely
+from ..utils import (
+    handle_async,
+    create_command_app,
+    force_option,
+    verbose_option,
+    confirm,
+    success_message,
+    warning_message,
+    error_message
 )
 
+logger = get_logger(__name__)
 
-def handle_async(coro):
-    """Helper to run async commands."""
-    try:
-        return asyncio.run(coro)
-    except KeyboardInterrupt:
-        print("\nOperation cancelled by user")
-        raise typer.Exit(1)
-    except Exception as e:
-        print(f"Error: {e}")
-        raise typer.Exit(1)
+# Create the watch app using shared utilities
+watch_app = create_command_app(
+    name="watch",
+    help_text="""Folder watching configuration.
+    
+Configure automatic folder watching for library collections.
+    
+Examples:
+    wqm watch list                      # Show all watch configurations
+    wqm watch add ~/docs --collection=docs  # Watch folder for changes
+    wqm watch remove ~/docs             # Stop watching folder
+    wqm watch status                    # Show watch service status
+    wqm watch enable --name=docs-watch  # Enable specific watch""",
+    no_args_is_help=True
+)
 
 
 async def _get_watch_service() -> WatchService:
