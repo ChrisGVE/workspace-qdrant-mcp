@@ -12,6 +12,7 @@ use tokio::sync::Mutex;
 
 pub mod config;
 pub mod embedding;
+pub mod error;
 pub mod ipc;
 pub mod processing;
 pub mod storage;
@@ -24,6 +25,10 @@ use crate::config::Config;
 pub use crate::embedding::{
     EmbeddingGenerator, EmbeddingConfig, EmbeddingResult, 
     DenseEmbedding, SparseEmbedding, EmbeddingError
+};
+pub use crate::error::{
+    WorkspaceError, ErrorSeverity, ErrorRecoveryStrategy, 
+    CircuitBreaker, ErrorMonitor, ErrorRecovery, Result
 };
 
 /// Core processing errors
