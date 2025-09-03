@@ -12,7 +12,6 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 import typer
-from rich.prompt import Confirm
 
 from ...core.client import create_qdrant_client
 from ...core.collection_naming import CollectionNameError, validate_collection_name
@@ -129,7 +128,7 @@ async def _list_libraries(stats: bool, sort_by: str, format: str):
         ]
 
         if not library_collections:
-            print("📚 No library collections found.")
+            print("No library collections found.")
             print("Use 'wqm library create <name>' to create one")
             return
 
@@ -169,44 +168,42 @@ async def _list_libraries(stats: bool, sort_by: str, format: str):
             return
 
         # Display as table
-        table = Table(title=f"📚 Library Collections ({len(library_data)} found)")
-        table.add_column("Name", style="cyan")
-        table.add_column("Status", justify="center", width=12)
+        print(f"Library Collections ({len(library_data)} found):")
+        print(f"{'Name':<25} {'Status':<12}", end="")
 
         if stats:
-            table.add_column("Documents", justify="right", width=12)
-            table.add_column("Vectors", justify="right", width=12)
-            table.add_column("Indexed", justify="right", width=12)
+            print(f" {'Documents':<12} {'Vectors':<12} {'Indexed':<12}")
 
+        print()
+        print("-" * (65 if stats else 40))
+        
         for lib in library_data:
             name = lib["display_name"]
 
             # Determine status
             if stats and lib.get("error"):
-                status = "[red]ERROR[/red]"
+                status = "ERROR"
             elif stats and lib.get("points_count", 0) == 0:
-                status = "[yellow]EMPTY[/yellow]"
+                status = "EMPTY"
             elif stats:
-                status = "[green]ACTIVE[/green]"
+                status = "ACTIVE"
             else:
-                status = "[blue]LIBRARY[/blue]"
+                status = "LIBRARY"
 
             if stats:
                 points = str(lib.get("points_count", "?"))
                 vectors = str(lib.get("vectors_count", "?"))
                 indexed = str(lib.get("indexed_points_count", "?"))
-                table.add_row(name, status, points, vectors, indexed)
+                print(f"{name:<25} {status:<12} {points:<12} {vectors:<12} {indexed:<12}")
             else:
-                table.add_row(name, status)
-
-        print(table)
+                print(f"{name:<25} {status:<12}")
 
         if stats:
             total_docs = sum(lib.get("points_count", 0) for lib in library_data if isinstance(lib.get("points_count"), int))
             print(f"\nTotal documents across all libraries: {total_docs:,}")
 
     except Exception as e:
-        print(f"❌ Failed to list libraries: {e}")
+        print(f"Error: Failed to list libraries: {e}")
         raise typer.Exit(1)
 
 async def _create_library(
@@ -230,7 +227,7 @@ async def _create_library(
         try:
             validate_collection_name(collection_name, allow_library=True)
         except CollectionNameError as e:
-            print(f"❌ Invalid collection name: {e}")
+            print(f"Error: Invalid collection name: {e}")
             raise typer.Exit(1)
 
         config = Config()
@@ -239,10 +236,10 @@ async def _create_library(
         # Check if collection already exists
         existing_collections = await client.list_collections()
         if any(col.get("name") == collection_name for col in existing_collections):
-            print(f"❌ Library collection '{display_name}' already exists")
+            print(f"Error: Library collection '{display_name}' already exists")
             raise typer.Exit(1)
 
-        print(f" Creating library: {display_name}")
+        print(f"Creating library: {display_name}")
 
         # Prepare collection configuration
         collection_config = {
@@ -265,30 +262,23 @@ async def _create_library(
         # Create the collection
         await client.create_collection(collection_name, collection_config)
 
-        print(f" Library collection '{display_name}' created successfully!")
+        print(f"Library collection '{display_name}' created successfully!")
 
         # Display creation summary
-        summary_panel = Panel(
-            f"""[bold]Library Collection Created[/bold]
-
-📚 [cyan]Name:[/cyan] {display_name}
- [cyan]Full Name:[/cyan] {collection_name}
-📏 [cyan]Vector Size:[/cyan] {vector_size}
-📐 [cyan]Distance Metric:[/cyan] {distance_metric.upper()}
-📝 [cyan]Description:[/cyan] {description or "None"}
-🏷  [cyan]Tags:[/cyan] {', '.join(tags) if tags else "None"}
-
-[dim]Next steps:[/dim]
-• Use [green]wqm watch add PATH --collection={collection_name}[/green] to auto-monitor files
-• Use [green]wqm ingest folder PATH --collection={collection_name}[/green] for manual ingestion
-• Use [green]wqm search collection {collection_name} "query"[/green] to search the library""",
-            title="🎉 Success",
-            border_style="green"
-        )
-        print(summary_panel)
+        print("Library Collection Created")
+        print(f"Name: {display_name}")
+        print(f"Full Name: {collection_name}")
+        print(f"Vector Size: {vector_size}")
+        print(f"Distance Metric: {distance_metric.upper()}")
+        print(f"Description: {description or 'None'}")
+        print(f"Tags: {', '.join(tags) if tags else 'None'}")
+        print("\nNext steps:")
+        print(f"- Use 'wqm watch add PATH --collection={collection_name}' to auto-monitor files")
+        print(f"- Use 'wqm ingest folder PATH --collection={collection_name}' for manual ingestion")
+        print(f"- Use 'wqm search collection {collection_name} \"query\"' to search the library")
 
     except Exception as e:
-        print(f"❌ Failed to create library: {e}")
+        print(f"Error: Failed to create library: {e}")
         raise typer.Exit(1)
 
 async def _remove_library(name: str, force: bool, backup: bool):
@@ -308,7 +298,7 @@ async def _remove_library(name: str, force: bool, backup: bool):
         # Check if collection exists
         existing_collections = await client.list_collections()
         if not any(col.get("name") == collection_name for col in existing_collections):
-            print(f"❌ Library collection '{display_name}' not found")
+            print(f"Error: Library collection '{display_name}' not found")
             raise typer.Exit(1)
 
         # Get collection info for confirmation
@@ -319,28 +309,29 @@ async def _remove_library(name: str, force: bool, backup: bool):
             doc_count = "unknown"
 
         if not force:
-            print(f" Remove Library: {display_name}")
-            print(" This will permanently delete the library collection!")
+            print(f"Remove Library: {display_name}")
+            print("This will permanently delete the library collection!")
             print(f"Collection: {collection_name}")
             print(f"Documents: {doc_count}")
-
-            if not get_user_confirmation("\nAre you sure you want to delete this library?"):
+            
+            response = input("\nAre you sure you want to delete this library? (y/N): ")
+            if response.lower() not in ['y', 'yes']:
                 print("Removal cancelled.")
                 return
 
         # TODO: Implement backup functionality
         if backup:
-            print("📦 Backup functionality not yet implemented")
+            print("Backup functionality not yet implemented")
             print("This will be added in a future update")
 
         # Delete the collection
         print(f"Removing library '{display_name}'...")
         await client.delete_collection(collection_name)
 
-        print(f" Library collection '{display_name}' removed successfully")
+        print(f"Library collection '{display_name}' removed successfully")
 
     except Exception as e:
-        print(f"❌ Failed to remove library: {e}")
+        print(f"Error: Failed to remove library: {e}")
         raise typer.Exit(1)
 
 async def _library_status(name: str | None, detailed: bool, health_check: bool):
@@ -354,42 +345,37 @@ async def _library_status(name: str | None, detailed: bool, health_check: bool):
             collection_name = name if name.startswith("_") else f"_{name}"
             display_name = name[1:] if name.startswith("_") else name
 
-            print(f" Library Status: {display_name}")
+            print(f"Library Status: {display_name}")
 
             try:
                 info = await client.get_collection_info(collection_name)
 
-                status_table = Table(title=f"📚 {display_name} Status")
-                status_table.add_column("Property", style="cyan")
-                status_table.add_column("Value", style="white")
-
-                status_table.add_row("Collection Name", collection_name)
-                status_table.add_row("Status", info.get("status", "unknown"))
-                status_table.add_row("Documents", str(info.get("points_count", 0)))
-                status_table.add_row("Vectors", str(info.get("vectors_count", 0)))
-                status_table.add_row("Indexed Points", str(info.get("indexed_points_count", 0)))
-
+                print(f"{display_name} Status:")
+                print(f"Collection Name: {collection_name}")
+                print(f"Status: {info.get('status', 'unknown')}")
+                print(f"Documents: {info.get('points_count', 0)}")
+                print(f"Vectors: {info.get('vectors_count', 0)}")
+                print(f"Indexed Points: {info.get('indexed_points_count', 0)}")
+                
                 if detailed:
-                    status_table.add_row("Vector Size", str(info.get("config", {}).get("params", {}).get("vectors", {}).get("size", "unknown")))
-                    status_table.add_row("Distance Metric", str(info.get("config", {}).get("params", {}).get("vectors", {}).get("distance", "unknown")))
-
-                print(status_table)
+                    print(f"Vector Size: {info.get('config', {}).get('params', {}).get('vectors', {}).get('size', 'unknown')}")
+                    print(f"Distance Metric: {info.get('config', {}).get('params', {}).get('vectors', {}).get('distance', 'unknown')}")
 
             except Exception as e:
-                print(f"❌ Cannot get status for '{display_name}': {e}")
+                print(f"Error: Cannot get status for '{display_name}': {e}")
 
         else:
             # Status for all libraries
-            print(" All Libraries Status")
+            print("All Libraries Status")
             await _list_libraries(stats=True, sort_by="name", format="table")
 
         if health_check:
-            print("\n🏥 Health Check")
+            print("\nHealth Check")
             # TODO: Implement comprehensive health check
             print("Comprehensive health check will be implemented in future updates")
 
     except Exception as e:
-        print(f"❌ Failed to get library status: {e}")
+        print(f"Error: Failed to get library status: {e}")
         raise typer.Exit(1)
 
 async def _library_info(name: str, show_samples: bool, show_schema: bool):
@@ -401,37 +387,30 @@ async def _library_info(name: str, show_samples: bool, show_schema: bool):
         config = Config()
         client = create_qdrant_client(config.qdrant_client_config)
 
-        print(f" Library Info: {display_name}")
+        print(f"Library Info: {display_name}")
 
         # Get collection info
         info = await client.get_collection_info(collection_name)
 
         # Basic information
-        info_panel = Panel(
-            f"""[bold]Library Details[/bold]
-
-📚 [cyan]Name:[/cyan] {display_name}
- [cyan]Full Name:[/cyan] {collection_name}
- [cyan]Status:[/cyan] {info.get("status", "unknown")}
-📄 [cyan]Documents:[/cyan] {info.get("points_count", 0):,}
-🔢 [cyan]Vectors:[/cyan] {info.get("vectors_count", 0):,}
- [cyan]Indexed:[/cyan] {info.get("indexed_points_count", 0):,}
-
-[bold]Configuration[/bold]
-📏 [cyan]Vector Size:[/cyan] {info.get("config", {}).get("params", {}).get("vectors", {}).get("size", "unknown")}
-📐 [cyan]Distance:[/cyan] {info.get("config", {}).get("params", {}).get("vectors", {}).get("distance", "unknown")}""",
-            title="📚 Library Information",
-            border_style="blue"
-        )
-        print(info_panel)
+        print("Library Details:")
+        print(f"Name: {display_name}")
+        print(f"Full Name: {collection_name}")
+        print(f"Status: {info.get('status', 'unknown')}")
+        print(f"Documents: {info.get('points_count', 0):,}")
+        print(f"Vectors: {info.get('vectors_count', 0):,}")
+        print(f"Indexed: {info.get('indexed_points_count', 0):,}")
+        print("\nConfiguration:")
+        print(f"Vector Size: {info.get('config', {}).get('params', {}).get('vectors', {}).get('size', 'unknown')}")
+        print(f"Distance: {info.get('config', {}).get('params', {}).get('vectors', {}).get('distance', 'unknown')}")
 
         if show_schema:
-            print("\n Collection Schema")
+            print("\nCollection Schema")
             # TODO: Display collection schema details
             print("Schema details display will be implemented in future updates")
 
         if show_samples:
-            print("\n📄 Sample Documents")
+            print("\nSample Documents")
             try:
                 # Get a few sample points
                 sample_results = await client.scroll_collection(collection_name, limit=3)
@@ -447,7 +426,7 @@ async def _library_info(name: str, show_samples: bool, show_schema: bool):
                                 display_value = str(value)[:100] + "..." if len(str(value)) > 100 else str(value)
                                 print(f"  {key}: {display_value}")
 
-                        console.print()
+                        print()
                 else:
                     print("No sample documents found")
 
@@ -455,13 +434,13 @@ async def _library_info(name: str, show_samples: bool, show_schema: bool):
                 print(f"Cannot retrieve samples: {e}")
 
     except Exception as e:
-        print(f"❌ Failed to get library info: {e}")
+        print(f"Error: Failed to get library info: {e}")
         raise typer.Exit(1)
 
 async def _rename_library(old_name: str, new_name: str, force: bool):
     """Rename a library collection."""
     try:
-        print("🚧 Library renaming is not yet implemented")
+        print("Warning: Library renaming is not yet implemented")
         print("This feature requires creating a new collection and migrating data.")
         print("It will be implemented in a future update.")
         print("\nCurrent workaround:")
@@ -470,13 +449,13 @@ async def _rename_library(old_name: str, new_name: str, force: bool):
         print(f"3. wqm library remove {old_name} when ready")
 
     except Exception as e:
-        print(f"❌ Rename operation failed: {e}")
+        print(f"Error: Rename operation failed: {e}")
         raise typer.Exit(1)
 
 async def _copy_library(source: str, destination: str, description: str | None):
     """Copy library collection."""
     try:
-        print("🚧 Library copying is not yet implemented")
+        print("Warning: Library copying is not yet implemented")
         print("This feature requires advanced collection manipulation.")
         print("It will be implemented in a future update.")
         print("\nCurrent workaround:")
@@ -485,5 +464,5 @@ async def _copy_library(source: str, destination: str, description: str | None):
         print("3. Import data into destination library")
 
     except Exception as e:
-        print(f"❌ Copy operation failed: {e}")
+        print(f"Error: Copy operation failed: {e}")
         raise typer.Exit(1)
