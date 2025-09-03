@@ -1,6 +1,4 @@
 
-from ...observability import get_logger
-logger = get_logger(__name__)
 """Document ingestion CLI commands.
 
 This module provides manual document processing capabilities for the
@@ -8,7 +6,6 @@ unified wqm CLI, handling various file formats and ingestion workflows.
 """
 
 import asyncio
-import logging
 from pathlib import Path
 from typing import List, Optional
 
@@ -19,14 +16,14 @@ from ...cli.ingestion_engine import DocumentIngestionEngine, IngestionResult
 from ...core.daemon_client import get_daemon_client, with_daemon_client
 from ...core.yaml_config import load_config
 from ...core.yaml_metadata import YamlMetadataWorkflow
+from ...observability import get_logger
 
-logger = logging.getLogger(__name__)
+logger = get_logger(__name__)
 
 # Create the ingest app
 ingest_app = typer.Typer(
     help=" Manual document processing",
-    no_args_is_help=True
-,
+    no_args_is_help=True,
     rich_markup_mode=None  # Disable Rich formatting completely
 )
 
@@ -146,7 +143,7 @@ async def _ingest_file(
                 "path": str(file_path),
                 "size_mb": round(file_path.stat().st_size / (1024*1024), 2),
                 "extension": file_path.suffix.lower(),
-                "supported": file_path.suffix.lower() in 
+                "supported": file_path.suffix.lower() in ['.pdf', '.txt', '.md', '.docx']
             }
 
             # Display file analysis in plain text
