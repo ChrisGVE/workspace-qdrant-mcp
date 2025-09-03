@@ -4,10 +4,10 @@ This module provides the `wqm init` command to generate shell completion scripts
 for bash, zsh, and fish shells, following standard CLI patterns.
 
 Usage:
-    wqm init --help             # Show supported shells
-    eval "$(wqm init bash)"     # Enable bash completion
-    eval "$(wqm init zsh)"      # Enable zsh completion  
-    eval "$(wqm init fish)"     # Enable fish completion
+    wqm init bash               # Generate bash completion
+    wqm init zsh                # Generate zsh completion  
+    wqm init fish               # Generate fish completion
+    wqm init help               # Show detailed setup instructions
 """
 
 import sys
@@ -16,6 +16,8 @@ from enum import Enum
 import typer
 from typer.completion import get_completion_script
 
+from ..utils import CLIError, handle_cli_error, create_command_app, success_message
+
 # Available shells for completion
 class Shell(str, Enum):
     """Supported shells for completion."""
@@ -23,13 +25,35 @@ class Shell(str, Enum):
     ZSH = "zsh"
     FISH = "fish"
 
-# Initialize the init app - make it simple with direct commands
-init_app = typer.Typer(
+# Initialize the init app using shared utilities  
+init_app = create_command_app(
     name="init",
-    help="Initialize shell completion for wqm. Supports bash, zsh, and fish shells.",
-    no_args_is_help=True,
-    rich_markup_mode=None  # Disable Rich formatting completely
+    help_text="Generate shell completion scripts for wqm command.\n\nSupported shells: bash, zsh, fish\n\nExample: eval \"$(wqm init bash)\"",
+    no_args_is_help=False  # Let callback handle this
 )
+
+@init_app.callback(invoke_without_command=True)
+def init_callback(ctx: typer.Context) -> None:
+    """Handle init command with improved usage information."""
+    if not ctx.invoked_subcommand:
+        # Show custom help with better formatting
+        print("Usage: wqm init SHELL")
+        print("")
+        print("Generate shell completion scripts for wqm command")
+        print("")
+        print("Available shells:")
+        print("  bash    Generate bash completion script")
+        print("  zsh     Generate zsh completion script") 
+        print("  fish    Generate fish completion script")
+        print("  help    Show detailed setup instructions")
+        print("")
+        print("Examples:")
+        print("  eval \"$(wqm init bash)\"    # Enable bash completion")
+        print("  eval \"$(wqm init zsh)\"     # Enable zsh completion")
+        print("  wqm init fish | source     # Enable fish completion")
+        print("  wqm init help             # Show detailed instructions")
+        raise typer.Exit()
+
 
 @init_app.command("bash")
 def bash_completion(
@@ -39,7 +63,10 @@ def bash_completion(
         help="Program name for completion (default: wqm)"
     ),
 ) -> None:
-    """Generate bash completion script for shell evaluation."""
+    """Generate bash completion script.
+    
+    Usage: eval "$(wqm init bash)"
+    """
     generate_completion_script(Shell.BASH, prog_name)
 
 @init_app.command("zsh")
@@ -50,7 +77,10 @@ def zsh_completion(
         help="Program name for completion (default: wqm)"
     ),
 ) -> None:
-    """Generate zsh completion script for shell evaluation."""
+    """Generate zsh completion script.
+    
+    Usage: eval "$(wqm init zsh)"
+    """
     generate_completion_script(Shell.ZSH, prog_name)
 
 @init_app.command("fish")
@@ -61,7 +91,10 @@ def fish_completion(
         help="Program name for completion (default: wqm)"
     ),
 ) -> None:
-    """Generate fish completion script for shell evaluation."""
+    """Generate fish completion script.
+    
+    Usage: wqm init fish | source
+    """
     generate_completion_script(Shell.FISH, prog_name)
 
 @init_app.command("help")
@@ -80,7 +113,7 @@ Quick Setup (temporary for current shell session):
     eval "$(wqm init zsh)"
   
   Fish:
-    eval "$(wqm init fish)"
+    wqm init fish | source
 
 Permanent installation:
 
@@ -93,7 +126,7 @@ Permanent installation:
     source ~/.zshrc
   
   Fish - Add to ~/.config/fish/config.fish:
-    echo 'eval "$(wqm init fish)"' >> ~/.config/fish/config.fish
+    echo 'wqm init fish | source' >> ~/.config/fish/config.fish
     source ~/.config/fish/config.fish
 
 Verification:
@@ -103,12 +136,13 @@ TROUBLESHOOTING:
   - Make sure wqm is in your PATH
   - Restart your shell after permanent installation
   - For zsh, ensure compinit is loaded before the eval statement
-  - For fish, use 'wqm init fish | source' if eval doesn't work
+  - For fish, use 'wqm init fish | source' instead of eval
 
 Custom program name:
   wqm init bash --prog-name my-wqm    # For custom command names
 """
     print(help_text.strip())
+    success_message("Setup instructions displayed above")
 
 def generate_completion_script(shell: Shell, prog_name: str) -> None:
     """Generate and output completion script for the specified shell."""
@@ -125,9 +159,7 @@ def generate_completion_script(shell: Shell, prog_name: str) -> None:
         print(script, end="")
         
     except Exception as e:
-        # Use stderr for errors so they don't interfere with script output
-        print(f"Error generating completion script: {e}", file=sys.stderr)
-        raise typer.Exit(1)
+        handle_cli_error(CLIError(f"Error generating completion script: {e}"))
 
-# Alias for backward compatibility (if needed)
+# Alias for backward compatibility
 cli = init_app
