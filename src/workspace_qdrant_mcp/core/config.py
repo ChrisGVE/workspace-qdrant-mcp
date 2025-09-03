@@ -196,6 +196,42 @@ class GrpcConfig(BaseModel):
     keepalive_time: int = 30
 
 
+class AutoIngestionConfig(BaseModel):
+    """Configuration for automatic file ingestion on server startup.
+
+    This configuration controls the automatic detection and ingestion of project files
+    when the MCP server starts up. It provides fine-grained control over which files
+    are included, processing behavior, and performance characteristics.
+
+    Attributes:
+        enabled: Enable automatic ingestion on server startup (default: True)
+        auto_create_watches: Automatically create project file watches (default: True)
+        include_common_files: Include common document types like *.md, *.txt (default: True)
+        include_source_files: Include source code files like *.py, *.js (default: False)
+        max_files_per_batch: Maximum files to process simultaneously (default: 5)
+        batch_delay_seconds: Delay between processing batches to prevent overload (default: 2.0)
+        max_file_size_mb: Maximum file size to process in MB (default: 50)
+        recursive_depth: Maximum directory recursion depth (default: 5)
+        debounce_seconds: File change debounce time for watches (default: 10)
+
+    Performance Notes:
+        - Lower batch sizes reduce memory usage but increase processing time
+        - Batch delays prevent overwhelming the embedding service and database
+        - File size limits prevent processing of large binaries and media files
+        - Recursive depth limits prevent scanning deep directory structures
+    """
+
+    enabled: bool = True
+    auto_create_watches: bool = True
+    include_common_files: bool = True
+    include_source_files: bool = False
+    max_files_per_batch: int = 5
+    batch_delay_seconds: float = 2.0
+    max_file_size_mb: int = 50
+    recursive_depth: int = 5
+    debounce_seconds: int = 10
+
+
 class Config(BaseSettings):
     """Main configuration class with hierarchical settings management.
 
@@ -247,6 +283,7 @@ class Config(BaseSettings):
     embedding: EmbeddingConfig = Field(default_factory=EmbeddingConfig)
     workspace: WorkspaceConfig = Field(default_factory=WorkspaceConfig)
     grpc: GrpcConfig = Field(default_factory=GrpcConfig)
+    auto_ingestion: AutoIngestionConfig = Field(default_factory=AutoIngestionConfig)
 
     def __init__(self, config_file: Optional[str] = None, **kwargs) -> None:
         """Initialize configuration with YAML file, environment and legacy variable loading.

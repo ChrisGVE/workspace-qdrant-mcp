@@ -91,7 +91,7 @@ from .tools.grpc_tools import (
     process_document_via_grpc,
     search_via_grpc,
 )
-from .core.auto_ingestion import AutoIngestionManager, AutoIngestionConfig
+from .core.auto_ingestion import AutoIngestionManager
 
 # Initialize structured logging
 logger = get_logger(__name__)
@@ -2069,14 +2069,13 @@ async def initialize_workspace(config_file: Optional[str] = None) -> None:
     # Initialize automatic file ingestion system
     logger.debug("Setting up automatic file ingestion")
     try:
-        auto_ingestion_config = AutoIngestionConfig.from_env()
         auto_ingestion_manager = AutoIngestionManager(
             workspace_client, 
             watch_tools_manager, 
-            auto_ingestion_config
+            config.auto_ingestion
         )
         
-        if auto_ingestion_config.enabled:
+        if config.auto_ingestion.enabled:
             ingestion_result = await auto_ingestion_manager.setup_project_watches()
             if ingestion_result.get("success"):
                 watches_created = len(ingestion_result.get("watches_created", []))
