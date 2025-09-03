@@ -93,5 +93,39 @@ epoll = { workspace = true }
 winapi = { workspace = true }
 windows = { workspace = true }
 
+# Feature flags for platform-specific optimizations and testing
+[features]
+default = []
+
+# Platform-specific file watching optimizations
+macos-optimizations = []
+linux-optimizations = []
+windows-optimizations = []
+
+# Integration test features
+macos-integration-tests = ["macos-optimizations"]
+linux-integration-tests = ["linux-optimizations"] 
+windows-integration-tests = ["windows-optimizations"]
+
+# Benchmarking features
+benchmarks = []
+
 [dev-dependencies]
 tempfile = "3.8"
+criterion = { version = "0.5", features = ["html_reports"] }
+
+# Benchmarks
+[[bench]]
+name = "processing_benchmarks"
+harness = false
+required-features = ["benchmarks"]
+
+[[bench]]
+name = "watching_benchmarks"
+harness = false
+required-features = ["benchmarks"]
+
+[[bench]]
+name = "platform_benchmarks"
+harness = false
+required-features = ["benchmarks"]

@@ -224,3 +224,44 @@ rustflags = ["-C", "target-cpu=native"]
 
 [tool.maturin.target.aarch64-pc-windows-msvc]
 rustflags = ["-C", "target-cpu=native"]
+
+# cibuildwheel configuration for cross-platform wheel building
+[tool.cibuildwheel]
+# Build for Python 3.10+ on all platforms
+build = "cp310-* cp311-* cp312-*"
+skip = [
+    "*-musllinux_i686",     # Skip 32-bit musl
+    "pp*",                  # Skip PyPy
+]
+
+# Platform-specific settings
+[tool.cibuildwheel.linux]
+before-all = [
+    "curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y",
+    "source $HOME/.cargo/env",
+    "rustup target add aarch64-unknown-linux-gnu",
+    "apt-get update",
+    "apt-get install -y protobuf-compiler gcc-aarch64-linux-gnu g++-aarch64-linux-gnu"
+]
+repair-wheel-command = "auditwheel repair -w {dest_dir} {wheel}"
+
+[tool.cibuildwheel.macos]
+before-all = [
+    "curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y",
+    "source $HOME/.cargo/env", 
+    "rustup target add aarch64-apple-darwin",
+    "brew install protobuf"
+]
+# Set deployment target for broader compatibility
+environment = { MACOSX_DEPLOYMENT_TARGET = "10.12" }
+
+[tool.cibuildwheel.windows]
+before-all = [
+    "curl --proto '=https' --tlsv1.2 -sSf https://win.rustup.rs/x86_64 --output rustup-init.exe",
+    "rustup-init.exe -y --default-host x86_64-pc-windows-msvc",
+    "rustup target add aarch64-pc-windows-msvc",
+    "choco install protoc"
+]
+
+# Test command to verify wheels work
+test-command = "python -c 'import workspace_qdrant_mcp; print(\"Import successful\")'"
