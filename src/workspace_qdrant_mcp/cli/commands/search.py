@@ -1,6 +1,4 @@
 
-from ...observability import get_logger
-logger = get_logger(__name__)
 """Search CLI commands.
 
 This module provides command-line search interface with different
@@ -17,39 +15,33 @@ import typer
 from ...core.daemon_client import get_daemon_client, with_daemon_client
 from ...core.yaml_config import load_config
 from ...grpc.ingestion_pb2 import SearchMode
+from ...observability import get_logger
 from ...utils.project_detection import ProjectDetector
-
-def _print_table_as_text(table_data):
-    """Helper to print table data as plain text."""
-    # This helper is no longer needed as we've replaced all Rich tables
-    # with direct plain text formatting
-    pass
-
-# Create the search app
-search_app = typer.Typer(
-    help="""Command-line search interface
-    
-    Examples:
-        wqm search project "rust async patterns"      # Search current project
-        wqm search collection docs "API reference"   # Search specific collection
-        wqm search global "python best practices"    # Search library collections
-        wqm search all "error handling"              # Search everywhere
-        wqm search memory "coding preferences"       # Search memory rules
-    """,
-    no_args_is_help=True,
-    rich_markup_mode=None  # Disable Rich formatting completely
+from ..utils import (
+    handle_async,
+    create_command_app,
+    json_output_option,
+    verbose_option,
+    success_message,
+    warning_message,
+    error_message
 )
 
-def handle_async(coro):
-    """Helper to run async commands."""
-    try:
-        return asyncio.run(coro)
-    except KeyboardInterrupt:
-        print("\nOperation cancelled by user")
-        raise typer.Exit(1)
-    except Exception as e:
-        print(f"Error: {e}")
-        raise typer.Exit(1)
+logger = get_logger(__name__)
+
+# Create the search app using shared utilities
+search_app = create_command_app(
+    name="search",
+    help_text="""Command-line search interface.
+    
+Examples:
+    wqm search project "rust async patterns"      # Search current project
+    wqm search collection docs "API reference"   # Search specific collection
+    wqm search global "python best practices"    # Search library collections
+    wqm search all "error handling"              # Search everywhere
+    wqm search memory "coding preferences"       # Search memory rules""",
+    no_args_is_help=True
+)
 
 @search_app.command("project")
 def search_project(
