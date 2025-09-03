@@ -64,7 +64,13 @@ from rich.tree import Tree
 from ..core.client import QdrantWorkspaceClient
 from ..core.config import Config
 from ..observability import get_logger, configure_logging
-from ..tools.grpc_tools import get_grpc_engine_stats, test_grpc_connection
+from ..tools.grpc_tools import (
+    get_grpc_engine_stats, 
+    test_grpc_connection,
+    stream_processing_status_grpc,
+    stream_system_metrics_grpc,
+    stream_queue_status_grpc
+)
 from ..tools.state_management import (
     get_processing_status,
     get_queue_stats,
@@ -417,7 +423,10 @@ def status_main(
     watch: bool = typer.Option(False, "--watch", help="Show watch folder status"),
     performance: bool = typer.Option(False, "--performance", help="Show performance metrics"),
     live: bool = typer.Option(False, "--live", help="Enable live monitoring mode"),
+    stream: bool = typer.Option(False, "--stream", help="Enable real-time gRPC streaming (requires daemon)"),
     interval: int = typer.Option(5, "--interval", "-i", help="Live update interval in seconds"),
+    grpc_host: str = typer.Option("127.0.0.1", "--grpc-host", help="gRPC daemon host"),
+    grpc_port: int = typer.Option(50051, "--grpc-port", help="gRPC daemon port"),
     export: Optional[str] = typer.Option(None, "--export", help="Export format: json, csv"),
     output: Optional[Path] = typer.Option(None, "--output", "-o", help="Output file path"),
     collection: Optional[str] = typer.Option(None, "--collection", "-c", help="Filter by collection"),
@@ -437,8 +446,13 @@ def status_main(
     """
     if not ctx.invoked_subcommand:
         # Main status display
-        if live:
-            asyncio.run(live_status_monitor(interval, collection))
+        if live or stream:
+            if stream:
+                asyncio.run(live_streaming_status_monitor(
+                    interval, collection, grpc_host, grpc_port
+                ))
+            else:
+                asyncio.run(live_status_monitor(interval, collection))
         else:
             asyncio.run(show_status_overview(
                 history=history,
@@ -812,6 +826,284 @@ async def live_status_monitor(interval: int = 5, collection: Optional[str] = Non
     
     except KeyboardInterrupt:
         console.print("\n[yellow]Live monitoring stopped by user[/yellow]")
+
+
+async def live_streaming_status_monitor(
+    interval: int = 5, 
+    collection: Optional[str] = None,
+    grpc_host: str = "127.0.0.1",
+    grpc_port: int = 50051
+) -> None:
+    """Run live status monitoring with real-time gRPC streaming updates."""
+    
+    def create_streaming_layout(
+        processing_update: Optional[Dict[str, Any]] = None,
+        metrics_update: Optional[Dict[str, Any]] = None,
+        queue_update: Optional[Dict[str, Any]] = None
+    ) -> Layout:
+        """Create live streaming layout with real-time data."""
+        layout = Layout()
+        layout.split_column(
+            Layout(name="header", size=3),
+            Layout(name="main"),
+            Layout(name="footer", size=2)
+        )
+        
+        # Header with real-time timestamp
+        current_time = datetime.utcnow().strftime('%Y-%m-%d %H:%M:%S UTC')
+        daemon_status = "STREAMING" if processing_update or metrics_update or queue_update else "CONNECTING"
+        status_color = "green" if daemon_status == "STREAMING" else "yellow"
+        
+        header_text = Text()
+        header_text.append("Live Streaming Monitor - ", style="bold")
+        header_text.append(daemon_status, style=f"bold {status_color}")
+        header_text.append(f" - {current_time} (gRPC streaming)", style="dim")
+        
+        layout["header"].update(Panel(header_text, border_style="blue"))
+        
+        # Main content split between processing status and metrics
+        layout["main"].split_row(
+            Layout(name="processing", ratio=2),
+            Layout(name="metrics", ratio=1)
+        )
+        
+        # Processing status panel
+        if processing_update:
+            processing_panel = create_streaming_processing_panel(processing_update)
+        else:
+            processing_panel = Panel(
+                Text("Waiting for processing status updates...", style="dim italic"),
+                title="[bold]Processing Status[/bold]",
+                border_style="blue"
+            )
+        
+        layout["main"]["processing"].update(processing_panel)
+        
+        # Metrics panel
+        if metrics_update:
+            metrics_panel = create_streaming_metrics_panel(metrics_update)
+        else:
+            metrics_panel = Panel(
+                Text("Waiting for system metrics...", style="dim italic"),
+                title="[bold]System Metrics[/bold]",
+                border_style="magenta"
+            )
+        
+        layout["main"]["metrics"].update(metrics_panel)
+        
+        # Footer with queue info
+        footer_text = "Real-time gRPC streaming active | "
+        if queue_update and queue_update.get("queue_status"):
+            queue_status = queue_update["queue_status"]
+            footer_text += f"Queue: {queue_status.get('total_queued', 0)} files | "
+        
+        footer_text += "Press Ctrl+C to exit"
+        
+        layout["footer"].update(Panel(footer_text, style="dim", border_style="dim"))
+        
+        return layout
+    
+    # Check if gRPC daemon is available
+    console.print(f"[cyan]Testing gRPC connection to {grpc_host}:{grpc_port}...[/cyan]")
+    connection_result = await test_grpc_connection(grpc_host, grpc_port, timeout=5.0)
+    
+    if not connection_result.get("connected"):
+        console.print(f"[red]Error: Cannot connect to gRPC daemon at {grpc_host}:{grpc_port}[/red]")
+        console.print(f"[dim]Error: {connection_result.get('error', 'Connection failed')}[/dim]")
+        console.print("[yellow]Falling back to polling-based monitoring...[/yellow]\n")
+        # Fall back to regular monitoring
+        await live_status_monitor(interval, collection)
+        return
+    
+    console.print(f"[green]✓ Connected to gRPC daemon[/green]")
+    console.print(f"[cyan]Starting real-time streaming monitor[/cyan]")
+    if collection:
+        console.print(f"[dim]Filtered to collection: {collection}[/dim]")
+    console.print("Press Ctrl+C to exit\n")
+    
+    # Storage for latest updates
+    latest_processing = None
+    latest_metrics = None
+    latest_queue = None
+    
+    async def update_processing_status():
+        """Background task to stream processing status updates."""
+        nonlocal latest_processing
+        try:
+            result = await stream_processing_status_grpc(
+                host=grpc_host,
+                port=grpc_port,
+                update_interval=interval,
+                include_history=True,
+                collection_filter=collection
+            )
+            if result.get("success") and result.get("status_updates"):
+                for update in result["status_updates"]:
+                    latest_processing = update
+        except Exception as e:
+            logger.warning("Processing status streaming failed", error=str(e))
+    
+    async def update_system_metrics():
+        """Background task to stream system metrics updates."""
+        nonlocal latest_metrics
+        try:
+            result = await stream_system_metrics_grpc(
+                host=grpc_host,
+                port=grpc_port,
+                update_interval=max(interval, 10),  # Metrics update less frequently
+                include_detailed_metrics=True
+            )
+            if result.get("success") and result.get("metrics_updates"):
+                for update in result["metrics_updates"]:
+                    latest_metrics = update
+        except Exception as e:
+            logger.warning("System metrics streaming failed", error=str(e))
+    
+    async def update_queue_status():
+        """Background task to stream queue status updates."""
+        nonlocal latest_queue
+        try:
+            result = await stream_queue_status_grpc(
+                host=grpc_host,
+                port=grpc_port,
+                update_interval=min(interval, 5),  # Queue updates more frequently
+                collection_filter=collection
+            )
+            if result.get("success") and result.get("queue_updates"):
+                for update in result["queue_updates"]:
+                    latest_queue = update
+        except Exception as e:
+            logger.warning("Queue status streaming failed", error=str(e))
+    
+    try:
+        # Start background streaming tasks
+        processing_task = asyncio.create_task(update_processing_status())
+        metrics_task = asyncio.create_task(update_system_metrics())
+        queue_task = asyncio.create_task(update_queue_status())
+        
+        with Live(console=console, refresh_per_second=2) as live:
+            while True:
+                try:
+                    # Create layout with latest data
+                    layout = create_streaming_layout(
+                        latest_processing,
+                        latest_metrics, 
+                        latest_queue
+                    )
+                    live.update(layout)
+                    
+                    await asyncio.sleep(1)  # Update display every second
+                    
+                except KeyboardInterrupt:
+                    break
+                except Exception as e:
+                    console.print(f"[red]Error updating display: {e}[/red]", err=True)
+                    await asyncio.sleep(1)
+        
+        # Cancel background tasks
+        processing_task.cancel()
+        metrics_task.cancel()
+        queue_task.cancel()
+        
+        # Wait for tasks to complete
+        await asyncio.gather(processing_task, metrics_task, queue_task, return_exceptions=True)
+        
+    except KeyboardInterrupt:
+        console.print("\n[yellow]Streaming monitor stopped by user[/yellow]")
+
+
+def create_streaming_processing_panel(processing_update: Dict[str, Any]) -> Panel:
+    """Create a panel for streaming processing status."""
+    
+    processing_table = Table(show_header=True, box=None)
+    processing_table.add_column("Metric", style="cyan", min_width=20)
+    processing_table.add_column("Value", style="white")
+    
+    # Current stats
+    current_stats = processing_update.get("current_stats", {})
+    active_tasks = len(processing_update.get("active_tasks", []))
+    recent_completed = len(processing_update.get("recent_completed", []))
+    
+    processing_table.add_row("Active Processing", str(active_tasks))
+    processing_table.add_row("Recently Completed", str(recent_completed))
+    
+    if current_stats:
+        processing_table.add_row("Total Processed", f"{current_stats.get('total_files_processed', 0):,}")
+        processing_table.add_row("Total Failed", str(current_stats.get('total_files_failed', 0)))
+        processing_table.add_row("Total Skipped", str(current_stats.get('total_files_skipped', 0)))
+        processing_table.add_row("Queued Tasks", str(current_stats.get('queued_tasks', 0)))
+    
+    # Add active task details if available
+    active_tasks_list = processing_update.get("active_tasks", [])
+    if active_tasks_list:
+        processing_table.add_row("", "")  # Separator
+        processing_table.add_row("[bold]Active Files:[/bold]", "")
+        
+        for task in active_tasks_list[:3]:  # Show first 3
+            filename = Path(task.get("file_path", "")).name
+            if len(filename) > 25:
+                filename = filename[:22] + "..."
+            progress = task.get("progress_percent", 0)
+            processing_table.add_row(f"  {filename}", f"{progress:.1f}%")
+        
+        if len(active_tasks_list) > 3:
+            processing_table.add_row(f"  (+{len(active_tasks_list) - 3} more)", "")
+    
+    return Panel(
+        processing_table,
+        title="[bold]Real-time Processing Status[/bold]",
+        border_style="blue"
+    )
+
+
+def create_streaming_metrics_panel(metrics_update: Dict[str, Any]) -> Panel:
+    """Create a panel for streaming system metrics."""
+    
+    metrics_table = Table(show_header=False, box=None, padding=(0, 2))
+    metrics_table.add_column("Metric", style="cyan", min_width=20)
+    metrics_table.add_column("Value", style="white")
+    
+    # Resource usage
+    resource_usage = metrics_update.get("resource_usage", {})
+    if resource_usage:
+        metrics_table.add_row("CPU Usage", f"{resource_usage.get('cpu_percent', 0):.1f}%")
+        
+        memory_mb = resource_usage.get('memory_bytes', 0) / 1024 / 1024
+        metrics_table.add_row("Memory Usage", f"{memory_mb:.1f} MB")
+        
+        metrics_table.add_row("Open Files", str(resource_usage.get('open_files', 0)))
+        metrics_table.add_row("Connections", str(resource_usage.get('active_connections', 0)))
+    
+    # Engine stats
+    engine_stats = metrics_update.get("engine_stats", {})
+    if engine_stats:
+        metrics_table.add_row("", "")  # Separator
+        uptime_seconds = engine_stats.get('uptime_seconds', 0)
+        metrics_table.add_row("Engine Uptime", format_duration(uptime_seconds))
+        
+        total_docs = engine_stats.get('total_documents_processed', 0)
+        metrics_table.add_row("Total Documents", f"{total_docs:,}")
+        
+        active_watches = engine_stats.get('active_watches', 0)
+        metrics_table.add_row("Active Watches", str(active_watches))
+    
+    # Performance metrics
+    performance_metrics = metrics_update.get("performance_metrics", {})
+    if performance_metrics:
+        processing_rate = performance_metrics.get('processing_rate_files_per_hour', 0)
+        metrics_table.add_row("Processing Rate", f"{processing_rate:.1f} files/hour")
+        
+        success_rate = performance_metrics.get('success_rate_percent', 0)
+        metrics_table.add_row("Success Rate", f"{success_rate:.1f}%")
+        
+        concurrent_tasks = performance_metrics.get('concurrent_tasks', 0)
+        metrics_table.add_row("Concurrent Tasks", str(concurrent_tasks))
+    
+    return Panel(
+        metrics_table,
+        title="[bold]Real-time System Metrics[/bold]",
+        border_style="magenta"
+    )
 
 
 # Export the status CLI app
