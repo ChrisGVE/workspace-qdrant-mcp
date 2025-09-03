@@ -255,7 +255,7 @@ class DiagnosticTool:
 
         panel = Panel(
             header_text,
-            title="🔍 System Diagnostics",
+            title="System Diagnostics",
             border_style="blue",
             padding=(1, 2),
         )
@@ -1360,19 +1360,19 @@ class DiagnosticTool:
         failed_components = [comp for comp in components if not comp.success]
 
         if not failed_components:
-            recommendations.append("✅ All components are working correctly!")
+            recommendations.append("All components are working correctly!")
 
             # Performance recommendations
             recommendations.extend(
                 [
                     "📊 Consider running benchmark tests with --benchmark flag",
                     "📁 Set up regular document ingestion with workspace-qdrant-ingest",
-                    "🔄 Monitor system health with workspace-qdrant-health",
+                    "Monitor system health with workspace-qdrant-health",
                 ]
             )
         else:
             recommendations.append(
-                f"❌ {len(failed_components)} components need attention:"
+                f"Error: {len(failed_components)} components need attention:"
             )
 
             for comp in failed_components:
@@ -1402,10 +1402,10 @@ class DiagnosticTool:
 
         # Overall status header
         if report.overall_success:
-            status_text = Text("✅ All Systems Operational", style="bold green")
+            status_text = Text("All Systems Operational", style="bold green")
         else:
             failed_count = len([c for c in report.components if not c.success])
-            status_text = Text(f"❌ {failed_count} Issues Found", style="bold red")
+            status_text = Text(f"Error: {failed_count} Issues Found", style="bold red")
 
         header_panel = Panel(
             status_text,
@@ -1425,7 +1425,7 @@ class DiagnosticTool:
         table.add_column("Time (ms)", style="dim", width=10)
 
         for comp in report.components:
-            status_icon = "✅" if comp.success else "❌"
+            status_icon = "[OK]" if comp.success else "[ERROR]"
             status_style = "green" if comp.success else "red"
 
             table.add_row(
@@ -1493,7 +1493,7 @@ class DiagnosticTool:
             console.print(
                 Panel(
                     rec_text,
-                    title="🎯 Recommendations",
+                    title="Recommendations",
                     border_style="yellow",
                     padding=(1, 2),
                 )
@@ -1505,12 +1505,12 @@ class DiagnosticTool:
 
         if report.overall_success:
             summary.append(
-                "✨ Your workspace-qdrant-mcp installation is ready to use!",
+                "Your workspace-qdrant-mcp installation is ready to use!",
                 style="green",
             )
         else:
             summary.append(
-                "⚠️  Please address the issues above before using the system.",
+                "Warning: Please address the issues above before using the system.",
                 style="yellow",
             )
 
@@ -1587,16 +1587,16 @@ def main(
                     f"\n📊 Report saved to: {output_path.absolute()}", style="green"
                 )
             except Exception as e:
-                console.print(f"\n⚠️  Failed to save report: {e}", style="yellow")
+                console.print(f"\nWarning: Failed to save report: {e}", style="yellow")
 
         # Exit with appropriate code
         sys.exit(0 if report.overall_success else 1)
 
     except KeyboardInterrupt:
-        console.print("\n❌ Diagnostics cancelled by user", style="red")
+        console.print("\nError: Diagnostics cancelled by user", style="red")
         sys.exit(1)
     except Exception as e:
-        console.print(f"\n❌ Diagnostics failed: {e}", style="red")
+        console.print(f"\nError: Diagnostics failed: {e}", style="red")
         logger.error(f"Diagnostics failed: {e}", exc_info=True)
         sys.exit(1)
 
