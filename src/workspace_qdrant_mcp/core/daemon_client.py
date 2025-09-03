@@ -112,7 +112,16 @@ class DaemonClient:
             logger.info(f"Connected to daemon at {address}")
             
         except Exception as e:
-            logger.error(f"Failed to connect to daemon at {address}: {e}")
+            error_msg = (
+                f"Failed to connect to daemon at {address}: {e}\n"
+                "\n"
+                "Troubleshooting steps:\n"
+                "1. Check if daemon is running: wqm admin status\n"
+                "2. Start daemon if needed: wqm admin start-daemon\n"
+                "3. Verify Qdrant is accessible at localhost:6333\n"
+                "4. Check firewall/network settings\n"
+            )
+            logger.error(error_msg)
             if self.channel:
                 await self.channel.close()
                 self.channel = None
@@ -140,7 +149,16 @@ class DaemonClient:
     def _ensure_connected(self) -> None:
         """Ensure client is connected to daemon."""
         if not self._connected or not self.stub:
-            raise DaemonConnectionError("Not connected to daemon. Call connect() first.")
+            raise DaemonConnectionError(
+                "Cannot perform operation: daemon not connected.\n"
+                "\n"
+                "To resolve this issue:\n"
+                "1. Start the daemon: wqm admin start-daemon\n"
+                "2. Check daemon status: wqm admin status\n"
+                "3. Verify Qdrant is running at localhost:6333\n"
+                "\n"
+                "For more help: wqm admin diagnostics"
+            )
     
     # Document processing operations
     
