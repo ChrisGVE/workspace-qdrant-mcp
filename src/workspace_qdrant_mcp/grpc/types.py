@@ -9,7 +9,7 @@ from typing import Dict, List, Optional, Any, Union
 from dataclasses import dataclass
 from datetime import datetime
 
-from .ingestion_pb2 import (
+from .ingestion_pb2 import (  # type: ignore[attr-defined]
     ProcessDocumentRequest as PbProcessDocumentRequest,
     ProcessDocumentResponse as PbProcessDocumentResponse,
     ExecuteQueryRequest as PbExecuteQueryRequest,
@@ -109,7 +109,7 @@ class SearchResult:
     search_type: str
     
     @classmethod
-    def from_pb(cls, pb_result) -> 'SearchResult':
+    def from_pb(cls, pb_result: Any) -> 'SearchResult':
         """Create from protobuf search result."""
         # Convert protobuf Any payload to dict
         payload = {}
@@ -165,7 +165,7 @@ class HealthCheckRequest:
     """Health check request (uses Empty protobuf)."""
     pass
     
-    def to_pb(self):
+    def to_pb(self) -> Any:
         """Convert to protobuf Empty message."""
         from google.protobuf.empty_pb2 import Empty
         return Empty()
@@ -210,12 +210,12 @@ def dict_to_metadata_map(metadata: Optional[Dict[str, str]]) -> Dict[str, str]:
     return metadata or {}
 
 
-def timestamp_to_datetime(pb_timestamp) -> datetime:
+def timestamp_to_datetime(pb_timestamp: Any) -> datetime:
     """Convert protobuf timestamp to Python datetime."""
     return datetime.fromtimestamp(pb_timestamp.seconds + pb_timestamp.nanos / 1e9)
 
 
-def datetime_to_timestamp(dt: datetime):
+def datetime_to_timestamp(dt: datetime) -> Any:
     """Convert Python datetime to protobuf timestamp."""
     from google.protobuf.timestamp_pb2 import Timestamp
     timestamp = Timestamp()
