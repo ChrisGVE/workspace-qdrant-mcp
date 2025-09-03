@@ -35,18 +35,19 @@ dependencies = [
   "jinja2>=3.1.0",
   "python-multipart>=0.0.6",
   # Document parsers for extended file type support
-  "python-docx>=1.1.0",      # DOCX documents
-  "python-pptx>=0.6.23",     # PPTX presentations  
-  "ebooklib>=0.18",          # EPUB ebooks
-  "python-magic>=0.4.27",    # File type detection
-  "beautifulsoup4>=4.12.0",  # HTML parsing
-  "lxml>=4.9.0",             # XML/HTML processing
-  "markdown>=3.5.0",         # Enhanced markdown support
-  "pygments>=2.16.0",        # Code syntax highlighting
-  "structlog>=23.0.0",       # Structured logging support
+  "python-docx>=1.1.0", # DOCX documents
+  "python-pptx>=0.6.23", # PPTX presentations
+  "ebooklib>=0.18", # EPUB ebooks
+  "python-magic>=0.4.27", # File type detection
+  "beautifulsoup4>=4.12.0", # HTML parsing
+  "lxml>=4.9.0", # XML/HTML processing
+  "markdown>=3.5.0", # Enhanced markdown support
+  "pygments>=2.16.0", # Code syntax highlighting
+  "structlog>=23.0.0", # Structured logging support
   # Web crawling and security
-  "aiohttp>=3.9.0",          # Async HTTP client for web crawling
-  "aiofiles>=23.0.0",        # Async file operations
+  "aiohttp>=3.9.0", # Async HTTP client for web crawling
+  "aiofiles>=23.0.0", # Async file operations
+  "maturin>=1.9.4",
 ]
 
 [project.optional-dependencies]
