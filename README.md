@@ -22,6 +22,7 @@ workspace-qdrant-mcp provides intelligent vector database operations through the
 - 🎯 **Subproject Support** - Git submodules with user-filtered collection creation
 - ⚙️ **Interactive Setup** - Guided configuration wizard with health checks
 - 🚀 **High Performance** - Rust-powered components with evidence-based benchmarks
+- 🌐 **Cross-Platform** - Native support for macOS (Intel/ARM), Linux (x86_64/ARM64), Windows (x86_64/ARM64)
 - 🛡️ **Enterprise Ready** - Comprehensive security scanning and quality assurance
 
 ## Table of Contents
