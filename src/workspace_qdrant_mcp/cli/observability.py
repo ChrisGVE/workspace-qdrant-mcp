@@ -34,14 +34,6 @@ from pathlib import Path
 from typing import Dict, Any, Optional
 
 import typer
-from rich.console import Console
-from rich.table import Table
-from rich.panel import Panel
-from rich.progress import Progress, SpinnerColumn, TextColumn
-from rich.text import Text
-from rich.json import JSON
-from rich.live import Live
-from rich.layout import Layout
 
 from ..observability import (
     get_logger,
@@ -54,7 +46,6 @@ from ..core.config import Config
 from ..core.client import QdrantWorkspaceClient
 
 logger = get_logger(__name__)
-console = Console()
 
 # CLI app for observability commands
 observability_app = typer.Typer(
@@ -64,63 +55,37 @@ observability_app = typer.Typer(
 )
 
 
-def create_health_table(health_data: Dict[str, Any]) -> Table:
-    """Create a Rich table for health status display."""
-    table = Table(title="System Health Status")
-    table.add_column("Component", style="cyan", min_width=20)
-    table.add_column("Status", min_width=12)
-    table.add_column("Message", style="dim", min_width=30)
-    table.add_column("Response Time", style="magenta", min_width=12)
+def print_health_status(health_data: Dict[str, Any]) -> None:
+    """Print health status in plain text format."""
+    print("System Health Status")
+    print("=" * 80)
     
     # Overall status row
     overall_status = health_data.get("status", "unknown")
-    status_color = {
-        "healthy": "green",
-        "degraded": "yellow", 
-        "unhealthy": "red",
-        "unknown": "dim"
-    }.get(overall_status, "dim")
-    
-    table.add_row(
-        "OVERALL",
-        Text(overall_status.upper(), style=f"bold {status_color}"),
-        health_data.get("message", ""),
-        ""
-    )
-    
-    table.add_section()
+    print(f"{'Component':<20} {'Status':<12} {'Message':<30} {'Response Time':<12}")
+    print("-" * 80)
+    print(f"{'OVERALL':<20} {overall_status.upper():<12} {health_data.get('message', ''):<30} {''}")
+    print()
     
     # Component status rows
     components = health_data.get("components", {})
     for name, comp in components.items():
         comp_status = comp.get("status", "unknown")
-        comp_color = {
-            "healthy": "green",
-            "degraded": "yellow",
-            "unhealthy": "red", 
-            "unknown": "dim"
-        }.get(comp_status, "dim")
-        
         response_time = comp.get("response_time")
         response_str = f"{response_time:.3f}s" if response_time else ""
+        component_name = name.replace("_", " ").title()
         
-        table.add_row(
-            name.replace("_", " ").title(),
-            Text(comp_status, style=comp_color),
-            comp.get("message", ""),
-            response_str
-        )
+        print(f"{component_name:<20} {comp_status:<12} {comp.get('message', ''):<30} {response_str:<12}")
     
-    return table
+    print()
 
 
-def create_metrics_table(metrics_data: Dict[str, Any]) -> Table:
-    """Create a Rich table for metrics display."""
-    table = Table(title="System Metrics Summary")
-    table.add_column("Metric Type", style="cyan", min_width=15)
-    table.add_column("Name", style="white", min_width=25)
-    table.add_column("Value", style="green", min_width=15)
-    table.add_column("Description", style="dim", min_width=30)
+def print_metrics_summary(metrics_data: Dict[str, Any]) -> None:
+    """Print metrics summary in plain text format."""
+    print("System Metrics Summary")
+    print("=" * 90)
+    print(f"{'Type':<12} {'Name':<25} {'Value':<15} {'Description':<30}")
+    print("-" * 90)
     
     # Counters
     counters = metrics_data.get("counters", {})
@@ -130,12 +95,7 @@ def create_metrics_table(metrics_data: Dict[str, Any]) -> Table:
         else:
             display_name = name.replace("_", " ").title()
         
-        table.add_row(
-            "Counter",
-            display_name,
-            str(data.get("value", 0)),
-            data.get("description", "")
-        )
+        print(f"{'Counter':<12} {display_name:<25} {str(data.get('value', 0)):<15} {data.get('description', ''):<30}")
     
     # Gauges
     gauges = metrics_data.get("gauges", {})
@@ -158,12 +118,7 @@ def create_metrics_table(metrics_data: Dict[str, Any]) -> Table:
         else:
             value_str = str(value)
         
-        table.add_row(
-            "Gauge",
-            display_name,
-            value_str,
-            data.get("description", "")
-        )
+        print(f"{'Gauge':<12} {display_name:<25} {value_str:<15} {data.get('description', ''):<30}")
     
     # Key histograms
     histograms = metrics_data.get("histograms", {})
@@ -178,14 +133,9 @@ def create_metrics_table(metrics_data: Dict[str, Any]) -> Table:
             else:
                 value_str = f"{avg:.2f} (n={count})"
             
-            table.add_row(
-                "Histogram",
-                display_name,
-                value_str,
-                data.get("description", "")
-            )
+            print(f"{'Histogram':<12} {display_name:<25} {value_str:<15} {data.get('description', ''):<30}")
     
-    return table
+    print()
 
 
 @observability_app.command()
@@ -217,38 +167,38 @@ def health(
                 progress.update(task, completed=True)
             
             if json_output:
-                console.print_json(json.dumps(health_data, indent=2))
+                print(json.dumps(health_data, indent=2))
             else:
                 # Display formatted health status
-                table = create_health_table(health_data)
-                console.print(table)
+                print_health_status(health_data)
                 
                 # Show detailed information if requested
                 if detailed:
-                    console.print("\n[bold]Detailed Component Information:[/bold]")
+                    print("\nDetailed Component Information:")
+                    print("=" * 40)
                     components = health_data.get("components", {})
                     for name, comp in components.items():
                         if comp.get("details"):
-                            panel_title = f"{name.replace('_', ' ').title()} Details"
-                            panel_content = JSON(json.dumps(comp["details"], indent=2))
-                            console.print(Panel(panel_content, title=panel_title, border_style="dim"))
+                            print(f"\n{name.replace('_', ' ').title()} Details:")
+                            print(json.dumps(comp["details"], indent=2))
+                            print()
                 
                 # Overall status message
                 status = health_data.get("status", "unknown")
                 if status == "healthy":
-                    console.print("\n[green]System is healthy and operational[/green]")
+                    print("\nSystem is healthy and operational")
                 elif status == "degraded":
-                    console.print("\n[yellow]Warning: System is degraded but operational[/yellow]")
+                    print("\n[yellow]Warning: System is degraded but operational[/yellow]")
                 else:
-                    console.print("\n[red]Error: System is unhealthy[/red]")
+                    print("\n[red]Error: System is unhealthy[/red]")
                     # Set error exit code for CI/CD
                     raise typer.Exit(1)
         
         except asyncio.TimeoutError:
-            console.print(f"[red]Error: Health check timed out after {timeout} seconds[/red]")
+            print(f"[red]Error: Health check timed out after {timeout} seconds[/red]")
             raise typer.Exit(1)
         except Exception as e:
-            console.print(f"[red]Error: Health check failed: {e}[/red]")
+            print(f"[red]Error: Health check failed: {e}[/red]")
             raise typer.Exit(1)
     
     asyncio.run(check_health())
@@ -294,35 +244,34 @@ def metrics(
             output_content = json.dumps(metrics_data, indent=2)
             if output_file:
                 output_file.write_text(output_content)
-                console.print(f"Metrics saved to {output_file}")
+                print(f"Metrics saved to {output_file}")
             else:
-                console.print_json(output_content)
+                print_json(output_content)
         
         elif format == "prometheus":
             output_content = metrics_instance.export_prometheus_format()
             if output_file:
                 output_file.write_text(output_content)
-                console.print(f"Prometheus metrics saved to {output_file}")
+                print(f"Prometheus metrics saved to {output_file}")
             else:
-                console.print(output_content)
+                print(output_content)
         
         else:  # table format
             if output_file:
-                console.print("[red]Error: Table format cannot be saved to file. Use --format json or prometheus[/red]")
+                print("Error: Table format cannot be saved to file. Use --format json or prometheus")
                 raise typer.Exit(1)
             
-            table = create_metrics_table(metrics_data)
-            console.print(table)
+            print_metrics_summary(metrics_data)
             
             # Show summary stats
             counter_count = len(metrics_data.get("counters", {}))
             gauge_count = len(metrics_data.get("gauges", {}))
             histogram_count = len(metrics_data.get("histograms", {}))
             
-            console.print(f"\n📊 Total metrics: {counter_count} counters, {gauge_count} gauges, {histogram_count} histograms")
+            print(f"\n📊 Total metrics: {counter_count} counters, {gauge_count} gauges, {histogram_count} histograms")
     
     except Exception as e:
-        console.print(f"[red]Error: Failed to collect metrics: {e}[/red]")
+        print(f"[red]Error: Failed to collect metrics: {e}[/red]")
         raise typer.Exit(1)
 
 
@@ -354,23 +303,22 @@ def diagnostics(
                 # Save detailed diagnostics to file
                 diagnostics_json = json.dumps(diagnostics_data, indent=2, default=str)
                 output_file.write_text(diagnostics_json)
-                console.print(f"[green]Diagnostics saved to {output_file}[/green]")
+                print(f"[green]Diagnostics saved to {output_file}[/green]")
             else:
                 # Display formatted diagnostics
-                console.print("[bold]System Diagnostics Report[/bold]")
-                console.print(f"Generated at: {time.strftime('%Y-%m-%d %H:%M:%S UTC', time.gmtime())}")
-                console.print()
+                print("[bold]System Diagnostics Report[/bold]")
+                print(f"Generated at: {time.strftime('%Y-%m-%d %H:%M:%S UTC', time.gmtime())}")
+                print()
                 
                 # Health status summary
                 health_status = diagnostics_data.get("health_status", {})
-                health_table = create_health_table(health_status)
-                console.print(health_table)
-                console.print()
+                print_health_status(health_status)
+                print()
                 
                 # System information
                 system_info = diagnostics_data.get("system_info", {})
                 if system_info and not system_info.get("error"):
-                    console.print("[bold]System Information:[/bold]")
+                    print("[bold]System Information:[/bold]")
                     
                     sys_table = Table(show_header=False, box=None)
                     sys_table.add_column("Property", style="cyan", min_width=20)
@@ -386,13 +334,13 @@ def diagnostics(
                     
                     sys_table.add_row("Thread Count", str(system_info.get("num_threads", "N/A")))
                     
-                    console.print(sys_table)
-                    console.print()
+                    print(sys_table)
+                    print()
                 
                 # Configuration status
                 check_history = diagnostics_data.get("check_history", {})
                 if check_history:
-                    console.print("[bold]Health Check Configuration:[/bold]")
+                    print("[bold]Health Check Configuration:[/bold]")
                     
                     check_table = Table()
                     check_table.add_column("Check", style="cyan")
@@ -408,17 +356,17 @@ def diagnostics(
                             str(check_info.get("consecutive_failures", 0))
                         )
                     
-                    console.print(check_table)
-                    console.print()
+                    print(check_table)
+                    print()
                 
                 # Verbose information
                 if verbose:
-                    console.print("[bold]Verbose Diagnostics:[/bold]")
+                    print("[bold]Verbose Diagnostics:[/bold]")
                     verbose_content = JSON(json.dumps(diagnostics_data, indent=2, default=str))
-                    console.print(Panel(verbose_content, title="Full Diagnostic Data", border_style="dim"))
+                    print(Panel(verbose_content, title="Full Diagnostic Data", border_style="dim"))
                 
         except Exception as e:
-            console.print(f"[red]Error: Diagnostics failed: {e}[/red]")
+            print(f"[red]Error: Diagnostics failed: {e}[/red]")
             raise typer.Exit(1)
     
     asyncio.run(run_diagnostics())
@@ -440,10 +388,10 @@ def monitor(
             start_time = time.time()
             iteration = 0
             
-            console.print(f"[cyan]Starting continuous monitoring (interval: {interval}s)[/cyan]")
+            print(f"[cyan]Starting continuous monitoring (interval: {interval}s)[/cyan]")
             if duration:
-                console.print(f"[dim]Will run for {duration} seconds[/dim]")
-            console.print("Press Ctrl+C to stop\n")
+                print(f"[dim]Will run for {duration} seconds[/dim]")
+            print("Press Ctrl+C to stop\n")
             
             def create_monitor_layout(health_data: Dict[str, Any], metrics_data: Dict[str, Any]) -> Layout:
                 """Create live monitoring layout."""
@@ -477,8 +425,8 @@ def monitor(
                     Layout(name="metrics", ratio=1)
                 )
                 
-                health_table = create_health_table(health_data)
-                layout["main"]["health"].update(Panel(health_table, title="Health Status", border_style="green"))
+                print_health_status(health_data)
+                # layout["main"]["health"].update(Panel(health_table, title="Health Status", border_style="green"))
                 
                 # Key metrics only for live view
                 key_metrics = {
@@ -498,8 +446,8 @@ def monitor(
                     if name in gauges:
                         key_metrics["gauges"][name] = gauges[name]
                 
-                metrics_table = create_metrics_table(key_metrics)
-                layout["main"]["metrics"].update(Panel(metrics_table, title="Key Metrics", border_style="yellow"))
+                print_metrics_summary(key_metrics)
+                # layout["main"]["metrics"].update(Panel(metrics_table, title="Key Metrics", border_style="yellow"))
                 
                 # Footer
                 runtime = time.time() - start_time
@@ -533,7 +481,7 @@ def monitor(
                             
                             # Print alert to stderr (won't interfere with live display)
                             alert_message = f"ALERT: System status is {status.upper()} at {time.strftime('%H:%M:%S')}"
-                            console.print(f"\n{alert_message}", style="bold red", err=True)
+                            print(f"\n{alert_message}", style="bold red", err=True)
                         
                         # Sleep until next check
                         await asyncio.sleep(interval)
@@ -542,16 +490,16 @@ def monitor(
                         break
                 
             runtime = time.time() - start_time
-            console.print(f"\n[green]Monitoring completed. Runtime: {runtime:.1f}s, Iterations: {iteration}[/green]")
+            print(f"\n[green]Monitoring completed. Runtime: {runtime:.1f}s, Iterations: {iteration}[/green]")
             
         except Exception as e:
-            console.print(f"\n[red]Error: Monitoring failed: {e}[/red]")
+            print(f"\n[red]Error: Monitoring failed: {e}[/red]")
             raise typer.Exit(1)
     
     try:
         asyncio.run(continuous_monitor())
     except KeyboardInterrupt:
-        console.print("\n👋 [yellow]Monitoring stopped by user[/yellow]")
+        print("\n👋 [yellow]Monitoring stopped by user[/yellow]")
 
 
 # Export the observability CLI app
