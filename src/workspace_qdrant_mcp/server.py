@@ -58,6 +58,16 @@ from .observability import (
     record_operation,
     LogContext
 )
+from .core.error_handling import (
+    error_context,
+    safe_shutdown,
+    with_error_handling,
+    ErrorRecoveryStrategy,
+    NetworkError,
+    DatabaseError,
+    ConfigurationError,
+    get_error_stats,
+)
 from .observability.endpoints import add_observability_routes, setup_observability_middleware
 
 from .core.client import QdrantWorkspaceClient
@@ -124,6 +134,7 @@ class ServerInfo(BaseModel):
 
 @app.tool()
 @monitor_async("workspace_status", critical=True, timeout_warning=5.0)
+@with_error_handling(ErrorRecoveryStrategy.database_strategy(), "workspace_status")
 async def workspace_status() -> dict:
     """Get comprehensive workspace and collection status information.
 
@@ -195,6 +206,7 @@ async def list_workspace_collections() -> list[str]:
 
 @app.tool()
 @monitor_async("search_workspace", timeout_warning=2.0, slow_threshold=1.0)
+@with_error_handling(ErrorRecoveryStrategy.database_strategy(), "search_workspace")
 async def search_workspace_tool(
     query: str,
     collections: list[str] = None,
@@ -1789,6 +1801,37 @@ async def process_document_via_grpc_tool(
 
 
 @app.tool()
+async def get_error_stats_tool() -> dict:
+    """Get comprehensive error statistics and circuit breaker status.
+    
+    Returns detailed error monitoring data including:
+    - Total error counts by category and severity
+    - Retry success/failure rates
+    - Circuit breaker states and failure counts
+    - Performance metrics for error recovery
+    
+    Returns:
+        dict: Comprehensive error statistics and monitoring data
+    """
+    try:
+        async with error_context("get_error_stats"):
+            stats = get_error_stats()
+            logger.info("Error statistics retrieved", 
+                       total_errors=stats.get("total_errors", 0),
+                       recovery_successes=stats.get("recovery_successes", 0))
+            return {
+                "success": True,
+                **stats
+            }
+    except Exception as e:
+        logger.error("Failed to retrieve error statistics", error=str(e), exc_info=e)
+        return {
+            "success": False,
+            "error": f"Failed to retrieve error statistics: {e}"
+        }
+
+
+@app.tool()
 async def search_via_grpc_tool(
     query: str,
     collections: list = None,
@@ -1920,22 +1963,28 @@ def setup_signal_handlers() -> None:
     """Set up signal handlers for graceful shutdown.
 
     Registers handlers for SIGINT (Ctrl+C) and SIGTERM to ensure
-    proper resource cleanup before process termination.
+    proper resource cleanup before process termination using proper
+    async shutdown procedures instead of os._exit().
     """
 
     def signal_handler(signum, frame):
         logger.info("Received signal %s, initiating graceful shutdown...", signum)
+        
+        # Create list of cleanup functions
+        cleanup_functions = [cleanup_workspace]
+        
+        # Use safe shutdown instead of direct cleanup
         try:
-            # Run cleanup in the event loop if possible
             loop = asyncio.get_event_loop()
             if loop.is_running():
-                loop.create_task(cleanup_workspace())
+                loop.create_task(safe_shutdown(cleanup_functions, timeout_seconds=30.0))
             else:
-                asyncio.run(cleanup_workspace())
+                asyncio.run(safe_shutdown(cleanup_functions, timeout_seconds=30.0))
         except Exception as e:
-            logger.error("Error during signal cleanup: %s", e)
-        finally:
-            os._exit(0)
+            logger.error("Error during signal cleanup", error=str(e), exc_info=e)
+            # Fallback to direct sys.exit if safe_shutdown fails
+            import sys
+            sys.exit(1)
 
     # Register signal handlers
     signal.signal(signal.SIGINT, signal_handler)
@@ -1943,11 +1992,12 @@ def setup_signal_handlers() -> None:
 
     # Register atexit cleanup as backup
     atexit.register(
-        lambda: asyncio.run(cleanup_workspace()) if workspace_client else None
+        lambda: asyncio.run(safe_shutdown([cleanup_workspace], timeout_seconds=10.0)) if workspace_client else None
     )
 
 
 @monitor_async("initialize_workspace", critical=True, timeout_warning=30.0)
+@with_error_handling(ErrorRecoveryStrategy.database_strategy(), "initialize_workspace")
 async def initialize_workspace(config_file: Optional[str] = None) -> None:
     """Initialize the workspace client and project-specific collections.
 
