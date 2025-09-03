@@ -7,6 +7,7 @@ including status monitoring, configuration management, and engine lifecycle.
 
 import asyncio
 import json
+import subprocess
 import sys
 from pathlib import Path
 from typing import Any, Dict, Optional
@@ -136,7 +137,8 @@ async def _watch_status(verbose: bool):
     try:
         while True:
             # Clear screen
-            os.system('clear' if os.name == 'posix' else 'cls')
+            clear_cmd = ['clear'] if os.name == 'posix' else ['cls']
+            subprocess.run(clear_cmd, check=False, capture_output=False)
 
             config = Config()
             status_data = await _collect_status_data(config)
