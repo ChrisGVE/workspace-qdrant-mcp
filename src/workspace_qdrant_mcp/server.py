@@ -91,6 +91,7 @@ from .tools.grpc_tools import (
     process_document_via_grpc,
     search_via_grpc,
 )
+from .core.auto_ingestion import AutoIngestionManager, AutoIngestionConfig
 
 # Initialize structured logging
 logger = get_logger(__name__)
@@ -101,6 +102,7 @@ app = FastMCP("workspace-qdrant-mcp")
 # Global client instance
 workspace_client: QdrantWorkspaceClient | None = None
 watch_tools_manager: WatchToolsManager | None = None
+auto_ingestion_manager: AutoIngestionManager | None = None
 
 
 class ServerInfo(BaseModel):
@@ -1866,7 +1868,7 @@ async def cleanup_workspace() -> None:
     observability systems, daemon processes, and any other resources 
     to prevent memory leaks and hanging connections.
     """
-    global workspace_client, watch_tools_manager
+    global workspace_client, watch_tools_manager, auto_ingestion_manager
     
     logger.info("Starting graceful shutdown and cleanup")
     
@@ -2063,6 +2065,51 @@ async def initialize_workspace(config_file: Optional[str] = None) -> None:
         logger.info("Watch tools manager initialized", result=init_result)
     except Exception as e:
         logger.error("Failed to initialize watch tools manager", error=str(e), exc_info=True)
+    
+    # Initialize automatic file ingestion system
+    logger.debug("Setting up automatic file ingestion")
+    try:
+        auto_ingestion_config = AutoIngestionConfig.from_env()
+        auto_ingestion_manager = AutoIngestionManager(
+            workspace_client, 
+            watch_tools_manager, 
+            auto_ingestion_config
+        )
+        
+        if auto_ingestion_config.enabled:
+            ingestion_result = await auto_ingestion_manager.setup_project_watches()
+            if ingestion_result.get("success"):
+                watches_created = len(ingestion_result.get("watches_created", []))
+                bulk_summary = ingestion_result.get("bulk_ingestion", {}).get("summary", {})
+                files_processed = bulk_summary.get("processed_files", 0)
+                
+                logger.info(
+                    "Automatic file ingestion setup completed successfully",
+                    project=ingestion_result.get("project_info", {}).get("main_project"),
+                    watches_created=watches_created,
+                    files_processed=files_processed,
+                    primary_collection=ingestion_result.get("primary_collection")
+                )
+                
+                # Log bulk ingestion summary if files were processed
+                if files_processed > 0:
+                    success_rate = bulk_summary.get("success_rate", 0) * 100
+                    logger.info(
+                        f"Initial bulk ingestion completed: {files_processed} files processed "
+                        f"({success_rate:.1f}% success rate)"
+                    )
+            else:
+                logger.warning(
+                    "Automatic file ingestion setup failed",
+                    error=ingestion_result.get("error"),
+                    watches_created=len(ingestion_result.get("watches_created", []))
+                )
+        else:
+            logger.info("Automatic file ingestion disabled by configuration")
+            
+    except Exception as e:
+        logger.error("Failed to initialize automatic file ingestion", error=str(e), exc_info=True)
+        # Don't fail server startup if auto-ingestion fails
     
     # Register memory tools with the MCP app
     logger.debug("Registering memory tools")
