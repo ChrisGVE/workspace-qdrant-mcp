@@ -1863,7 +1863,8 @@ async def cleanup_workspace() -> None:
     """Clean up workspace resources on server shutdown.
 
     Ensures proper cleanup of database connections, embedding models,
-    observability systems, and any other resources to prevent memory leaks and hanging connections.
+    observability systems, daemon processes, and any other resources 
+    to prevent memory leaks and hanging connections.
     """
     global workspace_client, watch_tools_manager
     
@@ -1891,6 +1892,14 @@ async def cleanup_workspace() -> None:
             logger.info("Workspace client cleaned up successfully")
         except Exception as e:
             logger.error("Error during workspace cleanup", error=str(e))
+    
+    # Clean up daemon manager and all running daemons
+    try:
+        from .core.daemon_manager import shutdown_all_daemons
+        await shutdown_all_daemons()
+        logger.info("All daemons shut down successfully")
+    except Exception as e:
+        logger.error("Error during daemon cleanup", error=str(e))
     
     # Final metrics export
     try:
@@ -2000,17 +2009,33 @@ async def initialize_workspace(config_file: Optional[str] = None) -> None:
 
     # Initialize workspace client (gRPC-enabled or direct based on config)
     if config.grpc.enabled:
-        logger.info("Initializing gRPC-enabled workspace client", 
+        logger.info("Initializing gRPC-enabled workspace client with daemon management", 
                    qdrant_url=config.qdrant.url,
                    grpc_address=f"{config.grpc.host}:{config.grpc.port}",
                    fallback_enabled=config.grpc.fallback_to_direct)
         from .core.grpc_client import GrpcWorkspaceClient
+        from .utils.project_detection import ProjectDetector
+        import os
+        
+        # Detect project information for daemon management
+        project_path = os.getcwd()
+        project_detector = ProjectDetector()
+        project_info = await project_detector.detect_project_structure()
+        project_name = project_info.get("main_project", "default")
+        
+        logger.debug("Detected project for daemon management", 
+                    project_name=project_name,
+                    project_path=project_path)
+        
         workspace_client = GrpcWorkspaceClient(
             config=config,
             grpc_enabled=True,
             grpc_host=config.grpc.host,
             grpc_port=config.grpc.port,
-            fallback_to_direct=config.grpc.fallback_to_direct
+            fallback_to_direct=config.grpc.fallback_to_direct,
+            auto_start_daemon=True,  # Enable automatic daemon startup
+            project_name=project_name,
+            project_path=project_path
         )
     else:
         logger.info("Initializing direct Qdrant workspace client", qdrant_url=config.qdrant.url)
@@ -2025,7 +2050,8 @@ async def initialize_workspace(config_file: Optional[str] = None) -> None:
     logger.info("Workspace client initialized successfully",
                connected=status.get("connected", False),
                project=status.get("current_project"),
-               collections_count=status.get("collections_count", 0))
+               collections_count=status.get("collections_count", 0),
+               operation_mode=getattr(workspace_client, 'get_operation_mode', lambda: 'direct')())
 
     # Initialize watch tools manager
     logger.debug("Initializing watch tools manager")
