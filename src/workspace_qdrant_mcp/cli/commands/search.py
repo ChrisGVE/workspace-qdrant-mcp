@@ -14,9 +14,9 @@ from typing import Any, Dict, List, Optional
 
 import typer
 
-from ...core.client import create_qdrant_client
-from ...core.config import Config
-from ...tools.search import search_workspace
+from ...core.daemon_client import get_daemon_client, with_daemon_client
+from ...core.yaml_config import load_config
+from ...grpc.ingestion_pb2 import SearchMode
 from ...utils.project_detection import ProjectDetector
 
 def _print_table_as_text(table_data):
@@ -125,34 +125,34 @@ async def _search_project(
     include_content: bool
 ):
     """Search current project collections."""
-    try:
-        config = Config()
-        client = create_qdrant_client(config.qdrant_client_config)
-
+    async def search_operation(daemon_client):
         # Detect current project
-        detector = ProjectDetector(config.workspace.github_user if hasattr(config, 'workspace') else None)
+        config = load_config()
+        detector = ProjectDetector()  # Simplified constructor
         project_info = detector.get_project_info(str(Path.cwd()))
         current_project = project_info["main_project"]
 
         print(f"Searching project: {current_project}")
 
         # Get project collections
-        all_collections = await client.list_collections()
-        project_prefix = f"{config.workspace.collection_prefix}{current_project}_" if hasattr(config, 'workspace') else f"{current_project}_"
+        collections_response = await daemon_client.list_collections(include_stats=False)
+        all_collections = [col.name for col in collections_response.collections]
+        
+        project_prefix = f"{current_project}_"
 
         if collections:
             # User specified collections - validate they belong to project
             project_collections = []
             for col_name in collections:
-                if col_name.startswith(project_prefix) or col_name in [c.get("name") for c in all_collections]:
+                if col_name.startswith(project_prefix) or col_name in all_collections:
                     project_collections.append(col_name)
                 else:
                     print(f"Warning: Collection not found: {col_name}")
         else:
             # Find all project collections
             project_collections = [
-                col.get("name") for col in all_collections
-                if col.get("name", "").startswith(project_prefix)
+                col for col in all_collections
+                if col.startswith(project_prefix)
             ]
 
         if not project_collections:
@@ -164,16 +164,23 @@ async def _search_project(
         all_results = []
         for collection_name in project_collections:
             try:
-                results = await search_workspace(
+                search_response = await daemon_client.execute_query(
                     query=query,
-                    collection_name=collection_name,
+                    collections=[collection_name],
+                    mode=SearchMode.SEARCH_MODE_HYBRID,
                     limit=limit,
-                    threshold=threshold
+                    score_threshold=threshold
                 )
 
-                for result in results:
-                    result["collection"] = collection_name
-                    all_results.append(result)
+                for result in search_response.results:
+                    result_dict = {
+                        "score": result.score,
+                        "collection": result.collection,
+                        "id": result.id,
+                        "title": result.payload.get("title", {}).string_value if "title" in result.payload else "Untitled",
+                        "content": result.payload.get("content", {}).string_value if "content" in result.payload else "",
+                    }
+                    all_results.append(result_dict)
 
             except Exception as e:
                 print(f"Error: Search failed for {collection_name}: {e}")
@@ -185,6 +192,8 @@ async def _search_project(
 
         _display_search_results(all_results, query, format, include_content)
 
+    try:
+        await with_daemon_client(search_operation)
     except Exception as e:
         print(f"Error: Project search failed: {e}")
         raise typer.Exit(1)
@@ -199,15 +208,12 @@ async def _search_collection(
     with_vectors: bool
 ):
     """Search specific collection."""
-    try:
-        config = Config()
-        client = create_qdrant_client(config.qdrant_client_config)
-
+    async def search_operation(daemon_client):
         print(f"Searching collection: {collection}")
 
         # Verify collection exists
-        all_collections = await client.list_collections()
-        collection_names = [col.get("name") for col in all_collections]
+        collections_response = await daemon_client.list_collections(include_stats=False)
+        collection_names = [col.name for col in collections_response.collections]
 
         if collection not in collection_names:
             print(f"Error: Collection not found: {collection}")
@@ -215,19 +221,32 @@ async def _search_collection(
             raise typer.Exit(1)
 
         # Perform search
-        results = await search_workspace(
+        search_response = await daemon_client.execute_query(
             query=query,
-            collection_name=collection,
+            collections=[collection],
+            mode=SearchMode.SEARCH_MODE_HYBRID,
             limit=limit,
-            threshold=threshold
+            score_threshold=threshold
         )
 
-        # Add collection info to results
-        for result in results:
-            result["collection"] = collection
+        # Convert results to display format
+        results = []
+        for result in search_response.results:
+            result_dict = {
+                "score": result.score,
+                "collection": result.collection,
+                "id": result.id,
+                "title": result.payload.get("title", {}).string_value if "title" in result.payload else "Untitled",
+                "content": result.payload.get("content", {}).string_value if "content" in result.payload else "",
+            }
+            if with_vectors:
+                result_dict["search_type"] = result.search_type
+            results.append(result_dict)
 
         _display_search_results(results, query, format, include_content, with_vectors)
 
+    try:
+        await with_daemon_client(search_operation)
     except Exception as e:
         print(f"Error: Collection search failed: {e}")
         raise typer.Exit(1)
@@ -241,20 +260,16 @@ async def _search_global(
     include_content: bool
 ):
     """Search global collections."""
-    try:
-        config = Config()
-        client = create_qdrant_client(config.qdrant_client_config)
-
+    async def search_operation(daemon_client):
         print("Searching global collections")
 
         # Get all collections
-        all_collections = await client.list_collections()
+        collections_response = await daemon_client.list_collections(include_stats=False)
+        all_collections = [col.name for col in collections_response.collections]
 
         # Filter for global collections
         global_collections = []
-        for col in all_collections:
-            name = col.get("name", "")
-
+        for name in all_collections:
             # Include library collections (start with _)
             if name.startswith("_"):
                 global_collections.append(name)
@@ -272,16 +287,23 @@ async def _search_global(
         all_results = []
         for collection_name in global_collections:
             try:
-                results = await search_workspace(
+                search_response = await daemon_client.execute_query(
                     query=query,
-                    collection_name=collection_name,
+                    collections=[collection_name],
+                    mode=SearchMode.SEARCH_MODE_HYBRID,
                     limit=limit,
-                    threshold=threshold
+                    score_threshold=threshold
                 )
 
-                for result in results:
-                    result["collection"] = collection_name
-                    all_results.append(result)
+                for result in search_response.results:
+                    result_dict = {
+                        "score": result.score,
+                        "collection": result.collection,
+                        "id": result.id,
+                        "title": result.payload.get("title", {}).string_value if "title" in result.payload else "Untitled",
+                        "content": result.payload.get("content", {}).string_value if "content" in result.payload else "",
+                    }
+                    all_results.append(result_dict)
 
             except Exception as e:
                 print(f"Warning: Search failed for {collection_name}: {e}")
@@ -293,6 +315,8 @@ async def _search_global(
 
         _display_search_results(all_results, query, format, include_content)
 
+    try:
+        await with_daemon_client(search_operation)
     except Exception as e:
         print(f"Error: Global search failed: {e}")
         raise typer.Exit(1)
@@ -306,15 +330,12 @@ async def _search_all(
     include_content: bool
 ):
     """Search all collections."""
-    try:
-        config = Config()
-        client = create_qdrant_client(config.qdrant_client_config)
-
+    async def search_operation(daemon_client):
         print("Searching all collections")
 
         # Get all collections
-        all_collections = await client.list_collections()
-        collection_names = [col.get("name") for col in all_collections]
+        collections_response = await daemon_client.list_collections(include_stats=False)
+        collection_names = [col.name for col in collections_response.collections]
 
         if not collection_names:
             print("No collections found")
@@ -322,34 +343,34 @@ async def _search_all(
 
         print(f"Searching {len(collection_names)} collections")
 
-        # Search across all collections
+        # Search across all collections using daemon client
+        search_response = await daemon_client.execute_query(
+            query=query,
+            collections=collection_names,  # Search all collections at once
+            mode=SearchMode.SEARCH_MODE_HYBRID,
+            limit=limit,
+            score_threshold=threshold
+        )
+
+        # Convert results to display format
         all_results = []
-        for collection_name in collection_names:
-            try:
-                results = await search_workspace(
-                    query=query,
-                    collection_name=collection_name,
-                    limit=limit,
-                    threshold=threshold
-                )
-
-                for result in results:
-                    result["collection"] = collection_name
-                    all_results.append(result)
-
-            except Exception as e:
-                print(f"Warning: Search failed for {collection_name}: {e}")
-                continue
-
-        # Sort by score
-        all_results.sort(key=lambda x: x.get("score", 0), reverse=True)
-        all_results = all_results[:limit]
+        for result in search_response.results:
+            result_dict = {
+                "score": result.score,
+                "collection": result.collection,
+                "id": result.id,
+                "title": result.payload.get("title", {}).string_value if "title" in result.payload else "Untitled",
+                "content": result.payload.get("content", {}).string_value if "content" in result.payload else "",
+            }
+            all_results.append(result_dict)
 
         if group_by_collection:
             _display_grouped_search_results(all_results, query, format, include_content)
         else:
             _display_search_results(all_results, query, format, include_content)
 
+    try:
+        await with_daemon_client(search_operation)
     except Exception as e:
         print(f"Error: Search all failed: {e}")
         raise typer.Exit(1)
@@ -362,63 +383,55 @@ async def _search_memory(
     format: str
 ):
     """Search memory rules and knowledge graph."""
-    try:
-        from ...core.collection_naming import create_naming_manager
-        from ...core.memory import AuthorityLevel, MemoryCategory, create_memory_manager
-
-        config = Config()
-        client = create_qdrant_client(config.qdrant_client_config)
-        naming_manager = create_naming_manager(config.workspace.global_collections)
-        memory_manager = create_memory_manager(client, naming_manager)
-
+    async def search_operation(daemon_client):
         print("Searching memory rules")
 
-        # Convert filters to enums if provided
-        category_enum = MemoryCategory(category) if category else None
-        authority_enum = AuthorityLevel(authority) if authority else None
-
-        # Search memory rules
-        matching_rules = await memory_manager.search_memory_rules(
+        # Search memory rules via daemon
+        search_response = await daemon_client.search_memory_rules(
             query=query,
             limit=limit,
-            category=category_enum,
-            authority=authority_enum
+            category=category,
+            authority=authority
         )
 
-        if not matching_rules:
+        if not search_response.matches:
             print(f"No memory rules found matching '{query}'")
             return
 
         if format == "json":
             rules_data = []
-            for rule in matching_rules:
+            for match in search_response.matches:
+                rule = match.rule
                 rules_data.append({
-                    "id": rule.id,
+                    "id": rule.rule_id,
                     "name": rule.name,
-                    "rule": rule.rule,
-                    "category": rule.category.value,
-                    "authority": rule.authority.value,
-                    "scope": rule.scope,
+                    "rule": rule.rule_text,
+                    "category": rule.category,
+                    "authority": rule.authority,
+                    "scope": list(rule.scope),
                     "source": rule.source,
-                    "relevance": rule.get("relevance", 1.0)
+                    "score": match.score
                 })
             print(json.dumps(rules_data, indent=2))
         else:
             # Display as table
-            print(f"Memory Search Results ({len(matching_rules)} found)")
+            print(f"Memory Search Results ({len(search_response.matches)} found)")
             print("=" * 80)
             print(f"{'ID':<8} {'Name':<20} {'Rule':<30} {'Category':<12} {'Authority':<10}")
             print("-" * 80)
 
-            for rule in matching_rules:
-                rule_id = rule.id[-8:]
+            for match in search_response.matches:
+                rule = match.rule
+                rule_id = rule.rule_id[-8:]
                 name = rule.name[:19]
-                rule_text = rule.rule[:27] + "..." if len(rule.rule) > 30 else rule.rule
-                category = rule.category.value[:11]
-                authority = rule.authority.value
+                rule_text = rule.rule_text[:27] + "..." if len(rule.rule_text) > 30 else rule.rule_text
+                category = rule.category[:11]
+                authority = rule.authority
 
                 print(f"{rule_id:<8} {name:<20} {rule_text:<30} {category:<12} {authority:<10}")
 
+    try:
+        await with_daemon_client(search_operation)
     except Exception as e:
         print(f"Error: Memory search failed: {e}")
         raise typer.Exit(1)
