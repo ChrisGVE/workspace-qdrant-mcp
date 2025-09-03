@@ -879,18 +879,24 @@ mod tests {
         assert_eq!(delay, Duration::from_millis(1000));
     }
 
+    #[derive(Debug, thiserror::Error)]
+    enum TestError {
+        #[error("Test error: {0}")]
+        Test(String),
+    }
+
     #[tokio::test]
     async fn test_circuit_breaker() {
         let mut circuit_breaker = CircuitBreaker::new("test", 2);
         
         // Simulate failures
         let result1 = circuit_breaker
-            .execute(async { Err::<(), String>("test error".to_string()) })
+            .execute(async { Err::<(), TestError>(TestError::Test("test error".to_string())) })
             .await;
         assert!(result1.is_err());
 
         let result2 = circuit_breaker
-            .execute(async { Err::<(), String>("test error".to_string()) })
+            .execute(async { Err::<(), TestError>(TestError::Test("test error".to_string())) })
             .await;
         assert!(result2.is_err());
 
