@@ -410,3 +410,244 @@ class AsyncIngestClient:
         except Exception as e:
             logger.warning("Connection test failed", error=str(e))
             return False
+    
+    async def stream_processing_status(
+        self,
+        update_interval_seconds: int = 5,
+        include_history: bool = True,
+        collection_filter: Optional[str] = None
+    ) -> AsyncIterator[Dict[str, Any]]:
+        """
+        Stream real-time processing status updates.
+        
+        Args:
+            update_interval_seconds: How often to send updates
+            include_history: Whether to include recent processing history
+            collection_filter: Optional collection name to filter by
+            
+        Yields:
+            Dict containing processing status updates with:
+            - timestamp: When the update was generated
+            - active_tasks: Currently processing files
+            - recent_completed: Recently completed files
+            - current_stats: Current processing statistics
+            - queue_status: Queue depth and priority breakdown
+        """
+        if not self._started:
+            await self.start()
+        
+        from .ingestion_pb2 import StreamStatusRequest
+        
+        request = StreamStatusRequest(
+            update_interval_seconds=update_interval_seconds,
+            include_history=include_history
+        )
+        
+        if collection_filter:
+            request.collection_filter = collection_filter
+        
+        async def _stream_status(stub: IngestServiceStub):
+            async for update in stub.StreamProcessingStatus(request):
+                yield {
+                    "timestamp": update.timestamp.ToJsonString(),
+                    "active_tasks": [
+                        {
+                            "task_id": task.task_id,
+                            "task_type": task.task_type,
+                            "file_path": task.file_path,
+                            "collection": task.collection,
+                            "status": task.status,
+                            "progress_percent": task.progress_percent,
+                            "started_at": task.started_at.ToJsonString(),
+                            "completed_at": task.completed_at.ToJsonString() if task.HasField("completed_at") else None,
+                            "error_message": task.error_message if task.HasField("error_message") else None
+                        }
+                        for task in update.active_tasks
+                    ],
+                    "recent_completed": [
+                        {
+                            "task_id": task.task_id,
+                            "task_type": task.task_type,
+                            "file_path": task.file_path,
+                            "collection": task.collection,
+                            "status": task.status,
+                            "progress_percent": task.progress_percent,
+                            "started_at": task.started_at.ToJsonString(),
+                            "completed_at": task.completed_at.ToJsonString() if task.HasField("completed_at") else None,
+                            "error_message": task.error_message if task.HasField("error_message") else None
+                        }
+                        for task in update.recent_completed
+                    ],
+                    "current_stats": {
+                        "total_files_processed": update.current_stats.total_files_processed,
+                        "total_files_failed": update.current_stats.total_files_failed,
+                        "total_files_skipped": update.current_stats.total_files_skipped,
+                        "active_tasks": update.current_stats.active_tasks,
+                        "queued_tasks": update.current_stats.queued_tasks,
+                        "average_processing_time": update.current_stats.average_processing_time.ToJsonString(),
+                        "last_activity": update.current_stats.last_activity.ToJsonString()
+                    } if update.HasField("current_stats") else None,
+                    "queue_status": {
+                        "total_queued": update.queue_status.total_queued,
+                        "high_priority": update.queue_status.high_priority,
+                        "normal_priority": update.queue_status.normal_priority,
+                        "low_priority": update.queue_status.low_priority,
+                        "urgent_priority": update.queue_status.urgent_priority,
+                        "collections_with_queued": list(update.queue_status.collections_with_queued),
+                        "estimated_completion_time": update.queue_status.estimated_completion_time.ToJsonString()
+                    } if update.HasField("queue_status") else None
+                }
+        
+        async for status_update in self.connection_manager.with_stream(_stream_status):
+            yield status_update
+    
+    async def stream_system_metrics(
+        self,
+        update_interval_seconds: int = 10,
+        include_detailed_metrics: bool = True
+    ) -> AsyncIterator[Dict[str, Any]]:
+        """
+        Stream real-time system metrics updates.
+        
+        Args:
+            update_interval_seconds: How often to send updates
+            include_detailed_metrics: Whether to include detailed performance metrics
+            
+        Yields:
+            Dict containing system metrics with:
+            - timestamp: When the update was generated
+            - resource_usage: CPU, memory, disk usage
+            - engine_stats: Engine uptime and processing stats
+            - collection_stats: Per-collection statistics
+            - performance_metrics: Processing rates and bottlenecks
+        """
+        if not self._started:
+            await self.start()
+        
+        from .ingestion_pb2 import StreamMetricsRequest
+        
+        request = StreamMetricsRequest(
+            update_interval_seconds=update_interval_seconds,
+            include_detailed_metrics=include_detailed_metrics
+        )
+        
+        async def _stream_metrics(stub: IngestServiceStub):
+            async for update in stub.StreamSystemMetrics(request):
+                yield {
+                    "timestamp": update.timestamp.ToJsonString(),
+                    "resource_usage": {
+                        "cpu_percent": update.resource_usage.cpu_percent,
+                        "memory_bytes": update.resource_usage.memory_bytes,
+                        "memory_peak_bytes": update.resource_usage.memory_peak_bytes,
+                        "open_files": update.resource_usage.open_files,
+                        "active_connections": update.resource_usage.active_connections,
+                        "disk_usage_percent": update.resource_usage.disk_usage_percent
+                    } if update.HasField("resource_usage") else None,
+                    "engine_stats": {
+                        "started_at": update.engine_stats.started_at.ToJsonString(),
+                        "uptime": update.engine_stats.uptime.ToJsonString(),
+                        "total_documents_processed": update.engine_stats.total_documents_processed,
+                        "total_documents_indexed": update.engine_stats.total_documents_indexed,
+                        "active_watches": update.engine_stats.active_watches,
+                        "version": update.engine_stats.version
+                    } if update.HasField("engine_stats") else None,
+                    "collection_stats": [
+                        {
+                            "name": stats.name,
+                            "document_count": stats.document_count,
+                            "total_size_bytes": stats.total_size_bytes,
+                            "last_updated": stats.last_updated.ToJsonString()
+                        }
+                        for stats in update.collection_stats
+                    ],
+                    "performance_metrics": {
+                        "processing_rate_files_per_hour": update.performance_metrics.processing_rate_files_per_hour,
+                        "average_processing_time": update.performance_metrics.average_processing_time.ToJsonString(),
+                        "success_rate_percent": update.performance_metrics.success_rate_percent,
+                        "concurrent_tasks": update.performance_metrics.concurrent_tasks,
+                        "throughput_bytes_per_second": update.performance_metrics.throughput_bytes_per_second,
+                        "bottlenecks": [
+                            {
+                                "component": bottleneck.component,
+                                "description": bottleneck.description,
+                                "severity": bottleneck.severity,
+                                "suggestion": bottleneck.suggestion
+                            }
+                            for bottleneck in update.performance_metrics.bottlenecks
+                        ]
+                    } if update.HasField("performance_metrics") else None
+                }
+        
+        async for metrics_update in self.connection_manager.with_stream(_stream_metrics):
+            yield metrics_update
+    
+    async def stream_queue_status(
+        self,
+        update_interval_seconds: int = 3,
+        collection_filter: Optional[str] = None
+    ) -> AsyncIterator[Dict[str, Any]]:
+        """
+        Stream real-time queue status updates.
+        
+        Args:
+            update_interval_seconds: How often to send updates
+            collection_filter: Optional collection name to filter by
+            
+        Yields:
+            Dict containing queue status with:
+            - timestamp: When the update was generated
+            - queue_status: Current queue depth by priority
+            - recent_additions: Files recently added to queue
+            - active_processing: Currently processing files with progress
+        """
+        if not self._started:
+            await self.start()
+        
+        from .ingestion_pb2 import StreamQueueRequest
+        
+        request = StreamQueueRequest(
+            update_interval_seconds=update_interval_seconds
+        )
+        
+        if collection_filter:
+            request.collection_filter = collection_filter
+        
+        async def _stream_queue(stub: IngestServiceStub):
+            async for update in stub.StreamQueueStatus(request):
+                yield {
+                    "timestamp": update.timestamp.ToJsonString(),
+                    "queue_status": {
+                        "total_queued": update.queue_status.total_queued,
+                        "high_priority": update.queue_status.high_priority,
+                        "normal_priority": update.queue_status.normal_priority,
+                        "low_priority": update.queue_status.low_priority,
+                        "urgent_priority": update.queue_status.urgent_priority,
+                        "collections_with_queued": list(update.queue_status.collections_with_queued),
+                        "estimated_completion_time": update.queue_status.estimated_completion_time.ToJsonString()
+                    } if update.HasField("queue_status") else None,
+                    "recent_additions": [
+                        {
+                            "file_path": file.file_path,
+                            "collection": file.collection,
+                            "priority": file.priority,
+                            "queued_at": file.queued_at.ToJsonString(),
+                            "file_size_bytes": file.file_size_bytes
+                        }
+                        for file in update.recent_additions
+                    ],
+                    "active_processing": [
+                        {
+                            "task_id": progress.task_id,
+                            "file_path": progress.file_path,
+                            "collection": progress.collection,
+                            "progress_percent": progress.progress_percent,
+                            "current_stage": progress.current_stage,
+                            "started_at": progress.started_at.ToJsonString(),
+                            "estimated_remaining": progress.estimated_remaining.ToJsonString()
+                        }
+                        for progress in update.active_processing
+                    ]
+                }
+        
+        async for queue_update in self.connection_manager.with_stream(_stream_queue):
+            yield queue_update
