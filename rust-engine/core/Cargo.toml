@@ -84,6 +84,10 @@ path = "src/bin/memexd.rs"
 name = "memexd-priority"
 path = "src/bin/memexd_priority.rs"
 
+[[bin]]
+name = "memexd-service-demo"
+path = "src/bin/memexd_service_demo.rs"
+
 # Note: Platform-specific optimizations temporarily removed for compatibility
 
 # Feature flags for platform-specific optimizations and testing

@@ -45,7 +45,7 @@ class ServiceManager:
     def __init__(self):
         self.system = platform.system().lower()
         self.service_name = "memexd"
-        self.daemon_binary = "memexd"
+        self.daemon_binary = "memexd-priority"  # Use priority-based daemon
     
     async def install_service(
         self, 
@@ -89,7 +89,7 @@ class ServiceManager:
         if not daemon_path:
             return {
                 "success": False,
-                "error": "memexd binary not found. Build it first with: cargo build --release --bin memexd"
+                "error": "memexd-priority binary not found. Build it first with: cargo build --release --bin memexd-priority"
             }
         
         # Create plist content
@@ -231,7 +231,7 @@ class ServiceManager:
         if not daemon_path:
             return {
                 "success": False,
-                "error": "memexd binary not found. Build it first with: cargo build --release --bin memexd"
+                "error": "memexd-priority binary not found. Build it first with: cargo build --release --bin memexd-priority"
             }
         
         service_name = f"{self.service_name}.service"
