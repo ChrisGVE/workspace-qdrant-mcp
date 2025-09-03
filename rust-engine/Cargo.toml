@@ -75,27 +75,6 @@ pyo3-asyncio = { version = "0.21", features = ["tokio-runtime"] }
 
 # Platform-specific file watching
 notify = { version = "6.1", features = ["serde"] }
-# macOS-specific dependencies
-[target.'cfg(target_os = "macos")'.workspace.dependencies]
-fsevents-sys = "4.1"
-kqueue = "1.0"
-
-# Linux-specific dependencies
-[target.'cfg(target_os = "linux")'.workspace.dependencies]
-inotify = { version = "0.10", default-features = false }
-epoll = "4.3"
-
-# Windows-specific dependencies
-[target.'cfg(target_os = "windows")'.workspace.dependencies]
-winapi = { version = "0.3", features = [
-    "winnt", "processthreadsapi", "fileapi", "handleapi",
-    "winbase", "minwinbase", "sysinfoapi", "errhandlingapi"
-] }
-windows = { version = "0.52", features = [
-    "Win32_Storage_FileSystem",
-    "Win32_System_IO",
-    "Win32_Foundation"
-] }
 
 [workspace.metadata.docs.rs]
 all-features = true
