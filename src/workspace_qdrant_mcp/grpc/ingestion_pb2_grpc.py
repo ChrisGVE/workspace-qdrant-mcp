@@ -27,7 +27,7 @@ if _version_not_supported:
 
 
 class IngestServiceStub(object):
-    """Main ingestion service for document processing, file watching, and search operations
+    """Unified ingestion service for document processing, file watching, search, and CLI operations
     """
 
     def __init__(self, channel):
@@ -41,6 +41,11 @@ class IngestServiceStub(object):
                 request_serializer=ingestion__pb2.ProcessDocumentRequest.SerializeToString,
                 response_deserializer=ingestion__pb2.ProcessDocumentResponse.FromString,
                 _registered_method=True)
+        self.ProcessFolder = channel.unary_stream(
+                '/workspace_qdrant.v1.IngestService/ProcessFolder',
+                request_serializer=ingestion__pb2.ProcessFolderRequest.SerializeToString,
+                response_deserializer=ingestion__pb2.ProcessFolderProgress.FromString,
+                _registered_method=True)
         self.StartWatching = channel.unary_stream(
                 '/workspace_qdrant.v1.IngestService/StartWatching',
                 request_serializer=ingestion__pb2.StartWatchingRequest.SerializeToString,
@@ -51,15 +56,105 @@ class IngestServiceStub(object):
                 request_serializer=ingestion__pb2.StopWatchingRequest.SerializeToString,
                 response_deserializer=ingestion__pb2.StopWatchingResponse.FromString,
                 _registered_method=True)
+        self.ListWatches = channel.unary_unary(
+                '/workspace_qdrant.v1.IngestService/ListWatches',
+                request_serializer=ingestion__pb2.ListWatchesRequest.SerializeToString,
+                response_deserializer=ingestion__pb2.ListWatchesResponse.FromString,
+                _registered_method=True)
+        self.ConfigureWatch = channel.unary_unary(
+                '/workspace_qdrant.v1.IngestService/ConfigureWatch',
+                request_serializer=ingestion__pb2.ConfigureWatchRequest.SerializeToString,
+                response_deserializer=ingestion__pb2.ConfigureWatchResponse.FromString,
+                _registered_method=True)
         self.ExecuteQuery = channel.unary_unary(
                 '/workspace_qdrant.v1.IngestService/ExecuteQuery',
                 request_serializer=ingestion__pb2.ExecuteQueryRequest.SerializeToString,
                 response_deserializer=ingestion__pb2.ExecuteQueryResponse.FromString,
                 _registered_method=True)
+        self.ListCollections = channel.unary_unary(
+                '/workspace_qdrant.v1.IngestService/ListCollections',
+                request_serializer=ingestion__pb2.ListCollectionsRequest.SerializeToString,
+                response_deserializer=ingestion__pb2.ListCollectionsResponse.FromString,
+                _registered_method=True)
+        self.GetCollectionInfo = channel.unary_unary(
+                '/workspace_qdrant.v1.IngestService/GetCollectionInfo',
+                request_serializer=ingestion__pb2.GetCollectionInfoRequest.SerializeToString,
+                response_deserializer=ingestion__pb2.CollectionInfo.FromString,
+                _registered_method=True)
+        self.CreateCollection = channel.unary_unary(
+                '/workspace_qdrant.v1.IngestService/CreateCollection',
+                request_serializer=ingestion__pb2.CreateCollectionRequest.SerializeToString,
+                response_deserializer=ingestion__pb2.CreateCollectionResponse.FromString,
+                _registered_method=True)
+        self.DeleteCollection = channel.unary_unary(
+                '/workspace_qdrant.v1.IngestService/DeleteCollection',
+                request_serializer=ingestion__pb2.DeleteCollectionRequest.SerializeToString,
+                response_deserializer=ingestion__pb2.DeleteCollectionResponse.FromString,
+                _registered_method=True)
+        self.ListDocuments = channel.unary_unary(
+                '/workspace_qdrant.v1.IngestService/ListDocuments',
+                request_serializer=ingestion__pb2.ListDocumentsRequest.SerializeToString,
+                response_deserializer=ingestion__pb2.ListDocumentsResponse.FromString,
+                _registered_method=True)
+        self.GetDocument = channel.unary_unary(
+                '/workspace_qdrant.v1.IngestService/GetDocument',
+                request_serializer=ingestion__pb2.GetDocumentRequest.SerializeToString,
+                response_deserializer=ingestion__pb2.GetDocumentResponse.FromString,
+                _registered_method=True)
+        self.DeleteDocument = channel.unary_unary(
+                '/workspace_qdrant.v1.IngestService/DeleteDocument',
+                request_serializer=ingestion__pb2.DeleteDocumentRequest.SerializeToString,
+                response_deserializer=ingestion__pb2.DeleteDocumentResponse.FromString,
+                _registered_method=True)
+        self.LoadConfiguration = channel.unary_unary(
+                '/workspace_qdrant.v1.IngestService/LoadConfiguration',
+                request_serializer=ingestion__pb2.LoadConfigurationRequest.SerializeToString,
+                response_deserializer=ingestion__pb2.LoadConfigurationResponse.FromString,
+                _registered_method=True)
+        self.SaveConfiguration = channel.unary_unary(
+                '/workspace_qdrant.v1.IngestService/SaveConfiguration',
+                request_serializer=ingestion__pb2.SaveConfigurationRequest.SerializeToString,
+                response_deserializer=ingestion__pb2.SaveConfigurationResponse.FromString,
+                _registered_method=True)
+        self.ValidateConfiguration = channel.unary_unary(
+                '/workspace_qdrant.v1.IngestService/ValidateConfiguration',
+                request_serializer=ingestion__pb2.ValidateConfigurationRequest.SerializeToString,
+                response_deserializer=ingestion__pb2.ValidateConfigurationResponse.FromString,
+                _registered_method=True)
+        self.AddMemoryRule = channel.unary_unary(
+                '/workspace_qdrant.v1.IngestService/AddMemoryRule',
+                request_serializer=ingestion__pb2.AddMemoryRuleRequest.SerializeToString,
+                response_deserializer=ingestion__pb2.AddMemoryRuleResponse.FromString,
+                _registered_method=True)
+        self.ListMemoryRules = channel.unary_unary(
+                '/workspace_qdrant.v1.IngestService/ListMemoryRules',
+                request_serializer=ingestion__pb2.ListMemoryRulesRequest.SerializeToString,
+                response_deserializer=ingestion__pb2.ListMemoryRulesResponse.FromString,
+                _registered_method=True)
+        self.DeleteMemoryRule = channel.unary_unary(
+                '/workspace_qdrant.v1.IngestService/DeleteMemoryRule',
+                request_serializer=ingestion__pb2.DeleteMemoryRuleRequest.SerializeToString,
+                response_deserializer=ingestion__pb2.DeleteMemoryRuleResponse.FromString,
+                _registered_method=True)
+        self.SearchMemoryRules = channel.unary_unary(
+                '/workspace_qdrant.v1.IngestService/SearchMemoryRules',
+                request_serializer=ingestion__pb2.SearchMemoryRulesRequest.SerializeToString,
+                response_deserializer=ingestion__pb2.SearchMemoryRulesResponse.FromString,
+                _registered_method=True)
         self.GetStats = channel.unary_unary(
                 '/workspace_qdrant.v1.IngestService/GetStats',
                 request_serializer=ingestion__pb2.GetStatsRequest.SerializeToString,
                 response_deserializer=ingestion__pb2.GetStatsResponse.FromString,
+                _registered_method=True)
+        self.GetProcessingStatus = channel.unary_unary(
+                '/workspace_qdrant.v1.IngestService/GetProcessingStatus',
+                request_serializer=ingestion__pb2.GetProcessingStatusRequest.SerializeToString,
+                response_deserializer=ingestion__pb2.ProcessingStatusResponse.FromString,
+                _registered_method=True)
+        self.GetSystemStatus = channel.unary_unary(
+                '/workspace_qdrant.v1.IngestService/GetSystemStatus',
+                request_serializer=google_dot_protobuf_dot_empty__pb2.Empty.SerializeToString,
+                response_deserializer=ingestion__pb2.SystemStatusResponse.FromString,
                 _registered_method=True)
         self.HealthCheck = channel.unary_unary(
                 '/workspace_qdrant.v1.IngestService/HealthCheck',
@@ -69,47 +164,162 @@ class IngestServiceStub(object):
 
 
 class IngestServiceServicer(object):
-    """Main ingestion service for document processing, file watching, and search operations
+    """Unified ingestion service for document processing, file watching, search, and CLI operations
     """
 
     def ProcessDocument(self, request, context):
-        """Process a single document for ingestion
+        """Document processing operations
         """
         context.set_code(grpc.StatusCode.UNIMPLEMENTED)
         context.set_details('Method not implemented!')
         raise NotImplementedError('Method not implemented!')
 
+    def ProcessFolder(self, request, context):
+        """Missing associated documentation comment in .proto file."""
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
+
     def StartWatching(self, request, context):
-        """Start watching a directory for file changes (streaming response for updates)
+        """File watching operations
         """
         context.set_code(grpc.StatusCode.UNIMPLEMENTED)
         context.set_details('Method not implemented!')
         raise NotImplementedError('Method not implemented!')
 
     def StopWatching(self, request, context):
-        """Stop watching a specific watch configuration
-        """
+        """Missing associated documentation comment in .proto file."""
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
+
+    def ListWatches(self, request, context):
+        """Missing associated documentation comment in .proto file."""
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
+
+    def ConfigureWatch(self, request, context):
+        """Missing associated documentation comment in .proto file."""
         context.set_code(grpc.StatusCode.UNIMPLEMENTED)
         context.set_details('Method not implemented!')
         raise NotImplementedError('Method not implemented!')
 
     def ExecuteQuery(self, request, context):
-        """Execute a search query against the indexed documents
+        """Search operations
         """
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
+
+    def ListCollections(self, request, context):
+        """Missing associated documentation comment in .proto file."""
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
+
+    def GetCollectionInfo(self, request, context):
+        """Missing associated documentation comment in .proto file."""
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
+
+    def CreateCollection(self, request, context):
+        """Missing associated documentation comment in .proto file."""
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
+
+    def DeleteCollection(self, request, context):
+        """Missing associated documentation comment in .proto file."""
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
+
+    def ListDocuments(self, request, context):
+        """Document management
+        """
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
+
+    def GetDocument(self, request, context):
+        """Missing associated documentation comment in .proto file."""
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
+
+    def DeleteDocument(self, request, context):
+        """Missing associated documentation comment in .proto file."""
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
+
+    def LoadConfiguration(self, request, context):
+        """Configuration management
+        """
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
+
+    def SaveConfiguration(self, request, context):
+        """Missing associated documentation comment in .proto file."""
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
+
+    def ValidateConfiguration(self, request, context):
+        """Missing associated documentation comment in .proto file."""
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
+
+    def AddMemoryRule(self, request, context):
+        """Memory operations
+        """
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
+
+    def ListMemoryRules(self, request, context):
+        """Missing associated documentation comment in .proto file."""
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
+
+    def DeleteMemoryRule(self, request, context):
+        """Missing associated documentation comment in .proto file."""
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
+
+    def SearchMemoryRules(self, request, context):
+        """Missing associated documentation comment in .proto file."""
         context.set_code(grpc.StatusCode.UNIMPLEMENTED)
         context.set_details('Method not implemented!')
         raise NotImplementedError('Method not implemented!')
 
     def GetStats(self, request, context):
-        """Get statistics and health information about the ingestion engine
+        """Status and monitoring
         """
         context.set_code(grpc.StatusCode.UNIMPLEMENTED)
         context.set_details('Method not implemented!')
         raise NotImplementedError('Method not implemented!')
 
+    def GetProcessingStatus(self, request, context):
+        """Missing associated documentation comment in .proto file."""
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
+
+    def GetSystemStatus(self, request, context):
+        """Missing associated documentation comment in .proto file."""
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
+
     def HealthCheck(self, request, context):
-        """Health check endpoint
-        """
+        """Missing associated documentation comment in .proto file."""
         context.set_code(grpc.StatusCode.UNIMPLEMENTED)
         context.set_details('Method not implemented!')
         raise NotImplementedError('Method not implemented!')
@@ -122,6 +332,11 @@ def add_IngestServiceServicer_to_server(servicer, server):
                     request_deserializer=ingestion__pb2.ProcessDocumentRequest.FromString,
                     response_serializer=ingestion__pb2.ProcessDocumentResponse.SerializeToString,
             ),
+            'ProcessFolder': grpc.unary_stream_rpc_method_handler(
+                    servicer.ProcessFolder,
+                    request_deserializer=ingestion__pb2.ProcessFolderRequest.FromString,
+                    response_serializer=ingestion__pb2.ProcessFolderProgress.SerializeToString,
+            ),
             'StartWatching': grpc.unary_stream_rpc_method_handler(
                     servicer.StartWatching,
                     request_deserializer=ingestion__pb2.StartWatchingRequest.FromString,
@@ -132,15 +347,105 @@ def add_IngestServiceServicer_to_server(servicer, server):
                     request_deserializer=ingestion__pb2.StopWatchingRequest.FromString,
                     response_serializer=ingestion__pb2.StopWatchingResponse.SerializeToString,
             ),
+            'ListWatches': grpc.unary_unary_rpc_method_handler(
+                    servicer.ListWatches,
+                    request_deserializer=ingestion__pb2.ListWatchesRequest.FromString,
+                    response_serializer=ingestion__pb2.ListWatchesResponse.SerializeToString,
+            ),
+            'ConfigureWatch': grpc.unary_unary_rpc_method_handler(
+                    servicer.ConfigureWatch,
+                    request_deserializer=ingestion__pb2.ConfigureWatchRequest.FromString,
+                    response_serializer=ingestion__pb2.ConfigureWatchResponse.SerializeToString,
+            ),
             'ExecuteQuery': grpc.unary_unary_rpc_method_handler(
                     servicer.ExecuteQuery,
                     request_deserializer=ingestion__pb2.ExecuteQueryRequest.FromString,
                     response_serializer=ingestion__pb2.ExecuteQueryResponse.SerializeToString,
             ),
+            'ListCollections': grpc.unary_unary_rpc_method_handler(
+                    servicer.ListCollections,
+                    request_deserializer=ingestion__pb2.ListCollectionsRequest.FromString,
+                    response_serializer=ingestion__pb2.ListCollectionsResponse.SerializeToString,
+            ),
+            'GetCollectionInfo': grpc.unary_unary_rpc_method_handler(
+                    servicer.GetCollectionInfo,
+                    request_deserializer=ingestion__pb2.GetCollectionInfoRequest.FromString,
+                    response_serializer=ingestion__pb2.CollectionInfo.SerializeToString,
+            ),
+            'CreateCollection': grpc.unary_unary_rpc_method_handler(
+                    servicer.CreateCollection,
+                    request_deserializer=ingestion__pb2.CreateCollectionRequest.FromString,
+                    response_serializer=ingestion__pb2.CreateCollectionResponse.SerializeToString,
+            ),
+            'DeleteCollection': grpc.unary_unary_rpc_method_handler(
+                    servicer.DeleteCollection,
+                    request_deserializer=ingestion__pb2.DeleteCollectionRequest.FromString,
+                    response_serializer=ingestion__pb2.DeleteCollectionResponse.SerializeToString,
+            ),
+            'ListDocuments': grpc.unary_unary_rpc_method_handler(
+                    servicer.ListDocuments,
+                    request_deserializer=ingestion__pb2.ListDocumentsRequest.FromString,
+                    response_serializer=ingestion__pb2.ListDocumentsResponse.SerializeToString,
+            ),
+            'GetDocument': grpc.unary_unary_rpc_method_handler(
+                    servicer.GetDocument,
+                    request_deserializer=ingestion__pb2.GetDocumentRequest.FromString,
+                    response_serializer=ingestion__pb2.GetDocumentResponse.SerializeToString,
+            ),
+            'DeleteDocument': grpc.unary_unary_rpc_method_handler(
+                    servicer.DeleteDocument,
+                    request_deserializer=ingestion__pb2.DeleteDocumentRequest.FromString,
+                    response_serializer=ingestion__pb2.DeleteDocumentResponse.SerializeToString,
+            ),
+            'LoadConfiguration': grpc.unary_unary_rpc_method_handler(
+                    servicer.LoadConfiguration,
+                    request_deserializer=ingestion__pb2.LoadConfigurationRequest.FromString,
+                    response_serializer=ingestion__pb2.LoadConfigurationResponse.SerializeToString,
+            ),
+            'SaveConfiguration': grpc.unary_unary_rpc_method_handler(
+                    servicer.SaveConfiguration,
+                    request_deserializer=ingestion__pb2.SaveConfigurationRequest.FromString,
+                    response_serializer=ingestion__pb2.SaveConfigurationResponse.SerializeToString,
+            ),
+            'ValidateConfiguration': grpc.unary_unary_rpc_method_handler(
+                    servicer.ValidateConfiguration,
+                    request_deserializer=ingestion__pb2.ValidateConfigurationRequest.FromString,
+                    response_serializer=ingestion__pb2.ValidateConfigurationResponse.SerializeToString,
+            ),
+            'AddMemoryRule': grpc.unary_unary_rpc_method_handler(
+                    servicer.AddMemoryRule,
+                    request_deserializer=ingestion__pb2.AddMemoryRuleRequest.FromString,
+                    response_serializer=ingestion__pb2.AddMemoryRuleResponse.SerializeToString,
+            ),
+            'ListMemoryRules': grpc.unary_unary_rpc_method_handler(
+                    servicer.ListMemoryRules,
+                    request_deserializer=ingestion__pb2.ListMemoryRulesRequest.FromString,
+                    response_serializer=ingestion__pb2.ListMemoryRulesResponse.SerializeToString,
+            ),
+            'DeleteMemoryRule': grpc.unary_unary_rpc_method_handler(
+                    servicer.DeleteMemoryRule,
+                    request_deserializer=ingestion__pb2.DeleteMemoryRuleRequest.FromString,
+                    response_serializer=ingestion__pb2.DeleteMemoryRuleResponse.SerializeToString,
+            ),
+            'SearchMemoryRules': grpc.unary_unary_rpc_method_handler(
+                    servicer.SearchMemoryRules,
+                    request_deserializer=ingestion__pb2.SearchMemoryRulesRequest.FromString,
+                    response_serializer=ingestion__pb2.SearchMemoryRulesResponse.SerializeToString,
+            ),
             'GetStats': grpc.unary_unary_rpc_method_handler(
                     servicer.GetStats,
                     request_deserializer=ingestion__pb2.GetStatsRequest.FromString,
                     response_serializer=ingestion__pb2.GetStatsResponse.SerializeToString,
+            ),
+            'GetProcessingStatus': grpc.unary_unary_rpc_method_handler(
+                    servicer.GetProcessingStatus,
+                    request_deserializer=ingestion__pb2.GetProcessingStatusRequest.FromString,
+                    response_serializer=ingestion__pb2.ProcessingStatusResponse.SerializeToString,
+            ),
+            'GetSystemStatus': grpc.unary_unary_rpc_method_handler(
+                    servicer.GetSystemStatus,
+                    request_deserializer=google_dot_protobuf_dot_empty__pb2.Empty.FromString,
+                    response_serializer=ingestion__pb2.SystemStatusResponse.SerializeToString,
             ),
             'HealthCheck': grpc.unary_unary_rpc_method_handler(
                     servicer.HealthCheck,
@@ -156,7 +461,7 @@ def add_IngestServiceServicer_to_server(servicer, server):
 
  # This class is part of an EXPERIMENTAL API.
 class IngestService(object):
-    """Main ingestion service for document processing, file watching, and search operations
+    """Unified ingestion service for document processing, file watching, search, and CLI operations
     """
 
     @staticmethod
@@ -176,6 +481,33 @@ class IngestService(object):
             '/workspace_qdrant.v1.IngestService/ProcessDocument',
             ingestion__pb2.ProcessDocumentRequest.SerializeToString,
             ingestion__pb2.ProcessDocumentResponse.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True)
+
+    @staticmethod
+    def ProcessFolder(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_stream(
+            request,
+            target,
+            '/workspace_qdrant.v1.IngestService/ProcessFolder',
+            ingestion__pb2.ProcessFolderRequest.SerializeToString,
+            ingestion__pb2.ProcessFolderProgress.FromString,
             options,
             channel_credentials,
             insecure,
@@ -241,6 +573,60 @@ class IngestService(object):
             _registered_method=True)
 
     @staticmethod
+    def ListWatches(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_unary(
+            request,
+            target,
+            '/workspace_qdrant.v1.IngestService/ListWatches',
+            ingestion__pb2.ListWatchesRequest.SerializeToString,
+            ingestion__pb2.ListWatchesResponse.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True)
+
+    @staticmethod
+    def ConfigureWatch(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_unary(
+            request,
+            target,
+            '/workspace_qdrant.v1.IngestService/ConfigureWatch',
+            ingestion__pb2.ConfigureWatchRequest.SerializeToString,
+            ingestion__pb2.ConfigureWatchResponse.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True)
+
+    @staticmethod
     def ExecuteQuery(request,
             target,
             options=(),
@@ -268,6 +654,384 @@ class IngestService(object):
             _registered_method=True)
 
     @staticmethod
+    def ListCollections(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_unary(
+            request,
+            target,
+            '/workspace_qdrant.v1.IngestService/ListCollections',
+            ingestion__pb2.ListCollectionsRequest.SerializeToString,
+            ingestion__pb2.ListCollectionsResponse.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True)
+
+    @staticmethod
+    def GetCollectionInfo(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_unary(
+            request,
+            target,
+            '/workspace_qdrant.v1.IngestService/GetCollectionInfo',
+            ingestion__pb2.GetCollectionInfoRequest.SerializeToString,
+            ingestion__pb2.CollectionInfo.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True)
+
+    @staticmethod
+    def CreateCollection(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_unary(
+            request,
+            target,
+            '/workspace_qdrant.v1.IngestService/CreateCollection',
+            ingestion__pb2.CreateCollectionRequest.SerializeToString,
+            ingestion__pb2.CreateCollectionResponse.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True)
+
+    @staticmethod
+    def DeleteCollection(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_unary(
+            request,
+            target,
+            '/workspace_qdrant.v1.IngestService/DeleteCollection',
+            ingestion__pb2.DeleteCollectionRequest.SerializeToString,
+            ingestion__pb2.DeleteCollectionResponse.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True)
+
+    @staticmethod
+    def ListDocuments(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_unary(
+            request,
+            target,
+            '/workspace_qdrant.v1.IngestService/ListDocuments',
+            ingestion__pb2.ListDocumentsRequest.SerializeToString,
+            ingestion__pb2.ListDocumentsResponse.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True)
+
+    @staticmethod
+    def GetDocument(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_unary(
+            request,
+            target,
+            '/workspace_qdrant.v1.IngestService/GetDocument',
+            ingestion__pb2.GetDocumentRequest.SerializeToString,
+            ingestion__pb2.GetDocumentResponse.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True)
+
+    @staticmethod
+    def DeleteDocument(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_unary(
+            request,
+            target,
+            '/workspace_qdrant.v1.IngestService/DeleteDocument',
+            ingestion__pb2.DeleteDocumentRequest.SerializeToString,
+            ingestion__pb2.DeleteDocumentResponse.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True)
+
+    @staticmethod
+    def LoadConfiguration(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_unary(
+            request,
+            target,
+            '/workspace_qdrant.v1.IngestService/LoadConfiguration',
+            ingestion__pb2.LoadConfigurationRequest.SerializeToString,
+            ingestion__pb2.LoadConfigurationResponse.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True)
+
+    @staticmethod
+    def SaveConfiguration(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_unary(
+            request,
+            target,
+            '/workspace_qdrant.v1.IngestService/SaveConfiguration',
+            ingestion__pb2.SaveConfigurationRequest.SerializeToString,
+            ingestion__pb2.SaveConfigurationResponse.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True)
+
+    @staticmethod
+    def ValidateConfiguration(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_unary(
+            request,
+            target,
+            '/workspace_qdrant.v1.IngestService/ValidateConfiguration',
+            ingestion__pb2.ValidateConfigurationRequest.SerializeToString,
+            ingestion__pb2.ValidateConfigurationResponse.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True)
+
+    @staticmethod
+    def AddMemoryRule(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_unary(
+            request,
+            target,
+            '/workspace_qdrant.v1.IngestService/AddMemoryRule',
+            ingestion__pb2.AddMemoryRuleRequest.SerializeToString,
+            ingestion__pb2.AddMemoryRuleResponse.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True)
+
+    @staticmethod
+    def ListMemoryRules(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_unary(
+            request,
+            target,
+            '/workspace_qdrant.v1.IngestService/ListMemoryRules',
+            ingestion__pb2.ListMemoryRulesRequest.SerializeToString,
+            ingestion__pb2.ListMemoryRulesResponse.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True)
+
+    @staticmethod
+    def DeleteMemoryRule(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_unary(
+            request,
+            target,
+            '/workspace_qdrant.v1.IngestService/DeleteMemoryRule',
+            ingestion__pb2.DeleteMemoryRuleRequest.SerializeToString,
+            ingestion__pb2.DeleteMemoryRuleResponse.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True)
+
+    @staticmethod
+    def SearchMemoryRules(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_unary(
+            request,
+            target,
+            '/workspace_qdrant.v1.IngestService/SearchMemoryRules',
+            ingestion__pb2.SearchMemoryRulesRequest.SerializeToString,
+            ingestion__pb2.SearchMemoryRulesResponse.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True)
+
+    @staticmethod
     def GetStats(request,
             target,
             options=(),
@@ -284,6 +1048,60 @@ class IngestService(object):
             '/workspace_qdrant.v1.IngestService/GetStats',
             ingestion__pb2.GetStatsRequest.SerializeToString,
             ingestion__pb2.GetStatsResponse.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True)
+
+    @staticmethod
+    def GetProcessingStatus(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_unary(
+            request,
+            target,
+            '/workspace_qdrant.v1.IngestService/GetProcessingStatus',
+            ingestion__pb2.GetProcessingStatusRequest.SerializeToString,
+            ingestion__pb2.ProcessingStatusResponse.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True)
+
+    @staticmethod
+    def GetSystemStatus(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_unary(
+            request,
+            target,
+            '/workspace_qdrant.v1.IngestService/GetSystemStatus',
+            google_dot_protobuf_dot_empty__pb2.Empty.SerializeToString,
+            ingestion__pb2.SystemStatusResponse.FromString,
             options,
             channel_credentials,
             insecure,
