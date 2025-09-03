@@ -294,60 +294,54 @@ async def _ingest_folder(
             print(f"{len(files)} files ready for processing")
             return
 
-        from ...core.config import Config
-        from ...core.client import create_qdrant_client
-        config = Config()
-        client = create_qdrant_client(config.qdrant_client_config)
+        async def folder_operation(daemon_client):
+            print(f"Processing {len(files)} files...")
 
-        # Initialize ingestion engine
-        engine = DocumentIngestionEngine(
-            client=client,
-            collection_name=collection,
-            chunk_size=chunk_size,
-            chunk_overlap=chunk_overlap,
-            max_concurrency=concurrency
-        )
+            results = []
+            processed = 0
 
-        # Process files with progress
-        print(f"Processing {len(files)} files...")
-
-        results = []
-        processed = 0
-
-        # Process files in batches based on concurrency
-        for i in range(0, len(files), concurrency):
-            batch = files[i:i+concurrency]
-
-            # Process batch concurrently
-            batch_tasks = []
-            for file_path in batch:
-                task = engine.ingest_file(file_path)
-                batch_tasks.append(task)
-
-            batch_results = await asyncio.gather(*batch_tasks, return_exceptions=True)
-
-            for file_path, result in zip(batch, batch_results, strict=False):
-                processed += 1
-                if isinstance(result, Exception):
-                    print(f"Error: Failed to process {file_path.name}: {result}")
-                    results.append(None)
-                else:
-                    results.append(result)
+            # Process files individually through daemon
+            for file_path in files:
+                try:
+                    metadata = {
+                        "source": "cli",
+                        "chunk_size": str(chunk_size),
+                        "chunk_overlap": str(chunk_overlap)
+                    }
                     
-                # Show progress
-                print(f"Progress: {processed}/{len(files)} files processed ({100*processed//len(files)}%)", end='\r')
+                    response = await daemon_client.process_document(
+                        file_path=str(file_path),
+                        collection=collection,
+                        metadata=metadata,
+                        chunk_text=True
+                    )
 
-        # Display summary
-        successful_results = [r for r in results if r is not None]
+                    processed += 1
+                    if response.success:
+                        results.append(response)
+                    else:
+                        print(f"Error: Failed to process {file_path.name}: {response.message}")
+                        results.append(None)
+                        
+                    # Show progress
+                    print(f"Progress: {processed}/{len(files)} files processed ({100*processed//len(files)}%)", end='\r')
+                    
+                except Exception as e:
+                    processed += 1
+                    print(f"Error: Failed to process {file_path.name}: {e}")
+                    results.append(None)
 
-        print("\nFolder ingestion completed!")
-        print(f"Successfully processed: {len(successful_results)}/{len(files)} files")
+            # Display summary
+            successful_results = [r for r in results if r is not None and r.success]
 
-        if successful_results:
-            total_chunks = sum(r.chunks_created for r in successful_results)
-            total_chars = sum(r.total_characters for r in successful_results)
-            print(f"Total chunks created: {total_chunks}")
-            print(f"Total characters processed: {total_chars:,}")
+            print("\nFolder ingestion completed!")
+            print(f"Successfully processed: {len(successful_results)}/{len(files)} files")
+
+            if successful_results:
+                total_chunks = sum(r.chunks_added for r in successful_results)
+                print(f"Total chunks created: {total_chunks}")
+        
+        await with_daemon_client(folder_operation)
 
     except Exception as e:
         print(f"Error: Folder ingestion failed: {e}")
@@ -389,7 +383,8 @@ async def _generate_yaml_metadata(
         print(f"Collection: {collection}")
         print(f"Output: {output_path}")
 
-        # Create workflow
+        # Create workflow - this still needs direct client as YAML metadata workflow
+        # is not yet integrated with daemon gRPC API
         from ...core.config import Config
         from ...core.client import create_qdrant_client
         config = Config()
@@ -435,7 +430,8 @@ async def _ingest_yaml_metadata(path: str, dry_run: bool, force: bool):
 
         print(f"Processing YAML Metadata: {yaml_path.name}")
 
-        # Create workflow
+        # Create workflow - this still needs direct client as YAML metadata workflow
+        # is not yet integrated with daemon gRPC API
         from ...core.config import Config
         from ...core.client import create_qdrant_client
         config = Config()
@@ -529,47 +525,51 @@ async def _ingest_web_pages(
 async def _ingestion_status(collection: Optional[str], recent: bool):
     """Show ingestion status and statistics."""
     try:
-        print("Ingestion Status")
-
-        from ...core.config import Config
-        from ...core.client import create_qdrant_client
-        config = Config()
-        client = create_qdrant_client(config.qdrant_client_config)
-
-        # Get all collections or filter by specific collection
-        if collection:
-            collections = [{'name': collection}]  # Simple format for single collection
-        else:
-            collections = await client.list_collections()
-
-        print("Collection Status:")
-        print(f"{'Collection':<30} {'Points':<10} {'Type':<10} {'Status':<10}")
-        print("-" * 65)
-
-        for col in collections:
-            name = col.get("name", "unknown")
+        async def status_operation(daemon_client):
+            print("Ingestion Status")
 
             try:
-                info = await client.get_collection_info(name)
-                points = info.get("points_count", 0)
-                col_type = "Library" if name.startswith("_") else "Project"
-
-                # Determine status
-                if points == 0:
-                    status = "Empty"
-                elif points < 100:
-                    status = "Small"
+                # Get all collections or filter by specific collection
+                if collection:
+                    collections = [{'name': collection}]  # Simple format for single collection
                 else:
-                    status = "Active"
+                    response = await daemon_client.list_collections()
+                    collections = [{'name': name} for name in response.collection_names]
 
-                print(f"{name:<30} {points:<10} {col_type:<10} {status:<10}")
+                print("Collection Status:")
+                print(f"{'Collection':<30} {'Points':<10} {'Type':<10} {'Status':<10}")
+                print("-" * 65)
 
-            except Exception:
-                print(f"{name:<30} {'?':<10} {'Unknown':<10} {'Error':<10}")
+                for col in collections:
+                    name = col.get("name", "unknown")
 
-        # Show recent activity if requested
-        if recent:
-            print("\nRecent activity tracking will be implemented in future updates")
+                    try:
+                        info_response = await daemon_client.get_collection_info(name)
+                        points = info_response.points_count
+                        col_type = "Library" if name.startswith("_") else "Project"
+
+                        # Determine status
+                        if points == 0:
+                            status = "Empty"
+                        elif points < 100:
+                            status = "Small"
+                        else:
+                            status = "Active"
+
+                        print(f"{name:<30} {points:<10} {col_type:<10} {status:<10}")
+
+                    except Exception:
+                        print(f"{name:<30} {'?':<10} {'Unknown':<10} {'Error':<10}")
+
+                # Show recent activity if requested
+                if recent:
+                    print("\nRecent activity tracking will be implemented in future updates")
+            
+            except Exception as e:
+                print(f"Error: Status check failed: {e}")
+                raise typer.Exit(1)
+        
+        await with_daemon_client(status_operation)
 
     except Exception as e:
         print(f"Error: Status check failed: {e}")
