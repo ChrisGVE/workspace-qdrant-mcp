@@ -16,7 +16,8 @@ import typer
 
 from ...core.client import QdrantWorkspaceClient
 from ...core.config import Config
-from ..watch_service import WatchService, create_status_table, create_watches_table
+from ..watch_service import WatchService
+from .memory import get_user_confirmation
 
 # Create the watch app
 watch_app = typer.Typer(
@@ -234,10 +235,18 @@ async def _list_watches(active_only: bool, collection: str | None, format: str):
 
         print(f"Watch Configurations ({len(watches)} found)\n")
 
-        # Show summary table
-        table = create_watches_table(watches_status)
-        # TODO: Convert Rich table to plain text format
-        print("[Watch table would be displayed here]")
+        # Show summary table in plain text format
+        if watches_status:
+            print(f"{'ID':<10} {'Path':<30} {'Collection':<20} {'Status':<15} {'Files'}")
+            print("-" * 85)
+            for watch_id, watch_info in watches_status.items():
+                status = "Running" if watch_info.get('active', False) else "Stopped"
+                files_count = watch_info.get('files_count', 0)
+                path = str(watch_info.get('path', ''))[:28] + '...' if len(str(watch_info.get('path', ''))) > 30 else str(watch_info.get('path', ''))
+                collection = str(watch_info.get('collection', ''))[:18] + '...' if len(str(watch_info.get('collection', ''))) > 20 else str(watch_info.get('collection', ''))
+                print(f"{watch_id:<10} {path:<30} {collection:<20} {status:<15} {files_count}")
+        else:
+            print("No watch configurations found.")
 
         # Show tips
         print("\nTip: Use 'wqm watch status --detailed' for more information")
@@ -285,7 +294,7 @@ async def _remove_watch(path: str | None, collection: str | None, all: bool, for
             return
 
         # Show what will be removed
-        print(f"\nFound {len(watches_to_remove)} watch(es) to remove:[/yellow]")
+        print(f"\nFound {len(watches_to_remove)} watch(es) to remove:")
         for watch in watches_to_remove:
             print(f"  • {watch.path} -> {watch.collection} ({watch.id})")
 
@@ -305,7 +314,7 @@ async def _remove_watch(path: str | None, collection: str | None, all: bool, for
             else:
                 print(f"Error: Failed to remove watch: {watch.path}")
 
-        print(f"\nSuccessfully removed {removed_count} watch(es)[/green]")
+        print(f"\nSuccessfully removed {removed_count} watch(es)")
 
     except Exception as e:
         print(f"Error: Failed to remove watches: {e}")
@@ -320,15 +329,24 @@ async def _watch_status(detailed: bool, recent: bool):
 
         print(" Watch System Status\n")
 
-        # System status overview
-        table = create_status_table(status_data)
-        # TODO: Convert Rich table to plain text format
-        print("[Watch table would be displayed here]")
+        # System status overview in plain text format
+        print(f"Total Watches: {status_data.get('total_watches', 0)}")
+        print(f"Running: {status_data.get('running_watches', 0)}")
+        print(f"Stopped: {status_data.get('stopped_watches', 0)}")
+        print(f"Total Files Watched: {status_data.get('total_files', 0)}")
+        if status_data.get('last_activity'):
+            print(f"Last Activity: {status_data['last_activity']}")
 
         if detailed and status_data['watches']:
-            print("\n")
-            watches_table = create_watches_table(status_data['watches'])
-            print("Output", data=watches_table)
+            print("\n Detailed Watch Information")
+            print("-" * 50)
+            for watch_id, watch_info in status_data['watches'].items():
+                print(f"Watch {watch_id}:")
+                print(f"  Path: {watch_info.get('path', 'N/A')}")
+                print(f"  Collection: {watch_info.get('collection', 'N/A')}")
+                print(f"  Status: {'Running' if watch_info.get('active', False) else 'Stopped'}")
+                print(f"  Files: {watch_info.get('files_count', 0)}")
+                print()
 
         if recent:
             print("\n Recent Activity")
@@ -388,7 +406,7 @@ async def _pause_watches(path: str | None, collection: str | None, all: bool):
             for watch in watches:
                 if await service.pause_watch(watch.id):
                     paused_count += 1
-            print(f" Paused {paused_count} watch(es)[/green]")
+            print(f" Paused {paused_count} watch(es)")
 
         elif path:
             print(f"Pausing watch: {path}")
@@ -434,7 +452,7 @@ async def _resume_watches(path: str | None, collection: str | None, all: bool):
             for watch in watches:
                 if await service.resume_watch(watch.id):
                     resumed_count += 1
-            print(f" Resumed {resumed_count} watch(es)[/green]")
+            print(f" Resumed {resumed_count} watch(es)")
 
         elif path:
             print(f"Resuming watch: {path}")
