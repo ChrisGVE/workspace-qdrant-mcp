@@ -210,7 +210,7 @@ impl DocumentProcessor {
         })
     }
 
-    pub fn detect_document_type(&self, file_path: &Path) -> Result<DocumentType, ProcessingError> {
+    pub fn detect_document_type(&self, file_path: &Path) -> std::result::Result<DocumentType, ProcessingError> {
         // First try MIME type detection
         let mime_type = mime_guess::from_path(file_path).first_or_octet_stream();
         
@@ -259,7 +259,7 @@ impl DocumentProcessor {
         }
     }
 
-    async fn extract_pdf_text(&self, file_path: &Path) -> Result<String, ProcessingError> {
+    async fn extract_pdf_text(&self, file_path: &Path) -> std::result::Result<String, ProcessingError> {
         // For now, return a placeholder implementation
         // TODO: Implement proper PDF parsing using pdf-extract or similar crate
         // The pdf = "0.8" crate has a complex API that needs careful integration
@@ -268,7 +268,7 @@ impl DocumentProcessor {
         Ok(format!("PDF file: {} (content extraction not implemented)", file_path.display()))
     }
 
-    async fn extract_epub_text(&self, file_path: &Path) -> Result<String, ProcessingError> {
+    async fn extract_epub_text(&self, file_path: &Path) -> std::result::Result<String, ProcessingError> {
         let mut doc = epub::doc::EpubDoc::new(file_path)
             .map_err(|e| ProcessingError::Parse(format!("Failed to parse EPUB: {}", e)))?;
         
@@ -289,7 +289,7 @@ impl DocumentProcessor {
         Ok(text)
     }
 
-    async fn extract_docx_text(&self, file_path: &Path) -> Result<String, ProcessingError> {
+    async fn extract_docx_text(&self, file_path: &Path) -> std::result::Result<String, ProcessingError> {
         use std::io::Read;
         
         let file = std::fs::File::open(file_path)
@@ -311,7 +311,7 @@ impl DocumentProcessor {
         Ok(text)
     }
 
-    async fn extract_text_file_content(&self, file_path: &Path) -> Result<String, ProcessingError> {
+    async fn extract_text_file_content(&self, file_path: &Path) -> std::result::Result<String, ProcessingError> {
         let bytes = tokio::fs::read(file_path).await
             .map_err(ProcessingError::Io)?;
         
@@ -331,7 +331,7 @@ impl DocumentProcessor {
         Ok(decoded.to_string())
     }
 
-    async fn extract_code_file_content(&self, file_path: &Path) -> Result<String, ProcessingError> {
+    async fn extract_code_file_content(&self, file_path: &Path) -> std::result::Result<String, ProcessingError> {
         // Extract raw text content
         let content = self.extract_text_file_content(file_path).await?;
         
@@ -366,7 +366,7 @@ impl DocumentProcessor {
         Ok(content)
     }
 
-    async fn parse_with_tree_sitter(&self, content: &str, language: &str) -> Result<String, ProcessingError> {
+    async fn parse_with_tree_sitter(&self, content: &str, language: &str) -> std::result::Result<String, ProcessingError> {
         use tree_sitter::Parser;
         
         // Get the appropriate language parser
@@ -448,7 +448,7 @@ impl DocumentProcessor {
         }
     }
 
-    fn create_text_chunks(&self, text: &str, document_type: &DocumentType) -> Result<Vec<TextChunk>, ProcessingError> {
+    fn create_text_chunks(&self, text: &str, document_type: &DocumentType) -> std::result::Result<Vec<TextChunk>, ProcessingError> {
         let mut chunks = Vec::new();
         
         if text.is_empty() {
@@ -636,7 +636,7 @@ impl ProcessingEngine {
     }
     
     /// Start the processing engine with IPC support
-    pub async fn start_with_ipc(&mut self) -> Result<IpcClient, ProcessingError> {
+    pub async fn start_with_ipc(&mut self) -> std::result::Result<IpcClient, ProcessingError> {
         // Start the main pipeline
         {
             let mut pipeline_lock = self.pipeline.lock().await;
@@ -658,7 +658,7 @@ impl ProcessingEngine {
     }
     
     /// Start the processing engine without IPC (standalone mode)
-    pub async fn start(&mut self) -> Result<(), ProcessingError> {
+    pub async fn start(&mut self) -> std::result::Result<(), ProcessingError> {
         let mut pipeline_lock = self.pipeline.lock().await;
         pipeline_lock.start().await
             .map_err(|e| ProcessingError::Processing(e.to_string()))?;
@@ -673,7 +673,7 @@ impl ProcessingEngine {
         file_path: &Path,
         collection: &str,
         priority: TaskPriority,
-    ) -> Result<TaskResult, ProcessingError> {
+    ) -> std::result::Result<TaskResult, ProcessingError> {
         let source = match priority {
             TaskPriority::McpRequests => TaskSource::McpServer {
                 request_id: uuid::Uuid::new_v4().to_string(),
@@ -718,7 +718,7 @@ impl ProcessingEngine {
         path: &Path,
         recursive: bool,
         priority: TaskPriority,
-    ) -> Result<TaskResult, ProcessingError> {
+    ) -> std::result::Result<TaskResult, ProcessingError> {
         let source = match priority {
             TaskPriority::ProjectWatching => TaskSource::ProjectWatcher {
                 project_path: path.to_string_lossy().to_string(),
@@ -755,7 +755,7 @@ impl ProcessingEngine {
         collection: &str,
         limit: usize,
         priority: TaskPriority,
-    ) -> Result<TaskResult, ProcessingError> {
+    ) -> std::result::Result<TaskResult, ProcessingError> {
         let source = TaskSource::McpServer {
             request_id: uuid::Uuid::new_v4().to_string(),
         };
@@ -778,7 +778,7 @@ impl ProcessingEngine {
     }
     
     /// Get pipeline statistics
-    pub async fn get_stats(&self) -> Result<processing::PipelineStats, ProcessingError> {
+    pub async fn get_stats(&self) -> std::result::Result<processing::PipelineStats, ProcessingError> {
         let pipeline_lock = self.pipeline.lock().await;
         Ok(pipeline_lock.stats().await)
     }
@@ -789,7 +789,7 @@ impl ProcessingEngine {
     }
     
     /// Graceful shutdown
-    pub async fn shutdown(&mut self) -> Result<(), ProcessingError> {
+    pub async fn shutdown(&mut self) -> std::result::Result<(), ProcessingError> {
         if let Some(ipc_server) = &self.ipc_server {
             // Wait for IPC server to shutdown
             ipc_server.wait_for_shutdown().await;

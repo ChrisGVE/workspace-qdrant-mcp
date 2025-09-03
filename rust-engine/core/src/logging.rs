@@ -8,13 +8,14 @@ use std::env;
 use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::SystemTime;
+use once_cell::sync::Lazy;
 
 use tracing::{error, info, warn, debug, instrument, Level};
 use tracing_subscriber::{
     fmt::{self, time::ChronoUtc},
-    layer::SubscriberExt,
+    layer::{SubscriberExt, Layer},
     util::SubscriberInitExt,
-    EnvFilter, Layer, Registry,
+    EnvFilter, Registry,
 };
 
 use crate::error::{WorkspaceError, ErrorSeverity, ErrorMonitor};
@@ -215,12 +216,8 @@ impl PerformanceMetrics {
 }
 
 /// Global performance metrics instance
-static PERFORMANCE_METRICS: std::sync::Mutex<PerformanceMetrics> = 
-    std::sync::Mutex::new(PerformanceMetrics {
-        operation_counts: HashMap::new(),
-        operation_durations: HashMap::new(),
-        error_counts: HashMap::new(),
-    });
+static PERFORMANCE_METRICS: Lazy<std::sync::Mutex<PerformanceMetrics>> = 
+    Lazy::new(|| std::sync::Mutex::new(PerformanceMetrics::default()));
 
 /// Initialize comprehensive logging system
 pub fn initialize_logging(config: LoggingConfig) -> Result<(), WorkspaceError> {
@@ -228,10 +225,70 @@ pub fn initialize_logging(config: LoggingConfig) -> Result<(), WorkspaceError> {
     let env_filter = EnvFilter::try_from_default_env()
         .unwrap_or_else(|_| EnvFilter::new(config.level.to_string()));
 
-    let mut layers = Vec::<Box<dyn Layer<Registry> + Send + Sync>>::new();
+    // Build the subscriber with conditional layers
+    let registry = Registry::default();
+    
+    // Add layers based on configuration
+    if config.console_output && config.file_logging {
+        // Both console and file logging
+        if let Some(ref log_file_path) = config.log_file_path {
+            // Ensure directory exists
+            if let Some(parent) = log_file_path.parent() {
+                std::fs::create_dir_all(parent).map_err(|e| {
+                    WorkspaceError::file_system(
+                        format!("Failed to create log directory: {}", e),
+                        parent.to_string_lossy().to_string(),
+                        "create_directory",
+                    )
+                })?;
+            }
+            
+            let log_file = std::fs::OpenOptions::new()
+                .create(true)
+                .write(true)
+                .append(true)
+                .open(log_file_path)
+                .map_err(|e| {
+                    WorkspaceError::file_system(
+                        format!("Failed to open log file: {}", e),
+                        log_file_path.to_string_lossy().to_string(),
+                        "open_file",
+                    )
+                })?;
 
-    // Console layer
-    if config.console_output {
+            let console_layer = if config.json_format {
+                fmt::layer()
+                    .json()
+                    .with_timer(ChronoUtc::rfc_3339())
+                    .with_target(true)
+                    .with_thread_ids(true)
+                    .with_thread_names(true)
+                    .boxed()
+            } else {
+                fmt::layer()
+                    .with_timer(ChronoUtc::rfc_3339())
+                    .with_target(true)
+                    .with_thread_ids(false)
+                    .with_thread_names(false)
+                    .boxed()
+            };
+            
+            let file_layer = fmt::layer()
+                .json()
+                .with_writer(Arc::new(log_file))
+                .with_timer(ChronoUtc::rfc_3339())
+                .with_target(true)
+                .with_thread_ids(true)
+                .with_thread_names(true);
+
+            registry.with(env_filter).with(console_layer).with(file_layer).init();
+        } else {
+            return Err(WorkspaceError::configuration(
+                "File logging enabled but no log file path specified",
+            ));
+        }
+    } else if config.console_output {
+        // Console logging only
         let console_layer = if config.json_format {
             fmt::layer()
                 .json()
@@ -248,64 +305,53 @@ pub fn initialize_logging(config: LoggingConfig) -> Result<(), WorkspaceError> {
                 .with_thread_names(false)
                 .boxed()
         };
-        layers.push(console_layer);
-    }
-
-    // File layer
-    if config.file_logging {
-        let log_file = match &config.log_file_path {
-            Some(path) => {
-                // Ensure directory exists
-                if let Some(parent) = path.parent() {
-                    std::fs::create_dir_all(parent).map_err(|e| {
-                        WorkspaceError::file_system(
-                            format!("Failed to create log directory: {}", e),
-                            parent.to_string_lossy().to_string(),
-                            "create_directory",
-                        )
-                    })?;
-                }
-                
-                std::fs::OpenOptions::new()
-                    .create(true)
-                    .write(true)
-                    .append(true)
-                    .open(path)
-                    .map_err(|e| {
-                        WorkspaceError::file_system(
-                            format!("Failed to open log file: {}", e),
-                            path.to_string_lossy().to_string(),
-                            "open_file",
-                        )
-                    })?
+        
+        registry.with(env_filter).with(console_layer).init();
+    } else if config.file_logging {
+        // File logging only
+        if let Some(ref log_file_path) = config.log_file_path {
+            // Ensure directory exists
+            if let Some(parent) = log_file_path.parent() {
+                std::fs::create_dir_all(parent).map_err(|e| {
+                    WorkspaceError::file_system(
+                        format!("Failed to create log directory: {}", e),
+                        parent.to_string_lossy().to_string(),
+                        "create_directory",
+                    )
+                })?;
             }
-            None => {
-                return Err(WorkspaceError::configuration(
-                    "File logging enabled but no log file path specified",
-                ));
-            }
-        };
+            
+            let log_file = std::fs::OpenOptions::new()
+                .create(true)
+                .write(true)
+                .append(true)
+                .open(log_file_path)
+                .map_err(|e| {
+                    WorkspaceError::file_system(
+                        format!("Failed to open log file: {}", e),
+                        log_file_path.to_string_lossy().to_string(),
+                        "open_file",
+                    )
+                })?;
+            
+            let file_layer = fmt::layer()
+                .json()
+                .with_writer(Arc::new(log_file))
+                .with_timer(ChronoUtc::rfc_3339())
+                .with_target(true)
+                .with_thread_ids(true)
+                .with_thread_names(true);
 
-        let file_layer = fmt::layer()
-            .json()
-            .with_writer(Arc::new(log_file))
-            .with_timer(ChronoUtc::rfc_3339())
-            .with_target(true)
-            .with_thread_ids(true)
-            .with_thread_names(true)
-            .boxed();
-        layers.push(file_layer);
+            registry.with(env_filter).with(file_layer).init();
+        } else {
+            return Err(WorkspaceError::configuration(
+                "File logging enabled but no log file path specified",
+            ));
+        }
+    } else {
+        // No logging layers enabled - just use registry with filter
+        registry.with(env_filter).init();
     }
-
-    // Initialize subscriber
-    let mut subscriber = Registry::default().with(env_filter);
-    for layer in layers {
-        subscriber = subscriber.with(layer);
-    }
-
-    subscriber.try_init().map_err(|e| {
-        WorkspaceError::configuration(format!("Failed to initialize logging: {}", e))
-    })?;
 
     // Log initialization
     info!(
@@ -315,7 +361,7 @@ pub fn initialize_logging(config: LoggingConfig) -> Result<(), WorkspaceError> {
 
     // Add global fields
     for (key, value) in &config.global_fields {
-        tracing::Span::current().record(key, value.as_str());
+        tracing::Span::current().record(key.as_str(), value.as_str());
     }
 
     Ok(())
