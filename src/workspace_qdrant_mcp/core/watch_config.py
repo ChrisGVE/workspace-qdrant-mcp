@@ -9,6 +9,7 @@ Configurations are stored in JSON format with proper versioning and validation.
 
 import json
 import logging
+import os
 import shutil
 from dataclasses import asdict, dataclass, field
 from datetime import datetime, timezone
@@ -158,7 +159,7 @@ class WatchConfigurationPersistent:
             issues.append(f"Watch path does not exist: {self.path}")
         elif not path.is_dir():
             issues.append(f"Watch path is not a directory: {self.path}")
-        elif not path.is_readable():
+        elif not os.access(path, os.R_OK):
             issues.append(f"Watch path is not readable: {self.path}")
             
         # Validate patterns
