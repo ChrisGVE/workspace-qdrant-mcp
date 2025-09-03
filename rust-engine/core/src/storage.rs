@@ -7,7 +7,7 @@ use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::Duration;
 use qdrant_client::prelude::*;
-use qdrant_client::qdrant::{PointStruct, SearchPoints, UpsertPoints, FieldType, PayloadSchemaParams};
+use qdrant_client::qdrant::{PointStruct, SearchPoints, UpsertPoints, PayloadIndexParams};
 use qdrant_client::qdrant::{CreateCollection, DeleteCollection, CollectionExists, Distance, VectorParams, VectorsConfig};
 use qdrant_client::qdrant::{SparseVectorParams, SparseIndices};
 use serde::{Serialize, Deserialize};
@@ -188,17 +188,19 @@ impl StorageClient {
     
     /// Create a storage client with custom configuration
     pub fn with_config(config: StorageConfig) -> Self {
-        let mut client_builder = QdrantClient::from_url(&config.url);
+        use qdrant_client::config::{QdrantConfig, QdrantConfigBuilder};
+        
+        let mut config_builder = QdrantConfig::from_url(&config.url);
         
         // Configure authentication
         if let Some(api_key) = &config.api_key {
-            client_builder = client_builder.with_api_key(api_key);
+            config_builder = config_builder.api_key(api_key.clone());
         }
         
         // Configure timeout
-        client_builder = client_builder.with_timeout(Duration::from_millis(config.timeout_ms));
+        config_builder = config_builder.timeout(Duration::from_millis(config.timeout_ms));
         
-        let client = Arc::new(client_builder.build().expect("Failed to build Qdrant client"));
+        let client = Arc::new(QdrantClient::new(Some(config_builder)).expect("Failed to build Qdrant client"));
         
         Self {
             client,
@@ -468,6 +470,9 @@ impl StorageClient {
                 vectors_options: Some(qdrant_client::qdrant::vectors::VectorsOptions::Vector(
                     qdrant_client::qdrant::Vector {
                         data: point.dense_vector,
+                        indices: None,
+                        vectors_count: None,
+                        vector: None,
                     }
                 )),
             }),
@@ -555,8 +560,13 @@ impl StorageClient {
                     .map(|(k, v)| (k, self.convert_qdrant_value_to_json(v)))
                     .collect();
                     
+                let id = match scored_point.id.unwrap().point_id_options.unwrap() {
+                    qdrant_client::qdrant::point_id::PointIdOptions::Uuid(uuid) => uuid,
+                    qdrant_client::qdrant::point_id::PointIdOptions::Num(num) => num.to_string(),
+                };
+                
                 SearchResult {
-                    id: scored_point.id.unwrap().point_id_options.unwrap().to_string(),
+                    id,
                     score: scored_point.score,
                     payload: json_payload,
                     dense_vector: None,
