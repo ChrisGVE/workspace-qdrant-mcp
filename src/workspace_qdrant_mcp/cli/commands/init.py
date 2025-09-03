@@ -64,6 +64,52 @@ def fish_completion(
     """Generate fish completion script for shell evaluation."""
     generate_completion_script(Shell.FISH, prog_name)
 
+@init_app.command("help")
+def detailed_help() -> None:
+    """Show detailed shell completion setup instructions."""
+    help_text = """
+Shell Completion Setup for wqm
+==============================
+
+Quick Setup (temporary for current shell session):
+
+  Bash:
+    eval "$(wqm init bash)"
+  
+  Zsh:
+    eval "$(wqm init zsh)"
+  
+  Fish:
+    eval "$(wqm init fish)"
+
+Permanent installation:
+
+  Bash - Add to ~/.bashrc or ~/.bash_profile:
+    echo 'eval "$(wqm init bash)"' >> ~/.bashrc
+    source ~/.bashrc
+  
+  Zsh - Add to ~/.zshrc:
+    echo 'eval "$(wqm init zsh)"' >> ~/.zshrc
+    source ~/.zshrc
+  
+  Fish - Add to ~/.config/fish/config.fish:
+    echo 'eval "$(wqm init fish)"' >> ~/.config/fish/config.fish
+    source ~/.config/fish/config.fish
+
+Verification:
+  After setup, type 'wqm ' and press TAB to see available commands.
+  
+TROUBLESHOOTING:
+  - Make sure wqm is in your PATH
+  - Restart your shell after permanent installation
+  - For zsh, ensure compinit is loaded before the eval statement
+  - For fish, use 'wqm init fish | source' if eval doesn't work
+
+Custom program name:
+  wqm init bash --prog-name my-wqm    # For custom command names
+"""
+    print(help_text.strip())
+
 def generate_completion_script(shell: Shell, prog_name: str) -> None:
     """Generate and output completion script for the specified shell."""
     try:
