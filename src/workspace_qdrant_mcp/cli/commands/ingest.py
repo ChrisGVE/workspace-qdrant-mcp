@@ -57,11 +57,11 @@ def ingest_file(
 def ingest_folder(
     path: str = typer.Argument(..., help="Path to folder to ingest"),
     collection: str = typer.Option(..., "--collection", "-c", help="Target collection name"),
-    formats: list[str] | None = typer.Option(None, "--format", "-f", help="File formats to process (e.g. pdf,md,txt)"),
+    formats: list | None = typer.Option(None, "--format", "-f", help="File formats to process (e.g. pdf,md,txt)"),
     chunk_size: int = typer.Option(1000, "--chunk-size", help="Maximum characters per text chunk"),
     chunk_overlap: int = typer.Option(200, "--chunk-overlap", help="Character overlap between chunks"),
     recursive: bool = typer.Option(True, "--recursive/--no-recursive", help="Process subdirectories recursively"),
-    exclude: list[str] | None = typer.Option(None, "--exclude", help="Glob patterns to exclude"),
+    exclude: list | None = typer.Option(None, "--exclude", help="Glob patterns to exclude"),
     concurrency: int = typer.Option(5, "--concurrency", help="Number of concurrent processing tasks"),
     dry_run: bool = typer.Option(False, "--dry-run", help="Analyze files without ingesting"),
     force: bool = typer.Option(False, "--force", help="Overwrite existing documents"),
@@ -86,7 +86,7 @@ def generate_yaml_metadata(
     library_path: str = typer.Argument(..., help="Path to library folder"),
     collection: str = typer.Option(..., "--collection", "-c", help="Target library collection name"),
     output: str | None = typer.Option(None, "--output", "-o", help="Output YAML file path"),
-    formats: list[str] | None = typer.Option(None, "--format", "-f", help="File formats to process (e.g. pdf,md,txt)"),
+    formats: list | None = typer.Option(None, "--format", "-f", help="File formats to process (e.g. pdf,md,txt)"),
     force: bool = typer.Option(False, "--force", help="Overwrite existing YAML file"),
 ):
     """ Generate YAML metadata file for library documents."""
@@ -98,8 +98,8 @@ def ingest_web_pages(
     collection: str = typer.Option(..., "--collection", "-c", help="Target collection name"),
     max_depth: int = typer.Option(2, "--depth", help="Maximum crawl depth"),
     max_pages: int = typer.Option(50, "--max-pages", help="Maximum number of pages to crawl"),
-    include_patterns: list[str] | None = typer.Option(None, "--include", help="URL patterns to include"),
-    exclude_patterns: list[str] | None = typer.Option(None, "--exclude", help="URL patterns to exclude"),
+    include_patterns: list | None = typer.Option(None, "--include", help="URL patterns to include"),
+    exclude_patterns: list | None = typer.Option(None, "--exclude", help="URL patterns to exclude"),
     delay: float = typer.Option(1.0, "--delay", help="Delay between requests (seconds)"),
     dry_run: bool = typer.Option(False, "--dry-run", help="Analyze URLs without crawling"),
 ):
@@ -146,22 +146,22 @@ async def _ingest_file(
                 "path": str(file_path),
                 "size_mb": round(file_path.stat().st_size / (1024*1024), 2),
                 "extension": file_path.suffix.lower(),
-                "supported": file_path.suffix.lower() in ['.pdf', '.txt', '.md', '.epub', '.docx', '.pptx', '.html', '.htm', '.mobi', '.azw', '.py', '.js', '.java', '.cpp', '.go', '.rs', '.rb', '.php']
+                "supported": file_path.suffix.lower() in 
             }
 
             # Display file analysis in plain text
             print("File Analysis:")
-            print(f"Path: {file_info['path']}")
-            print(f"Size: {file_info['size_mb']} MB")
-            print(f"Extension: {file_info['extension']}")
-            print(f"Supported: {'Yes' if file_info['supported'] else 'No'}")
+            print(f"Path: {file_info}")
+            print(f"Size: {file_info} MB")
+            print(f"Extension: {file_info}")
+            print(f"Supported: {'Yes' if file_info else 'No'}")
 
-            if file_info["supported"]:
+            if file_info:
                 print("File can be processed with current settings")
-                estimated_chunks = max(1, int(file_info["size_mb"] * 1024 * 1024 / chunk_size))
+                estimated_chunks = max(1, int(file_info * 1024 * 1024 / chunk_size))
                 print(f"Estimated chunks: ~{estimated_chunks}")
             else:
-                print(f"Error: Unsupported file format: {file_info['extension']}")
+                print(f"Error: Unsupported file format: {file_info}")
 
             return
 
@@ -207,11 +207,11 @@ async def _ingest_file(
 async def _ingest_folder(
     path: str,
     collection: str,
-    formats: list[str] | None,
+    formats: list | None,
     chunk_size: int,
     chunk_overlap: int,
     recursive: bool,
-    exclude: list[str] | None,
+    exclude: list | None,
     concurrency: int,
     dry_run: bool,
     force: bool
@@ -221,22 +221,22 @@ async def _ingest_folder(
         folder_path = Path(path)
 
         if not folder_path.exists():
-            print(f"❌ Folder not found: {path}")
+            print(f"Error: Folder not found: {path}")
             raise typer.Exit(1)
 
         if not folder_path.is_dir():
-            print(f"❌ Path is not a directory: {path}")
+            print(f"Error: Path is not a directory: {path}")
             raise typer.Exit(1)
 
         # Default formats if not specified
         if not formats:
-            formats = ["pdf", "txt", "md", "epub", "docx", "pptx", "html", "htm", "mobi", "py", "js", "java", "cpp", "go", "rs"]
+            formats = 
         else:
             # Clean format specifications
-            formats = [f.lower().lstrip('.') for f in formats]
+            formats = 
 
         # Find files to process
-        files = []
+        files = 
         for fmt in formats:
             pattern = f"**/*.{fmt}" if recursive else f"*.{fmt}"
             files.extend(folder_path.glob(pattern))
@@ -244,7 +244,7 @@ async def _ingest_folder(
         # Apply exclusion patterns
         if exclude:
             import fnmatch
-            filtered_files = []
+            filtered_files = 
             for file_path in files:
                 exclude_file = False
                 for pattern in exclude:
@@ -259,7 +259,7 @@ async def _ingest_folder(
             print(f"No files found matching criteria in {path}")
             return
 
-        print(f"📁 Found {len(files)} files to process[/bold blue]")
+        print(f" Found {len(files)} files to process")
 
         if dry_run:
             # Show analysis summary
@@ -276,26 +276,26 @@ async def _ingest_folder(
                 size_mb = file_path.stat().st_size / (1024*1024)
 
                 if ext not in format_stats:
-                    format_stats[ext] = {"count": 0, "size_mb": 0}
-                format_stats[ext]["count"] += 1
-                format_stats[ext]["size_mb"] += size_mb
+                    format_stats = {"count": 0, "size_mb": 0}
+                format_stats += 1
+                format_stats += size_mb
                 total_size += size_mb
 
             for ext, stats in format_stats.items():
                 summary_table.add_row(
                     f".{ext}",
-                    str(stats["count"]),
-                    f"{stats['size_mb']:.2f}"
+                    str(stats),
+                    f"{stats:.2f}"
                 )
 
             summary_table.add_row(
-                "[bold]Total[/bold]",
-                f"[bold]{len(files)}[/bold]",
-                f"[bold]{total_size:.2f}[/bold]"
+                "Total",
+                f"{len(files)}",
+                f"{total_size:.2f}"
             )
 
             print(summary_table)
-            print(f" {len(files)} files ready for processing[/green]")
+            print(f" {len(files)} files ready for processing")
             return
 
         config = Config()
@@ -311,25 +311,25 @@ async def _ingest_folder(
         )
 
         # Process files with progress
-        print(f"📁 Processing {len(files)} files...[/bold blue]")
+        print(f" Processing {len(files)} files...")
 
         with Progress(
-            TextColumn("[progress.description]{task.description}"),
+            TextColumn("{task.description}"),
             BarColumn(),
-            TextColumn("[progress.percentage]{task.percentage:>3.0f}%"),
+            TextColumn("{task.percentage:>3.0f}%"),
             console=console,
         ) as progress:
             main_task = progress.add_task("Overall progress", total=len(files))
 
-            results = []
+            results = 
             processed = 0
 
             # Process files in batches based on concurrency
             for i in range(0, len(files), concurrency):
-                batch = files[i:i+concurrency]
+                batch = files
 
                 # Process batch concurrently
-                batch_tasks = []
+                batch_tasks = 
                 for file_path in batch:
                     task = engine.ingest_file(file_path)
                     batch_tasks.append(task)
@@ -339,7 +339,7 @@ async def _ingest_folder(
                 for file_path, result in zip(batch, batch_results, strict=False):
                     processed += 1
                     if isinstance(result, Exception):
-                        print(f"❌ Failed to process {file_path.name}: {result}")
+                        print(f"Error: Failed to process {file_path.name}: {result}")
                         results.append(None)
                     else:
                         results.append(result)
@@ -347,7 +347,7 @@ async def _ingest_folder(
                     progress.update(main_task, completed=processed)
 
         # Display summary
-        successful_results = [r for r in results if r is not None]
+        successful_results = 
 
         print("\n Folder ingestion completed!")
         print(f"  Successfully processed: {len(successful_results)}/{len(files)} files")
@@ -359,14 +359,14 @@ async def _ingest_folder(
             print(f"  Total characters processed: {total_chars:,}")
 
     except Exception as e:
-        print(f"❌ Folder ingestion failed: {e}")
+        print(f"Error: Folder ingestion failed: {e}")
         raise typer.Exit(1)
 
 async def _generate_yaml_metadata(
     library_path: str,
     collection: str,
     output: str | None,
-    formats: list[str] | None,
+    formats: list | None,
     force: bool
 ):
     """Generate YAML metadata file for library documents."""
@@ -374,23 +374,23 @@ async def _generate_yaml_metadata(
         lib_path = Path(library_path)
 
         if not lib_path.exists():
-            print(f"❌ Library path not found: {library_path}")
+            print(f"Error: Library path not found: {library_path}")
             raise typer.Exit(1)
 
         if not lib_path.is_dir():
-            print(f"❌ Path is not a directory: {library_path}")
+            print(f"Error: Path is not a directory: {library_path}")
             raise typer.Exit(1)
 
         # Validate collection name (should start with _)
         if not collection.startswith('_'):
-            print(f"❌ Library collection name must start with '_': {collection}")
+            print(f"Error: Library collection name must start with '_': {collection}")
             raise typer.Exit(1)
 
         # Check output path
         output_path = Path(output) if output else lib_path / 'metadata_completion.yaml'
 
         if output_path.exists() and not force:
-            print(f"❌ Output file exists (use --force to overwrite): {output_path}[/red]")
+            print(f"Error: Output file exists (use --force to overwrite): {output_path}")
             raise typer.Exit(1)
 
         print(" Generating YAML Metadata for Library")
@@ -406,7 +406,7 @@ async def _generate_yaml_metadata(
         # Generate YAML file
         with Progress(
             SpinnerColumn(),
-            TextColumn("[progress.description]{task.description}"),
+            TextColumn("{task.description}"),
             console=console,
         ) as progress:
             task = progress.add_task("Analyzing documents and extracting metadata...", total=100)
@@ -422,9 +422,9 @@ async def _generate_yaml_metadata(
 
         if result_path:
             result_panel = Panel(
-                f"""[green] YAML metadata file generated successfully![/green]
+                f""" YAML metadata file generated successfully!
 
-📁 Location: {result_path}
+ Location: {result_path}
  Next steps:
   1. Review and complete the metadata in the YAML file
   2. Fill in fields marked with '?'
@@ -442,7 +442,7 @@ async def _generate_yaml_metadata(
             print(" No documents found to process")
 
     except Exception as e:
-        print(f"❌ YAML generation failed: {e}")
+        print(f"Error: YAML generation failed: {e}")
         raise typer.Exit(1)
 
 async def _ingest_yaml_metadata(path: str, dry_run: bool, force: bool):
@@ -451,7 +451,7 @@ async def _ingest_yaml_metadata(path: str, dry_run: bool, force: bool):
         yaml_path = Path(path)
 
         if not yaml_path.exists():
-            print(f"❌ YAML file not found: {path}")
+            print(f"Error: YAML file not found: {path}")
             raise typer.Exit(1)
 
         print(f" Processing YAML Metadata: {yaml_path.name}")
@@ -464,7 +464,7 @@ async def _ingest_yaml_metadata(path: str, dry_run: bool, force: bool):
         # Process YAML file
         with Progress(
             SpinnerColumn(),
-            TextColumn("[progress.description]{task.description}"),
+            TextColumn("{task.description}"),
             console=console,
         ) as progress:
             task = progress.add_task("Processing documents with metadata...", total=100)
@@ -477,14 +477,14 @@ async def _ingest_yaml_metadata(path: str, dry_run: bool, force: bool):
             progress.update(task, completed=100)
 
         # Display results
-        processed = results['processed']
-        skipped = results['skipped']
-        errors = results['errors']
-        remaining = results['remaining']
+        processed = results
+        skipped = results
+        errors = results
+        remaining = results
 
         if dry_run:
             result_panel = Panel(
-                f"""[blue] YAML Metadata Analysis (Dry Run)[/blue]
+                f""" YAML Metadata Analysis (Dry Run)
 
  Processing Summary:
   • Ready to process: {processed} documents
@@ -494,14 +494,14 @@ async def _ingest_yaml_metadata(path: str, dry_run: bool, force: bool):
 
 {" All documents ready for processing!" if remaining == 0 else " Complete remaining metadata and run again"}
 
-{chr(10).join(f"  ❌ {error}" for error in errors[:5]) if errors else ""}
+{chr(10).join(f" Error: {error}" for error in errors) if errors else ""}
 {"  ... and more errors" if len(errors) > 5 else ""}""",
                 title=" Dry Run Results",
                 border_style="blue"
             )
         else:
             result_panel = Panel(
-                f"""[green] YAML Metadata Processing Complete![/green]
+                f""" YAML Metadata Processing Complete!
 
  Processing Summary:
   • Successfully processed: {processed} documents
@@ -511,7 +511,7 @@ async def _ingest_yaml_metadata(path: str, dry_run: bool, force: bool):
 
 {"🎉 All documents processed successfully!" if remaining == 0 else f"📝 {remaining} documents still need metadata completion"}
 
-{chr(10).join(f"  ❌ {error}" for error in errors[:3]) if errors else ""}
+{chr(10).join(f" Error: {error}" for error in errors) if errors else ""}
 {"  ... and more errors" if len(errors) > 3 else ""}""",
                 title="🎉 Processing Complete",
                 border_style="green"
@@ -521,11 +521,11 @@ async def _ingest_yaml_metadata(path: str, dry_run: bool, force: bool):
 
         # Show guidance for next steps
         if remaining > 0 and not dry_run:
-            print(f"\n💡 The YAML file has been updated with {remaining} remaining documents.")
+            print(f"\nNote: The YAML file has been updated with {remaining} remaining documents.")
             print(f"   Complete their metadata and run 'wqm ingest yaml {yaml_path}' again.")
 
     except Exception as e:
-        print(f"❌ YAML processing failed: {e}")
+        print(f"Error: YAML processing failed: {e}")
         logger.exception("YAML metadata processing error")
         raise typer.Exit(1)
 
@@ -534,8 +534,8 @@ async def _ingest_web_pages(
     collection: str,
     max_depth: int,
     max_pages: int,
-    include_patterns: list[str] | None,
-    exclude_patterns: list[str] | None,
+    include_patterns: list | None,
+    exclude_patterns: list | None,
     delay: float,
     dry_run: bool
 ):
@@ -547,7 +547,7 @@ async def _ingest_web_pages(
         # This will be part of future enhancement
 
         if dry_run:
-            print(" Web crawling analysis (dry run)[/yellow]")
+            print(" Web crawling analysis (dry run)")
             print(f"Would crawl {url} with max depth {max_depth} and max {max_pages} pages")
             print("Web crawling feature will be implemented in a future task")
         else:
@@ -555,7 +555,7 @@ async def _ingest_web_pages(
             print("Web crawling feature will be implemented in a future task")
 
     except Exception as e:
-        print(f"❌ Web crawling failed: {e}")
+        print(f"Error: Web crawling failed: {e}")
         raise typer.Exit(1)
 
 async def _ingestion_status(collection: str | None, recent: bool):
@@ -568,7 +568,7 @@ async def _ingestion_status(collection: str | None, recent: bool):
 
         # Get all collections or filter by specific collection
         if collection:
-            collections = [{"name": collection}]
+            collections = 
         else:
             collections = await client.list_collections()
 
@@ -588,16 +588,16 @@ async def _ingestion_status(collection: str | None, recent: bool):
 
                 # Determine status
                 if points == 0:
-                    status = "[red]Empty[/red]"
+                    status = "Empty"
                 elif points < 100:
-                    status = "[yellow]Small[/yellow]"
+                    status = "Small"
                 else:
-                    status = "[green]Active[/green]"
+                    status = "Active"
 
                 status_table.add_row(name, str(points), col_type, status)
 
             except Exception:
-                status_table.add_row(name, "?", "Unknown", "[red]Error[/red]")
+                status_table.add_row(name, "?", "Unknown", "Error")
 
         print(status_table)
 
@@ -606,7 +606,7 @@ async def _ingestion_status(collection: str | None, recent: bool):
             print("\nRecent activity tracking will be implemented in future updates")
 
     except Exception as e:
-        print(f"❌ Status check failed: {e}")
+        print(f"Error: Status check failed: {e}")
         raise typer.Exit(1)
 
 def _display_ingestion_result(result: IngestionResult, filename: str):
@@ -614,7 +614,7 @@ def _display_ingestion_result(result: IngestionResult, filename: str):
 
     if result.success:
         result_panel = Panel(
-            f"""[green] Successfully ingested: {filename}[/green]
+            f""" Successfully ingested: {filename}
 
  Processing Summary:
   • Chunks created: {result.chunks_created}
@@ -622,15 +622,13 @@ def _display_ingestion_result(result: IngestionResult, filename: str):
   • Processing time: {result.processing_time_seconds:.2f}s
   • Average chunk size: {result.total_characters // max(1, result.chunks_created)} chars
 
-📁 Collection: {result.collection_name}""",
+ Collection: {result.collection_name}""",
             title="🎉 Ingestion Complete",
             border_style="green"
         )
     else:
         result_panel = Panel(
-            f"""[red]❌ Failed to ingest: {filename}[/red]
-
-Error: {result.error_message}
+            f"""Error: Failed to ingest: {filename} Error: {result.error_message}
 
  Partial Results:
   • Chunks created: {result.chunks_created}

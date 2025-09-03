@@ -491,29 +491,29 @@ class HealthMonitor:
 
         # Resource alerts
         if resources.cpu_percent > 90:
-            alerts.append(f"⚠️  High CPU usage: {resources.cpu_percent}%")
+            alerts.append(f"Warning: High CPU usage: {resources.cpu_percent}%")
         elif resources.cpu_percent > 80:
             alerts.append(f"🟡 Elevated CPU usage: {resources.cpu_percent}%")
 
         if resources.memory_percent > 95:
-            alerts.append(f"⚠️  Critical memory usage: {resources.memory_percent}%")
+            alerts.append(f"Warning: Critical memory usage: {resources.memory_percent}%")
         elif resources.memory_percent > 85:
             alerts.append(f"🟡 High memory usage: {resources.memory_percent}%")
 
         if resources.disk_percent > 95:
-            alerts.append(f"⚠️  Critical disk space: {resources.disk_percent}%")
+            alerts.append(f"Warning: Critical disk space: {resources.disk_percent}%")
         elif resources.disk_percent > 90:
             alerts.append(f"🟡 Low disk space: {resources.disk_percent}%")
 
         if resources.load_average and resources.load_average > 5.0:
-            alerts.append(f"⚠️  High system load: {resources.load_average}")
+            alerts.append(f"Warning: High system load: {resources.load_average}")
 
         # Collection alerts
         for collection in collections:
             if collection.status == "error":
-                alerts.append(f"❌ Collection '{collection.name}' in error state")
+                alerts.append(f"Error: Collection '{collection.name}' in error state")
             elif collection.optimization_status == "error":
-                alerts.append(f"⚠️  Collection '{collection.name}' needs optimization")
+                alerts.append(f"Warning: Collection '{collection.name}' needs optimization")
 
             # Check for large unindexed vectors
             if (
@@ -530,20 +530,20 @@ class HealthMonitor:
             and performance.embedding_avg_time_ms > 5000
         ):  # 5 seconds
             alerts.append(
-                f"⚠️  Slow embedding generation: {performance.embedding_avg_time_ms}ms"
+                f"Warning: Slow embedding generation: {performance.embedding_avg_time_ms}ms"
             )
 
         if (
             performance.search_avg_time_ms and performance.search_avg_time_ms > 1000
         ):  # 1 second
             alerts.append(
-                f"⚠️  Slow search performance: {performance.search_avg_time_ms}ms"
+                f"Warning: Slow search performance: {performance.search_avg_time_ms}ms"
             )
 
         if (
             performance.error_rate_percent and performance.error_rate_percent > 5
         ):  # 5% error rate
-            alerts.append(f"⚠️  High error rate: {performance.error_rate_percent}%")
+            alerts.append(f"Warning: High error rate: {performance.error_rate_percent}%")
 
         return alerts
 
@@ -563,7 +563,7 @@ class HealthMonitor:
                 "📏 Consider reducing embedding batch size to lower memory usage"
             )
             recommendations.append(
-                "🔄 Restart the system to free up memory if possible"
+                "Restart the system to free up memory if possible"
             )
 
         if resources.disk_percent > 85:
@@ -576,7 +576,7 @@ class HealthMonitor:
             recommendations.append(
                 "⚡ Consider enabling collection sharding for better performance"
             )
-            recommendations.append("🔍 Monitor collection segment optimization status")
+            recommendations.append("Monitor collection segment optimization status")
 
         for collection in collections:
             if collection.segments_count > 20:
@@ -603,21 +603,21 @@ class HealthMonitor:
 
         if performance.search_avg_time_ms and performance.search_avg_time_ms > 500:
             recommendations.append(
-                "🔍 Optimize search parameters and query construction"
+                "Optimize search parameters and query construction"
             )
             recommendations.append("📊 Consider using more specific search filters")
 
         # Configuration recommendations
         if not config_status.get("valid", False):
             recommendations.append(
-                "⚙️  Fix configuration issues for optimal performance"
+                "Fix configuration issues for optimal performance"
             )
             for issue in config_status.get("issues", [])[:3]:
                 recommendations.append(f"  - {issue}")
 
         if not self.config.embedding.enable_sparse_vectors:
             recommendations.append(
-                "🔍 Enable sparse vectors for improved search quality"
+                "Enable sparse vectors for improved search quality"
             )
 
         if self.config.embedding.chunk_size > 2000:
@@ -629,9 +629,9 @@ class HealthMonitor:
         if not recommendations:
             recommendations.extend(
                 [
-                    "✅ System is running optimally!",
+                    "System is running optimally!",
                     "📊 Monitor performance trends over time",
-                    "🔄 Regular system maintenance is recommended",
+                    "Regular system maintenance is recommended",
                 ]
             )
 
@@ -646,7 +646,7 @@ class HealthMonitor:
         """Calculate overall system health status."""
 
         # Check for critical alerts
-        critical_keywords = ["⚠️ ", "❌", "critical", "error"]
+        critical_keywords = ["Warning:", "Error:", "critical", "error"]
         has_critical = any(
             any(keyword in alert for keyword in critical_keywords) for alert in alerts
         )
@@ -733,11 +733,11 @@ class HealthMonitor:
 
         # CPU
         cpu_status = (
-            "❌"
+            "[ERROR]"
             if report.system_resources.cpu_percent > 90
-            else "⚠️ "
+            else "[WARN]"
             if report.system_resources.cpu_percent > 80
-            else "✅"
+            else "[OK]"
         )
         resources_table.add_row(
             "CPU", f"{report.system_resources.cpu_percent}%", cpu_status
@@ -745,11 +745,11 @@ class HealthMonitor:
 
         # Memory
         mem_status = (
-            "❌"
+            "[ERROR]"
             if report.system_resources.memory_percent > 95
-            else "⚠️ "
+            else "[WARN]"
             if report.system_resources.memory_percent > 85
-            else "✅"
+            else "[OK]"
         )
         resources_table.add_row(
             "Memory",
@@ -759,11 +759,11 @@ class HealthMonitor:
 
         # Disk
         disk_status = (
-            "❌"
+            "[ERROR]"
             if report.system_resources.disk_percent > 95
-            else "⚠️ "
+            else "[WARN]"
             if report.system_resources.disk_percent > 90
-            else "✅"
+            else "[OK]"
         )
         resources_table.add_row(
             "Disk",
@@ -773,11 +773,11 @@ class HealthMonitor:
 
         if report.system_resources.load_average is not None:
             load_status = (
-                "❌"
+                "[ERROR]"
                 if report.system_resources.load_average > 5
-                else "⚠️ "
+                else "[WARN]"
                 if report.system_resources.load_average > 2
-                else "✅"
+                else "[OK]"
             )
             resources_table.add_row(
                 "Load Avg", f"{report.system_resources.load_average:.2f}", load_status
@@ -793,11 +793,11 @@ class HealthMonitor:
             right_content += f"Collections ({len(report.collections)}):\n"
             for col in report.collections[:5]:  # Show top 5
                 status_icon = (
-                    "✅"
+                    "[OK]"
                     if col.status == "green"
-                    else "⚠️ "
+                    else "[WARN]"
                     if col.status != "error"
-                    else "❌"
+                    else "[ERROR]"
                 )
                 right_content += (
                     f"  {status_icon} {col.name}: {col.points_count:,} points\n"
@@ -905,7 +905,7 @@ def main(
                 await monitor.run_continuous_monitoring(interval)
             else:
                 # Run single health check
-                console.print("🔍 Running health check...", style="blue")
+                console.print("Running health check...", style="blue")
 
                 with Progress(
                     SpinnerColumn(),
@@ -932,12 +932,12 @@ def main(
                             json.dumps(health_report.to_dict(), indent=2)
                         )
                         console.print(
-                            f"\n📄 Health report saved to: {output_path.absolute()}",
+                            f"\nHealth report saved to: {output_path.absolute()}",
                             style="green",
                         )
                     except Exception as e:
                         console.print(
-                            f"\n⚠️  Failed to save report: {e}", style="yellow"
+                            f"\nWarning: Failed to save report: {e}", style="yellow"
                         )
 
                 # Exit with appropriate code
@@ -948,10 +948,10 @@ def main(
                 sys.exit(exit_code)
 
         except KeyboardInterrupt:
-            console.print("\n❌ Health monitoring cancelled by user", style="red")
+            console.print("\nError: Health monitoring cancelled by user", style="red")
             sys.exit(1)
         except Exception as e:
-            console.print(f"\n❌ Health monitoring failed: {e}", style="red")
+            console.print(f"\nError: Health monitoring failed: {e}", style="red")
             logger.error(f"Health monitoring failed: {e}", exc_info=True)
             sys.exit(1)
         finally:
@@ -968,7 +968,7 @@ def display_health_report(report: HealthReport, analyze: bool, verbose: bool) ->
     # Overall status header
     status_colors = {"healthy": "green", "warning": "yellow", "critical": "red"}
 
-    status_icons = {"healthy": "✅", "warning": "⚠️ ", "critical": "❌"}
+    status_icons = {"healthy": "[OK]", "warning": "[WARN]", "critical": "[ERROR]"}
 
     status_color = status_colors[report.overall_health]
     status_icon = status_icons[report.overall_health]
@@ -1002,29 +1002,29 @@ def display_health_report(report: HealthReport, analyze: bool, verbose: bool) ->
         (
             "CPU Usage",
             f"{report.system_resources.cpu_percent}%",
-            "❌"
+            "[ERROR]"
             if report.system_resources.cpu_percent > 90
-            else "⚠️ "
+            else "[WARN]"
             if report.system_resources.cpu_percent > 80
-            else "✅",
+            else "[OK]",
         ),
         (
             "Memory Usage",
             f"{report.system_resources.memory_percent}% ({report.system_resources.memory_used_gb:.1f}GB / {report.system_resources.memory_total_gb:.1f}GB)",
-            "❌"
+            "[ERROR]"
             if report.system_resources.memory_percent > 95
-            else "⚠️ "
+            else "[WARN]"
             if report.system_resources.memory_percent > 85
-            else "✅",
+            else "[OK]",
         ),
         (
             "Disk Usage",
             f"{report.system_resources.disk_percent}% ({report.system_resources.disk_used_gb:.1f}GB / {report.system_resources.disk_total_gb:.1f}GB)",
-            "❌"
+            "[ERROR]"
             if report.system_resources.disk_percent > 95
-            else "⚠️ "
+            else "[WARN]"
             if report.system_resources.disk_percent > 90
-            else "✅",
+            else "[OK]",
         ),
     ]
 
@@ -1033,11 +1033,11 @@ def display_health_report(report: HealthReport, analyze: bool, verbose: bool) ->
             (
                 "Load Average",
                 f"{report.system_resources.load_average:.2f}",
-                "❌"
+                "[ERROR]"
                 if report.system_resources.load_average > 5
-                else "⚠️ "
+                else "[WARN]"
                 if report.system_resources.load_average > 2
-                else "✅",
+                else "[OK]",
             )
         )
 
@@ -1058,11 +1058,11 @@ def display_health_report(report: HealthReport, analyze: bool, verbose: bool) ->
 
         for col in report.collections:
             status_icon = (
-                "✅"
+                "[OK]"
                 if col.status == "green"
-                else "⚠️ "
+                else "[WARN]"
                 if col.status != "error"
-                else "❌"
+                else "[ERROR]"
             )
             collections_table.add_row(
                 col.name,
@@ -1123,7 +1123,7 @@ def display_health_report(report: HealthReport, analyze: bool, verbose: bool) ->
 
         console.print(
             Panel(
-                alert_text, title="⚠️  Active Alerts", border_style="red", padding=(1, 2)
+                alert_text, title="Active Alerts", border_style="red", padding=(1, 2)
             )
         )
 
@@ -1136,7 +1136,7 @@ def display_health_report(report: HealthReport, analyze: bool, verbose: bool) ->
         console.print(
             Panel(
                 rec_text,
-                title="🎯 Recommendations",
+                title="Recommendations",
                 border_style="yellow",
                 padding=(1, 2),
             )
@@ -1161,7 +1161,7 @@ def display_health_report(report: HealthReport, analyze: bool, verbose: bool) ->
         console.print(
             Panel(
                 detail_text,
-                title="🔍 Detailed Analysis",
+                title="Detailed Analysis",
                 border_style="blue",
                 padding=(1, 2),
             )
