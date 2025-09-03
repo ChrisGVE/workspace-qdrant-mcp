@@ -76,6 +76,7 @@ from .commands.service import service_app
 from .commands.watch import watch_app
 from .commands.web import web_app
 from .observability import observability_app
+from .status import status_app
 
 # Initialize main app and logger
 app = typer.Typer(
@@ -98,6 +99,7 @@ app.add_typer(service_app, name="service", help="System service management for m
 app.add_typer(watch_app, name="watch", help="Folder watching configuration")
 app.add_typer(web_app, name="web", help="Integrated web UI server with workspace features")
 app.add_typer(observability_app, name="observability", help="Observability, monitoring, and health checks")
+app.add_typer(status_app, name="status", help="Processing status and user feedback system")
 
 @app.callback(invoke_without_command=True)
 def main(
@@ -120,6 +122,8 @@ def main(
         wqm search project "rust patterns"  # Search current project
         wqm library create technical-books  # Create library collection
         wqm watch add ~/docs --collection=_docs  # Watch folder
+        wqm status                         # Show processing status
+        wqm status --live --interval 10    # Live monitoring
         wqm init                           # Enable shell completion
     """
     # Handle version flag first, before any configuration loading
