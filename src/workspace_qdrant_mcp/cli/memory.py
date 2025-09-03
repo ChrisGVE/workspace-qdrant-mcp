@@ -210,7 +210,7 @@ async def _list_memory_rules(
 
     except Exception as e:
         console.print(f"[red]Error listing memory rules: {e}[/red]")
-        sys.exit(1)
+        raise typer.Exit(1)
 
 
 async def _add_memory_rule(
@@ -291,7 +291,7 @@ async def _add_memory_rule(
 
     except Exception as e:
         console.print(f"[red]Error adding memory rule: {e}[/red]")
-        sys.exit(1)
+        raise typer.Exit(1)
 
 
 async def _edit_memory_rule(rule_id: str):
@@ -306,7 +306,7 @@ async def _edit_memory_rule(rule_id: str):
         rule = await memory_manager.get_memory_rule(rule_id)
         if not rule:
             console.print(f"[red]Memory rule {rule_id} not found.[/red]")
-            sys.exit(1)
+            raise typer.Exit(1)
 
         console.print(f"[bold blue]Edit Memory Rule: {rule.name}[/bold blue]")
         console.print(f"Current rule: {rule.rule}\n")
@@ -360,7 +360,7 @@ async def _edit_memory_rule(rule_id: str):
 
     except Exception as e:
         console.print(f"[red]Error editing memory rule: {e}[/red]")
-        sys.exit(1)
+        raise typer.Exit(1)
 
 
 async def _remove_memory_rule(rule_id: str, force: bool):
@@ -375,7 +375,7 @@ async def _remove_memory_rule(rule_id: str, force: bool):
         rule = await memory_manager.get_memory_rule(rule_id)
         if not rule:
             console.print(f"[red]Memory rule {rule_id} not found.[/red]")
-            sys.exit(1)
+            raise typer.Exit(1)
 
         # Confirm deletion
         if not force:
@@ -399,7 +399,7 @@ async def _remove_memory_rule(rule_id: str, force: bool):
 
     except Exception as e:
         console.print(f"[red]Error removing memory rule: {e}[/red]")
-        sys.exit(1)
+        raise typer.Exit(1)
 
 
 async def _show_token_usage():
@@ -444,7 +444,7 @@ By Category:
 
     except Exception as e:
         console.print(f"[red]Error getting token usage: {e}[/red]")
-        sys.exit(1)
+        raise typer.Exit(1)
 
 
 async def _trim_memory(max_tokens: int, dry_run: bool):
@@ -488,7 +488,7 @@ async def _trim_memory(max_tokens: int, dry_run: bool):
 
     except Exception as e:
         console.print(f"[red]Error optimizing memory: {e}[/red]")
-        sys.exit(1)
+        raise typer.Exit(1)
 
 
 async def _detect_conflicts(auto_resolve: bool):
@@ -540,7 +540,7 @@ async def _detect_conflicts(auto_resolve: bool):
 
     except Exception as e:
         console.print(f"[red]Error detecting conflicts: {e}[/red]")
-        sys.exit(1)
+        raise typer.Exit(1)
 
 
 async def _parse_conversational_update(message: str):
@@ -586,7 +586,7 @@ async def _parse_conversational_update(message: str):
 
     except Exception as e:
         console.print(f"[red]Error parsing conversational update: {e}[/red]")
-        sys.exit(1)
+        raise typer.Exit(1)
 
 
 def _generate_name_from_rule(rule: str) -> str:

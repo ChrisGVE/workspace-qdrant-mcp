@@ -57,7 +57,7 @@ if len(sys.argv) >= 2 and (sys.argv[1] == "--version" or sys.argv[1] == "-v"):
         # Clean version display - just the version number
         print(version_str)
     
-    sys.exit(0)
+    raise typer.Exit(0)
 
 # Import heavy modules only after version check passes
 import typer

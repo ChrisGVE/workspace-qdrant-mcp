@@ -1068,10 +1068,10 @@ def main(
     result = asyncio.run(wizard.run_interactive_setup())
 
     if result.success:
-        sys.exit(0)
+        raise typer.Exit(0)
     else:
         print(f"\n[ERROR] Setup failed: {result.message}", )
-        sys.exit(1)
+        raise typer.Exit(1)
 
 
 if __name__ == "__main__":

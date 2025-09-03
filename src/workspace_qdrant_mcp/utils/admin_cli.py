@@ -508,7 +508,7 @@ Examples:
                 print(f"Collection {args.collection_name} deleted successfully")
             else:
                 print(f"Failed to delete collection {args.collection_name}")
-                sys.exit(1)
+                raise typer.Exit(1)
 
         elif args.command == "search":
             results = await admin.search_collections(
@@ -538,7 +538,7 @@ Examples:
                 print(f"Project {admin.current_project} reset successfully")
             else:
                 print(f"Failed to reset project {admin.current_project}")
-                sys.exit(1)
+                raise typer.Exit(1)
 
         elif args.command == "health":
             health = await admin.get_system_health()
@@ -570,14 +570,14 @@ Examples:
 
     except KeyboardInterrupt:
         print("\n\nOperation cancelled by user")
-        sys.exit(1)
+        raise typer.Exit(1)
     except Exception as e:
         print(f"Command failed: {e}")
         if args.debug:
             import traceback
 
             traceback.print_exc()
-        sys.exit(1)
+        raise typer.Exit(1)
 
 
 def admin_cli() -> None:
