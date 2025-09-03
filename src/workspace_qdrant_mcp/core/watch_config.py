@@ -110,7 +110,7 @@ class WatchConfigFile(BaseModel):
     watches: list[WatchConfigSchema] = Field(
         default_factory=list, description="List of watch configurations"
     )
-    metadata: Dict[str, Any] = Field(
+    metadata: dict[str, Any] = Field(
         default_factory=dict, description="Additional metadata"
     )
 
@@ -149,12 +149,12 @@ class WatchConfigurationPersistent:
     recursive_depth: int = -1  # -1 for unlimited, positive integer for depth limit
     update_frequency: int = 1000  # milliseconds between file system checks
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         """Convert to dictionary for JSON serialization."""
         return asdict(self)
 
     @classmethod
-    def from_dict(cls, data: Dict[str, Any]) -> "WatchConfigurationPersistent":
+    def from_dict(cls, data: dict[str, Any]) -> "WatchConfigurationPersistent":
         """Create from dictionary with validation."""
         # Validate using Pydantic schema
         validated_data = WatchConfigSchema(**data)
