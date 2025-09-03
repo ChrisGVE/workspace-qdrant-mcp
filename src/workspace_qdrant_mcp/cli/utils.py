@@ -297,3 +297,7 @@ def warning_message(message: str) -> None:
 def error_message(message: str) -> None:
     """Print an error message to stderr."""
     print(f"✗ {message}", file=sys.stderr)
+
+
+# Alias for backward compatibility with service commands
+handle_async_command = handle_async
