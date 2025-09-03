@@ -13,7 +13,7 @@ use std::sync::Arc;
 use tokio::sync::RwLock;
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
-use ort::{Environment, Session, Value};
+use ort::{environment::Environment, session::Session, value::Value};
 use tokenizers::Tokenizer;
 // use uuid::Uuid;  // Currently unused
 use ahash::AHashMap;
@@ -461,7 +461,7 @@ impl EmbeddingGenerator {
         let bm25 = Arc::new(RwLock::new(BM25::new(config.bm25_k1, config.bm25_b)));
         
         // Initialize ONNX Runtime environment
-        let onnx_env = Arc::new(Environment::new(ort::LoggingLevel::Warning, "embedding-generator")
+        let onnx_env = Arc::new(Environment::new(ort::LogLevel::Warning, "embedding-generator")
             .map_err(|e| EmbeddingError::OnnxError { 
                 message: format!("Failed to initialize ONNX environment: {}", e)
             })?);
@@ -487,7 +487,7 @@ impl EmbeddingGenerator {
         
         // Load ONNX session
         let model_path = self.model_manager.get_model_path(model_name);
-        let session = Session::builder()
+        let session = Session::builder(&self.onnx_env)
             .map_err(|e| EmbeddingError::OnnxError {
                 message: format!("Failed to create session builder: {}", e)
             })?
@@ -619,14 +619,18 @@ impl EmbeddingGenerator {
             })?;
         
         // Run inference
-        let outputs = session.run(vec![input_ids_tensor, attention_mask_tensor])
+        let inputs = vec![
+            ("input_ids", input_ids_tensor),
+            ("attention_mask", attention_mask_tensor),
+        ];
+        let outputs = session.run(inputs)
             .map_err(|e| EmbeddingError::OnnxError {
                 message: format!("ONNX inference failed: {}", e)
             })?;
         
         // Extract embedding from output
-        let embedding_tensor = &outputs[0];
-        let embedding_data = embedding_tensor.extract_tensor::<f32>()
+        let embedding_tensor = &outputs["last_hidden_state"];
+        let embedding_data = embedding_tensor.try_extract_tensor::<f32>()
             .map_err(|e| EmbeddingError::OnnxError {
                 message: format!("Failed to extract embedding tensor: {}", e)
             })?;
