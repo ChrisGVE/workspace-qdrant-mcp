@@ -148,17 +148,17 @@ async def _ingest_file(
 
             # Display file analysis in plain text
             print("File Analysis:")
-            print(f"Path: {file_info}")
-            print(f"Size: {file_info} MB")
-            print(f"Extension: {file_info}")
-            print(f"Supported: {'Yes' if file_info else 'No'}")
+            print(f"Path: {file_info['path']}")
+            print(f"Size: {file_info['size_mb']} MB")
+            print(f"Extension: {file_info['extension']}")
+            print(f"Supported: {'Yes' if file_info['supported'] else 'No'}")
 
-            if file_info:
+            if file_info['supported']:
                 print("File can be processed with current settings")
-                estimated_chunks = max(1, int(file_info * 1024 * 1024 / chunk_size))
+                estimated_chunks = max(1, int(file_info['size_mb'] * 1024 * 1024 / chunk_size))
                 print(f"Estimated chunks: ~{estimated_chunks}")
             else:
-                print(f"Error: Unsupported file format: {file_info}")
+                print(f"Error: Unsupported file format: {file_info['extension']}")
 
             return
 
@@ -227,13 +227,13 @@ async def _ingest_folder(
 
         # Default formats if not specified
         if not formats:
-            formats = 
+            formats = ['pdf', 'txt', 'md', 'docx']
         else:
             # Clean format specifications
-            formats = 
+            formats = [fmt.strip().lower().lstrip('.') for fmt in formats]
 
         # Find files to process
-        files = 
+        files = []
         for fmt in formats:
             pattern = f"**/*.{fmt}" if recursive else f"*.{fmt}"
             files.extend(folder_path.glob(pattern))
@@ -241,7 +241,7 @@ async def _ingest_folder(
         # Apply exclusion patterns
         if exclude:
             import fnmatch
-            filtered_files = 
+            filtered_files = []
             for file_path in files:
                 exclude_file = False
                 for pattern in exclude:
@@ -260,6 +260,7 @@ async def _ingest_folder(
 
         if dry_run:
             # Show analysis summary
+            from rich.table import Table
             summary_table = Table(title="Folder Analysis Summary")
             summary_table.add_column("Format", style="cyan")
             summary_table.add_column("Count", justify="right")
@@ -273,16 +274,16 @@ async def _ingest_folder(
                 size_mb = file_path.stat().st_size / (1024*1024)
 
                 if ext not in format_stats:
-                    format_stats = {"count": 0, "size_mb": 0}
-                format_stats += 1
-                format_stats += size_mb
+                    format_stats[ext] = {"count": 0, "size_mb": 0}
+                format_stats[ext]["count"] += 1
+                format_stats[ext]["size_mb"] += size_mb
                 total_size += size_mb
 
             for ext, stats in format_stats.items():
                 summary_table.add_row(
                     f".{ext}",
-                    str(stats),
-                    f"{stats:.2f}"
+                    str(stats["count"]),
+                    f"{stats["size_mb"]:.2f}"
                 )
 
             summary_table.add_row(
@@ -291,10 +292,14 @@ async def _ingest_folder(
                 f"{total_size:.2f}"
             )
 
-            print(summary_table)
+            from rich.console import Console
+            console = Console()
+            console.print(summary_table)
             print(f" {len(files)} files ready for processing")
             return
 
+        from ...core.config import Config
+        from ...core.client import create_qdrant_client
         config = Config()
         client = create_qdrant_client(config.qdrant_client_config)
 
@@ -318,15 +323,15 @@ async def _ingest_folder(
         ) as progress:
             main_task = progress.add_task("Overall progress", total=len(files))
 
-            results = 
+            results = []
             processed = 0
 
             # Process files in batches based on concurrency
             for i in range(0, len(files), concurrency):
-                batch = files
+                batch = files[i:i+concurrency]
 
                 # Process batch concurrently
-                batch_tasks = 
+                batch_tasks = []
                 for file_path in batch:
                     task = engine.ingest_file(file_path)
                     batch_tasks.append(task)
@@ -344,7 +349,7 @@ async def _ingest_folder(
                     progress.update(main_task, completed=processed)
 
         # Display summary
-        successful_results = 
+        successful_results = [r for r in results if r is not None]
 
         print("\n Folder ingestion completed!")
         print(f"  Successfully processed: {len(successful_results)}/{len(files)} files")
@@ -396,11 +401,15 @@ async def _generate_yaml_metadata(
         print(f"  Output: {output_path}")
 
         # Create workflow
+        from ...core.config import Config
+        from ...core.client import create_qdrant_client
         config = Config()
         client = create_qdrant_client(config.qdrant_client_config)
         workflow = YamlMetadataWorkflow(client)
 
         # Generate YAML file
+        from rich.console import Console
+        console = Console()
         with Progress(
             SpinnerColumn(),
             TextColumn("{task.description}"),
@@ -418,6 +427,7 @@ async def _generate_yaml_metadata(
             progress.update(task, completed=100)
 
         if result_path:
+            from rich.panel import Panel
             result_panel = Panel(
                 f""" YAML metadata file generated successfully!
 
@@ -434,7 +444,7 @@ async def _generate_yaml_metadata(
                 title="🎉 YAML Generation Complete",
                 border_style="green"
             )
-            print(result_panel)
+            console.print(result_panel)
         else:
             print(" No documents found to process")
 
@@ -454,11 +464,15 @@ async def _ingest_yaml_metadata(path: str, dry_run: bool, force: bool):
         print(f" Processing YAML Metadata: {yaml_path.name}")
 
         # Create workflow
+        from ...core.config import Config
+        from ...core.client import create_qdrant_client
         config = Config()
         client = create_qdrant_client(config.qdrant_client_config)
         workflow = YamlMetadataWorkflow(client)
 
         # Process YAML file
+        from rich.console import Console
+        console = Console()
         with Progress(
             SpinnerColumn(),
             TextColumn("{task.description}"),
@@ -474,12 +488,13 @@ async def _ingest_yaml_metadata(path: str, dry_run: bool, force: bool):
             progress.update(task, completed=100)
 
         # Display results
-        processed = results
-        skipped = results
-        errors = results
-        remaining = results
+        processed = results.get('processed', 0)
+        skipped = results.get('skipped', 0)
+        errors = results.get('errors', [])
+        remaining = results.get('remaining', 0)
 
         if dry_run:
+            from rich.panel import Panel
             result_panel = Panel(
                 f""" YAML Metadata Analysis (Dry Run)
 
@@ -514,7 +529,7 @@ async def _ingest_yaml_metadata(path: str, dry_run: bool, force: bool):
                 border_style="green"
             )
 
-        print(result_panel)
+        console.print(result_panel)
 
         # Show guidance for next steps
         if remaining > 0 and not dry_run:
@@ -560,15 +575,18 @@ async def _ingestion_status(collection: str | None, recent: bool):
     try:
         print(" Ingestion Status")
 
+        from ...core.config import Config
+        from ...core.client import create_qdrant_client
         config = Config()
         client = create_qdrant_client(config.qdrant_client_config)
 
         # Get all collections or filter by specific collection
         if collection:
-            collections = 
+            collections = [{'name': collection}]  # Simple format for single collection
         else:
             collections = await client.list_collections()
 
+        from rich.table import Table
         status_table = Table(title="Collection Status")
         status_table.add_column("Collection", style="cyan")
         status_table.add_column("Points", justify="right")
@@ -596,7 +614,9 @@ async def _ingestion_status(collection: str | None, recent: bool):
             except Exception:
                 status_table.add_row(name, "?", "Unknown", "Error")
 
-        print(status_table)
+        from rich.console import Console
+        console = Console()
+        console.print(status_table)
 
         # Show recent activity if requested
         if recent:
@@ -608,6 +628,8 @@ async def _ingestion_status(collection: str | None, recent: bool):
 
 def _display_ingestion_result(result: IngestionResult, filename: str):
     """Display ingestion result summary."""
+    from rich.panel import Panel
+    from rich.console import Console
 
     if result.success:
         result_panel = Panel(
@@ -634,4 +656,5 @@ def _display_ingestion_result(result: IngestionResult, filename: str):
             border_style="red"
         )
 
-    print(result_panel)
+    console = Console()
+    console.print(result_panel)
