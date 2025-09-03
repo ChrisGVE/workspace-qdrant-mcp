@@ -4,7 +4,7 @@ import grpc
 import warnings
 
 from google.protobuf import empty_pb2 as google_dot_protobuf_dot_empty__pb2
-from . import ingestion_pb2 as ingestion__pb2
+import ingestion_pb2 as ingestion__pb2
 
 GRPC_GENERATED_VERSION = '1.74.0'
 GRPC_VERSION = grpc.__version__
@@ -160,6 +160,21 @@ class IngestServiceStub(object):
                 '/workspace_qdrant.v1.IngestService/HealthCheck',
                 request_serializer=google_dot_protobuf_dot_empty__pb2.Empty.SerializeToString,
                 response_deserializer=ingestion__pb2.HealthResponse.FromString,
+                _registered_method=True)
+        self.StreamProcessingStatus = channel.unary_stream(
+                '/workspace_qdrant.v1.IngestService/StreamProcessingStatus',
+                request_serializer=ingestion__pb2.StreamStatusRequest.SerializeToString,
+                response_deserializer=ingestion__pb2.ProcessingStatusUpdate.FromString,
+                _registered_method=True)
+        self.StreamSystemMetrics = channel.unary_stream(
+                '/workspace_qdrant.v1.IngestService/StreamSystemMetrics',
+                request_serializer=ingestion__pb2.StreamMetricsRequest.SerializeToString,
+                response_deserializer=ingestion__pb2.SystemMetricsUpdate.FromString,
+                _registered_method=True)
+        self.StreamQueueStatus = channel.unary_stream(
+                '/workspace_qdrant.v1.IngestService/StreamQueueStatus',
+                request_serializer=ingestion__pb2.StreamQueueRequest.SerializeToString,
+                response_deserializer=ingestion__pb2.QueueStatusUpdate.FromString,
                 _registered_method=True)
 
 
@@ -324,6 +339,25 @@ class IngestServiceServicer(object):
         context.set_details('Method not implemented!')
         raise NotImplementedError('Method not implemented!')
 
+    def StreamProcessingStatus(self, request, context):
+        """Real-time status streaming
+        """
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
+
+    def StreamSystemMetrics(self, request, context):
+        """Missing associated documentation comment in .proto file."""
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
+
+    def StreamQueueStatus(self, request, context):
+        """Missing associated documentation comment in .proto file."""
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
+
 
 def add_IngestServiceServicer_to_server(servicer, server):
     rpc_method_handlers = {
@@ -451,6 +485,21 @@ def add_IngestServiceServicer_to_server(servicer, server):
                     servicer.HealthCheck,
                     request_deserializer=google_dot_protobuf_dot_empty__pb2.Empty.FromString,
                     response_serializer=ingestion__pb2.HealthResponse.SerializeToString,
+            ),
+            'StreamProcessingStatus': grpc.unary_stream_rpc_method_handler(
+                    servicer.StreamProcessingStatus,
+                    request_deserializer=ingestion__pb2.StreamStatusRequest.FromString,
+                    response_serializer=ingestion__pb2.ProcessingStatusUpdate.SerializeToString,
+            ),
+            'StreamSystemMetrics': grpc.unary_stream_rpc_method_handler(
+                    servicer.StreamSystemMetrics,
+                    request_deserializer=ingestion__pb2.StreamMetricsRequest.FromString,
+                    response_serializer=ingestion__pb2.SystemMetricsUpdate.SerializeToString,
+            ),
+            'StreamQueueStatus': grpc.unary_stream_rpc_method_handler(
+                    servicer.StreamQueueStatus,
+                    request_deserializer=ingestion__pb2.StreamQueueRequest.FromString,
+                    response_serializer=ingestion__pb2.QueueStatusUpdate.SerializeToString,
             ),
     }
     generic_handler = grpc.method_handlers_generic_handler(
@@ -1129,6 +1178,87 @@ class IngestService(object):
             '/workspace_qdrant.v1.IngestService/HealthCheck',
             google_dot_protobuf_dot_empty__pb2.Empty.SerializeToString,
             ingestion__pb2.HealthResponse.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True)
+
+    @staticmethod
+    def StreamProcessingStatus(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_stream(
+            request,
+            target,
+            '/workspace_qdrant.v1.IngestService/StreamProcessingStatus',
+            ingestion__pb2.StreamStatusRequest.SerializeToString,
+            ingestion__pb2.ProcessingStatusUpdate.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True)
+
+    @staticmethod
+    def StreamSystemMetrics(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_stream(
+            request,
+            target,
+            '/workspace_qdrant.v1.IngestService/StreamSystemMetrics',
+            ingestion__pb2.StreamMetricsRequest.SerializeToString,
+            ingestion__pb2.SystemMetricsUpdate.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True)
+
+    @staticmethod
+    def StreamQueueStatus(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_stream(
+            request,
+            target,
+            '/workspace_qdrant.v1.IngestService/StreamQueueStatus',
+            ingestion__pb2.StreamQueueRequest.SerializeToString,
+            ingestion__pb2.QueueStatusUpdate.FromString,
             options,
             channel_credentials,
             insecure,

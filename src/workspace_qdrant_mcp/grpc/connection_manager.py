@@ -310,6 +310,80 @@ class GrpcConnectionManager:
                 logger.error("Non-gRPC error in operation", error=str(e))
                 raise
     
+    async def with_stream(self, stream_func):
+        """Execute a streaming gRPC operation with proper connection management.
+        
+        Args:
+            stream_func: Async generator function that takes a stub and yields stream items
+            
+        Yields:
+            Stream items from the gRPC streaming operation
+        """
+        last_exception = None
+        
+        for attempt in range(self.config.max_retries + 1):
+            try:
+                stub = await self.get_or_create_stub()
+                async for item in stream_func(stub):
+                    self.state.last_used = datetime.now()
+                    yield item
+                return  # Stream completed successfully
+                
+            except grpc.RpcError as e:
+                last_exception = e
+                logger.warning(
+                    "Streaming gRPC operation failed",
+                    attempt=attempt + 1,
+                    max_retries=self.config.max_retries + 1,
+                    status_code=e.code(),
+                    details=e.details(),
+                    error=str(e)
+                )
+                
+                # For streaming operations, don't retry certain errors
+                if e.code() in (
+                    grpc.StatusCode.INVALID_ARGUMENT,
+                    grpc.StatusCode.NOT_FOUND,
+                    grpc.StatusCode.ALREADY_EXISTS,
+                    grpc.StatusCode.PERMISSION_DENIED,
+                    grpc.StatusCode.FAILED_PRECONDITION,
+                    grpc.StatusCode.OUT_OF_RANGE,
+                    grpc.StatusCode.UNIMPLEMENTED,
+                ):
+                    logger.error("Non-retryable gRPC error in streaming operation", error=str(e))
+                    raise
+                
+                # Reset connection on failure
+                await self.state.reset()
+                
+                if attempt < self.config.max_retries:
+                    retry_delay = self.config.initial_retry_delay * (
+                        self.config.retry_backoff_multiplier ** attempt
+                    )
+                    retry_delay = min(retry_delay, self.config.max_retry_delay)
+                    
+                    logger.info(
+                        "Retrying streaming operation after delay",
+                        retry_delay_seconds=retry_delay,
+                        attempt=attempt + 1,
+                        error=str(e)
+                    )
+                    await asyncio.sleep(retry_delay)
+                else:
+                    logger.error(
+                        "Max retries exceeded for streaming operation",
+                        max_retries=self.config.max_retries,
+                        error=str(e)
+                    )
+                    raise
+            
+            except Exception as e:
+                logger.error("Non-gRPC error in streaming operation", error=str(e))
+                raise
+        
+        if last_exception:
+            raise last_exception
+    
     def get_connection_info(self) -> Dict[str, Any]:
         """Get information about the current connection."""
         return {
