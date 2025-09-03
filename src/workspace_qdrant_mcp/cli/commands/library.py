@@ -21,9 +21,18 @@ from ...core.config import Config
 
 # Create the library app
 library_app = typer.Typer(
-    help=" Library collection management",
-    no_args_is_help=True
-,
+    help="""Library collection management
+    
+    Manage readonly library collections for reference materials.
+    
+    Examples:
+        wqm library list                    # Show all library collections
+        wqm library create technical-docs   # Create new library collection
+        wqm library status                  # Show library statistics
+        wqm library info tech-docs          # Show collection details
+        wqm library remove old-docs         # Remove library collection
+    """,
+    no_args_is_help=True,
     rich_markup_mode=None  # Disable Rich formatting completely
 )
 
