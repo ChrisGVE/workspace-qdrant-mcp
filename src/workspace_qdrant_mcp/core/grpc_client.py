@@ -12,11 +12,13 @@ import asyncio
 import logging
 from typing import Dict, List, Optional, Any, Union
 from datetime import datetime
+from pathlib import Path
 
 from ..grpc.client import AsyncIngestClient
 from ..grpc.connection_manager import ConnectionConfig
 from .client import QdrantWorkspaceClient
 from .config import Config
+from .daemon_manager import ensure_daemon_running, get_daemon_for_project
 
 logger = logging.getLogger(__name__)
 
@@ -34,8 +36,11 @@ class GrpcWorkspaceClient:
         config: Config,
         grpc_enabled: bool = True,
         grpc_host: str = "127.0.0.1",
-        grpc_port: int = 50051,
-        fallback_to_direct: bool = True
+        grpc_port: Optional[int] = None,
+        fallback_to_direct: bool = True,
+        auto_start_daemon: bool = True,
+        project_name: Optional[str] = None,
+        project_path: Optional[str] = None
     ):
         """Initialize the gRPC-enabled workspace client.
         
@@ -43,70 +48,55 @@ class GrpcWorkspaceClient:
             config: Workspace configuration
             grpc_enabled: Whether to attempt gRPC connections
             grpc_host: gRPC server host
-            grpc_port: gRPC server port
+            grpc_port: gRPC server port (auto-assigned if None)
             fallback_to_direct: Fall back to direct mode if gRPC fails
+            auto_start_daemon: Automatically start daemon if needed
+            project_name: Project name for daemon management
+            project_path: Project path for daemon management
         """
         self.config = config
         self.grpc_enabled = grpc_enabled
         self.fallback_to_direct = fallback_to_direct
+        self.auto_start_daemon = auto_start_daemon
+        
+        # Project identification for daemon management
+        self.project_name = project_name or self._detect_project_name()
+        self.project_path = project_path or str(Path.cwd())
         
         # Initialize direct client (always available as fallback)
         self.direct_client = QdrantWorkspaceClient(config)
         
-        # Initialize gRPC client if enabled
+        # gRPC client and daemon info - will be initialized during startup
         self.grpc_client: Optional[AsyncIngestClient] = None
         self.grpc_available = False
-        
-        if grpc_enabled:
-            try:
-                connection_config = ConnectionConfig(
-                    host=grpc_host,
-                    port=grpc_port,
-                    connection_timeout=5.0,  # Quick timeout for availability check
-                )
-                self.grpc_client = AsyncIngestClient(
-                    connection_config=connection_config
-                )
-                logger.info("gRPC client initialized", host=grpc_host, port=grpc_port)
-            except Exception as e:
-                logger.warning("Failed to initialize gRPC client", error=str(e))
-                if not fallback_to_direct:
-                    raise
+        self.grpc_host = grpc_host
+        self.grpc_port = grpc_port  # Will be determined by daemon manager if None
+        self.daemon_instance = None
         
         self._mode = "unknown"  # Will be determined during initialization
     
     async def initialize(self):
         """Initialize the workspace client and determine operation mode."""
-        logger.info("Initializing GrpcWorkspaceClient")
+        logger.info("Initializing GrpcWorkspaceClient with daemon management",
+                   project=self.project_name,
+                   auto_start=self.auto_start_daemon)
         
         # Always initialize the direct client
         await self.direct_client.initialize()
         logger.info("Direct Qdrant client initialized successfully")
         
-        # Test gRPC availability if enabled
-        if self.grpc_enabled and self.grpc_client:
-            try:
-                await self.grpc_client.start()
-                
-                # Test connection
-                is_available = await self.grpc_client.test_connection()
-                if is_available:
-                    self.grpc_available = True
-                    self._mode = "grpc"
-                    logger.info("gRPC mode enabled - Rust engine available")
-                else:
-                    raise ConnectionError("gRPC health check failed")
-                    
-            except Exception as e:
-                logger.warning("gRPC server not available", error=str(e))
-                self.grpc_available = False
-                
-                if not self.fallback_to_direct:
-                    raise RuntimeError(f"gRPC mode required but server unavailable: {e}")
+        # Handle gRPC initialization with daemon management
+        if self.grpc_enabled:
+            success = await self._initialize_grpc_with_daemon()
+            if not success and not self.fallback_to_direct:
+                raise RuntimeError("gRPC mode required but daemon unavailable")
         
         # Set operation mode
         if self.grpc_available:
             self._mode = "grpc"
+            logger.info("Operating in gRPC mode with Rust daemon", 
+                       port=self.grpc_port,
+                       project=self.project_name)
         elif self.fallback_to_direct:
             self._mode = "direct"
             logger.info("Operating in direct mode (Qdrant only)")
@@ -117,7 +107,7 @@ class GrpcWorkspaceClient:
     
     async def close(self):
         """Close the client and clean up resources."""
-        logger.info("Closing GrpcWorkspaceClient")
+        logger.info("Closing GrpcWorkspaceClient", project=self.project_name)
         
         if self.grpc_client:
             try:
@@ -130,6 +120,9 @@ class GrpcWorkspaceClient:
                 await self.direct_client.close()
             except Exception as e:
                 logger.warning("Error closing direct client", error=str(e))
+        
+        # Note: We don't stop the daemon here as it may be shared with other clients
+        # The daemon manager handles cleanup on process exit
         
         logger.info("GrpcWorkspaceClient closed")
     
@@ -367,6 +360,101 @@ class GrpcWorkspaceClient:
         # Note: Direct mode file watching would require implementing
         # Python-based file watching, which is not currently available
         logger.warning("File watching fallback not implemented in direct mode")
+    
+    async def _initialize_grpc_with_daemon(self) -> bool:
+        """Initialize gRPC connection, starting daemon if needed."""
+        try:
+            # Check if daemon is already running
+            existing_daemon = await get_daemon_for_project(self.project_name, self.project_path)
+            
+            if existing_daemon and existing_daemon.status.state == "running":
+                logger.info("Found existing daemon", 
+                           project=self.project_name,
+                           port=existing_daemon.config.grpc_port)
+                self.daemon_instance = existing_daemon
+                self.grpc_port = existing_daemon.config.grpc_port
+            elif self.auto_start_daemon:
+                logger.info("Starting new daemon for project", project=self.project_name)
+                
+                # Prepare daemon configuration overrides
+                daemon_config = {}
+                if self.grpc_port is not None:
+                    daemon_config["grpc_port"] = self.grpc_port
+                if hasattr(self.config, "qdrant_url"):
+                    daemon_config["qdrant_url"] = self.config.qdrant_url
+                
+                # Start daemon
+                self.daemon_instance = await ensure_daemon_running(
+                    self.project_name,
+                    self.project_path,
+                    daemon_config
+                )
+                self.grpc_port = self.daemon_instance.config.grpc_port
+                logger.info("Daemon started successfully", 
+                           project=self.project_name,
+                           port=self.grpc_port)
+            else:
+                logger.warning("No daemon available and auto-start disabled")
+                return False
+            
+            # Now initialize gRPC client with daemon connection
+            if self.daemon_instance:
+                connection_config = ConnectionConfig(
+                    host=self.grpc_host,
+                    port=self.grpc_port,
+                    connection_timeout=5.0,
+                )
+                
+                self.grpc_client = AsyncIngestClient(connection_config=connection_config)
+                await self.grpc_client.start()
+                
+                # Test connection
+                is_available = await self.grpc_client.test_connection()
+                if is_available:
+                    self.grpc_available = True
+                    logger.info("gRPC connection established with daemon",
+                               host=self.grpc_host,
+                               port=self.grpc_port)
+                    return True
+                else:
+                    logger.warning("gRPC health check failed despite daemon running")
+                    return False
+            
+            return False
+            
+        except Exception as e:
+            logger.error("Failed to initialize gRPC with daemon", 
+                        project=self.project_name,
+                        error=str(e))
+            return False
+    
+    def _detect_project_name(self) -> str:
+        """Detect project name from current working directory."""
+        try:
+            return Path.cwd().name
+        except Exception:
+            return "default"
+    
+    async def ensure_daemon_available(self) -> bool:
+        """Ensure daemon is available, starting if necessary."""
+        if self.grpc_available and self.daemon_instance:
+            # Check daemon health
+            if await self.daemon_instance.health_check():
+                return True
+            else:
+                logger.warning("Daemon health check failed", project=self.project_name)
+        
+        if self.auto_start_daemon:
+            logger.info("Attempting to restart daemon", project=self.project_name)
+            return await self._initialize_grpc_with_daemon()
+        
+        return False
+    
+    async def get_daemon_status(self) -> Optional[Dict[str, Any]]:
+        """Get status of the associated daemon."""
+        if self.daemon_instance:
+            return self.daemon_instance.get_status()
+        return None
     
     # Delegate other methods to direct client
     def get_embedding_service(self):
