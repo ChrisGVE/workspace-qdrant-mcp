@@ -22,17 +22,18 @@ if len(sys.argv) >= 2 and (sys.argv[1] == "--version" or sys.argv[1] == "-v"):
     if not verbose_flag:
         os.environ["PYTHONWARNINGS"] = "ignore"
         import warnings
-        warnings.filterwarnings('ignore')
+
+        warnings.filterwarnings("ignore")
 
 import asyncio
 import warnings
 from pathlib import Path
-from typing import Optional
+from typing import Any, Coroutine, Optional
 
 # Handle version flag early to avoid heavy imports
 if len(sys.argv) >= 2 and (sys.argv[1] == "--version" or sys.argv[1] == "-v"):
     verbose_flag = "--verbose" in sys.argv or "--debug" in sys.argv
-    
+
     # Get version from __init__.py without importing heavy modules
     version_str = "0.2.0"  # Default fallback
     try:
@@ -41,6 +42,7 @@ if len(sys.argv) >= 2 and (sys.argv[1] == "--version" or sys.argv[1] == "-v"):
         if init_file.exists():
             init_content = init_file.read_text()
             import re
+
             match = re.search(r'__version__\s*=\s*["\']([^"\'\']*)["\']', init_content)
             if match:
                 version_str = match.group(1)
@@ -57,7 +59,8 @@ if len(sys.argv) >= 2 and (sys.argv[1] == "--version" or sys.argv[1] == "-v"):
         # Clean version display - just the version number
         print(version_str)
     
-    raise typer.Exit(0)
+    # Exit without importing typer for lightweight version check
+    sys.exit(0)
 
 # Import heavy modules only after version check passes
 import typer
@@ -89,24 +92,45 @@ logger = get_logger(__name__)
 
 # Add subcommand groups
 app.add_typer(init_app, name="init", help="Initialize shell completion for wqm")
-app.add_typer(memory_app, name="memory", help="Memory rules and LLM behavior management")
+app.add_typer(
+    memory_app, name="memory", help="Memory rules and LLM behavior management"
+)
 app.add_typer(admin_app, name="admin", help="System administration and configuration")
 app.add_typer(ingest_app, name="ingest", help="Manual document processing")
 app.add_typer(search_app, name="search", help="Command-line search interface")
 app.add_typer(library_app, name="library", help="Library collection management")
-app.add_typer(service_app, name="service", help="System service management for memexd daemon")
+app.add_typer(
+    service_app, name="service", help="System service management for memexd daemon"
+)
 app.add_typer(watch_app, name="watch", help="Folder watching configuration")
-app.add_typer(web_app, name="web", help="Integrated web UI server with workspace features")
-app.add_typer(observability_app, name="observability", help="Observability, monitoring, and health checks")
-app.add_typer(status_app, name="status", help="Processing status and user feedback system")
+app.add_typer(
+    web_app, name="web", help="Integrated web UI server with workspace features"
+)
+app.add_typer(
+    observability_app,
+    name="observability",
+    help="Observability, monitoring, and health checks",
+)
+app.add_typer(
+    status_app, name="status", help="Processing status and user feedback system"
+)
+
 
 @app.callback(invoke_without_command=True)
 def main(
     ctx: typer.Context,
-    version: bool = typer.Option(False, "--version", "-v", help="Show version information"),
-    verbose: bool = typer.Option(False, "--verbose", help="Show verbose version information"),
-    config_path: str | None = typer.Option(None, "--config", "-c", help="Custom configuration file"),
-    debug: bool = typer.Option(False, "--debug", help="Enable debug mode with verbose logging"),
+    version: bool = typer.Option(
+        False, "--version", "-v", help="Show version information"
+    ),
+    verbose: bool = typer.Option(
+        False, "--verbose", help="Show verbose version information"
+    ),
+    config_path: str | None = typer.Option(
+        None, "--config", "-c", help="Custom configuration file"
+    ),
+    debug: bool = typer.Option(
+        False, "--debug", help="Enable debug mode with verbose logging"
+    ),
 ) -> None:
     """
     Workspace Qdrant MCP - Unified semantic workspace management
@@ -130,17 +154,19 @@ def main(
         # Suppress warnings for clean version output
         if not verbose and not debug:
             import warnings
-            warnings.filterwarnings('ignore')
+
+            warnings.filterwarnings("ignore")
         show_version(verbose=verbose or debug)
         raise typer.Exit()
-    
+
     # If no command is invoked and no version flag, show help
     if not ctx.invoked_subcommand:
         print(ctx.get_help())
         raise typer.Exit()
-    
+
     # Configure logging and environment based on debug flag
     import os
+
     if debug:
         # Enable verbose logging and initialization messages in debug mode
         os.environ["WQM_LOG_INIT"] = "true"
@@ -157,15 +183,17 @@ def main(
             logger.debug("Custom config path provided", config_path=config_path)
         pass
 
+
 def show_version(verbose: bool = False) -> None:
     """Display version information.
-    
+
     Args:
         verbose: If True, show detailed version information.
                 If False, show only the version number.
     """
     try:
         from workspace_qdrant_mcp import __version__
+
         version_str = __version__
     except ImportError:
         version_str = "0.2.0"  # Fallback version
@@ -181,7 +209,7 @@ def show_version(verbose: bool = False) -> None:
         print(version_str)
 
 
-def handle_async_command(coro, debug: bool = False):
+def handle_async_command(coro: Coroutine[Any, Any, Any], debug: bool = False) -> Any:
     """Helper to run async commands in CLI context."""
     try:
         return asyncio.run(coro)
@@ -198,6 +226,7 @@ def handle_async_command(coro, debug: bool = False):
         else:
             print(f"Error: {e}")
         raise typer.Exit(1)
+
 
 # Make cli available for backward compatibility
 cli = app
