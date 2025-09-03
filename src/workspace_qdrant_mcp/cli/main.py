@@ -72,6 +72,7 @@ from .commands.library import library_app
 # Import command modules
 from .commands.memory import memory_app
 from .commands.search import search_app
+from .commands.service import service_app
 from .commands.watch import watch_app
 from .observability import observability_app
 
@@ -92,6 +93,7 @@ app.add_typer(admin_app, name="admin", help="System administration and configura
 app.add_typer(ingest_app, name="ingest", help="Manual document processing")
 app.add_typer(search_app, name="search", help="Command-line search interface")
 app.add_typer(library_app, name="library", help="Library collection management")
+app.add_typer(service_app, name="service", help="System service management for memexd daemon")
 app.add_typer(watch_app, name="watch", help="Folder watching configuration")
 app.add_typer(observability_app, name="observability", help="Observability, monitoring, and health checks")
 
