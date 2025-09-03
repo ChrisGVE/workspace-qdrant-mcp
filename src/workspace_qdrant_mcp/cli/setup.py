@@ -45,11 +45,6 @@ from typing import Optional
 from urllib.parse import urlparse
 
 import typer
-from rich.console import Console
-from rich.panel import Panel
-from rich.prompt import Confirm, IntPrompt, Prompt
-from rich.table import Table
-from rich.text import Text
 
 from ..core.client import QdrantWorkspaceClient
 from ..core.config import Config, EmbeddingConfig, QdrantConfig, WorkspaceConfig
@@ -61,8 +56,44 @@ from ..utils.project_detection import ProjectDetector
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-# Rich console for beautiful output
-console = Console()
+# Console output helper functions
+def get_confirmation(prompt: str, default: bool = False) -> bool:
+    """Get user confirmation with y/n prompt."""
+    suffix = " [Y/n]: " if default else " [y/N]: "
+    while True:
+        response = input(prompt + suffix).strip().lower()
+        if not response:
+            return default
+        if response in ['y', 'yes']:
+            return True
+        elif response in ['n', 'no']:
+            return False
+        print("Please enter 'y' or 'n'")
+
+def get_int_input(prompt: str, default: int = None) -> int:
+    """Get integer input from user."""
+    while True:
+        try:
+            if default is not None:
+                response = input(f"{prompt} [{default}]: ").strip()
+                if not response:
+                    return default
+            else:
+                response = input(f"{prompt}: ").strip()
+            return int(response)
+        except ValueError:
+            print("Please enter a valid number")
+
+def get_input(prompt: str, default: str = None, password: bool = False) -> str:
+    """Get string input from user."""
+    import getpass
+    if password:
+        return getpass.getpass(f"{prompt}: ")
+    elif default:
+        response = input(f"{prompt} [{default}]: ").strip()
+        return response if response else default
+    else:
+        return input(f"{prompt}: ").strip()
 
 # Typer app instance
 app = typer.Typer(
@@ -99,7 +130,6 @@ class SetupWizard:
         7. Final verification and next steps
 
     Attributes:
-        console: Rich console for output formatting
         advanced_mode: Whether to show advanced configuration options
         non_interactive: Whether to use defaults without prompts
         config: Current configuration being built
@@ -107,7 +137,6 @@ class SetupWizard:
     """
 
     def __init__(self, advanced_mode: bool = False, non_interactive: bool = False):
-        self.console = console
         self.advanced_mode = advanced_mode
         self.non_interactive = non_interactive
         self.config = None
@@ -124,17 +153,17 @@ class SetupWizard:
             self._show_welcome()
 
             if not self.non_interactive:
-                if not Confirm.ask("\n🚀 Ready to set up workspace-qdrant-mcp?"):
+                if not get_confirmation("\nReady to set up workspace-qdrant-mcp?"):
                     return SetupResult(False, "Setup cancelled by user")
 
             # System requirements check
-            console.print("\n📋 Checking system requirements...", style="blue")
+            print("\nChecking system requirements...")
             req_result = await self._check_requirements()
             if not req_result:
                 return SetupResult(False, "System requirements check failed")
 
             # Build configuration step by step
-            console.print("\nBuilding configuration...", style="blue")
+            print("\nBuilding configuration...")
 
             # 1. Qdrant configuration
             qdrant_config = await self._configure_qdrant()
@@ -159,35 +188,33 @@ class SetupWizard:
             )
 
             # 4. Test complete configuration
-            console.print("\nTesting complete configuration...", style="blue")
+            print("\nTesting complete configuration...")
             test_result = await self._test_configuration()
             if not test_result:
                 return SetupResult(False, "Configuration testing failed")
 
             # 5. Save configuration
-            console.print("\n💾 Saving configuration...", style="blue")
+            print("\nSaving configuration...")
             config_path = await self._save_configuration()
             if not config_path:
                 return SetupResult(False, "Failed to save configuration")
 
             # 6. Claude Desktop integration
-            console.print("\n🔧 Setting up Claude Desktop integration...", style="blue")
+            print("\nSetting up Claude Desktop integration...")
             claude_result = await self._setup_claude_integration()
 
             # 7. Create sample documents
             if not self.non_interactive:
-                if Confirm.ask(
-                    "\n📚 Would you like to create sample documents for testing?"
+                if get_confirmation(
+                    "\nLibrary Would you like to create sample documents for testing?"
                 ):
-                    console.print("\nCreating sample documents...", style="blue")
+                    print("\nCreating sample documents...")
                     sample_result = await self._create_sample_documents()
                     if sample_result:
-                        console.print(
-                            "Sample documents created successfully", style="green"
-                        )
+                        print("Sample documents created successfully")
 
             # 8. Final verification
-            console.print("\nRunning final system verification...", style="blue")
+            print("\nRunning final system verification...")
             await self._verify_installation()
 
             # Success message
@@ -196,33 +223,25 @@ class SetupWizard:
             return SetupResult(True, "Setup completed successfully", config_path)
 
         except KeyboardInterrupt:
-            console.print("\nError: Setup cancelled by user", style="red")
+            print("\nError: Setup cancelled by user")
             return SetupResult(False, "Setup cancelled by user")
         except Exception as e:
-            console.print(f"\nError: Setup failed: {e}", style="red")
+            print(f"\nError: Setup failed: {e}")
             logger.error(f"Setup failed: {e}", exc_info=True)
             return SetupResult(False, f"Setup failed: {e}")
 
     def _show_welcome(self) -> None:
         """Display welcome message and introduction."""
-        welcome_text = Text()
-        welcome_text.append("Welcome to the ", style="white")
-        welcome_text.append("workspace-qdrant-mcp", style="bold cyan")
-        welcome_text.append(" setup wizard!\n\n", style="white")
-        welcome_text.append("This wizard will guide you through:", style="white")
-        welcome_text.append(
-            "\n• Qdrant server configuration and testing", style="green"
-        )
-        welcome_text.append("\n• Embedding model selection", style="green")
-        welcome_text.append("\n• Workspace and collection setup", style="green")
-        welcome_text.append("\n• Claude Desktop/Code integration", style="green")
-        welcome_text.append("\n• Sample document creation", style="green")
-        welcome_text.append("\n• System verification", style="green")
-
-        panel = Panel(
-            welcome_text, title="🚀 Setup Wizard", border_style="blue", padding=(1, 2)
-        )
-        console.print(panel)
+        print("===== Setup Wizard =====")
+        print("Welcome to the workspace-qdrant-mcp setup wizard!\n")
+        print("This wizard will guide you through:")
+        print("- Qdrant server configuration and testing")
+        print("- Embedding model selection")
+        print("- Workspace and collection setup")
+        print("- Claude Desktop/Code integration")
+        print("- Sample document creation")
+        print("- System verification")
+        print("=" * 27)
 
     async def _check_requirements(self) -> bool:
         """Check system requirements."""
@@ -232,32 +251,20 @@ class SetupWizard:
             ("Working directory", self._check_working_directory()),
         ]
 
-        table = Table(title="System Requirements")
-        table.add_column("Component", style="cyan")
-        table.add_column("Status", style="white")
-        table.add_column("Details", style="dim")
-
+        print("System Requirements:")
+        print(f"{'Component':<20} {'Status':<15} {'Details'}")
+        print("-" * 70)
+        
         all_ok = True
         for name, (status, details) in requirements:
-            status_icon = "✅" if status else "❌"
-            status_text = "OK" if status else "FAILED"
-
-            table.add_row(
-                name,
-                f"{status_icon} {status_text}",
-                details,
-            )
-
+            status_text = "[OK]" if status else "[FAILED]"
+            print(f"{name:<20} {status_text:<15} {details}")
+            
             if not status:
                 all_ok = False
 
-        console.print(table)
-
         if not all_ok:
-            console.print(
-                "\n❌ Some requirements are not met. Please fix the issues above.",
-                style="red",
-            )
+            print("\nError: Some requirements are not met. Please fix the issues above.")
 
         return all_ok
 
@@ -301,40 +308,38 @@ class SetupWizard:
 
     async def _configure_qdrant(self) -> QdrantConfig | None:
         """Configure Qdrant database connection."""
-        console.print("\n🗄️  Qdrant Database Configuration", style="bold blue")
-        console.print("Configure your Qdrant vector database connection.\n")
+        print("\nQdrant Database Configuration")
+        print("Configure your Qdrant vector database connection.\n")
 
         if self.non_interactive:
             return QdrantConfig()  # Use defaults
 
         # URL configuration
         default_url = "http://localhost:6333"
-        url = Prompt.ask("Qdrant server URL", default=default_url, show_default=True)
+        url = get_input("Qdrant server URL", default=default_url)
 
         # Validate URL format
         try:
             parsed = urlparse(url)
             if not parsed.scheme or not parsed.netloc:
-                console.print("❌ Invalid URL format", style="red")
+                print("Error: Invalid URL format")
                 return None
         except Exception:
-            console.print("❌ Invalid URL format", style="red")
+            print("Error: Invalid URL format")
             return None
 
         # API key (optional)
         api_key = None
-        if Confirm.ask("Does your Qdrant server require an API key?", default=False):
-            api_key = Prompt.ask("API key", password=True, show_default=False)
+        if get_confirmation("Does your Qdrant server require an API key?", default=False):
+            api_key = get_input("API key", password=True)
 
         # Advanced options
         timeout = 30
         prefer_grpc = False
 
         if self.advanced_mode:
-            timeout = IntPrompt.ask(
-                "Connection timeout (seconds)", default=30, show_default=True
-            )
-            prefer_grpc = Confirm.ask("Prefer gRPC protocol?", default=False)
+            timeout = get_int_input("Connection timeout (seconds)", default=30)
+            prefer_grpc = get_confirmation("Prefer gRPC protocol?", default=False)
 
         # Create and test configuration
         qdrant_config = QdrantConfig(
@@ -342,16 +347,16 @@ class SetupWizard:
         )
 
         # Test connection
-        console.print("\n🔍 Testing Qdrant connection...", style="blue")
+        print("\nTesting Qdrant connection...")
         connection_ok, message = await self._test_qdrant_connection(qdrant_config)
 
         if connection_ok:
-            console.print(f"✅ {message}", style="green")
+            print(f"Success: {message}")
             return qdrant_config
         else:
-            console.print(f"❌ {message}", style="red")
+            print(f"Error: {message}")
 
-            if Confirm.ask("\nWould you like to try a different configuration?"):
+            if get_confirmation("\nWould you like to try a different configuration?"):
                 return await self._configure_qdrant()
             return None
 
@@ -388,8 +393,8 @@ class SetupWizard:
 
     async def _configure_embedding(self) -> EmbeddingConfig | None:
         """Configure embedding service."""
-        console.print("\n🧠 Embedding Model Configuration", style="bold blue")
-        console.print("Configure text embedding generation settings.\n")
+        print("\nBrain Embedding Model Configuration", )
+        print("Configure text embedding generation settings.\n")
 
         if self.non_interactive:
             return EmbeddingConfig()  # Use defaults
@@ -402,24 +407,23 @@ class SetupWizard:
             "BAAI/bge-base-en-v1.5",
         ]
 
-        console.print("Available embedding models:")
+        print("Available embedding models:")
         for i, model in enumerate(available_models, 1):
             style = "bold green" if i == 1 else "white"
             quality = (
-                "⚡ Fast, Good Quality (Recommended)"
+                "Fast, Good Quality (Recommended)"
                 if i == 1
-                else ("🔥 High Quality, Slower" if i == 2 else "⭐ Excellent Quality")
+                else ("High Quality, Slower" if i == 2 else "Excellent Quality")
             )
-            console.print(f"  {i}. {model} - {quality}", style=style)
+            print(f"  {i}. {model} - {quality}")
 
         if self.advanced_mode:
-            choice = IntPrompt.ask(
+            choice = get_int_input(
                 "\nSelect model (1-4) or press Enter for default",
                 default=1,
-                show_default=False,
-            )
+                )
         else:
-            choice = IntPrompt.ask("\nSelect model (1-4)", default=1, show_default=True)
+            choice = get_int_input("\nSelect model (1-4)", default=1, )
 
         if 1 <= choice <= len(available_models):
             model = available_models[choice - 1]
@@ -429,13 +433,12 @@ class SetupWizard:
         # Sparse vectors
         enable_sparse = True
         if self.advanced_mode:
-            enable_sparse = Confirm.ask(
+            enable_sparse = get_confirmation(
                 "\nEnable sparse vectors for hybrid search?", default=True
             )
-            console.print(
-                "💡 Sparse vectors improve search quality but add ~30% processing time",
-                style="dim",
-            )
+            print(
+                "Note: Sparse vectors improve search quality but add ~30% processing time",
+                )
 
         # Text processing settings
         chunk_size = 1000
@@ -443,16 +446,13 @@ class SetupWizard:
         batch_size = 50
 
         if self.advanced_mode:
-            console.print("\n📝 Text Processing Settings")
-            chunk_size = IntPrompt.ask(
-                "Chunk size (characters)", default=1000, show_default=True
-            )
-            chunk_overlap = IntPrompt.ask(
-                "Chunk overlap (characters)", default=200, show_default=True
-            )
-            batch_size = IntPrompt.ask(
-                "Batch size (documents per batch)", default=50, show_default=True
-            )
+            print("\nText Processing Settings")
+            chunk_size = get_int_input(
+                "Chunk size (characters)", default=1000, )
+            chunk_overlap = get_int_input(
+                "Chunk overlap (characters)", default=200, )
+            batch_size = get_int_input(
+                "Batch size (documents per batch)", default=50, )
 
         # Create and test configuration
         embedding_config = EmbeddingConfig(
@@ -464,16 +464,16 @@ class SetupWizard:
         )
 
         # Test embedding model
-        console.print("\n🔍 Testing embedding model...", style="blue")
+        print("\nTesting embedding model...", )
         embedding_ok, message = await self._test_embedding_model(embedding_config)
 
         if embedding_ok:
-            console.print(f"✅ {message}", style="green")
+            print(f"Success: {message}")
             return embedding_config
         else:
-            console.print(f"❌ {message}", style="red")
+            print(f"Error: {message}")
 
-            if Confirm.ask("\nWould you like to try a different model?"):
+            if get_confirmation("\nWould you like to try a different model?"):
                 return await self._configure_embedding()
             return None
 
@@ -506,8 +506,8 @@ class SetupWizard:
 
     async def _configure_workspace(self) -> WorkspaceConfig | None:
         """Configure workspace settings."""
-        console.print("\n🏗️  Workspace Configuration", style="bold blue")
-        console.print("Configure workspace collections and project settings.\n")
+        print("\nBuild  Workspace Configuration", )
+        print("Configure workspace collections and project settings.\n")
 
         if self.non_interactive:
             return WorkspaceConfig()  # Use defaults
@@ -515,57 +515,51 @@ class SetupWizard:
         # Detect current project
         project_info = self.project_detector.get_project_info()
         if project_info and project_info.get("main_project"):
-            console.print(
-                f"📁 Detected project: {project_info['main_project']}", style="green"
-            )
+            print(
+                f"Project: Detected project: {project_info['main_project']}", )
             if project_info.get("subprojects"):
-                console.print(
-                    f"📂 Subprojects: {', '.join(project_info['subprojects'])}",
-                    style="cyan",
-                )
+                print(
+                    f"Subprojects: {', '.join(project_info['subprojects'])}",
+                    )
 
         # GitHub user for project detection
         github_user = None
-        if Confirm.ask(
+        if get_confirmation(
             "\nDo you have a GitHub username for project detection?", default=True
         ):
-            github_user = Prompt.ask("GitHub username", show_default=False)
+            github_user = get_input("GitHub username", )
 
         # Collection configuration
         collections = ["project"]
         global_collections = ["docs", "references", "standards"]
 
         if self.advanced_mode:
-            console.print("\n📚 Collection Configuration")
-            console.print("Project collections are created for each detected project.")
-            console.print("Global collections are shared across all projects.\n")
+            print("\nLibrary Collection Configuration")
+            print("Project collections are created for each detected project.")
+            print("Global collections are shared across all projects.\n")
 
-            collections_str = Prompt.ask(
+            collections_str = get_input(
                 "Project collection types (comma-separated)",
                 default="project",
-                show_default=True,
-            )
+                )
             collections = [c.strip() for c in collections_str.split(",") if c.strip()]
 
-            global_collections_str = Prompt.ask(
+            global_collections_str = get_input(
                 "Global collections (comma-separated)",
                 default="docs,references,standards",
-                show_default=True,
-            )
+                )
             global_collections = [
                 c.strip() for c in global_collections_str.split(",") if c.strip()
             ]
 
             collection_prefix = (
-                Prompt.ask(
-                    "Collection prefix (optional)", default="", show_default=False
-                )
+                get_input(
+                    "Collection prefix (optional)", default="", )
                 or ""
             )
 
-            max_collections = IntPrompt.ask(
-                "Maximum collections limit", default=100, show_default=True
-            )
+            max_collections = get_int_input(
+                "Maximum collections limit", default=100, )
         else:
             collection_prefix = ""
             max_collections = 100
@@ -587,16 +581,16 @@ class SetupWizard:
             )
 
             if is_valid:
-                console.print("✅ Configuration is valid", style="green")
+                print("[OK] Configuration is valid", )
                 return True
             else:
-                console.print("❌ Configuration validation failed:", style="red")
+                print("[ERROR] Configuration validation failed:", )
                 for issue in results.get("issues", []):
-                    console.print(f"  • {issue}", style="red")
+                    print(f"  • {issue}", )
                 return False
 
         except Exception as e:
-            console.print(f"❌ Configuration testing failed: {e}", style="red")
+            print(f"[ERROR] Configuration testing failed: {e}", )
             return False
 
     async def _save_configuration(self) -> Path | None:
@@ -607,15 +601,14 @@ class SetupWizard:
             # Check if .env already exists
             if env_path.exists():
                 if not self.non_interactive:
-                    if not Confirm.ask("\n⚠️  .env file already exists. Overwrite?"):
+                    if not get_confirmation("\n[WARNING]  .env file already exists. Overwrite?"):
                         backup_path = Path(
                             f".env.backup.{int(asyncio.get_event_loop().time())}"
                         )
                         env_path.rename(backup_path)
-                        console.print(
-                            f"📋 Existing .env backed up to {backup_path}",
-                            style="yellow",
-                        )
+                        print(
+                            f"Backup Existing .env backed up to {backup_path}",
+                            )
 
             # Create configuration content
             config_content = self._generate_env_content()
@@ -623,13 +616,12 @@ class SetupWizard:
             # Write to file
             env_path.write_text(config_content)
 
-            console.print(
-                f"✅ Configuration saved to {env_path.absolute()}", style="green"
-            )
+            print(
+                f"[OK] Configuration saved to {env_path.absolute()}", )
             return env_path
 
         except Exception as e:
-            console.print(f"❌ Failed to save configuration: {e}", style="red")
+            print(f"[ERROR] Failed to save configuration: {e}", )
             return None
 
     def _generate_env_content(self) -> str:
@@ -730,14 +722,12 @@ class SetupWizard:
                     break
 
             if not claude_config_path:
-                console.print(
-                    "⚠️  Claude Desktop configuration directory not found",
-                    style="yellow",
-                )
-                console.print(
+                print(
+                    "[WARNING]  Claude Desktop configuration directory not found",
+                    )
+                print(
                     "You'll need to manually add the MCP server configuration.",
-                    style="dim",
-                )
+                    )
                 self._show_manual_claude_config()
                 return False
 
@@ -747,9 +737,8 @@ class SetupWizard:
                 try:
                     config_data = json.loads(claude_config_path.read_text())
                 except json.JSONDecodeError:
-                    console.print(
-                        "⚠️  Invalid existing Claude configuration", style="yellow"
-                    )
+                    print(
+                        "[WARNING]  Invalid existing Claude configuration", )
                     config_data = {}
 
             # Add or update MCP server configuration
@@ -778,14 +767,13 @@ class SetupWizard:
             # Save configuration
             claude_config_path.write_text(json.dumps(config_data, indent=2))
 
-            console.print(
-                f"✅ Claude Desktop configuration updated: {claude_config_path}",
-                style="green",
-            )
+            print(
+                f"[OK] Claude Desktop configuration updated: {claude_config_path}",
+                )
             return True
 
         except Exception as e:
-            console.print(f"❌ Failed to setup Claude integration: {e}", style="red")
+            print(f"[ERROR] Failed to setup Claude integration: {e}", )
             self._show_manual_claude_config()
             return False
 
@@ -810,13 +798,9 @@ Configuration file locations:
 • Windows: %APPDATA%/Claude/claude_desktop_config.json
 • Linux: ~/.claude/claude_desktop_config.json"""
 
-        panel = Panel(
-            panel_content,
-            title="📋 Manual Claude Configuration",
-            border_style="yellow",
-            padding=(1, 2),
-        )
-        console.print(panel)
+        print("=== Manual Claude Configuration ===")
+        print(panel_content)
+        print("=" * 35)
 
     async def _create_sample_documents(self) -> bool:
         """Create sample documents for testing."""
@@ -908,14 +892,13 @@ Remove a document from the collection.
                 file_path = sample_dir / filename
                 file_path.write_text(content)
 
-            console.print(
-                f"✅ Created {len(samples)} sample documents in {sample_dir}/",
-                style="green",
-            )
+            print(
+                f"[OK] Created {len(samples)} sample documents in {sample_dir}/",
+                )
 
             # Ingest sample documents
             if not self.non_interactive:
-                if Confirm.ask(
+                if get_confirmation(
                     "\nWould you like to ingest these sample documents now?"
                 ):
                     await self._ingest_sample_documents(sample_dir)
@@ -923,7 +906,7 @@ Remove a document from the collection.
             return True
 
         except Exception as e:
-            console.print(f"❌ Failed to create sample documents: {e}", style="red")
+            print(f"[ERROR] Failed to create sample documents: {e}", )
             return False
 
     async def _ingest_sample_documents(self, sample_dir: Path) -> None:
@@ -940,7 +923,7 @@ Remove a document from the collection.
             else:
                 collection = "sample-project"
 
-            console.print(f"📚 Ingesting documents into collection: {collection}")
+            print(f"Library Ingesting documents into collection: {collection}")
 
             # Simple ingestion of sample files
             for file_path in sample_dir.glob("*"):
@@ -963,20 +946,19 @@ Remove a document from the collection.
                         )
 
                         if "successfully" in result.lower():
-                            console.print(f"  ✅ {file_path.name}", style="green")
+                            print(f"  [OK] {file_path.name}", )
                         else:
-                            console.print(
-                                f"  ❌ {file_path.name}: {result}", style="red"
-                            )
+                            print(
+                                f"  [ERROR] {file_path.name}: {result}", )
 
                     except Exception as e:
-                        console.print(f"  ❌ {file_path.name}: {e}", style="red")
+                        print(f"  [ERROR] {file_path.name}: {e}", )
 
             await client.close()
-            console.print("✅ Sample documents ingested successfully", style="green")
+            print("[OK] Sample documents ingested successfully", )
 
         except Exception as e:
-            console.print(f"❌ Failed to ingest sample documents: {e}", style="red")
+            print(f"[ERROR] Failed to ingest sample documents: {e}", )
 
     async def _verify_installation(self) -> bool:
         """Run final system verification."""
@@ -988,93 +970,69 @@ Remove a document from the collection.
             status = await client.get_status()
 
             if status.get("connected"):
-                console.print("✅ System verification passed", style="green")
+                print("[OK] System verification passed", )
 
                 # Show status summary
-                table = Table(title="System Status")
-                table.add_column("Component", style="cyan")
-                table.add_column("Status", style="white")
-
-                table.add_row("Qdrant Connection", "✅ Connected")
-                table.add_row("Embedding Model", "✅ Loaded")
-                table.add_row(
-                    "Project Detection",
-                    f"✅ {status.get('current_project', 'Unknown')}",
-                )
-                table.add_row(
-                    "Collections",
-                    f"✅ {len(status.get('workspace_collections', []))} available",
-                )
-
-                console.print(table)
+                # Show status summary
+                print("System Status:")
+                print(f"  Qdrant Connection: Connected")
+                print(f"  Embedding Model: Loaded")
+                print(f"  Project Detection: {status.get('current_project', 'Unknown')}")
+                print(f"  Collections: {len(status.get('workspace_collections', []))} available")
 
                 await client.close()
                 return True
             else:
-                console.print("❌ System verification failed", style="red")
+                print("[ERROR] System verification failed", )
                 await client.close()
                 return False
 
         except Exception as e:
-            console.print(f"❌ System verification failed: {e}", style="red")
+            print(f"[ERROR] System verification failed: {e}", )
             return False
 
     def _show_completion_message(self, config_path: Path, claude_success: bool) -> None:
         """Show setup completion message with next steps."""
-        completion_text = Text()
+        completion_text = []
         completion_text.append(
-            "🎉 Setup completed successfully!\n\n", style="bold green"
-        )
+            "Success Setup completed successfully!\n\n", )
 
-        completion_text.append("What's been configured:\n", style="bold white")
+        completion_text.append("What's been configured:\n", )
         completion_text.append(
-            f"• Configuration saved to {config_path}\n", style="green"
-        )
+            f"• Configuration saved to {config_path}\n", )
         completion_text.append(
-            f"• Qdrant connection: {self.config.qdrant.url}\n", style="green"
-        )
+            f"• Qdrant connection: {self.config.qdrant.url}\n", )
         completion_text.append(
-            f"• Embedding model: {self.config.embedding.model}\n", style="green"
-        )
+            f"• Embedding model: {self.config.embedding.model}\n", )
 
         if claude_success:
-            completion_text.append("• Claude Desktop integration: ✅\n", style="green")
+            completion_text.append("• Claude Desktop integration: [OK]\n", )
         else:
             completion_text.append(
-                "• Claude Desktop integration: ⚠️  Manual setup required\n",
-                style="yellow",
-            )
+                "• Claude Desktop integration: [WARNING]  Manual setup required\n",
+                )
 
-        completion_text.append("\nNext steps:\n", style="bold white")
+        completion_text.append("\nNext steps:\n", )
         completion_text.append(
-            "1. Restart Claude Desktop to load the new MCP server\n", style="cyan"
-        )
+            "1. Restart Claude Desktop to load the new MCP server\n", )
         completion_text.append(
-            "2. Test the connection with a simple search\n", style="cyan"
-        )
-        completion_text.append("3. Ingest your project documents\n", style="cyan")
+            "2. Test the connection with a simple search\n", )
+        completion_text.append("3. Ingest your project documents\n", )
         completion_text.append(
-            "4. Start using semantic search in Claude!\n", style="cyan"
-        )
+            "4. Start using semantic search in Claude!\n", )
 
-        completion_text.append("\nUseful commands:\n", style="bold white")
+        completion_text.append("\nUseful commands:\n", )
         completion_text.append(
-            "• workspace-qdrant-test - Test system health\n", style="dim"
-        )
+            "• workspace-qdrant-test - Test system health\n", )
         completion_text.append(
-            "• workspace-qdrant-ingest - Batch ingest documents\n", style="dim"
-        )
+            "• workspace-qdrant-ingest - Batch ingest documents\n", )
         completion_text.append(
-            "• workspace-qdrant-health - Monitor system status\n", style="dim"
-        )
+            "• workspace-qdrant-health - Monitor system status\n", )
 
-        panel = Panel(
-            completion_text,
-            title="🚀 Setup Complete",
-            border_style="green",
-            padding=(1, 2),
-        )
-        console.print(panel)
+        print("=== Setup Complete ===")
+        for line in completion_text:
+            print(line.strip())
+        print("=" * 23)
 
 
 @app.command()
@@ -1112,7 +1070,7 @@ def main(
     if result.success:
         sys.exit(0)
     else:
-        console.print(f"\n❌ Setup failed: {result.message}", style="red")
+        print(f"\n[ERROR] Setup failed: {result.message}", )
         sys.exit(1)
 
 
