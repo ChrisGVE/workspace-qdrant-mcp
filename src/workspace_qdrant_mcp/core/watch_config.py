@@ -26,11 +26,11 @@ class WatchConfigSchema(BaseModel):
     id: str = Field(..., min_length=1, description="Unique watch identifier")
     path: str = Field(..., min_length=1, description="Directory path to watch")
     collection: str = Field(..., min_length=1, description="Target Qdrant collection")
-    patterns: List[str] = Field(
+    patterns: list[str] = Field(
         default_factory=lambda: ["*.pdf", "*.epub", "*.txt", "*.md"],
         description="File patterns to include",
     )
-    ignore_patterns: List[str] = Field(
+    ignore_patterns: list[str] = Field(
         default_factory=lambda: [
             ".git/*",
             "node_modules/*",
@@ -107,7 +107,7 @@ class WatchConfigFile(BaseModel):
         default_factory=lambda: datetime.now(timezone.utc).isoformat(),
         description="Last update time",
     )
-    watches: List[WatchConfigSchema] = Field(
+    watches: list[WatchConfigSchema] = Field(
         default_factory=list, description="List of watch configurations"
     )
     metadata: Dict[str, Any] = Field(
@@ -123,10 +123,10 @@ class WatchConfigurationPersistent:
     id: str
     path: str
     collection: str
-    patterns: List[str] = field(
+    patterns: list[str] = field(
         default_factory=lambda: ["*.pdf", "*.epub", "*.txt", "*.md"]
     )
-    ignore_patterns: List[str] = field(
+    ignore_patterns: list[str] = field(
         default_factory=lambda: [
             ".git/*",
             "node_modules/*",
@@ -160,7 +160,7 @@ class WatchConfigurationPersistent:
         validated_data = WatchConfigSchema(**data)
         return cls(**validated_data.dict())
 
-    def validate(self) -> List[str]:
+    def validate(self) -> list[str]:
         """Validate configuration and return list of issues."""
         issues = []
 
@@ -425,7 +425,7 @@ class PersistentWatchConfigManager:
 
     async def list_watch_configs(
         self, active_only: bool = False
-    ) -> List[WatchConfigurationPersistent]:
+    ) -> list[WatchConfigurationPersistent]:
         """List all watch configurations."""
 
         try:
@@ -461,7 +461,7 @@ class PersistentWatchConfigManager:
                 return config
         return None
 
-    async def validate_all_configs(self) -> Dict[str, List[str]]:
+    async def validate_all_configs(self) -> dict[str, list[str]]:
         """Validate all watch configurations and return issues."""
 
         validation_results = {}
