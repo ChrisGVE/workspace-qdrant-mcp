@@ -32,64 +32,12 @@ from typing import Any, Dict, List, Optional, Set
 
 from ..tools.watch_management import WatchToolsManager
 from ..core.client import QdrantWorkspaceClient
+from ..core.config import AutoIngestionConfig
 from ..utils.project_detection import ProjectDetector
 
 logger = logging.getLogger(__name__)
 
 
-class AutoIngestionConfig:
-    """Configuration for automatic file ingestion."""
-    
-    def __init__(
-        self,
-        enabled: bool = True,
-        auto_create_watches: bool = True,
-        include_common_files: bool = True,
-        include_source_files: bool = False,
-        max_files_per_batch: int = 5,
-        batch_delay_seconds: float = 2.0,
-        max_file_size_mb: int = 50,
-        recursive_depth: int = 5,
-        debounce_seconds: int = 10,
-    ):
-        """
-        Initialize auto-ingestion configuration.
-        
-        Args:
-            enabled: Enable automatic ingestion on startup
-            auto_create_watches: Automatically create project watches
-            include_common_files: Include common document types (*.md, *.txt, etc.)
-            include_source_files: Include source code files (*.py, *.js, etc.)
-            max_files_per_batch: Maximum files to process in a single batch
-            batch_delay_seconds: Delay between processing batches
-            max_file_size_mb: Maximum file size to process (in MB)
-            recursive_depth: Maximum directory recursion depth
-            debounce_seconds: File change debounce time
-        """
-        self.enabled = enabled
-        self.auto_create_watches = auto_create_watches
-        self.include_common_files = include_common_files
-        self.include_source_files = include_source_files
-        self.max_files_per_batch = max_files_per_batch
-        self.batch_delay_seconds = batch_delay_seconds
-        self.max_file_size_mb = max_file_size_mb
-        self.recursive_depth = recursive_depth
-        self.debounce_seconds = debounce_seconds
-    
-    @classmethod
-    def from_env(cls) -> "AutoIngestionConfig":
-        """Create configuration from environment variables."""
-        return cls(
-            enabled=os.getenv("WORKSPACE_QDRANT_AUTO_INGESTION_ENABLED", "true").lower() == "true",
-            auto_create_watches=os.getenv("WORKSPACE_QDRANT_AUTO_CREATE_WATCHES", "true").lower() == "true",
-            include_common_files=os.getenv("WORKSPACE_QDRANT_INCLUDE_COMMON_FILES", "true").lower() == "true",
-            include_source_files=os.getenv("WORKSPACE_QDRANT_INCLUDE_SOURCE_FILES", "false").lower() == "true",
-            max_files_per_batch=int(os.getenv("WORKSPACE_QDRANT_MAX_FILES_PER_BATCH", "5")),
-            batch_delay_seconds=float(os.getenv("WORKSPACE_QDRANT_BATCH_DELAY_SECONDS", "2.0")),
-            max_file_size_mb=int(os.getenv("WORKSPACE_QDRANT_MAX_FILE_SIZE_MB", "50")),
-            recursive_depth=int(os.getenv("WORKSPACE_QDRANT_RECURSIVE_DEPTH", "5")),
-            debounce_seconds=int(os.getenv("WORKSPACE_QDRANT_DEBOUNCE_SECONDS", "10")),
-        )
 
 
 class ProjectPatterns:
