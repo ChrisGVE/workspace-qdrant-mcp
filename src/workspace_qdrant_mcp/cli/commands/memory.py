@@ -14,7 +14,7 @@ import typer
 from qdrant_client import QdrantClient
 
 from ...core.collection_naming import create_naming_manager
-from ...core.config import Config
+from ...core.daemon_client import get_daemon_client, with_daemon_client
 from ...core.memory import (
     AuthorityLevel,
     MemoryCategory,
@@ -22,6 +22,7 @@ from ...core.memory import (
     create_memory_manager,
     parse_conversational_memory_update,
 )
+from ...core.config import Config
 from ...core.ssl_config import get_ssl_manager
 from ...observability import get_logger
 from ..utils import (
