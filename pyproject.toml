@@ -70,6 +70,9 @@ dev = [
   "scikit-learn>=1.0.0",
   "rank-bm25>=0.2.2",
   "nltk>=3.8.1",
+  # Web UI testing
+  "playwright>=1.40.0",
+  "pytest-playwright>=0.4.0",
   # Type stubs for mypy
   "types-PyYAML>=6.0.0",
   "types-Markdown>=3.4.0",
