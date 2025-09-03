@@ -1,30 +1,52 @@
 """
-Main pytest configuration and shared fixtures.
+Test configuration and fixtures for SQLite State Manager comprehensive testing.
 
-Provides common test fixtures, mock configurations, and test utilities.
+This file provides shared test fixtures, configuration, and utilities
+for running the comprehensive SQLite state management test suite.
 """
 
-import asyncio
-import os
-import tempfile
-from pathlib import Path
-from unittest.mock import AsyncMock, MagicMock
-
 import pytest
-from qdrant_client import QdrantClient
-from qdrant_client.http import models
+import tempfile
+import os
+import shutil
+import asyncio
+import logging
+from pathlib import Path
 
-from workspace_qdrant_mcp.core.client import QdrantWorkspaceClient
-from workspace_qdrant_mcp.core.config import (
-    Config,
-    EmbeddingConfig,
-    QdrantConfig,
-    WorkspaceConfig,
+
+# Configure test logging
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
 )
-from workspace_qdrant_mcp.utils.project_detection import ProjectDetector
 
-# Test markers
-pytestmark = pytest.mark.asyncio
+# Configure pytest markers
+pytest_plugins = []
+
+
+def pytest_configure(config):
+    """Configure pytest with custom markers."""
+    config.addinivalue_line(
+        "markers", "slow: marks tests as slow (deselect with '-m \"not slow\"')"
+    )
+    config.addinivalue_line(
+        "markers", "performance: marks tests as performance tests"
+    )
+    config.addinivalue_line(
+        "markers", "crash_recovery: marks tests as crash recovery tests"
+    )
+    config.addinivalue_line(
+        "markers", "concurrent: marks tests as concurrent access tests"
+    )
+    config.addinivalue_line(
+        "markers", "acid: marks tests as ACID transaction tests"
+    )
+    config.addinivalue_line(
+        "markers", "maintenance: marks tests as database maintenance tests"
+    )
+    config.addinivalue_line(
+        "markers", "error_scenarios: marks tests as error scenario tests"
+    )
 
 
 @pytest.fixture(scope="session")
@@ -35,402 +57,382 @@ def event_loop():
     loop.close()
 
 
-@pytest.fixture
-def mock_config() -> Config:
-    """Create a mock configuration for testing."""
-    return Config(
-        host="127.0.0.1",
-        port=8000,
-        debug=True,
-        qdrant=QdrantConfig(
-            url="http://localhost:6333", api_key=None, timeout=30, prefer_grpc=False
-        ),
-        embedding=EmbeddingConfig(
-            model="sentence-transformers/all-MiniLM-L6-v2",
-            enable_sparse_vectors=True,
-            chunk_size=800,
-            chunk_overlap=120,
-            batch_size=50,
-        ),
-        workspace=WorkspaceConfig(
-            global_collections=["docs", "references", "standards"],
-            github_user="testuser",
-            collection_prefix="test_",
-            max_collections=100,
-        ),
-    )
+@pytest.fixture(scope="session")
+def temp_test_dir():
+    """Create a temporary directory for the entire test session."""
+    temp_dir = tempfile.mkdtemp(prefix="sqlite_test_")
+    yield temp_dir
+    shutil.rmtree(temp_dir, ignore_errors=True)
 
 
 @pytest.fixture
-def mock_qdrant_client():
-    """Create a mock Qdrant client."""
-    client = MagicMock(spec=QdrantClient)
+async def clean_temp_db():
+    """Create a clean temporary database file for each test."""
+    fd, path = tempfile.mkstemp(suffix='.db', prefix="test_")
+    os.close(fd)
+    
+    yield path
+    
+    # Cleanup all SQLite files
+    for ext in ['', '-wal', '-shm']:
+        try:
+            os.unlink(path + ext)
+        except FileNotFoundError:
+            pass
 
-    # Mock common methods
-    client.get_collections.return_value = models.CollectionsResponse(
-        collections=[
-            models.CollectionDescription(
-                name="test_collection"
+
+@pytest.fixture
+def mock_large_dataset():
+    """Create mock data for large dataset testing."""
+    def create_records(count: int = 1000):
+        """Generate test records."""
+        import time
+        from tests.test_sqlite_state_manager_comprehensive import StateRecord
+        
+        records = []
+        for i in range(count):
+            record = StateRecord(
+                file_path=f"/mock/file_{i:04d}.txt",
+                status=f"status_{i % 5}",
+                last_modified=time.time(),
+                checksum=f"mock_hash_{i}",
+                metadata={"mock": True, "index": i},
+                created_at=time.time(),
+                updated_at=time.time()
             )
-        ]
-    )
-
-    client.search.return_value = [
-        models.ScoredPoint(
-            id="test_id_1",
-            score=0.95,
-            version=0,
-            payload={"content": "Test document 1", "source": "test"},
-        ),
-        models.ScoredPoint(
-            id="test_id_2",
-            score=0.85,
-            version=0,
-            payload={"content": "Test document 2", "source": "test"},
-        ),
-    ]
-
-    client.create_collection.return_value = True
-    client.upsert.return_value = models.UpdateResult(
-        operation_id=123, status=models.UpdateStatus.COMPLETED
-    )
-
-    return client
+            records.append(record)
+        return records
+    
+    return create_records
 
 
 @pytest.fixture
-def mock_embedding_service():
-    """Create a mock embedding service."""
-    service = AsyncMock()
-    service.initialize = AsyncMock()
-    service.generate_embeddings.return_value = {
-        "dense": [0.1] * 384,
-        "sparse": {"indices": [1, 5, 10, 20], "values": [0.8, 0.6, 0.9, 0.7]},
-    }
-    service.get_model_info.return_value = {
-        "model_name": "sentence-transformers/all-MiniLM-L6-v2",
-        "vector_size": 384,
-        "sparse_enabled": True,
-    }
-    # Mock config for chunk_text
-    service.config.embedding.chunk_size = 800
-    service.config.embedding.chunk_overlap = 120
-    # Mock chunk_text as a regular (non-async) method
-    from unittest.mock import MagicMock
-    service.chunk_text = MagicMock(return_value=["chunk1", "chunk2", "chunk3"])
-    return service
-
-
-@pytest.fixture
-def temp_git_repo():
-    """Create a temporary Git repository for testing."""
-    import git
-
-    with tempfile.TemporaryDirectory() as temp_dir:
-        # Initialize Git repo
-        repo = git.Repo.init(temp_dir)
-
-        # Configure user
-        repo.config_writer().set_value("user", "name", "Test User").release()
-        repo.config_writer().set_value("user", "email", "test@example.com").release()
-
-        # Add remote origin
-        repo.create_remote("origin", "https://github.com/testuser/test-project.git")
-
-        # Create initial commit
-        test_file = Path(temp_dir) / "README.md"
-        test_file.write_text("# Test Project")
-        repo.index.add(["README.md"])
-        repo.index.commit("Initial commit")
-
-        yield temp_dir
-
-
-@pytest.fixture
-def temp_git_repo_with_submodules():
-    """Create a temporary Git repository with submodules for testing."""
-    import git
-
-    with tempfile.TemporaryDirectory() as temp_dir:
-        # Initialize main repo
-        main_repo = git.Repo.init(temp_dir)
-
-        # Configure user
-        main_repo.config_writer().set_value("user", "name", "Test User").release()
-        main_repo.config_writer().set_value(
-            "user", "email", "test@example.com"
-        ).release()
-
-        # Add remote origin
-        main_repo.create_remote(
-            "origin", "https://github.com/testuser/main-project.git"
-        )
-
-        # Create .gitmodules file
-        gitmodules_content = """[submodule "subproject1"]
-    path = subproject1
-    url = https://github.com/testuser/subproject1.git
-[submodule "subproject2"]
-    path = libs/subproject2
-    url = https://github.com/otheruser/subproject2.git
-"""
-
-        gitmodules_path = Path(temp_dir) / ".gitmodules"
-        gitmodules_path.write_text(gitmodules_content)
-
-        # Create submodule directories (simulate initialized submodules)
-        (Path(temp_dir) / "subproject1").mkdir()
-        (Path(temp_dir) / "libs").mkdir()
-        (Path(temp_dir) / "libs" / "subproject2").mkdir()
-
-        # Create some files in submodules
-        (Path(temp_dir) / "subproject1" / "file.txt").write_text("subproject1 content")
-        (Path(temp_dir) / "libs" / "subproject2" / "file.txt").write_text(
-            "subproject2 content"
-        )
-
-        # Add and commit
-        main_repo.index.add([".gitmodules"])
-        main_repo.index.commit("Add submodules")
-
-        yield temp_dir
-
-
-@pytest.fixture
-def mock_project_detector():
-    """Create a mock project detector."""
-    detector = MagicMock(spec=ProjectDetector)
-    detector.github_user = "testuser"
-    detector.get_project_name.return_value = "test-project"
-    detector.get_subprojects.return_value = ["subproject1"]
-    detector.get_project_and_subprojects.return_value = (
-        "test-project",
-        ["subproject1"],
-    )
-    detector.get_project_info.return_value = {
-        "main_project": "test-project",
-        "subprojects": ["subproject1"],
-        "git_root": "/tmp/test-project",
-        "remote_url": "https://github.com/testuser/test-project.git",
-        "github_user": "testuser",
-        "is_git_repo": True,
-        "belongs_to_user": True,
-        "submodule_count": 1,
-    }
-    return detector
-
-
-@pytest.fixture
-def mock_workspace_client(
-    mock_config, mock_qdrant_client, mock_embedding_service
-):
-    """Create a mock workspace client."""
-    client = MagicMock(spec=QdrantWorkspaceClient)
-    client.config = mock_config
-    client.client = mock_qdrant_client
-    client.embedding_service = mock_embedding_service
-    client.initialized = True
-
-    # Mock collection manager
-    collection_manager = MagicMock()
-    collection_manager.list_collections = AsyncMock(return_value=["test_collection"])
-    collection_manager.collection_exists = AsyncMock(return_value=True)
-    collection_manager.resolve_collection_name = MagicMock(return_value=("test_collection", True))
-    client.collection_manager = collection_manager
-
-    # Mock async methods
-    client.initialize = AsyncMock()
-    client.get_status = AsyncMock(
-        return_value={
-            "connected": True,
-            "collections_count": 1,
-            "current_project": "test-project",
-        }
-    )
-    client.list_collections = AsyncMock(return_value=["test_collection"])
-    client.get_embedding_service.return_value = mock_embedding_service
-
-    return client
-
-
-@pytest.fixture
-def sample_documents():
-    """Sample documents for testing."""
-    return [
-        {
-            "id": "doc1",
-            "content": "This is a sample document about Python programming.",
-            "metadata": {
-                "source": "docs",
-                "category": "programming",
-                "language": "python",
-            },
-        },
-        {
-            "id": "doc2",
-            "content": "Machine learning algorithms and neural networks explained.",
-            "metadata": {"source": "research", "category": "ml", "language": "english"},
-        },
-        {
-            "id": "doc3",
-            "content": "Web development best practices using FastAPI framework.",
-            "metadata": {
-                "source": "tutorials",
-                "category": "web",
-                "language": "python",
-            },
-        },
-    ]
-
-
-@pytest.fixture
-def sample_embeddings():
-    """Sample embeddings for testing."""
-    return {
-        "dense": [0.1, 0.2, 0.3] + [0.0] * 381,  # 384-dimensional vector
-        "sparse": {"indices": [1, 5, 10, 20, 50], "values": [0.8, 0.6, 0.9, 0.7, 0.5]},
-    }
-
-
-@pytest.fixture
-def mock_search_results():
-    """Mock search results for testing."""
-    return [
-        {
-            "id": "doc1",
-            "score": 0.95,
-            "payload": {"content": "Python programming guide", "source": "docs"},
-        },
-        {
-            "id": "doc2",
-            "score": 0.85,
-            "payload": {"content": "Machine learning tutorial", "source": "tutorials"},
-        },
-        {
-            "id": "doc3",
-            "score": 0.75,
-            "payload": {"content": "Web development with FastAPI", "source": "guides"},
-        },
-    ]
-
-
-@pytest.fixture
-def environment_variables():
-    """Set up test environment variables."""
-    test_env = {
-        "WORKSPACE_QDRANT_HOST": "127.0.0.1",
-        "WORKSPACE_QDRANT_PORT": "8000",
-        "WORKSPACE_QDRANT_DEBUG": "true",
-        "WORKSPACE_QDRANT_QDRANT__URL": "http://localhost:6333",
-        "WORKSPACE_QDRANT_WORKSPACE__GITHUB_USER": "testuser",
-    }
-
-    original_env = {}
-    for key, value in test_env.items():
-        original_env[key] = os.environ.get(key)
-        os.environ[key] = value
-
-    yield test_env
-
-    # Cleanup
-    for key, original_value in original_env.items():
-        if original_value is None:
-            os.environ.pop(key, None)
-        else:
-            os.environ[key] = original_value
-
-
-@pytest.fixture
-def mock_fastmcp_app():
-    """Create a mock FastMCP application."""
-    from unittest.mock import MagicMock
-
-    app = MagicMock()
-    app.tool = MagicMock()
-    app.run = MagicMock()
-
-    return app
-
-
-class MockQdrantCollection:
-    """Mock Qdrant collection for testing."""
-
-    def __init__(self, name: str):
-        self.name = name
-        self.points = {}
-        self.config = {
-            "params": {
-                "vectors": {
-                    "dense": {"size": 384, "distance": "Cosine"},
-                    "sparse": {"modifier": "idf"},
-                }
+def performance_monitor():
+    """Monitor performance during tests."""
+    import psutil
+    import time
+    
+    class PerformanceMonitor:
+        def __init__(self):
+            self.process = psutil.Process()
+            self.start_time = None
+            self.start_memory = None
+            self.start_cpu = None
+            
+        def start(self):
+            """Start monitoring."""
+            self.start_time = time.perf_counter()
+            self.start_memory = self.process.memory_info().rss / 1024 / 1024  # MB
+            self.start_cpu = self.process.cpu_percent()
+            
+        def stop(self):
+            """Stop monitoring and return stats."""
+            if self.start_time is None:
+                return {}
+                
+            duration = time.perf_counter() - self.start_time
+            memory_usage = self.process.memory_info().rss / 1024 / 1024  # MB
+            memory_delta = memory_usage - self.start_memory
+            cpu_usage = self.process.cpu_percent()
+            
+            return {
+                'duration_seconds': duration,
+                'memory_start_mb': self.start_memory,
+                'memory_end_mb': memory_usage,
+                'memory_delta_mb': memory_delta,
+                'cpu_usage_percent': cpu_usage
             }
-        }
+    
+    return PerformanceMonitor()
 
-    def upsert(self, points):
-        """Mock upsert operation."""
-        for point in points:
-            self.points[point.id] = point
-        return {"status": "completed", "operation_id": 123}
 
-    def search(self, query_vector, limit=10, **kwargs):
-        """Mock search operation."""
-        # Return mock results
-        return [
-            {
-                "id": f"result_{i}",
-                "score": 0.9 - (i * 0.1),
-                "payload": {"content": f"Mock result {i}"},
-            }
-            for i in range(min(limit, len(self.points)))
-        ]
+# Test collection hooks
+def pytest_collection_modifyitems(config, items):
+    """Modify test collection to add markers based on test names."""
+    for item in items:
+        # Add markers based on test name patterns
+        if "performance" in item.name:
+            item.add_marker(pytest.mark.performance)
+            item.add_marker(pytest.mark.slow)
+        
+        if "crash_recovery" in item.name or "crash" in item.name:
+            item.add_marker(pytest.mark.crash_recovery)
+            item.add_marker(pytest.mark.slow)
+        
+        if "concurrent" in item.name:
+            item.add_marker(pytest.mark.concurrent)
+            item.add_marker(pytest.mark.slow)
+        
+        if "transaction" in item.name:
+            item.add_marker(pytest.mark.acid)
+        
+        if "vacuum" in item.name or "analyze" in item.name or "wal" in item.name:
+            item.add_marker(pytest.mark.maintenance)
+        
+        if "disk_full" in item.name or "corruption" in item.name or "error" in item.name:
+            item.add_marker(pytest.mark.error_scenarios)
+
+
+# Custom test result reporting
+def pytest_runtest_call(item):
+    """Called to execute the test item."""
+    # Add any pre-test setup here
+    pass
+
+
+def pytest_runtest_teardown(item, nextitem):
+    """Called after test execution."""
+    # Add any post-test cleanup here
+    pass
+
+
+# Skip tests based on conditions
+def pytest_runtest_setup(item):
+    """Called before each test runs."""
+    # Skip performance tests if explicitly requested
+    if item.config.getoption("--skip-performance", False):
+        if "performance" in item.keywords:
+            pytest.skip("Performance tests skipped")
+    
+    # Skip slow tests if explicitly requested
+    if item.config.getoption("--skip-slow", False):
+        if "slow" in item.keywords:
+            pytest.skip("Slow tests skipped")
+
+
+def pytest_addoption(parser):
+    """Add custom command line options."""
+    parser.addoption(
+        "--skip-performance",
+        action="store_true",
+        default=False,
+        help="Skip performance tests"
+    )
+    parser.addoption(
+        "--skip-slow", 
+        action="store_true",
+        default=False,
+        help="Skip slow tests"
+    )
+    parser.addoption(
+        "--db-engine",
+        action="store",
+        default="sqlite",
+        help="Database engine to test (default: sqlite)"
+    )
+
+
+# Test environment setup
+@pytest.fixture(autouse=True)
+def setup_test_environment(monkeypatch):
+    """Setup test environment for each test."""
+    # Set test environment variables
+    monkeypatch.setenv("TESTING", "1")
+    monkeypatch.setenv("LOG_LEVEL", "INFO")
+    
+    # Ensure tests don't interfere with production data
+    monkeypatch.setenv("DB_PATH", ":memory:")
+    
+    yield
+
+
+# Database connection fixtures
+@pytest.fixture
+def sqlite_memory_db():
+    """Create an in-memory SQLite database."""
+    import sqlite3
+    conn = sqlite3.connect(":memory:")
+    yield conn
+    conn.close()
 
 
 @pytest.fixture
-def mock_collections():
-    """Create mock collections for testing."""
-    return {
-        "test_docs": MockQdrantCollection("test_docs"),
-        "test_scratchbook": MockQdrantCollection("test_scratchbook"),
-        "test_references": MockQdrantCollection("test_references"),
-    }
+async def isolated_state_manager(clean_temp_db):
+    """Create an isolated state manager instance for testing."""
+    from tests.test_sqlite_state_manager_comprehensive import SQLiteStateManagerComprehensive
+    
+    manager = SQLiteStateManagerComprehensive(clean_temp_db, enable_wal=True)
+    await manager.initialize()
+    
+    yield manager
+    
+    await manager.close()
+
+
+# Test data fixtures
+@pytest.fixture
+def sample_file_states():
+    """Generate sample file state records."""
+    import time
+    from tests.test_sqlite_state_manager_comprehensive import StateRecord
+    
+    states = []
+    statuses = ["pending", "processing", "completed", "failed", "retrying"]
+    
+    for i in range(20):
+        state = StateRecord(
+            file_path=f"/sample/file_{i:03d}.txt",
+            status=statuses[i % len(statuses)],
+            last_modified=time.time() - (i * 3600),  # Spread over time
+            checksum=f"sample_hash_{i}",
+            metadata={
+                "size": 1024 * (i + 1),
+                "type": "test_sample",
+                "index": i
+            },
+            created_at=time.time() - (i * 3600),
+            updated_at=time.time(),
+            retry_count=0 if i % 5 != 3 else 1  # Some files have retries
+        )
+        states.append(state)
+    
+    return states
 
 
 # Async test utilities
-class AsyncContextManager:
-    """Mock async context manager."""
+class AsyncTestHelper:
+    """Helper class for async test operations."""
+    
+    @staticmethod
+    async def wait_for_condition(condition_func, timeout=5.0, interval=0.1):
+        """Wait for a condition to become true."""
+        import asyncio
+        
+        elapsed = 0
+        while elapsed < timeout:
+            if await condition_func():
+                return True
+            await asyncio.sleep(interval)
+            elapsed += interval
+        return False
+    
+    @staticmethod
+    async def run_concurrent_tasks(tasks, max_concurrent=10):
+        """Run tasks concurrently with limited concurrency."""
+        import asyncio
+        
+        semaphore = asyncio.Semaphore(max_concurrent)
+        
+        async def run_task(task):
+            async with semaphore:
+                return await task
+        
+        return await asyncio.gather(*[run_task(task) for task in tasks])
 
-    def __init__(self, return_value=None):
-        self.return_value = return_value
 
-    async def __aenter__(self):
-        return self.return_value
-
-    async def __aexit__(self, *args):
-        pass
+@pytest.fixture
+def async_helper():
+    """Provide async test helper utilities."""
+    return AsyncTestHelper()
 
 
-# Test data helpers
-def create_test_point(point_id: str, content: str, metadata: dict = None) -> dict:
-    """Create a test point for Qdrant operations."""
-    return {
-        "id": point_id,
-        "vector": {
-            "dense": [0.1] * 384,
-            "sparse": {"indices": [1, 5, 10], "values": [0.8, 0.6, 0.9]},
-        },
-        "payload": {"content": content, **(metadata or {})},
-    }
+# Test result collection
+test_results = []
+
+def pytest_runtest_logreport(report):
+    """Collect test results for analysis."""
+    if report.when == "call":
+        test_results.append({
+            'nodeid': report.nodeid,
+            'outcome': report.outcome,
+            'duration': report.duration,
+            'keywords': list(report.keywords.keys())
+        })
 
 
-def create_test_collection_config(vector_size: int = 384) -> dict:
-    """Create test collection configuration."""
-    return {
-        "vectors": {
-            "dense": {"size": vector_size, "distance": "Cosine"},
-            "sparse": {"modifier": "idf"},
-        },
-        "optimizers_config": {"default_segment_number": 2},
-        "replication_factor": 1,
-        "write_consistency_factor": 1,
-    }
+def pytest_sessionfinish(session, exitstatus):
+    """Called after the entire test session."""
+    # Print summary statistics
+    if test_results:
+        total_tests = len(test_results)
+        passed = len([r for r in test_results if r['outcome'] == 'passed'])
+        failed = len([r for r in test_results if r['outcome'] == 'failed'])
+        skipped = len([r for r in test_results if r['outcome'] == 'skipped'])
+        
+        print(f"\n=== SQLite State Manager Test Summary ===")
+        print(f"Total tests: {total_tests}")
+        print(f"Passed: {passed}")
+        print(f"Failed: {failed}")
+        print(f"Skipped: {skipped}")
+        print(f"Success rate: {passed/total_tests*100:.1f}%" if total_tests > 0 else "No tests run")
+        
+        # Performance test summary
+        perf_tests = [r for r in test_results if 'performance' in r['keywords']]
+        if perf_tests:
+            avg_duration = sum(r['duration'] for r in perf_tests) / len(perf_tests)
+            print(f"Performance tests: {len(perf_tests)}, Avg duration: {avg_duration:.2f}s")
+
+
+# Error handling fixtures
+@pytest.fixture
+def error_handler():
+    """Provide error handling utilities for tests."""
+    
+    class TestErrorHandler:
+        def __init__(self):
+            self.errors = []
+        
+        def capture_error(self, error, context=""):
+            """Capture an error for later analysis."""
+            self.errors.append({
+                'error': error,
+                'context': context,
+                'timestamp': time.time()
+            })
+        
+        def get_errors(self):
+            """Get all captured errors."""
+            return self.errors.copy()
+        
+        def clear_errors(self):
+            """Clear captured errors."""
+            self.errors.clear()
+    
+    import time
+    return TestErrorHandler()
+
+
+# Resource monitoring
+@pytest.fixture
+def resource_monitor():
+    """Monitor system resources during tests."""
+    
+    class ResourceMonitor:
+        def __init__(self):
+            self.snapshots = []
+        
+        def snapshot(self, label=""):
+            """Take a resource usage snapshot."""
+            import psutil
+            import time
+            
+            process = psutil.Process()
+            memory_info = process.memory_info()
+            
+            snapshot = {
+                'label': label,
+                'timestamp': time.time(),
+                'memory_rss_mb': memory_info.rss / 1024 / 1024,
+                'memory_vms_mb': memory_info.vms / 1024 / 1024,
+                'cpu_percent': process.cpu_percent(),
+                'open_files': len(process.open_files()),
+                'threads': process.num_threads()
+            }
+            
+            self.snapshots.append(snapshot)
+            return snapshot
+        
+        def get_snapshots(self):
+            """Get all resource snapshots."""
+            return self.snapshots.copy()
+        
+        def get_memory_delta(self, start_label="start", end_label="end"):
+            """Get memory usage delta between two snapshots."""
+            start_snapshot = next((s for s in self.snapshots if s['label'] == start_label), None)
+            end_snapshot = next((s for s in self.snapshots if s['label'] == end_label), None)
+            
+            if start_snapshot and end_snapshot:
+                return end_snapshot['memory_rss_mb'] - start_snapshot['memory_rss_mb']
+            return None
+    
+    return ResourceMonitor()
