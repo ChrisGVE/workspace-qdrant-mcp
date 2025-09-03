@@ -1,4 +1,3 @@
-
 """Document ingestion CLI commands.
 
 This module provides manual document processing capabilities for the
@@ -16,26 +15,25 @@ from ...core.daemon_client import get_daemon_client, with_daemon_client
 from ...core.yaml_config import load_config
 from ...core.yaml_metadata import YamlMetadataWorkflow
 from ...observability import get_logger
+from ..utils import (
+    handle_async,
+    create_command_app,
+    dry_run_option,
+    force_option,
+    verbose_option,
+    success_message,
+    warning_message,
+    error_message
+)
 
 logger = get_logger(__name__)
 
-# Create the ingest app
-ingest_app = typer.Typer(
-    help=" Manual document processing",
-    no_args_is_help=True,
-    rich_markup_mode=None  # Disable Rich formatting completely
+# Create the ingest app using shared utilities
+ingest_app = create_command_app(
+    name="ingest",
+    help_text="Manual document processing and ingestion",
+    no_args_is_help=True
 )
-
-def handle_async(coro):
-    """Helper to run async commands."""
-    try:
-        return asyncio.run(coro)
-    except KeyboardInterrupt:
-        print("\nOperation cancelled by user")
-        raise typer.Exit(1)
-    except Exception as e:
-        print(f"Error: {e}")
-        raise typer.Exit(1)
 
 @ingest_app.command("file")
 def ingest_file(
@@ -43,8 +41,8 @@ def ingest_file(
     collection: str = typer.Option(..., "--collection", "-c", help="Target collection name"),
     chunk_size: int = typer.Option(1000, "--chunk-size", help="Maximum characters per text chunk"),
     chunk_overlap: int = typer.Option(200, "--chunk-overlap", help="Character overlap between chunks"),
-    dry_run: bool = typer.Option(False, "--dry-run", help="Analyze file without ingesting"),
-    force: bool = typer.Option(False, "--force", help="Overwrite existing documents"),
+    dry_run: bool = dry_run_option(),
+    force: bool = force_option(),
 ):
     """Ingest a single file into collection."""
     handle_async(_ingest_file(path, collection, chunk_size, chunk_overlap, dry_run, force))
@@ -59,8 +57,8 @@ def ingest_folder(
     recursive: bool = typer.Option(True, "--recursive/--no-recursive", help="Process subdirectories recursively"),
     exclude: Optional[List[str]] = typer.Option(None, "--exclude", help="Glob patterns to exclude"),
     concurrency: int = typer.Option(5, "--concurrency", help="Number of concurrent processing tasks"),
-    dry_run: bool = typer.Option(False, "--dry-run", help="Analyze files without ingesting"),
-    force: bool = typer.Option(False, "--force", help="Overwrite existing documents"),
+    dry_run: bool = dry_run_option(),
+    force: bool = force_option(),
 ):
     """Ingest all files in a folder."""
     handle_async(_ingest_folder(
@@ -71,8 +69,8 @@ def ingest_folder(
 @ingest_app.command("yaml")
 def ingest_yaml_metadata(
     path: str = typer.Argument(..., help="Path to YAML metadata file"),
-    dry_run: bool = typer.Option(False, "--dry-run", help="Analyze metadata without processing"),
-    force: bool = typer.Option(False, "--force", help="Overwrite existing documents"),
+    dry_run: bool = dry_run_option(),
+    force: bool = force_option(),
 ):
     """ Process completed YAML metadata file."""
     handle_async(_ingest_yaml_metadata(path, dry_run, force))
@@ -83,7 +81,7 @@ def generate_yaml_metadata(
     collection: str = typer.Option(..., "--collection", "-c", help="Target library collection name"),
     output: Optional[str] = typer.Option(None, "--output", "-o", help="Output YAML file path"),
     formats: Optional[List[str]] = typer.Option(None, "--format", "-f", help="File formats to process (e.g. pdf,md,txt)"),
-    force: bool = typer.Option(False, "--force", help="Overwrite existing YAML file"),
+    force: bool = force_option(),
 ):
     """ Generate YAML metadata file for library documents."""
     handle_async(_generate_yaml_metadata(library_path, collection, output, formats, force))
