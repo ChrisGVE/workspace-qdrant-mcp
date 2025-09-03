@@ -13,11 +13,53 @@ Usage:
     wqm watch add ~/docs         # Watch folder
 """
 
-import asyncio
+import os
 import sys
+
+# Suppress warnings for version-only calls before any imports
+if len(sys.argv) >= 2 and (sys.argv[1] == "--version" or sys.argv[1] == "-v"):
+    verbose_flag = "--verbose" in sys.argv or "--debug" in sys.argv
+    if not verbose_flag:
+        os.environ["PYTHONWARNINGS"] = "ignore"
+        import warnings
+        warnings.filterwarnings('ignore')
+
+import asyncio
+import warnings
 from pathlib import Path
 from typing import Optional
 
+# Handle version flag early to avoid heavy imports
+if len(sys.argv) >= 2 and (sys.argv[1] == "--version" or sys.argv[1] == "-v"):
+    verbose_flag = "--verbose" in sys.argv or "--debug" in sys.argv
+    
+    # Get version from __init__.py without importing heavy modules
+    version_str = "0.2.0"  # Default fallback
+    try:
+        # Read version from __init__.py file directly to avoid imports
+        init_file = Path(__file__).parent.parent / "__init__.py"
+        if init_file.exists():
+            init_content = init_file.read_text()
+            import re
+            match = re.search(r'__version__\s*=\s*["\']([^"\'\']*)["\']', init_content)
+            if match:
+                version_str = match.group(1)
+    except Exception:
+        pass  # Keep fallback version
+
+    if verbose_flag:
+        # Verbose version info with detailed metadata
+        print(f"Workspace Qdrant MCP {version_str}")
+        print(f"Python {sys.version.split()[0]}")
+        print(f"Platform: {sys.platform}")
+        print(f"Installation path: {Path(__file__).parent.parent}")
+    else:
+        # Clean version display - just the version number
+        print(version_str)
+    
+    sys.exit(0)
+
+# Import heavy modules only after version check passes
 import typer
 
 from ..observability import get_logger, configure_logging
@@ -39,7 +81,7 @@ app = typer.Typer(
     name="wqm",
     help="Workspace Qdrant MCP - Unified semantic workspace management",
     add_completion=False,  # Use custom init command instead
-    no_args_is_help=True,   # Show help when no arguments provided
+    no_args_is_help=False,  # Handle this manually to allow version flag
     rich_markup_mode=None,  # Disable Rich formatting completely
 )
 logger = get_logger(__name__)
@@ -55,9 +97,11 @@ app.add_typer(library_app, name="library", help="Library collection management")
 app.add_typer(watch_app, name="watch", help="Folder watching configuration")
 app.add_typer(observability_app, name="observability", help="Observability, monitoring, and health checks")
 
-@app.callback()
+@app.callback(invoke_without_command=True)
 def main(
+    ctx: typer.Context,
     version: bool = typer.Option(False, "--version", "-v", help="Show version information"),
+    verbose: bool = typer.Option(False, "--verbose", help="Show verbose version information"),
     config_path: str | None = typer.Option(None, "--config", "-c", help="Custom configuration file"),
     debug: bool = typer.Option(False, "--debug", help="Enable debug mode with verbose logging"),
 ) -> None:
@@ -76,6 +120,20 @@ def main(
         wqm watch add ~/docs --collection=_docs  # Watch folder
         wqm init                           # Enable shell completion
     """
+    # Handle version flag first, before any configuration loading
+    if version:
+        # Suppress warnings for clean version output
+        if not verbose and not debug:
+            import warnings
+            warnings.filterwarnings('ignore')
+        show_version(verbose=verbose or debug)
+        raise typer.Exit()
+    
+    # If no command is invoked and no version flag, show help
+    if not ctx.invoked_subcommand:
+        print(ctx.get_help())
+        raise typer.Exit()
+    
     # Configure logging and environment based on debug flag
     import os
     if debug:
@@ -87,10 +145,6 @@ def main(
         # Disable initialization logging and reduce verbosity for CLI usage
         os.environ["WQM_LOG_INIT"] = "false"
         configure_logging(level="ERROR", json_format=False, console_output=False)
-    
-    if version:
-        show_version(debug=debug)
-        return
 
     if config_path:
         # TODO: Load custom config
@@ -98,21 +152,27 @@ def main(
             logger.debug("Custom config path provided", config_path=config_path)
         pass
 
-def show_version(debug: bool = False) -> None:
-    """Display version information."""
+def show_version(verbose: bool = False) -> None:
+    """Display version information.
+    
+    Args:
+        verbose: If True, show detailed version information.
+                If False, show only the version number.
+    """
     try:
         from workspace_qdrant_mcp import __version__
         version_str = __version__
     except ImportError:
         version_str = "0.2.0"  # Fallback version
 
-    if debug:
-        # Verbose version info in debug mode
+    if verbose:
+        # Verbose version info with detailed metadata
         print(f"Workspace Qdrant MCP {version_str}")
         print(f"Python {sys.version.split()[0]}")
         print(f"Platform: {sys.platform}")
+        print(f"Installation path: {Path(__file__).parent.parent}")
     else:
-        # Simple version display
+        # Clean version display - just the version number
         print(version_str)
 
 
