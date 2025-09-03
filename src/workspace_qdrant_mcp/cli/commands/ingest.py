@@ -50,7 +50,7 @@ def ingest_file(
     dry_run: bool = typer.Option(False, "--dry-run", help="Analyze file without ingesting"),
     force: bool = typer.Option(False, "--force", help="Overwrite existing documents"),
 ):
-    """📄 Ingest a single file into collection."""
+    """Ingest a single file into collection."""
     handle_async(_ingest_file(path, collection, chunk_size, chunk_overlap, dry_run, force))
 
 @ingest_app.command("folder")
@@ -66,7 +66,7 @@ def ingest_folder(
     dry_run: bool = typer.Option(False, "--dry-run", help="Analyze files without ingesting"),
     force: bool = typer.Option(False, "--force", help="Overwrite existing documents"),
 ):
-    """📁 Ingest all files in a folder."""
+    """Ingest all files in a folder."""
     handle_async(_ingest_folder(
         path, collection, formats, chunk_size, chunk_overlap,
         recursive, exclude, concurrency, dry_run, force
@@ -131,15 +131,15 @@ async def _ingest_file(
         file_path = Path(path)
 
         if not file_path.exists():
-            print(f"❌ File not found: {path}")
+            print(f"Error: File not found: {path}")
             raise typer.Exit(1)
 
         if not file_path.is_file():
-            print(f"❌ Path is not a file: {path}")
+            print(f"Error: Path is not a file: {path}")
             raise typer.Exit(1)
 
         if dry_run:
-            print(f"📄 Analyzing File: {file_path.name}")
+            print(f"Analyzing File: {file_path.name}")
 
             # Analyze file without processing
             file_info = {
@@ -154,18 +154,18 @@ async def _ingest_file(
             print(f"Path: {file_info['path']}")
             print(f"Size: {file_info['size_mb']} MB")
             print(f"Extension: {file_info['extension']}")
-            print(f"Supported: {'✅ Yes' if file_info['supported'] else '❌ No'}")
+            print(f"Supported: {'Yes' if file_info['supported'] else 'No'}")
 
             if file_info["supported"]:
-                print("✅ File can be processed with current settings")
+                print("File can be processed with current settings")
                 estimated_chunks = max(1, int(file_info["size_mb"] * 1024 * 1024 / chunk_size))
                 print(f"Estimated chunks: ~{estimated_chunks}")
             else:
-                print(f"❌ Unsupported file format: {file_info['extension']}")
+                print(f"Error: Unsupported file format: {file_info['extension']}")
 
             return
 
-        print(f"📄 Ingesting File: {file_path.name}")
+        print(f"Ingesting File: {file_path.name}")
 
         # Process the file via daemon
         try:
@@ -183,7 +183,7 @@ async def _ingest_file(
             )
 
             if response.success:
-                print(f"✅ Document processed successfully")
+                print(f"Document processed successfully")
                 print(f"Document ID: {response.document_id}")
                 print(f"Chunks added: {response.chunks_added}")
                 if response.applied_metadata:
@@ -191,17 +191,17 @@ async def _ingest_file(
                     for key, value in response.applied_metadata.items():
                         print(f"  {key}: {value}")
             else:
-                print(f"❌ Processing failed: {response.message}")
+                print(f"Error: Processing failed: {response.message}")
                 raise typer.Exit(1)
 
         except Exception as e:
-            print(f"❌ Processing failed: {e}")
+            print(f"Error: Processing failed: {e}")
             raise typer.Exit(1)
 
     try:
         await with_daemon_client(ingest_operation)
     except Exception as e:
-        print(f"❌ Ingestion failed: {e}")
+        print(f"Error: Ingestion failed: {e}")
         raise typer.Exit(1)
 
 async def _ingest_folder(
