@@ -10,7 +10,6 @@ from pathlib import Path
 from typing import List, Optional
 
 import typer
-from rich.progress import BarColumn, Progress, SpinnerColumn, TextColumn
 
 from ...cli.ingestion_engine import DocumentIngestionEngine, IngestionResult
 from ...core.daemon_client import get_daemon_client, with_daemon_client
@@ -128,7 +127,7 @@ async def _ingest_file(
     file_path = Path(path)
     
     if not file_path.exists():
-        print(f"❌ File not found: {path}")
+        print(f"Error: File not found: {path}")
         print("\nPlease check:")
         print("• File path is correct and accessible")
         print("• File has not been moved or deleted")
@@ -136,7 +135,7 @@ async def _ingest_file(
         raise typer.Exit(1)
 
     if not file_path.is_file():
-        print(f"❌ Path is not a regular file: {path}")
+        print(f"Error: Path is not a regular file: {path}")
         print("\nThe path appears to be a directory or special file.")
         print("To process a folder, use: wqm ingest folder")
         raise typer.Exit(1)
@@ -227,7 +226,7 @@ async def _ingest_folder(
         folder_path = Path(path)
 
         if not folder_path.exists():
-            print(f"❌ Folder not found: {path}")
+            print(f"Error: Folder not found: {path}")
             print("\nPlease check:")
             print("• Folder path is correct and accessible")
             print("• Folder has not been moved or deleted")
@@ -235,7 +234,7 @@ async def _ingest_folder(
             raise typer.Exit(1)
 
         if not folder_path.is_dir():
-            print(f"❌ Path is not a directory: {path}")
+            print(f"Error: Path is not a directory: {path}")
             print("\nThe path appears to be a file, not a folder.")
             print("To process a single file, use: wqm ingest file")
             raise typer.Exit(1)
@@ -271,16 +270,12 @@ async def _ingest_folder(
             print(f"No files found matching criteria in {path}")
             return
 
-        print(f" Found {len(files)} files to process")
+        print(f"Found {len(files)} files to process")
 
         if dry_run:
             # Show analysis summary
-            from rich.table import Table
-            summary_table = Table(title="Folder Analysis Summary")
-            summary_table.add_column("Format", style="cyan")
-            summary_table.add_column("Count", justify="right")
-            summary_table.add_column("Total Size (MB)", justify="right")
-
+            print("Folder Analysis Summary:")
+            
             format_stats = {}
             total_size = 0
 
@@ -295,22 +290,10 @@ async def _ingest_folder(
                 total_size += size_mb
 
             for ext, stats in format_stats.items():
-                summary_table.add_row(
-                    f".{ext}",
-                    str(stats['count']),
-                    f"{stats['size_mb']:.2f}"
-                )
+                print(f"  .{ext}: {stats['count']} files, {stats['size_mb']:.2f} MB")
 
-            summary_table.add_row(
-                "Total",
-                f"{len(files)}",
-                f"{total_size:.2f}"
-            )
-
-            from rich.console import Console
-            console = Console()
-            console.print(summary_table)
-            print(f" {len(files)} files ready for processing")
+            print(f"  Total: {len(files)} files, {total_size:.2f} MB")
+            print(f"{len(files)} files ready for processing")
             return
 
         from ...core.config import Config
@@ -328,52 +311,45 @@ async def _ingest_folder(
         )
 
         # Process files with progress
-        print(f" Processing {len(files)} files...")
+        print(f"Processing {len(files)} files...")
 
-        with Progress(
-            TextColumn("{task.description}"),
-            BarColumn(),
-            TextColumn("{task.percentage:>3.0f}%"),
-            console=console,
-        ) as progress:
-            main_task = progress.add_task("Overall progress", total=len(files))
+        results = []
+        processed = 0
 
-            results = []
-            processed = 0
+        # Process files in batches based on concurrency
+        for i in range(0, len(files), concurrency):
+            batch = files[i:i+concurrency]
 
-            # Process files in batches based on concurrency
-            for i in range(0, len(files), concurrency):
-                batch = files[i:i+concurrency]
+            # Process batch concurrently
+            batch_tasks = []
+            for file_path in batch:
+                task = engine.ingest_file(file_path)
+                batch_tasks.append(task)
 
-                # Process batch concurrently
-                batch_tasks = []
-                for file_path in batch:
-                    task = engine.ingest_file(file_path)
-                    batch_tasks.append(task)
+            batch_results = await asyncio.gather(*batch_tasks, return_exceptions=True)
 
-                batch_results = await asyncio.gather(*batch_tasks, return_exceptions=True)
-
-                for file_path, result in zip(batch, batch_results, strict=False):
-                    processed += 1
-                    if isinstance(result, Exception):
-                        print(f"Error: Failed to process {file_path.name}: {result}")
-                        results.append(None)
-                    else:
-                        results.append(result)
-
-                    progress.update(main_task, completed=processed)
+            for file_path, result in zip(batch, batch_results, strict=False):
+                processed += 1
+                if isinstance(result, Exception):
+                    print(f"Error: Failed to process {file_path.name}: {result}")
+                    results.append(None)
+                else:
+                    results.append(result)
+                    
+                # Show progress
+                print(f"Progress: {processed}/{len(files)} files processed ({100*processed//len(files)}%)", end='\r')
 
         # Display summary
         successful_results = [r for r in results if r is not None]
 
-        print("\n Folder ingestion completed!")
-        print(f"  Successfully processed: {len(successful_results)}/{len(files)} files")
+        print("\nFolder ingestion completed!")
+        print(f"Successfully processed: {len(successful_results)}/{len(files)} files")
 
         if successful_results:
             total_chunks = sum(r.chunks_created for r in successful_results)
             total_chars = sum(r.total_characters for r in successful_results)
-            print(f"  Total chunks created: {total_chunks}")
-            print(f"  Total characters processed: {total_chars:,}")
+            print(f"Total chunks created: {total_chunks}")
+            print(f"Total characters processed: {total_chars:,}")
 
     except Exception as e:
         print(f"Error: Folder ingestion failed: {e}")
@@ -410,10 +386,10 @@ async def _generate_yaml_metadata(
             print(f"Error: Output file exists (use --force to overwrite): {output_path}")
             raise typer.Exit(1)
 
-        print(" Generating YAML Metadata for Library")
-        print(f"  Library Path: {lib_path}")
-        print(f"  Collection: {collection}")
-        print(f"  Output: {output_path}")
+        print("Generating YAML Metadata for Library")
+        print(f"Library Path: {lib_path}")
+        print(f"Collection: {collection}")
+        print(f"Output: {output_path}")
 
         # Create workflow
         from ...core.config import Config
@@ -423,45 +399,28 @@ async def _generate_yaml_metadata(
         workflow = YamlMetadataWorkflow(client)
 
         # Generate YAML file
-        from rich.console import Console
-        console = Console()
-        with Progress(
-            SpinnerColumn(),
-            TextColumn("{task.description}"),
-            console=console,
-        ) as progress:
-            task = progress.add_task("Analyzing documents and extracting metadata...", total=100)
-
-            result_path = await workflow.generate_yaml_file(
-                library_path=lib_path,
-                library_collection=collection,
-                output_path=output_path,
-                formats=formats
-            )
-
-            progress.update(task, completed=100)
+        print("Analyzing documents and extracting metadata...")
+        
+        result_path = await workflow.generate_yaml_file(
+            library_path=lib_path,
+            library_collection=collection,
+            output_path=output_path,
+            formats=formats
+        )
 
         if result_path:
-            from rich.panel import Panel
-            result_panel = Panel(
-                f""" YAML metadata file generated successfully!
-
- Location: {result_path}
- Next steps:
-  1. Review and complete the metadata in the YAML file
-  2. Fill in fields marked with '?'
-  3. Run: wqm ingest yaml {result_path}
-
-💡 The file contains:
-  • Detected metadata from document analysis
-  • Required fields for each document type
-  • Processing instructions and examples""",
-                title="🎉 YAML Generation Complete",
-                border_style="green"
-            )
-            console.print(result_panel)
+            print("YAML metadata file generated successfully!")
+            print(f"Location: {result_path}")
+            print("Next steps:")
+            print("  1. Review and complete the metadata in the YAML file")
+            print("  2. Fill in fields marked with '?'")
+            print(f"  3. Run: wqm ingest yaml {result_path}")
+            print("The file contains:")
+            print("  - Detected metadata from document analysis")
+            print("  - Required fields for each document type")
+            print("  - Processing instructions and examples")
         else:
-            print(" No documents found to process")
+            print("No documents found to process")
 
     except Exception as e:
         print(f"Error: YAML generation failed: {e}")
@@ -476,7 +435,7 @@ async def _ingest_yaml_metadata(path: str, dry_run: bool, force: bool):
             print(f"Error: YAML file not found: {path}")
             raise typer.Exit(1)
 
-        print(f" Processing YAML Metadata: {yaml_path.name}")
+        print(f"Processing YAML Metadata: {yaml_path.name}")
 
         # Create workflow
         from ...core.config import Config
@@ -486,21 +445,12 @@ async def _ingest_yaml_metadata(path: str, dry_run: bool, force: bool):
         workflow = YamlMetadataWorkflow(client)
 
         # Process YAML file
-        from rich.console import Console
-        console = Console()
-        with Progress(
-            SpinnerColumn(),
-            TextColumn("{task.description}"),
-            console=console,
-        ) as progress:
-            task = progress.add_task("Processing documents with metadata...", total=100)
-
-            results = await workflow.process_yaml_file(
-                yaml_path=yaml_path,
-                dry_run=dry_run
-            )
-
-            progress.update(task, completed=100)
+        print("Processing documents with metadata...")
+        
+        results = await workflow.process_yaml_file(
+            yaml_path=yaml_path,
+            dry_run=dry_run
+        )
 
         # Display results
         processed = results.get('processed', 0)
@@ -509,42 +459,35 @@ async def _ingest_yaml_metadata(path: str, dry_run: bool, force: bool):
         remaining = results.get('remaining', 0)
 
         if dry_run:
-            from rich.panel import Panel
-            result_panel = Panel(
-                f""" YAML Metadata Analysis (Dry Run)
-
- Processing Summary:
-  • Ready to process: {processed} documents
-  • Missing metadata: {skipped} documents
-  • Errors found: {len(errors)} documents
-  • Remaining in YAML: {remaining} documents
-
-{" All documents ready for processing!" if remaining == 0 else " Complete remaining metadata and run again"}
-
-{chr(10).join(f" Error: {error}" for error in errors) if errors else ""}
-{"  ... and more errors" if len(errors) > 5 else ""}""",
-                title=" Dry Run Results",
-                border_style="blue"
-            )
+            print("YAML Metadata Analysis (Dry Run)")
+            print("Processing Summary:")
+            print(f"  Ready to process: {processed} documents")
+            print(f"  Missing metadata: {skipped} documents")
+            print(f"  Errors found: {len(errors)} documents")
+            print(f"  Remaining in YAML: {remaining} documents")
+            if remaining == 0:
+                print("All documents ready for processing!")
+            else:
+                print("Complete remaining metadata and run again")
+            for error in errors[:5]:
+                print(f"  Error: {error}")
+            if len(errors) > 5:
+                print("  ... and more errors")
         else:
-            result_panel = Panel(
-                f""" YAML Metadata Processing Complete!
-
- Processing Summary:
-  • Successfully processed: {processed} documents
-  • Skipped (incomplete metadata): {skipped} documents
-  • Errors encountered: {len(errors)} documents
-  • Remaining in YAML file: {remaining} documents
-
-{"🎉 All documents processed successfully!" if remaining == 0 else f"📝 {remaining} documents still need metadata completion"}
-
-{chr(10).join(f" Error: {error}" for error in errors) if errors else ""}
-{"  ... and more errors" if len(errors) > 3 else ""}""",
-                title="🎉 Processing Complete",
-                border_style="green"
-            )
-
-        console.print(result_panel)
+            print("YAML Metadata Processing Complete!")
+            print("Processing Summary:")
+            print(f"  Successfully processed: {processed} documents")
+            print(f"  Skipped (incomplete metadata): {skipped} documents")
+            print(f"  Errors encountered: {len(errors)} documents")
+            print(f"  Remaining in YAML file: {remaining} documents")
+            if remaining == 0:
+                print("All documents processed successfully!")
+            else:
+                print(f"{remaining} documents still need metadata completion")
+            for error in errors[:3]:
+                print(f"  Error: {error}")
+            if len(errors) > 3:
+                print("  ... and more errors")
 
         # Show guidance for next steps
         if remaining > 0 and not dry_run:
@@ -568,17 +511,17 @@ async def _ingest_web_pages(
 ):
     """Crawl and ingest web pages."""
     try:
-        print(f" Web Crawling: {url}")
+        print(f"Web Crawling: {url}")
 
         # TODO: Implement web crawling and ingestion
         # This will be part of future enhancement
 
         if dry_run:
-            print(" Web crawling analysis (dry run)")
+            print("Web crawling analysis (dry run)")
             print(f"Would crawl {url} with max depth {max_depth} and max {max_pages} pages")
             print("Web crawling feature will be implemented in a future task")
         else:
-            print(" Web crawling")
+            print("Web crawling")
             print("Web crawling feature will be implemented in a future task")
 
     except Exception as e:
@@ -588,7 +531,7 @@ async def _ingest_web_pages(
 async def _ingestion_status(collection: Optional[str], recent: bool):
     """Show ingestion status and statistics."""
     try:
-        print(" Ingestion Status")
+        print("Ingestion Status")
 
         from ...core.config import Config
         from ...core.client import create_qdrant_client
@@ -601,12 +544,9 @@ async def _ingestion_status(collection: Optional[str], recent: bool):
         else:
             collections = await client.list_collections()
 
-        from rich.table import Table
-        status_table = Table(title="Collection Status")
-        status_table.add_column("Collection", style="cyan")
-        status_table.add_column("Points", justify="right")
-        status_table.add_column("Type", style="white")
-        status_table.add_column("Status", justify="center")
+        print("Collection Status:")
+        print(f"{'Collection':<30} {'Points':<10} {'Type':<10} {'Status':<10}")
+        print("-" * 65)
 
         for col in collections:
             name = col.get("name", "unknown")
@@ -624,14 +564,10 @@ async def _ingestion_status(collection: Optional[str], recent: bool):
                 else:
                     status = "Active"
 
-                status_table.add_row(name, str(points), col_type, status)
+                print(f"{name:<30} {points:<10} {col_type:<10} {status:<10}")
 
             except Exception:
-                status_table.add_row(name, "?", "Unknown", "Error")
-
-        from rich.console import Console
-        console = Console()
-        console.print(status_table)
+                print(f"{name:<30} {'?':<10} {'Unknown':<10} {'Error':<10}")
 
         # Show recent activity if requested
         if recent:
@@ -643,33 +579,18 @@ async def _ingestion_status(collection: Optional[str], recent: bool):
 
 def _display_ingestion_result(result: IngestionResult, filename: str):
     """Display ingestion result summary."""
-    from rich.panel import Panel
-    from rich.console import Console
-
+    
     if result.success:
-        result_panel = Panel(
-            f""" Successfully ingested: {filename}
-
- Processing Summary:
-  • Chunks created: {result.chunks_created}
-  • Total characters: {result.total_characters:,}
-  • Processing time: {result.processing_time_seconds:.2f}s
-  • Average chunk size: {result.total_characters // max(1, result.chunks_created)} chars
-
- Collection: {result.collection_name}""",
-            title="🎉 Ingestion Complete",
-            border_style="green"
-        )
+        print(f"Successfully ingested: {filename}")
+        print("Processing Summary:")
+        print(f"  Chunks created: {result.chunks_created}")
+        print(f"  Total characters: {result.total_characters:,}")
+        print(f"  Processing time: {result.processing_time_seconds:.2f}s")
+        print(f"  Average chunk size: {result.total_characters // max(1, result.chunks_created)} chars")
+        print(f"Collection: {result.collection_name}")
     else:
-        result_panel = Panel(
-            f"""Error: Failed to ingest: {filename} Error: {result.error_message}
-
- Partial Results:
-  • Chunks created: {result.chunks_created}
-  • Processing time: {result.processing_time_seconds:.2f}s""",
-            title="💥 Ingestion Failed",
-            border_style="red"
-        )
-
-    console = Console()
-    console.print(result_panel)
+        print(f"Error: Failed to ingest: {filename}")
+        print(f"Error: {result.error_message}")
+        print("Partial Results:")
+        print(f"  Chunks created: {result.chunks_created}")
+        print(f"  Processing time: {result.processing_time_seconds:.2f}s")
