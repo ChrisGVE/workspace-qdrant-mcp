@@ -80,6 +80,10 @@ scopeguard = "1.2"
 name = "memexd"
 path = "src/bin/memexd.rs"
 
+[[bin]]
+name = "memexd-priority"
+path = "src/bin/memexd_priority.rs"
+
 # Note: Platform-specific optimizations temporarily removed for compatibility
 
 # Feature flags for platform-specific optimizations and testing
