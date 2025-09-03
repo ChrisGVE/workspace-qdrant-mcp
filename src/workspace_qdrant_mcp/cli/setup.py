@@ -134,7 +134,7 @@ class SetupWizard:
                 return SetupResult(False, "System requirements check failed")
 
             # Build configuration step by step
-            console.print("\n⚙️  Building configuration...", style="blue")
+            console.print("\nBuilding configuration...", style="blue")
 
             # 1. Qdrant configuration
             qdrant_config = await self._configure_qdrant()
@@ -159,7 +159,7 @@ class SetupWizard:
             )
 
             # 4. Test complete configuration
-            console.print("\n🔍 Testing complete configuration...", style="blue")
+            console.print("\nTesting complete configuration...", style="blue")
             test_result = await self._test_configuration()
             if not test_result:
                 return SetupResult(False, "Configuration testing failed")
@@ -179,15 +179,15 @@ class SetupWizard:
                 if Confirm.ask(
                     "\n📚 Would you like to create sample documents for testing?"
                 ):
-                    console.print("\n📄 Creating sample documents...", style="blue")
+                    console.print("\nCreating sample documents...", style="blue")
                     sample_result = await self._create_sample_documents()
                     if sample_result:
                         console.print(
-                            "✅ Sample documents created successfully", style="green"
+                            "Sample documents created successfully", style="green"
                         )
 
             # 8. Final verification
-            console.print("\n✨ Running final system verification...", style="blue")
+            console.print("\nRunning final system verification...", style="blue")
             await self._verify_installation()
 
             # Success message
@@ -196,10 +196,10 @@ class SetupWizard:
             return SetupResult(True, "Setup completed successfully", config_path)
 
         except KeyboardInterrupt:
-            console.print("\n❌ Setup cancelled by user", style="red")
+            console.print("\nError: Setup cancelled by user", style="red")
             return SetupResult(False, "Setup cancelled by user")
         except Exception as e:
-            console.print(f"\n❌ Setup failed: {e}", style="red")
+            console.print(f"\nError: Setup failed: {e}", style="red")
             logger.error(f"Setup failed: {e}", exc_info=True)
             return SetupResult(False, f"Setup failed: {e}")
 

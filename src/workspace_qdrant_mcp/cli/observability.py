@@ -236,19 +236,19 @@ def health(
                 # Overall status message
                 status = health_data.get("status", "unknown")
                 if status == "healthy":
-                    console.print("\n✅ [green]System is healthy and operational[/green]")
+                    console.print("\n[green]System is healthy and operational[/green]")
                 elif status == "degraded":
-                    console.print("\n⚠️  [yellow]System is degraded but operational[/yellow]")
+                    console.print("\n[yellow]Warning: System is degraded but operational[/yellow]")
                 else:
-                    console.print("\n❌ [red]System is unhealthy[/red]")
+                    console.print("\n[red]Error: System is unhealthy[/red]")
                     # Set error exit code for CI/CD
                     raise typer.Exit(1)
         
         except asyncio.TimeoutError:
-            console.print(f"❌ [red]Health check timed out after {timeout} seconds[/red]")
+            console.print(f"[red]Error: Health check timed out after {timeout} seconds[/red]")
             raise typer.Exit(1)
         except Exception as e:
-            console.print(f"❌ [red]Health check failed: {e}[/red]")
+            console.print(f"[red]Error: Health check failed: {e}[/red]")
             raise typer.Exit(1)
     
     asyncio.run(check_health())
@@ -294,7 +294,7 @@ def metrics(
             output_content = json.dumps(metrics_data, indent=2)
             if output_file:
                 output_file.write_text(output_content)
-                console.print(f"✅ Metrics saved to {output_file}")
+                console.print(f"Metrics saved to {output_file}")
             else:
                 console.print_json(output_content)
         
@@ -302,13 +302,13 @@ def metrics(
             output_content = metrics_instance.export_prometheus_format()
             if output_file:
                 output_file.write_text(output_content)
-                console.print(f"✅ Prometheus metrics saved to {output_file}")
+                console.print(f"Prometheus metrics saved to {output_file}")
             else:
                 console.print(output_content)
         
         else:  # table format
             if output_file:
-                console.print("❌ [red]Table format cannot be saved to file. Use --format json or prometheus[/red]")
+                console.print("[red]Error: Table format cannot be saved to file. Use --format json or prometheus[/red]")
                 raise typer.Exit(1)
             
             table = create_metrics_table(metrics_data)
@@ -322,7 +322,7 @@ def metrics(
             console.print(f"\n📊 Total metrics: {counter_count} counters, {gauge_count} gauges, {histogram_count} histograms")
     
     except Exception as e:
-        console.print(f"❌ [red]Failed to collect metrics: {e}[/red]")
+        console.print(f"[red]Error: Failed to collect metrics: {e}[/red]")
         raise typer.Exit(1)
 
 
@@ -354,7 +354,7 @@ def diagnostics(
                 # Save detailed diagnostics to file
                 diagnostics_json = json.dumps(diagnostics_data, indent=2, default=str)
                 output_file.write_text(diagnostics_json)
-                console.print(f"✅ [green]Diagnostics saved to {output_file}[/green]")
+                console.print(f"[green]Diagnostics saved to {output_file}[/green]")
             else:
                 # Display formatted diagnostics
                 console.print("[bold]System Diagnostics Report[/bold]")
@@ -418,7 +418,7 @@ def diagnostics(
                     console.print(Panel(verbose_content, title="Full Diagnostic Data", border_style="dim"))
                 
         except Exception as e:
-            console.print(f"❌ [red]Diagnostics failed: {e}[/red]")
+            console.print(f"[red]Error: Diagnostics failed: {e}[/red]")
             raise typer.Exit(1)
     
     asyncio.run(run_diagnostics())
@@ -440,9 +440,9 @@ def monitor(
             start_time = time.time()
             iteration = 0
             
-            console.print(f"🔍 [cyan]Starting continuous monitoring (interval: {interval}s)[/cyan]")
+            console.print(f"[cyan]Starting continuous monitoring (interval: {interval}s)[/cyan]")
             if duration:
-                console.print(f"⏱️  [dim]Will run for {duration} seconds[/dim]")
+                console.print(f"[dim]Will run for {duration} seconds[/dim]")
             console.print("Press Ctrl+C to stop\n")
             
             def create_monitor_layout(health_data: Dict[str, Any], metrics_data: Dict[str, Any]) -> Layout:
@@ -532,7 +532,7 @@ def monitor(
                            (alert_threshold == "unhealthy" and status == "unhealthy"):
                             
                             # Print alert to stderr (won't interfere with live display)
-                            alert_message = f"🚨 ALERT: System status is {status.upper()} at {time.strftime('%H:%M:%S')}"
+                            alert_message = f"ALERT: System status is {status.upper()} at {time.strftime('%H:%M:%S')}"
                             console.print(f"\n{alert_message}", style="bold red", err=True)
                         
                         # Sleep until next check
@@ -542,10 +542,10 @@ def monitor(
                         break
                 
             runtime = time.time() - start_time
-            console.print(f"\n✅ [green]Monitoring completed. Runtime: {runtime:.1f}s, Iterations: {iteration}[/green]")
+            console.print(f"\n[green]Monitoring completed. Runtime: {runtime:.1f}s, Iterations: {iteration}[/green]")
             
         except Exception as e:
-            console.print(f"\n❌ [red]Monitoring failed: {e}[/red]")
+            console.print(f"\n[red]Error: Monitoring failed: {e}[/red]")
             raise typer.Exit(1)
     
     try:
