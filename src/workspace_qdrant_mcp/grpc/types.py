@@ -14,6 +14,7 @@ from .ingestion_pb2 import (
     ProcessDocumentResponse as PbProcessDocumentResponse,
     ExecuteQueryRequest as PbExecuteQueryRequest,
     ExecuteQueryResponse as PbExecuteQueryResponse,
+    HealthResponse as PbHealthResponse,
     SearchMode,
     WatchEventType,
     WatchStatus,
@@ -161,8 +162,13 @@ class ExecuteQueryResponse:
 
 @dataclass
 class HealthCheckRequest:
-    """Health check request (empty for now)."""
+    """Health check request (uses Empty protobuf)."""
     pass
+    
+    def to_pb(self):
+        """Convert to protobuf Empty message."""
+        from google.protobuf.empty_pb2 import Empty
+        return Empty()
 
 
 @dataclass  
@@ -173,8 +179,8 @@ class HealthCheckResponse:
     services: List[Dict[str, Any]]
     
     @classmethod
-    def from_pb(cls, pb_response) -> 'HealthCheckResponse':
-        """Create from protobuf message."""
+    def from_pb(cls, pb_response: PbHealthResponse) -> 'HealthCheckResponse':
+        """Create from protobuf HealthResponse message."""
         # Convert status enum to string
         status_mapping = {
             HealthStatus.HEALTH_STATUS_HEALTHY: "healthy",

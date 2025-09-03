@@ -16,7 +16,7 @@ import grpc.aio
 from grpc import ChannelConnectivity
 
 from .ingestion_pb2_grpc import IngestServiceStub
-from .ingestion_pb2 import HealthCheckRequest
+from google.protobuf.empty_pb2 import Empty
 
 logger = logging.getLogger(__name__)
 
