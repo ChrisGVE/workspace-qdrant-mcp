@@ -330,3 +330,204 @@ async def search_via_grpc(
                 logger.warning("Error during search client cleanup", error=str(cleanup_error))
     
     return result
+
+
+async def stream_processing_status_grpc(
+    host: str = "127.0.0.1",
+    port: int = 50051,
+    update_interval: int = 5,
+    include_history: bool = True,
+    collection_filter: Optional[str] = None,
+    timeout: float = 60.0
+) -> Dict[str, Any]:
+    """
+    Stream real-time processing status from gRPC daemon.
+    
+    Args:
+        host: gRPC server host
+        port: gRPC server port
+        update_interval: Update interval in seconds
+        include_history: Include recent processing history
+        collection_filter: Filter by specific collection
+        timeout: Timeout for the streaming operation
+        
+    Returns:
+        Dict with streaming status results or error information
+    """
+    result = {
+        "success": False,
+        "error": None,
+        "status_updates": []
+    }
+    
+    client = None
+    try:
+        # Create and start client
+        config = ConnectionConfig(host=host, port=port)
+        client = AsyncIngestClient(connection_config=config)
+        await client.start()
+        
+        # Stream processing status updates
+        update_count = 0
+        async for update in client.stream_processing_status(
+            update_interval_seconds=update_interval,
+            include_history=include_history,
+            collection_filter=collection_filter
+        ):
+            result["status_updates"].append(update)
+            update_count += 1
+            
+            # For tool usage, limit to first few updates to avoid timeout
+            if update_count >= 3:
+                break
+        
+        result.update({
+            "success": True,
+            "update_count": update_count,
+            "message": f"Successfully streamed {update_count} processing status updates"
+        })
+        
+    except Exception as e:
+        logger.error("gRPC status streaming failed", error=str(e))
+        result["error"] = str(e)
+        
+    finally:
+        if client:
+            try:
+                await client.stop()
+            except Exception as cleanup_error:
+                logger.warning("Error during status streaming cleanup", error=str(cleanup_error))
+    
+    return result
+
+
+async def stream_system_metrics_grpc(
+    host: str = "127.0.0.1",
+    port: int = 50051,
+    update_interval: int = 10,
+    include_detailed_metrics: bool = True,
+    timeout: float = 60.0
+) -> Dict[str, Any]:
+    """
+    Stream real-time system metrics from gRPC daemon.
+    
+    Args:
+        host: gRPC server host
+        port: gRPC server port
+        update_interval: Update interval in seconds
+        include_detailed_metrics: Include performance metrics
+        timeout: Timeout for the streaming operation
+        
+    Returns:
+        Dict with streaming metrics results or error information
+    """
+    result = {
+        "success": False,
+        "error": None,
+        "metrics_updates": []
+    }
+    
+    client = None
+    try:
+        # Create and start client
+        config = ConnectionConfig(host=host, port=port)
+        client = AsyncIngestClient(connection_config=config)
+        await client.start()
+        
+        # Stream system metrics updates
+        update_count = 0
+        async for update in client.stream_system_metrics(
+            update_interval_seconds=update_interval,
+            include_detailed_metrics=include_detailed_metrics
+        ):
+            result["metrics_updates"].append(update)
+            update_count += 1
+            
+            # For tool usage, limit to first few updates
+            if update_count >= 3:
+                break
+        
+        result.update({
+            "success": True,
+            "update_count": update_count,
+            "message": f"Successfully streamed {update_count} system metrics updates"
+        })
+        
+    except Exception as e:
+        logger.error("gRPC metrics streaming failed", error=str(e))
+        result["error"] = str(e)
+        
+    finally:
+        if client:
+            try:
+                await client.stop()
+            except Exception as cleanup_error:
+                logger.warning("Error during metrics streaming cleanup", error=str(cleanup_error))
+    
+    return result
+
+
+async def stream_queue_status_grpc(
+    host: str = "127.0.0.1",
+    port: int = 50051,
+    update_interval: int = 3,
+    collection_filter: Optional[str] = None,
+    timeout: float = 60.0
+) -> Dict[str, Any]:
+    """
+    Stream real-time queue status from gRPC daemon.
+    
+    Args:
+        host: gRPC server host
+        port: gRPC server port
+        update_interval: Update interval in seconds
+        collection_filter: Filter by specific collection
+        timeout: Timeout for the streaming operation
+        
+    Returns:
+        Dict with streaming queue results or error information
+    """
+    result = {
+        "success": False,
+        "error": None,
+        "queue_updates": []
+    }
+    
+    client = None
+    try:
+        # Create and start client
+        config = ConnectionConfig(host=host, port=port)
+        client = AsyncIngestClient(connection_config=config)
+        await client.start()
+        
+        # Stream queue status updates
+        update_count = 0
+        async for update in client.stream_queue_status(
+            update_interval_seconds=update_interval,
+            collection_filter=collection_filter
+        ):
+            result["queue_updates"].append(update)
+            update_count += 1
+            
+            # For tool usage, limit to first few updates
+            if update_count >= 3:
+                break
+        
+        result.update({
+            "success": True,
+            "update_count": update_count,
+            "message": f"Successfully streamed {update_count} queue status updates"
+        })
+        
+    except Exception as e:
+        logger.error("gRPC queue streaming failed", error=str(e))
+        result["error"] = str(e)
+        
+    finally:
+        if client:
+            try:
+                await client.stop()
+            except Exception as cleanup_error:
+                logger.warning("Error during queue streaming cleanup", error=str(cleanup_error))
+    
+    return result
