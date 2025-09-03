@@ -131,6 +131,7 @@ workspace_qdrant_admin.log
 CLAUDE.md
 backup-dr/
 external/
+!external/qdrant-web-ui
 # proto/ (commented out - proto files should be tracked as source code)
 dev/
 
