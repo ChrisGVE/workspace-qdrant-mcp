@@ -72,7 +72,7 @@ from .core.watch_validation import (
     ValidationResult,
     WatchPathValidator,
 )
-from .core.yaml_config import WorkspaceConfig, load_config
+from .core.config import Config
 
 # Import observability system
 from .observability import (
@@ -2125,13 +2125,13 @@ async def initialize_workspace(config_file: Optional[str] = None) -> None:
 
     logger.info("Starting workspace initialization")
 
-    # Load configuration using new YAML-first system
+    # Load configuration using Config class
     logger.debug("Loading configuration", config_file=config_file)
     try:
-        config = load_config(config_file)
+        config = Config(config_file=config_file)
         logger.info(
             "Configuration loaded successfully",
-            config_source="YAML file" if config_file else "hierarchy",
+            config_source="file" if config_file else "environment",
             config_file=config_file,
         )
     except Exception as e:
@@ -2143,11 +2143,10 @@ async def initialize_workspace(config_file: Optional[str] = None) -> None:
     # Configuration is already validated by the YAML loader with JSON schema
     logger.info("Configuration validation completed successfully")
 
-    # Initialize workspace client with new YAML configuration
+    # Initialize workspace client with configuration
     logger.info(
-        "Initializing workspace client with daemon communication",
+        "Initializing workspace client",
         qdrant_url=config.qdrant.url,
-        daemon_address=f"{config.daemon.grpc.host}:{config.daemon.grpc.port}",
     )
 
     import os
