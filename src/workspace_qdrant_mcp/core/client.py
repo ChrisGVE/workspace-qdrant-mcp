@@ -256,9 +256,9 @@ class QdrantWorkspaceClient:
             )
 
             workspace_collections = (
-                await self.collection_manager.list_workspace_collections()
+                self.collection_manager.list_workspace_collections()
             )
-            collection_info = await self.collection_manager.get_collection_info()
+            collection_info = self.collection_manager.get_collection_info()
 
             return {
                 "connected": True,
@@ -303,7 +303,7 @@ class QdrantWorkspaceClient:
             return []
 
         try:
-            return await self.collection_manager.list_workspace_collections()
+            return self.collection_manager.list_workspace_collections()
 
         except Exception as e:
             logger.error("Failed to list collections: %s", e)
