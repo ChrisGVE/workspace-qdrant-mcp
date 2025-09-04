@@ -33,7 +33,7 @@ Example:
     )
 
     # List available workspace collections
-    collections = await manager.list_workspace_collections()
+    collections = manager.list_workspace_collections()
     ```
 """
 
@@ -131,7 +131,7 @@ class WorkspaceCollectionManager:
         )
 
         # Get workspace status
-        collections = await manager.list_workspace_collections()
+        collections = manager.list_workspace_collections()
         info = await manager.get_collection_info()
         ```
     """
