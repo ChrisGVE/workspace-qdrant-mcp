@@ -1,0 +1,7 @@
+include README.md
+include LICENSE
+include CHANGELOG.md
+recursive-include src/workspace_qdrant_mcp *.json
+recursive-include src/workspace_qdrant_mcp *.yaml
+recursive-include src/workspace_qdrant_mcp *.yml
+recursive-include src/workspace_qdrant_mcp *.proto

@@ -341,5 +341,6 @@ def setup_logging_from_env() -> None:
 
 
 # Initialize logging from environment if not already configured
-if not logging.getLogger().handlers:
+# Skip auto-initialization if WQM_LOG_INIT is explicitly set to false (CLI usage)
+if not logging.getLogger().handlers and os.getenv("WQM_LOG_INIT", "true").lower() != "false":
     setup_logging_from_env()
