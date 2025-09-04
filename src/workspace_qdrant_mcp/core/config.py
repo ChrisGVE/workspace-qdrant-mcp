@@ -393,6 +393,10 @@ class Config(BaseSettings):
                 processed["embedding"] = EmbeddingConfig(**value)
             elif key == "workspace" and isinstance(value, dict):
                 processed["workspace"] = WorkspaceConfig(**value)
+            elif key == "auto_ingestion" and isinstance(value, dict):
+                processed["auto_ingestion"] = AutoIngestionConfig(**value)
+            elif key == "grpc" and isinstance(value, dict):
+                processed["grpc"] = GrpcConfig(**value)
             elif key in ["host", "port", "debug"]:  # Server-level config
                 processed[key] = value
             else:
