@@ -293,7 +293,7 @@ class DocumentTypeDetector:
                 "doi:",
                 "journal",
                 "volume",
-                "references",
+                "reference",
                 "methodology",
                 "conclusion",
                 "research",
