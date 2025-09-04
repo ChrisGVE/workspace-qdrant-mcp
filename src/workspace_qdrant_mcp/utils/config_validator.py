@@ -631,7 +631,7 @@ class ConfigValidator:
                 "Optional:",
                 "  QDRANT_API_KEY=your-api-key",
                 "  GITHUB_USER=your-username",
-                "  GLOBAL_COLLECTIONS=docs,references,standards",
+                "  GLOBAL_COLLECTIONS=docs,reference,standards",
                 "",
                 "Advanced:",
                 "  FASTEMBED_MODEL=sentence-transformers/all-MiniLM-L6-v2",
