@@ -148,7 +148,8 @@ class WorkspaceCollectionManager:
         self._collections_cache: dict[str, CollectionConfig] | None = None
         # Initialize the naming manager with legacy global collections for compatibility
         self.naming_manager = CollectionNamingManager(
-            global_collections=self.config.workspace.global_collections
+            global_collections=self.config.workspace.global_collections,
+            valid_project_suffixes=self.config.workspace.effective_collection_suffixes
         )
 
     async def initialize_workspace_collections(
