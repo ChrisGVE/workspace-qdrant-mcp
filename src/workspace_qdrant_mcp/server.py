@@ -196,7 +196,7 @@ async def list_workspace_collections() -> list[str]:
 
     Example:
         ```python
-        collections = await list_workspace_collections()
+        collections = list_workspace_collections()
         logger.info("Available collections retrieved",
                    collections=collections,
                    count=len(collections))
