@@ -1,6 +1,9 @@
 # Workspace Qdrant MCP Configuration
 # TOML format for memexd daemon
 
+# Logging configuration
+log_file = "./memexd.log"
+
 # Processing engine configuration
 max_concurrent_tasks = 4
 default_timeout_ms = 30000
