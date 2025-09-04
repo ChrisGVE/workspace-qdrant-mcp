@@ -108,7 +108,7 @@ class WatchPathValidator:
             metadata = {}
 
             # Check basic read permission
-            if not path.is_readable():
+            if not os.access(path, os.R_OK):
                 return ValidationResult(
                     valid=False,
                     error_code="PATH_NOT_READABLE",
@@ -133,7 +133,7 @@ class WatchPathValidator:
                 metadata["can_list_contents"] = False
 
             # Check write permissions (needed for some operations)
-            if not path.is_writeable():
+            if not os.access(path, os.W_OK):
                 warnings.append(
                     "Directory is not writeable - some operations may be limited"
                 )
