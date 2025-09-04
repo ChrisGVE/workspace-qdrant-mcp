@@ -89,8 +89,8 @@ class CollectionNamingManager:
         "_admin",  # Reserved for future admin use
     }
 
-    # Valid project collection suffixes
-    VALID_PROJECT_SUFFIXES = {
+    # Default project collection suffixes - can be overridden by configuration
+    DEFAULT_PROJECT_SUFFIXES = {
         "scratchbook",  # Interactive notes and context
         "docs",  # Documentation (not code - reserved for memexd)
     }
@@ -101,14 +101,16 @@ class CollectionNamingManager:
     # Pattern for valid project names - must be at least 2 chars
     PROJECT_NAME_PATTERN = re.compile(r"^[a-z][a-z0-9_-]*[a-z0-9]$|^[a-z]$")
 
-    def __init__(self, global_collections: list[str] = None):
+    def __init__(self, global_collections: list[str] = None, valid_project_suffixes: list[str] = None):
         """
         Initialize the collection naming manager.
 
         Args:
             global_collections: Legacy global collection names to preserve compatibility
+            valid_project_suffixes: Configured project collection suffixes (overrides defaults)
         """
         self.global_collections = set(global_collections or [])
+        self.valid_project_suffixes = set(valid_project_suffixes) if valid_project_suffixes else self.DEFAULT_PROJECT_SUFFIXES
 
     def validate_collection_name(
         self, name: str, intended_type: CollectionType | None = None
@@ -179,7 +181,7 @@ class CollectionNamingManager:
                     return NamingValidationResult(
                         is_valid=False,
                         error_message=f"Invalid project collection suffix '{potential_suffix}'. "
-                        f"Valid suffixes: {', '.join(self.VALID_PROJECT_SUFFIXES)}",
+                        f"Valid suffixes: {', '.join(self.valid_project_suffixes)}",
                     )
                 else:
                     return NamingValidationResult(
@@ -222,7 +224,7 @@ class CollectionNamingManager:
             parts = name.split("-")
             if len(parts) >= 2:
                 potential_suffix = parts[-1]
-                if potential_suffix not in self.VALID_PROJECT_SUFFIXES:
+                if potential_suffix not in self.valid_project_suffixes:
                     # Only flag as error if it looks like it's trying to be a project collection
                     suspicious_suffixes = {
                         "code",
@@ -243,7 +245,7 @@ class CollectionNamingManager:
                         return NamingValidationResult(
                             is_valid=False,
                             error_message=f"Invalid project collection suffix '{potential_suffix}'. "
-                            f"Valid suffixes: {', '.join(self.VALID_PROJECT_SUFFIXES)}",
+                            f"Valid suffixes: {', '.join(self.valid_project_suffixes)}",
                         )
 
         # Check type consistency if intended type was provided
@@ -425,7 +427,7 @@ class CollectionNamingManager:
             List of collection names that should be created for the project
         """
         collections = []
-        for suffix in self.VALID_PROJECT_SUFFIXES:
+        for suffix in self.valid_project_suffixes:
             collections.append(f"{project_name}-{suffix}")
         return collections
 
@@ -465,7 +467,7 @@ class CollectionNamingManager:
         parts = name.split("-")
         if len(parts) >= 2:
             potential_suffix = parts[-1]
-            if potential_suffix in self.VALID_PROJECT_SUFFIXES:
+            if potential_suffix in self.valid_project_suffixes:
                 project_name = "-".join(parts[:-1])
                 # Validate project name format
                 if self.PROJECT_NAME_PATTERN.match(project_name):
