@@ -16,6 +16,9 @@ Usage:
 import os
 import sys
 
+# Suppress observability initialization logging for CLI usage
+os.environ.setdefault("WQM_LOG_INIT", "false")
+
 # Suppress warnings for version-only calls before any imports
 if len(sys.argv) >= 2 and (sys.argv[1] == "--version" or sys.argv[1] == "-v"):
     verbose_flag = "--verbose" in sys.argv or "--debug" in sys.argv
