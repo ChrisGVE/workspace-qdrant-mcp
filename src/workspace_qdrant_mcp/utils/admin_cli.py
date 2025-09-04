@@ -151,7 +151,10 @@ class WorkspaceQdrantAdmin:
         """
         async with self.get_client() as client:
             try:
-                collections = client.list_collections()
+                collection_names = client.list_collections()
+                
+                # Convert to dictionary format expected by the rest of the method
+                collections = [{"name": name} for name in collection_names]
 
                 # Filter to current project if project scoping is enabled
                 if self.project_scope:
@@ -205,8 +208,7 @@ class WorkspaceQdrantAdmin:
         async with self.get_client() as client:
             try:
                 # Check if collection exists
-                collections = client.list_collections()
-                collection_names = [col.get("name") for col in collections]
+                collection_names = client.list_collections()
 
                 if collection_name not in collection_names:
                     logger.warning(f"Collection {collection_name} does not exist")
@@ -362,15 +364,15 @@ class WorkspaceQdrantAdmin:
 
                 # Test Qdrant connection
                 try:
-                    collections = client.list_collections()
+                    collection_names = client.list_collections()
                     health_info["qdrant"] = {
                         "status": "connected",
-                        "total_collections": len(collections),
+                        "total_collections": len(collection_names),
                         "project_collections": len(
                             [
-                                col
-                                for col in collections
-                                if col["name"].startswith(self.collection_prefix)
+                                name
+                                for name in collection_names
+                                if name.startswith(self.collection_prefix)
                             ]
                         ),
                     }
