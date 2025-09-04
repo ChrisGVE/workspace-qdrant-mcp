@@ -8,7 +8,7 @@ and session initialization with memory-driven LLM behavior.
 import json
 import logging
 import os
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
@@ -272,7 +272,7 @@ class ClaudeCodeIntegration:
                 metadata={
                     "original_text": update.text,
                     "confidence": update.confidence,
-                    "extracted_at": datetime.utcnow().isoformat(),
+                    "extracted_at": datetime.now(timezone.utc).isoformat(),
                 },
             )
         except Exception as e:

@@ -6,7 +6,7 @@ coordinating all memory operations including storage, conflict detection, and in
 """
 
 import logging
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional, Tuple
 
 from ..core.client import QdrantWorkspaceClient
@@ -175,7 +175,7 @@ class MemoryManager:
             await self.initialize()
 
         try:
-            rule.updated_at = datetime.utcnow()
+            rule.updated_at = datetime.now(timezone.utc)
             success = await self.schema.update_rule(rule)
 
             if success:
@@ -445,7 +445,7 @@ class MemoryManager:
             "collection": collection_stats,
             "token_usage": token_usage.to_dict(),
             "conflicts": conflict_summary,
-            "last_updated": datetime.utcnow().isoformat(),
+            "last_updated": datetime.now(timezone.utc).isoformat(),
         }
 
     async def export_rules(self) -> list[dict[str, Any]]:

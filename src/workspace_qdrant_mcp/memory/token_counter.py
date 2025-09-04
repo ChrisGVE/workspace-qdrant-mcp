@@ -411,9 +411,9 @@ class TokenCounter:
 
         # Recency (recently used rules are more important)
         if rule.last_used:
-            import datetime
+            from datetime import datetime, timezone
 
-            days_since_use = (datetime.datetime.utcnow() - rule.last_used).days
+            days_since_use = (datetime.now(timezone.utc) - rule.last_used).days
             recency_score = max(0, 5.0 - (days_since_use * 0.1))  # Decay over time
             score += recency_score
 

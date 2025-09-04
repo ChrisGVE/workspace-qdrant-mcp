@@ -13,7 +13,7 @@ file formats.
 import hashlib
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Optional, Union
 
@@ -114,7 +114,7 @@ class ParsedDocument:
             file_type=file_type,
             metadata=metadata,
             content_hash=content_hash,
-            parsed_at=datetime.utcnow().isoformat(),
+            parsed_at=datetime.now(timezone.utc).isoformat(),
             file_size=file_size,
             parsing_info=parsing_info,
         )
