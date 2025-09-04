@@ -379,7 +379,12 @@ class ProjectDetector:
             url_info = self._parse_git_url(remote_url)
             is_github = url_info.get("is_github", False)
             username = url_info.get("username")
-            return bool(is_github and username == self.github_user)
+            return bool(
+                is_github 
+                and username 
+                and self.github_user 
+                and username.lower() == self.github_user.lower()
+            )
 
         except Exception as e:
             logger.warning(
