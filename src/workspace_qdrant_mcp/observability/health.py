@@ -757,5 +757,31 @@ class HealthChecker:
             )
 
 
-# Global health checker instance
-health_checker_instance = HealthChecker()
+# Global health checker instance (lazy initialization)
+_health_checker_instance: Optional[HealthChecker] = None
+
+
+def get_health_checker() -> HealthChecker:
+    """Get the global health checker instance with lazy initialization.
+    
+    Returns:
+        The global HealthChecker instance, created on first access.
+    """
+    global _health_checker_instance
+    if _health_checker_instance is None:
+        _health_checker_instance = HealthChecker()
+    return _health_checker_instance
+
+
+class LazyHealthChecker:
+    """Lazy proxy for health checker instance."""
+    
+    def __getattr__(self, name):
+        return getattr(get_health_checker(), name)
+    
+    def __call__(self, *args, **kwargs):
+        return get_health_checker()(*args, **kwargs)
+
+
+# Maintain API compatibility with lazy initialization
+health_checker_instance = LazyHealthChecker()

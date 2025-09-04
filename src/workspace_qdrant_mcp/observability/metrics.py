@@ -567,8 +567,34 @@ class MetricsCollector:
             logger.info("All metrics reset")
 
 
-# Global metrics instance
-metrics_instance = MetricsCollector()
+# Global metrics instance (lazy initialization)
+_metrics_instance: Optional[MetricsCollector] = None
+
+
+def get_metrics_collector() -> MetricsCollector:
+    """Get the global metrics collector instance with lazy initialization.
+    
+    Returns:
+        The global MetricsCollector instance, created on first access.
+    """
+    global _metrics_instance
+    if _metrics_instance is None:
+        _metrics_instance = MetricsCollector()
+    return _metrics_instance
+
+
+class LazyMetricsCollector:
+    """Lazy proxy for metrics collector instance."""
+    
+    def __getattr__(self, name):
+        return getattr(get_metrics_collector(), name)
+    
+    def __call__(self, *args, **kwargs):
+        return get_metrics_collector()(*args, **kwargs)
+
+
+# Maintain API compatibility with lazy initialization
+metrics_instance = LazyMetricsCollector()
 
 
 @contextmanager
