@@ -2167,13 +2167,7 @@ async def initialize_workspace(config_file: Optional[str] = None) -> None:
     )
 
     # Create workspace client (will use direct Qdrant until daemon is ready)
-    workspace_client = QdrantWorkspaceClient(
-        qdrant_url=config.qdrant.url,
-        api_key=config.qdrant.api_key,
-        timeout_seconds=config.qdrant.timeout_seconds,
-        project_name=project_name,
-        project_path=project_path,
-    )
+    workspace_client = QdrantWorkspaceClient(config)
 
     # Initialize collections for current project
     logger.debug("Initializing workspace collections")
