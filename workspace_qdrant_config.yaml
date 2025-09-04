@@ -23,8 +23,8 @@ embedding:
 
 # Workspace configuration
 workspace:
-  collection_suffixes: ["scratchbook"]
-  global_collections: ["docs", "references", "standards"]
+  collection_suffixes: ["repo", "scratchbook"]
+  global_collections: ["docs", "reference", "standards"]
   github_user: null
   collection_prefix: ""
   max_collections: 100
