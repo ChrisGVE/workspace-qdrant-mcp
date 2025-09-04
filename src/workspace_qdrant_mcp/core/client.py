@@ -28,7 +28,7 @@ Example:
     await client.initialize()
 
     # Client automatically detects project and creates collections
-    collections = await client.list_collections()
+    collections = client.list_collections()
     status = await client.get_status()
     ```
 """
@@ -84,7 +84,7 @@ class QdrantWorkspaceClient:
 
         # Use the client for operations
         status = await workspace_client.get_status()
-        collections = await workspace_client.list_collections()
+        collections = workspace_client.list_collections()
 
         # Clean up when done
         await workspace_client.close()

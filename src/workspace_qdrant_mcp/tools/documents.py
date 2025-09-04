@@ -156,7 +156,7 @@ async def add_document(
 
     try:
         # Validate collection exists
-        available_collections = await client.list_collections()
+        available_collections = client.list_collections()
         if collection not in available_collections:
             return {"error": f"Collection '{collection}' not found"}
 
@@ -336,7 +336,7 @@ async def update_document(
 
     try:
         # Validate collection exists
-        available_collections = await client.list_collections()
+        available_collections = client.list_collections()
         if collection not in available_collections:
             return {"error": f"Collection '{collection}' not found"}
 
@@ -435,7 +435,7 @@ async def delete_document(
 
     try:
         # Validate collection exists
-        available_collections = await client.list_collections()
+        available_collections = client.list_collections()
         if collection not in available_collections:
             return {"error": f"Collection '{collection}' not found"}
 
@@ -489,7 +489,7 @@ async def get_document(
 
     try:
         # Validate collection exists
-        available_collections = await client.list_collections()
+        available_collections = client.list_collections()
         if collection not in available_collections:
             return {"error": f"Collection '{collection}' not found"}
 

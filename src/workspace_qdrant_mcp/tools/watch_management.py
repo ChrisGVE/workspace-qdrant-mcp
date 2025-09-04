@@ -169,7 +169,7 @@ class WatchToolsManager:
                 )
 
             # Validate collection exists
-            available_collections = await self.workspace_client.list_collections()
+            available_collections = self.workspace_client.list_collections()
             if collection not in available_collections:
                 return {
                     "success": False,
