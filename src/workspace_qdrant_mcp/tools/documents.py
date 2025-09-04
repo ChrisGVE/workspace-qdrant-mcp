@@ -53,6 +53,7 @@ Example:
     ```
 """
 
+import asyncio
 import logging
 import uuid
 from datetime import datetime
@@ -280,6 +281,22 @@ async def _add_single_document(
 
         # Insert into Qdrant (use actual collection name)
         await client.client.upsert(collection_name=actual_collection, points=[point])
+
+        # Brief consistency check - ensure document is immediately searchable
+        # Small delay to allow for Qdrant's internal indexing
+        await asyncio.sleep(0.1)  # 100ms delay for consistency
+        
+        # Verify the document was successfully added
+        try:
+            verify_result = client.client.retrieve(
+                collection_name=actual_collection,
+                ids=[point_id],
+                with_payload=False  # Just check existence
+            )
+            if not verify_result:
+                logger.warning("Document %s may not be immediately searchable", point_id)
+        except Exception as verify_error:
+            logger.warning("Could not verify document insertion: %s", verify_error)
 
         logger.debug(
             "Added document point %s to collection %s (actual: %s)",
