@@ -679,4 +679,14 @@ class Config(BaseSettings):
         elif self.workspace.max_collections > 10000:
             issues.append("Max collections limit is too high (max 10000 recommended)")
 
+        # Validate auto-ingestion target_collection_suffix
+        if hasattr(self.auto_ingestion, 'target_collection_suffix'):
+            target_suffix = self.auto_ingestion.target_collection_suffix
+            available_suffixes = self.workspace.effective_collection_suffixes
+            if target_suffix and target_suffix not in available_suffixes:
+                issues.append(
+                    f"auto_ingestion.target_collection_suffix '{target_suffix}' "
+                    f"is not in workspace.collection_suffixes {available_suffixes}"
+                )
+
         return issues
