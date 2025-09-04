@@ -124,7 +124,7 @@ async def research_workspace(
 
         elif mode == "all":
             # Search all available collections
-            collections = await client.list_collections()
+            collections = client.list_collections()
 
             # Optionally filter out archived collections
             if not include_archived:

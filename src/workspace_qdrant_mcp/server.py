@@ -558,7 +558,7 @@ async def hybrid_search_advanced_tool(
 
     try:
         # Validate collection exists
-        available_collections = await workspace_client.list_collections()
+        available_collections = workspace_client.list_collections()
         if collection not in available_collections:
             return {"error": f"Collection '{collection}' not found"}
 

@@ -150,11 +150,11 @@ async def search_workspace(
         # Get collections to search
         display_collections = collections  # Keep original for user reference
         if collections is None:
-            display_collections = await client.list_collections()
+            display_collections = client.list_collections()
             collections = display_collections
         else:
             # Validate collections exist
-            available_collections = await client.list_collections()
+            available_collections = client.list_collections()
             invalid_collections = [
                 c for c in collections if c not in available_collections
             ]
@@ -385,7 +385,7 @@ async def search_collection_by_metadata(
 
     try:
         # Validate collection exists
-        available_collections = await client.list_collections()
+        available_collections = client.list_collections()
         if collection not in available_collections:
             return {"error": f"Collection '{collection}' not found"}
 

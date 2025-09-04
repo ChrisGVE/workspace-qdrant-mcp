@@ -358,7 +358,7 @@ class AutoIngestionManager:
             logger.info(f"Detected project: {project_info['main_project']}")
 
             # Get available collections
-            collections = await self.workspace_client.list_collections()
+            collections = self.workspace_client.list_collections()
             if not collections:
                 logger.warning("No collections available - skipping watch setup")
                 return {
