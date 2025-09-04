@@ -42,7 +42,7 @@ import threading
 import time
 from contextlib import asynccontextmanager
 from dataclasses import asdict, dataclass
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 from enum import Enum
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional, Set, Tuple
@@ -88,6 +88,7 @@ class FileProcessingRecord:
     file_size: Optional[int] = None
     file_hash: Optional[str] = None
     metadata: Optional[Dict[str, Any]] = None
+    document_id: Optional[str] = None  # For multi-component testing
 
     def __post_init__(self):
         if self.created_at is None:
@@ -348,6 +349,7 @@ class SQLiteStateManager:
                 error_message TEXT,
                 file_size INTEGER,
                 file_hash TEXT,
+                document_id TEXT,
                 metadata TEXT  -- JSON
             )
             """,
@@ -423,6 +425,86 @@ class SQLiteStateManager:
             "CREATE INDEX idx_processing_history_file_path ON processing_history(file_path)",
             "CREATE INDEX idx_processing_history_status ON processing_history(status)",
             "CREATE INDEX idx_processing_history_created_at ON processing_history(created_at)",
+            # Multi-component integration tables
+            """
+            CREATE TABLE events (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                event_type TEXT NOT NULL,
+                file_path TEXT,
+                component TEXT,
+                data TEXT,  -- JSON
+                timestamp TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+            )
+            """,
+            "CREATE INDEX idx_events_type ON events(event_type)",
+            "CREATE INDEX idx_events_file_path ON events(file_path)",
+            "CREATE INDEX idx_events_component ON events(component)",
+            "CREATE INDEX idx_events_timestamp ON events(timestamp)",
+            """
+            CREATE TABLE search_history (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                query TEXT NOT NULL,
+                results_count INTEGER,
+                source TEXT,
+                response_time_ms INTEGER,
+                timestamp TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                metadata TEXT  -- JSON
+            )
+            """,
+            "CREATE INDEX idx_search_history_query ON search_history(query)",
+            "CREATE INDEX idx_search_history_source ON search_history(source)",
+            "CREATE INDEX idx_search_history_timestamp ON search_history(timestamp)",
+            """
+            CREATE TABLE memory_rules (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                rule_id TEXT UNIQUE NOT NULL,
+                rule_data TEXT NOT NULL,  -- JSON
+                created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+            )
+            """,
+            "CREATE INDEX idx_memory_rules_rule_id ON memory_rules(rule_id)",
+            """
+            CREATE TABLE configuration_history (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                config_data TEXT NOT NULL,  -- JSON
+                source TEXT NOT NULL,
+                timestamp TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+            )
+            """,
+            "CREATE INDEX idx_config_history_timestamp ON configuration_history(timestamp)",
+            "CREATE INDEX idx_config_history_source ON configuration_history(source)",
+            """
+            CREATE TABLE error_log (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                error_type TEXT NOT NULL,
+                error_message TEXT NOT NULL,
+                source TEXT NOT NULL,
+                timestamp TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                metadata TEXT  -- JSON
+            )
+            """,
+            "CREATE INDEX idx_error_log_type ON error_log(error_type)",
+            "CREATE INDEX idx_error_log_source ON error_log(source)",
+            "CREATE INDEX idx_error_log_timestamp ON error_log(timestamp)",
+            """
+            CREATE TABLE performance_metrics (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                operation TEXT NOT NULL,
+                metric_data TEXT NOT NULL,  -- JSON
+                timestamp TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+            )
+            """,
+            "CREATE INDEX idx_performance_metrics_operation ON performance_metrics(operation)",
+            "CREATE INDEX idx_performance_metrics_timestamp ON performance_metrics(timestamp)",
+            """
+            CREATE TABLE resource_usage (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                usage_data TEXT NOT NULL,  -- JSON
+                timestamp TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+            )
+            """,
+            "CREATE INDEX idx_resource_usage_timestamp ON resource_usage(timestamp)",
             # Insert initial schema version
             f"INSERT INTO schema_version (version) VALUES ({self.SCHEMA_VERSION})",
         ]
@@ -623,6 +705,501 @@ class SQLiteStateManager:
             logger.warning(f"Failed to deserialize JSON data: {e}")
             return None
 
+    # Multi-Component Communication Support Methods
+
+    async def update_processing_state(
+        self,
+        file_path: str,
+        status: str,
+        collection_name: Optional[str] = None,
+        document_id: Optional[str] = None,
+        metadata: Optional[Dict[str, Any]] = None,
+    ) -> bool:
+        """Update processing state for multi-component testing."""
+        try:
+            async with self.transaction() as conn:
+                if status == "processing":
+                    # Start processing
+                    conn.execute(
+                        """
+                        INSERT OR REPLACE INTO file_processing 
+                        (file_path, collection, status, started_at, updated_at, metadata)
+                        VALUES (?, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP, ?)
+                        """,
+                        (
+                            file_path,
+                            collection_name or "default",
+                            status,
+                            self._serialize_json(metadata),
+                        ),
+                    )
+                else:
+                    # Update existing record
+                    update_fields = ["status = ?", "updated_at = CURRENT_TIMESTAMP"]
+                    params = [status]
+                    
+                    if document_id:
+                        update_fields.append("document_id = ?")
+                        params.append(document_id)
+                    
+                    if metadata:
+                        update_fields.append("metadata = ?")
+                        params.append(self._serialize_json(metadata))
+                    
+                    if status in ["completed", "failed"]:
+                        update_fields.append("completed_at = CURRENT_TIMESTAMP")
+                    
+                    params.append(file_path)
+                    
+                    conn.execute(
+                        f"UPDATE file_processing SET {', '.join(update_fields)} WHERE file_path = ?",
+                        params,
+                    )
+
+            return True
+        except Exception as e:
+            logger.error(f"Failed to update processing state {file_path}: {e}")
+            return False
+
+    async def get_processing_states(
+        self, filter_params: Optional[Dict[str, Any]] = None
+    ) -> List[Dict[str, Any]]:
+        """Get processing states with optional filtering."""
+        try:
+            with self._lock:
+                sql = """
+                    SELECT file_path, collection, status, document_id, metadata, 
+                           created_at, updated_at, completed_at
+                    FROM file_processing
+                """
+                
+                params = []
+                if filter_params:
+                    conditions = []
+                    for key, value in filter_params.items():
+                        conditions.append(f"{key} = ?")
+                        params.append(value)
+                    
+                    if conditions:
+                        sql += " WHERE " + " AND ".join(conditions)
+                
+                sql += " ORDER BY updated_at DESC"
+                
+                cursor = self.connection.execute(sql, params)
+                rows = cursor.fetchall()
+
+                results = []
+                for row in rows:
+                    results.append({
+                        "file_path": row["file_path"],
+                        "collection": row["collection"],
+                        "status": row["status"],
+                        "document_id": row["document_id"],
+                        "metadata": self._deserialize_json(row["metadata"]) or {},
+                        "created_at": row["created_at"],
+                        "updated_at": row["updated_at"],
+                        "completed_at": row["completed_at"],
+                    })
+
+                return results
+        except Exception as e:
+            logger.error(f"Failed to get processing states: {e}")
+            return []
+
+    async def record_search_operation(
+        self,
+        query: str,
+        results_count: int,
+        source: str,
+        metadata: Optional[Dict[str, Any]] = None,
+    ) -> bool:
+        """Record search operation for multi-component tracking."""
+        try:
+            async with self.transaction() as conn:
+                response_time_ms = metadata.get("response_time_ms") if metadata else None
+                
+                conn.execute(
+                    """
+                    INSERT INTO search_history 
+                    (query, results_count, source, response_time_ms, metadata)
+                    VALUES (?, ?, ?, ?, ?)
+                    """,
+                    (
+                        query,
+                        results_count,
+                        source,
+                        response_time_ms,
+                        self._serialize_json(metadata),
+                    ),
+                )
+
+            return True
+        except Exception as e:
+            logger.error(f"Failed to record search operation: {e}")
+            return False
+
+    async def get_search_history(
+        self, limit: Optional[int] = None
+    ) -> List[Dict[str, Any]]:
+        """Get search history."""
+        try:
+            with self._lock:
+                sql = """
+                    SELECT query, results_count, source, response_time_ms, 
+                           timestamp, metadata
+                    FROM search_history
+                    ORDER BY timestamp DESC
+                """
+                
+                params = []
+                if limit:
+                    sql += " LIMIT ?"
+                    params.append(limit)
+                
+                cursor = self.connection.execute(sql, params)
+                rows = cursor.fetchall()
+
+                results = []
+                for row in rows:
+                    results.append({
+                        "query": row["query"],
+                        "results_count": row["results_count"],
+                        "source": row["source"],
+                        "response_time_ms": row["response_time_ms"],
+                        "timestamp": row["timestamp"],
+                        "metadata": self._deserialize_json(row["metadata"]) or {},
+                    })
+
+                return results
+        except Exception as e:
+            logger.error(f"Failed to get search history: {e}")
+            return []
+
+    async def store_memory_rule(
+        self, rule_id: str, rule_data: Dict[str, Any]
+    ) -> bool:
+        """Store memory rule."""
+        try:
+            async with self.transaction() as conn:
+                conn.execute(
+                    """
+                    INSERT OR REPLACE INTO memory_rules 
+                    (rule_id, rule_data, updated_at)
+                    VALUES (?, ?, CURRENT_TIMESTAMP)
+                    """,
+                    (rule_id, self._serialize_json(rule_data)),
+                )
+
+            return True
+        except Exception as e:
+            logger.error(f"Failed to store memory rule {rule_id}: {e}")
+            return False
+
+    async def get_memory_rules(self) -> List[Dict[str, Any]]:
+        """Get all memory rules."""
+        try:
+            with self._lock:
+                cursor = self.connection.execute(
+                    "SELECT rule_id, rule_data, created_at, updated_at FROM memory_rules ORDER BY created_at"
+                )
+                rows = cursor.fetchall()
+
+                results = []
+                for row in rows:
+                    results.append({
+                        "rule_id": row["rule_id"],
+                        "rule_data": self._deserialize_json(row["rule_data"]) or {},
+                        "created_at": row["created_at"],
+                        "updated_at": row["updated_at"],
+                    })
+
+                return results
+        except Exception as e:
+            logger.error(f"Failed to get memory rules: {e}")
+            return []
+
+    async def record_event(self, event: Dict[str, Any]) -> bool:
+        """Record event for multi-component tracking."""
+        try:
+            async with self.transaction() as conn:
+                conn.execute(
+                    """
+                    INSERT INTO events 
+                    (event_type, file_path, component, data, timestamp)
+                    VALUES (?, ?, ?, ?, ?)
+                    """,
+                    (
+                        event.get("type"),
+                        event.get("file_path"),
+                        event.get("component"),
+                        self._serialize_json(event),
+                        event.get("timestamp", time.time()),
+                    ),
+                )
+
+            return True
+        except Exception as e:
+            logger.error(f"Failed to record event: {e}")
+            return False
+
+    async def get_events(
+        self, filter_params: Optional[Dict[str, Any]] = None
+    ) -> List[Dict[str, Any]]:
+        """Get events with optional filtering."""
+        try:
+            with self._lock:
+                sql = "SELECT event_type, file_path, component, data, timestamp FROM events"
+                
+                params = []
+                if filter_params:
+                    conditions = []
+                    for key, value in filter_params.items():
+                        if key in ["event_type", "file_path", "component"]:
+                            conditions.append(f"{key} = ?")
+                            params.append(value)
+                        elif key == "type":  # Handle 'type' -> 'event_type' mapping
+                            conditions.append("event_type = ?")
+                            params.append(value)
+                    
+                    if conditions:
+                        sql += " WHERE " + " AND ".join(conditions)
+                
+                sql += " ORDER BY timestamp DESC"
+                
+                cursor = self.connection.execute(sql, params)
+                rows = cursor.fetchall()
+
+                results = []
+                for row in rows:
+                    event_data = self._deserialize_json(row["data"]) or {}
+                    event_data.update({
+                        "type": row["event_type"],
+                        "file_path": row["file_path"],
+                        "component": row["component"],
+                        "timestamp": row["timestamp"],
+                    })
+                    results.append(event_data)
+
+                return results
+        except Exception as e:
+            logger.error(f"Failed to get events: {e}")
+            return []
+
+    async def record_configuration_change(
+        self, config_data: Dict[str, Any], source: str, timestamp: Optional[float] = None
+    ) -> bool:
+        """Record configuration change."""
+        try:
+            async with self.transaction() as conn:
+                conn.execute(
+                    """
+                    INSERT INTO configuration_history 
+                    (config_data, source, timestamp)
+                    VALUES (?, ?, ?)
+                    """,
+                    (
+                        self._serialize_json(config_data),
+                        source,
+                        timestamp or time.time(),
+                    ),
+                )
+
+            return True
+        except Exception as e:
+            logger.error(f"Failed to record configuration change: {e}")
+            return False
+
+    async def get_configuration_history(self) -> List[Dict[str, Any]]:
+        """Get configuration history."""
+        try:
+            with self._lock:
+                cursor = self.connection.execute(
+                    "SELECT config_data, source, timestamp FROM configuration_history ORDER BY timestamp DESC"
+                )
+                rows = cursor.fetchall()
+
+                results = []
+                for row in rows:
+                    results.append({
+                        "config_data": self._deserialize_json(row["config_data"]) or {},
+                        "source": row["source"],
+                        "timestamp": row["timestamp"],
+                    })
+
+                return results
+        except Exception as e:
+            logger.error(f"Failed to get configuration history: {e}")
+            return []
+
+    async def record_error(
+        self,
+        error_type: str,
+        error_message: str,
+        source: str,
+        metadata: Optional[Dict[str, Any]] = None,
+    ) -> bool:
+        """Record error."""
+        try:
+            async with self.transaction() as conn:
+                conn.execute(
+                    """
+                    INSERT INTO error_log 
+                    (error_type, error_message, source, metadata)
+                    VALUES (?, ?, ?, ?)
+                    """,
+                    (
+                        error_type,
+                        error_message,
+                        source,
+                        self._serialize_json(metadata),
+                    ),
+                )
+
+            return True
+        except Exception as e:
+            logger.error(f"Failed to record error: {e}")
+            return False
+
+    async def get_errors(
+        self, filter_params: Optional[Dict[str, Any]] = None
+    ) -> List[Dict[str, Any]]:
+        """Get errors with optional filtering."""
+        try:
+            with self._lock:
+                sql = "SELECT error_type, error_message, source, timestamp, metadata FROM error_log"
+                
+                params = []
+                if filter_params:
+                    conditions = []
+                    for key, value in filter_params.items():
+                        conditions.append(f"{key} = ?")
+                        params.append(value)
+                    
+                    if conditions:
+                        sql += " WHERE " + " AND ".join(conditions)
+                
+                sql += " ORDER BY timestamp DESC"
+                
+                cursor = self.connection.execute(sql, params)
+                rows = cursor.fetchall()
+
+                results = []
+                for row in rows:
+                    results.append({
+                        "error_type": row["error_type"],
+                        "error_message": row["error_message"],
+                        "source": row["source"],
+                        "timestamp": row["timestamp"],
+                        "metadata": self._deserialize_json(row["metadata"]) or {},
+                    })
+
+                return results
+        except Exception as e:
+            logger.error(f"Failed to get errors: {e}")
+            return []
+
+    async def record_performance_metric(self, metric: Dict[str, Any]) -> bool:
+        """Record performance metric."""
+        try:
+            async with self.transaction() as conn:
+                conn.execute(
+                    """
+                    INSERT INTO performance_metrics 
+                    (operation, metric_data, timestamp)
+                    VALUES (?, ?, ?)
+                    """,
+                    (
+                        metric.get("operation"),
+                        self._serialize_json(metric),
+                        metric.get("timestamp", time.time()),
+                    ),
+                )
+
+            return True
+        except Exception as e:
+            logger.error(f"Failed to record performance metric: {e}")
+            return False
+
+    async def get_performance_metrics(
+        self, filter_params: Optional[Dict[str, Any]] = None
+    ) -> List[Dict[str, Any]]:
+        """Get performance metrics with optional filtering."""
+        try:
+            with self._lock:
+                sql = "SELECT operation, metric_data, timestamp FROM performance_metrics"
+                
+                params = []
+                if filter_params:
+                    conditions = []
+                    for key, value in filter_params.items():
+                        conditions.append(f"{key} = ?")
+                        params.append(value)
+                    
+                    if conditions:
+                        sql += " WHERE " + " AND ".join(conditions)
+                
+                sql += " ORDER BY timestamp DESC"
+                
+                cursor = self.connection.execute(sql, params)
+                rows = cursor.fetchall()
+
+                results = []
+                for row in rows:
+                    metric_data = self._deserialize_json(row["metric_data"]) or {}
+                    metric_data.update({
+                        "operation": row["operation"],
+                        "timestamp": row["timestamp"],
+                    })
+                    results.append(metric_data)
+
+                return results
+        except Exception as e:
+            logger.error(f"Failed to get performance metrics: {e}")
+            return []
+
+    async def record_resource_usage(self, usage_data: Dict[str, Any]) -> bool:
+        """Record resource usage."""
+        try:
+            async with self.transaction() as conn:
+                conn.execute(
+                    """
+                    INSERT INTO resource_usage 
+                    (usage_data, timestamp)
+                    VALUES (?, ?)
+                    """,
+                    (
+                        self._serialize_json(usage_data),
+                        usage_data.get("timestamp", time.time()),
+                    ),
+                )
+
+            return True
+        except Exception as e:
+            logger.error(f"Failed to record resource usage: {e}")
+            return False
+
+    async def get_resource_usage_history(self) -> List[Dict[str, Any]]:
+        """Get resource usage history."""
+        try:
+            with self._lock:
+                cursor = self.connection.execute(
+                    "SELECT usage_data, timestamp FROM resource_usage ORDER BY timestamp DESC"
+                )
+                rows = cursor.fetchall()
+
+                results = []
+                for row in rows:
+                    usage_data = self._deserialize_json(row["usage_data"]) or {}
+                    usage_data["timestamp"] = row["timestamp"]
+                    results.append(usage_data)
+
+                return results
+        except Exception as e:
+            logger.error(f"Failed to get resource usage history: {e}")
+            return []
+
+    # Original methods continue here...
+    
     # File Processing State Management
 
     async def start_file_processing(
@@ -756,7 +1333,7 @@ class SQLiteStateManager:
                     """
                     SELECT file_path, collection, status, priority, created_at, updated_at,
                            started_at, completed_at, retry_count, max_retries, error_message,
-                           file_size, file_hash, metadata
+                           file_size, file_hash, document_id, metadata
                     FROM file_processing
                     WHERE file_path = ?
                     """,
@@ -793,6 +1370,7 @@ class SQLiteStateManager:
                     error_message=row["error_message"],
                     file_size=row["file_size"],
                     file_hash=row["file_hash"],
+                    document_id=row["document_id"],
                     metadata=self._deserialize_json(row["metadata"]),
                 )
 
@@ -812,7 +1390,7 @@ class SQLiteStateManager:
                 sql = """
                     SELECT file_path, collection, status, priority, created_at, updated_at,
                            started_at, completed_at, retry_count, max_retries, error_message,
-                           file_size, file_hash, metadata
+                           file_size, file_hash, document_id, metadata
                     FROM file_processing
                     WHERE status = ?
                 """
@@ -861,6 +1439,7 @@ class SQLiteStateManager:
                             error_message=row["error_message"],
                             file_size=row["file_size"],
                             file_hash=row["file_hash"],
+                            document_id=row["document_id"],
                             metadata=self._deserialize_json(row["metadata"]),
                         )
                     )
@@ -1624,12 +2203,22 @@ class SQLiteStateManager:
                     "processing_queue": "SELECT COUNT(*) FROM processing_queue",
                     "processing_history": "SELECT COUNT(*) FROM processing_history",
                     "system_state": "SELECT COUNT(*) FROM system_state",
+                    "events": "SELECT COUNT(*) FROM events",
+                    "search_history": "SELECT COUNT(*) FROM search_history",
+                    "memory_rules": "SELECT COUNT(*) FROM memory_rules",
+                    "configuration_history": "SELECT COUNT(*) FROM configuration_history",
+                    "error_log": "SELECT COUNT(*) FROM error_log",
+                    "performance_metrics": "SELECT COUNT(*) FROM performance_metrics",
+                    "resource_usage": "SELECT COUNT(*) FROM resource_usage",
                 }
 
                 table_counts = {}
                 for table, sql in tables.items():
-                    cursor = self.connection.execute(sql)
-                    table_counts[table] = cursor.fetchone()[0]
+                    try:
+                        cursor = self.connection.execute(sql)
+                        table_counts[table] = cursor.fetchone()[0]
+                    except sqlite3.Error as e:
+                        table_counts[table] = f"Error: {e}"
 
                 # Get database size info
                 cursor = self.connection.execute("PRAGMA page_count")

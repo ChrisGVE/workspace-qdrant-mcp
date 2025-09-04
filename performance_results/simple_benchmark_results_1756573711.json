@@ -1,0 +1,212 @@
+{
+  "metadata": {
+    "timestamp": 1756573711.891428,
+    "duration_seconds": 0.45383214950561523,
+    "qdrant_host": "localhost:6333",
+    "collections_tested": [
+      "test-collection-5",
+      "bench_project_1000",
+      "quick-test"
+    ]
+  },
+  "collection_results": {
+    "test-collection-5": {
+      "point_count": 19,
+      "has_vectors": true,
+      "has_payload": true,
+      "vector_info": {
+        "dense": 384
+      },
+      "search_tests": {
+        "basic_search": {
+          "mean_time_ms": 1.7118562012910843,
+          "median_time_ms": 1.4910384779796004,
+          "min_time_ms": 1.4047760050743818,
+          "max_time_ms": 3.3225499792024493,
+          "p95_time_ms": 2.645164090790784,
+          "std_dev_ms": 0.5806775629933317,
+          "avg_results": 10,
+          "throughput_qps": 584.1612159045827,
+          "iterations": 10
+        },
+        "with_payload": {
+          "mean_time_ms": 2.1805575932376087,
+          "median_time_ms": 2.0719399908557534,
+          "min_time_ms": 1.9835149869322777,
+          "max_time_ms": 2.870113996323198,
+          "p95_time_ms": 2.6121145900106053,
+          "std_dev_ms": 0.26531085951926753,
+          "avg_results": 10,
+          "throughput_qps": 458.5982975644492,
+          "iterations": 10
+        },
+        "with_vectors": {
+          "mean_time_ms": 2.978461602469906,
+          "median_time_ms": 2.9376659949775785,
+          "min_time_ms": 2.7698010089807212,
+          "max_time_ms": 3.460085019469261,
+          "p95_time_ms": 3.320023862761445,
+          "std_dev_ms": 0.2021915937237883,
+          "avg_results": 10,
+          "throughput_qps": 335.74379443761984,
+          "iterations": 10
+        },
+        "large_limit": {
+          "mean_time_ms": 1.7163070908281952,
+          "median_time_ms": 1.6615154745522887,
+          "min_time_ms": 1.5517959836870432,
+          "max_time_ms": 2.29098298586905,
+          "p95_time_ms": 2.062894191476516,
+          "std_dev_ms": 0.2133383805734449,
+          "avg_results": 19,
+          "throughput_qps": 582.6463139049639,
+          "iterations": 10
+        }
+      }
+    },
+    "bench_project_1000": {
+      "point_count": 1764,
+      "has_vectors": true,
+      "has_payload": true,
+      "vector_info": {
+        "dense": 384
+      },
+      "search_tests": {
+        "basic_search": {
+          "mean_time_ms": 1.6353449085727334,
+          "median_time_ms": 1.6047935059759766,
+          "min_time_ms": 1.5223539667204022,
+          "max_time_ms": 1.8396680243313313,
+          "p95_time_ms": 1.7848773830337448,
+          "std_dev_ms": 0.09779908447465366,
+          "avg_results": 10,
+          "throughput_qps": 611.491798921343,
+          "iterations": 10
+        },
+        "with_payload": {
+          "mean_time_ms": 1.784163503907621,
+          "median_time_ms": 1.7659485165495425,
+          "min_time_ms": 1.6530680004507303,
+          "max_time_ms": 1.982040994334966,
+          "p95_time_ms": 1.9426057115197182,
+          "std_dev_ms": 0.09779409304732947,
+          "avg_results": 10,
+          "throughput_qps": 560.4867478848381,
+          "iterations": 10
+        },
+        "with_vectors": {
+          "mean_time_ms": 3.0129270919132978,
+          "median_time_ms": 3.007009014254436,
+          "min_time_ms": 2.6916590286418796,
+          "max_time_ms": 3.3946409821510315,
+          "p95_time_ms": 3.2830733718583356,
+          "std_dev_ms": 0.19849829744190137,
+          "avg_results": 10,
+          "throughput_qps": 331.90315248052366,
+          "iterations": 10
+        },
+        "large_limit": {
+          "mean_time_ms": 1.8470685987267643,
+          "median_time_ms": 1.746745518175885,
+          "min_time_ms": 1.6659459797665477,
+          "max_time_ms": 2.1362139959819615,
+          "p95_time_ms": 2.1242601971607655,
+          "std_dev_ms": 0.18817337489012867,
+          "avg_results": 50,
+          "throughput_qps": 541.3984086402247,
+          "iterations": 10
+        }
+      }
+    },
+    "quick-test": {
+      "point_count": 1,
+      "has_vectors": true,
+      "has_payload": true,
+      "vector_info": {
+        "dense": 384
+      },
+      "search_tests": {
+        "basic_search": {
+          "mean_time_ms": 1.6724644927307963,
+          "median_time_ms": 1.6936779720708728,
+          "min_time_ms": 1.4406879781745374,
+          "max_time_ms": 1.8181090126745403,
+          "p95_time_ms": 1.8148428993299603,
+          "std_dev_ms": 0.12550879740095083,
+          "avg_results": 1,
+          "throughput_qps": 597.9200182403886,
+          "iterations": 10
+        },
+        "with_payload": {
+          "mean_time_ms": 1.4421125000808388,
+          "median_time_ms": 1.4444179832935333,
+          "min_time_ms": 1.360963040497154,
+          "max_time_ms": 1.558994990773499,
+          "p95_time_ms": 1.523779341368936,
+          "std_dev_ms": 0.058161654446887694,
+          "avg_results": 1,
+          "throughput_qps": 693.4271771057696,
+          "iterations": 10
+        },
+        "with_vectors": {
+          "mean_time_ms": 1.540688198292628,
+          "median_time_ms": 1.5082854952197522,
+          "min_time_ms": 1.3883599895052612,
+          "max_time_ms": 1.8843280267901719,
+          "p95_time_ms": 1.7782108014216644,
+          "std_dev_ms": 0.14684210195588251,
+          "avg_results": 1,
+          "throughput_qps": 649.0605958481333,
+          "iterations": 10
+        },
+        "large_limit": {
+          "mean_time_ms": 1.4432223862968385,
+          "median_time_ms": 1.4113214856479317,
+          "min_time_ms": 1.364842988550663,
+          "max_time_ms": 1.7264469643123448,
+          "p95_time_ms": 1.6137683327542616,
+          "std_dev_ms": 0.10472466597098422,
+          "avg_results": 1,
+          "throughput_qps": 692.8939084474001,
+          "iterations": 10
+        }
+      }
+    }
+  },
+  "concurrent_results": {
+    "test-collection-5": {
+      "concurrency_1": {
+        "mean_total_time_ms": 2.1688903216272593,
+        "median_total_time_ms": 2.1929380018264055,
+        "mean_per_request_ms": 2.1688903216272593,
+        "throughput_qps": 461.0652691970737,
+        "success_rate": 1.0,
+        "iterations": 3
+      },
+      "concurrency_5": {
+        "mean_total_time_ms": 7.342251328130563,
+        "median_total_time_ms": 7.036547001916915,
+        "mean_per_request_ms": 1.4684502656261125,
+        "throughput_qps": 680.9900365087432,
+        "success_rate": 1.0,
+        "iterations": 3
+      },
+      "concurrency_10": {
+        "mean_total_time_ms": 14.687223670383295,
+        "median_total_time_ms": 14.510248031001538,
+        "mean_per_request_ms": 1.4687223670383296,
+        "throughput_qps": 680.8638735559631,
+        "success_rate": 1.0,
+        "iterations": 3
+      },
+      "concurrency_20": {
+        "mean_total_time_ms": 29.66546001456057,
+        "median_total_time_ms": 29.867810022551566,
+        "mean_per_request_ms": 1.4832730007280284,
+        "throughput_qps": 674.1847249354464,
+        "success_rate": 1.0,
+        "iterations": 3
+      }
+    }
+  }
+}

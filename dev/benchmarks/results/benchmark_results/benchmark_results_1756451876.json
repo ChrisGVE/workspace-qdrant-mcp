@@ -1,0 +1,13 @@
+{
+  "metadata": {
+    "timestamp": 1756451876.4938502,
+    "benchmark_version": "1.0.0",
+    "project_root": "/Users/chris/Dropbox/dev/ai/claude-code-cfg/mcp/workspace-qdrant-mcp",
+    "qdrant_url": "http://localhost:6333",
+    "scenarios_tested": 2,
+    "oss_projects": []
+  },
+  "scenarios": {},
+  "search_performance": {},
+  "statistical_analysis": {}
+}

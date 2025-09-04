@@ -301,12 +301,13 @@ class ConfigLoader:
         elif isinstance(data, list):
             return [self._substitute_env_vars(item) for item in data]
         elif isinstance(data, str):
-            # Pattern to match ${VAR_NAME}
-            pattern = re.compile(r"\$\{([^}]+)\}")
+            # Pattern to match ${VAR_NAME} and ${VAR_NAME:default_value}
+            pattern = re.compile(r'\$\{([^}:]+)(?::([^}]*))?\}')
 
             def replacer(match):
                 var_name = match.group(1)
-                return os.getenv(var_name, "")
+                default_value = match.group(2) if match.group(2) is not None else ""
+                return os.getenv(var_name, default_value)
 
             return pattern.sub(replacer, data)
         else:
@@ -461,6 +462,170 @@ class ConfigLoader:
         except Exception as e:
             logger.error(f"Failed to save configuration to {path}: {e}")
             raise ConfigurationError(f"Failed to save configuration to {path}: {e}")
+
+
+class YAMLConfigLoader:
+    """
+    Simplified YAML configuration loader for multi-component testing.
+    """
+
+    def __init__(self):
+        """Initialize the YAML configuration loader."""
+        pass
+
+    def _substitute_env_vars(self, data: Union[Dict, List, str, Any]) -> Any:
+        """
+        Recursively substitute environment variables in configuration data.
+
+        Supports ${VAR_NAME} and ${VAR_NAME:default_value} syntax.
+        """
+        if isinstance(data, dict):
+            return {k: self._substitute_env_vars(v) for k, v in data.items()}
+        elif isinstance(data, list):
+            return [self._substitute_env_vars(item) for item in data]
+        elif isinstance(data, str):
+            # Pattern to match ${VAR_NAME} and ${VAR_NAME:default_value}
+            pattern = re.compile(r'\$\{([^}:]+)(?::([^}]*))?\}')
+
+            def replacer(match):
+                var_name = match.group(1)
+                default_value = match.group(2) if match.group(2) is not None else ""
+                return os.getenv(var_name, default_value)
+
+            result = pattern.sub(replacer, data)
+            
+            # Try to convert numeric strings to appropriate types
+            if result.isdigit():
+                return int(result)
+            try:
+                return float(result)
+            except ValueError:
+                return result
+        else:
+            return data
+
+    def _deep_merge(
+        self, base: Dict[str, Any], overlay: Dict[str, Any]
+    ) -> Dict[str, Any]:
+        """
+        Deep merge two dictionaries.
+        """
+        result = base.copy()
+
+        for key, value in overlay.items():
+            if (
+                key in result
+                and isinstance(result[key], dict)
+                and isinstance(value, dict)
+            ):
+                result[key] = self._deep_merge(result[key], value)
+            else:
+                result[key] = value
+
+        return result
+
+    async def load_with_hierarchy(self, config_files: List[str]) -> Dict[str, Any]:
+        """
+        Load configuration files with hierarchy support.
+        
+        Args:
+            config_files: List of configuration file paths in order of priority
+            
+        Returns:
+            Dict[str, Any]: Merged configuration
+        """
+        configs = []
+        
+        for config_file in config_files:
+            try:
+                with open(config_file, 'r', encoding='utf-8') as f:
+                    data = yaml.safe_load(f)
+                    if data is None:
+                        data = {}
+                    configs.append(data)
+            except FileNotFoundError:
+                continue  # Skip missing files
+            except Exception as e:
+                logger.error(f"Failed to load configuration from {config_file}: {e}")
+                continue
+
+        # Merge all configurations (later ones override earlier ones)
+        merged_config = {}
+        for config in configs:
+            merged_config = self._deep_merge(merged_config, config)
+
+        return merged_config
+
+    async def load_with_env_substitution(self, config_file: str) -> Dict[str, Any]:
+        """
+        Load configuration file with environment variable substitution.
+        
+        Args:
+            config_file: Path to configuration file
+            
+        Returns:
+            Dict[str, Any]: Configuration with environment variables substituted
+        """
+        try:
+            with open(config_file, 'r', encoding='utf-8') as f:
+                data = yaml.safe_load(f)
+                if data is None:
+                    data = {}
+                
+            # Substitute environment variables
+            return self._substitute_env_vars(data)
+            
+        except Exception as e:
+            logger.error(f"Failed to load configuration from {config_file}: {e}")
+            raise ConfigurationError(f"Failed to load configuration from {config_file}: {e}")
+
+    async def load_and_validate(self, config_file: str) -> Dict[str, Any]:
+        """
+        Load and validate configuration file.
+        
+        Args:
+            config_file: Path to configuration file
+            
+        Returns:
+            Dict[str, Any]: Validated configuration
+            
+        Raises:
+            ValueError: If configuration is invalid
+        """
+        try:
+            config = await self.load_with_env_substitution(config_file)
+            
+            # Basic validation - check for required fields and data types
+            if 'qdrant' in config:
+                qdrant_config = config['qdrant']
+                if 'url' in qdrant_config:
+                    url = qdrant_config['url']
+                    if not isinstance(url, str) or not url.startswith(('http://', 'https://')):
+                        raise ValueError("Invalid Qdrant URL format")
+                        
+                if 'port' in qdrant_config and not isinstance(qdrant_config['port'], (int, str)):
+                    raise ValueError("Invalid port type")
+            
+            if 'embedding' in config:
+                embedding_config = config['embedding']
+                if 'batch_size' in embedding_config:
+                    batch_size = embedding_config['batch_size']
+                    if isinstance(batch_size, str):
+                        try:
+                            batch_size = int(batch_size)
+                            embedding_config['batch_size'] = batch_size
+                        except ValueError:
+                            raise ValueError("Invalid batch_size value")
+                    if batch_size < 1:
+                        raise ValueError("batch_size must be positive")
+            
+            return config
+            
+        except Exception as e:
+            if isinstance(e, ValueError):
+                raise ValueError(f"Invalid configuration: {e}")
+            logger.error(f"Failed to validate configuration: {e}")
+            raise ValueError(f"Invalid configuration: {e}")
 
 
 # Global configuration loader instance
