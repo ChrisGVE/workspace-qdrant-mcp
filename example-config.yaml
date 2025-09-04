@@ -28,3 +28,16 @@ workspace:
   github_user: null  # Set to your GitHub username for improved project detection
   collection_prefix: ""  # Optional prefix for all collection names
   max_collections: 100  # Maximum number of collections per workspace
+
+# Auto-ingestion configuration
+auto_ingestion:
+  enabled: true  # Enable automatic file ingestion on server startup
+  auto_create_watches: true  # Automatically create file watches for project directories
+  include_common_files: true  # Include common document types (*.md, *.txt, *.pdf, etc.)
+  include_source_files: false  # Include source code files (*.py, *.js, *.ts, etc.)
+  target_collection_suffix: "project"  # Which collection suffix to use for auto-ingested files
+  max_files_per_batch: 5  # Maximum files to process simultaneously
+  batch_delay_seconds: 2.0  # Delay between processing batches
+  max_file_size_mb: 50  # Maximum file size to process
+  recursive_depth: 5  # Maximum directory depth to scan
+  debounce_seconds: 10  # File change debounce time for watches
