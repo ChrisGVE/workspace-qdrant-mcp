@@ -328,7 +328,7 @@ class AutoIngestionManager:
         """
         self.workspace_client = workspace_client
         self.watch_manager = watch_manager
-        self.config = config or AutoIngestionConfig.from_env()
+        self.config = config or AutoIngestionConfig()
         self.project_detector = ProjectDetector()
         self.progress_tracker = IngestionProgressTracker()
         self._rate_limit_semaphore = asyncio.Semaphore(self.config.max_files_per_batch)
@@ -435,20 +435,35 @@ class AutoIngestionManager:
     def _select_primary_collection(
         self, project_info: Dict[str, Any], collections: List[str]
     ) -> str:
-        """Select the primary collection for the project."""
+        """Select the primary collection for the project based on configuration."""
         main_project = project_info["main_project"]
+        target_suffix = self.config.target_collection_suffix
+        
+        # First preference: exact match for configured target suffix
+        target_collection = f"{main_project}-{target_suffix}"
+        if target_collection in collections:
+            logger.info(f"Selected target collection for auto-ingestion: {target_collection}")
+            return target_collection
 
-        # Prefer exact match
+        # Second preference: exact project name match (legacy behavior)
         if main_project in collections:
+            logger.info(f"Selected project collection for auto-ingestion: {main_project}")
             return main_project
 
-        # Look for collections that start with the project name
+        # Third preference: any collection that starts with the project name
         matching = [c for c in collections if c.startswith(f"{main_project}.")]
         if matching:
-            return matching[0]
+            selected = matching[0]
+            logger.info(f"Selected first matching project collection for auto-ingestion: {selected}")
+            return selected
 
-        # Fall back to first available collection
-        return collections[0] if collections else "documents"
+        # Final fallback: first available collection
+        fallback = collections[0] if collections else "documents"
+        logger.warning(
+            f"No target collection found for suffix '{target_suffix}' and project '{main_project}'. "
+            f"Falling back to: {fallback}"
+        )
+        return fallback
 
     async def _create_project_watch(
         self, project_info: Dict[str, Any], collection: str, project_path: str
