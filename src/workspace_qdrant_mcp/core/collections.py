@@ -16,7 +16,7 @@ Key Features:
 Collection Types:
     - Project collections: [project-name]-{suffix} for each configured suffix
     - Subproject collections: [subproject-name]-{suffix} for each configured suffix
-    - Global collections: scratchbook, shared-notes (cross-project)
+    - Global collections: User-defined collections that span across projects
 
 Example:
     ```python
@@ -66,7 +66,7 @@ class CollectionConfig:
     Attributes:
         name: Unique collection identifier within the Qdrant database
         description: Human-readable description of collection purpose
-        collection_type: Collection category - 'scratchbook', 'docs', or 'global'
+        collection_type: Collection category - user-defined type or 'global'
         project_name: Associated project name (None for global collections)
         vector_size: Dimension of dense embedding vectors (model-dependent)
         distance_metric: Vector similarity metric - 'Cosine', 'Euclidean', 'Dot'
@@ -87,7 +87,7 @@ class CollectionConfig:
 
     name: str
     description: str
-    collection_type: str  # 'scratchbook', 'docs', 'global'
+    collection_type: str  # user-defined type or 'global'
     project_name: str | None = None
     vector_size: int = 384  # all-MiniLM-L6-v2 dimension
     distance_metric: str = "Cosine"
@@ -159,7 +159,7 @@ class WorkspaceCollectionManager:
 
         Behavior depends on the auto_create_collections setting:
         - When auto_create_collections=True: Creates project collections, subproject collections, and global collections
-        - When auto_create_collections=False: Only creates scratchbook collection for basic functionality
+        - When auto_create_collections=False: No collections are created automatically
 
         Collection Creation Patterns:
             With auto_create_collections=True:
@@ -168,7 +168,7 @@ class WorkspaceCollectionManager:
                 Global: All collections from workspace.global_collections
 
             With auto_create_collections=False:
-                Only: scratchbook collection (essential for cross-project note-taking)
+                Only: No collections are created (user must explicitly configure collections)
 
         Args:
             project_name: Main project identifier (used as collection name prefix)
@@ -235,18 +235,8 @@ class WorkspaceCollectionManager:
                         enable_sparse_vectors=self.config.embedding.enable_sparse_vectors,
                     )
                 )
-        else:
-            # Minimal collection creation when auto_create_collections=False
-            # Only create scratchbook collection for essential functionality
-            collections_to_create.append(
-                CollectionConfig(
-                    name="scratchbook",
-                    description="Global scratchbook collection for cross-project notes",
-                    collection_type="global",
-                    vector_size=self._get_vector_size(),
-                    enable_sparse_vectors=self.config.embedding.enable_sparse_vectors,
-                )
-            )
+        # If auto_create_collections=False, no collections are created
+        # All collections must be explicitly configured by the user
 
         # Create collections in parallel for better performance
         if collections_to_create:
@@ -367,7 +357,7 @@ class WorkspaceCollectionManager:
         project collections and global workspace collections.
 
         Filtering Logic:
-            - Include: [project]-docs, [project]-scratchbook collections
+            - Include: Project-specific collections based on configured suffixes
             - Include: Global collections defined in workspace configuration
             - Exclude: External daemon collections (e.g., memexd-*-code)
             - Exclude: Collections from other workspace instances
@@ -379,7 +369,7 @@ class WorkspaceCollectionManager:
         Example:
             ```python
             collections = manager.list_workspace_collections()
-            # Example return: ['my-project-docs', 'my-project-scratchbook', 'scratchbook']
+            # Example return: collections based on configured suffixes and global collections
 
             for collection in collections:
                 logger.info("Workspace collection: {collection}")
@@ -491,7 +481,7 @@ class WorkspaceCollectionManager:
             ```python
             # These would return True:
             manager._is_workspace_collection("my-project-docs")         # True (if 'docs' in collections)
-            manager._is_workspace_collection("scratchbook")            # True (global)
+            manager._is_workspace_collection("user-collection")         # True (if configured)
 
             # These would return False:
             manager._is_workspace_collection("memexd-project-code")    # False (daemon)

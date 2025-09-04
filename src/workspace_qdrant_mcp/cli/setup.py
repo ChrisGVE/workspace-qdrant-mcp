@@ -556,8 +556,8 @@ class SetupWizard:
             )
 
         # Collection configuration
-        collections = ["project"]
-        global_collections = ["docs", "references", "standards"]
+        collections = []
+        global_collections = []
 
         if self.advanced_mode:
             print("\nLibrary Collection Configuration")
@@ -566,13 +566,13 @@ class SetupWizard:
 
             collections_str = get_input(
                 "Project collection types (comma-separated)",
-                default="project",
+                default="",
             )
             collections = [c.strip() for c in collections_str.split(",") if c.strip()]
 
             global_collections_str = get_input(
                 "Global collections (comma-separated)",
-                default="docs,references,standards",
+                default="",
             )
             global_collections = [
                 c.strip() for c in global_collections_str.split(",") if c.strip()

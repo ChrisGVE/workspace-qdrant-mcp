@@ -145,8 +145,8 @@ class QdrantConfig(BaseModel):
 class WorkspaceConfig(BaseModel):
     """Enhanced configuration for workspace and project management."""
 
-    collection_suffixes: List[str] = ["project"]
-    global_collections: List[str] = ["docs", "references", "standards"]
+    collection_suffixes: List[str] = []
+    global_collections: List[str] = []
     github_user: Optional[str] = None
     collection_prefix: str = ""
     max_collections: int = 100
@@ -170,9 +170,7 @@ class WorkspaceConfig(BaseModel):
 
     @validator("collection_suffixes", "global_collections")
     def validate_collections(cls, v):
-        """Ensure collection suffixes list is not empty and has reasonable size."""
-        if not v:
-            raise ValueError("At least one collection suffix must be configured")
+        """Ensure collection suffixes list has reasonable size."""
         if len(v) > 50:
             raise ValueError("Too many collection suffixes configured (max 50)")
         return v

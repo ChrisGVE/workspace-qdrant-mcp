@@ -30,8 +30,8 @@ embedding:
 
 # Workspace settings - staging environment
 workspace:
-  collection_suffixes: ["project", "staging-tests"]
-  global_collections: ["docs", "references", "standards", "staging-data"]
+  collection_suffixes: []
+  global_collections: []
   github_user: "${GITHUB_USER}"
   collection_prefix: "staging_"
   max_collections: 100

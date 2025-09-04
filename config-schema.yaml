@@ -53,13 +53,10 @@ embedding:
 # Collection management settings
 collections:
   auto_create: false
-  default_global: ["scratchbook"]
+  default_global: []
   
   # Collection-specific settings
-  settings:
-    scratchbook:
-      description: "Cross-project notes and knowledge management"
-      auto_ingest: false
+  settings: {}
     
   # Reserved collection prefixes
   reserved_prefixes: ["_", "system_", "temp_"]
