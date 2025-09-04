@@ -39,7 +39,7 @@ Examples:
 import asyncio
 import json
 import time
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
@@ -411,7 +411,7 @@ async def get_comprehensive_status() -> Dict[str, Any]:
             "grpc_stats": results[4]
             if not isinstance(results[4], Exception)
             else {"success": False, "error": str(results[4])},
-            "timestamp": datetime.utcnow().isoformat(),
+            "timestamp": datetime.now(timezone.utc).isoformat(),
         }
 
     except Exception as e:
@@ -419,7 +419,7 @@ async def get_comprehensive_status() -> Dict[str, Any]:
         return {
             "success": False,
             "error": str(e),
-            "timestamp": datetime.utcnow().isoformat(),
+            "timestamp": datetime.now(timezone.utc).isoformat(),
         }
 
 
@@ -739,7 +739,7 @@ async def export_status_data(
     if export_format.lower() == "json":
         export_data = {
             "export_info": {
-                "timestamp": datetime.utcnow().isoformat(),
+                "timestamp": datetime.now(timezone.utc).isoformat(),
                 "format": "json",
                 "filters": {
                     "collection": collection,
@@ -840,7 +840,7 @@ async def live_status_monitor(
         )
 
         # Header with timestamp and refresh info
-        current_time = datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S UTC")
+        current_time = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S UTC")
         grpc_stats = status_data.get("grpc_stats", {})
         daemon_status = (
             "ONLINE" if grpc_stats and grpc_stats.get("success") else "OFFLINE"
@@ -934,7 +934,7 @@ async def live_streaming_status_monitor(
         )
 
         # Header with real-time timestamp
-        current_time = datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S UTC")
+        current_time = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S UTC")
         daemon_status = (
             "STREAMING"
             if processing_update or metrics_update or queue_update

@@ -28,7 +28,7 @@ import logging
 import re
 import time
 from dataclasses import asdict, dataclass
-from datetime import datetime
+from datetime import datetime, timezone
 from enum import Enum
 from typing import Any, Dict, List, Optional, Set, Tuple, Union
 
@@ -101,7 +101,7 @@ class MemoryRule:
     def __post_init__(self):
         """Initialize timestamps if not provided."""
         if self.created_at is None:
-            self.created_at = datetime.utcnow()
+            self.created_at = datetime.now(timezone.utc)
         if self.updated_at is None:
             self.updated_at = self.created_at
 
@@ -501,7 +501,7 @@ class MemoryManager:
                     setattr(existing_rule, key, value)
 
             # Update timestamp
-            existing_rule.updated_at = datetime.utcnow()
+            existing_rule.updated_at = datetime.now(timezone.utc)
 
             # Generate new embedding if rule text changed
             if "rule" in updates and embedding_vector is None:

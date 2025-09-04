@@ -6,7 +6,7 @@ This module defines the core data structures for the memory-driven LLM behavior 
 
 import uuid
 from dataclasses import dataclass, field
-from datetime import datetime
+from datetime import datetime, timezone
 from enum import Enum
 from typing import Any, Dict, List, Optional, Union
 
@@ -44,7 +44,7 @@ class MemoryRule:
     )  # Contexts where rule applies (empty = global)
     tags: list[str] = field(default_factory=list)  # Tags for organization and search
     source: str = "user_cli"  # Where rule came from (user_cli, conversation, etc.)
-    created_at: datetime = field(default_factory=datetime.utcnow)
+    created_at: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
     updated_at: datetime | None = None
     last_used: datetime | None = None
     use_count: int = 0  # How many times rule has been applied
@@ -62,8 +62,8 @@ class MemoryRule:
     def update_usage(self):
         """Update usage statistics."""
         self.use_count += 1
-        self.last_used = datetime.utcnow()
-        self.updated_at = datetime.utcnow()
+        self.last_used = lambda: datetime.now(timezone.utc)()
+        self.updated_at = lambda: datetime.now(timezone.utc)()
 
     def matches_scope(self, context_scope: list[str]) -> bool:
         """Check if this rule applies to the given context scope."""

@@ -56,7 +56,7 @@ Example:
 import asyncio
 import logging
 import uuid
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Any, Optional
 
 from qdrant_client.http import models
@@ -186,7 +186,7 @@ async def add_document(
             {
                 "document_id": original_document_id or point_id,  # Use original or UUID
                 "point_id": point_id,  # Always include the Qdrant point ID
-                "added_at": datetime.utcnow().isoformat(),
+                "added_at": datetime.now(timezone.utc).isoformat(),
                 "content_length": len(content),
                 "collection": collection,
             }
@@ -383,7 +383,7 @@ async def update_document(
 
                     new_payload["content"] = content
                     new_payload["content_length"] = len(content)
-                    new_payload["updated_at"] = datetime.utcnow().isoformat()
+                    new_payload["updated_at"] = datetime.now(timezone.utc).isoformat()
 
                     # Update point with new vectors and payload
                     updated_point = models.PointStruct(
@@ -632,8 +632,8 @@ async def ingest_new_version(
         # Prepare version metadata according to PRD schema
         version_metadata = {
             "document_id": document_id,
-            "version": version or datetime.utcnow().isoformat(),
-            "timestamp": datetime.utcnow().isoformat(),
+            "version": version or datetime.now(timezone.utc).isoformat(),
+            "timestamp": datetime.now(timezone.utc).isoformat(),
             "version_type": "timestamp" if not version else "semantic",
             "document_type": document_type,
             "is_latest": True,
@@ -643,7 +643,7 @@ async def ingest_new_version(
             else [],
             "authority_source": "user_provided" if version else "auto_detected",
             "source_info": {
-                "ingestion_date": datetime.utcnow().isoformat(),
+                "ingestion_date": datetime.now(timezone.utc).isoformat(),
                 "file_hash": f"sha256:{hash(content)}",  # Simple hash for now
             },
         }

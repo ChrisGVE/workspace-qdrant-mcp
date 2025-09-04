@@ -11,7 +11,7 @@ import logging.config
 import os
 import sys
 import time
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, Optional
 
@@ -59,7 +59,7 @@ class PerformanceLogger:
             "performance_metric",
             operation=operation,
             duration_ms=round(duration * 1000, 2),
-            timestamp=datetime.utcnow().isoformat(),
+            timestamp=datetime.now(timezone.utc).isoformat(),
             **kwargs,
         )
 

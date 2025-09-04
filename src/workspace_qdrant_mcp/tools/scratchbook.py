@@ -58,7 +58,7 @@ Example:
 
 import logging
 import uuid
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Optional
 
 from qdrant_client.http import models
@@ -207,8 +207,8 @@ class ScratchbookManager:
                 "tags": tags or [],
                 "project_name": actual_project_name,
                 "collection_type": "scratchbook",
-                "created_at": datetime.utcnow().isoformat(),
-                "updated_at": datetime.utcnow().isoformat(),
+                "created_at": datetime.now(timezone.utc).isoformat(),
+                "updated_at": datetime.now(timezone.utc).isoformat(),
                 "version": 1,
                 "content_length": len(content),
                 "is_scratchbook_note": True,
@@ -311,7 +311,7 @@ class ScratchbookManager:
 
             # Create new payload with updates
             new_payload = old_payload.copy()
-            new_payload["updated_at"] = datetime.utcnow().isoformat()
+            new_payload["updated_at"] = datetime.now(timezone.utc).isoformat()
             new_payload["version"] = old_payload.get("version", 1) + 1
 
             # Ensure required fields exist
@@ -625,7 +625,7 @@ class ScratchbookManager:
                 "note_id": note_id,
                 "collection": collection_name,
                 "status": "success",
-                "deleted_at": datetime.utcnow().isoformat(),
+                "deleted_at": datetime.now(timezone.utc).isoformat(),
                 "operation_id": result.operation_id,
             }
 

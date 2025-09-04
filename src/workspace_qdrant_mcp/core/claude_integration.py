@@ -7,7 +7,7 @@ memory rules, detecting conflicts, and formatting them for system context.
 """
 
 import logging
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional, Tuple
 
 from .memory import (
@@ -67,7 +67,7 @@ class ClaudeIntegrationManager:
             # Prepare session data
             session_data = {
                 "status": "ready" if not conflicts else "conflicts_detected",
-                "timestamp": datetime.utcnow().isoformat(),
+                "timestamp": datetime.now(timezone.utc).isoformat(),
                 "memory_stats": {
                     "total_rules": stats.total_rules,
                     "estimated_tokens": stats.estimated_tokens,
@@ -102,7 +102,7 @@ class ClaudeIntegrationManager:
             return {
                 "status": "error",
                 "error": str(e),
-                "timestamp": datetime.utcnow().isoformat(),
+                "timestamp": datetime.now(timezone.utc).isoformat(),
             }
 
     async def format_system_rules_for_injection(
