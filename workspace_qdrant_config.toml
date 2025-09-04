@@ -1,0 +1,12 @@
+# Workspace Qdrant MCP Configuration
+# TOML format for memexd daemon
+
+# Processing engine configuration
+max_concurrent_tasks = 4
+default_timeout_ms = 30000
+enable_preemption = true
+chunk_size = 1000
+enable_lsp = true
+log_level = "debug"
+enable_metrics = true
+metrics_interval_secs = 60

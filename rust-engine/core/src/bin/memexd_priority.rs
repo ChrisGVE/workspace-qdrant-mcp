@@ -13,15 +13,13 @@ use std::process;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
 use tokio::signal;
-use tokio::sync::{mpsc, Mutex, RwLock};
+use tokio::sync::{Mutex, RwLock};
 use tokio::time::{Duration, interval, Instant};
 use tracing::{debug, error, info, warn};
-use tracing_subscriber::{EnvFilter, FmtSubscriber};
+use tracing_subscriber;
 use workspace_qdrant_core::{
     ProcessingEngine, config::Config, 
     LoggingConfig, initialize_logging,
-    ErrorRecovery, ErrorRecoveryStrategy,
-    track_async_operation, LoggingErrorMonitor,
 };
 
 /// Command-line arguments for memexd daemon
@@ -113,7 +111,7 @@ pub struct ResourceManager {
 }
 
 /// Resource usage statistics
-#[derive(Debug, Default)]
+#[derive(Debug, Default, Clone)]
 pub struct ResourceStats {
     tasks_processed: u64,
     high_priority_processed: u64,

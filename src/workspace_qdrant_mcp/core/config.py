@@ -308,12 +308,18 @@ class Config(BaseSettings):
 
         Args:
             config_file: Path to YAML configuration file (takes precedence over env vars)
+                        If None, will automatically search for default config files
             **kwargs: Override values for configuration parameters
         """
-        # Load YAML configuration first if provided
+        # Load YAML configuration - either explicitly provided or automatically discovered
         yaml_config = {}
         if config_file:
             yaml_config = self._load_yaml_config(config_file)
+        else:
+            # Auto-discover configuration file
+            auto_config_file = self._find_default_config_file()
+            if auto_config_file:
+                yaml_config = self._load_yaml_config(auto_config_file)
 
         # Merge YAML config with kwargs, giving kwargs precedence
         merged_kwargs = {**yaml_config, **kwargs}
@@ -404,6 +410,36 @@ class Config(BaseSettings):
                 processed[key] = value
 
         return processed
+
+    def _find_default_config_file(self) -> Optional[str]:
+        """Find default configuration file in standard locations.
+        
+        Search order:
+        1. workspace_qdrant_config.yaml (current directory)
+        2. workspace_qdrant_config.yml (current directory)
+        3. .workspace-qdrant.yaml (current directory)
+        4. .workspace-qdrant.yml (current directory)
+        
+        Returns:
+            Path to the first found config file, or None if no config file found
+        """
+        default_config_names = [
+            "workspace_qdrant_config.yaml",
+            "workspace_qdrant_config.yml", 
+            ".workspace-qdrant.yaml",
+            ".workspace-qdrant.yml"
+        ]
+        
+        current_dir = Path.cwd()
+        for config_name in default_config_names:
+            config_path = current_dir / config_name
+            if config_path.exists() and config_path.is_file():
+                import logging
+                logger = logging.getLogger(__name__)
+                logger.info(f"Auto-discovered configuration file: {config_path}")
+                return str(config_path)
+        
+        return None
 
     def _apply_yaml_overrides(self, yaml_config: dict[str, Any]) -> None:
         """Apply YAML configuration overrides after environment variables are loaded.

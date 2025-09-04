@@ -11,8 +11,8 @@ from workspace_qdrant_mcp.utils.project_detection import ProjectDetector
 def debug_configuration():
     print("=== Configuration Debug ===")
     
-    # Test 1: Default config (no file)
-    print("\n1. Default Configuration (no config file):")
+    # Test 1: Default config (with auto-discovery)
+    print("\n1. Default Configuration (with auto-discovery):")
     config_default = Config()
     print(f"  Collection suffixes: {config_default.workspace.collection_suffixes}")
     print(f"  Effective collection suffixes: {config_default.workspace.effective_collection_suffixes}")
@@ -39,12 +39,8 @@ def debug_configuration():
     
     # Test 4: Expected collection names
     print("\n4. Expected Collection Names:")
-    if 'config_yaml' in locals():
-        config = config_yaml
-        print(f"  Using YAML config")
-    else:
-        config = config_default
-        print(f"  Using default config")
+    config = config_default  # Now uses auto-discovered config
+    print(f"  Using auto-discovered config")
     
     if config.workspace.auto_create_collections:
         print(f"  Auto-create enabled, would create:")

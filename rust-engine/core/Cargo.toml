@@ -89,15 +89,7 @@ scopeguard = "1.2"
 
 [[bin]]
 name = "memexd"
-path = "src/bin/memexd.rs"
-
-[[bin]]
-name = "memexd-priority"
 path = "src/bin/memexd_priority.rs"
-
-[[bin]]
-name = "memexd-service-demo"
-path = "src/bin/memexd_service_demo.rs"
 
 # Note: Platform-specific optimizations temporarily removed for compatibility
 
