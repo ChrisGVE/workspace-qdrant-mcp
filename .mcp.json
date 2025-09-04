@@ -19,6 +19,19 @@
 				"AZURE_OPENAI_API_KEY": "YOUR_AZURE_KEY_HERE",
 				"OLLAMA_API_KEY": "YOUR_OLLAMA_API_KEY_HERE"
 			}
+		},
+		"workspace-qdrant-mcp": {
+			"type": "stdio",
+			"command": "python",
+			"args": [
+				"-m", "workspace_qdrant_mcp.cli",
+				"--config", "workspace_qdrant_config.yaml",
+				"--transport", "stdio"
+			],
+			"cwd": "/Users/chris/Dropbox/dev/ai/claude-code-cfg/mcp/workspace-qdrant-mcp",
+			"env": {
+				"PYTHONPATH": "/Users/chris/Dropbox/dev/ai/claude-code-cfg/mcp/workspace-qdrant-mcp"
+			}
 		}
 	}
 }
