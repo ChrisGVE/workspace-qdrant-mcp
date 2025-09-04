@@ -328,7 +328,13 @@ class AutoIngestionManager:
         """
         self.workspace_client = workspace_client
         self.watch_manager = watch_manager
-        self.config = config or AutoIngestionConfig()
+        
+        # Handle case where config is passed as dict instead of AutoIngestionConfig object
+        if isinstance(config, dict):
+            self.config = AutoIngestionConfig(**config)
+        else:
+            self.config = config or AutoIngestionConfig()
+            
         self.project_detector = ProjectDetector()
         self.progress_tracker = IngestionProgressTracker()
         self._rate_limit_semaphore = asyncio.Semaphore(self.config.max_files_per_batch)

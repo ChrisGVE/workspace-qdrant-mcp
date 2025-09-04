@@ -449,6 +449,16 @@ class Config(BaseSettings):
         """
         for key, value in yaml_config.items():
             if hasattr(self, key):
+                # Check if we're trying to overwrite a typed config object with a raw dict
+                current_value = getattr(self, key)
+                
+                # If current value is already a properly typed config object (like AutoIngestionConfig)
+                # and the incoming value is a raw dict, skip the override to preserve type safety
+                if (isinstance(value, dict) and 
+                    hasattr(current_value, '__class__') and 
+                    current_value.__class__.__name__.endswith('Config')):
+                    continue
+                    
                 setattr(self, key, value)
 
     @classmethod
