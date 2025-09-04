@@ -439,11 +439,16 @@ class AutoIngestionManager:
         main_project = project_info["main_project"]
         target_suffix = self.config.target_collection_suffix
         
+        # Validate configuration
+        if not target_suffix:
+            logger.warning("auto_ingestion.target_collection_suffix is not configured, will use fallback selection")
+        
         # First preference: exact match for configured target suffix
-        target_collection = f"{main_project}-{target_suffix}"
-        if target_collection in collections:
-            logger.info(f"Selected target collection for auto-ingestion: {target_collection}")
-            return target_collection
+        if target_suffix:
+            target_collection = f"{main_project}-{target_suffix}"
+            if target_collection in collections:
+                logger.info(f"Selected target collection for auto-ingestion: {target_collection}")
+                return target_collection
 
         # Second preference: exact project name match (legacy behavior)
         if main_project in collections:

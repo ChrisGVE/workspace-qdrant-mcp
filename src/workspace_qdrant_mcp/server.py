@@ -2140,7 +2140,11 @@ async def initialize_workspace(config_file: Optional[str] = None) -> None:
         )
         raise RuntimeError(f"Configuration loading failed: {e}") from e
 
-    # Configuration is already validated by the YAML loader with JSON schema
+    # Validate configuration for consistency and correctness
+    validation_issues = config.validate_config()
+    if validation_issues:
+        logger.error("Configuration validation failed", issues=validation_issues)
+        raise RuntimeError(f"Configuration validation failed: {'; '.join(validation_issues)}")
     logger.info("Configuration validation completed successfully")
 
     # Initialize workspace client with configuration
