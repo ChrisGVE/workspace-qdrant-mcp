@@ -28,7 +28,7 @@ embedding:
 
 # Workspace settings - development collections
 workspace:
-  collections: ["project", "test-data"]
+  collection_suffixes: ["project", "test-data"]
   global_collections: ["docs", "references", "dev-notes"]
   github_user: null
   collection_prefix: "dev_"

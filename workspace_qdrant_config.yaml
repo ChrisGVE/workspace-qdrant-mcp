@@ -1,0 +1,36 @@
+# Workspace Qdrant MCP Configuration
+# Based on example config with local logging
+
+# Server configuration
+host: "127.0.0.1"
+port: 8000
+debug: true
+
+# Qdrant database configuration
+qdrant:
+  url: "http://localhost:6333"
+  api_key: null
+  timeout: 30
+  prefer_grpc: false
+
+# Embedding configuration
+embedding:
+  model: "sentence-transformers/all-MiniLM-L6-v2"
+  enable_sparse_vectors: true
+  chunk_size: 800
+  chunk_overlap: 120
+  batch_size: 50
+
+# Workspace configuration
+workspace:
+  collection_suffixes: ["project"]
+  global_collections: ["docs", "references", "standards"]
+  github_user: null
+  collection_prefix: ""
+  max_collections: 100
+
+# Logging configuration (using local path)
+logging:
+  level: "debug"
+  file: "./memexd.log"
+  console: true

@@ -32,7 +32,7 @@ embedding:
 
 # Workspace - enterprise scale
 workspace:
-  collections: ["enterprise-project"]
+  collection_suffixes: ["enterprise-project"]
   global_collections: ["enterprise-docs", "compliance", "standards", "policies"]
   github_user: "${ENTERPRISE_GITHUB_USER}"
   collection_prefix: "${TENANT_ID}_"
