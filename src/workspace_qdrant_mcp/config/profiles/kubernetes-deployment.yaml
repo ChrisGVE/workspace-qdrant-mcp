@@ -32,7 +32,7 @@ embedding:
 
 # Workspace - production
 workspace:
-  collections: ["${APP_NAME:-app}-project"]
+  collection_suffixes: ["${APP_NAME:-app}-project"]
   global_collections: ["shared-docs", "knowledge-base"]
   github_user: "${GITHUB_USER}"
   collection_prefix: "${NAMESPACE:-default}_"
