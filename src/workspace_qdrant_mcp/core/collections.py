@@ -197,7 +197,7 @@ class WorkspaceCollectionManager:
             # Full collection creation when auto_create_collections=True
 
             # Main project collections
-            for suffix in self.config.workspace.collections:
+            for suffix in self.config.workspace.effective_collection_suffixes:
                 collections_to_create.append(
                     CollectionConfig(
                         name=f"{project_name}-{suffix}",
@@ -212,7 +212,7 @@ class WorkspaceCollectionManager:
             # Subproject collections
             if subprojects:
                 for subproject in subprojects:
-                    for suffix in self.config.workspace.collections:
+                    for suffix in self.config.workspace.effective_collection_suffixes:
                         collections_to_create.append(
                             CollectionConfig(
                                 name=f"{subproject}-{suffix}",
@@ -507,7 +507,7 @@ class WorkspaceCollectionManager:
             return True
 
         # Include project collections (ending with configured suffixes)
-        for suffix in self.config.workspace.collections:
+        for suffix in self.config.workspace.effective_collection_suffixes:
             if collection_name.endswith(f"-{suffix}"):
                 return True
 

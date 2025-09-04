@@ -145,21 +145,36 @@ class QdrantConfig(BaseModel):
 class WorkspaceConfig(BaseModel):
     """Enhanced configuration for workspace and project management."""
 
-    collections: List[str] = ["project"]
+    collection_suffixes: List[str] = ["project"]
     global_collections: List[str] = ["docs", "references", "standards"]
     github_user: Optional[str] = None
     collection_prefix: str = ""
     max_collections: int = 100
     auto_create_collections: bool = True
     cleanup_on_exit: bool = False
+    # Legacy field for backward compatibility
+    collections: Optional[List[str]] = None
 
-    @validator("collections", "global_collections")
+    @property
+    def effective_collection_suffixes(self) -> List[str]:
+        """Get effective collection suffixes, handling backward compatibility."""
+        if self.collections is not None:
+            import logging
+            logger = logging.getLogger(__name__)
+            logger.warning(
+                "The 'collections' field is deprecated. Please use 'collection_suffixes' instead. "
+                "This will be removed in a future version."
+            )
+            return self.collections
+        return self.collection_suffixes
+
+    @validator("collection_suffixes", "global_collections")
     def validate_collections(cls, v):
-        """Ensure collections list is not empty and has reasonable size."""
+        """Ensure collection suffixes list is not empty and has reasonable size."""
         if not v:
-            raise ValueError("At least one collection must be configured")
+            raise ValueError("At least one collection suffix must be configured")
         if len(v) > 50:
-            raise ValueError("Too many collections configured (max 50)")
+            raise ValueError("Too many collection suffixes configured (max 50)")
         return v
 
 
@@ -382,7 +397,12 @@ class EnhancedConfig(BaseSettings):
                     logger.warning(f"Invalid value for {env_var}: {value} - {e}")
 
         # Handle list environment variables
-        if collections := os.getenv("WORKSPACE_QDRANT_WORKSPACE__COLLECTIONS"):
+        if collection_suffixes := os.getenv("WORKSPACE_QDRANT_WORKSPACE__COLLECTION_SUFFIXES"):
+            self.workspace.collection_suffixes = [
+                c.strip() for c in collection_suffixes.split(",") if c.strip()
+            ]
+        elif collections := os.getenv("WORKSPACE_QDRANT_WORKSPACE__COLLECTIONS"):
+            # Legacy support
             self.workspace.collections = [
                 c.strip() for c in collections.split(",") if c.strip()
             ]
@@ -430,6 +450,11 @@ class EnhancedConfig(BaseSettings):
         if collections := os.getenv("COLLECTIONS"):
             self.workspace.collections = [
                 c.strip() for c in collections.split(",") if c.strip()
+            ]
+        # New environment variable takes precedence if both are set
+        if collection_suffixes := os.getenv("COLLECTION_SUFFIXES"):
+            self.workspace.collection_suffixes = [
+                c.strip() for c in collection_suffixes.split(",") if c.strip()
             ]
 
         if global_collections := os.getenv("GLOBAL_COLLECTIONS"):
@@ -537,7 +562,7 @@ class EnhancedConfig(BaseSettings):
             if self.security.mask_sensitive_logs
             else self.qdrant.url,
             "embedding_model": self.embedding.model,
-            "workspace_collections": self.workspace.collections,
+            "workspace_collection_suffixes": self.workspace.collection_suffixes,
             "hot_reload_enabled": self.development.hot_reload,
         }
 
