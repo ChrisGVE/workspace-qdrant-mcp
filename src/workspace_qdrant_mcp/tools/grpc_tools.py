@@ -6,14 +6,14 @@ engine statistics, and managing the hybrid client mode.
 """
 
 import asyncio
-import logging
 from typing import Any, Dict, Optional
 
 from ..core.grpc_client import GrpcWorkspaceClient
 from ..grpc.client import AsyncIngestClient
 from ..grpc.connection_manager import ConnectionConfig
+from ..observability import get_logger
 
-logger = logging.getLogger(__name__)
+logger = get_logger(__name__)
 
 
 async def test_grpc_connection(
