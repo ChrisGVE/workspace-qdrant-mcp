@@ -679,7 +679,7 @@ class DiagnosticTool:
                 await client.initialize()
 
                 # Get workspace collections
-                collections = await client.list_collections()
+                collections = client.list_collections()
 
                 # Get status
                 await client.get_status()
@@ -1095,7 +1095,7 @@ class DiagnosticTool:
                 await client.initialize()
 
                 # Get available collections
-                collections = await client.list_collections()
+                collections = client.list_collections()
 
                 if not collections:
                     # Create a temporary collection for testing

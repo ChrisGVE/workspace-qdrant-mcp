@@ -208,7 +208,7 @@ class DocumentIngestionEngine:
 
             # Verify collection exists
             if not dry_run:
-                available_collections = await self.client.list_collections()
+                available_collections = self.client.list_collections()
                 if collection not in available_collections:
                     return IngestionResult(
                         success=False,
