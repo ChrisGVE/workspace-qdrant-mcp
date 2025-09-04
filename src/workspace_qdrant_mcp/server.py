@@ -2204,11 +2204,15 @@ async def initialize_workspace(config_file: Optional[str] = None) -> None:
     # Initialize automatic file ingestion system
     logger.debug("Setting up automatic file ingestion")
     try:
+        # Convert config dictionary to AutoIngestionConfig object
+        from .core.config import AutoIngestionConfig
+        auto_ingestion_config = AutoIngestionConfig(**config.auto_ingestion) if isinstance(config.auto_ingestion, dict) else config.auto_ingestion
+        
         auto_ingestion_manager = AutoIngestionManager(
-            workspace_client, watch_tools_manager, config.auto_ingestion
+            workspace_client, watch_tools_manager, auto_ingestion_config
         )
 
-        if config.auto_ingestion.enabled:
+        if auto_ingestion_config.enabled:
             ingestion_result = await auto_ingestion_manager.setup_project_watches()
             if ingestion_result.get("success"):
                 watches_created = len(ingestion_result.get("watches_created", []))
