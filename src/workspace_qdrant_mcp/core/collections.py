@@ -428,14 +428,33 @@ class WorkspaceCollectionManager:
             for collection_name in workspace_collections:
                 try:
                     info = self.client.get_collection(collection_name)
+                    
+                    # Handle the new Qdrant API structure where vectors is a dict
+                    vectors_config = info.config.params.vectors
+                    if isinstance(vectors_config, dict):
+                        # New API: vectors is a dict with keys like 'dense', 'sparse'
+                        # Use the first available vector config (usually 'dense')
+                        if 'dense' in vectors_config:
+                            vector_params = vectors_config['dense']
+                        else:
+                            # Fallback to the first available vector config
+                            vector_params = next(iter(vectors_config.values()))
+                        
+                        distance = vector_params.distance
+                        vector_size = vector_params.size
+                    else:
+                        # Legacy API: vectors is directly a VectorParams object
+                        distance = vectors_config.distance
+                        vector_size = vectors_config.size
+                    
                     collection_info[collection_name] = {
                         "vectors_count": info.vectors_count,
                         "points_count": info.points_count,
                         "status": info.status,
                         "optimizer_status": info.optimizer_status,
                         "config": {
-                            "distance": info.config.params.vectors.distance,
-                            "vector_size": info.config.params.vectors.size,
+                            "distance": distance,
+                            "vector_size": vector_size,
                         },
                     }
                 except Exception as e:
