@@ -29,6 +29,19 @@ workspace:
   collection_prefix: ""
   max_collections: 100
 
+# Auto-ingestion configuration  
+auto_ingestion:
+  enabled: true
+  auto_create_watches: true
+  include_common_files: true
+  include_source_files: false
+  target_collection_suffix: "project"  # Which collection suffix to populate with auto-ingested files
+  max_files_per_batch: 5
+  batch_delay_seconds: 2.0
+  max_file_size_mb: 50
+  recursive_depth: 5
+  debounce_seconds: 10
+
 # Logging configuration (using local path)
 logging:
   level: "debug"
