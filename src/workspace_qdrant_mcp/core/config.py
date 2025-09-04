@@ -122,15 +122,16 @@ class WorkspaceConfig(BaseModel):
     for project detection, and collection organization preferences.
 
     Attributes:
-        collections: Project collection suffixes (creates {project-name}-{suffix})
+        collection_suffixes: Project collection suffixes (creates {project-name}-{suffix})
         global_collections: Collections available across all projects (user-defined)
         github_user: GitHub username for project ownership detection
         collection_prefix: Optional prefix for all collection names
         max_collections: Maximum number of collections per workspace (safety limit)
         auto_create_collections: Whether to automatically create project collections on startup
+        collections: Legacy field for backward compatibility (use collection_suffixes instead)
 
     Usage Patterns:
-        - collections define project-specific collection types
+        - collection_suffixes define project-specific collection types (appended to project names)
         - global_collections enable cross-project knowledge sharing (user choice)
         - github_user enables intelligent project name detection
         - collection_prefix helps organize collections in shared Qdrant instances
@@ -139,17 +140,33 @@ class WorkspaceConfig(BaseModel):
         - when auto_create_collections=false, only scratchbook collection is created
 
     Examples:
-        - collections=["project"] → creates {project-name}-project (if auto_create_collections=true)
-        - collections=["docs", "tests"] → creates {project-name}-docs, {project-name}-tests (if auto_create_collections=true)
+        - collection_suffixes=["project"] → creates {project-name}-project (if auto_create_collections=true)
+        - collection_suffixes=["docs", "tests"] → creates {project-name}-docs, {project-name}-tests (if auto_create_collections=true)
         - scratchbook collection is always created regardless of auto_create_collections setting
     """
 
-    collections: list[str] = ["project"]
+    collection_suffixes: list[str] = ["project"]
     global_collections: list[str] = ["scratchbook"]
     github_user: str | None = None
     collection_prefix: str = ""
     max_collections: int = 100
     auto_create_collections: bool = False
+    # Legacy field for backward compatibility - will be deprecated
+    collections: list[str] | None = None
+
+    @property
+    def effective_collection_suffixes(self) -> list[str]:
+        """Get effective collection suffixes, handling backward compatibility."""
+        # If legacy collections field is provided, use it instead
+        if self.collections is not None:
+            import logging
+            logger = logging.getLogger(__name__)
+            logger.warning(
+                "The 'collections' field is deprecated. Please use 'collection_suffixes' instead. "
+                "This will be removed in a future version."
+            )
+            return self.collections
+        return self.collection_suffixes
 
 
 class GrpcConfig(BaseModel):
@@ -437,7 +454,7 @@ class Config(BaseSettings):
                 "batch_size": self.embedding.batch_size,
             },
             "workspace": {
-                "collections": self.workspace.collections,
+                "collection_suffixes": self.workspace.collection_suffixes,
                 "global_collections": self.workspace.global_collections,
                 "github_user": self.workspace.github_user,
                 "collection_prefix": self.workspace.collection_prefix,
@@ -479,8 +496,13 @@ class Config(BaseSettings):
             self.embedding.batch_size = int(batch_size)
 
         # Workspace nested config
-        if collections := os.getenv("WORKSPACE_QDRANT_WORKSPACE__COLLECTIONS"):
+        if collection_suffixes := os.getenv("WORKSPACE_QDRANT_WORKSPACE__COLLECTION_SUFFIXES"):
             # Parse comma-separated list
+            self.workspace.collection_suffixes = [
+                c.strip() for c in collection_suffixes.split(",") if c.strip()
+            ]
+        elif collections := os.getenv("WORKSPACE_QDRANT_WORKSPACE__COLLECTIONS"):
+            # Legacy environment variable support
             self.workspace.collections = [
                 c.strip() for c in collections.split(",") if c.strip()
             ]
@@ -527,9 +549,14 @@ class Config(BaseSettings):
 
         # Legacy workspace config
         if collections := os.getenv("COLLECTIONS"):
-            # Support both legacy COLLECTIONS and new COLLECTIONS env var
+            # Support legacy COLLECTIONS env var
             self.workspace.collections = [
                 c.strip() for c in collections.split(",") if c.strip()
+            ]
+        # New environment variable takes precedence if both are set
+        if collection_suffixes := os.getenv("COLLECTION_SUFFIXES"):
+            self.workspace.collection_suffixes = [
+                c.strip() for c in collection_suffixes.split(",") if c.strip()
             ]
         if global_collections := os.getenv("GLOBAL_COLLECTIONS"):
             self.workspace.global_collections = [
@@ -628,11 +655,12 @@ class Config(BaseSettings):
             issues.append("Chunk overlap must be less than chunk size")
 
         # Validate workspace settings
-        if not self.workspace.collections:
-            issues.append("At least one project collection must be configured")
-        elif len(self.workspace.collections) > 20:
+        effective_suffixes = self.workspace.effective_collection_suffixes
+        if not effective_suffixes:
+            issues.append("At least one project collection suffix must be configured")
+        elif len(effective_suffixes) > 20:
             issues.append(
-                "Too many project collections configured (max 20 recommended)"
+                "Too many project collection suffixes configured (max 20 recommended)"
             )
 
         if not self.workspace.global_collections:
