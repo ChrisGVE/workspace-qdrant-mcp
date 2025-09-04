@@ -224,7 +224,7 @@ class AutoIngestionConfig(BaseModel):
         auto_create_watches: Automatically create project file watches (default: True)
         include_common_files: Include common document types like *.md, *.txt (default: True)
         include_source_files: Include source code files like *.py, *.js (default: False)
-        target_collection_suffix: Which collection suffix to use for auto-ingestion when multiple are available (default: 'project')
+        target_collection_suffix: Which collection suffix to use for auto-ingestion (must be one of collection_suffixes)
         max_files_per_batch: Maximum files to process simultaneously (default: 5)
         batch_delay_seconds: Delay between processing batches to prevent overload (default: 2.0)
         max_file_size_mb: Maximum file size to process in MB (default: 50)
