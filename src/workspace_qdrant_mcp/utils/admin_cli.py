@@ -151,7 +151,7 @@ class WorkspaceQdrantAdmin:
         """
         async with self.get_client() as client:
             try:
-                collections = await client.list_collections()
+                collections = client.list_collections()
 
                 # Filter to current project if project scoping is enabled
                 if self.project_scope:
@@ -205,7 +205,7 @@ class WorkspaceQdrantAdmin:
         async with self.get_client() as client:
             try:
                 # Check if collection exists
-                collections = await client.list_collections()
+                collections = client.list_collections()
                 collection_names = [col.get("name") for col in collections]
 
                 if collection_name not in collection_names:
@@ -362,7 +362,7 @@ class WorkspaceQdrantAdmin:
 
                 # Test Qdrant connection
                 try:
-                    collections = await client.list_collections()
+                    collections = client.list_collections()
                     health_info["qdrant"] = {
                         "status": "connected",
                         "total_collections": len(collections),

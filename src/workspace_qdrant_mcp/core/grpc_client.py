@@ -167,7 +167,7 @@ class GrpcWorkspaceClient:
     async def list_collections(self) -> List[str]:
         """List available collections."""
         # This always uses direct client as it's a metadata operation
-        return await self.direct_client.list_collections()
+        return self.direct_client.list_collections()
 
     async def add_document(
         self,

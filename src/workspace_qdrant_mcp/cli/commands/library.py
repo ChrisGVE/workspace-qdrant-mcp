@@ -138,7 +138,7 @@ async def _list_libraries(stats: bool, sort_by: str, format: str):
         client = create_qdrant_client(config.qdrant_client_config)
 
         # Get all collections
-        all_collections = await client.list_collections()
+        all_collections = client.list_collections()
 
         # Filter for library collections (start with _)
         library_collections = [
@@ -268,7 +268,7 @@ async def _create_library(
         client = create_qdrant_client(config.qdrant_client_config)
 
         # Check if collection already exists
-        existing_collections = await client.list_collections()
+        existing_collections = client.list_collections()
         if any(col.get("name") == collection_name for col in existing_collections):
             print(f"Error: Library collection '{display_name}' already exists")
             raise typer.Exit(1)
@@ -334,7 +334,7 @@ async def _remove_library(name: str, force: bool, backup: bool):
         client = create_qdrant_client(config.qdrant_client_config)
 
         # Check if collection exists
-        existing_collections = await client.list_collections()
+        existing_collections = client.list_collections()
         if not any(col.get("name") == collection_name for col in existing_collections):
             print(f"Error: Library collection '{display_name}' not found")
             raise typer.Exit(1)

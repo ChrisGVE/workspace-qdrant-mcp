@@ -315,7 +315,7 @@ class HealthMonitor:
                 return collections_health
 
             # Get all workspace collections
-            collection_names = await self.client.list_collections()
+            collection_names = self.client.list_collections()
 
             for collection_name in collection_names:
                 try:
@@ -402,7 +402,7 @@ class HealthMonitor:
                 logger.warning(f"Embedding performance test failed: {e}")
 
             # Test search performance if collections exist
-            collections = await self.client.list_collections()
+            collections = self.client.list_collections()
             if collections:
                 try:
                     from ..tools.search import semantic_search
