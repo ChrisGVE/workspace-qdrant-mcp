@@ -242,7 +242,7 @@ class AutoIngestionConfig(BaseModel):
     auto_create_watches: bool = True
     include_common_files: bool = True
     include_source_files: bool = False
-    target_collection_suffix: str = "project"  # Which collection suffix to use for auto-ingestion
+    target_collection_suffix: str = ""  # Which collection suffix to use for auto-ingestion when multiple are available
     max_files_per_batch: int = 5
     batch_delay_seconds: float = 2.0
     max_file_size_mb: int = 50
@@ -679,7 +679,9 @@ class Config(BaseSettings):
         if hasattr(self.auto_ingestion, 'target_collection_suffix'):
             target_suffix = self.auto_ingestion.target_collection_suffix
             available_suffixes = self.workspace.effective_collection_suffixes
-            if target_suffix and target_suffix not in available_suffixes:
+            # Only validate if both target_suffix is specified AND there are available suffixes
+            # If no suffixes are configured, auto-ingestion should be disabled anyway
+            if target_suffix and available_suffixes and target_suffix not in available_suffixes:
                 issues.append(
                     f"auto_ingestion.target_collection_suffix '{target_suffix}' "
                     f"is not in workspace.collection_suffixes {available_suffixes}"
