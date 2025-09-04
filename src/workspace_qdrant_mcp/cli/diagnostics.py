@@ -1265,7 +1265,7 @@ class DiagnosticTool:
             client = QdrantWorkspaceClient(self.config)
             await client.initialize()
 
-            collections = await client.list_collections()
+            collections = client.list_collections()
             if collections:
                 # Test search performance on existing collection
                 test_queries = [
