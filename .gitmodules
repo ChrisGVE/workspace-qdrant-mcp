@@ -3,4 +3,4 @@
 	url = https://github.com/gergelyszerovay/mcp-server-qdrant-retrieve.git
 [submodule "web-ui"]
 	path = web-ui
-	url = https://github.com/ChrisGVE/qdrant-web-ui.git
+	url = https://github.com/ChrisGVE/workspace-qdrant-web-ui.git
