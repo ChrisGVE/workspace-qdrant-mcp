@@ -282,7 +282,7 @@ class QdrantWorkspaceClient:
             logger.error("Failed to get status: %s", e)
             return {"error": f"Failed to get status: {e}"}
 
-    async def list_collections(self) -> list[str]:
+    def list_collections(self) -> list[str]:
         """List all available workspace collections for the current project.
 
         Returns collections that are accessible within the current workspace scope,
@@ -294,7 +294,7 @@ class QdrantWorkspaceClient:
 
         Example:
             ```python
-            collections = await client.list_collections()
+            collections = client.list_collections()
             for collection in collections:
                 logger.info("Available collection", collection=collection)
             ```

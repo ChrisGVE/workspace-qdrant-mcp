@@ -205,7 +205,7 @@ async def list_workspace_collections() -> list[str]:
     if not workspace_client:
         return []
 
-    return await workspace_client.list_collections()
+    return workspace_client.list_collections()
 
 
 @app.tool()
