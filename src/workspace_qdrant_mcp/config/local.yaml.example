@@ -23,8 +23,8 @@ embedding:
 
 # Personal workspace settings
 workspace:
-  collections: ["my-project", "experiments"]
-  global_collections: ["personal-docs", "research"]
+  collection_suffixes: []  # Add your custom suffixes here
+  global_collections: []  # Add your global collections here
   github_user: "your-username"
   collection_prefix: "local_"
 

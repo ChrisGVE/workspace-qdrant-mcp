@@ -137,16 +137,16 @@ class WorkspaceConfig(BaseModel):
         - collection_prefix helps organize collections in shared Qdrant instances
         - max_collections prevents runaway collection creation
         - auto_create_collections controls whether collections are created automatically
-        - when auto_create_collections=false, only scratchbook collection is created
+        - when auto_create_collections=false, no collections are created automatically
 
     Examples:
         - collection_suffixes=["project"] → creates {project-name}-project (if auto_create_collections=true)
         - collection_suffixes=["docs", "tests"] → creates {project-name}-docs, {project-name}-tests (if auto_create_collections=true)
-        - scratchbook collection is always created regardless of auto_create_collections setting
+        - collections are only created when explicitly configured by user
     """
 
-    collection_suffixes: list[str] = ["project"]
-    global_collections: list[str] = ["scratchbook"]
+    collection_suffixes: list[str] = []
+    global_collections: list[str] = []
     github_user: str | None = None
     collection_prefix: str = ""
     max_collections: int = 100
@@ -662,16 +662,12 @@ class Config(BaseSettings):
 
         # Validate workspace settings
         effective_suffixes = self.workspace.effective_collection_suffixes
-        if not effective_suffixes:
-            issues.append("At least one project collection suffix must be configured")
-        elif len(effective_suffixes) > 20:
+        if len(effective_suffixes) > 20:
             issues.append(
                 "Too many project collection suffixes configured (max 20 recommended)"
             )
 
-        if not self.workspace.global_collections:
-            issues.append("At least one global collection must be configured")
-        elif len(self.workspace.global_collections) > 50:
+        if len(self.workspace.global_collections) > 50:
             issues.append("Too many global collections configured (max 50 recommended)")
 
         if self.workspace.max_collections <= 0:

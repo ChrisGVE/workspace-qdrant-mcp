@@ -32,8 +32,8 @@ embedding:
 
 # Workspace - enterprise scale
 workspace:
-  collection_suffixes: ["enterprise-project"]
-  global_collections: ["enterprise-docs", "compliance", "standards", "policies"]
+  collection_suffixes: []
+  global_collections: []
   github_user: "${ENTERPRISE_GITHUB_USER}"
   collection_prefix: "${TENANT_ID}_"
   max_collections: 10000

@@ -32,8 +32,8 @@ embedding:
 
 # Workspace settings - production environment
 workspace:
-  collection_suffixes: ["project"]
-  global_collections: ["docs", "references", "standards"]
+  collection_suffixes: []
+  global_collections: []
   github_user: "${GITHUB_USER}"
   collection_prefix: ""
   max_collections: 1000

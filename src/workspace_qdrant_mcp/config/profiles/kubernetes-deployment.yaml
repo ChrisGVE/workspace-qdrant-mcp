@@ -32,8 +32,8 @@ embedding:
 
 # Workspace - production
 workspace:
-  collection_suffixes: ["${APP_NAME:-app}-project"]
-  global_collections: ["shared-docs", "knowledge-base"]
+  collection_suffixes: []
+  global_collections: []
   github_user: "${GITHUB_USER}"
   collection_prefix: "${NAMESPACE:-default}_"
   max_collections: 1000
