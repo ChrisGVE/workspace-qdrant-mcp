@@ -69,7 +69,7 @@ def show_config(
     """Show current configuration."""
     try:
         config = Config()
-        config_dict = config.dict()
+        config_dict = config.model_dump()
         
         if section:
             if section not in config_dict:
@@ -100,7 +100,7 @@ def get_config_value(
     """Get a specific configuration value."""
     try:
         config = Config()
-        config_dict = config.dict()
+        config_dict = config.model_dump()
         
         # Navigate nested keys
         value = config_dict
