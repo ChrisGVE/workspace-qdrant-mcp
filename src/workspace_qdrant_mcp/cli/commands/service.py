@@ -5,19 +5,15 @@ for the memexd daemon with pure daemon architecture and priority-based
 resource management.
 
 Commands:
-    wqm service install               # Install memexd as user service (default)
-    wqm service install --system      # Install as system service (requires sudo)
+    wqm service install               # Install memexd as user service
     wqm service uninstall             # Remove user service
-    wqm service uninstall --system    # Remove system service (requires sudo)
     wqm service start                 # Start user service
     wqm service stop                  # Stop user service
     wqm service restart               # Restart user service
     wqm service status                # Show user service status
     wqm service logs                  # Show user service logs
     
-Flags:
-    --user/--system         # Install as user or system service
-                            # Default: user-level installation
+Note: All services are installed as user-level services only.
 """
 
 import asyncio
@@ -58,17 +54,16 @@ class ServiceManager:
         config_file: Optional[Path] = None,
         log_level: str = "info",
         auto_start: bool = True,
-        user_service: bool = True,
     ) -> Dict[str, Any]:
-        """Install memexd as a user service by default, or system service if specified."""
+        """Install memexd as a user service."""
         try:
             if self.system == "darwin":
                 return await self._install_macos_service(
-                    config_file, log_level, auto_start, user_service
+                    config_file, log_level, auto_start
                 )
             elif self.system == "linux":
                 return await self._install_linux_service(
-                    config_file, log_level, auto_start, user_service
+                    config_file, log_level, auto_start
                 )
             elif self.system == "windows":
                 return await self._install_windows_service(
@@ -93,7 +88,6 @@ class ServiceManager:
         config_file: Optional[Path],
         log_level: str,
         auto_start: bool,
-        user_service: bool,
     ) -> Dict[str, Any]:
         """Install macOS launchd service."""
         # Find daemon binary
@@ -104,19 +98,11 @@ class ServiceManager:
                 "error": "memexd binary not found. Build it first with: cargo build --release --bin memexd",
             }
 
-        # Create plist content
-        domain = "gui" if user_service else "system"
+        # Create plist content for user service
         service_id = f"com.workspace-qdrant-mcp.{self.service_name}"
-
-        # Determine plist location
-        if user_service:
-            plist_dir = Path.home() / "Library" / "LaunchAgents"
-            plist_path = plist_dir / f"{service_id}.plist"
-            logger.debug(f"Installing user service: {plist_path}")
-        else:
-            plist_dir = Path("/Library/LaunchDaemons")
-            plist_path = plist_dir / f"{service_id}.plist"
-            logger.debug(f"Installing system service: {plist_path}")
+        plist_dir = Path.home() / "Library" / "LaunchAgents"
+        plist_path = plist_dir / f"{service_id}.plist"
+        logger.debug(f"Installing user service: {plist_path}")
 
         # Create plist directory if it doesn't exist and validate permissions
         try:
@@ -128,27 +114,16 @@ class ServiceManager:
             logger.debug(f"Directory permissions validated: {plist_dir}")
         except PermissionError as e:
             logger.error(f"Cannot create or write to directory {plist_dir}: {e}")
-            if user_service:
-                suggestion = (
-                    f"Cannot create user service directory {plist_dir}.\n"
-                    "This is unexpected for user-level installation.\n"
-                    "Please check your home directory permissions.\n\n"
-                    "If you intended system installation, use:\n"
-                    "  sudo wqm service install --system"
-                )
-            else:
-                suggestion = (
-                    "System installation requires elevated privileges:\n"
-                    "  sudo wqm service install --system\n\n"
-                    "For user-level installation (recommended), use:\n"
-                    "  wqm service install  # (default is user-level)"
-                )
+            suggestion = (
+                f"Cannot create user service directory {plist_dir}.\n"
+                "This is unexpected for user-level installation.\n"
+                "Please check your home directory permissions."
+            )
             return {
                 "success": False,
                 "error": f"Cannot create service directory: {e}",
                 "suggestion": suggestion,
                 "plist_dir": str(plist_dir),
-                "attempted_user_service": user_service,
             }
 
         # Build daemon arguments
@@ -191,10 +166,10 @@ class ServiceManager:
     <true/>
     
     <key>StandardOutPath</key>
-    <string>{self._get_log_path(user_service, "memexd.log")}</string>
+    <string>{self._get_log_path("memexd.log")}</string>
     
     <key>StandardErrorPath</key>
-    <string>{self._get_log_path(user_service, "memexd.error.log")}</string>
+    <string>{self._get_log_path("memexd.error.log")}</string>
     
     <key>WorkingDirectory</key>
     <string>/tmp</string>
@@ -231,27 +206,16 @@ class ServiceManager:
         try:
             plist_path.write_text(plist_content)
         except PermissionError:
-            if user_service:
-                suggestion = (
-                    "Permission denied writing to user directory. This is unexpected.\n"
-                    "Please check if ~/Library/LaunchAgents/ is writable:\n"
-                    f"  ls -la {plist_dir.parent}\n\n"
-                    "If you intended system installation, use:\n"
-                    "  sudo wqm service install --system"
-                )
-            else:
-                suggestion = (
-                    "System installation requires elevated privileges:\n"
-                    "  sudo wqm service install --system\n\n"
-                    "For user-level installation (recommended), use:\n"
-                    "  wqm service install  # (default is user-level)"
-                )
+            suggestion = (
+                "Permission denied writing to user directory. This is unexpected.\n"
+                "Please check if ~/Library/LaunchAgents/ is writable:\n"
+                f"  ls -la {plist_dir.parent}"
+            )
             return {
                 "success": False,
                 "error": f"Permission denied writing to {plist_path}.",
                 "suggestion": suggestion,
                 "plist_path": str(plist_path),
-                "attempted_user_service": user_service,
             }
         except Exception as e:
             return {
@@ -281,7 +245,6 @@ class ServiceManager:
                 "plist_path": str(plist_path),
                 "daemon_path": str(daemon_path),
                 "auto_start": auto_start,
-                "user_service": user_service,
                 "message": f"Service {service_id} installed successfully",
             }
 
@@ -297,7 +260,6 @@ class ServiceManager:
         config_file: Optional[Path],
         log_level: str,
         auto_start: bool,
-        user_service: bool,
     ) -> Dict[str, Any]:
         """Install Linux systemd service."""
         # Find daemon binary
@@ -309,16 +271,11 @@ class ServiceManager:
             }
 
         service_name = f"{self.service_name}.service"
-
-        # Determine service file location
-        if user_service:
-            service_dir = Path.home() / ".config" / "systemd" / "user"
-            service_path = service_dir / service_name
-            systemctl_args = ["systemctl", "--user"]
-        else:
-            service_dir = Path("/etc/systemd/system")
-            service_path = service_dir / service_name
-            systemctl_args = ["systemctl"]
+        
+        # User service location
+        service_dir = Path.home() / ".config" / "systemd" / "user"
+        service_path = service_dir / service_name
+        systemctl_args = ["systemctl", "--user"]
 
         # Create service directory if it doesn't exist
         service_dir.mkdir(parents=True, exist_ok=True)
@@ -373,10 +330,8 @@ Environment=MEMEXD_HIGH_PRIORITY_QUEUE_SIZE=100
 Environment=MEMEXD_LOW_PRIORITY_QUEUE_SIZE=1000
 Environment=MEMEXD_RESOURCE_THROTTLE=enabled
 
-# Working directory and user
+# Working directory
 WorkingDirectory=/tmp
-{"User=nobody" if not user_service else ""}
-{"Group=nogroup" if not user_service else ""}
 
 # Logging
 StandardOutput=journal
@@ -384,7 +339,7 @@ StandardError=journal
 SyslogIdentifier=memexd
 
 [Install]
-WantedBy={"default.target" if user_service else "multi-user.target"}
+WantedBy=default.target
 """
 
         # Write service file
@@ -419,32 +374,20 @@ WantedBy={"default.target" if user_service else "multi-user.target"}
                 "service_path": str(service_path),
                 "daemon_path": str(daemon_path),
                 "auto_start": auto_start,
-                "user_service": user_service,
                 "message": f"Service {service_name} installed successfully",
             }
 
         except PermissionError:
-            if user_service:
-                suggestion = (
-                    "Permission denied writing to user directory. This is unexpected.\n"
-                    "Please check if ~/.config/systemd/user/ is writable:\n"
-                    f"  ls -la {service_dir.parent}\n\n"
-                    "If you intended system installation, use:\n"
-                    "  sudo wqm service install --system"
-                )
-            else:
-                suggestion = (
-                    "System installation requires elevated privileges:\n"
-                    "  sudo wqm service install --system\n\n"
-                    "For user-level installation (recommended), use:\n"
-                    "  wqm service install  # (default is user-level)"
-                )
+            suggestion = (
+                "Permission denied writing to user directory. This is unexpected.\n"
+                "Please check if ~/.config/systemd/user/ is writable:\n"
+                f"  ls -la {service_dir.parent}"
+            )
             return {
                 "success": False,
                 "error": f"Permission denied writing to {service_path}.",
                 "suggestion": suggestion,
                 "service_path": str(service_path),
-                "attempted_user_service": user_service,
             }
         except Exception as e:
             return {
@@ -464,13 +407,13 @@ WantedBy={"default.target" if user_service else "multi-user.target"}
             "platform": "windows",
         }
 
-    async def uninstall_service(self, user_service: bool = True) -> Dict[str, Any]:
-        """Uninstall system service."""
+    async def uninstall_service(self) -> Dict[str, Any]:
+        """Uninstall user service."""
         try:
             if self.system == "darwin":
-                return await self._uninstall_macos_service(user_service)
+                return await self._uninstall_macos_service()
             elif self.system == "linux":
-                return await self._uninstall_linux_service(user_service)
+                return await self._uninstall_linux_service()
             elif self.system == "windows":
                 return await self._uninstall_windows_service()
             else:
@@ -481,16 +424,12 @@ WantedBy={"default.target" if user_service else "multi-user.target"}
         except Exception as e:
             return {"success": False, "error": f"Uninstallation failed: {e}"}
 
-    async def _uninstall_macos_service(self, user_service: bool) -> Dict[str, Any]:
+    async def _uninstall_macos_service(self) -> Dict[str, Any]:
         """Uninstall macOS service."""
         service_id = f"com.workspace-qdrant-mcp.{self.service_name}"
-
-        if user_service:
-            plist_path = (
-                Path.home() / "Library" / "LaunchAgents" / f"{service_id}.plist"
-            )
-        else:
-            plist_path = Path("/Library/LaunchDaemons") / f"{service_id}.plist"
+        plist_path = (
+            Path.home() / "Library" / "LaunchAgents" / f"{service_id}.plist"
+        )
 
         if not plist_path.exists():
             return {"success": False, "error": f"Service not found at {plist_path}"}
@@ -516,16 +455,11 @@ WantedBy={"default.target" if user_service else "multi-user.target"}
         except Exception as e:
             return {"success": False, "error": f"Failed to uninstall service: {e}"}
 
-    async def _uninstall_linux_service(self, user_service: bool) -> Dict[str, Any]:
+    async def _uninstall_linux_service(self) -> Dict[str, Any]:
         """Uninstall Linux service."""
         service_name = f"{self.service_name}.service"
-
-        if user_service:
-            service_path = Path.home() / ".config" / "systemd" / "user" / service_name
-            systemctl_args = ["systemctl", "--user"]
-        else:
-            service_path = Path("/etc/systemd/system") / service_name
-            systemctl_args = ["systemctl"]
+        service_path = Path.home() / ".config" / "systemd" / "user" / service_name
+        systemctl_args = ["systemctl", "--user"]
 
         if not service_path.exists():
             return {"success": False, "error": f"Service not found at {service_path}"}
@@ -566,13 +500,13 @@ WantedBy={"default.target" if user_service else "multi-user.target"}
             "error": "Windows service uninstallation not yet implemented",
         }
 
-    async def start_service(self, user_service: bool = True) -> Dict[str, Any]:
-        """Start the service."""
+    async def start_service(self) -> Dict[str, Any]:
+        """Start the user service."""
         try:
             if self.system == "darwin":
-                return await self._start_macos_service(user_service)
+                return await self._start_macos_service()
             elif self.system == "linux":
-                return await self._start_linux_service(user_service)
+                return await self._start_linux_service()
             elif self.system == "windows":
                 return await self._start_windows_service()
             else:
@@ -583,7 +517,7 @@ WantedBy={"default.target" if user_service else "multi-user.target"}
         except Exception as e:
             return {"success": False, "error": f"Failed to start service: {e}"}
 
-    async def _start_macos_service(self, user_service: bool) -> Dict[str, Any]:
+    async def _start_macos_service(self) -> Dict[str, Any]:
         """Start macOS service."""
         service_id = f"com.workspace-qdrant-mcp.{self.service_name}"
 
@@ -605,10 +539,10 @@ WantedBy={"default.target" if user_service else "multi-user.target"}
             "message": f"Service {service_id} started successfully",
         }
 
-    async def _start_linux_service(self, user_service: bool) -> Dict[str, Any]:
+    async def _start_linux_service(self) -> Dict[str, Any]:
         """Start Linux service."""
         service_name = f"{self.service_name}.service"
-        systemctl_args = ["systemctl", "--user"] if user_service else ["systemctl"]
+        systemctl_args = ["systemctl", "--user"]
 
         cmd = systemctl_args + ["start", service_name]
         result = await asyncio.create_subprocess_exec(
@@ -632,13 +566,13 @@ WantedBy={"default.target" if user_service else "multi-user.target"}
         """Start Windows service."""
         return {"success": False, "error": "Windows service start not yet implemented"}
 
-    async def stop_service(self, user_service: bool = True) -> Dict[str, Any]:
-        """Stop the service."""
+    async def stop_service(self) -> Dict[str, Any]:
+        """Stop the user service."""
         try:
             if self.system == "darwin":
-                return await self._stop_macos_service(user_service)
+                return await self._stop_macos_service()
             elif self.system == "linux":
-                return await self._stop_linux_service(user_service)
+                return await self._stop_linux_service()
             elif self.system == "windows":
                 return await self._stop_windows_service()
             else:
@@ -649,7 +583,7 @@ WantedBy={"default.target" if user_service else "multi-user.target"}
         except Exception as e:
             return {"success": False, "error": f"Failed to stop service: {e}"}
 
-    async def _stop_macos_service(self, user_service: bool) -> Dict[str, Any]:
+    async def _stop_macos_service(self) -> Dict[str, Any]:
         """Stop macOS service."""
         service_id = f"com.workspace-qdrant-mcp.{self.service_name}"
 
@@ -666,10 +600,10 @@ WantedBy={"default.target" if user_service else "multi-user.target"}
             "message": f"Service {service_id} stop command sent",
         }
 
-    async def _stop_linux_service(self, user_service: bool) -> Dict[str, Any]:
+    async def _stop_linux_service(self) -> Dict[str, Any]:
         """Stop Linux service."""
         service_name = f"{self.service_name}.service"
-        systemctl_args = ["systemctl", "--user"] if user_service else ["systemctl"]
+        systemctl_args = ["systemctl", "--user"]
 
         cmd = systemctl_args + ["stop", service_name]
         result = await asyncio.create_subprocess_exec(
@@ -693,13 +627,13 @@ WantedBy={"default.target" if user_service else "multi-user.target"}
         """Stop Windows service."""
         return {"success": False, "error": "Windows service stop not yet implemented"}
 
-    async def get_service_status(self, user_service: bool = True) -> Dict[str, Any]:
-        """Get service status."""
+    async def get_service_status(self) -> Dict[str, Any]:
+        """Get user service status."""
         try:
             if self.system == "darwin":
-                return await self._get_macos_service_status(user_service)
+                return await self._get_macos_service_status()
             elif self.system == "linux":
-                return await self._get_linux_service_status(user_service)
+                return await self._get_linux_service_status()
             elif self.system == "windows":
                 return await self._get_windows_service_status()
             else:
@@ -710,7 +644,7 @@ WantedBy={"default.target" if user_service else "multi-user.target"}
         except Exception as e:
             return {"success": False, "error": f"Failed to get service status: {e}"}
 
-    async def _get_macos_service_status(self, user_service: bool) -> Dict[str, Any]:
+    async def _get_macos_service_status(self) -> Dict[str, Any]:
         """Get macOS service status."""
         service_id = f"com.workspace-qdrant-mcp.{self.service_name}"
 
@@ -753,10 +687,10 @@ WantedBy={"default.target" if user_service else "multi-user.target"}
             "platform": "macOS",
         }
 
-    async def _get_linux_service_status(self, user_service: bool) -> Dict[str, Any]:
+    async def _get_linux_service_status(self) -> Dict[str, Any]:
         """Get Linux service status."""
         service_name = f"{self.service_name}.service"
-        systemctl_args = ["systemctl", "--user"] if user_service else ["systemctl"]
+        systemctl_args = ["systemctl", "--user"]
 
         # Get service status
         cmd = systemctl_args + ["is-active", service_name]
@@ -819,14 +753,14 @@ WantedBy={"default.target" if user_service else "multi-user.target"}
         return {"success": False, "error": "Windows service status not yet implemented"}
 
     async def get_service_logs(
-        self, lines: int = 50, user_service: bool = True
+        self, lines: int = 50
     ) -> Dict[str, Any]:
-        """Get service logs."""
+        """Get user service logs."""
         try:
             if self.system == "darwin":
-                return await self._get_macos_service_logs(lines, user_service)
+                return await self._get_macos_service_logs(lines)
             elif self.system == "linux":
-                return await self._get_linux_service_logs(lines, user_service)
+                return await self._get_linux_service_logs(lines)
             elif self.system == "windows":
                 return await self._get_windows_service_logs(lines)
             else:
@@ -837,19 +771,16 @@ WantedBy={"default.target" if user_service else "multi-user.target"}
         except Exception as e:
             return {"success": False, "error": f"Failed to get service logs: {e}"}
 
-    async def _get_macos_service_logs(self, lines: int, user_service: bool = True) -> Dict[str, Any]:
+    async def _get_macos_service_logs(self, lines: int) -> Dict[str, Any]:
         """Get macOS service logs."""
         service_id = f"com.workspace-qdrant-mcp.{self.service_name}"
 
-        # Try to read log files based on service type
-        if user_service:
-            user_log_dir = Path.home() / "Library" / "Logs"
-            log_files = [
-                str(user_log_dir / "memexd.log"),
-                str(user_log_dir / "memexd.error.log")
-            ]
-        else:
-            log_files = ["/var/log/memexd.log", "/var/log/memexd.error.log"]
+        # Try to read log files from user directory
+        user_log_dir = Path.home() / "Library" / "Logs"
+        log_files = [
+            str(user_log_dir / "memexd.log"),
+            str(user_log_dir / "memexd.error.log")
+        ]
         logs = []
 
         for log_file in log_files:
@@ -891,16 +822,11 @@ WantedBy={"default.target" if user_service else "multi-user.target"}
         }
 
     async def _get_linux_service_logs(
-        self, lines: int, user_service: bool
+        self, lines: int
     ) -> Dict[str, Any]:
         """Get Linux service logs."""
         service_name = f"{self.service_name}.service"
-        cmd = ["journalctl"]
-
-        if user_service:
-            cmd.append("--user")
-
-        cmd.extend(["-u", service_name, "-n", str(lines), "--no-pager"])
+        cmd = ["journalctl", "--user", "-u", service_name, "-n", str(lines), "--no-pager"]
 
         result = await asyncio.create_subprocess_exec(
             *cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE
@@ -964,16 +890,12 @@ WantedBy={"default.target" if user_service else "multi-user.target"}
 
         return None
 
-    def _get_log_path(self, user_service: bool, filename: str) -> str:
-        """Get appropriate log path for user or system service."""
-        if user_service:
-            # User service - use user's log directory
-            user_log_dir = Path.home() / "Library" / "Logs"
-            user_log_dir.mkdir(parents=True, exist_ok=True)
-            return str(user_log_dir / filename)
-        else:
-            # System service - use system log directory
-            return f"/var/log/{filename}"
+    def _get_log_path(self, filename: str) -> str:
+        """Get appropriate log path for user service."""
+        # User service - use user's log directory
+        user_log_dir = Path.home() / "Library" / "Logs"
+        user_log_dir.mkdir(parents=True, exist_ok=True)
+        return str(user_log_dir / filename)
 
 
 # Create service manager instance
@@ -989,16 +911,13 @@ def install_service(
     auto_start: bool = typer.Option(
         True, "--auto-start/--no-auto-start", help="Start service automatically on boot"
     ),
-    user_service: bool = typer.Option(
-        True, "--user/--system", help="Install as user service (default: user)"
-    ),
 ) -> None:
     """Install memexd as a user service with priority-based resource management."""
 
     async def _install():
         config_path = Path(config_file) if config_file else None
         result = await service_manager.install_service(
-            config_path, log_level, auto_start, user_service
+            config_path, log_level, auto_start
         )
 
         if result["success"]:
@@ -1008,7 +927,7 @@ def install_service(
                     f"Service: {result.get('service_id', result.get('service_name'))}\n"
                     f"Binary: {result.get('daemon_path', 'memexd')}\n"
                     f"Auto-start: {'Yes' if auto_start else 'No'}\n"
-                    f"User service: {'Yes' if user_service else 'No'}\n"
+                    f"Service type: User service\n"
                     f"Priority mode: Enabled\n"
                     f"Resource management: Active",
                     title="Service Installation",
@@ -1043,12 +962,9 @@ def install_service(
 
 @service_app.command("uninstall")
 def uninstall_service(
-    user_service: bool = typer.Option(
-        True, "--user/--system", help="Uninstall user service (default: user)"
-    ),
     force: bool = typer.Option(False, "--force", help="Force uninstallation"),
 ) -> None:
-    """Uninstall memexd service."""
+    """Uninstall memexd user service."""
 
     async def _uninstall():
         if not force:
@@ -1059,7 +975,7 @@ def uninstall_service(
                 console.print("Uninstallation cancelled.")
                 return
 
-        result = await service_manager.uninstall_service(user_service)
+        result = await service_manager.uninstall_service()
 
         if result["success"]:
             console.print(
@@ -1084,15 +1000,11 @@ def uninstall_service(
 
 
 @service_app.command("start")
-def start_service(
-    user_service: bool = typer.Option(
-        True, "--user/--system", help="Start user service (default: user)"
-    ),
-) -> None:
-    """Start the memexd service."""
+def start_service() -> None:
+    """Start the memexd user service."""
 
     async def _start():
-        result = await service_manager.start_service(user_service)
+        result = await service_manager.start_service()
 
         if result["success"]:
             console.print(
@@ -1119,15 +1031,11 @@ def start_service(
 
 
 @service_app.command("stop")
-def stop_service(
-    user_service: bool = typer.Option(
-        True, "--user/--system", help="Stop user service (default: user)"
-    ),
-) -> None:
-    """Stop the memexd service."""
+def stop_service() -> None:
+    """Stop the memexd user service."""
 
     async def _stop():
-        result = await service_manager.stop_service(user_service)
+        result = await service_manager.stop_service()
 
         if result["success"]:
             console.print(
@@ -1152,16 +1060,12 @@ def stop_service(
 
 
 @service_app.command("restart")
-def restart_service(
-    user_service: bool = typer.Option(
-        True, "--user/--system", help="Restart user service (default: user)"
-    ),
-) -> None:
-    """Restart the memexd service."""
+def restart_service() -> None:
+    """Restart the memexd user service."""
 
     async def _restart():
         # Stop first
-        stop_result = await service_manager.stop_service(user_service)
+        stop_result = await service_manager.stop_service()
         if not stop_result["success"]:
             console.print(f"⚠️  Warning: Failed to stop service: {stop_result['error']}")
 
@@ -1169,17 +1073,16 @@ def restart_service(
         await asyncio.sleep(2)
 
         # Start
-        start_result = await service_manager.start_service(user_service)
+        start_result = await service_manager.start_service()
 
         if start_result["success"]:
-            service_type = "system" if not user_service else "user"
             platform_name = platform.system().lower()
             
             console.print(
                 Panel.fit(
                     f"✅ Service restarted successfully!\n\n"
                     f"Service: {start_result.get('service_id', start_result.get('service_name'))}\n"
-                    f"Type: {service_type.title()} service\n"
+                    f"Type: User service\n"
                     f"Platform: {platform_name.title()}\n"
                     f"Configuration: Active and loaded\n"
                     f"Priority-based processing: Enabled",
@@ -1209,15 +1112,12 @@ def restart_service(
 
 @service_app.command("status")
 def get_status(
-    user_service: bool = typer.Option(
-        True, "--user/--system", help="Check user service (default: user)"
-    ),
     verbose: bool = typer.Option(False, "--verbose", "-v", help="Show detailed status"),
 ) -> None:
-    """Show memexd service status."""
+    """Show memexd user service status."""
 
     async def _status():
-        result = await service_manager.get_service_status(user_service)
+        result = await service_manager.get_service_status()
 
         if result["success"]:
             service_name = result.get(
@@ -1287,17 +1187,14 @@ def get_status(
 @service_app.command("logs")
 def get_logs(
     lines: int = typer.Option(50, "--lines", "-n", help="Number of log lines to show"),
-    user_service: bool = typer.Option(
-        True, "--user/--system", help="Show user service logs (default: user)"
-    ),
     follow: bool = typer.Option(
         False, "--follow", "-f", help="Follow logs in real-time"
     ),
 ) -> None:
-    """Show memexd service logs."""
+    """Show memexd user service logs."""
 
     async def _logs():
-        result = await service_manager.get_service_logs(lines, user_service)
+        result = await service_manager.get_service_logs(lines)
 
         if result["success"]:
             service_name = result.get(
