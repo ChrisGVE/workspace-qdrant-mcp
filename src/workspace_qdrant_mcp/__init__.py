@@ -50,7 +50,7 @@ For comprehensive documentation, examples, and API reference:
 https://github.com/your-org/workspace-qdrant-mcp
 """
 
-__version__ = "0.2.0"
+__version__ = "0.2.1-debug"
 __author__ = "Chris"
 __email__ = "chris@example.com"
 __description__ = "Advanced project-scoped Qdrant MCP server with hybrid search"
