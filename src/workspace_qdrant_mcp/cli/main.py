@@ -105,7 +105,7 @@ app.add_typer(ingest_app, name="ingest", help="Manual document processing")
 app.add_typer(search_app, name="search", help="Command-line search interface")
 app.add_typer(library_app, name="library", help="Library collection management")
 app.add_typer(
-    service_app, name="service", help="System service management for memexd daemon"
+    service_app, name="service", help="User service management for memexd daemon"
 )
 app.add_typer(watch_app, name="watch", help="Folder watching configuration")
 app.add_typer(
