@@ -5,13 +5,16 @@ for the memexd daemon with pure daemon architecture and priority-based
 resource management.
 
 Commands:
-    wqm service install     # Install memexd as system service
-    wqm service uninstall   # Remove system service
+    wqm service install     # Install memexd as user service (default)
+    wqm service uninstall   # Remove user service
     wqm service start       # Start service
     wqm service stop        # Stop service
     wqm service restart     # Restart service
     wqm service status      # Show service status
     wqm service logs        # Show service logs
+    
+Flags:
+    --user/--system         # Choose user-level vs system-level installation
 """
 
 import asyncio
@@ -52,9 +55,9 @@ class ServiceManager:
         config_file: Optional[Path] = None,
         log_level: str = "info",
         auto_start: bool = True,
-        user_service: bool = False,
+        user_service: bool = True,
     ) -> Dict[str, Any]:
-        """Install memexd as a system service."""
+        """Install memexd as a user service by default, or system service if specified."""
         try:
             if self.system == "darwin":
                 return await self._install_macos_service(
@@ -153,10 +156,10 @@ class ServiceManager:
     <true/>
     
     <key>StandardOutPath</key>
-    <string>/var/log/memexd.log</string>
+    <string>{self._get_log_path(user_service, "memexd.log")}</string>
     
     <key>StandardErrorPath</key>
-    <string>/var/log/memexd.error.log</string>
+    <string>{self._get_log_path(user_service, "memexd.error.log")}</string>
     
     <key>WorkingDirectory</key>
     <string>/tmp</string>
@@ -190,7 +193,27 @@ class ServiceManager:
 </plist>"""
 
         # Write plist file
-        plist_path.write_text(plist_content)
+        try:
+            plist_path.write_text(plist_content)
+        except PermissionError:
+            suggestion = (
+                "Try using --user flag for user-level installation:\n"
+                "  wqm service install --user\n\n"
+                "Or run with elevated privileges for system-level installation:\n"
+                "  sudo wqm service install --system"
+            )
+            return {
+                "success": False,
+                "error": f"Permission denied writing to {plist_path}.",
+                "suggestion": suggestion,
+                "plist_path": str(plist_path),
+            }
+        except Exception as e:
+            return {
+                "success": False,
+                "error": f"Failed to write plist file: {e}",
+                "plist_path": str(plist_path),
+            }
 
         # Load service
         try:
@@ -356,9 +379,16 @@ WantedBy={"default.target" if user_service else "multi-user.target"}
             }
 
         except PermissionError:
+            suggestion = (
+                "Try using --user flag for user-level installation:\n"
+                "  wqm service install --user\n\n"
+                "Or run with elevated privileges for system-level installation:\n"
+                "  sudo wqm service install --system"
+            )
             return {
                 "success": False,
-                "error": "Permission denied. Try running with sudo for system service.",
+                "error": f"Permission denied writing to {service_path}.",
+                "suggestion": suggestion,
                 "service_path": str(service_path),
             }
         except Exception as e:
@@ -379,7 +409,7 @@ WantedBy={"default.target" if user_service else "multi-user.target"}
             "platform": "windows",
         }
 
-    async def uninstall_service(self, user_service: bool = False) -> Dict[str, Any]:
+    async def uninstall_service(self, user_service: bool = True) -> Dict[str, Any]:
         """Uninstall system service."""
         try:
             if self.system == "darwin":
@@ -481,7 +511,7 @@ WantedBy={"default.target" if user_service else "multi-user.target"}
             "error": "Windows service uninstallation not yet implemented",
         }
 
-    async def start_service(self, user_service: bool = False) -> Dict[str, Any]:
+    async def start_service(self, user_service: bool = True) -> Dict[str, Any]:
         """Start the service."""
         try:
             if self.system == "darwin":
@@ -547,7 +577,7 @@ WantedBy={"default.target" if user_service else "multi-user.target"}
         """Start Windows service."""
         return {"success": False, "error": "Windows service start not yet implemented"}
 
-    async def stop_service(self, user_service: bool = False) -> Dict[str, Any]:
+    async def stop_service(self, user_service: bool = True) -> Dict[str, Any]:
         """Stop the service."""
         try:
             if self.system == "darwin":
@@ -608,7 +638,7 @@ WantedBy={"default.target" if user_service else "multi-user.target"}
         """Stop Windows service."""
         return {"success": False, "error": "Windows service stop not yet implemented"}
 
-    async def get_service_status(self, user_service: bool = False) -> Dict[str, Any]:
+    async def get_service_status(self, user_service: bool = True) -> Dict[str, Any]:
         """Get service status."""
         try:
             if self.system == "darwin":
@@ -734,12 +764,12 @@ WantedBy={"default.target" if user_service else "multi-user.target"}
         return {"success": False, "error": "Windows service status not yet implemented"}
 
     async def get_service_logs(
-        self, lines: int = 50, user_service: bool = False
+        self, lines: int = 50, user_service: bool = True
     ) -> Dict[str, Any]:
         """Get service logs."""
         try:
             if self.system == "darwin":
-                return await self._get_macos_service_logs(lines)
+                return await self._get_macos_service_logs(lines, user_service)
             elif self.system == "linux":
                 return await self._get_linux_service_logs(lines, user_service)
             elif self.system == "windows":
@@ -752,12 +782,19 @@ WantedBy={"default.target" if user_service else "multi-user.target"}
         except Exception as e:
             return {"success": False, "error": f"Failed to get service logs: {e}"}
 
-    async def _get_macos_service_logs(self, lines: int) -> Dict[str, Any]:
+    async def _get_macos_service_logs(self, lines: int, user_service: bool = True) -> Dict[str, Any]:
         """Get macOS service logs."""
         service_id = f"com.workspace-qdrant-mcp.{self.service_name}"
 
-        # Try to read log files
-        log_files = ["/var/log/memexd.log", "/var/log/memexd.error.log"]
+        # Try to read log files based on service type
+        if user_service:
+            user_log_dir = Path.home() / "Library" / "Logs"
+            log_files = [
+                str(user_log_dir / "memexd.log"),
+                str(user_log_dir / "memexd.error.log")
+            ]
+        else:
+            log_files = ["/var/log/memexd.log", "/var/log/memexd.error.log"]
         logs = []
 
         for log_file in log_files:
@@ -872,6 +909,17 @@ WantedBy={"default.target" if user_service else "multi-user.target"}
 
         return None
 
+    def _get_log_path(self, user_service: bool, filename: str) -> str:
+        """Get appropriate log path for user or system service."""
+        if user_service:
+            # User service - use user's log directory
+            user_log_dir = Path.home() / "Library" / "Logs"
+            user_log_dir.mkdir(parents=True, exist_ok=True)
+            return str(user_log_dir / filename)
+        else:
+            # System service - use system log directory
+            return f"/var/log/{filename}"
+
 
 # Create service manager instance
 service_manager = ServiceManager()
@@ -887,10 +935,10 @@ def install_service(
         True, "--auto-start/--no-auto-start", help="Start service automatically on boot"
     ),
     user_service: bool = typer.Option(
-        False, "--user/--system", help="Install as user service (default: system)"
+        True, "--user/--system", help="Install as user service (default: user)"
     ),
 ) -> None:
-    """Install memexd as a system service with priority-based resource management."""
+    """Install memexd as a user service with priority-based resource management."""
 
     async def _install():
         config_path = Path(config_file) if config_file else None
@@ -920,11 +968,15 @@ def install_service(
                     "💡 Use 'wqm service start' to start the service manually."
                 )
         else:
+            error_text = f"❌ Installation failed!\n\nError: {result['error']}\nPlatform: {result.get('platform', 'unknown')}"
+            
+            # Add suggestion if available
+            if 'suggestion' in result:
+                error_text += f"\n\n💡 Suggestion:\n{result['suggestion']}"
+            
             console.print(
                 Panel.fit(
-                    f"❌ Installation failed!\n\n"
-                    f"Error: {result['error']}\n"
-                    f"Platform: {result.get('platform', 'unknown')}",
+                    error_text,
                     title="Installation Error",
                     style="red",
                 )
@@ -937,11 +989,11 @@ def install_service(
 @service_app.command("uninstall")
 def uninstall_service(
     user_service: bool = typer.Option(
-        False, "--user/--system", help="Uninstall user service (default: system)"
+        True, "--user/--system", help="Uninstall user service (default: user)"
     ),
     force: bool = typer.Option(False, "--force", help="Force uninstallation"),
 ) -> None:
-    """Uninstall memexd system service."""
+    """Uninstall memexd service."""
 
     async def _uninstall():
         if not force:
@@ -979,7 +1031,7 @@ def uninstall_service(
 @service_app.command("start")
 def start_service(
     user_service: bool = typer.Option(
-        False, "--user/--system", help="Start user service (default: system)"
+        True, "--user/--system", help="Start user service (default: user)"
     ),
 ) -> None:
     """Start the memexd service."""
@@ -1014,7 +1066,7 @@ def start_service(
 @service_app.command("stop")
 def stop_service(
     user_service: bool = typer.Option(
-        False, "--user/--system", help="Stop user service (default: system)"
+        True, "--user/--system", help="Stop user service (default: user)"
     ),
 ) -> None:
     """Stop the memexd service."""
@@ -1047,7 +1099,7 @@ def stop_service(
 @service_app.command("restart")
 def restart_service(
     user_service: bool = typer.Option(
-        False, "--user/--system", help="Restart user service (default: system)"
+        True, "--user/--system", help="Restart user service (default: user)"
     ),
 ) -> None:
     """Restart the memexd service."""
@@ -1093,7 +1145,7 @@ def restart_service(
 @service_app.command("status")
 def get_status(
     user_service: bool = typer.Option(
-        False, "--user/--system", help="Check user service (default: system)"
+        True, "--user/--system", help="Check user service (default: user)"
     ),
     verbose: bool = typer.Option(False, "--verbose", "-v", help="Show detailed status"),
 ) -> None:
@@ -1171,7 +1223,7 @@ def get_status(
 def get_logs(
     lines: int = typer.Option(50, "--lines", "-n", help="Number of log lines to show"),
     user_service: bool = typer.Option(
-        False, "--user/--system", help="Show user service logs (default: system)"
+        True, "--user/--system", help="Show user service logs (default: user)"
     ),
     follow: bool = typer.Option(
         False, "--follow", "-f", help="Follow logs in real-time"
