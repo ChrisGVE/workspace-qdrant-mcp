@@ -1183,22 +1183,32 @@ def restart_service(
         start_result = await service_manager.start_service(user_service)
 
         if start_result["success"]:
+            service_type = "system" if not user_service else "user"
+            platform_name = platform.system().lower()
+            
             console.print(
                 Panel.fit(
                     f"✅ Service restarted successfully!\n\n"
                     f"Service: {start_result.get('service_id', start_result.get('service_name'))}\n"
-                    f"Priority-based processing: Active\n"
-                    f"Resource management: Enabled",
-                    title="Service Restart",
+                    f"Type: {service_type.title()} service\n"
+                    f"Platform: {platform_name.title()}\n"
+                    f"Configuration: Active and loaded\n"
+                    f"Priority-based processing: Enabled",
+                    title="Service Restart Complete",
                     style="green",
                 )
             )
+            
+            # Show additional help for configuration changes
+            console.print("\nService is now running with updated configuration.")
+            console.print("Use 'wqm service status' to check service health.")
         else:
             console.print(
                 Panel.fit(
                     f"❌ Failed to restart service!\n\n"
                     f"Stop: {'Success' if stop_result['success'] else 'Failed'}\n"
-                    f"Start: Failed - {start_result['error']}",
+                    f"Start: Failed - {start_result['error']}\n\n"
+                    f"Try running 'wqm service status' to diagnose issues.",
                     title="Restart Error",
                     style="red",
                 )

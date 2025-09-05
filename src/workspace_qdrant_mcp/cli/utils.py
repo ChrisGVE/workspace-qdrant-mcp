@@ -9,6 +9,7 @@ import sys
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional, Union
 
+import platform
 import typer
 
 
@@ -294,9 +295,107 @@ def warning_message(message: str) -> None:
     print(f"⚠ {message}", file=sys.stderr)
 
 
+def show_service_restart_notification(reason: str = "configuration changes") -> None:
+    """Show service restart notification with platform-appropriate commands."""
+    platform_name = platform.system().lower()
+    
+    # Platform-appropriate terminology
+    if platform_name in ["darwin", "linux"]:
+        service_term = "service"
+    elif platform_name == "windows":
+        service_term = "service"
+    else:
+        service_term = "service"
+    
+    restart_cmd = "wqm service restart"
+    
+    # Enhanced warning with clear restart instruction
+    print("")
+    warning_message(
+        f"{reason.capitalize()} require {service_term} restart to take effect."
+    )
+    print(f"   Run: {restart_cmd}")
+    print("")
+
+
+def get_platform_service_commands() -> dict:
+    """Get platform-appropriate service management commands."""
+    platform_name = platform.system().lower()
+    
+    commands = {
+        "restart": "wqm service restart",
+        "start": "wqm service start", 
+        "stop": "wqm service stop",
+        "status": "wqm service status",
+        "logs": "wqm service logs"
+    }
+    
+    # Add platform-specific system service commands if needed
+    if platform_name in ["darwin", "linux", "windows"]:
+        commands["system_restart"] = "wqm service restart --system"
+        commands["system_status"] = "wqm service status --system"
+    
+    return commands
+
+
+def show_service_restart_help() -> None:
+    """Show comprehensive service restart help."""
+    platform_name = platform.system().lower()
+    commands = get_platform_service_commands()
+    
+    print("Service Management Commands:")
+    print("=" * 50)
+    print(f"  Restart service: {commands['restart']}")
+    print(f"  Start service:   {commands['start']}")
+    print(f"  Stop service:    {commands['stop']}")
+    print(f"  Check status:    {commands['status']}")
+    print(f"  View logs:       {commands['logs']}")
+    
+    if platform_name in ["darwin", "linux", "windows"]:
+        print("\nSystem Service Commands (requires elevated privileges):")
+        print("-" * 50)
+        print(f"  Restart system service: {commands['system_restart']}")
+        print(f"  Check system status:    {commands['system_status']}")
+
+
 def error_message(message: str) -> None:
     """Print an error message to stderr."""
     print(f"✗ {message}", file=sys.stderr)
+
+
+# Configuration change tracking
+def requires_service_restart(config_key: str) -> bool:
+    """Check if a configuration key requires service restart."""
+    restart_required_keys = {
+        "qdrant.url",
+        "qdrant.api_key", 
+        "qdrant.timeout",
+        "qdrant.prefer_grpc",
+        "embedding.model",
+        "embedding.enable_sparse_vectors", 
+        "embedding.chunk_size",
+        "embedding.chunk_overlap",
+        "embedding.batch_size",
+        "workspace.collection_prefix",
+        "workspace.max_collections",
+        "auto_ingestion.enabled",
+        "auto_ingestion.auto_create_watches",
+        "auto_ingestion.include_common_files",
+        "auto_ingestion.include_source_files",
+        "auto_ingestion.target_collection_suffix",
+        "auto_ingestion.max_files_per_batch",
+        "auto_ingestion.batch_delay_seconds",
+        "auto_ingestion.max_file_size_mb",
+        "auto_ingestion.recursive_depth",
+        "auto_ingestion.debounce_seconds",
+        "host",
+        "port",
+        "debug"
+    }
+    
+    return any(config_key.startswith(pattern.split('.')[0]) and 
+              (len(pattern.split('.')) == 1 or config_key == pattern) 
+              for pattern in restart_required_keys)
 
 
 # Alias for backward compatibility with service commands
