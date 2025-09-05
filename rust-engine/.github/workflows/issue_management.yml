@@ -1,0 +1,179 @@
+name: Issue Management
+
+on:
+  push:
+    branches: [ main, develop ]
+  pull_request:
+    branches: [ main ]
+    types: [ closed ]
+  issues:
+    types: [ opened, closed, reopened ]
+
+jobs:
+  auto_close_issues:
+    name: Auto-close issues from commits
+    runs-on: ubuntu-latest
+    if: github.event_name == 'push'
+    
+    steps:
+    - name: Checkout
+      uses: actions/checkout@v4
+      with:
+        fetch-depth: 0
+
+    - name: Auto-close issues
+      uses: actions/github-script@v7
+      with:
+        script: |
+          const commits = context.payload.commits || [];
+          
+          for (const commit of commits) {
+            const message = commit.message;
+            console.log(`Processing commit: ${message}`);
+            
+            // Look for "fixes #123", "closes #123", "resolves #123" patterns
+            const issuePatterns = [
+              /(?:fix|fixes|fixed|close|closes|closed|resolve|resolves|resolved)\s+#(\d+)/gi
+            ];
+            
+            for (const pattern of issuePatterns) {
+              let match;
+              while ((match = pattern.exec(message)) !== null) {
+                const issueNumber = parseInt(match[1]);
+                console.log(`Found issue reference: #${issueNumber}`);
+                
+                try {
+                  // Add a comment before closing
+                  await github.rest.issues.createComment({
+                    owner: context.repo.owner,
+                    repo: context.repo.repo,
+                    issue_number: issueNumber,
+                    body: `🤖 This issue was automatically closed by commit ${commit.id.substring(0, 7)}: "${message}"\n\nCommit: ${commit.url}`
+                  });
+                  
+                  // Close the issue
+                  await github.rest.issues.update({
+                    owner: context.repo.owner,
+                    repo: context.repo.repo,
+                    issue_number: issueNumber,
+                    state: 'closed'
+                  });
+                  
+                  console.log(`Successfully closed issue #${issueNumber}`);
+                } catch (error) {
+                  console.log(`Failed to close issue #${issueNumber}: ${error.message}`);
+                }
+              }
+            }
+          }
+
+  label_issues:
+    name: Auto-label issues
+    runs-on: ubuntu-latest
+    if: github.event_name == 'issues' && github.event.action == 'opened'
+    
+    steps:
+    - name: Auto-label based on title and body
+      uses: actions/github-script@v7
+      with:
+        script: |
+          const issue = context.payload.issue;
+          const title = issue.title.toLowerCase();
+          const body = issue.body?.toLowerCase() || '';
+          const labels = [];
+          
+          // Component-based labeling
+          if (title.includes('daemon') || body.includes('memexd')) {
+            labels.push('daemon');
+          }
+          if (title.includes('service') || body.includes('wqm service')) {
+            labels.push('service-management');
+          }
+          if (title.includes('auto-ingestion') || body.includes('ingestion')) {
+            labels.push('auto-ingestion');
+          }
+          if (title.includes('mcp') || body.includes('mcp server')) {
+            labels.push('mcp-server');
+          }
+          if (title.includes('cli') || body.includes('wqm ')) {
+            labels.push('cli');
+          }
+          if (title.includes('config') || body.includes('configuration')) {
+            labels.push('configuration');
+          }
+          if (title.includes('web') || title.includes('ui')) {
+            labels.push('web-ui');
+          }
+          
+          // Priority labeling
+          if (title.includes('critical') || title.includes('urgent') || body.includes('blocking')) {
+            labels.push('critical');
+          } else if (title.includes('high priority') || body.includes('high priority')) {
+            labels.push('high-priority');
+          }
+          
+          // Platform labeling
+          if (body.includes('macos') || body.includes('darwin')) {
+            labels.push('macos');
+          }
+          if (body.includes('linux') || body.includes('ubuntu')) {
+            labels.push('linux');
+          }
+          if (body.includes('windows')) {
+            labels.push('windows');
+          }
+          
+          // Apply labels if any were determined
+          if (labels.length > 0) {
+            await github.rest.issues.addLabels({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: issue.number,
+              labels: labels
+            });
+            
+            console.log(`Applied labels: ${labels.join(', ')}`);
+          }
+
+  pr_merged_cleanup:
+    name: Update issues when PR merged
+    runs-on: ubuntu-latest
+    if: github.event_name == 'pull_request' && github.event.pull_request.merged == true
+    
+    steps:
+    - name: Link merged PR to issues
+      uses: actions/github-script@v7
+      with:
+        script: |
+          const pr = context.payload.pull_request;
+          const prBody = pr.body || '';
+          const prTitle = pr.title;
+          
+          // Look for issue references in PR
+          const issuePatterns = [
+            /(?:fix|fixes|fixed|close|closes|closed|resolve|resolves|resolved)\s+#(\d+)/gi,
+            /#(\d+)/g
+          ];
+          
+          const referencedIssues = new Set();
+          
+          for (const pattern of issuePatterns) {
+            let match;
+            while ((match = pattern.exec(prBody + ' ' + prTitle)) !== null) {
+              referencedIssues.add(parseInt(match[1]));
+            }
+          }
+          
+          // Add comment to referenced issues
+          for (const issueNumber of referencedIssues) {
+            try {
+              await github.rest.issues.createComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: issueNumber,
+                body: `🔗 Related PR merged: #${pr.number} - "${prTitle}"\n\nPR: ${pr.html_url}`
+              });
+            } catch (error) {
+              console.log(`Failed to comment on issue #${issueNumber}: ${error.message}`);
+            }
+          }

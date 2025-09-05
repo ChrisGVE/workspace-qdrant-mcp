@@ -1,0 +1,61 @@
+name: General Feedback
+description: Provide general feedback, questions, or suggestions
+title: "[Feedback]: "
+labels: ["feedback", "question"]
+assignees: []
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for providing feedback! This template is for general questions, suggestions, or comments about Workspace Qdrant MCP.
+
+  - type: dropdown
+    id: type
+    attributes:
+      label: Feedback Type
+      description: What type of feedback are you providing?
+      options:
+        - Question
+        - General suggestion
+        - Documentation improvement
+        - User experience feedback
+        - Performance feedback
+        - Installation/setup feedback
+        - Other
+    validations:
+      required: true
+
+  - type: textarea
+    id: feedback
+    attributes:
+      label: Your Feedback
+      description: Please provide your feedback, question, or suggestion
+    validations:
+      required: true
+
+  - type: textarea
+    id: context
+    attributes:
+      label: Context
+      description: Any additional context that might help us understand your feedback (your use case, environment, etc.)
+
+  - type: dropdown
+    id: experience
+    attributes:
+      label: Experience Level
+      description: How would you describe your experience with vector databases and MCP?
+      options:
+        - Beginner (new to vector databases/MCP)
+        - Intermediate (some experience)
+        - Advanced (experienced user)
+        - Expert (deep expertise)
+
+  - type: checkboxes
+    id: contact
+    attributes:
+      label: Follow-up
+      description: How would you like us to handle this feedback?
+      options:
+        - label: I'd like a response to this feedback
+        - label: This is just a suggestion, no response needed
+        - label: I'm interested in contributing to this area
