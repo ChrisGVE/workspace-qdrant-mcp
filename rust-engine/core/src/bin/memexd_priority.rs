@@ -16,7 +16,6 @@ use tokio::signal;
 use tokio::sync::{Mutex, RwLock};
 use tokio::time::{Duration, interval, Instant};
 use tracing::{debug, error, info, warn};
-use tracing_subscriber;
 use workspace_qdrant_core::{
     ProcessingEngine, config::Config, 
     LoggingConfig, initialize_logging,
@@ -63,10 +62,8 @@ pub enum Priority {
 pub struct PriorityTask {
     id: String,
     priority: Priority,
-    task_type: TaskType,
     payload: TaskPayload,
     created_at: Instant,
-    source: TaskSource,
 }
 
 /// Types of tasks that can be queued
@@ -123,6 +120,12 @@ pub struct ResourceStats {
     queue_wait_times_ms: Vec<f64>,
 }
 
+impl Default for ResourceManager {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl ResourceManager {
     pub fn new() -> Self {
         let high_priority_max = env::var("MEMEXD_HIGH_PRIORITY_QUEUE_SIZE")
@@ -163,7 +166,7 @@ impl ResourceManager {
     }
     
     /// Add a task to the appropriate priority queue
-    pub async fn enqueue_task(&self, task_type: TaskType, payload: TaskPayload, source: TaskSource) -> String {
+    pub async fn enqueue_task(&self, payload: TaskPayload, source: TaskSource) -> String {
         let task_id = format!("task_{}", self.task_counter.fetch_add(1, Ordering::SeqCst));
         
         // Determine priority based on source
@@ -175,10 +178,8 @@ impl ResourceManager {
         let task = PriorityTask {
             id: task_id.clone(),
             priority,
-            task_type,
             payload,
             created_at: Instant::now(),
-            source,
         };
         
         match priority {
@@ -600,7 +601,6 @@ async fn run_health_monitor(resource_manager: Arc<ResourceManager>) {
         interval.tick().await;
         
         resource_manager.enqueue_task(
-            TaskType::HealthCheck,
             TaskPayload::HealthCheck,
             TaskSource::Maintenance,
         ).await;
@@ -661,7 +661,6 @@ async fn run_daemon(config: Config, args: DaemonArgs) -> Result<(), Box<dyn std:
     info!("Enqueueing example tasks to demonstrate priority system");
     for i in 0..5 {
         resource_manager.enqueue_task(
-            TaskType::DocumentIngestion,
             TaskPayload::IngestDocument {
                 path: format!("/example/doc_{}.pdf", i),
                 collection: "example".to_string(),
