@@ -16,7 +16,7 @@ Commands:
     wqm service logs                  # Show user service logs
     
 Flags:
-    --system                # Install as system service (requires sudo)
+    --user/--system         # Install as user or system service
                             # Default: user-level installation
 """
 
