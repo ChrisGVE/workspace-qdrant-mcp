@@ -943,14 +943,11 @@ impl Pipeline {
                             if running_task.is_preemptible && !current_preemptible {
                                 best_candidate = Some(candidate);
                             }
-                            // If both have same preemptibility, prefer checkpointable tasks
+                            // If both have same preemptibility, prefer checkpointable tasks or more recent tasks
                             else if running_task.is_preemptible == *current_preemptible {
-                                if running_task.context.supports_checkpointing && !current_checkpointable {
-                                    best_candidate = Some(candidate);
-                                }
-                                // Finally, prefer more recent tasks (less work lost)
-                                else if running_task.context.supports_checkpointing == *current_checkpointable
-                                    && running_task.started_at > *current_start {
+                                if (running_task.context.supports_checkpointing && !current_checkpointable) ||
+                                   (running_task.context.supports_checkpointing == *current_checkpointable
+                                    && running_task.started_at > *current_start) {
                                     best_candidate = Some(candidate);
                                 }
                             }
