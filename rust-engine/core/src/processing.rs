@@ -934,22 +934,15 @@ impl Pipeline {
                         best_candidate = Some(candidate);
                     }
                     Some((_, current_priority, current_start, current_checkpointable, current_preemptible)) => {
-                        // Prefer lower priority tasks first
-                        if running_task.context.priority < *current_priority {
-                            best_candidate = Some(candidate);
-                        }
-                        // If same priority, prefer preemptible tasks
-                        else if running_task.context.priority == *current_priority {
-                            if running_task.is_preemptible && !current_preemptible {
-                                best_candidate = Some(candidate);
-                            }
-                            // If both have same preemptibility, prefer checkpointable tasks or more recent tasks
-                            else if running_task.is_preemptible == *current_preemptible
+                        // Select candidate if it has lower priority or same priority with better characteristics
+                        if running_task.context.priority < *current_priority ||
+                           (running_task.context.priority == *current_priority
+                            && ((running_task.is_preemptible && !current_preemptible) ||
+                               (running_task.is_preemptible == *current_preemptible
                                 && ((running_task.context.supports_checkpointing && !current_checkpointable) ||
                                    (running_task.context.supports_checkpointing == *current_checkpointable
-                                    && running_task.started_at > *current_start)) {
-                                best_candidate = Some(candidate);
-                            }
+                                    && running_task.started_at > *current_start))))) {
+                            best_candidate = Some(candidate);
                         }
                     }
                 }
