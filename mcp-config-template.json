@@ -1,0 +1,37 @@
+{
+  "mcpServers": {
+    "workspace-qdrant": {
+      "command": "workspace-qdrant-mcp",
+      "args": [
+        "--config-file",
+        "~/.workspace-qdrant-mcp/config/default.yaml"
+      ],
+      "env": {
+        "WORKSPACE_QDRANT_CONFIG": "~/.workspace-qdrant-mcp/config/default.yaml",
+        "PYTHONUNBUFFERED": "1"
+      },
+      "metadata": {
+        "name": "Workspace Qdrant MCP",
+        "description": "Project-scoped Qdrant vector database with automatic file ingestion and semantic search",
+        "version": "0.2.1",
+        "homepage": "https://github.com/ChrisGVE/workspace-qdrant-mcp",
+        "features": [
+          "Automatic file ingestion with watch capabilities",
+          "Project-scoped vector collections",
+          "Semantic search with embedding support",
+          "Multi-format document processing (PDF, DOCX, Markdown, etc.)",
+          "Git integration for project detection",
+          "Real-time file change monitoring",
+          "Collection management and cleanup tools"
+        ]
+      }
+    }
+  },
+  "logging": {
+    "level": "INFO"
+  },
+  "global": {
+    "timeout": 30000,
+    "retries": 3
+  }
+}
