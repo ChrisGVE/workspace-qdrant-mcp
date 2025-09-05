@@ -36,7 +36,7 @@ from ...observability import get_logger
 from ..utils import handle_async_command
 
 # Initialize app and logger
-service_app = typer.Typer(name="service", help="System service management")
+service_app = typer.Typer(name="service", help="User service management")
 console = Console()
 logger = get_logger(__name__)
 
