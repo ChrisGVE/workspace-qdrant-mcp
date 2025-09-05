@@ -395,12 +395,12 @@ impl DocumentProcessor {
         
         // Walk the tree and extract meaningful nodes
         let root_node = tree.root_node();
-        self.extract_code_structure(&mut enhanced_content, root_node, content, 0);
+        Self::extract_code_structure(&mut enhanced_content, root_node, content, 0);
         
         Ok(enhanced_content)
     }
 
-    fn extract_code_structure(&self, output: &mut String, node: tree_sitter::Node, source: &str, depth: usize) {
+    fn extract_code_structure(output: &mut String, node: tree_sitter::Node, source: &str, depth: usize) {
         let indent = "  ".repeat(depth);
         
         // Extract text for the node
@@ -442,7 +442,7 @@ impl DocumentProcessor {
         ) || depth < 3 {
             for i in 0..node.child_count() {
                 if let Some(child) = node.child(i) {
-                    self.extract_code_structure(output, child, source, depth + 1);
+                    Self::extract_code_structure(output, child, source, depth + 1);
                 }
             }
         }

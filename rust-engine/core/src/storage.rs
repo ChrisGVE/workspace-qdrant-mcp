@@ -40,7 +40,13 @@ pub enum StorageError {
     Serialization(#[from] serde_json::Error),
     
     #[error("Qdrant client error: {0}")]
-    Qdrant(#[from] QdrantError),
+    Qdrant(Box<QdrantError>),
+}
+
+impl From<QdrantError> for StorageError {
+    fn from(err: QdrantError) -> Self {
+        StorageError::Qdrant(Box::new(err))
+    }
 }
 
 /// Transport mode for Qdrant connection
@@ -126,6 +132,55 @@ pub struct SearchResult {
     pub dense_vector: Option<Vec<f32>>,
     /// Sparse vector (if requested)
     pub sparse_vector: Option<HashMap<u32, f32>>,
+}
+
+/// Parameters for search operations
+#[derive(Debug, Clone)]
+pub struct SearchParams {
+    /// Dense vector representation
+    pub dense_vector: Option<Vec<f32>>,
+    /// Sparse vector representation
+    pub sparse_vector: Option<HashMap<u32, f32>>,
+    /// Search mode (dense, sparse, or hybrid)
+    pub search_mode: HybridSearchMode,
+    /// Maximum number of results
+    pub limit: usize,
+    /// Minimum score threshold
+    pub score_threshold: Option<f32>,
+    /// Optional filter conditions
+    pub filter: Option<HashMap<String, serde_json::Value>>,
+}
+
+/// Parameters for hybrid search operations
+#[derive(Debug, Clone)]
+pub struct HybridSearchParams {
+    /// Dense vector representation
+    pub dense_vector: Option<Vec<f32>>,
+    /// Sparse vector representation
+    pub sparse_vector: Option<HashMap<u32, f32>>,
+    /// Weight for dense vector results
+    pub dense_weight: f32,
+    /// Weight for sparse vector results
+    pub sparse_weight: f32,
+    /// Maximum number of results
+    pub limit: usize,
+    /// Minimum score threshold
+    pub score_threshold: Option<f32>,
+    /// Optional filter conditions
+    pub filter: Option<HashMap<String, serde_json::Value>>,
+}
+
+impl Default for SearchParams {
+    fn default() -> Self {
+        Self {
+            dense_vector: None,
+            sparse_vector: None,
+            search_mode: HybridSearchMode::Dense,
+            limit: 10,
+            score_threshold: None,
+            filter: None,
+        }
+    }
 }
 
 /// Hybrid search mode for dense/sparse fusion
@@ -422,15 +477,23 @@ impl StorageClient {
                 }
             },
             HybridSearchMode::Sparse => {
-                if let Some(vector) = sparse_vector {
-                    self.search_sparse(collection_name, vector, limit, score_threshold, filter).await?
+                if let Some(vector) = params.sparse_vector {
+                    self.search_sparse(collection_name, vector, params.limit, params.score_threshold, params.filter).await?
                 } else {
                     return Err(StorageError::Search("Sparse vector required for sparse search".to_string()));
                 }
             },
             HybridSearchMode::Hybrid { dense_weight, sparse_weight } => {
-                self.search_hybrid(collection_name, dense_vector, sparse_vector, 
-                                 dense_weight, sparse_weight, limit, score_threshold, filter).await?
+                let hybrid_params = HybridSearchParams {
+                    dense_vector: params.dense_vector,
+                    sparse_vector: params.sparse_vector,
+                    dense_weight,
+                    sparse_weight,
+                    limit: params.limit,
+                    score_threshold: params.score_threshold,
+                    filter: params.filter,
+                };
+                self.search_hybrid(collection_name, hybrid_params).await?
             }
         };
         
@@ -457,7 +520,7 @@ impl StorageClient {
     /// Convert DocumentPoint to Qdrant PointStruct
     fn convert_to_qdrant_point(&self, point: DocumentPoint) -> Result<PointStruct, StorageError> {
         let payload = point.payload.into_iter()
-            .map(|(k, v)| (k, self.convert_json_to_qdrant_value(v)))
+            .map(|(k, v)| (k, Self::convert_json_to_qdrant_value(v)))
             .collect();
         
         Ok(PointStruct {
@@ -479,7 +542,7 @@ impl StorageClient {
     }
     
     /// Convert JSON value to Qdrant value
-    fn convert_json_to_qdrant_value(&self, value: serde_json::Value) -> qdrant_client::qdrant::Value {
+    fn convert_json_to_qdrant_value(value: serde_json::Value) -> qdrant_client::qdrant::Value {
         match value {
             serde_json::Value::Null => qdrant_client::qdrant::Value {
                 kind: Some(qdrant_client::qdrant::value::Kind::NullValue(0)),
@@ -508,7 +571,7 @@ impl StorageClient {
             serde_json::Value::Array(arr) => {
                 let list_value = qdrant_client::qdrant::ListValue {
                     values: arr.into_iter()
-                        .map(|v| self.convert_json_to_qdrant_value(v))
+                        .map(|v| Self::convert_json_to_qdrant_value(v))
                         .collect(),
                 };
                 qdrant_client::qdrant::Value {
@@ -518,7 +581,7 @@ impl StorageClient {
             serde_json::Value::Object(obj) => {
                 let struct_value = qdrant_client::qdrant::Struct {
                     fields: obj.into_iter()
-                        .map(|(k, v)| (k, self.convert_json_to_qdrant_value(v)))
+                        .map(|(k, v)| (k, Self::convert_json_to_qdrant_value(v)))
                         .collect(),
                 };
                 qdrant_client::qdrant::Value {
@@ -555,7 +618,7 @@ impl StorageClient {
             .map(|scored_point| {
                 let payload = scored_point.payload;
                 let json_payload: HashMap<String, serde_json::Value> = payload.into_iter()
-                    .map(|(k, v)| (k, self.convert_qdrant_value_to_json(v)))
+                    .map(|(k, v)| (k, Self::convert_qdrant_value_to_json(v)))
                     .collect();
                     
                 let id = match scored_point.id.unwrap().point_id_options.unwrap() {
@@ -605,11 +668,11 @@ impl StorageClient {
         let mut all_results = HashMap::new();
         
         // Perform dense search if vector is provided
-        if let Some(vector) = dense_vector {
-            let dense_results = self.search_dense(collection_name, vector, limit * 2, score_threshold, filter.clone()).await?;
+        if let Some(vector) = params.dense_vector {
+            let dense_results = self.search_dense(collection_name, vector, params.limit * 2, params.score_threshold, params.filter.clone()).await?;
             
             for (rank, result) in dense_results.into_iter().enumerate() {
-                let rrf_score = dense_weight / (60.0 + (rank + 1) as f32); // Standard RRF formula
+                let rrf_score = params.dense_weight / (60.0 + (rank + 1) as f32); // Standard RRF formula
                 let entry = all_results.entry(result.id.clone())
                     .or_insert_with(|| (result, 0.0));
                 entry.1 += rrf_score;
@@ -617,11 +680,11 @@ impl StorageClient {
         }
         
         // Perform sparse search if vector is provided
-        if let Some(vector) = sparse_vector {
-            let sparse_results = self.search_sparse(collection_name, vector, limit * 2, score_threshold, filter).await?;
+        if let Some(vector) = params.sparse_vector {
+            let sparse_results = self.search_sparse(collection_name, vector, params.limit * 2, params.score_threshold, params.filter).await?;
             
             for (rank, result) in sparse_results.into_iter().enumerate() {
-                let rrf_score = sparse_weight / (60.0 + (rank + 1) as f32); // Standard RRF formula
+                let rrf_score = params.sparse_weight / (60.0 + (rank + 1) as f32); // Standard RRF formula
                 let entry = all_results.entry(result.id.clone())
                     .or_insert_with(|| (result, 0.0));
                 entry.1 += rrf_score;
@@ -637,13 +700,13 @@ impl StorageClient {
             .collect();
             
         final_results.sort_by(|a, b| b.score.partial_cmp(&a.score).unwrap_or(std::cmp::Ordering::Equal));
-        final_results.truncate(limit);
+        final_results.truncate(params.limit);
         
         Ok(final_results)
     }
     
     /// Convert Qdrant value to JSON value
-    fn convert_qdrant_value_to_json(&self, value: qdrant_client::qdrant::Value) -> serde_json::Value {
+    fn convert_qdrant_value_to_json(value: qdrant_client::qdrant::Value) -> serde_json::Value {
         match value.kind {
             Some(qdrant_client::qdrant::value::Kind::NullValue(_)) => serde_json::Value::Null,
             Some(qdrant_client::qdrant::value::Kind::BoolValue(b)) => serde_json::Value::Bool(b),
@@ -655,14 +718,14 @@ impl StorageClient {
             Some(qdrant_client::qdrant::value::Kind::ListValue(list)) => {
                 serde_json::Value::Array(
                     list.values.into_iter()
-                        .map(|v| self.convert_qdrant_value_to_json(v))
+                        .map(|v| Self::convert_qdrant_value_to_json(v))
                         .collect()
                 )
             },
             Some(qdrant_client::qdrant::value::Kind::StructValue(struct_val)) => {
                 serde_json::Value::Object(
                     struct_val.fields.into_iter()
-                        .map(|(k, v)| (k, self.convert_qdrant_value_to_json(v)))
+                        .map(|(k, v)| (k, Self::convert_qdrant_value_to_json(v)))
                         .collect()
                 )
             },
