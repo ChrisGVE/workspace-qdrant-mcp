@@ -70,6 +70,7 @@ import typer
 
 from ..observability import configure_logging, get_logger
 from .commands.admin import admin_app
+from .commands.config import config_app
 from .commands.ingest import ingest_app
 from .commands.init import init_app
 from .commands.library import library_app
@@ -99,6 +100,7 @@ app.add_typer(
     memory_app, name="memory", help="Memory rules and LLM behavior management"
 )
 app.add_typer(admin_app, name="admin", help="System administration and configuration")
+app.add_typer(config_app, name="config", help="Configuration management with restart notifications")
 app.add_typer(ingest_app, name="ingest", help="Manual document processing")
 app.add_typer(search_app, name="search", help="Command-line search interface")
 app.add_typer(library_app, name="library", help="Library collection management")
