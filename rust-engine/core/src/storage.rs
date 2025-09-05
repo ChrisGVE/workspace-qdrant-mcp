@@ -459,19 +459,14 @@ impl StorageClient {
     pub async fn search(
         &self,
         collection_name: &str,
-        dense_vector: Option<Vec<f32>>,
-        sparse_vector: Option<HashMap<u32, f32>>,
-        search_mode: HybridSearchMode,
-        limit: usize,
-        score_threshold: Option<f32>,
-        filter: Option<HashMap<String, serde_json::Value>>,
+        params: SearchParams,
     ) -> Result<Vec<SearchResult>, StorageError> {
         debug!("Performing search in collection: {}", collection_name);
         
-        let results = match search_mode {
+        let results = match params.search_mode {
             HybridSearchMode::Dense => {
-                if let Some(vector) = dense_vector {
-                    self.search_dense(collection_name, vector, limit, score_threshold, filter).await?
+                if let Some(vector) = params.dense_vector {
+                    self.search_dense(collection_name, vector, params.limit, params.score_threshold, params.filter).await?
                 } else {
                     return Err(StorageError::Search("Dense vector required for dense search".to_string()));
                 }
@@ -571,7 +566,7 @@ impl StorageClient {
             serde_json::Value::Array(arr) => {
                 let list_value = qdrant_client::qdrant::ListValue {
                     values: arr.into_iter()
-                        .map(|v| Self::convert_json_to_qdrant_value(v))
+                        .map(Self::convert_json_to_qdrant_value)
                         .collect(),
                 };
                 qdrant_client::qdrant::Value {
@@ -657,13 +652,7 @@ impl StorageClient {
     async fn search_hybrid(
         &self,
         collection_name: &str,
-        dense_vector: Option<Vec<f32>>,
-        sparse_vector: Option<HashMap<u32, f32>>,
-        dense_weight: f32,
-        sparse_weight: f32,
-        limit: usize,
-        score_threshold: Option<f32>,
-        filter: Option<HashMap<String, serde_json::Value>>,
+        params: HybridSearchParams,
     ) -> Result<Vec<SearchResult>, StorageError> {
         let mut all_results = HashMap::new();
         
@@ -718,7 +707,7 @@ impl StorageClient {
             Some(qdrant_client::qdrant::value::Kind::ListValue(list)) => {
                 serde_json::Value::Array(
                     list.values.into_iter()
-                        .map(|v| Self::convert_qdrant_value_to_json(v))
+                        .map(Self::convert_qdrant_value_to_json)
                         .collect()
                 )
             },
