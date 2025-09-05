@@ -5,16 +5,19 @@ for the memexd daemon with pure daemon architecture and priority-based
 resource management.
 
 Commands:
-    wqm service install     # Install memexd as user service (default)
-    wqm service uninstall   # Remove user service
-    wqm service start       # Start service
-    wqm service stop        # Stop service
-    wqm service restart     # Restart service
-    wqm service status      # Show service status
-    wqm service logs        # Show service logs
+    wqm service install               # Install memexd as user service (default)
+    wqm service install --system      # Install as system service (requires sudo)
+    wqm service uninstall             # Remove user service
+    wqm service uninstall --system    # Remove system service (requires sudo)
+    wqm service start                 # Start user service
+    wqm service stop                  # Stop user service
+    wqm service restart               # Restart user service
+    wqm service status                # Show user service status
+    wqm service logs                  # Show user service logs
     
 Flags:
-    --user/--system         # Choose user-level vs system-level installation
+    --system                # Install as system service (requires sudo)
+                            # Default: user-level installation
 """
 
 import asyncio
@@ -109,12 +112,44 @@ class ServiceManager:
         if user_service:
             plist_dir = Path.home() / "Library" / "LaunchAgents"
             plist_path = plist_dir / f"{service_id}.plist"
+            logger.debug(f"Installing user service: {plist_path}")
         else:
             plist_dir = Path("/Library/LaunchDaemons")
             plist_path = plist_dir / f"{service_id}.plist"
+            logger.debug(f"Installing system service: {plist_path}")
 
-        # Create plist directory if it doesn't exist
-        plist_dir.mkdir(parents=True, exist_ok=True)
+        # Create plist directory if it doesn't exist and validate permissions
+        try:
+            plist_dir.mkdir(parents=True, exist_ok=True)
+            # Test write permissions by creating a temporary file
+            test_file = plist_dir / ".wqm_service_test"
+            test_file.touch()
+            test_file.unlink()  # Clean up immediately
+            logger.debug(f"Directory permissions validated: {plist_dir}")
+        except PermissionError as e:
+            logger.error(f"Cannot create or write to directory {plist_dir}: {e}")
+            if user_service:
+                suggestion = (
+                    f"Cannot create user service directory {plist_dir}.\n"
+                    "This is unexpected for user-level installation.\n"
+                    "Please check your home directory permissions.\n\n"
+                    "If you intended system installation, use:\n"
+                    "  sudo wqm service install --system"
+                )
+            else:
+                suggestion = (
+                    "System installation requires elevated privileges:\n"
+                    "  sudo wqm service install --system\n\n"
+                    "For user-level installation (recommended), use:\n"
+                    "  wqm service install  # (default is user-level)"
+                )
+            return {
+                "success": False,
+                "error": f"Cannot create service directory: {e}",
+                "suggestion": suggestion,
+                "plist_dir": str(plist_dir),
+                "attempted_user_service": user_service,
+            }
 
         # Build daemon arguments
         daemon_args = [str(daemon_path)]
@@ -196,17 +231,27 @@ class ServiceManager:
         try:
             plist_path.write_text(plist_content)
         except PermissionError:
-            suggestion = (
-                "Try using --user flag for user-level installation:\n"
-                "  wqm service install --user\n\n"
-                "Or run with elevated privileges for system-level installation:\n"
-                "  sudo wqm service install --system"
-            )
+            if user_service:
+                suggestion = (
+                    "Permission denied writing to user directory. This is unexpected.\n"
+                    "Please check if ~/Library/LaunchAgents/ is writable:\n"
+                    f"  ls -la {plist_dir.parent}\n\n"
+                    "If you intended system installation, use:\n"
+                    "  sudo wqm service install --system"
+                )
+            else:
+                suggestion = (
+                    "System installation requires elevated privileges:\n"
+                    "  sudo wqm service install --system\n\n"
+                    "For user-level installation (recommended), use:\n"
+                    "  wqm service install  # (default is user-level)"
+                )
             return {
                 "success": False,
                 "error": f"Permission denied writing to {plist_path}.",
                 "suggestion": suggestion,
                 "plist_path": str(plist_path),
+                "attempted_user_service": user_service,
             }
         except Exception as e:
             return {
@@ -379,17 +424,27 @@ WantedBy={"default.target" if user_service else "multi-user.target"}
             }
 
         except PermissionError:
-            suggestion = (
-                "Try using --user flag for user-level installation:\n"
-                "  wqm service install --user\n\n"
-                "Or run with elevated privileges for system-level installation:\n"
-                "  sudo wqm service install --system"
-            )
+            if user_service:
+                suggestion = (
+                    "Permission denied writing to user directory. This is unexpected.\n"
+                    "Please check if ~/.config/systemd/user/ is writable:\n"
+                    f"  ls -la {service_dir.parent}\n\n"
+                    "If you intended system installation, use:\n"
+                    "  sudo wqm service install --system"
+                )
+            else:
+                suggestion = (
+                    "System installation requires elevated privileges:\n"
+                    "  sudo wqm service install --system\n\n"
+                    "For user-level installation (recommended), use:\n"
+                    "  wqm service install  # (default is user-level)"
+                )
             return {
                 "success": False,
                 "error": f"Permission denied writing to {service_path}.",
                 "suggestion": suggestion,
                 "service_path": str(service_path),
+                "attempted_user_service": user_service,
             }
         except Exception as e:
             return {
@@ -934,14 +989,16 @@ def install_service(
     auto_start: bool = typer.Option(
         True, "--auto-start/--no-auto-start", help="Start service automatically on boot"
     ),
-    user_service: bool = typer.Option(
-        True, "--user/--system", help="Install as user service (default: user)"
+    system_service: bool = typer.Option(
+        False, "--system", help="Install as system service (requires sudo)"
     ),
 ) -> None:
     """Install memexd as a user service with priority-based resource management."""
 
     async def _install():
         config_path = Path(config_file) if config_file else None
+        # Convert system_service flag to user_service for internal logic
+        user_service = not system_service
         result = await service_manager.install_service(
             config_path, log_level, auto_start, user_service
         )
@@ -988,8 +1045,8 @@ def install_service(
 
 @service_app.command("uninstall")
 def uninstall_service(
-    user_service: bool = typer.Option(
-        True, "--user/--system", help="Uninstall user service (default: user)"
+    system_service: bool = typer.Option(
+        False, "--system", help="Uninstall system service (requires sudo)"
     ),
     force: bool = typer.Option(False, "--force", help="Force uninstallation"),
 ) -> None:
@@ -1004,6 +1061,8 @@ def uninstall_service(
                 console.print("Uninstallation cancelled.")
                 return
 
+        # Convert system_service flag to user_service for internal logic
+        user_service = not system_service
         result = await service_manager.uninstall_service(user_service)
 
         if result["success"]:
@@ -1030,13 +1089,15 @@ def uninstall_service(
 
 @service_app.command("start")
 def start_service(
-    user_service: bool = typer.Option(
-        True, "--user/--system", help="Start user service (default: user)"
+    system_service: bool = typer.Option(
+        False, "--system", help="Start system service"
     ),
 ) -> None:
     """Start the memexd service."""
 
     async def _start():
+        # Convert system_service flag to user_service for internal logic
+        user_service = not system_service
         result = await service_manager.start_service(user_service)
 
         if result["success"]:
@@ -1065,13 +1126,15 @@ def start_service(
 
 @service_app.command("stop")
 def stop_service(
-    user_service: bool = typer.Option(
-        True, "--user/--system", help="Stop user service (default: user)"
+    system_service: bool = typer.Option(
+        False, "--system", help="Stop system service"
     ),
 ) -> None:
     """Stop the memexd service."""
 
     async def _stop():
+        # Convert system_service flag to user_service for internal logic
+        user_service = not system_service
         result = await service_manager.stop_service(user_service)
 
         if result["success"]:
@@ -1098,13 +1161,16 @@ def stop_service(
 
 @service_app.command("restart")
 def restart_service(
-    user_service: bool = typer.Option(
-        True, "--user/--system", help="Restart user service (default: user)"
+    system_service: bool = typer.Option(
+        False, "--system", help="Restart system service"
     ),
 ) -> None:
     """Restart the memexd service."""
 
     async def _restart():
+        # Convert system_service flag to user_service for internal logic
+        user_service = not system_service
+        
         # Stop first
         stop_result = await service_manager.stop_service(user_service)
         if not stop_result["success"]:
@@ -1144,14 +1210,16 @@ def restart_service(
 
 @service_app.command("status")
 def get_status(
-    user_service: bool = typer.Option(
-        True, "--user/--system", help="Check user service (default: user)"
+    system_service: bool = typer.Option(
+        False, "--system", help="Check system service"
     ),
     verbose: bool = typer.Option(False, "--verbose", "-v", help="Show detailed status"),
 ) -> None:
     """Show memexd service status."""
 
     async def _status():
+        # Convert system_service flag to user_service for internal logic
+        user_service = not system_service
         result = await service_manager.get_service_status(user_service)
 
         if result["success"]:
@@ -1222,8 +1290,8 @@ def get_status(
 @service_app.command("logs")
 def get_logs(
     lines: int = typer.Option(50, "--lines", "-n", help="Number of log lines to show"),
-    user_service: bool = typer.Option(
-        True, "--user/--system", help="Show user service logs (default: user)"
+    system_service: bool = typer.Option(
+        False, "--system", help="Show system service logs"
     ),
     follow: bool = typer.Option(
         False, "--follow", "-f", help="Follow logs in real-time"
@@ -1232,6 +1300,8 @@ def get_logs(
     """Show memexd service logs."""
 
     async def _logs():
+        # Convert system_service flag to user_service for internal logic
+        user_service = not system_service
         result = await service_manager.get_service_logs(lines, user_service)
 
         if result["success"]:
