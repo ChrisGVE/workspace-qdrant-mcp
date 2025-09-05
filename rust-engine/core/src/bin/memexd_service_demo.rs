@@ -15,17 +15,13 @@ use tokio::time::interval;
 /// Command-line arguments for demo daemon
 #[derive(Debug, Clone)]
 struct DaemonArgs {
-    log_level: String,
     pid_file: PathBuf,
-    foreground: bool,
 }
 
 impl Default for DaemonArgs {
     fn default() -> Self {
         Self {
-            log_level: "info".to_string(),
             pid_file: PathBuf::from("/tmp/memexd-demo.pid"),
-            foreground: false,
         }
     }
 }
@@ -63,9 +59,7 @@ fn parse_args() -> DaemonArgs {
         .get_matches();
 
     DaemonArgs {
-        log_level: matches.get_one::<String>("log-level").unwrap().clone(),
         pid_file: matches.get_one::<PathBuf>("pid-file").unwrap().clone(),
-        foreground: matches.get_flag("foreground"),
     }
 }
 
