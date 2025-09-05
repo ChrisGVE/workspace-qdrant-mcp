@@ -989,16 +989,14 @@ def install_service(
     auto_start: bool = typer.Option(
         True, "--auto-start/--no-auto-start", help="Start service automatically on boot"
     ),
-    system_service: bool = typer.Option(
-        False, "--system", help="Install as system service (requires sudo)"
+    user_service: bool = typer.Option(
+        True, "--user/--system", help="Install as user service (default: user)"
     ),
 ) -> None:
     """Install memexd as a user service with priority-based resource management."""
 
     async def _install():
         config_path = Path(config_file) if config_file else None
-        # Convert system_service flag to user_service for internal logic
-        user_service = not system_service
         result = await service_manager.install_service(
             config_path, log_level, auto_start, user_service
         )
@@ -1045,8 +1043,8 @@ def install_service(
 
 @service_app.command("uninstall")
 def uninstall_service(
-    system_service: bool = typer.Option(
-        False, "--system", help="Uninstall system service (requires sudo)"
+    user_service: bool = typer.Option(
+        True, "--user/--system", help="Uninstall user service (default: user)"
     ),
     force: bool = typer.Option(False, "--force", help="Force uninstallation"),
 ) -> None:
@@ -1061,8 +1059,6 @@ def uninstall_service(
                 console.print("Uninstallation cancelled.")
                 return
 
-        # Convert system_service flag to user_service for internal logic
-        user_service = not system_service
         result = await service_manager.uninstall_service(user_service)
 
         if result["success"]:
@@ -1089,15 +1085,13 @@ def uninstall_service(
 
 @service_app.command("start")
 def start_service(
-    system_service: bool = typer.Option(
-        False, "--system", help="Start system service"
+    user_service: bool = typer.Option(
+        True, "--user/--system", help="Start user service (default: user)"
     ),
 ) -> None:
     """Start the memexd service."""
 
     async def _start():
-        # Convert system_service flag to user_service for internal logic
-        user_service = not system_service
         result = await service_manager.start_service(user_service)
 
         if result["success"]:
@@ -1126,15 +1120,13 @@ def start_service(
 
 @service_app.command("stop")
 def stop_service(
-    system_service: bool = typer.Option(
-        False, "--system", help="Stop system service"
+    user_service: bool = typer.Option(
+        True, "--user/--system", help="Stop user service (default: user)"
     ),
 ) -> None:
     """Stop the memexd service."""
 
     async def _stop():
-        # Convert system_service flag to user_service for internal logic
-        user_service = not system_service
         result = await service_manager.stop_service(user_service)
 
         if result["success"]:
@@ -1161,16 +1153,13 @@ def stop_service(
 
 @service_app.command("restart")
 def restart_service(
-    system_service: bool = typer.Option(
-        False, "--system", help="Restart system service"
+    user_service: bool = typer.Option(
+        True, "--user/--system", help="Restart user service (default: user)"
     ),
 ) -> None:
     """Restart the memexd service."""
 
     async def _restart():
-        # Convert system_service flag to user_service for internal logic
-        user_service = not system_service
-        
         # Stop first
         stop_result = await service_manager.stop_service(user_service)
         if not stop_result["success"]:
@@ -1220,16 +1209,14 @@ def restart_service(
 
 @service_app.command("status")
 def get_status(
-    system_service: bool = typer.Option(
-        False, "--system", help="Check system service"
+    user_service: bool = typer.Option(
+        True, "--user/--system", help="Check user service (default: user)"
     ),
     verbose: bool = typer.Option(False, "--verbose", "-v", help="Show detailed status"),
 ) -> None:
     """Show memexd service status."""
 
     async def _status():
-        # Convert system_service flag to user_service for internal logic
-        user_service = not system_service
         result = await service_manager.get_service_status(user_service)
 
         if result["success"]:
@@ -1300,8 +1287,8 @@ def get_status(
 @service_app.command("logs")
 def get_logs(
     lines: int = typer.Option(50, "--lines", "-n", help="Number of log lines to show"),
-    system_service: bool = typer.Option(
-        False, "--system", help="Show system service logs"
+    user_service: bool = typer.Option(
+        True, "--user/--system", help="Show user service logs (default: user)"
     ),
     follow: bool = typer.Option(
         False, "--follow", "-f", help="Follow logs in real-time"
@@ -1310,8 +1297,6 @@ def get_logs(
     """Show memexd service logs."""
 
     async def _logs():
-        # Convert system_service flag to user_service for internal logic
-        user_service = not system_service
         result = await service_manager.get_service_logs(lines, user_service)
 
         if result["success"]:
