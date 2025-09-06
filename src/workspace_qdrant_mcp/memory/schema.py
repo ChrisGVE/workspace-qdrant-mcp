@@ -165,7 +165,7 @@ class MemoryCollectionSchema:
             point = PointStruct(id=rule.id, vector=embedding, payload=payload)
 
             # Insert point into collection
-            await self.client.upsert(
+            self.client.upsert(
                 collection_name=self.COLLECTION_NAME, points=[point]
             )
 
