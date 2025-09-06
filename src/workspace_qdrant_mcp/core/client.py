@@ -392,7 +392,7 @@ class QdrantWorkspaceClient:
             )
 
             # Use the collection manager's private method to ensure the collection exists
-            await self.collection_manager._ensure_collection_exists(collection_config)
+            self.collection_manager._ensure_collection_exists(collection_config)
 
             logger.info("Ensured collection exists: %s", collection_name)
 
