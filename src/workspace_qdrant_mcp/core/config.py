@@ -743,16 +743,115 @@ class Config(BaseSettings):
         elif self.workspace.max_collections > 10000:
             issues.append("Max collections limit is too high (max 10000 recommended)")
 
-        # Validate auto-ingestion target_collection_suffix
-        if hasattr(self.auto_ingestion, 'target_collection_suffix'):
+        # Validate auto-ingestion configuration
+        if self.auto_ingestion.enabled:
             target_suffix = self.auto_ingestion.target_collection_suffix
             available_suffixes = self.workspace.effective_collection_suffixes
-            # Only validate if both target_suffix is specified AND there are available suffixes
-            # If no suffixes are configured, auto-ingestion should be disabled anyway
-            if target_suffix and available_suffixes and target_suffix not in available_suffixes:
+            auto_create = self.workspace.auto_create_collections
+            
+            # Check if target_collection_suffix is specified and valid
+            if target_suffix:
+                if available_suffixes and target_suffix not in available_suffixes:
+                    issues.append(
+                        f"auto_ingestion.target_collection_suffix '{target_suffix}' "
+                        f"is not in workspace.collection_suffixes {available_suffixes}"
+                    )
+                elif not available_suffixes and not auto_create:
+                    issues.append(
+                        f"auto_ingestion.target_collection_suffix '{target_suffix}' specified but "
+                        f"workspace.collection_suffixes is empty and auto_create_collections is false. "
+                        f"Either add '{target_suffix}' to collection_suffixes or enable auto_create_collections."
+                    )
+            elif not target_suffix and available_suffixes:
                 issues.append(
-                    f"auto_ingestion.target_collection_suffix '{target_suffix}' "
-                    f"is not in workspace.collection_suffixes {available_suffixes}"
+                    "auto_ingestion.target_collection_suffix is empty but workspace.collection_suffixes "
+                    f"contains {available_suffixes}. Please specify which suffix to use for auto-ingestion."
+                )
+            elif not target_suffix and not available_suffixes and not auto_create:
+                issues.append(
+                    "auto_ingestion is enabled but no target collection configuration found. "
+                    "Either set target_collection_suffix, configure collection_suffixes, or enable auto_create_collections."
                 )
 
         return issues
+
+    def get_auto_ingestion_diagnostics(self) -> dict[str, Any]:
+        """Get diagnostic information about auto-ingestion configuration.
+        
+        Returns detailed information about auto-ingestion configuration status,
+        collection availability, and potential configuration issues.
+        
+        Returns:
+            Dict containing diagnostic information:
+                - enabled: Whether auto-ingestion is enabled
+                - target_suffix: Configured target collection suffix
+                - available_suffixes: Available collection suffixes
+                - auto_create: Whether auto collection creation is enabled
+                - configuration_status: Overall configuration status
+                - recommendations: List of recommendations to fix issues
+        """
+        target_suffix = self.auto_ingestion.target_collection_suffix
+        available_suffixes = self.workspace.effective_collection_suffixes
+        auto_create = self.workspace.auto_create_collections
+        
+        # Determine configuration status
+        status = "valid"
+        recommendations = []
+        
+        if self.auto_ingestion.enabled:
+            if target_suffix:
+                if available_suffixes and target_suffix not in available_suffixes:
+                    status = "invalid_target_suffix"
+                    recommendations.append(
+                        f"Add '{target_suffix}' to workspace.collection_suffixes: {available_suffixes}"
+                    )
+                elif not available_suffixes and not auto_create:
+                    status = "missing_collection_config"
+                    recommendations.extend([
+                        f"Add '{target_suffix}' to workspace.collection_suffixes",
+                        "OR enable workspace.auto_create_collections"
+                    ])
+            elif not target_suffix and available_suffixes:
+                status = "missing_target_suffix"
+                recommendations.append(
+                    f"Set auto_ingestion.target_collection_suffix to one of: {available_suffixes}"
+                )
+            elif not target_suffix and not available_suffixes and not auto_create:
+                status = "no_collection_config"
+                recommendations.extend([
+                    "Set auto_ingestion.target_collection_suffix (e.g., 'scratchbook')",
+                    "Add the suffix to workspace.collection_suffixes",
+                    "OR enable workspace.auto_create_collections"
+                ])
+        else:
+            status = "disabled"
+            
+        return {
+            "enabled": self.auto_ingestion.enabled,
+            "target_suffix": target_suffix,
+            "available_suffixes": available_suffixes,
+            "auto_create": auto_create,
+            "configuration_status": status,
+            "recommendations": recommendations,
+            "summary": self._get_auto_ingestion_summary(status, target_suffix, available_suffixes)
+        }
+    
+    def _get_auto_ingestion_summary(self, status: str, target_suffix: str, available_suffixes: list[str]) -> str:
+        """Get a human-readable summary of auto-ingestion configuration status."""
+        if status == "disabled":
+            return "Auto-ingestion is disabled"
+        elif status == "valid":
+            if target_suffix:
+                return f"Auto-ingestion configured to use collection suffix '{target_suffix}'"
+            else:
+                return "Auto-ingestion enabled with fallback collection selection"
+        elif status == "invalid_target_suffix":
+            return f"Target suffix '{target_suffix}' not found in configured suffixes {available_suffixes}"
+        elif status == "missing_collection_config":
+            return f"Target suffix '{target_suffix}' specified but no collections configured to create it"
+        elif status == "missing_target_suffix":
+            return f"No target suffix specified but suffixes available: {available_suffixes}"
+        elif status == "no_collection_config":
+            return "Auto-ingestion enabled but no collection configuration found"
+        else:
+            return f"Unknown configuration status: {status}"
