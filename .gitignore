@@ -189,45 +189,10 @@ CLAUDE.local.md
 claude.json
 .claude/
 
-# Files that should never be in repo per CLAUDE.md
-*PRD*.txt
-*PRD*.md
-*research*.md
-*report*.md
-*analysis*.md
-*summary*.md
-*execution*.md
-*completion*.md
-*benchmark*.md
-*performance*.md
-*test*results*.json
-*test*results*.md
-*integration*test*.py
-*comprehensive*test*.py
-*validation*test*.py
-*stability*test*.py
-execute_*.py
-run_*.py
-test_*.py
-*test*.py
-performance_*.py
-benchmark_*.py
-stability_*.py
-*_test_*.py
-*_tests_*.py
-*_benchmarks_*.py
-Task*_*.md
-TASK*_*.md
-
 # Test artifacts and reports (never include in repo)
 .pytest_cache/
 htmlcov/
 .coverage
-test-results/
-temp_test_*/
-*test*report*
-*benchmark*report*
-*performance*report*
 
 # Temporary files
 *.tmp
