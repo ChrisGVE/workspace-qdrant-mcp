@@ -165,7 +165,25 @@ async def search_workspace(
 
         # Check if we have any collections to search
         if not collections:
-            return {"error": "No collections available for search"}
+            # Enhanced error message with diagnostic information
+            try:
+                diagnostics = client.collection_manager.validate_collection_filtering()
+                total_collections = diagnostics.get('summary', {}).get('total_collections', 0)
+                
+                if total_collections == 0:
+                    error_msg = "No collections found in Qdrant database"
+                else:
+                    error_msg = (
+                        f"No workspace collections available for search. "
+                        f"Found {total_collections} total collections in database, "
+                        f"but none match the current workspace filtering criteria. "
+                        f"Check project configuration or collection naming patterns."
+                    )
+                
+                return {"error": error_msg}
+            except Exception:
+                # Fallback to original error message if diagnostics fail
+                return {"error": "No collections available for search"}
 
         # Resolve display names to actual collection names for Qdrant operations
         actual_collections = []
