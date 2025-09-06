@@ -544,3 +544,106 @@ class TestQdrantWorkspaceClient:
             config_info["global_collections"]
             == mock_config.workspace.global_collections
         )
+
+    @pytest.mark.asyncio
+    async def test_ensure_collection_exists_not_initialized(self, mock_config):
+        """Test ensure_collection_exists when client is not initialized."""
+        client = QdrantWorkspaceClient(mock_config)
+
+        with pytest.raises(RuntimeError, match="Client not initialized"):
+            await client.ensure_collection_exists("test-collection")
+
+    @pytest.mark.asyncio
+    async def test_ensure_collection_exists_empty_name(self, mock_config):
+        """Test ensure_collection_exists with empty collection name."""
+        client = QdrantWorkspaceClient(mock_config)
+        client.initialized = True
+
+        with pytest.raises(ValueError, match="Collection name cannot be empty"):
+            await client.ensure_collection_exists("")
+
+        with pytest.raises(ValueError, match="Collection name cannot be empty"):
+            await client.ensure_collection_exists("   ")
+
+    @pytest.mark.asyncio
+    async def test_ensure_collection_exists_success(self, mock_config):
+        """Test successful collection creation."""
+        client = QdrantWorkspaceClient(mock_config)
+        client.initialized = True
+
+        # Mock collection manager
+        mock_collection_manager = MagicMock()
+        mock_collection_manager._ensure_collection_exists = AsyncMock()
+        mock_collection_manager._get_vector_size = MagicMock(return_value=384)
+        client.collection_manager = mock_collection_manager
+
+        await client.ensure_collection_exists("test-scratchbook", "scratchbook")
+
+        # Verify collection manager was called with correct config
+        mock_collection_manager._ensure_collection_exists.assert_called_once()
+        call_args = mock_collection_manager._ensure_collection_exists.call_args[0][0]
+        assert call_args.name == "test-scratchbook"
+        assert call_args.description == "Scratchbook collection"
+        assert call_args.collection_type == "scratchbook"
+        assert call_args.vector_size == 384
+        assert call_args.enable_sparse_vectors == mock_config.embedding.enable_sparse_vectors
+
+    @pytest.mark.asyncio
+    async def test_ensure_collection_exists_default_type(self, mock_config):
+        """Test ensure_collection_exists with default collection type."""
+        client = QdrantWorkspaceClient(mock_config)
+        client.initialized = True
+
+        # Mock collection manager
+        mock_collection_manager = MagicMock()
+        mock_collection_manager._ensure_collection_exists = AsyncMock()
+        mock_collection_manager._get_vector_size = MagicMock(return_value=384)
+        client.collection_manager = mock_collection_manager
+
+        await client.ensure_collection_exists("test-collection")
+
+        # Verify default collection type is used
+        call_args = mock_collection_manager._ensure_collection_exists.call_args[0][0]
+        assert call_args.collection_type == "scratchbook"
+        assert call_args.description == "Scratchbook collection"
+
+    @pytest.mark.asyncio
+    async def test_ensure_collection_exists_collection_manager_failure(self, mock_config):
+        """Test ensure_collection_exists when collection creation fails."""
+        client = QdrantWorkspaceClient(mock_config)
+        client.initialized = True
+
+        # Mock collection manager to raise exception
+        mock_collection_manager = MagicMock()
+        mock_collection_manager._ensure_collection_exists = AsyncMock(
+            side_effect=Exception("Collection creation failed")
+        )
+        mock_collection_manager._get_vector_size = MagicMock(return_value=384)
+        client.collection_manager = mock_collection_manager
+
+        with pytest.raises(RuntimeError, match="Failed to ensure collection 'test-collection' exists: Collection creation failed"):
+            await client.ensure_collection_exists("test-collection")
+
+    @pytest.mark.asyncio
+    async def test_ensure_collection_exists_uses_embedding_config(self, mock_config):
+        """Test that ensure_collection_exists uses embedding configuration correctly."""
+        client = QdrantWorkspaceClient(mock_config)
+        client.initialized = True
+
+        # Set specific embedding config values
+        mock_config.embedding.enable_sparse_vectors = True
+
+        # Mock collection manager
+        mock_collection_manager = MagicMock()
+        mock_collection_manager._ensure_collection_exists = AsyncMock()
+        mock_collection_manager._get_vector_size = MagicMock(return_value=768)  # Larger model
+        client.collection_manager = mock_collection_manager
+
+        await client.ensure_collection_exists("test-docs", "docs")
+
+        # Verify embedding config is passed through
+        call_args = mock_collection_manager._ensure_collection_exists.call_args[0][0]
+        assert call_args.vector_size == 768
+        assert call_args.enable_sparse_vectors is True
+        assert call_args.collection_type == "docs"
+        assert call_args.description == "Docs collection"
