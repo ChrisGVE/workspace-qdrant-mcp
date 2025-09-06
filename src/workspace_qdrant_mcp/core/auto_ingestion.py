@@ -476,15 +476,18 @@ class AutoIngestionManager:
                 logger.info(f"Selected existing target collection for auto-ingestion: {target_collection}")
                 return target_collection, False
             else:
-                # Target collection doesn't exist - check if we can create it
-                from ..core.config import Config
-                workspace_config = getattr(self.config, '_workspace_config', None)
-                
-                # We need to check if the target suffix is valid for creation
+                # Target collection doesn't exist - check if other project collections exist first
                 logger.info(f"Target collection '{target_collection}' does not exist")
                 logger.info(f"Available collections: {collections}")
                 
-                # Return the target collection name and indicate it needs creation
+                # Check if any project-related collections exist before creating new one
+                project_collections = [c for c in collections if c.startswith(f"{main_project}-") or c.startswith(f"{main_project}.")]
+                if project_collections:
+                    selected = project_collections[0]
+                    logger.info(f"Selected existing project collection for auto-ingestion: {selected}")
+                    return selected, False
+                
+                # No project collections exist, so create the target collection
                 return target_collection, True
 
         # Second preference: exact project name match (legacy behavior)
