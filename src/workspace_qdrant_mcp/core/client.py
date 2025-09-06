@@ -346,6 +346,64 @@ class QdrantWorkspaceClient:
         """
         return self.embedding_service
 
+    async def ensure_collection_exists(
+        self, collection_name: str, collection_type: str = "scratchbook"
+    ) -> None:
+        """Ensure a collection exists, creating it if necessary.
+
+        This method creates a collection with appropriate configuration if it doesn't
+        already exist. It's designed to be called by tools that need to ensure
+        their target collection is available before performing operations.
+
+        Args:
+            collection_name: Name of the collection to create
+            collection_type: Type of collection (used for description)
+
+        Raises:
+            RuntimeError: If client not initialized or collection creation fails
+            ValueError: If collection_name is invalid
+
+        Example:
+            ```python
+            # Ensure scratchbook collection exists
+            await client.ensure_collection_exists("my-project-scratchbook")
+
+            # Ensure custom collection exists
+            await client.ensure_collection_exists("my-project-docs", "docs")
+            ```
+        """
+        if not self.initialized:
+            raise RuntimeError("Client not initialized")
+
+        if not collection_name or not collection_name.strip():
+            raise ValueError("Collection name cannot be empty")
+
+        try:
+            # Import here to avoid circular imports
+            from .collections import CollectionConfig
+
+            # Create a collection configuration
+            collection_config = CollectionConfig(
+                name=collection_name,
+                description=f"{collection_type.title()} collection",
+                collection_type=collection_type,
+                vector_size=self.collection_manager._get_vector_size(),
+                enable_sparse_vectors=self.config.embedding.enable_sparse_vectors,
+            )
+
+            # Use the collection manager's private method to ensure the collection exists
+            await self.collection_manager._ensure_collection_exists(collection_config)
+
+            logger.info("Ensured collection exists: %s", collection_name)
+
+        except Exception as e:
+            logger.error(
+                "Failed to ensure collection %s exists: %s", collection_name, e
+            )
+            raise RuntimeError(
+                f"Failed to ensure collection '{collection_name}' exists: {e}"
+            ) from e
+
     async def close(self) -> None:
         """Clean up client connections and release resources.
 
