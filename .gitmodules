@@ -4,3 +4,7 @@
 [submodule "web-ui"]
 	path = web-ui
 	url = https://github.com/ChrisGVE/workspace-qdrant-web-ui.git
+[submodule "LT_20250906-1822_testing_sandbox/qmk_integration/qmk_firmware"]
+	path = LT_20250906-1822_testing_sandbox/qmk_integration/qmk_firmware
+	url = https://github.com/qmk/qmk_firmware.git
+	branch = develop
