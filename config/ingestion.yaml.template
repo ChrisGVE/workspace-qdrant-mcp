@@ -1,0 +1,198 @@
+# Workspace Qdrant MCP - Ingestion Configuration Template
+# This file defines what should be ingested and ignored during auto-ingestion
+# Copy to ~/.config/workspace-qdrant-mcp/ingestion.yaml and customize as needed
+
+# Default ignore patterns covering top 25+ programming languages
+ignore_patterns:
+  # Universal: Ignore all dot files and folders (tools configuration)
+  dot_files: true  # .git/, .vscode/, .idea/, .DS_Store, etc.
+  
+  # Language-specific dependency directories
+  directories:
+    # JavaScript/TypeScript/Node.js
+    - "node_modules"
+    - "bower_components"
+    
+    # Python
+    - "__pycache__"
+    - ".pytest_cache"
+    - ".mypy_cache" 
+    - ".coverage"
+    - "venv"
+    - ".venv"
+    - "env"
+    - ".env"
+    - "site-packages"
+    
+    # Java/JVM (Java, Kotlin, Scala)
+    - "target"          # Maven
+    - ".gradle"         # Gradle
+    - "gradle"
+    - ".m2"             # Maven local repo
+    
+    # C#/.NET
+    - "bin"
+    - "obj"
+    - "packages"
+    - ".vs"
+    
+    # C/C++
+    - "build"
+    - "cmake-build-debug"
+    - "cmake-build-release"
+    
+    # Rust
+    - "target"          # Also used by Rust (overlaps with Java)
+    - ".cargo"
+    
+    # Go
+    - "vendor"
+    
+    # Ruby
+    - "gems"
+    - ".bundle"
+    
+    # PHP
+    - "vendor"          # Also used by PHP (overlaps with Go)
+    
+    # Swift
+    - ".build"
+    - "Packages"
+    
+    # Dart/Flutter  
+    - ".dart_tool"
+    - ".pub-cache"
+    
+    # R
+    - ".Rproj.user"
+    - "packrat"
+    - "renv"
+    
+    # Elixir
+    - "_build"
+    - "deps"
+    
+    # Julia
+    - ".julia"
+    
+    # Zig
+    - "zig-cache"
+    - "zig-out"
+    
+    # Multi-language build/output directories
+    - "dist"
+    - "out"
+    - "output"
+    - "release"
+    - "debug"
+    
+    # Documentation builds
+    - "_site"           # Jekyll
+    - "site"            # MkDocs
+    - "_build"          # Sphinx
+    - "public"          # Hugo/Gatsby
+    
+    # Test/fixture data
+    - "fixtures"
+    - "test-data"
+    - "sample-data"
+    - "__fixtures__"
+    
+    # Logs and temporary
+    - "logs"
+    - "tmp"
+    - "temp"
+    - ".cache"
+
+  # File extensions to ignore
+  file_extensions:
+    # Python bytecode
+    - "*.pyc"
+    - "*.pyo"
+    
+    # Java/JVM bytecode
+    - "*.class"
+    - "*.jar"           # Maybe include small JARs?
+    - "*.war"
+    - "*.ear"
+    
+    # C/C++/native compiled
+    - "*.o"
+    - "*.obj" 
+    - "*.a"             # Static libraries
+    - "*.lib"
+    - "*.so"            # Shared libraries
+    - "*.dll"
+    - "*.dylib"
+    - "*.exe"
+    
+    # JavaScript/web built assets
+    - "*.min.js"
+    - "*.min.css"
+    - "*.bundle.js"
+    - "*.bundle.css"
+    - "*.map"           # Source maps
+    
+    # Image/media (usually binary, not searchable)
+    - "*.png"
+    - "*.jpg"
+    - "*.jpeg"
+    - "*.gif"
+    - "*.svg"           # Maybe include SVGs?
+    - "*.ico"
+    - "*.pdf"           # Maybe include PDFs for docs?
+    - "*.mp4"
+    - "*.avi"
+    - "*.mov"
+    - "*.mp3"
+    - "*.wav"
+    
+    # Archives
+    - "*.zip"
+    - "*.tar"
+    - "*.tar.gz"
+    - "*.rar"
+    - "*.7z"
+    
+    # Logs and temporary files
+    - "*.log"
+    - "*.tmp"
+    - "*.temp"
+    - "*.swp"           # Vim swap files
+    - "*.swo"
+    - "*~"              # Backup files
+
+# Performance constraints
+performance:
+  max_file_size_mb: 10        # Skip files larger than 10MB
+  max_files_per_batch: 100    # Process in batches
+  debounce_seconds: 5         # Wait before processing changes
+
+# Future expansion - LSP integration for code analysis
+lsp_integration:
+  enabled: false
+  extract_symbols: false      # Extract function/class definitions
+  extract_imports: false      # Extract import relationships
+  extract_references: false   # Extract symbol references
+
+# Collection routing - where different file types go
+collection_routing:
+  code_suffix: "code"         # project-name-code
+  docs_suffix: "docs"         # project-name-docs  
+  config_suffix: "config"     # project-name-config
+  default_suffix: "repo"      # project-name-repo
+
+# User customization (overrides defaults)
+user_overrides:
+  # Additional patterns to ignore beyond defaults
+  additional_ignores:
+    directories: []
+    file_extensions: []
+    
+  # Force include patterns (override ignores for specific cases)
+  force_include:
+    directories: []             # e.g., ["important-vendor-lib"]
+    file_extensions: []         # e.g., ["*.important"]
+    
+  # Per-project overrides
+  project_specific: {}          # Future: per-project custom rules
