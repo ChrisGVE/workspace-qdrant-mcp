@@ -374,9 +374,24 @@ class AutoIngestionManager:
                 }
 
             # Select primary collection for the main project
-            primary_collection = self._select_primary_collection(
+            primary_collection, needs_creation = self._select_primary_collection(
                 project_info, collections
             )
+            
+            # Create the primary collection if it doesn't exist
+            if needs_creation:
+                logger.info(f"Creating target collection for auto-ingestion: {primary_collection}")
+                try:
+                    await self._create_collection_for_auto_ingestion(primary_collection)
+                    # Update collections list to include the newly created collection
+                    collections.append(primary_collection)
+                except Exception as e:
+                    logger.error(f"Failed to create target collection '{primary_collection}': {e}")
+                    return {
+                        "success": False,
+                        "error": f"Failed to create target collection: {str(e)}",
+                        "watches_created": [],
+                    }
 
             results = []
 
@@ -440,12 +455,17 @@ class AutoIngestionManager:
 
     def _select_primary_collection(
         self, project_info: Dict[str, Any], collections: List[str]
-    ) -> str:
-        """Select the primary collection for the project based on configuration."""
+    ) -> tuple[str, bool]:
+        """Select the primary collection for the project based on configuration.
+        
+        Returns:
+            tuple: (collection_name, needs_creation) where needs_creation indicates
+                  if the collection needs to be created
+        """
         main_project = project_info["main_project"]
         target_suffix = self.config.target_collection_suffix
         
-        # Validate configuration
+        # Validate configuration and provide better error messages
         if not target_suffix:
             logger.warning("auto_ingestion.target_collection_suffix is not configured, will use fallback selection")
         
@@ -453,28 +473,52 @@ class AutoIngestionManager:
         if target_suffix:
             target_collection = f"{main_project}-{target_suffix}"
             if target_collection in collections:
-                logger.info(f"Selected target collection for auto-ingestion: {target_collection}")
-                return target_collection
+                logger.info(f"Selected existing target collection for auto-ingestion: {target_collection}")
+                return target_collection, False
+            else:
+                # Target collection doesn't exist - check if we can create it
+                from ..core.config import Config
+                workspace_config = getattr(self.config, '_workspace_config', None)
+                
+                # We need to check if the target suffix is valid for creation
+                logger.info(f"Target collection '{target_collection}' does not exist")
+                logger.info(f"Available collections: {collections}")
+                
+                # Return the target collection name and indicate it needs creation
+                return target_collection, True
 
         # Second preference: exact project name match (legacy behavior)
         if main_project in collections:
             logger.info(f"Selected project collection for auto-ingestion: {main_project}")
-            return main_project
+            return main_project, False
 
         # Third preference: any collection that starts with the project name
-        matching = [c for c in collections if c.startswith(f"{main_project}.")]
+        matching = [c for c in collections if c.startswith(f"{main_project}.") or c.startswith(f"{main_project}-")]
         if matching:
             selected = matching[0]
             logger.info(f"Selected first matching project collection for auto-ingestion: {selected}")
-            return selected
+            return selected, False
 
-        # Final fallback: first available collection
-        fallback = collections[0] if collections else "documents"
-        logger.warning(
-            f"No target collection found for suffix '{target_suffix}' and project '{main_project}'. "
-            f"Falling back to: {fallback}"
-        )
-        return fallback
+        # Fourth preference: check for common standalone collections
+        common_collections = ["scratchbook", "notes", "documents", "reference"]
+        for common in common_collections:
+            if common in collections:
+                logger.info(f"Selected common collection for auto-ingestion: {common}")
+                return common, False
+
+        # Final fallback: create a default collection if no collections exist
+        if not collections:
+            default_collection = f"{main_project}-scratchbook" if not target_suffix else f"{main_project}-{target_suffix}"
+            logger.warning(f"No collections available. Will create default collection: {default_collection}")
+            return default_collection, True
+        else:
+            # Use first available collection as absolute fallback
+            fallback = collections[0]
+            logger.warning(
+                f"No target collection found for suffix '{target_suffix}' and project '{main_project}'. "
+                f"Falling back to existing collection: {fallback}"
+            )
+            return fallback, False
 
     async def _create_project_watch(
         self, project_info: Dict[str, Any], collection: str, project_path: str
@@ -708,6 +752,72 @@ class AutoIngestionManager:
             logger.debug(f"Error checking ignore patterns for {file_path}: {e}")
 
         return False
+
+    async def _create_collection_for_auto_ingestion(self, collection_name: str) -> None:
+        """Create a collection specifically for auto-ingestion.
+        
+        This method creates a collection with the appropriate configuration
+        for auto-ingestion, including dense and sparse vector support.
+        
+        Args:
+            collection_name: Name of the collection to create
+            
+        Raises:
+            Exception: If collection creation fails
+        """
+        try:
+            # Import here to avoid circular dependencies
+            from ..core.collections import CollectionConfig, WorkspaceCollectionManager
+            from qdrant_client import QdrantClient
+            from ..core.config import Config
+            
+            # Get the workspace client from the project
+            # We need to create a collection config for auto-ingestion
+            config = CollectionConfig(
+                name=collection_name,
+                description=f"Auto-created collection for auto-ingestion: {collection_name}",
+                collection_type="scratchbook",  # Default type for auto-ingestion
+                vector_size=self._get_vector_size(),
+                enable_sparse_vectors=True,  # Enable sparse vectors for better search
+            )
+            
+            # Create a temporary collection manager to handle the creation
+            from qdrant_client import QdrantClient
+            from ..core.config import Config
+            
+            # Get client configuration
+            full_config = Config()
+            client = QdrantClient(**full_config.qdrant_client_config)
+            collection_manager = WorkspaceCollectionManager(client, full_config)
+            
+            # Use the collection manager's method to ensure proper creation
+            await collection_manager._ensure_collection_exists(config)
+            
+            logger.info(f"Successfully created collection for auto-ingestion: {collection_name}")
+            
+        except Exception as e:
+            logger.error(f"Failed to create collection '{collection_name}' for auto-ingestion: {e}")
+            raise
+    
+    def _get_vector_size(self) -> int:
+        """Get the vector dimension size for the embedding model.
+        
+        Returns:
+            int: Vector dimension size (384 for all-MiniLM-L6-v2)
+        """
+        # This should match the embedding service configuration
+        model_sizes = {
+            "sentence-transformers/all-MiniLM-L6-v2": 384,
+            "BAAI/bge-base-en-v1.5": 768,
+            "BAAI/bge-large-en-v1.5": 1024,
+            "BAAI/bge-m3": 1024,
+        }
+        
+        # Default to 384 if model not found
+        return model_sizes.get(
+            getattr(self.config, 'model', 'sentence-transformers/all-MiniLM-L6-v2'), 
+            384
+        )
 
     async def _ingest_single_file(
         self, file_path: Path, collection: str
