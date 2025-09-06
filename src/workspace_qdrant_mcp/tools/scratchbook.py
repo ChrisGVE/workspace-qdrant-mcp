@@ -236,7 +236,7 @@ class ScratchbookManager:
             point = models.PointStruct(id=note_id, vector=vectors, payload=payload)
 
             # Insert into Qdrant
-            await self.client.client.upsert(
+            self.client.client.upsert(
                 collection_name=collection_name, points=[point]
             )
 
@@ -354,7 +354,7 @@ class ScratchbookManager:
                     payload=new_payload,
                 )
 
-            await self.client.client.upsert(
+            self.client.client.upsert(
                 collection_name=collection_name, points=[updated_point]
             )
 

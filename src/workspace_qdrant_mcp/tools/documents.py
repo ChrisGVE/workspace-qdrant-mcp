@@ -280,7 +280,7 @@ async def _add_single_document(
         point = models.PointStruct(id=point_id, vector=vectors, payload=payload)
 
         # Insert into Qdrant (use actual collection name)
-        await client.client.upsert(collection_name=actual_collection, points=[point])
+        client.client.upsert(collection_name=actual_collection, points=[point])
 
         # Brief consistency check - ensure document is immediately searchable
         # Small delay to allow for Qdrant's internal indexing
@@ -395,7 +395,7 @@ async def update_document(
                         id=point.id, vector=point.vector, payload=new_payload
                     )
 
-                await client.client.upsert(collection_name=collection, points=[updated_point])
+                client.client.upsert(collection_name=collection, points=[updated_point])
 
                 points_updated += 1
 
