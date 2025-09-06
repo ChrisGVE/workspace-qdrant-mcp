@@ -39,8 +39,12 @@ Example:
 
 import asyncio
 import logging
+import os
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Optional
+
+import git
 
 from qdrant_client import QdrantClient
 from qdrant_client.http import models
@@ -151,6 +155,54 @@ class WorkspaceCollectionManager:
             global_collections=self.config.workspace.global_collections,
             valid_project_suffixes=self.config.workspace.effective_collection_suffixes
         )
+
+    def _get_current_project_name(self) -> Optional[str]:
+        """
+        Determine the current project name from working directory or git repository.
+
+        Attempts to extract the project name from:
+        1. Git repository name (if in a git repository)
+        2. Current working directory name
+        3. Parent directory name (if current is a subdirectory)
+
+        Returns:
+            str: Project name if determinable, None otherwise
+
+        Example:
+            For /path/to/workspace-qdrant-mcp -> "workspace-qdrant-mcp"
+            For git repo myproject -> "myproject"
+        """
+        try:
+            # Try to get project name from git repository
+            try:
+                repo = git.Repo(search_parent_directories=True)
+                if repo.remotes:
+                    # Extract from remote URL (e.g., git@github.com:user/project.git -> project)
+                    remote_url = repo.remotes[0].url
+                    if remote_url.endswith('.git'):
+                        remote_url = remote_url[:-4]
+                    project_name = remote_url.split('/')[-1]
+                    if project_name and project_name != '.' and not project_name.startswith('.'):
+                        return project_name
+            except (git.InvalidGitRepositoryError, git.GitCommandError):
+                pass
+
+            # Fallback to directory name
+            current_dir = Path.cwd()
+            project_name = current_dir.name
+            
+            # Skip common subdirectory names and go to parent
+            skip_dirs = {'src', 'lib', 'app', 'core', 'workspace_qdrant_mcp'}
+            if project_name in skip_dirs and current_dir.parent != current_dir:
+                project_name = current_dir.parent.name
+
+            if project_name and project_name != '.' and not project_name.startswith('.'):
+                return project_name
+
+        except Exception as e:
+            logger.debug("Could not determine project name: %s", e)
+
+        return None
 
     async def initialize_workspace_collections(
         self, project_name: str, subprojects: list[str] | None = None
@@ -483,7 +535,9 @@ class WorkspaceCollectionManager:
         Inclusion Criteria:
             - Collections ending in configured project collection suffixes
             - Collections in the global_collections configuration list
-            - Collections that match workspace naming patterns
+            - Collections that match current project naming patterns ({project_name}-{suffix})
+            - Standalone collections matching the current project name
+            - Common workspace collection names (fallback for shared collections)
 
         Exclusion Criteria:
             - Collections ending in '-code' (memexd daemon collections)
@@ -502,6 +556,7 @@ class WorkspaceCollectionManager:
             # These would return True:
             manager._is_workspace_collection("my-project-docs")         # True (if 'docs' in collections)
             manager._is_workspace_collection("user-collection")         # True (if configured)
+            manager._is_workspace_collection("workspace-qdrant-mcp-repo")  # True (common pattern)
 
             # These would return False:
             manager._is_workspace_collection("memexd-project-code")    # False (daemon)
@@ -519,6 +574,25 @@ class WorkspaceCollectionManager:
         # Include project collections (ending with configured suffixes)
         for suffix in self.config.workspace.effective_collection_suffixes:
             if collection_name.endswith(f"-{suffix}"):
+                return True
+
+        # When no specific configuration is provided, use the actual project name to identify collections
+        # This provides accurate workspace isolation based on the current project context
+        if not self.config.workspace.effective_collection_suffixes and not self.config.workspace.global_collections:
+            project_name = self._get_current_project_name()
+            
+            if project_name:
+                # Check if collection matches the project naming pattern: {project_name}-{suffix}
+                if collection_name.startswith(f"{project_name}-"):
+                    return True
+                
+                # Also include standalone collections that match the project name exactly
+                if collection_name == project_name:
+                    return True
+            
+            # Fallback to common standalone collections for workspace context
+            common_standalone_collections = ["reference", "docs", "standards", "notes", "scratchbook", "memory", "knowledge"]
+            if collection_name in common_standalone_collections:
                 return True
 
         return False
