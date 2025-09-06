@@ -395,7 +395,7 @@ async def update_document(
                         id=point.id, vector=point.vector, payload=new_payload
                     )
 
-                client.client.upsert(collection_name=collection, points=[updated_point])
+                await client.client.upsert(collection_name=collection, points=[updated_point])
 
                 points_updated += 1
 
