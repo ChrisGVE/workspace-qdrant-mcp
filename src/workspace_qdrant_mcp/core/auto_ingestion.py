@@ -467,7 +467,11 @@ class AutoIngestionManager:
         
         # Validate configuration and provide better error messages
         if not target_suffix:
-            logger.warning("auto_ingestion.target_collection_suffix is not configured, will use fallback selection")
+            logger.info(
+                "auto_ingestion.target_collection_suffix not configured - using intelligent fallback selection. "
+                "Will prefer existing project collections, then common collections like 'scratchbook', "
+                "or create a default collection if needed."
+            )
         
         # First preference: exact match for configured target suffix
         if target_suffix:

@@ -858,3 +858,42 @@ class Config(BaseSettings):
             return "Auto-ingestion enabled but no collection configuration found"
         else:
             return f"Unknown configuration status: {status}"
+    
+    def get_effective_auto_ingestion_behavior(self) -> str:
+        """Get a user-friendly description of how auto-ingestion will behave.
+        
+        Returns a human-readable description of what will happen when auto-ingestion
+        runs, including fallback behavior and collection selection logic.
+        """
+        if not self.auto_ingestion.enabled:
+            return "Auto-ingestion is disabled. No automatic file processing will occur."
+        
+        target_suffix = self.auto_ingestion.target_collection_suffix
+        available_suffixes = self.workspace.effective_collection_suffixes
+        auto_create = self.workspace.auto_create_collections
+        
+        if target_suffix and available_suffixes and target_suffix in available_suffixes:
+            return f"Will use collection '{{{self._current_project_name()}}}-{target_suffix}' for auto-ingestion."
+        elif target_suffix and auto_create:
+            return f"Will create and use collection '{{{self._current_project_name()}}}-{target_suffix}' for auto-ingestion."
+        elif not target_suffix:
+            behavior_parts = [
+                "Will use intelligent fallback selection:",
+                "1. Existing project collections (if any)", 
+                "2. Common collections like 'scratchbook' (if they exist)",
+                "3. Create a default collection if no suitable collections exist"
+            ]
+            return " ".join(behavior_parts) if len(" ".join(behavior_parts)) < 100 else "\n  ".join(behavior_parts)
+        else:
+            return f"Configuration may need adjustment. Target suffix '{target_suffix}' specified but not in available suffixes."
+    
+    def _current_project_name(self) -> str:
+        """Get current project name for display purposes."""
+        try:
+            import os
+            from ..utils.project_detection import ProjectDetector
+            project_detector = ProjectDetector()
+            project_info = project_detector.get_project_info(os.getcwd())
+            return project_info.get("main_project", "current-project")
+        except Exception:
+            return "current-project"
