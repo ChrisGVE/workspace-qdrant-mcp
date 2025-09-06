@@ -235,6 +235,96 @@ class WorkspaceCollectionManager:
         logger.debug("All project names for collection filtering: %s", project_names)
         return project_names
 
+    def validate_collection_filtering(self) -> dict:
+        """
+        Validate and diagnose collection filtering configuration.
+        
+        This method provides diagnostic information about the current
+        collection filtering setup, useful for debugging issues.
+        
+        Returns:
+            Dict: Diagnostic information containing:
+                - project_info: Stored project information
+                - project_names: All project names used for filtering
+                - config_info: Configuration settings
+                - all_collections: All collections in Qdrant
+                - workspace_collections: Filtered workspace collections
+                - filtering_results: Per-collection filtering decisions
+        """
+        try:
+            # Get current state
+            all_collections = self.client.get_collections()
+            all_names = [c.name for c in all_collections.collections]
+            project_names = self._get_all_project_names()
+            workspace_collections = self.list_workspace_collections()
+            
+            # Test filtering for each collection
+            filtering_results = {}
+            for name in all_names:
+                filtering_results[name] = {
+                    'is_workspace': self._is_workspace_collection(name),
+                    'reason': self._get_filtering_reason(name)
+                }
+            
+            return {
+                'project_info': self._project_info,
+                'project_names': project_names,
+                'config_info': {
+                    'effective_collection_suffixes': self.config.workspace.effective_collection_suffixes,
+                    'global_collections': self.config.workspace.global_collections,
+                    'auto_create_collections': self.config.workspace.auto_create_collections
+                },
+                'all_collections': all_names,
+                'workspace_collections': workspace_collections,
+                'filtering_results': filtering_results,
+                'summary': {
+                    'total_collections': len(all_names),
+                    'workspace_collections': len(workspace_collections),
+                    'excluded_collections': len(all_names) - len(workspace_collections)
+                }
+            }
+        except Exception as e:
+            logger.error("Failed to validate collection filtering: %s", e)
+            return {'error': str(e)}
+    
+    def _get_filtering_reason(self, collection_name: str) -> str:
+        """
+        Get the reason why a collection is included or excluded from workspace.
+        
+        Args:
+            collection_name: Name of the collection to check
+            
+        Returns:
+            str: Human-readable reason for the filtering decision
+        """
+        # Check exclusion criteria first
+        if collection_name.endswith("-code"):
+            return "Excluded: memexd daemon collection (ends with -code)"
+        
+        # Check inclusion criteria
+        if collection_name in self.config.workspace.global_collections:
+            return "Included: global collection"
+            
+        for suffix in self.config.workspace.effective_collection_suffixes:
+            if collection_name.endswith(f"-{suffix}"):
+                return f"Included: ends with configured suffix '{suffix}'"
+        
+        # Check project-based inclusion
+        if not self.config.workspace.effective_collection_suffixes and not self.config.workspace.global_collections:
+            project_names = self._get_all_project_names()
+            
+            for project_name in project_names:
+                if collection_name.startswith(f"{project_name}-"):
+                    return f"Included: matches project '{project_name}' pattern"
+                if collection_name == project_name:
+                    return f"Included: exact match with project '{project_name}'"
+            
+            common_standalone = ["reference", "docs", "standards", "notes", "scratchbook", "memory", "knowledge"]
+            if collection_name in common_standalone:
+                return "Included: common standalone collection"
+        
+        return "Excluded: does not match any inclusion criteria"
+
     async def initialize_workspace_collections(
         self, project_name: str, subprojects: list[str] | None = None
     ) -> None:
@@ -473,11 +563,21 @@ class WorkspaceCollectionManager:
         try:
             all_collections = self.client.get_collections()
             workspace_collections = []
+            all_collection_names = [c.name for c in all_collections.collections]
+
+            logger.debug("Filtering collections. Total collections: %d", len(all_collection_names))
+            logger.debug("All collections: %s", all_collection_names)
 
             for collection in all_collections.collections:
                 # Filter for workspace collections (exclude memexd -code collections)
                 if self._is_workspace_collection(collection.name):
                     workspace_collections.append(collection.name)
+
+            logger.info(
+                "Found %d workspace collections out of %d total collections", 
+                len(workspace_collections), len(all_collection_names)
+            )
+            logger.debug("Workspace collections: %s", workspace_collections)
 
             return sorted(workspace_collections)
 
