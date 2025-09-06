@@ -743,7 +743,7 @@ class Config(BaseSettings):
         elif self.workspace.max_collections > 10000:
             issues.append("Max collections limit is too high (max 10000 recommended)")
 
-        # Validate auto-ingestion configuration
+        # Validate auto-ingestion configuration with graceful fallback behavior
         if self.auto_ingestion.enabled:
             target_suffix = self.auto_ingestion.target_collection_suffix
             available_suffixes = self.workspace.effective_collection_suffixes
@@ -752,25 +752,28 @@ class Config(BaseSettings):
             # Check if target_collection_suffix is specified and valid
             if target_suffix:
                 if available_suffixes and target_suffix not in available_suffixes:
-                    issues.append(
-                        f"auto_ingestion.target_collection_suffix '{target_suffix}' "
-                        f"is not in workspace.collection_suffixes {available_suffixes}"
-                    )
-                elif not available_suffixes and not auto_create:
-                    issues.append(
-                        f"auto_ingestion.target_collection_suffix '{target_suffix}' specified but "
-                        f"workspace.collection_suffixes is empty and auto_create_collections is false. "
-                        f"Either add '{target_suffix}' to collection_suffixes or enable auto_create_collections."
-                    )
+                    # Only warn if auto_create is disabled, otherwise it will create the collection
+                    if not auto_create:
+                        issues.append(
+                            f"auto_ingestion.target_collection_suffix '{target_suffix}' "
+                            f"is not in workspace.collection_suffixes {available_suffixes}. "
+                            f"Consider adding '{target_suffix}' to collection_suffixes or enabling auto_create_collections."
+                        )
             elif not target_suffix and available_suffixes:
+                # This is a clear misconfiguration - user has suffixes but didn't specify which to use
                 issues.append(
                     "auto_ingestion.target_collection_suffix is empty but workspace.collection_suffixes "
                     f"contains {available_suffixes}. Please specify which suffix to use for auto-ingestion."
                 )
             elif not target_suffix and not available_suffixes and not auto_create:
-                issues.append(
-                    "auto_ingestion is enabled but no target collection configuration found. "
-                    "Either set target_collection_suffix, configure collection_suffixes, or enable auto_create_collections."
+                # This case now gets graceful fallback - we'll use a default collection name
+                # No longer an error, but log a warning-level message for the user to be aware
+                import logging
+                logger = logging.getLogger(__name__)
+                logger.warning(
+                    "Auto-ingestion enabled without explicit collection configuration. "
+                    "Will use default project-based collection naming. "
+                    "For better control, consider setting target_collection_suffix or enabling auto_create_collections."
                 )
 
         return issues
