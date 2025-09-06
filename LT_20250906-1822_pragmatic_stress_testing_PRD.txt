@@ -1,0 +1,293 @@
+# PRAGMATIC WORKSPACE-QDRANT-MCP STRESS TESTING CAMPAIGN PRD
+
+**Version**: 2.0  
+**Date**: 2025-09-06  
+**Context**: Resource limits and sync reliability validation  
+**File**: LT_20250906-1822_pragmatic_stress_testing_PRD.txt
+
+---
+
+## EXECUTIVE SUMMARY
+
+Following refinement of testing approach, focus on finding actual breaking points through systematic stress testing. Primary goals: prevent daemon resource strangulation, ensure real-time sync reliability, and establish baseline performance for future LSP integration.
+
+## CORE TESTING OBJECTIVES
+
+### Critical Failure Modes to Prevent
+1. **Resource Strangulation**: Daemon consuming excessive resources, making system inoperable
+2. **Sync Lag**: File changes not reflected quickly enough for LLM queries, returning stale data
+3. **Recovery Failures**: System unable to gracefully handle resource pressure
+
+### Success Criteria
+- Identify exact breaking points for resource consumption
+- Validate real-time sync performance under development loads
+- Confirm built-in priority system effectiveness
+- Establish LSP integration resource headroom
+
+---
+
+## AUTONOMOUS TESTING PHASES
+
+### PHASE 1: BASELINE & SANDBOX SETUP
+**Duration**: 30 minutes  
+**User Input Required**: None
+
+```bash
+# Create testing environment
+LT_20250906-1822_testing_sandbox/
+├── baseline_metrics/          # Current project performance data
+├── qmk_integration/          # Large-scale testing
+├── stress_scenarios/         # Synthetic load testing
+├── sync_validation/          # Real-time change testing
+├── monitoring_logs/          # All performance data
+└── results_summary/          # Decision-ready reports
+```
+
+**Activities**:
+1. Create sandbox structure with monitoring infrastructure
+2. Baseline current project ingestion (time, memory, CPU)
+3. Add qmk_firmware submodule (dev branch) 
+4. Establish resource monitoring (memory, CPU, disk I/O)
+5. Document current daemon configuration and limits
+
+### PHASE 2: PROGRESSIVE SCALING VALIDATION
+**Duration**: 1-2 hours  
+**User Input Required**: None
+
+**Scaling Sequence**:
+```
+1. Current workspace-qdrant-mcp project (~X files)
+2. QMK firmware subset (keyboards/ directory only)
+3. QMK firmware complete (full repository)
+4. Synthetic stress files (large files, many small files)
+```
+
+**Measurements per Scale Level**:
+- Memory consumption trajectory
+- CPU usage patterns  
+- Ingestion completion time
+- Search response degradation
+- System responsiveness impact
+
+**Breaking Point Detection**:
+- When does ingestion time become non-linear?
+- At what point does system become sluggish?
+- How do built-in priorities respond to resource pressure?
+
+### PHASE 3: REAL-TIME SYNC STRESS TESTING
+**Duration**: 1-2 hours  
+**User Input Required**: None
+
+**Development Simulation Scenarios**:
+```
+Scenario A: Active Coding Session
+- Continuous file modifications (every 5-30 seconds)
+- New file creation bursts
+- Search queries during active changes
+
+Scenario B: Refactoring Operations  
+- Mass file renames/moves
+- Large content modifications
+- Directory structure changes
+
+Scenario C: Git Operations
+- Branch switching with file changes
+- Merge operations
+- Large commit ingestion
+```
+
+**Sync Validation Protocol**:
+1. Make file change
+2. Measure change detection latency
+3. Query for modified content immediately
+4. Validate result freshness
+5. Monitor processing queue depth
+
+**Critical Measurements**:
+- Change detection time (filesystem → daemon awareness)
+- Processing queue backlog during heavy activity
+- Search result staleness detection
+- Concurrent operation impact
+
+### PHASE 4: RESOURCE LIMIT STRESS TESTING
+**Duration**: 2-3 hours  
+**User Input Required**: None
+
+**Stress Scenarios**:
+```
+Memory Pressure Testing:
+- Progressive memory consumption until limits
+- Large file ingestion (multi-GB files)
+- Concurrent processing stress
+
+CPU Saturation Testing:
+- Maximum concurrent file processing
+- Search query bombardment during ingestion
+- Embedding computation overload
+
+Disk I/O Stress Testing:
+- Rapid file creation/deletion cycles
+- Large file read/write operations
+- Network storage simulation
+```
+
+**Resource Guardrail Validation**:
+- Test built-in priority system effectiveness
+- Measure graceful degradation behavior
+- Validate automatic throttling mechanisms
+- Document recovery patterns
+
+### PHASE 5: RESILIENCE & RECOVERY TESTING
+**Duration**: 1-2 hours  
+**User Input Required**: None
+
+**Failure Simulation**:
+```
+Daemon Restart Testing:
+- Kill daemon during heavy processing
+- Restart and measure recovery time
+- Validate data consistency post-recovery
+
+Resource Exhaustion Testing:
+- Push beyond configured memory limits
+- Force CPU throttling scenarios
+- Test disk space exhaustion handling
+
+Corruption Scenarios:
+- Simulate Qdrant database issues
+- Test partial ingestion recovery
+- Validate automatic repair mechanisms
+```
+
+**Recovery Metrics**:
+- Restart time to full functionality
+- Data consistency after unexpected shutdown
+- Automatic recovery success rate
+- Manual intervention requirements
+
+---
+
+## DEFERRED DECISION POINTS
+
+*All decisions deferred to end-of-testing analysis*
+
+### Resource Configuration Optimization
+- **Current limits effective?** Based on breaking point analysis
+- **Threshold adjustments needed?** Memory/CPU limit tuning
+- **Priority system tuning required?** Based on stress test results
+
+### Performance Acceptable Boundaries  
+- **Ingestion time thresholds** for different project sizes
+- **Search response time** requirements under load
+- **System impact tolerance** during heavy processing
+
+### Production Readiness Assessment
+- **QMK-scale projects supported?** Based on full ingestion results
+- **Concurrent development workflow viable?** Based on sync testing
+- **LSP integration resource headroom available?** Based on baseline measurements
+
+### Optimization Priorities
+- **Bottleneck identification** from comprehensive testing
+- **Architecture improvements** needed for scale
+- **Monitoring enhancements** for production deployment
+
+---
+
+## AUTOMATED MONITORING & REPORTING
+
+### Real-Time Metrics Collection
+```python
+# Continuous monitoring during all test phases
+{
+    "timestamp": "2025-09-06T18:22:00Z",
+    "memory_usage_mb": 1024,
+    "cpu_usage_percent": 45.2,
+    "disk_io_mb_per_sec": 15.3,
+    "active_processes": 3,
+    "queue_depth": 12,
+    "search_response_time_ms": 156,
+    "system_load_average": 2.1
+}
+```
+
+### Test Result Synthesis
+- **Breaking point identification** with specific thresholds
+- **Performance characteristic graphs** showing scaling behavior  
+- **Failure mode documentation** with reproduction steps
+- **Resource optimization recommendations** based on data
+
+### Production Readiness Report
+- **Go/No-Go recommendation** with supporting evidence
+- **Configuration adjustments** needed for optimal performance
+- **Monitoring requirements** for production deployment
+- **Future scaling projections** for LSP integration
+
+---
+
+## IMPLEMENTATION TIMELINE
+
+**Total Autonomous Execution Time**: 8-12 hours (overnight capable)
+**User Decision Session**: Deferred to next session
+
+```
+Hours 1-2:  Phase 1 - Baseline & Setup (includes QMK submodule clone)
+Hours 3-5:  Phase 2 - Progressive Scaling (current → QMK → synthetic)
+Hours 6-8:  Phase 3 - Sync Stress Testing (all development scenarios)
+Hours 9-11: Phase 4 - Resource Limit Testing (find breaking points)
+Hour 12:    Phase 5 - Resilience Testing & Complete Analysis
+```
+
+**Overnight Safety Features**:
+- Automated monitoring with emergency stops
+- Progressive test escalation with safety breaks
+- Comprehensive logging for offline analysis
+- System protection with resource reservations
+- Complete results compilation for next-day review
+
+---
+
+## RISK MITIGATION
+
+### System Protection During Testing
+- Automated monitoring with kill switches for runaway processes
+- System resource reservation (maintain 20% memory/CPU headroom)
+- Backup/restore capability for test environment
+- Graceful test termination on resource alerts
+
+### Test Environment Isolation  
+- Dedicated testing sandbox (LT_* folder structure)
+- No production data at risk
+- Rollback procedures for daemon configuration
+- Independent monitoring to prevent system impact
+
+---
+
+## SUCCESS DELIVERABLES
+
+### Technical Outputs (Automated)
+1. **Resource Consumption Analysis**: Exact breaking points with data
+2. **Sync Performance Report**: Real-time capability assessment
+3. **Resilience Validation**: Recovery behavior documentation
+4. **Scaling Characteristics**: Performance curves for different loads
+5. **Production Configuration**: Optimized settings recommendations
+
+### Strategic Decision Support (Deferred)
+- **Production readiness assessment** with quantified evidence
+- **Resource limit optimization** based on actual breaking points
+- **Monitoring requirements** for production deployment
+- **LSP integration impact** projections with available headroom
+
+---
+
+## NEXT STEPS
+
+1. **Execute autonomous testing phases** (6-8 hours uninterrupted)
+2. **Compile comprehensive results** into decision-ready format
+3. **Present findings and recommendations** with supporting data
+4. **Defer all configuration/optimization decisions** to user review
+5. **Implement agreed optimizations** based on user decisions
+
+**Sandbox Location**: `LT_20250906-1822_testing_sandbox/`
+**Results Format**: Decision-ready reports with clear recommendations
+
+This approach maximizes autonomous execution while providing comprehensive data for informed decision-making about production readiness and system optimization.
