@@ -578,6 +578,28 @@ class Config(BaseSettings):
         ):
             self.workspace.auto_create_collections = auto_create.lower() == "true"
 
+        # Auto-ingestion nested config
+        if enabled := os.getenv("WORKSPACE_QDRANT_AUTO_INGESTION__ENABLED"):
+            self.auto_ingestion.enabled = enabled.lower() == "true"
+        if auto_create_watches := os.getenv("WORKSPACE_QDRANT_AUTO_INGESTION__AUTO_CREATE_WATCHES"):
+            self.auto_ingestion.auto_create_watches = auto_create_watches.lower() == "true"
+        if include_common := os.getenv("WORKSPACE_QDRANT_AUTO_INGESTION__INCLUDE_COMMON_FILES"):
+            self.auto_ingestion.include_common_files = include_common.lower() == "true"
+        if include_source := os.getenv("WORKSPACE_QDRANT_AUTO_INGESTION__INCLUDE_SOURCE_FILES"):
+            self.auto_ingestion.include_source_files = include_source.lower() == "true"
+        if target_suffix := os.getenv("WORKSPACE_QDRANT_AUTO_INGESTION__TARGET_COLLECTION_SUFFIX"):
+            self.auto_ingestion.target_collection_suffix = target_suffix
+        if max_files := os.getenv("WORKSPACE_QDRANT_AUTO_INGESTION__MAX_FILES_PER_BATCH"):
+            self.auto_ingestion.max_files_per_batch = int(max_files)
+        if batch_delay := os.getenv("WORKSPACE_QDRANT_AUTO_INGESTION__BATCH_DELAY_SECONDS"):
+            self.auto_ingestion.batch_delay_seconds = float(batch_delay)
+        if max_size := os.getenv("WORKSPACE_QDRANT_AUTO_INGESTION__MAX_FILE_SIZE_MB"):
+            self.auto_ingestion.max_file_size_mb = int(max_size)
+        if recursive_depth := os.getenv("WORKSPACE_QDRANT_AUTO_INGESTION__RECURSIVE_DEPTH"):
+            self.auto_ingestion.recursive_depth = int(recursive_depth)
+        if debounce := os.getenv("WORKSPACE_QDRANT_AUTO_INGESTION__DEBOUNCE_SECONDS"):
+            self.auto_ingestion.debounce_seconds = int(debounce)
+
     def _load_legacy_env_vars(self) -> None:
         """Load legacy environment variables for backward compatibility."""
 
