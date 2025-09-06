@@ -489,6 +489,16 @@ async def search_scratchbook_tool(
     if not workspace_client:
         return {"error": "Workspace client not initialized"}
 
+    try:
+        # Convert string parameters to appropriate numeric types if needed
+        limit = int(limit) if isinstance(limit, str) else limit
+        
+        # Validate numeric parameter ranges
+        if limit <= 0:
+            return {"error": "limit must be greater than 0"}
+    except (ValueError, TypeError) as e:
+        return {"error": f"Invalid parameter type: limit must be an integer. Error: {e}"}
+
     manager = ScratchbookManager(workspace_client)
     return await manager.search_notes(
         query, note_types, tags, project_name, limit, mode
@@ -505,6 +515,16 @@ async def list_scratchbook_notes_tool(
     """List notes in scratchbook with optional filtering."""
     if not workspace_client:
         return {"error": "Workspace client not initialized"}
+
+    try:
+        # Convert string parameters to appropriate numeric types if needed
+        limit = int(limit) if isinstance(limit, str) else limit
+        
+        # Validate numeric parameter ranges
+        if limit <= 0:
+            return {"error": "limit must be greater than 0"}
+    except (ValueError, TypeError) as e:
+        return {"error": f"Invalid parameter type: limit must be an integer. Error: {e}"}
 
     manager = ScratchbookManager(workspace_client)
     return await manager.list_notes(project_name, note_type, tags, limit)
@@ -706,6 +726,24 @@ async def add_watch_folder(
     if not workspace_client or not watch_tools_manager:
         return {"error": "Watch management not initialized"}
 
+    try:
+        # Convert string parameters to appropriate numeric types if needed
+        recursive_depth = int(recursive_depth) if isinstance(recursive_depth, str) else recursive_depth
+        debounce_seconds = int(debounce_seconds) if isinstance(debounce_seconds, str) else debounce_seconds
+        update_frequency = int(update_frequency) if isinstance(update_frequency, str) else update_frequency
+        
+        # Validate numeric parameter ranges
+        if not (1 <= debounce_seconds <= 300):
+            return {"error": "debounce_seconds must be between 1 and 300"}
+            
+        if not (100 <= update_frequency <= 10000):
+            return {"error": "update_frequency must be between 100 and 10000"}
+            
+        if recursive_depth != -1 and recursive_depth < 0:
+            return {"error": "recursive_depth must be -1 (unlimited) or a non-negative integer"}
+    except (ValueError, TypeError) as e:
+        return {"error": f"Invalid parameter types: recursive_depth, debounce_seconds, and update_frequency must be integers. Error: {e}"}
+
     return await watch_tools_manager.add_watch_folder(
         path=path,
         collection=collection,
@@ -844,6 +882,27 @@ async def configure_watch_settings(
     """
     if not workspace_client or not watch_tools_manager:
         return {"error": "Watch management not initialized"}
+
+    try:
+        # Convert string parameters to appropriate numeric types if needed
+        if recursive_depth is not None:
+            recursive_depth = int(recursive_depth) if isinstance(recursive_depth, str) else recursive_depth
+        if debounce_seconds is not None:
+            debounce_seconds = int(debounce_seconds) if isinstance(debounce_seconds, str) else debounce_seconds
+        if update_frequency is not None:
+            update_frequency = int(update_frequency) if isinstance(update_frequency, str) else update_frequency
+        
+        # Validate numeric parameter ranges (only if they're being updated)
+        if debounce_seconds is not None and not (1 <= debounce_seconds <= 300):
+            return {"error": "debounce_seconds must be between 1 and 300"}
+            
+        if update_frequency is not None and not (100 <= update_frequency <= 10000):
+            return {"error": "update_frequency must be between 100 and 10000"}
+            
+        if recursive_depth is not None and recursive_depth != -1 and recursive_depth < 0:
+            return {"error": "recursive_depth must be -1 (unlimited) or a non-negative integer"}
+    except (ValueError, TypeError) as e:
+        return {"error": f"Invalid parameter types: recursive_depth, debounce_seconds, and update_frequency must be integers. Error: {e}"}
 
     return await watch_tools_manager.configure_watch_settings(
         watch_id=watch_id,
@@ -1776,6 +1835,9 @@ async def get_watch_change_history(watch_id: str = None, limit: int = 20) -> dic
         return {"error": "Watch management not initialized"}
 
     try:
+        # Convert string parameters to appropriate numeric types if needed
+        limit = int(limit) if isinstance(limit, str) else limit
+        
         # Validate limit
         limit = max(1, min(limit, 200))  # Between 1 and 200
 
@@ -1884,6 +1946,20 @@ async def test_grpc_connection_tool(
     Returns:
         Dict with connection test results including health status and performance metrics
     """
+    try:
+        # Convert string parameters to appropriate numeric types if needed
+        port = int(port) if isinstance(port, str) else port
+        timeout = float(timeout) if isinstance(timeout, str) else timeout
+        
+        # Validate numeric parameter ranges
+        if not (1 <= port <= 65535):
+            return {"error": "port must be between 1 and 65535"}
+            
+        if not (0.1 <= timeout <= 300.0):
+            return {"error": "timeout must be between 0.1 and 300.0 seconds"}
+    except (ValueError, TypeError) as e:
+        return {"error": f"Invalid parameter types: port must be an integer, timeout must be a number. Error: {e}"}
+
     return await test_grpc_connection(host, port, timeout)
 
 
@@ -1908,6 +1984,20 @@ async def get_grpc_engine_stats_tool(
     Returns:
         Dict with engine statistics or error information
     """
+    try:
+        # Convert string parameters to appropriate numeric types if needed
+        port = int(port) if isinstance(port, str) else port
+        timeout = float(timeout) if isinstance(timeout, str) else timeout
+        
+        # Validate numeric parameter ranges
+        if not (1 <= port <= 65535):
+            return {"error": "port must be between 1 and 65535"}
+            
+        if not (0.1 <= timeout <= 300.0):
+            return {"error": "timeout must be between 0.1 and 300.0 seconds"}
+    except (ValueError, TypeError) as e:
+        return {"error": f"Invalid parameter types: port must be an integer, timeout must be a number. Error: {e}"}
+
     return await get_grpc_engine_stats(
         host, port, include_collections, include_watches, timeout
     )
@@ -1943,6 +2033,20 @@ async def process_document_via_grpc_tool(
     Returns:
         Dict with processing results from the Rust engine
     """
+    try:
+        # Convert string parameters to appropriate numeric types if needed
+        port = int(port) if isinstance(port, str) else port
+        timeout = float(timeout) if isinstance(timeout, str) else timeout
+        
+        # Validate numeric parameter ranges
+        if not (1 <= port <= 65535):
+            return {"error": "port must be between 1 and 65535"}
+            
+        if not (0.1 <= timeout <= 600.0):
+            return {"error": "timeout must be between 0.1 and 600.0 seconds"}
+    except (ValueError, TypeError) as e:
+        return {"error": f"Invalid parameter types: port must be an integer, timeout must be a number. Error: {e}"}
+
     return await process_document_via_grpc(
         file_path, collection, host, port, metadata, document_id, chunk_text, timeout
     )
@@ -2002,6 +2106,28 @@ async def search_via_grpc_tool(
     Returns:
         Dict with search results from the Rust engine
     """
+    try:
+        # Convert string parameters to appropriate numeric types if needed
+        port = int(port) if isinstance(port, str) else port
+        limit = int(limit) if isinstance(limit, str) else limit
+        score_threshold = float(score_threshold) if isinstance(score_threshold, str) else score_threshold
+        timeout = float(timeout) if isinstance(timeout, str) else timeout
+        
+        # Validate numeric parameter ranges
+        if not (1 <= port <= 65535):
+            return {"error": "port must be between 1 and 65535"}
+            
+        if limit <= 0:
+            return {"error": "limit must be greater than 0"}
+            
+        if not (0.0 <= score_threshold <= 1.0):
+            return {"error": "score_threshold must be between 0.0 and 1.0"}
+            
+        if not (0.1 <= timeout <= 300.0):
+            return {"error": "timeout must be between 0.1 and 300.0 seconds"}
+    except (ValueError, TypeError) as e:
+        return {"error": f"Invalid parameter types: port and limit must be integers, score_threshold and timeout must be numbers. Error: {e}"}
+
     return await search_via_grpc(
         query, collections, host, port, mode, limit, score_threshold, timeout
     )
