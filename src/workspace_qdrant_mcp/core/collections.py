@@ -150,6 +150,7 @@ class WorkspaceCollectionManager:
         self.client = client
         self.config = config
         self._collections_cache: dict[str, CollectionConfig] | None = None
+        self._project_info: dict | None = None  # Will be set during initialization
         # Initialize the naming manager with legacy global collections for compatibility
         self.naming_manager = CollectionNamingManager(
             global_collections=self.config.workspace.global_collections,
@@ -204,6 +205,36 @@ class WorkspaceCollectionManager:
 
         return None
 
+    def _get_all_project_names(self) -> list[str]:
+        """
+        Get all project names including main project and subprojects.
+
+        Returns:
+            List[str]: List of all project names that should be considered
+                      for workspace collection filtering
+        """
+        project_names = []
+        
+        # Try to get project info from stored data first
+        if self._project_info:
+            main_project = self._project_info.get('main_project')
+            if main_project:
+                project_names.append(main_project)
+            
+            subprojects = self._project_info.get('subprojects', [])
+            project_names.extend(subprojects)
+        else:
+            # Fallback to current project name detection
+            current_project = self._get_current_project_name()
+            if current_project:
+                project_names.append(current_project)
+        
+        # Remove duplicates and empty values
+        project_names = list(set(name for name in project_names if name))
+        
+        logger.debug("All project names for collection filtering: %s", project_names)
+        return project_names
+
     async def initialize_workspace_collections(
         self, project_name: str, subprojects: list[str] | None = None
     ) -> None:
@@ -244,6 +275,17 @@ class WorkspaceCollectionManager:
             )
             ```
         """
+        # Store project information for collection filtering
+        self._project_info = {
+            'main_project': project_name,
+            'subprojects': subprojects or []
+        }
+        
+        logger.debug(
+            "Setting project info for collection filtering: main_project=%s, subprojects=%s",
+            project_name, subprojects
+        )
+        
         collections_to_create = []
 
         if self.config.workspace.auto_create_collections:
@@ -579,20 +621,24 @@ class WorkspaceCollectionManager:
         # When no specific configuration is provided, use the actual project name to identify collections
         # This provides accurate workspace isolation based on the current project context
         if not self.config.workspace.effective_collection_suffixes and not self.config.workspace.global_collections:
-            project_name = self._get_current_project_name()
+            # Get project information from stored project info or fallback to detection
+            project_names = self._get_all_project_names()
             
-            if project_name:
-                # Check if collection matches the project naming pattern: {project_name}-{suffix}
+            # Check if collection matches any project naming pattern: {project_name}-{suffix}
+            for project_name in project_names:
                 if collection_name.startswith(f"{project_name}-"):
+                    logger.debug("Collection %s matches project %s pattern", collection_name, project_name)
                     return True
                 
-                # Also include standalone collections that match the project name exactly
+                # Also include standalone collections that match any project name exactly
                 if collection_name == project_name:
+                    logger.debug("Collection %s matches project %s exactly", collection_name, project_name)
                     return True
             
             # Fallback to common standalone collections for workspace context
             common_standalone_collections = ["reference", "docs", "standards", "notes", "scratchbook", "memory", "knowledge"]
             if collection_name in common_standalone_collections:
+                logger.debug("Collection %s matches common standalone pattern", collection_name)
                 return True
 
         return False
