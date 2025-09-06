@@ -423,16 +423,12 @@ class WorkspaceCollectionManager:
         # If auto_create_collections=False, no collections are created
         # All collections must be explicitly configured by the user
 
-        # Create collections in parallel for better performance
+        # Create collections sequentially since they use synchronous Qdrant client
         if collections_to_create:
-            await asyncio.gather(
-                *[
-                    self._ensure_collection_exists(config)
-                    for config in collections_to_create
-                ]
-            )
+            for config in collections_to_create:
+                self._ensure_collection_exists(config)
 
-    async def _ensure_collection_exists(
+    def _ensure_collection_exists(
         self, collection_config: CollectionConfig
     ) -> None:
         """

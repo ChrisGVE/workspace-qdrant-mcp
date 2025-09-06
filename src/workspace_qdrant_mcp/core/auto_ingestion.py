@@ -798,7 +798,7 @@ class AutoIngestionManager:
             collection_manager = WorkspaceCollectionManager(client, full_config)
             
             # Use the collection manager's method to ensure proper creation
-            await collection_manager._ensure_collection_exists(config)
+            collection_manager._ensure_collection_exists(config)
             
             logger.info(f"Successfully created collection for auto-ingestion: {collection_name}")
             
