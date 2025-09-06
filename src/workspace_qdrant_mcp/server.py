@@ -266,6 +266,20 @@ async def search_workspace_tool(
         logger.error("Search requested but workspace client not initialized")
         return {"error": "Workspace client not initialized"}
 
+    try:
+        # Convert string parameters to appropriate numeric types if needed
+        limit = int(limit) if isinstance(limit, str) else limit
+        score_threshold = float(score_threshold) if isinstance(score_threshold, str) else score_threshold
+        
+        # Validate numeric parameter ranges
+        if limit <= 0:
+            return {"error": "limit must be greater than 0"}
+            
+        if not (0.0 <= score_threshold <= 1.0):
+            return {"error": "score_threshold must be between 0.0 and 1.0"}
+    except (ValueError, TypeError) as e:
+        return {"error": f"Invalid parameter types: limit must be an integer, score_threshold must be a number. Error: {e}"}
+
     logger.debug(
         "Search request received",
         query_length=len(query),
@@ -430,6 +444,16 @@ async def search_by_metadata_tool(
     if not workspace_client:
         return {"error": "Workspace client not initialized"}
 
+    try:
+        # Convert string parameters to appropriate numeric types if needed
+        limit = int(limit) if isinstance(limit, str) else limit
+        
+        # Validate numeric parameter ranges
+        if limit <= 0:
+            return {"error": "limit must be greater than 0"}
+    except (ValueError, TypeError) as e:
+        return {"error": f"Invalid parameter type: limit must be an integer. Error: {e}"}
+
     return await search_collection_by_metadata(
         workspace_client, collection, metadata_filter, limit
     )
@@ -529,6 +553,20 @@ async def research_workspace(
     Returns:
         dict: Research results with context-aware collection filtering
     """
+    try:
+        # Convert string parameters to appropriate numeric types if needed
+        limit = int(limit) if isinstance(limit, str) else limit
+        score_threshold = float(score_threshold) if isinstance(score_threshold, str) else score_threshold
+        
+        # Validate numeric parameter ranges
+        if limit <= 0:
+            return {"error": "limit must be greater than 0"}
+            
+        if not (0.0 <= score_threshold <= 1.0):
+            return {"error": "score_threshold must be between 0.0 and 1.0"}
+    except (ValueError, TypeError) as e:
+        return {"error": f"Invalid parameter types: limit must be an integer, score_threshold must be a number. Error: {e}"}
+
     return await research_workspace_impl(
         client=workspace_client,
         query=query,
@@ -557,6 +595,28 @@ async def hybrid_search_advanced_tool(
         return {"error": "Workspace client not initialized"}
 
     try:
+        # Convert string parameters to appropriate numeric types if needed
+        try:
+            dense_weight = float(dense_weight) if isinstance(dense_weight, str) else dense_weight
+            sparse_weight = float(sparse_weight) if isinstance(sparse_weight, str) else sparse_weight
+            limit = int(limit) if isinstance(limit, str) else limit
+            score_threshold = float(score_threshold) if isinstance(score_threshold, str) else score_threshold
+        except (ValueError, TypeError) as e:
+            return {
+                "error": f"Invalid parameter types: dense_weight and sparse_weight must be numbers, "
+                        f"limit must be an integer, score_threshold must be a number. Error: {e}"
+            }
+
+        # Validate numeric parameter ranges
+        if dense_weight < 0 or sparse_weight < 0:
+            return {"error": "dense_weight and sparse_weight must be non-negative"}
+        
+        if limit <= 0:
+            return {"error": "limit must be greater than 0"}
+            
+        if not (0.0 <= score_threshold <= 1.0):
+            return {"error": "score_threshold must be between 0.0 and 1.0"}
+
         # Validate collection exists
         available_collections = workspace_client.list_collections()
         if collection not in available_collections:
