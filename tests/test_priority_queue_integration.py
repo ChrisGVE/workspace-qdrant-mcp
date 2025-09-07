@@ -13,18 +13,18 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-from workspace_qdrant_mcp.core.priority_queue_manager import (
+from src.workspace_qdrant_mcp.core.priority_queue_manager import (
     PriorityQueueManager,
     ProcessingMode,
     MCPActivityLevel,
     ResourceConfiguration,
 )
-from workspace_qdrant_mcp.core.sqlite_state_manager import (
+from src.workspace_qdrant_mcp.core.sqlite_state_manager import (
     SQLiteStateManager,
     ProcessingPriority,
     FileProcessingStatus,
 )
-from workspace_qdrant_mcp.core.incremental_processor import (
+from src.workspace_qdrant_mcp.core.incremental_processor import (
     IncrementalProcessor,
     FileChangeInfo,
     ChangeType,
@@ -103,6 +103,7 @@ class TestClass{i}:
 class TestPriorityQueueIntegration:
     """Integration tests for priority queue system."""
 
+    @pytest.mark.asyncio
     async def test_end_to_end_processing_workflow(self, integration_setup):
         """Test complete end-to-end processing workflow."""
         setup = await integration_setup
@@ -167,6 +168,7 @@ class TestPriorityQueueIntegration:
         assert stats["initialized"] is True
         assert "statistics" in stats
 
+    @pytest.mark.asyncio
     async def test_priority_ordering_integration(self, integration_setup):
         """Test that files are processed in correct priority order."""
         setup = await integration_setup
@@ -218,6 +220,7 @@ class TestPriorityQueueIntegration:
             # User-triggered should have higher average priority (higher enum value)
             assert avg_user_priority >= avg_background_priority
 
+    @pytest.mark.asyncio
     async def test_mcp_activity_adaptation(self, integration_setup):
         """Test adaptation to changing MCP activity levels."""
         setup = await integration_setup
@@ -253,6 +256,7 @@ class TestPriorityQueueIntegration:
         queue_item = await queue_manager.state_manager.get_next_queue_item()
         assert queue_item.priority in [ProcessingPriority.NORMAL, ProcessingPriority.HIGH]
 
+    @pytest.mark.asyncio
     async def test_resource_constraint_handling(self, integration_setup):
         """Test handling of resource constraints and backpressure."""
         setup = await integration_setup
@@ -286,6 +290,7 @@ class TestPriorityQueueIntegration:
             stats = await queue_manager.get_queue_status()
             assert stats["statistics"]["backpressure_events"] > 0
 
+    @pytest.mark.asyncio
     async def test_state_persistence_integration(self, integration_setup):
         """Test that queue state persists correctly in SQLite."""
         setup = await integration_setup
@@ -326,6 +331,7 @@ class TestPriorityQueueIntegration:
         
         await new_queue_manager.shutdown()
 
+    @pytest.mark.asyncio
     async def test_processing_context_integration(self, integration_setup):
         """Test processing context manager integration."""
         setup = await integration_setup
@@ -355,6 +361,7 @@ class TestPriorityQueueIntegration:
             for job in completed_jobs:
                 assert job.metadata.get("batch_id") == "integration-test"
 
+    @pytest.mark.asyncio
     async def test_health_monitoring_integration(self, integration_setup):
         """Test health monitoring and statistics integration."""
         setup = await integration_setup
@@ -383,6 +390,7 @@ class TestPriorityQueueIntegration:
         assert updated_health["queue_statistics"]["processing_rate"] >= 0
         assert updated_health["queue_statistics"]["success_rate"] >= 0
 
+    @pytest.mark.asyncio
     async def test_error_handling_integration(self, integration_setup):
         """Test error handling across integrated components."""
         setup = await integration_setup
