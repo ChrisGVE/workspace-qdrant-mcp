@@ -87,6 +87,13 @@ tracing-subscriber = { version = "0.3", features = ["env-filter", "json", "regis
 clap = { version = "4.4", features = ["derive"] }
 scopeguard = "1.2"
 
+# SQLite for LSP state management
+sqlx = { version = "0.7", features = ["runtime-tokio-rustls", "sqlite", "chrono", "uuid"] }
+
+# JSON-RPC for LSP communication
+which = "6.0"
+tokio-process = "0.2"
+
 [[bin]]
 name = "memexd"
 path = "src/bin/memexd_priority.rs"
