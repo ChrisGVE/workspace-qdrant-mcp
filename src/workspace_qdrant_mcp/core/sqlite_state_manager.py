@@ -70,6 +70,16 @@ class ProcessingPriority(Enum):
     URGENT = 4
 
 
+class LSPServerStatus(Enum):
+    """LSP Server status enumeration."""
+
+    INACTIVE = "inactive"
+    STARTING = "starting"
+    ACTIVE = "active"
+    ERROR = "error"
+    UNAVAILABLE = "unavailable"
+
+
 @dataclass
 class FileProcessingRecord:
     """Record for tracking file processing state."""
@@ -153,6 +163,28 @@ class ProjectRecord:
     collection_name: str
     lsp_enabled: bool = False
     last_scan: Optional[datetime] = None
+    created_at: datetime = None
+    updated_at: datetime = None
+    metadata: Optional[Dict[str, Any]] = None
+
+    def __post_init__(self):
+        if self.created_at is None:
+            self.created_at = datetime.now(timezone.utc)
+        if self.updated_at is None:
+            self.updated_at = self.created_at
+
+
+@dataclass
+class LSPServerRecord:
+    """Record for tracking LSP servers."""
+
+    id: Optional[int]
+    language: str
+    server_path: str
+    version: Optional[str] = None
+    capabilities: Optional[Dict[str, Any]] = None
+    status: LSPServerStatus = LSPServerStatus.INACTIVE
+    last_health_check: Optional[datetime] = None
     created_at: datetime = None
     updated_at: datetime = None
     metadata: Optional[Dict[str, Any]] = None
@@ -546,6 +578,26 @@ class SQLiteStateManager:
             "CREATE INDEX idx_projects_collection_name ON projects(collection_name)",
             "CREATE INDEX idx_projects_lsp_enabled ON projects(lsp_enabled)",
             "CREATE INDEX idx_projects_last_scan ON projects(last_scan)",
+            # LSP Servers table
+            """
+            CREATE TABLE lsp_servers (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                language TEXT NOT NULL,
+                server_path TEXT NOT NULL,
+                version TEXT,
+                capabilities TEXT,  -- JSON for LSP server capabilities
+                status TEXT NOT NULL DEFAULT 'inactive',
+                last_health_check TIMESTAMP,
+                created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                metadata TEXT,  -- JSON for additional server configuration
+                UNIQUE(language, server_path)
+            )
+            """,
+            # Indexes for lsp_servers
+            "CREATE INDEX idx_lsp_servers_language ON lsp_servers(language)",
+            "CREATE INDEX idx_lsp_servers_status ON lsp_servers(status)",
+            "CREATE INDEX idx_lsp_servers_last_health_check ON lsp_servers(last_health_check)",
             # Insert initial schema version
             f"INSERT INTO schema_version (version) VALUES ({self.SCHEMA_VERSION})",
         ]
@@ -584,12 +636,32 @@ class SQLiteStateManager:
                     "CREATE INDEX idx_projects_collection_name ON projects(collection_name)",
                     "CREATE INDEX idx_projects_lsp_enabled ON projects(lsp_enabled)",
                     "CREATE INDEX idx_projects_last_scan ON projects(last_scan)",
+                    # Add lsp_servers table for LSP server management
+                    """
+                    CREATE TABLE lsp_servers (
+                        id INTEGER PRIMARY KEY AUTOINCREMENT,
+                        language TEXT NOT NULL,
+                        server_path TEXT NOT NULL,
+                        version TEXT,
+                        capabilities TEXT,  -- JSON for LSP server capabilities
+                        status TEXT NOT NULL DEFAULT 'inactive',
+                        last_health_check TIMESTAMP,
+                        created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                        updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                        metadata TEXT,  -- JSON for additional server configuration
+                        UNIQUE(language, server_path)
+                    )
+                    """,
+                    # Add indexes for lsp_servers table
+                    "CREATE INDEX idx_lsp_servers_language ON lsp_servers(language)",
+                    "CREATE INDEX idx_lsp_servers_status ON lsp_servers(status)",
+                    "CREATE INDEX idx_lsp_servers_last_health_check ON lsp_servers(last_health_check)",
                 ]
                 
                 for sql in migration_sql:
                     self.connection.execute(sql)
                 
-                logger.info("Successfully migrated to schema version 2 (added projects table)")
+                logger.info("Successfully migrated to schema version 2 (added projects and lsp_servers tables)")
 
             # Record the migration
             self.connection.execute(
@@ -2586,6 +2658,307 @@ class SQLiteStateManager:
         except Exception as e:
             logger.error(f"Failed to update scan time for project {project_id}: {e}")
             return False
+
+    # LSP Integration - LSP Server Management Methods
+    
+    async def create_lsp_server(self, server: LSPServerRecord) -> Optional[int]:
+        """
+        Create a new LSP server record.
+        
+        Args:
+            server: LSPServerRecord to create
+            
+        Returns:
+            Server ID if created successfully, None otherwise
+        """
+        try:
+            async with self.transaction() as conn:
+                cursor = conn.execute(
+                    """
+                    INSERT INTO lsp_servers (language, server_path, version, capabilities, 
+                                           status, last_health_check, metadata, created_at, updated_at)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    """,
+                    (
+                        server.language,
+                        server.server_path,
+                        server.version,
+                        json.dumps(server.capabilities) if server.capabilities else None,
+                        server.status.value,
+                        server.last_health_check,
+                        json.dumps(server.metadata) if server.metadata else None,
+                        server.created_at,
+                        server.updated_at,
+                    ),
+                )
+                
+                server_id = cursor.lastrowid
+                logger.info(f"Created LSP server: {server.language} at {server.server_path} with ID {server_id}")
+                return server_id
+                
+        except Exception as e:
+            logger.error(f"Failed to create LSP server {server.language}: {e}")
+            return None
+
+    async def get_lsp_server(self, server_id: int) -> Optional[LSPServerRecord]:
+        """
+        Get LSP server by ID.
+        
+        Args:
+            server_id: Server ID to retrieve
+            
+        Returns:
+            LSPServerRecord if found, None otherwise
+        """
+        try:
+            async with self.transaction() as conn:
+                cursor = conn.execute(
+                    """
+                    SELECT id, language, server_path, version, capabilities, status, 
+                           last_health_check, created_at, updated_at, metadata
+                    FROM lsp_servers WHERE id = ?
+                    """,
+                    (server_id,),
+                )
+                
+                row = cursor.fetchone()
+                if row:
+                    return LSPServerRecord(
+                        id=row[0],
+                        language=row[1],
+                        server_path=row[2],
+                        version=row[3],
+                        capabilities=json.loads(row[4]) if row[4] else None,
+                        status=LSPServerStatus(row[5]),
+                        last_health_check=datetime.fromisoformat(row[6]) if row[6] else None,
+                        created_at=datetime.fromisoformat(row[7]),
+                        updated_at=datetime.fromisoformat(row[8]),
+                        metadata=json.loads(row[9]) if row[9] else None,
+                    )
+                    
+        except Exception as e:
+            logger.error(f"Failed to get LSP server {server_id}: {e}")
+        
+        return None
+
+    async def get_lsp_server_by_language(self, language: str) -> Optional[LSPServerRecord]:
+        """
+        Get LSP server by language.
+        
+        Args:
+            language: Programming language identifier
+            
+        Returns:
+            LSPServerRecord if found, None otherwise
+        """
+        try:
+            async with self.transaction() as conn:
+                cursor = conn.execute(
+                    """
+                    SELECT id, language, server_path, version, capabilities, status, 
+                           last_health_check, created_at, updated_at, metadata
+                    FROM lsp_servers WHERE language = ? AND status != 'unavailable'
+                    ORDER BY last_health_check DESC
+                    LIMIT 1
+                    """,
+                    (language,),
+                )
+                
+                row = cursor.fetchone()
+                if row:
+                    return LSPServerRecord(
+                        id=row[0],
+                        language=row[1],
+                        server_path=row[2],
+                        version=row[3],
+                        capabilities=json.loads(row[4]) if row[4] else None,
+                        status=LSPServerStatus(row[5]),
+                        last_health_check=datetime.fromisoformat(row[6]) if row[6] else None,
+                        created_at=datetime.fromisoformat(row[7]),
+                        updated_at=datetime.fromisoformat(row[8]),
+                        metadata=json.loads(row[9]) if row[9] else None,
+                    )
+                    
+        except Exception as e:
+            logger.error(f"Failed to get LSP server for language {language}: {e}")
+        
+        return None
+
+    async def update_lsp_server(self, server: LSPServerRecord) -> bool:
+        """
+        Update an existing LSP server.
+        
+        Args:
+            server: LSPServerRecord with updated values
+            
+        Returns:
+            True if updated successfully
+        """
+        if not server.id:
+            logger.error("Cannot update LSP server without ID")
+            return False
+            
+        try:
+            server.updated_at = datetime.now(timezone.utc)
+            
+            async with self.transaction() as conn:
+                cursor = conn.execute(
+                    """
+                    UPDATE lsp_servers 
+                    SET language = ?, server_path = ?, version = ?, capabilities = ?, 
+                        status = ?, last_health_check = ?, metadata = ?, updated_at = ?
+                    WHERE id = ?
+                    """,
+                    (
+                        server.language,
+                        server.server_path,
+                        server.version,
+                        json.dumps(server.capabilities) if server.capabilities else None,
+                        server.status.value,
+                        server.last_health_check,
+                        json.dumps(server.metadata) if server.metadata else None,
+                        server.updated_at,
+                        server.id,
+                    ),
+                )
+                
+                if cursor.rowcount > 0:
+                    logger.info(f"Updated LSP server {server.id}: {server.language}")
+                    return True
+                else:
+                    logger.warning(f"No LSP server found with ID {server.id}")
+                    return False
+                    
+        except Exception as e:
+            logger.error(f"Failed to update LSP server {server.id}: {e}")
+            return False
+
+    async def delete_lsp_server(self, server_id: int) -> bool:
+        """
+        Delete an LSP server.
+        
+        Args:
+            server_id: Server ID to delete
+            
+        Returns:
+            True if deleted successfully
+        """
+        try:
+            async with self.transaction() as conn:
+                cursor = conn.execute("DELETE FROM lsp_servers WHERE id = ?", (server_id,))
+                
+                if cursor.rowcount > 0:
+                    logger.info(f"Deleted LSP server {server_id}")
+                    return True
+                else:
+                    logger.warning(f"No LSP server found with ID {server_id}")
+                    return False
+                    
+        except Exception as e:
+            logger.error(f"Failed to delete LSP server {server_id}: {e}")
+            return False
+
+    async def list_lsp_servers(self, language: str = None, status: LSPServerStatus = None) -> List[LSPServerRecord]:
+        """
+        List LSP servers with optional filtering.
+        
+        Args:
+            language: Filter by programming language
+            status: Filter by server status
+            
+        Returns:
+            List of LSPServerRecord objects
+        """
+        servers = []
+        
+        try:
+            async with self.transaction() as conn:
+                query = """
+                    SELECT id, language, server_path, version, capabilities, status, 
+                           last_health_check, created_at, updated_at, metadata
+                    FROM lsp_servers
+                """
+                
+                conditions = []
+                params = []
+                
+                if language:
+                    conditions.append("language = ?")
+                    params.append(language)
+                    
+                if status:
+                    conditions.append("status = ?")
+                    params.append(status.value)
+                
+                if conditions:
+                    query += " WHERE " + " AND ".join(conditions)
+                    
+                query += " ORDER BY language, created_at"
+                
+                cursor = conn.execute(query, params)
+                
+                for row in cursor:
+                    servers.append(LSPServerRecord(
+                        id=row[0],
+                        language=row[1],
+                        server_path=row[2],
+                        version=row[3],
+                        capabilities=json.loads(row[4]) if row[4] else None,
+                        status=LSPServerStatus(row[5]),
+                        last_health_check=datetime.fromisoformat(row[6]) if row[6] else None,
+                        created_at=datetime.fromisoformat(row[7]),
+                        updated_at=datetime.fromisoformat(row[8]),
+                        metadata=json.loads(row[9]) if row[9] else None,
+                    ))
+                    
+        except Exception as e:
+            logger.error(f"Failed to list LSP servers: {e}")
+            
+        return servers
+
+    async def update_lsp_server_health(self, server_id: int, status: LSPServerStatus) -> bool:
+        """
+        Update the health status of an LSP server.
+        
+        Args:
+            server_id: Server ID to update
+            status: New server status
+            
+        Returns:
+            True if updated successfully
+        """
+        try:
+            now = datetime.now(timezone.utc)
+            
+            async with self.transaction() as conn:
+                cursor = conn.execute(
+                    """
+                    UPDATE lsp_servers 
+                    SET status = ?, last_health_check = ?, updated_at = ? 
+                    WHERE id = ?
+                    """,
+                    (status.value, now, now, server_id),
+                )
+                
+                if cursor.rowcount > 0:
+                    logger.debug(f"Updated health for LSP server {server_id}: {status.value}")
+                    return True
+                else:
+                    logger.warning(f"No LSP server found with ID {server_id}")
+                    return False
+                    
+        except Exception as e:
+            logger.error(f"Failed to update health for LSP server {server_id}: {e}")
+            return False
+
+    async def get_active_lsp_servers(self) -> List[LSPServerRecord]:
+        """
+        Get all currently active LSP servers.
+        
+        Returns:
+            List of active LSPServerRecord objects
+        """
+        return await self.list_lsp_servers(status=LSPServerStatus.ACTIVE)
 
 
 # Graceful shutdown handler
