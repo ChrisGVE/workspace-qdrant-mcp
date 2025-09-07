@@ -439,9 +439,20 @@ async def delete_document(
         if collection not in available_collections:
             return {"error": f"Collection '{collection}' not found"}
 
+        # Check if MCP server can write to this collection
+        try:
+            client.collection_manager.validate_mcp_write_access(collection)
+        except CollectionPermissionError as e:
+            return {"error": str(e)}
+
+        # Resolve display name to actual collection name
+        actual_collection, _ = client.collection_manager.resolve_collection_name(
+            collection
+        )
+
         # Delete points with matching document_id
         result = client.client.delete(
-            collection_name=collection,
+            collection_name=actual_collection,
             points_selector=models.FilterSelector(
                 filter=models.Filter(
                     must=[
