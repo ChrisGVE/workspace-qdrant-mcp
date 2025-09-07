@@ -1028,6 +1028,223 @@ class AsyncioLspClient:
                 cause=e,
             ) from e
 
+    async def hover(
+        self,
+        file_uri: str,
+        line: int,
+        character: int,
+    ) -> Optional[Dict[str, Any]]:
+        """
+        Get hover information for a symbol at the given position.
+        
+        Args:
+            file_uri: URI of the file (file:// format)
+            line: Line number (0-based)
+            character: Character position (0-based)
+            
+        Returns:
+            Hover information or None if not available
+        """
+        if not self._server_capabilities or not self._server_capabilities.supports_hover():
+            logger.debug(
+                "Hover not supported by server",
+                server_name=self._server_name,
+            )
+            return None
+
+        params = {
+            "textDocument": {"uri": file_uri},
+            "position": {"line": line, "character": character},
+        }
+        
+        try:
+            result = await self.send_request("textDocument/hover", params)
+            return result
+        except LspError as e:
+            logger.warning(
+                "Hover request failed",
+                server_name=self._server_name,
+                file_uri=file_uri,
+                line=line,
+                character=character,
+                error=str(e),
+            )
+            return None
+
+    async def definition(
+        self,
+        file_uri: str,
+        line: int,
+        character: int,
+    ) -> Optional[List[Dict[str, Any]]]:
+        """
+        Get definition location(s) for a symbol at the given position.
+        
+        Args:
+            file_uri: URI of the file (file:// format)
+            line: Line number (0-based)
+            character: Character position (0-based)
+            
+        Returns:
+            List of Location objects or None if not available
+        """
+        if not self._server_capabilities or not self._server_capabilities.supports_definition():
+            logger.debug(
+                "Definition not supported by server",
+                server_name=self._server_name,
+            )
+            return None
+
+        params = {
+            "textDocument": {"uri": file_uri},
+            "position": {"line": line, "character": character},
+        }
+        
+        try:
+            result = await self.send_request("textDocument/definition", params)
+            
+            # Normalize result to always be a list
+            if result is None:
+                return None
+            elif isinstance(result, dict):
+                return [result]
+            elif isinstance(result, list):
+                return result
+            else:
+                logger.warning(
+                    "Unexpected definition result type",
+                    server_name=self._server_name,
+                    result_type=type(result).__name__,
+                )
+                return None
+                
+        except LspError as e:
+            logger.warning(
+                "Definition request failed",
+                server_name=self._server_name,
+                file_uri=file_uri,
+                line=line,
+                character=character,
+                error=str(e),
+            )
+            return None
+
+    async def references(
+        self,
+        file_uri: str,
+        line: int,
+        character: int,
+        include_declaration: bool = True,
+    ) -> Optional[List[Dict[str, Any]]]:
+        """
+        Get reference locations for a symbol at the given position.
+        
+        Args:
+            file_uri: URI of the file (file:// format)
+            line: Line number (0-based)
+            character: Character position (0-based)
+            include_declaration: Whether to include the symbol declaration
+            
+        Returns:
+            List of Location objects or None if not available
+        """
+        if not self._server_capabilities or not self._server_capabilities.supports_references():
+            logger.debug(
+                "References not supported by server",
+                server_name=self._server_name,
+            )
+            return None
+
+        params = {
+            "textDocument": {"uri": file_uri},
+            "position": {"line": line, "character": character},
+            "context": {"includeDeclaration": include_declaration},
+        }
+        
+        try:
+            result = await self.send_request("textDocument/references", params)
+            return result if isinstance(result, list) else None
+        except LspError as e:
+            logger.warning(
+                "References request failed",
+                server_name=self._server_name,
+                file_uri=file_uri,
+                line=line,
+                character=character,
+                error=str(e),
+            )
+            return None
+
+    async def document_symbol(
+        self,
+        file_uri: str,
+    ) -> Optional[List[Dict[str, Any]]]:
+        """
+        Get document symbols (outline) for the given file.
+        
+        Args:
+            file_uri: URI of the file (file:// format)
+            
+        Returns:
+            List of DocumentSymbol or SymbolInformation objects or None if not available
+        """
+        if not self._server_capabilities or not self._server_capabilities.supports_document_symbol():
+            logger.debug(
+                "Document symbol not supported by server",
+                server_name=self._server_name,
+            )
+            return None
+
+        params = {
+            "textDocument": {"uri": file_uri},
+        }
+        
+        try:
+            result = await self.send_request("textDocument/documentSymbol", params)
+            return result if isinstance(result, list) else None
+        except LspError as e:
+            logger.warning(
+                "Document symbol request failed",
+                server_name=self._server_name,
+                file_uri=file_uri,
+                error=str(e),
+            )
+            return None
+
+    async def workspace_symbol(
+        self,
+        query: str,
+    ) -> Optional[List[Dict[str, Any]]]:
+        """
+        Search for symbols across the workspace.
+        
+        Args:
+            query: Search query string
+            
+        Returns:
+            List of SymbolInformation objects or None if not available
+        """
+        if not self._server_capabilities or not self._server_capabilities.supports_workspace_symbol():
+            logger.debug(
+                "Workspace symbol not supported by server",
+                server_name=self._server_name,
+            )
+            return None
+
+        params = {"query": query}
+        
+        try:
+            result = await self.send_request("workspace/symbol", params)
+            return result if isinstance(result, list) else None
+        except LspError as e:
+            logger.warning(
+                "Workspace symbol request failed",
+                server_name=self._server_name,
+                query=query,
+                error=str(e),
+            )
+            return None
+
     async def send_request(
         self,
         method: str,
