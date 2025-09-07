@@ -74,6 +74,7 @@ from .commands.config import config_app
 from .commands.ingest import ingest_app
 from .commands.init import init_app
 from .commands.library import library_app
+from .commands.lsp_management import lsp_app
 
 # Import command modules
 from .commands.memory import memory_app
@@ -105,6 +106,7 @@ app.add_typer(config_app, name="config", help="Configuration management with res
 app.add_typer(ingest_app, name="ingest", help="Manual document processing")
 app.add_typer(search_app, name="search", help="Command-line search interface")
 app.add_typer(library_app, name="library", help="Library collection management")
+app.add_typer(lsp_app, name="lsp", help="LSP server management and monitoring")
 app.add_typer(
     service_app, name="service", help="User service management for memexd daemon"
 )
