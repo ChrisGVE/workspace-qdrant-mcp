@@ -14,6 +14,7 @@ from contextlib import asynccontextmanager
 from dataclasses import dataclass, field
 from enum import Enum
 from pathlib import Path
+import time
 from typing import Any, Callable, Dict, List, Optional, Union
 from weakref import WeakSet
 
@@ -38,6 +39,13 @@ class CommunicationMode(Enum):
     STDIO = "stdio"
     TCP = "tcp"
     MANUAL = "manual"  # Manual stream provision
+
+
+class CircuitBreakerState(Enum):
+    """Circuit breaker states for error recovery"""
+    CLOSED = "closed"      # Normal operation
+    OPEN = "open"          # Blocking requests due to failures  
+    HALF_OPEN = "half_open"  # Testing if service recovered
 
 
 class LspError(WorkspaceError):
@@ -180,6 +188,30 @@ class PendingRequest:
     method: str
     created_at: float
     timeout: float
+    retry_count: int = 0
+    max_retries: int = 3
+
+
+@dataclass
+class CircuitBreakerConfig:
+    """Configuration for circuit breaker error recovery"""
+    failure_threshold: int = 5           # Failures before opening circuit
+    success_threshold: int = 3           # Successes to close circuit from half-open
+    timeout_seconds: float = 60.0        # Time before trying half-open from open
+    health_check_interval: float = 30.0  # Interval for health checks
+
+
+@dataclass
+class RetryConfig:
+    """Configuration for request retry logic"""
+    max_attempts: int = 3               # Maximum retry attempts
+    base_delay: float = 1.0             # Base delay between retries
+    max_delay: float = 30.0             # Maximum delay between retries
+    exponential_backoff: bool = True    # Use exponential backoff
+    jitter: bool = True                 # Add random jitter to delays
+    retryable_errors: List[str] = field(default_factory=lambda: [
+        "timeout", "connection", "network", "server_error"
+    ])
 
 
 @dataclass
@@ -302,10 +334,16 @@ class AsyncioLspClient:
         server_name: str = "lsp-server",
         request_timeout: float = 30.0,
         max_pending_requests: int = 100,
+        circuit_breaker_config: Optional[CircuitBreakerConfig] = None,
+        retry_config: Optional[RetryConfig] = None,
     ):
         self._server_name = server_name
         self._request_timeout = request_timeout
         self._max_pending_requests = max_pending_requests
+        
+        # Error recovery configuration
+        self._circuit_breaker_config = circuit_breaker_config or CircuitBreakerConfig()
+        self._retry_config = retry_config or RetryConfig()
         
         # Connection management
         self._connection_state = ConnectionState.DISCONNECTED
@@ -329,6 +367,17 @@ class AsyncioLspClient:
         self._server_process: Optional[asyncio.subprocess.Process] = None
         self._tcp_host: Optional[str] = None
         self._tcp_port: Optional[int] = None
+        
+        # Circuit breaker state
+        self._circuit_breaker_state = CircuitBreakerState.CLOSED
+        self._failure_count = 0
+        self._success_count = 0
+        self._last_failure_time = 0.0
+        self._circuit_open_time = 0.0
+        
+        # Health monitoring
+        self._health_check_task: Optional[asyncio.Task] = None
+        self._last_successful_request = time.time()
         
         # Background tasks
         self._message_reader_task: Optional[asyncio.Task] = None
@@ -368,6 +417,16 @@ class AsyncioLspClient:
     def communication_mode(self) -> CommunicationMode:
         """Get current communication mode"""
         return self._communication_mode
+
+    @property
+    def circuit_breaker_state(self) -> CircuitBreakerState:
+        """Get current circuit breaker state"""
+        return self._circuit_breaker_state
+
+    @property
+    def is_circuit_open(self) -> bool:
+        """Check if circuit breaker is open (blocking requests)"""
+        return self._circuit_breaker_state == CircuitBreakerState.OPEN
 
     async def connect_stdio(
         self,
@@ -598,8 +657,115 @@ class AsyncioLspClient:
         self._request_cleanup_task = asyncio.create_task(
             self._request_cleanup_loop()
         )
+        self._health_check_task = asyncio.create_task(
+            self._health_check_loop()
+        )
+        
+        # Reset circuit breaker on successful connection
+        self._reset_circuit_breaker()
         
         self._connection_state = ConnectionState.CONNECTED
+
+    def _reset_circuit_breaker(self) -> None:
+        """Reset circuit breaker to closed state"""
+        self._circuit_breaker_state = CircuitBreakerState.CLOSED
+        self._failure_count = 0
+        self._success_count = 0
+        self._last_failure_time = 0.0
+        self._circuit_open_time = 0.0
+        logger.info("Circuit breaker reset to closed state", server_name=self._server_name)
+
+    def _record_success(self) -> None:
+        """Record successful request for circuit breaker"""
+        self._last_successful_request = time.time()
+        
+        if self._circuit_breaker_state == CircuitBreakerState.HALF_OPEN:
+            self._success_count += 1
+            if self._success_count >= self._circuit_breaker_config.success_threshold:
+                self._reset_circuit_breaker()
+                logger.info(
+                    "Circuit breaker closed after successful recovery",
+                    server_name=self._server_name,
+                )
+        elif self._circuit_breaker_state == CircuitBreakerState.CLOSED:
+            self._failure_count = max(0, self._failure_count - 1)  # Gradually reduce failure count
+
+    def _record_failure(self) -> None:
+        """Record failed request for circuit breaker"""
+        self._last_failure_time = time.time()
+        
+        if self._circuit_breaker_state == CircuitBreakerState.CLOSED:
+            self._failure_count += 1
+            if self._failure_count >= self._circuit_breaker_config.failure_threshold:
+                self._circuit_breaker_state = CircuitBreakerState.OPEN
+                self._circuit_open_time = time.time()
+                logger.warning(
+                    "Circuit breaker opened due to failures",
+                    server_name=self._server_name,
+                    failure_count=self._failure_count,
+                )
+        elif self._circuit_breaker_state == CircuitBreakerState.HALF_OPEN:
+            # Failed during half-open, go back to open
+            self._circuit_breaker_state = CircuitBreakerState.OPEN
+            self._circuit_open_time = time.time()
+            self._success_count = 0
+            logger.warning(
+                "Circuit breaker reopened after failed recovery attempt",
+                server_name=self._server_name,
+            )
+
+    def _should_allow_request(self) -> bool:
+        """Check if request should be allowed based on circuit breaker state"""
+        if self._circuit_breaker_state == CircuitBreakerState.CLOSED:
+            return True
+        elif self._circuit_breaker_state == CircuitBreakerState.OPEN:
+            # Check if timeout has elapsed to try half-open
+            if time.time() - self._circuit_open_time >= self._circuit_breaker_config.timeout_seconds:
+                self._circuit_breaker_state = CircuitBreakerState.HALF_OPEN
+                self._success_count = 0
+                logger.info(
+                    "Circuit breaker moved to half-open for recovery test",
+                    server_name=self._server_name,
+                )
+                return True
+            return False
+        else:  # HALF_OPEN
+            return True
+
+    def _calculate_retry_delay(self, attempt: int) -> float:
+        """Calculate delay before retry attempt"""
+        if not self._retry_config.exponential_backoff:
+            delay = self._retry_config.base_delay
+        else:
+            delay = min(
+                self._retry_config.base_delay * (2 ** attempt),
+                self._retry_config.max_delay
+            )
+        
+        # Add jitter if enabled
+        if self._retry_config.jitter:
+            import random
+            jitter = random.uniform(0.1, 0.3) * delay
+            delay += jitter
+            
+        return delay
+
+    def _is_retryable_error(self, error: Exception) -> bool:
+        """Check if error is retryable based on configuration"""
+        error_type = type(error).__name__.lower()
+        error_message = str(error).lower()
+        
+        for retryable in self._retry_config.retryable_errors:
+            if retryable in error_type or retryable in error_message:
+                return True
+        
+        # Special handling for LSP-specific errors
+        if isinstance(error, (LspTimeoutError, LspProtocolError)):
+            return True
+        if isinstance(error, LspError) and error.retryable:
+            return True
+            
+        return False
 
     async def disconnect(self) -> None:
         """Disconnect from the LSP server"""
@@ -630,6 +796,13 @@ class AsyncioLspClient:
             self._request_cleanup_task.cancel()
             try:
                 await self._request_cleanup_task
+            except asyncio.CancelledError:
+                pass
+                
+        if self._health_check_task and not self._health_check_task.done():
+            self._health_check_task.cancel()
+            try:
+                await self._health_check_task
             except asyncio.CancelledError:
                 pass
         
@@ -1230,6 +1403,44 @@ class AsyncioLspClient:
             except Exception as e:
                 logger.error(
                     "Error in request cleanup loop",
+                    server_name=self._server_name,
+                    error=str(e),
+                )
+
+    async def _health_check_loop(self) -> None:
+        """Background task for connection health monitoring"""
+        while not self._shutdown_event.is_set():
+            try:
+                await asyncio.sleep(self._circuit_breaker_config.health_check_interval)
+                
+                # Check if connection is still alive
+                if self.is_connected():
+                    time_since_last_success = time.time() - self._last_successful_request
+                    
+                    # If no successful requests for too long, consider it unhealthy
+                    if time_since_last_success > self._circuit_breaker_config.timeout_seconds * 2:
+                        logger.warning(
+                            "LSP server appears unhealthy - no successful requests",
+                            server_name=self._server_name,
+                            time_since_last_success=time_since_last_success,
+                        )
+                        self._record_failure()
+                
+                # Log circuit breaker state periodically
+                if self._circuit_breaker_state != CircuitBreakerState.CLOSED:
+                    logger.debug(
+                        "Circuit breaker health check",
+                        server_name=self._server_name,
+                        state=self._circuit_breaker_state.value,
+                        failure_count=self._failure_count,
+                        success_count=self._success_count,
+                    )
+                        
+            except asyncio.CancelledError:
+                break
+            except Exception as e:
+                logger.error(
+                    "Error in health check loop",
                     server_name=self._server_name,
                     error=str(e),
                 )
