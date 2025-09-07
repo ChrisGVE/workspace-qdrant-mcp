@@ -7,10 +7,12 @@ JSON-RPC communication, request/response handling, and streaming notification pr
 
 import asyncio
 import json
+import os
 import uuid
 from contextlib import asynccontextmanager
 from dataclasses import dataclass, field
 from enum import Enum
+from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional, Union
 from weakref import WeakSet
 
@@ -172,6 +174,110 @@ class PendingRequest:
     timeout: float
 
 
+@dataclass
+class ClientCapabilities:
+    """LSP client capabilities for initialization"""
+    workspace: Optional[Dict[str, Any]] = None
+    textDocument: Optional[Dict[str, Any]] = None
+    window: Optional[Dict[str, Any]] = None
+    general: Optional[Dict[str, Any]] = None
+
+    def to_dict(self) -> Dict[str, Any]:
+        """Convert to dictionary for JSON-RPC"""
+        result = {}
+        if self.workspace is not None:
+            result["workspace"] = self.workspace
+        if self.textDocument is not None:
+            result["textDocument"] = self.textDocument
+        if self.window is not None:
+            result["window"] = self.window
+        if self.general is not None:
+            result["general"] = self.general
+        return result
+
+
+@dataclass
+class InitializeParams:
+    """LSP initialize request parameters"""
+    processId: Optional[int] = None
+    clientInfo: Optional[Dict[str, str]] = None
+    locale: Optional[str] = None
+    rootPath: Optional[str] = None
+    rootUri: Optional[str] = None
+    capabilities: Optional[ClientCapabilities] = None
+    initializationOptions: Optional[Any] = None
+    workspaceFolders: Optional[List[Dict[str, Any]]] = None
+
+    def to_dict(self) -> Dict[str, Any]:
+        """Convert to dictionary for JSON-RPC"""
+        result = {}
+        if self.processId is not None:
+            result["processId"] = self.processId
+        if self.clientInfo is not None:
+            result["clientInfo"] = self.clientInfo
+        if self.locale is not None:
+            result["locale"] = self.locale
+        if self.rootPath is not None:
+            result["rootPath"] = self.rootPath
+        if self.rootUri is not None:
+            result["rootUri"] = self.rootUri
+        if self.capabilities is not None:
+            result["capabilities"] = self.capabilities.to_dict()
+        if self.initializationOptions is not None:
+            result["initializationOptions"] = self.initializationOptions
+        if self.workspaceFolders is not None:
+            result["workspaceFolders"] = self.workspaceFolders
+        return result
+
+
+@dataclass
+class ServerCapabilities:
+    """LSP server capabilities from initialization response"""
+    raw_data: Dict[str, Any]
+
+    def supports_hover(self) -> bool:
+        """Check if server supports textDocument/hover"""
+        return self.raw_data.get("hoverProvider", False)
+
+    def supports_definition(self) -> bool:
+        """Check if server supports textDocument/definition"""
+        return self.raw_data.get("definitionProvider", False)
+
+    def supports_references(self) -> bool:
+        """Check if server supports textDocument/references"""
+        return self.raw_data.get("referencesProvider", False)
+
+    def supports_document_symbol(self) -> bool:
+        """Check if server supports textDocument/documentSymbol"""
+        return self.raw_data.get("documentSymbolProvider", False)
+
+    def supports_workspace_symbol(self) -> bool:
+        """Check if server supports workspace/symbol"""
+        return self.raw_data.get("workspaceSymbolProvider", False)
+
+    def supports_completion(self) -> bool:
+        """Check if server supports textDocument/completion"""
+        return self.raw_data.get("completionProvider") is not None
+
+    def supports_diagnostics(self) -> bool:
+        """Check if server provides diagnostics"""
+        return self.raw_data.get("textDocumentSync") is not None
+
+    def get_text_document_sync(self) -> Dict[str, Any]:
+        """Get textDocumentSync capabilities"""
+        sync = self.raw_data.get("textDocumentSync")
+        if isinstance(sync, int):
+            return {"change": sync}
+        elif isinstance(sync, dict):
+            return sync
+        else:
+            return {}
+
+    def to_dict(self) -> Dict[str, Any]:
+        """Get raw capabilities data"""
+        return self.raw_data
+
+
 class AsyncioLspClient:
     """
     Asyncio-based LSP client with JSON-RPC communication support.
@@ -206,6 +312,10 @@ class AsyncioLspClient:
         self._notification_handlers: Dict[str, List[Callable]] = {}
         self._global_handlers: WeakSet[Callable] = WeakSet()
         
+        # LSP initialization state
+        self._initialized = False
+        self._server_capabilities: Optional[ServerCapabilities] = None
+        
         # Background tasks
         self._message_reader_task: Optional[asyncio.Task] = None
         self._shutdown_event = asyncio.Event()
@@ -229,6 +339,16 @@ class AsyncioLspClient:
     def is_connected(self) -> bool:
         """Check if client is connected"""
         return self._connection_state == ConnectionState.CONNECTED
+
+    @property
+    def is_initialized(self) -> bool:
+        """Check if LSP client has been initialized"""
+        return self._initialized
+
+    @property
+    def server_capabilities(self) -> Optional[ServerCapabilities]:
+        """Get server capabilities (available after initialization)"""
+        return self._server_capabilities
 
     async def connect(
         self, 
@@ -325,7 +445,193 @@ class AsyncioLspClient:
         self._writer = None
         self._connection_state = ConnectionState.DISCONNECTED
         
+        # Reset initialization state
+        self._initialized = False
+        self._server_capabilities = None
+        
         logger.info("LSP client disconnected", server_name=self._server_name)
+
+    async def initialize(
+        self,
+        root_uri: str,
+        client_name: str = "workspace-qdrant-mcp",
+        client_version: str = "1.0.0",
+        workspace_folders: Optional[List[str]] = None,
+        initialization_options: Optional[Dict[str, Any]] = None,
+    ) -> ServerCapabilities:
+        """
+        Initialize the LSP client with capability negotiation.
+        
+        Args:
+            root_uri: Root URI of the workspace (file:// format)
+            client_name: Name of the client application
+            client_version: Version of the client application
+            workspace_folders: List of workspace folder paths
+            initialization_options: Server-specific initialization options
+            
+        Returns:
+            ServerCapabilities object with negotiated server capabilities
+            
+        Raises:
+            LspError: If initialization fails or client is already initialized
+        """
+        if self._initialized:
+            raise LspError(
+                "LSP client is already initialized",
+                server_name=self._server_name,
+            )
+
+        if not self.is_connected():
+            raise LspError(
+                "Cannot initialize: client is not connected",
+                server_name=self._server_name,
+            )
+
+        logger.info(
+            "Starting LSP initialization handshake",
+            server_name=self._server_name,
+            root_uri=root_uri,
+        )
+
+        # Build client capabilities
+        client_capabilities = ClientCapabilities(
+            workspace={
+                "workspaceEdit": {
+                    "documentChanges": True,
+                    "resourceOperations": ["create", "rename", "delete"],
+                },
+                "workspaceFolders": True,
+                "configuration": True,
+                "didChangeConfiguration": {"dynamicRegistration": True},
+                "didChangeWatchedFiles": {"dynamicRegistration": True},
+                "symbol": {
+                    "dynamicRegistration": True,
+                    "symbolKind": {
+                        "valueSet": [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26]
+                    },
+                },
+            },
+            textDocument={
+                "synchronization": {
+                    "dynamicRegistration": True,
+                    "willSave": True,
+                    "willSaveWaitUntil": True,
+                    "didSave": True,
+                },
+                "hover": {
+                    "dynamicRegistration": True,
+                    "contentFormat": ["markdown", "plaintext"],
+                },
+                "definition": {
+                    "dynamicRegistration": True,
+                    "linkSupport": True,
+                },
+                "references": {
+                    "dynamicRegistration": True,
+                    "context": {"includeDeclaration": True},
+                },
+                "documentSymbol": {
+                    "dynamicRegistration": True,
+                    "hierarchicalDocumentSymbolSupport": True,
+                    "symbolKind": {
+                        "valueSet": [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26]
+                    },
+                },
+                "completion": {
+                    "dynamicRegistration": True,
+                    "completionItem": {
+                        "documentationFormat": ["markdown", "plaintext"],
+                        "insertReplaceSupport": True,
+                    },
+                },
+                "publishDiagnostics": {
+                    "relatedInformation": True,
+                    "versionSupport": True,
+                    "tagSupport": {"valueSet": [1, 2]},
+                },
+            },
+            window={
+                "workDoneProgress": True,
+                "showMessage": {
+                    "messageActionItem": {"additionalPropertiesSupport": True}
+                },
+                "showDocument": {"support": True},
+            },
+            general={
+                "regularExpressions": {"engine": "ECMAScript"},
+                "markdown": {"parser": "marked"},
+            },
+        )
+
+        # Prepare workspace folders
+        workspace_folder_configs = []
+        if workspace_folders:
+            for folder_path in workspace_folders:
+                folder_path = Path(folder_path).resolve()
+                workspace_folder_configs.append({
+                    "uri": f"file://{folder_path}",
+                    "name": folder_path.name,
+                })
+
+        # Build initialize parameters
+        initialize_params = InitializeParams(
+            processId=os.getpid(),
+            clientInfo={"name": client_name, "version": client_version},
+            rootUri=root_uri,
+            capabilities=client_capabilities,
+            workspaceFolders=workspace_folder_configs if workspace_folder_configs else None,
+            initializationOptions=initialization_options,
+        )
+
+        try:
+            # Send initialize request
+            logger.debug(
+                "Sending initialize request",
+                server_name=self._server_name,
+                client_name=client_name,
+            )
+
+            result = await self.send_request(
+                "initialize",
+                initialize_params.to_dict(),
+                timeout=60.0,  # Initialize can take longer
+            )
+
+            # Parse server capabilities
+            server_caps_data = result.get("capabilities", {})
+            self._server_capabilities = ServerCapabilities(server_caps_data)
+
+            # Send initialized notification
+            await self.send_notification("initialized", {})
+
+            # Mark as initialized
+            self._initialized = True
+
+            logger.info(
+                "LSP client initialization completed",
+                server_name=self._server_name,
+                hover_support=self._server_capabilities.supports_hover(),
+                definition_support=self._server_capabilities.supports_definition(),
+                references_support=self._server_capabilities.supports_references(),
+                document_symbol_support=self._server_capabilities.supports_document_symbol(),
+                workspace_symbol_support=self._server_capabilities.supports_workspace_symbol(),
+            )
+
+            return self._server_capabilities
+
+        except Exception as e:
+            logger.error(
+                "LSP initialization failed",
+                server_name=self._server_name,
+                error=str(e),
+            )
+            if isinstance(e, LspError):
+                raise
+            raise LspError(
+                f"LSP initialization failed: {e}",
+                server_name=self._server_name,
+                cause=e,
+            ) from e
 
     async def send_request(
         self,
@@ -708,9 +1014,10 @@ class AsyncioLspClient:
 
     def get_stats(self) -> Dict[str, Any]:
         """Get client statistics"""
-        return {
+        stats = {
             "server_name": self._server_name,
             "connection_state": self._connection_state.value,
+            "initialized": self._initialized,
             "pending_requests": len(self._pending_requests),
             "notification_handlers": {
                 method: len(handlers)
@@ -718,6 +1025,20 @@ class AsyncioLspClient:
             },
             "global_handlers": len(self._global_handlers),
         }
+        
+        # Add server capabilities if available
+        if self._server_capabilities:
+            stats["server_capabilities"] = {
+                "hover": self._server_capabilities.supports_hover(),
+                "definition": self._server_capabilities.supports_definition(),
+                "references": self._server_capabilities.supports_references(),
+                "document_symbol": self._server_capabilities.supports_document_symbol(),
+                "workspace_symbol": self._server_capabilities.supports_workspace_symbol(),
+                "completion": self._server_capabilities.supports_completion(),
+                "diagnostics": self._server_capabilities.supports_diagnostics(),
+            }
+        
+        return stats
 
     async def __aenter__(self):
         """Async context manager entry"""
