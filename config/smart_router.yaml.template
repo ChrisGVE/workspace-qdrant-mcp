@@ -1,0 +1,83 @@
+# Smart Ingestion Router Configuration Template
+# This file demonstrates the configuration options for the Smart Ingestion Router
+# Copy to your config directory and customize as needed
+
+smart_router:
+  # File classification settings
+  enable_content_analysis: true      # Enable content-based file classification
+  enable_mime_detection: true        # Enable MIME type detection for classification
+  max_content_sample_bytes: 4096     # Maximum bytes to read for content analysis
+
+  # Processing strategy overrides
+  # Force specific extensions through LSP enrichment (code processing)
+  force_lsp_extensions:
+    - .py          # Python files
+    - .pyi         # Python stub files
+    - .rs          # Rust files
+    - .js          # JavaScript files
+    - .jsx         # JavaScript JSX files
+    - .ts          # TypeScript files
+    - .tsx         # TypeScript JSX files
+    - .java        # Java files
+    - .go          # Go files
+    - .c           # C files
+    - .h           # C header files
+    - .cpp         # C++ files
+    - .cxx         # C++ files
+    - .hpp         # C++ header files
+    - .hxx         # C++ header files
+    - .cc          # C++ files
+    - .hh          # C++ header files
+
+  # Force specific extensions through standard ingestion (non-code processing)
+  force_standard_extensions:
+    - .md          # Markdown files
+    - .txt         # Text files
+    - .rst         # reStructuredText files
+    - .json        # JSON files
+    - .yaml        # YAML files
+    - .yml         # YAML files
+    - .xml         # XML files
+    - .csv         # CSV files
+
+  # Skip processing these extensions entirely
+  skip_extensions:
+    - .pyc         # Python compiled files
+    - .pyo         # Python optimized files
+    - .class       # Java compiled files
+    - .o           # Object files
+    - .so          # Shared libraries
+    - .dll         # Dynamic libraries
+    - .exe         # Executables
+    - .bin         # Binary files
+
+  # Custom language mappings for file extensions
+  custom_language_map:
+    .pyx: python     # Cython files as Python
+    .ipynb: python   # Jupyter notebooks as Python
+    .vue: javascript # Vue.js files as JavaScript
+    .svelte: javascript # Svelte files as JavaScript
+    # Add more custom mappings as needed
+
+  # Fallback behavior when LSP is unavailable
+  fallback_on_lsp_error: true         # Enable fallback to standard processing
+  fallback_timeout_seconds: 30.0     # Timeout for LSP operations before fallback
+
+  # Batch processing settings
+  batch_size_limit: 100              # Maximum files per batch
+  max_concurrent_batches: 3          # Maximum concurrent batch processing
+  batch_timeout_seconds: 300.0      # Timeout for batch processing operations
+
+  # Performance and caching settings
+  enable_caching: true               # Enable classification result caching
+  cache_ttl_seconds: 3600.0         # Cache time-to-live (1 hour)
+  max_cache_entries: 10000          # Maximum cached classification results
+
+# Example: Language-specific overrides for complex projects
+# smart_router:
+#   custom_language_map:
+#     .proto: cpp           # Protocol buffers as C++
+#     .thrift: java         # Apache Thrift as Java
+#     .graphql: javascript  # GraphQL schemas as JavaScript
+#     .dockerfile: sh       # Dockerfiles as shell scripts
+#     .makefile: sh         # Makefiles as shell scripts
