@@ -99,6 +99,13 @@ class FileProcessingRecord:
     file_hash: Optional[str] = None
     metadata: Optional[Dict[str, Any]] = None
     document_id: Optional[str] = None  # For multi-component testing
+    # LSP-specific fields
+    language_id: Optional[str] = None
+    lsp_extracted: bool = False
+    symbols_count: int = 0
+    lsp_server_id: Optional[int] = None
+    last_lsp_analysis: Optional[datetime] = None
+    lsp_metadata: Optional[Dict[str, Any]] = None
 
     def __post_init__(self):
         if self.created_at is None:
@@ -223,7 +230,7 @@ class DatabaseTransaction:
 class SQLiteStateManager:
     """SQLite-based state persistence manager with crash recovery."""
 
-    SCHEMA_VERSION = 2  # Updated for LSP table additions
+    SCHEMA_VERSION = 3  # Updated for LSP table additions and file metadata extensions
     WAL_CHECKPOINT_INTERVAL = 300  # 5 minutes
     MAINTENANCE_INTERVAL = 3600  # 1 hour
 
@@ -403,7 +410,15 @@ class SQLiteStateManager:
                 file_size INTEGER,
                 file_hash TEXT,
                 document_id TEXT,
-                metadata TEXT  -- JSON
+                metadata TEXT,  -- JSON
+                -- LSP-specific fields (Schema Version 3+)
+                language_id TEXT,
+                lsp_extracted BOOLEAN NOT NULL DEFAULT 0,
+                symbols_count INTEGER DEFAULT 0,
+                lsp_server_id INTEGER,
+                last_lsp_analysis TIMESTAMP,
+                lsp_metadata TEXT,  -- JSON for LSP-specific data
+                FOREIGN KEY (lsp_server_id) REFERENCES lsp_servers (id) ON DELETE SET NULL
             )
             """,
             # Indexes for file_processing
@@ -411,6 +426,11 @@ class SQLiteStateManager:
             "CREATE INDEX idx_file_processing_collection ON file_processing(collection)",
             "CREATE INDEX idx_file_processing_updated_at ON file_processing(updated_at)",
             "CREATE INDEX idx_file_processing_priority ON file_processing(priority)",
+            # LSP-specific indexes
+            "CREATE INDEX idx_file_processing_language_id ON file_processing(language_id)",
+            "CREATE INDEX idx_file_processing_lsp_extracted ON file_processing(lsp_extracted)",
+            "CREATE INDEX idx_file_processing_lsp_server_id ON file_processing(lsp_server_id)",
+            "CREATE INDEX idx_file_processing_last_lsp_analysis ON file_processing(last_lsp_analysis)",
             # Watch folder configurations
             """
             CREATE TABLE watch_folders (
@@ -662,6 +682,28 @@ class SQLiteStateManager:
                     self.connection.execute(sql)
                 
                 logger.info("Successfully migrated to schema version 2 (added projects and lsp_servers tables)")
+
+            # Migrate from version 2 to version 3 - Add LSP fields to file_processing
+            if from_version <= 2 and to_version >= 3:
+                lsp_fields_sql = [
+                    # Add LSP-specific columns to file_processing table
+                    "ALTER TABLE file_processing ADD COLUMN language_id TEXT",
+                    "ALTER TABLE file_processing ADD COLUMN lsp_extracted BOOLEAN NOT NULL DEFAULT 0",
+                    "ALTER TABLE file_processing ADD COLUMN symbols_count INTEGER DEFAULT 0",
+                    "ALTER TABLE file_processing ADD COLUMN lsp_server_id INTEGER",
+                    "ALTER TABLE file_processing ADD COLUMN last_lsp_analysis TIMESTAMP",
+                    "ALTER TABLE file_processing ADD COLUMN lsp_metadata TEXT",
+                    # Add indexes for new LSP fields
+                    "CREATE INDEX idx_file_processing_language_id ON file_processing(language_id)",
+                    "CREATE INDEX idx_file_processing_lsp_extracted ON file_processing(lsp_extracted)",
+                    "CREATE INDEX idx_file_processing_lsp_server_id ON file_processing(lsp_server_id)",
+                    "CREATE INDEX idx_file_processing_last_lsp_analysis ON file_processing(last_lsp_analysis)",
+                ]
+                
+                for sql in lsp_fields_sql:
+                    self.connection.execute(sql)
+                
+                logger.info("Successfully migrated to schema version 3 (added LSP fields to file_processing)")
 
             # Record the migration
             self.connection.execute(
@@ -2959,6 +3001,271 @@ class SQLiteStateManager:
             List of active LSPServerRecord objects
         """
         return await self.list_lsp_servers(status=LSPServerStatus.ACTIVE)
+
+    # LSP Integration - File Metadata Management Methods
+
+    async def update_file_lsp_metadata(
+        self,
+        file_path: str,
+        language_id: str,
+        lsp_server_id: int,
+        symbols_count: int = 0,
+        lsp_metadata: Optional[Dict[str, Any]] = None,
+    ) -> bool:
+        """
+        Update LSP-specific metadata for a file.
+        
+        Args:
+            file_path: Path to the file
+            language_id: Programming language identifier
+            lsp_server_id: ID of LSP server used for analysis
+            symbols_count: Number of symbols extracted
+            lsp_metadata: Additional LSP-specific metadata
+            
+        Returns:
+            True if updated successfully
+        """
+        try:
+            now = datetime.now(timezone.utc)
+            
+            async with self.transaction() as conn:
+                cursor = conn.execute(
+                    """
+                    UPDATE file_processing 
+                    SET language_id = ?, lsp_extracted = 1, symbols_count = ?, 
+                        lsp_server_id = ?, last_lsp_analysis = ?, lsp_metadata = ?, updated_at = ?
+                    WHERE file_path = ?
+                    """,
+                    (
+                        language_id,
+                        symbols_count,
+                        lsp_server_id,
+                        now,
+                        json.dumps(lsp_metadata) if lsp_metadata else None,
+                        now,
+                        file_path,
+                    ),
+                )
+                
+                if cursor.rowcount > 0:
+                    logger.debug(f"Updated LSP metadata for file {file_path}: {symbols_count} symbols")
+                    return True
+                else:
+                    logger.warning(f"No file processing record found for {file_path}")
+                    return False
+                    
+        except Exception as e:
+            logger.error(f"Failed to update LSP metadata for file {file_path}: {e}")
+            return False
+
+    async def get_file_lsp_metadata(self, file_path: str) -> Optional[Dict[str, Any]]:
+        """
+        Get LSP metadata for a file.
+        
+        Args:
+            file_path: Path to the file
+            
+        Returns:
+            Dictionary with LSP metadata if found, None otherwise
+        """
+        try:
+            async with self.transaction() as conn:
+                cursor = conn.execute(
+                    """
+                    SELECT language_id, lsp_extracted, symbols_count, lsp_server_id, 
+                           last_lsp_analysis, lsp_metadata
+                    FROM file_processing 
+                    WHERE file_path = ?
+                    """,
+                    (file_path,),
+                )
+                
+                row = cursor.fetchone()
+                if row:
+                    return {
+                        "language_id": row[0],
+                        "lsp_extracted": bool(row[1]),
+                        "symbols_count": row[2],
+                        "lsp_server_id": row[3],
+                        "last_lsp_analysis": row[4],
+                        "lsp_metadata": json.loads(row[5]) if row[5] else None,
+                    }
+                    
+        except Exception as e:
+            logger.error(f"Failed to get LSP metadata for file {file_path}: {e}")
+            
+        return None
+
+    async def get_files_by_language(self, language_id: str) -> List[str]:
+        """
+        Get all files for a specific programming language.
+        
+        Args:
+            language_id: Programming language identifier
+            
+        Returns:
+            List of file paths for the specified language
+        """
+        files = []
+        
+        try:
+            async with self.transaction() as conn:
+                cursor = conn.execute(
+                    """
+                    SELECT file_path 
+                    FROM file_processing 
+                    WHERE language_id = ? AND lsp_extracted = 1
+                    ORDER BY last_lsp_analysis DESC
+                    """,
+                    (language_id,),
+                )
+                
+                files = [row[0] for row in cursor]
+                    
+        except Exception as e:
+            logger.error(f"Failed to get files by language {language_id}: {e}")
+            
+        return files
+
+    async def get_files_needing_lsp_analysis(self, language_id: str = None) -> List[str]:
+        """
+        Get files that need LSP analysis.
+        
+        Args:
+            language_id: Optional language filter
+            
+        Returns:
+            List of file paths needing LSP analysis
+        """
+        files = []
+        
+        try:
+            async with self.transaction() as conn:
+                query = """
+                    SELECT file_path 
+                    FROM file_processing 
+                    WHERE lsp_extracted = 0 AND status = 'completed'
+                """
+                
+                params = []
+                if language_id:
+                    query += " AND language_id = ?"
+                    params.append(language_id)
+                    
+                query += " ORDER BY updated_at DESC"
+                
+                cursor = conn.execute(query, params)
+                files = [row[0] for row in cursor]
+                    
+        except Exception as e:
+            logger.error(f"Failed to get files needing LSP analysis: {e}")
+            
+        return files
+
+    async def mark_file_lsp_failed(self, file_path: str, error_message: str) -> bool:
+        """
+        Mark a file as having failed LSP analysis.
+        
+        Args:
+            file_path: Path to the file
+            error_message: Error message describing the failure
+            
+        Returns:
+            True if marked successfully
+        """
+        try:
+            now = datetime.now(timezone.utc)
+            
+            async with self.transaction() as conn:
+                cursor = conn.execute(
+                    """
+                    UPDATE file_processing 
+                    SET lsp_extracted = 0, last_lsp_analysis = ?, updated_at = ?,
+                        lsp_metadata = ?
+                    WHERE file_path = ?
+                    """,
+                    (
+                        now,
+                        now,
+                        json.dumps({"error": error_message, "failed_at": now.isoformat()}),
+                        file_path,
+                    ),
+                )
+                
+                if cursor.rowcount > 0:
+                    logger.warning(f"Marked LSP analysis as failed for {file_path}: {error_message}")
+                    return True
+                else:
+                    logger.warning(f"No file processing record found for {file_path}")
+                    return False
+                    
+        except Exception as e:
+            logger.error(f"Failed to mark LSP failure for file {file_path}: {e}")
+            return False
+
+    async def get_lsp_analysis_stats(self) -> Dict[str, Any]:
+        """
+        Get statistics about LSP analysis across all files.
+        
+        Returns:
+            Dictionary with LSP analysis statistics
+        """
+        try:
+            async with self.transaction() as conn:
+                # Get overall stats
+                cursor = conn.execute(
+                    """
+                    SELECT 
+                        COUNT(*) as total_files,
+                        SUM(CASE WHEN lsp_extracted = 1 THEN 1 ELSE 0 END) as analyzed_files,
+                        SUM(symbols_count) as total_symbols,
+                        COUNT(DISTINCT language_id) as languages_count
+                    FROM file_processing
+                    WHERE language_id IS NOT NULL
+                    """
+                )
+                
+                overall_stats = cursor.fetchone()
+                
+                # Get per-language stats
+                cursor = conn.execute(
+                    """
+                    SELECT 
+                        language_id,
+                        COUNT(*) as file_count,
+                        SUM(CASE WHEN lsp_extracted = 1 THEN 1 ELSE 0 END) as analyzed_count,
+                        SUM(symbols_count) as symbols_count,
+                        AVG(symbols_count) as avg_symbols
+                    FROM file_processing
+                    WHERE language_id IS NOT NULL
+                    GROUP BY language_id
+                    ORDER BY file_count DESC
+                    """
+                )
+                
+                language_stats = [
+                    {
+                        "language": row[0],
+                        "file_count": row[1],
+                        "analyzed_count": row[2],
+                        "symbols_count": row[3],
+                        "avg_symbols": round(row[4], 2) if row[4] else 0,
+                    }
+                    for row in cursor
+                ]
+                
+                return {
+                    "total_files": overall_stats[0],
+                    "analyzed_files": overall_stats[1],
+                    "total_symbols": overall_stats[2],
+                    "languages_count": overall_stats[3],
+                    "analysis_rate": round(overall_stats[1] / overall_stats[0] * 100, 2) if overall_stats[0] > 0 else 0,
+                    "language_breakdown": language_stats,
+                }
+                
+        except Exception as e:
+            logger.error(f"Failed to get LSP analysis stats: {e}")
+            return {"error": str(e)}
 
 
 # Graceful shutdown handler
