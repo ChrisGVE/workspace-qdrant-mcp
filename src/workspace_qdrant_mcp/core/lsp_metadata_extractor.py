@@ -718,3 +718,940 @@ class JavaScriptExtractor(LanguageSpecificExtractor):
         
         context_after = []
         return context_before, context_after
+
+
+class LspMetadataExtractor:
+    """
+    Main LSP-based code metadata extraction system.
+    
+    This class orchestrates the extraction of comprehensive code metadata from source files
+    using Language Server Protocol (LSP) servers. It manages multiple LSP clients for
+    different programming languages and implements the Interface + Minimal Context storage
+    strategy for optimal searchability and storage efficiency.
+    
+    Key capabilities:
+    - Multi-language LSP client management
+    - Batch processing with performance optimization
+    - Metadata caching for improved performance
+    - Relationship graph construction
+    - Robust error handling and recovery
+    - Integration with file filtering system
+    """
+    
+    def __init__(
+        self,
+        file_filter: Optional[LanguageAwareFilter] = None,
+        request_timeout: float = 30.0,
+        max_concurrent_files: int = 10,
+        cache_size: int = 1000,
+        enable_relationship_mapping: bool = True
+    ):
+        """
+        Initialize the LSP metadata extractor.
+        
+        Args:
+            file_filter: File filtering system (created if None)
+            request_timeout: LSP request timeout in seconds
+            max_concurrent_files: Maximum files to process concurrently
+            cache_size: Maximum number of cached file metadata entries
+            enable_relationship_mapping: Whether to build relationship graphs
+        """
+        self.file_filter = file_filter or LanguageAwareFilter()
+        self.request_timeout = request_timeout
+        self.max_concurrent_files = max_concurrent_files
+        self.enable_relationship_mapping = enable_relationship_mapping
+        
+        # LSP client management
+        self.lsp_clients: Dict[str, AsyncioLspClient] = {}
+        self.language_extractors: Dict[str, LanguageSpecificExtractor] = {
+            "python": PythonExtractor(),
+            "rust": RustExtractor(), 
+            "javascript": JavaScriptExtractor(),
+            "typescript": JavaScriptExtractor(),  # TypeScript uses same extractor as JS
+        }
+        
+        # Language server configurations
+        self.lsp_server_configs = {
+            "python": {
+                "command": ["pylsp"],  # Python LSP Server
+                "file_extensions": [".py", ".pyi"],
+                "language_id": "python"
+            },
+            "rust": {
+                "command": ["rust-analyzer"],  # Rust Analyzer
+                "file_extensions": [".rs"],
+                "language_id": "rust"
+            },
+            "javascript": {
+                "command": ["typescript-language-server", "--stdio"],  # TypeScript LSP for JS/TS
+                "file_extensions": [".js", ".jsx", ".mjs"],
+                "language_id": "javascript"
+            },
+            "typescript": {
+                "command": ["typescript-language-server", "--stdio"],
+                "file_extensions": [".ts", ".tsx"],
+                "language_id": "typescript"
+            },
+            "java": {
+                "command": ["jdtls"],  # Eclipse JDT Language Server
+                "file_extensions": [".java"],
+                "language_id": "java"
+            },
+            "go": {
+                "command": ["gopls"],  # Go Language Server
+                "file_extensions": [".go"],
+                "language_id": "go"
+            },
+            "c": {
+                "command": ["clangd"],  # Clang Language Server
+                "file_extensions": [".c", ".h"],
+                "language_id": "c"
+            },
+            "cpp": {
+                "command": ["clangd"],
+                "file_extensions": [".cpp", ".cxx", ".cc", ".hpp", ".hxx", ".hh"],
+                "language_id": "cpp"
+            }
+        }
+        
+        # Caching system
+        self.metadata_cache: Dict[str, Tuple[FileMetadata, float]] = {}  # file_uri -> (metadata, timestamp)
+        self.cache_size = cache_size
+        self.cache_ttl = 3600.0  # 1 hour TTL
+        
+        # Statistics tracking
+        self.statistics = ExtractionStatistics()
+        
+        # Background processing
+        self._processing_semaphore = asyncio.Semaphore(max_concurrent_files)
+        self._shutdown_event = asyncio.Event()
+        
+        # Initialized state
+        self._initialized = False
+        
+        logger.info(
+            "LSP metadata extractor initialized",
+            max_concurrent_files=max_concurrent_files,
+            cache_size=cache_size,
+            supported_languages=list(self.lsp_server_configs.keys())
+        )
+    
+    async def initialize(self, workspace_root: Optional[Union[str, Path]] = None) -> None:
+        """
+        Initialize the extractor and its dependencies.
+        
+        Args:
+            workspace_root: Root directory of the workspace to extract from
+        """
+        if self._initialized:
+            return
+        
+        logger.info("Initializing LSP metadata extractor", workspace_root=str(workspace_root) if workspace_root else None)
+        
+        # Initialize file filter
+        if not self.file_filter._initialized:
+            await self.file_filter.load_configuration()
+        
+        # Initialize language servers for languages we find in the workspace
+        if workspace_root:
+            workspace_path = Path(workspace_root)
+            detected_languages = await self._detect_languages(workspace_path)
+            
+            for language in detected_languages:
+                if language in self.lsp_server_configs:
+                    try:
+                        await self._initialize_lsp_client(language, workspace_path)
+                    except Exception as e:
+                        logger.warning(
+                            "Failed to initialize LSP client",
+                            language=language,
+                            error=str(e)
+                        )
+                        self.statistics.lsp_errors += 1
+        
+        self._initialized = True
+        logger.info("LSP metadata extractor initialization completed")
+    
+    async def _detect_languages(self, workspace_path: Path) -> Set[str]:
+        """Detect programming languages present in the workspace"""
+        languages = set()
+        
+        for config_name, config in self.lsp_server_configs.items():
+            for extension in config["file_extensions"]:
+                if list(workspace_path.rglob(f"*{extension}")):
+                    languages.add(config_name)
+                    break
+        
+        logger.debug("Detected languages in workspace", languages=list(languages))
+        return languages
+    
+    async def _initialize_lsp_client(self, language: str, workspace_path: Path) -> None:
+        """Initialize LSP client for a specific language"""
+        if language in self.lsp_clients:
+            return
+        
+        config = self.lsp_server_configs[language]
+        client = AsyncioLspClient(
+            server_name=f"{language}-lsp",
+            request_timeout=self.request_timeout
+        )
+        
+        try:
+            # Connect to LSP server
+            await client.connect_stdio(
+                server_command=config["command"],
+                cwd=str(workspace_path)
+            )
+            
+            # Initialize the server
+            workspace_uri = f"file://{workspace_path.resolve()}"
+            await client.initialize(
+                root_uri=workspace_uri,
+                client_name="workspace-qdrant-mcp",
+                client_version="1.0.0"
+            )
+            
+            self.lsp_clients[language] = client
+            logger.info(
+                "LSP client initialized",
+                language=language,
+                command=config["command"][0],
+                workspace_uri=workspace_uri
+            )
+            
+        except Exception as e:
+            logger.error(
+                "Failed to initialize LSP client",
+                language=language,
+                command=config["command"],
+                error=str(e)
+            )
+            await client.disconnect()
+            raise
+    
+    def _get_language_from_file(self, file_path: Path) -> Optional[str]:
+        """Determine programming language from file extension"""
+        extension = file_path.suffix.lower()
+        
+        for language, config in self.lsp_server_configs.items():
+            if extension in config["file_extensions"]:
+                return language
+        
+        return None
+    
+    async def extract_file_metadata(
+        self, 
+        file_path: Union[str, Path],
+        force_refresh: bool = False
+    ) -> Optional[FileMetadata]:
+        """
+        Extract comprehensive metadata from a single source file.
+        
+        Args:
+            file_path: Path to the source file
+            force_refresh: Whether to bypass cache and force fresh extraction
+            
+        Returns:
+            FileMetadata object with extracted information or None if extraction failed
+        """
+        async with self._processing_semaphore:
+            return await self._extract_file_metadata_impl(file_path, force_refresh)
+    
+    async def _extract_file_metadata_impl(
+        self,
+        file_path: Union[str, Path],
+        force_refresh: bool = False
+    ) -> Optional[FileMetadata]:
+        """Implementation of file metadata extraction"""
+        start_time = time.perf_counter()
+        file_path = Path(file_path).resolve()
+        file_uri = f"file://{file_path}"
+        
+        try:
+            # Check file filter
+            should_process, filter_reason = self.file_filter.should_process_file(file_path)
+            if not should_process:
+                logger.debug(
+                    "File filtered out",
+                    file_path=str(file_path),
+                    reason=filter_reason
+                )
+                return None
+            
+            # Check cache
+            if not force_refresh and file_uri in self.metadata_cache:
+                cached_metadata, cache_time = self.metadata_cache[file_uri]
+                if time.time() - cache_time < self.cache_ttl:
+                    self.statistics.cache_hits += 1
+                    logger.debug("Using cached metadata", file_path=str(file_path))
+                    return cached_metadata
+                else:
+                    # Cache expired
+                    del self.metadata_cache[file_uri]
+            
+            self.statistics.cache_misses += 1
+            
+            # Determine language
+            language = self._get_language_from_file(file_path)
+            if not language:
+                logger.debug("Unknown language for file", file_path=str(file_path))
+                return None
+            
+            # Get LSP client
+            if language not in self.lsp_clients:
+                logger.warning(
+                    "No LSP client available for language",
+                    language=language,
+                    file_path=str(file_path)
+                )
+                return None
+            
+            client = self.lsp_clients[language]
+            if not client.is_initialized:
+                logger.warning(
+                    "LSP client not initialized",
+                    language=language,
+                    file_path=str(file_path)
+                )
+                return None
+            
+            # Read file content
+            try:
+                content = file_path.read_text(encoding='utf-8')
+                source_lines = content.splitlines()
+            except Exception as e:
+                logger.error(
+                    "Failed to read file",
+                    file_path=str(file_path),
+                    error=str(e)
+                )
+                self.statistics.files_failed += 1
+                return None
+            
+            # Create metadata object
+            metadata = FileMetadata(
+                file_uri=file_uri,
+                file_path=str(file_path),
+                language=language,
+                extraction_timestamp=time.time(),
+                lsp_server=f"{language}-lsp"
+            )
+            
+            # Notify LSP server about file
+            try:
+                await client.sync_file_opened(
+                    str(file_path),
+                    content,
+                    self.lsp_server_configs[language]["language_id"]
+                )
+            except Exception as e:
+                logger.warning(
+                    "Failed to sync file with LSP server",
+                    file_path=str(file_path),
+                    error=str(e)
+                )
+                metadata.extraction_errors.append(f"LSP sync failed: {e}")
+            
+            # Extract document symbols
+            await self._extract_document_symbols(client, file_uri, source_lines, metadata)
+            
+            # Extract imports and exports using language-specific extractor
+            if language in self.language_extractors:
+                extractor = self.language_extractors[language]
+                try:
+                    imports, exports = extractor.extract_imports_exports(source_lines)
+                    metadata.imports = imports
+                    metadata.exports = exports
+                except Exception as e:
+                    logger.warning(
+                        "Failed to extract imports/exports",
+                        file_path=str(file_path),
+                        error=str(e)
+                    )
+                    metadata.extraction_errors.append(f"Import/export extraction failed: {e}")
+            
+            # Extract file-level documentation
+            await self._extract_file_documentation(source_lines, metadata)
+            
+            # Build relationships if enabled
+            if self.enable_relationship_mapping:
+                await self._extract_symbol_relationships(client, file_uri, metadata)
+            
+            # Update statistics
+            self.statistics.files_processed += 1
+            self.statistics.symbols_extracted += len(metadata.symbols)
+            self.statistics.relationships_found += len(metadata.relationships)
+            
+            # Cache the result
+            self._cache_metadata(file_uri, metadata)
+            
+            # Clean up LSP state
+            try:
+                await client.sync_file_closed(str(file_path))
+            except Exception:
+                pass  # Non-critical error
+            
+            extraction_time = (time.perf_counter() - start_time) * 1000
+            self.statistics.extraction_time_ms += extraction_time
+            
+            logger.debug(
+                "File metadata extraction completed",
+                file_path=str(file_path),
+                symbols_count=len(metadata.symbols),
+                relationships_count=len(metadata.relationships),
+                extraction_time_ms=extraction_time
+            )
+            
+            return metadata
+            
+        except Exception as e:
+            self.statistics.files_failed += 1
+            extraction_time = (time.perf_counter() - start_time) * 1000
+            self.statistics.extraction_time_ms += extraction_time
+            
+            logger.error(
+                "File metadata extraction failed",
+                file_path=str(file_path),
+                error=str(e),
+                traceback=traceback.format_exc()
+            )
+            return None
+    
+    async def _extract_document_symbols(
+        self,
+        client: AsyncioLspClient,
+        file_uri: str,
+        source_lines: List[str],
+        metadata: FileMetadata
+    ) -> None:
+        """Extract symbols from document using LSP document symbol request"""
+        try:
+            self.statistics.lsp_requests_made += 1
+            symbols_data = await client.document_symbol(file_uri)
+            
+            if not symbols_data:
+                return
+            
+            language = metadata.language
+            extractor = self.language_extractors.get(language)
+            
+            # Process symbols recursively (LSP can return nested symbols)
+            await self._process_symbol_hierarchy(
+                symbols_data, 
+                file_uri, 
+                source_lines, 
+                metadata,
+                extractor,
+                client
+            )
+            
+        except Exception as e:
+            logger.warning(
+                "Failed to extract document symbols",
+                file_uri=file_uri,
+                error=str(e)
+            )
+            metadata.extraction_errors.append(f"Document symbols extraction failed: {e}")
+            self.statistics.lsp_errors += 1
+    
+    async def _process_symbol_hierarchy(
+        self,
+        symbols_data: List[Dict[str, Any]],
+        file_uri: str,
+        source_lines: List[str],
+        metadata: FileMetadata,
+        extractor: Optional[LanguageSpecificExtractor],
+        client: AsyncioLspClient,
+        parent_symbol: Optional[str] = None
+    ) -> None:
+        """Process symbol hierarchy recursively"""
+        for symbol_data in symbols_data:
+            try:
+                # Create CodeSymbol from LSP data
+                symbol = await self._create_code_symbol(
+                    symbol_data, 
+                    file_uri, 
+                    source_lines, 
+                    metadata,
+                    extractor, 
+                    client,
+                    parent_symbol
+                )
+                
+                if symbol:
+                    metadata.symbols.append(symbol)
+                    
+                    # Process children if present
+                    children = symbol_data.get("children", [])
+                    if children:
+                        await self._process_symbol_hierarchy(
+                            children,
+                            file_uri,
+                            source_lines,
+                            metadata,
+                            extractor,
+                            client,
+                            symbol.get_full_name()
+                        )
+                        
+            except Exception as e:
+                logger.warning(
+                    "Failed to process symbol",
+                    symbol_name=symbol_data.get("name", "unknown"),
+                    error=str(e)
+                )
+                metadata.extraction_errors.append(f"Symbol processing failed: {e}")
+    
+    async def _create_code_symbol(
+        self,
+        symbol_data: Dict[str, Any],
+        file_uri: str,
+        source_lines: List[str],
+        metadata: FileMetadata,
+        extractor: Optional[LanguageSpecificExtractor],
+        client: AsyncioLspClient,
+        parent_symbol: Optional[str] = None
+    ) -> Optional[CodeSymbol]:
+        """Create a CodeSymbol from LSP symbol data"""
+        try:
+            name = symbol_data.get("name", "")
+            kind_value = symbol_data.get("kind", 1)
+            
+            # Convert LSP kind to our SymbolKind
+            try:
+                kind = SymbolKind(kind_value)
+            except ValueError:
+                kind = SymbolKind.VARIABLE  # Default fallback
+            
+            # Extract ranges
+            range_data = symbol_data.get("range", {})
+            selection_range_data = symbol_data.get("selectionRange")
+            
+            symbol_range = Range.from_lsp(range_data)
+            selection_range = Range.from_lsp(selection_range_data) if selection_range_data else None
+            
+            # Create symbol object
+            symbol = CodeSymbol(
+                name=name,
+                kind=kind,
+                file_uri=file_uri,
+                range=symbol_range,
+                selection_range=selection_range,
+                language=metadata.language,
+                parent_symbol=parent_symbol
+            )
+            
+            # Extract additional metadata using language-specific extractor
+            if extractor:
+                try:
+                    # Extract documentation
+                    symbol.documentation = extractor.extract_documentation(source_lines, symbol_range)
+                    
+                    # Extract minimal context
+                    context_before, context_after = extractor.get_minimal_context(source_lines, symbol_range)
+                    symbol.context_before = context_before
+                    symbol.context_after = context_after
+                    
+                except Exception as e:
+                    logger.debug(
+                        "Language-specific extraction failed",
+                        symbol_name=name,
+                        error=str(e)
+                    )
+            
+            # Get hover information for type data
+            if selection_range:
+                try:
+                    self.statistics.lsp_requests_made += 1
+                    hover_data = await client.hover(
+                        file_uri,
+                        selection_range.start.line,
+                        selection_range.start.character
+                    )
+                    
+                    if hover_data and extractor:
+                        symbol.type_info = extractor.extract_type_information(symbol_data, hover_data)
+                        
+                except Exception as e:
+                    logger.debug(
+                        "Failed to get hover information",
+                        symbol_name=name,
+                        error=str(e)
+                    )
+            
+            # Extract additional symbol metadata
+            symbol.deprecated = symbol_data.get("deprecated", False)
+            if symbol_data.get("tags"):
+                symbol.tags = [str(tag) for tag in symbol_data["tags"]]
+            
+            return symbol
+            
+        except Exception as e:
+            logger.warning(
+                "Failed to create symbol",
+                symbol_data=symbol_data,
+                error=str(e)
+            )
+            return None
+    
+    async def _extract_file_documentation(
+        self,
+        source_lines: List[str],
+        metadata: FileMetadata
+    ) -> None:
+        """Extract file-level documentation"""
+        try:
+            # Look for file-level docstring or header comments in first 20 lines
+            doc_lines = []
+            in_docstring = False
+            docstring_quote = None
+            
+            for i, line in enumerate(source_lines[:20]):
+                line = line.strip()
+                
+                # Python-style module docstring
+                if not in_docstring and (line.startswith('"""') or line.startswith("'''")):
+                    docstring_quote = '"""' if line.startswith('"""') else "'''"
+                    if line.endswith(docstring_quote) and len(line) > 6:
+                        # Single line docstring
+                        doc_lines.append(line[3:-3].strip())
+                        break
+                    else:
+                        in_docstring = True
+                        doc_lines.append(line[3:])
+                elif in_docstring:
+                    if line.endswith(docstring_quote):
+                        doc_lines.append(line[:-3])
+                        break
+                    else:
+                        doc_lines.append(line)
+                
+                # File header comments
+                elif line.startswith('#') or line.startswith('//') or line.startswith('/*'):
+                    comment_text = line.lstrip('#/ *').strip()
+                    if comment_text:
+                        metadata.file_comments.append(comment_text)
+                
+                # Stop at first non-comment, non-docstring line
+                elif line and not line.startswith(('import ', 'from ', 'use ', 'package ', 'namespace ')):
+                    break
+            
+            if doc_lines:
+                metadata.file_docstring = "\n".join(doc_lines).strip()
+                
+        except Exception as e:
+            logger.debug("Failed to extract file documentation", error=str(e))
+    
+    async def _extract_symbol_relationships(
+        self,
+        client: AsyncioLspClient,
+        file_uri: str,
+        metadata: FileMetadata
+    ) -> None:
+        """Extract relationships between symbols"""
+        try:
+            # For each symbol, try to find references and definitions
+            for symbol in metadata.symbols:
+                if not symbol.selection_range:
+                    continue
+                    
+                try:
+                    # Find references to this symbol
+                    self.statistics.lsp_requests_made += 1
+                    references = await client.references(
+                        file_uri,
+                        symbol.selection_range.start.line,
+                        symbol.selection_range.start.character,
+                        include_declaration=False
+                    )
+                    
+                    if references:
+                        for ref in references:
+                            ref_uri = ref.get("uri", "")
+                            if ref_uri != file_uri:  # Cross-file reference
+                                relationship = SymbolRelationship(
+                                    from_symbol=symbol.get_full_name(),
+                                    to_symbol=ref_uri,  # Could be refined with symbol name
+                                    relationship_type=RelationshipType.REFERENCES,
+                                    file_uri=file_uri,
+                                    location=Range.from_lsp(ref.get("range", {}))
+                                )
+                                metadata.relationships.append(relationship)
+                    
+                    # Find definitions
+                    self.statistics.lsp_requests_made += 1
+                    definitions = await client.definition(
+                        file_uri,
+                        symbol.selection_range.start.line,
+                        symbol.selection_range.start.character
+                    )
+                    
+                    if definitions:
+                        for definition in definitions:
+                            def_uri = definition.get("uri", "")
+                            if def_uri != file_uri:  # External definition
+                                relationship = SymbolRelationship(
+                                    from_symbol=symbol.get_full_name(),
+                                    to_symbol=def_uri,
+                                    relationship_type=RelationshipType.DEFINES,
+                                    file_uri=file_uri,
+                                    location=Range.from_lsp(definition.get("range", {}))
+                                )
+                                metadata.relationships.append(relationship)
+                                
+                except Exception as e:
+                    logger.debug(
+                        "Failed to extract relationships for symbol",
+                        symbol_name=symbol.name,
+                        error=str(e)
+                    )
+                    
+        except Exception as e:
+            logger.warning(
+                "Failed to extract symbol relationships",
+                file_uri=file_uri,
+                error=str(e)
+            )
+            metadata.extraction_errors.append(f"Relationship extraction failed: {e}")
+    
+    def _cache_metadata(self, file_uri: str, metadata: FileMetadata) -> None:
+        """Cache extracted metadata with TTL"""
+        # Limit cache size
+        if len(self.metadata_cache) >= self.cache_size:
+            # Remove oldest entries
+            oldest_entries = sorted(
+                self.metadata_cache.items(),
+                key=lambda x: x[1][1]  # Sort by timestamp
+            )[:100]  # Remove 100 oldest
+            
+            for uri, _ in oldest_entries:
+                del self.metadata_cache[uri]
+        
+        self.metadata_cache[file_uri] = (metadata, time.time())
+    
+    async def extract_directory_metadata(
+        self,
+        directory_path: Union[str, Path],
+        recursive: bool = True,
+        file_pattern: str = "*"
+    ) -> List[FileMetadata]:
+        """
+        Extract metadata from all eligible files in a directory.
+        
+        Args:
+            directory_path: Path to directory to process
+            recursive: Whether to process subdirectories
+            file_pattern: Glob pattern for file matching
+            
+        Returns:
+            List of FileMetadata objects for successfully processed files
+        """
+        if not self._initialized:
+            await self.initialize(directory_path)
+        
+        directory_path = Path(directory_path)
+        if not directory_path.is_dir():
+            raise ValueError(f"Directory does not exist: {directory_path}")
+        
+        logger.info(
+            "Starting directory metadata extraction",
+            directory=str(directory_path),
+            recursive=recursive,
+            pattern=file_pattern
+        )
+        
+        # Find all files to process
+        if recursive:
+            files = list(directory_path.rglob(file_pattern))
+        else:
+            files = list(directory_path.glob(file_pattern))
+        
+        # Filter files
+        eligible_files = []
+        for file_path in files:
+            if file_path.is_file():
+                should_process, _ = self.file_filter.should_process_file(file_path)
+                if should_process:
+                    eligible_files.append(file_path)
+        
+        logger.info(
+            "Found eligible files for processing",
+            total_files=len(files),
+            eligible_files=len(eligible_files)
+        )
+        
+        # Process files concurrently
+        semaphore = asyncio.Semaphore(self.max_concurrent_files)
+        
+        async def process_file(file_path: Path) -> Optional[FileMetadata]:
+            async with semaphore:
+                return await self.extract_file_metadata(file_path)
+        
+        # Execute batch processing
+        tasks = [process_file(file_path) for file_path in eligible_files]
+        results = await asyncio.gather(*tasks, return_exceptions=True)
+        
+        # Collect successful results
+        successful_metadata = []
+        for result in results:
+            if isinstance(result, FileMetadata):
+                successful_metadata.append(result)
+            elif isinstance(result, Exception):
+                logger.error("File processing failed with exception", error=str(result))
+                self.statistics.files_failed += 1
+        
+        logger.info(
+            "Directory metadata extraction completed",
+            directory=str(directory_path),
+            files_processed=len(successful_metadata),
+            files_failed=self.statistics.files_failed
+        )
+        
+        return successful_metadata
+    
+    async def build_relationship_graph(
+        self,
+        file_paths: List[Union[str, Path]]
+    ) -> Dict[str, List[SymbolRelationship]]:
+        """
+        Build comprehensive relationship graph across multiple files.
+        
+        Args:
+            file_paths: List of file paths to analyze
+            
+        Returns:
+            Dictionary mapping symbol names to their relationships
+        """
+        if not self.enable_relationship_mapping:
+            logger.warning("Relationship mapping is disabled")
+            return {}
+        
+        logger.info("Building relationship graph", files_count=len(file_paths))
+        
+        # Extract metadata from all files
+        all_metadata = []
+        for file_path in file_paths:
+            metadata = await self.extract_file_metadata(file_path)
+            if metadata:
+                all_metadata.append(metadata)
+        
+        # Build comprehensive relationship map
+        relationship_graph: Dict[str, List[SymbolRelationship]] = {}
+        
+        # Collect all symbols
+        all_symbols: Dict[str, CodeSymbol] = {}
+        for metadata in all_metadata:
+            for symbol in metadata.symbols:
+                full_name = symbol.get_full_name()
+                all_symbols[full_name] = symbol
+        
+        # Process import/export relationships
+        for metadata in all_metadata:
+            for import_stmt in metadata.imports:
+                # Parse import to find relationships
+                # This is language-specific but simplified here
+                imported_names = self._parse_import_statement(import_stmt, metadata.language)
+                for imported_name in imported_names:
+                    if imported_name in all_symbols:
+                        relationship = SymbolRelationship(
+                            from_symbol=metadata.file_uri,
+                            to_symbol=imported_name,
+                            relationship_type=RelationshipType.IMPORTS,
+                            file_uri=metadata.file_uri
+                        )
+                        
+                        if metadata.file_uri not in relationship_graph:
+                            relationship_graph[metadata.file_uri] = []
+                        relationship_graph[metadata.file_uri].append(relationship)
+        
+        # Add symbol-level relationships
+        for metadata in all_metadata:
+            for relationship in metadata.relationships:
+                symbol_name = relationship.from_symbol
+                if symbol_name not in relationship_graph:
+                    relationship_graph[symbol_name] = []
+                relationship_graph[symbol_name].append(relationship)
+        
+        logger.info(
+            "Relationship graph completed",
+            symbols_count=len(all_symbols),
+            relationships_count=sum(len(rels) for rels in relationship_graph.values())
+        )
+        
+        return relationship_graph
+    
+    def _parse_import_statement(self, import_stmt: str, language: str) -> List[str]:
+        """Parse import statement to extract imported symbol names"""
+        # Simplified parsing - could be enhanced with AST parsing
+        imported = []
+        
+        if language == "python":
+            if import_stmt.startswith("from "):
+                # from module import name1, name2
+                match = re.search(r'from\s+[\w.]+\s+import\s+(.+)', import_stmt)
+                if match:
+                    imports = match.group(1)
+                    for name in imports.split(','):
+                        name = name.strip().split(' as ')[0].strip()
+                        imported.append(name)
+            elif import_stmt.startswith("import "):
+                # import module.name
+                match = re.search(r'import\s+([\w.]+)', import_stmt)
+                if match:
+                    imported.append(match.group(1))
+        
+        elif language in ["javascript", "typescript"]:
+            # import { name1, name2 } from 'module'
+            if "from" in import_stmt:
+                match = re.search(r'import\s*{([^}]+)}\s*from', import_stmt)
+                if match:
+                    imports = match.group(1)
+                    for name in imports.split(','):
+                        name = name.strip().split(' as ')[0].strip()
+                        imported.append(name)
+        
+        return imported
+    
+    def get_statistics(self) -> ExtractionStatistics:
+        """Get current extraction statistics"""
+        return self.statistics
+    
+    def reset_statistics(self) -> None:
+        """Reset extraction statistics"""
+        self.statistics = ExtractionStatistics()
+    
+    def clear_cache(self) -> None:
+        """Clear metadata cache"""
+        self.metadata_cache.clear()
+        logger.info("Metadata cache cleared")
+    
+    async def shutdown(self) -> None:
+        """Shutdown the extractor and clean up resources"""
+        logger.info("Shutting down LSP metadata extractor")
+        self._shutdown_event.set()
+        
+        # Disconnect all LSP clients
+        for language, client in self.lsp_clients.items():
+            try:
+                await client.disconnect()
+                logger.debug("LSP client disconnected", language=language)
+            except Exception as e:
+                logger.warning(
+                    "Error disconnecting LSP client",
+                    language=language,
+                    error=str(e)
+                )
+        
+        self.lsp_clients.clear()
+        self.metadata_cache.clear()
+        self._initialized = False
+        
+        logger.info("LSP metadata extractor shutdown completed")
+    
+    async def __aenter__(self):
+        """Async context manager entry"""
+        return self
+    
+    async def __aexit__(self, exc_type, exc_val, exc_tb):
+        """Async context manager exit"""
+        await self.shutdown()
