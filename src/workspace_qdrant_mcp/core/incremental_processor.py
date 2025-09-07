@@ -629,7 +629,7 @@ class ConflictResolver:
             # Merge metadata from stored and current versions
             if change.stored_record:
                 merged_metadata = {
-                    **change.stored_record.metadata or {},
+                    **(change.stored_record.metadata or {}),
                     **change.metadata
                 }
                 change.metadata = merged_metadata
