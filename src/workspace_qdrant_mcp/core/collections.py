@@ -666,16 +666,15 @@ class WorkspaceCollectionManager:
         """
         Determine if a collection belongs to the current workspace.
 
-        Applies filtering logic to distinguish workspace collections from
-        external collections that may exist in the same Qdrant database.
-        This enables workspace isolation while sharing the database instance.
+        Uses CollectionNamingManager to classify collections and determine workspace membership.
+        This enables workspace isolation while sharing the database instance and properly
+        handles the new readonly collection prefix system.
 
         Inclusion Criteria:
-            - Collections ending in configured project collection suffixes
-            - Collections in the global_collections configuration list
-            - Collections that match current project naming patterns ({project_name}-{suffix})
-            - Standalone collections matching the current project name
-            - Common workspace collection names (fallback for shared collections)
+            - Memory collections ('memory')
+            - Library collections ('_name' pattern - readonly from MCP)
+            - Project collections ('{project}-{suffix}' pattern)
+            - Legacy collections matching configuration or naming patterns
 
         Exclusion Criteria:
             - Collections ending in '-code' (memexd daemon collections)
@@ -692,50 +691,64 @@ class WorkspaceCollectionManager:
         Example:
             ```python
             # These would return True:
-            manager._is_workspace_collection("my-project-docs")         # True (if 'docs' in collections)
-            manager._is_workspace_collection("user-collection")         # True (if configured)
-            manager._is_workspace_collection("workspace-qdrant-mcp-repo")  # True (common pattern)
+            manager._is_workspace_collection("memory")                  # True (memory collection)
+            manager._is_workspace_collection("_library")               # True (library collection)
+            manager._is_workspace_collection("my-project-docs")        # True (project collection)
+            manager._is_workspace_collection("user-collection")        # True (if legacy configured)
 
             # These would return False:
             manager._is_workspace_collection("memexd-project-code")    # False (daemon)
             manager._is_workspace_collection("other-system-temp")      # False (external)
             ```
         """
-        # Exclude memexd daemon collections (those ending with -code)
-        if collection_name.endswith("-code"):
-            return False
-
-        # Include global collections
-        if collection_name in self.config.workspace.global_collections:
+        # Use CollectionNamingManager for classification
+        collection_info = self.naming_manager.get_collection_info(collection_name)
+        
+        # Include all workspace collection types (memory, library, project)
+        if collection_info.collection_type in [
+            CollectionType.MEMORY,
+            CollectionType.LIBRARY, 
+            CollectionType.PROJECT
+        ]:
             return True
+        
+        # For legacy collections, apply the existing filtering logic
+        if collection_info.collection_type == CollectionType.LEGACY:
+            # Exclude memexd daemon collections (those ending with -code)
+            if collection_name.endswith("-code"):
+                return False
 
-        # Include project collections (ending with configured suffixes)
-        for suffix in self.config.workspace.effective_collection_suffixes:
-            if collection_name.endswith(f"-{suffix}"):
+            # Include global collections
+            if collection_name in self.config.workspace.global_collections:
                 return True
 
-        # When no specific configuration is provided, use the actual project name to identify collections
-        # This provides accurate workspace isolation based on the current project context
-        if not self.config.workspace.effective_collection_suffixes and not self.config.workspace.global_collections:
-            # Get project information from stored project info or fallback to detection
-            project_names = self._get_all_project_names()
-            
-            # Check if collection matches any project naming pattern: {project_name}-{suffix}
-            for project_name in project_names:
-                if collection_name.startswith(f"{project_name}-"):
-                    logger.debug("Collection %s matches project %s pattern", collection_name, project_name)
+            # Include project collections (ending with configured suffixes)
+            for suffix in self.config.workspace.effective_collection_suffixes:
+                if collection_name.endswith(f"-{suffix}"):
                     return True
+
+            # When no specific configuration is provided, use the actual project name to identify collections
+            # This provides accurate workspace isolation based on the current project context
+            if not self.config.workspace.effective_collection_suffixes and not self.config.workspace.global_collections:
+                # Get project information from stored project info or fallback to detection
+                project_names = self._get_all_project_names()
                 
-                # Also include standalone collections that match any project name exactly
-                if collection_name == project_name:
-                    logger.debug("Collection %s matches project %s exactly", collection_name, project_name)
+                # Check if collection matches any project naming pattern: {project_name}-{suffix}
+                for project_name in project_names:
+                    if collection_name.startswith(f"{project_name}-"):
+                        logger.debug("Collection %s matches project %s pattern", collection_name, project_name)
+                        return True
+                    
+                    # Also include standalone collections that match any project name exactly
+                    if collection_name == project_name:
+                        logger.debug("Collection %s matches project %s exactly", collection_name, project_name)
+                        return True
+                
+                # Fallback to common standalone collections for workspace context
+                common_standalone_collections = ["reference", "docs", "standards", "notes", "scratchbook", "memory", "knowledge"]
+                if collection_name in common_standalone_collections:
+                    logger.debug("Collection %s matches common standalone pattern", collection_name)
                     return True
-            
-            # Fallback to common standalone collections for workspace context
-            common_standalone_collections = ["reference", "docs", "standards", "notes", "scratchbook", "memory", "knowledge"]
-            if collection_name in common_standalone_collections:
-                logger.debug("Collection %s matches common standalone pattern", collection_name)
-                return True
 
         return False
 
