@@ -1245,6 +1245,367 @@ class AsyncioLspClient:
             )
             return None
 
+    # Document synchronization methods
+    async def did_open(
+        self,
+        file_uri: str,
+        language_id: str,
+        version: int,
+        text: str,
+    ) -> None:
+        """
+        Notify server that a document was opened.
+        
+        Args:
+            file_uri: URI of the opened file
+            language_id: Language identifier (e.g., 'python', 'rust')
+            version: Document version number
+            text: Complete document content
+        """
+        params = {
+            "textDocument": {
+                "uri": file_uri,
+                "languageId": language_id,
+                "version": version,
+                "text": text,
+            }
+        }
+        
+        await self.send_notification("textDocument/didOpen", params)
+        logger.debug(
+            "Sent didOpen notification",
+            server_name=self._server_name,
+            file_uri=file_uri,
+            language_id=language_id,
+        )
+
+    async def did_change(
+        self,
+        file_uri: str,
+        version: int,
+        changes: List[Dict[str, Any]],
+    ) -> None:
+        """
+        Notify server that a document was changed.
+        
+        Args:
+            file_uri: URI of the changed file
+            version: New document version number
+            changes: List of content changes
+        """
+        params = {
+            "textDocument": {
+                "uri": file_uri,
+                "version": version,
+            },
+            "contentChanges": changes,
+        }
+        
+        await self.send_notification("textDocument/didChange", params)
+        logger.debug(
+            "Sent didChange notification",
+            server_name=self._server_name,
+            file_uri=file_uri,
+            changes_count=len(changes),
+        )
+
+    async def did_save(
+        self,
+        file_uri: str,
+        text: Optional[str] = None,
+    ) -> None:
+        """
+        Notify server that a document was saved.
+        
+        Args:
+            file_uri: URI of the saved file
+            text: Complete document content (if server requires it)
+        """
+        params = {
+            "textDocument": {"uri": file_uri}
+        }
+        if text is not None:
+            params["text"] = text
+        
+        await self.send_notification("textDocument/didSave", params)
+        logger.debug(
+            "Sent didSave notification",
+            server_name=self._server_name,
+            file_uri=file_uri,
+        )
+
+    async def did_close(
+        self,
+        file_uri: str,
+    ) -> None:
+        """
+        Notify server that a document was closed.
+        
+        Args:
+            file_uri: URI of the closed file
+        """
+        params = {
+            "textDocument": {"uri": file_uri}
+        }
+        
+        await self.send_notification("textDocument/didClose", params)
+        logger.debug(
+            "Sent didClose notification",
+            server_name=self._server_name,
+            file_uri=file_uri,
+        )
+
+    # Notification handler management
+    def register_diagnostics_handler(
+        self,
+        handler: Callable[[str, List[Dict[str, Any]]], None],
+    ) -> None:
+        """
+        Register handler for diagnostic notifications.
+        
+        Args:
+            handler: Function that takes (file_uri, diagnostics_list)
+        """
+        def diagnostics_wrapper(notification: JsonRpcNotification) -> None:
+            try:
+                params = notification.params or {}
+                file_uri = params.get("uri", "")
+                diagnostics = params.get("diagnostics", [])
+                handler(file_uri, diagnostics)
+            except Exception as e:
+                logger.error(
+                    "Error in diagnostics handler",
+                    server_name=self._server_name,
+                    error=str(e),
+                )
+        
+        self.register_notification_handler("textDocument/publishDiagnostics", diagnostics_wrapper)
+        logger.info(
+            "Registered diagnostics handler",
+            server_name=self._server_name,
+        )
+
+    def register_progress_handler(
+        self,
+        handler: Callable[[str, Dict[str, Any]], None],
+    ) -> None:
+        """
+        Register handler for work progress notifications.
+        
+        Args:
+            handler: Function that takes (token, progress_data)
+        """
+        def progress_wrapper(notification: JsonRpcNotification) -> None:
+            try:
+                params = notification.params or {}
+                token = params.get("token", "")
+                value = params.get("value", {})
+                handler(token, value)
+            except Exception as e:
+                logger.error(
+                    "Error in progress handler",
+                    server_name=self._server_name,
+                    error=str(e),
+                )
+        
+        self.register_notification_handler("$/progress", progress_wrapper)
+        logger.info(
+            "Registered progress handler",
+            server_name=self._server_name,
+        )
+
+    def register_log_message_handler(
+        self,
+        handler: Callable[[int, str], None],
+    ) -> None:
+        """
+        Register handler for server log messages.
+        
+        Args:
+            handler: Function that takes (message_type, message)
+        """
+        def log_wrapper(notification: JsonRpcNotification) -> None:
+            try:
+                params = notification.params or {}
+                message_type = params.get("type", 1)  # Default to Error
+                message = params.get("message", "")
+                handler(message_type, message)
+            except Exception as e:
+                logger.error(
+                    "Error in log message handler",
+                    server_name=self._server_name,
+                    error=str(e),
+                )
+        
+        self.register_notification_handler("window/logMessage", log_wrapper)
+        logger.info(
+            "Registered log message handler",
+            server_name=self._server_name,
+        )
+
+    def register_show_message_handler(
+        self,
+        handler: Callable[[int, str], None],
+    ) -> None:
+        """
+        Register handler for server show message notifications.
+        
+        Args:
+            handler: Function that takes (message_type, message)
+        """
+        def show_message_wrapper(notification: JsonRpcNotification) -> None:
+            try:
+                params = notification.params or {}
+                message_type = params.get("type", 1)  # Default to Error
+                message = params.get("message", "")
+                handler(message_type, message)
+            except Exception as e:
+                logger.error(
+                    "Error in show message handler",
+                    server_name=self._server_name,
+                    error=str(e),
+                )
+        
+        self.register_notification_handler("window/showMessage", show_message_wrapper)
+        logger.info(
+            "Registered show message handler",
+            server_name=self._server_name,
+        )
+
+    def register_configuration_handler(
+        self,
+        handler: Callable[[List[Dict[str, Any]]], List[Any]],
+    ) -> None:
+        """
+        Register handler for workspace configuration requests.
+        Note: This is actually a request from server, but handled here for convenience.
+        
+        Args:
+            handler: Function that takes configuration items and returns values
+        """
+        async def config_wrapper(request_data: Dict[str, Any]) -> Dict[str, Any]:
+            try:
+                params = request_data.get("params", {})
+                items = params.get("items", [])
+                result = handler(items)
+                return {"result": result}
+            except Exception as e:
+                logger.error(
+                    "Error in configuration handler",
+                    server_name=self._server_name,
+                    error=str(e),
+                )
+                return {
+                    "error": {
+                        "code": -32603,  # InternalError
+                        "message": f"Configuration handler error: {e}",
+                    }
+                }
+        
+        # Note: This would need request handling support in the base client
+        logger.info(
+            "Configuration handler registered (requires request handling)",
+            server_name=self._server_name,
+        )
+
+    # Convenience methods for file watching integration
+    async def sync_file_opened(
+        self,
+        file_path: str,
+        content: str,
+        language_id: Optional[str] = None,
+    ) -> None:
+        """
+        Convenience method to sync a newly opened file with the LSP server.
+        
+        Args:
+            file_path: Local file path
+            content: File content
+            language_id: Language identifier (auto-detected if None)
+        """
+        file_uri = f"file://{Path(file_path).resolve()}"
+        
+        if language_id is None:
+            # Auto-detect language from file extension
+            extension = Path(file_path).suffix.lstrip('.')
+            language_map = {
+                'py': 'python',
+                'rs': 'rust',
+                'ts': 'typescript',
+                'js': 'javascript',
+                'json': 'json',
+                'go': 'go',
+                'java': 'java',
+                'c': 'c',
+                'cpp': 'cpp',
+                'cc': 'cpp',
+                'cxx': 'cpp',
+                'hpp': 'cpp',
+                'rb': 'ruby',
+                'php': 'php',
+                'sh': 'shellscript',
+                'bash': 'shellscript',
+                'yaml': 'yaml',
+                'yml': 'yaml',
+                'toml': 'toml',
+                'xml': 'xml',
+                'html': 'html',
+                'css': 'css',
+                'sql': 'sql',
+            }
+            language_id = language_map.get(extension, 'plaintext')
+        
+        await self.did_open(file_uri, language_id, 1, content)
+
+    async def sync_file_changed(
+        self,
+        file_path: str,
+        content: str,
+        version: int = 1,
+    ) -> None:
+        """
+        Convenience method to sync file changes with the LSP server.
+        
+        Args:
+            file_path: Local file path
+            content: New file content
+            version: Document version number
+        """
+        file_uri = f"file://{Path(file_path).resolve()}"
+        
+        # Send full document change (simpler than incremental changes)
+        changes = [{"text": content}]
+        
+        await self.did_change(file_uri, version, changes)
+
+    async def sync_file_saved(
+        self,
+        file_path: str,
+        content: Optional[str] = None,
+    ) -> None:
+        """
+        Convenience method to notify server of file save.
+        
+        Args:
+            file_path: Local file path
+            content: File content (if server requires it)
+        """
+        file_uri = f"file://{Path(file_path).resolve()}"
+        await self.did_save(file_uri, content)
+
+    async def sync_file_closed(
+        self,
+        file_path: str,
+    ) -> None:
+        """
+        Convenience method to notify server of file close.
+        
+        Args:
+            file_path: Local file path
+        """
+        file_uri = f"file://{Path(file_path).resolve()}"
+        await self.did_close(file_uri)
+
     async def send_request(
         self,
         method: str,
