@@ -569,4 +569,970 @@ class DisambiguationEngine:
         }
 
 
-# Main SymbolResolver class implementation continues in next part...
+class CrossReferenceTracker:
+    """
+    Cross-reference tracking system for symbol usage analysis and impact assessment.
+    
+    Tracks where symbols are used, referenced, imported, and modified to support
+    impact analysis, refactoring assistance, and usage pattern analysis.
+    """
+    
+    def __init__(self):
+        # Reference tracking indexes
+        self.symbol_references: Dict[str, List[SymbolLocation]] = defaultdict(list)
+        self.file_imports: Dict[str, List[str]] = defaultdict(list)  # file -> imported symbols
+        self.symbol_dependencies: Dict[str, Set[str]] = defaultdict(set)  # symbol -> depends on
+        self.reverse_dependencies: Dict[str, Set[str]] = defaultdict(set)  # symbol -> depended by
+        
+        # Usage pattern tracking
+        self.usage_frequency: Dict[str, int] = defaultdict(int)
+        self.last_accessed: Dict[str, float] = {}
+        self.reference_contexts: Dict[str, List[str]] = defaultdict(list)  # usage contexts
+        
+        # Performance metrics
+        self.tracking_enabled = True
+        self.reference_count = 0
+        self.impact_analysis_count = 0
+        
+    def add_symbol_reference(
+        self, 
+        symbol_qualified_name: str, 
+        reference_location: SymbolLocation,
+        context: Optional[str] = None
+    ) -> None:
+        """Add a reference to a symbol at a specific location"""
+        if not self.tracking_enabled:
+            return
+            
+        self.symbol_references[symbol_qualified_name].append(reference_location)
+        self.usage_frequency[symbol_qualified_name] += 1
+        self.last_accessed[symbol_qualified_name] = time.time()
+        
+        if context:
+            self.reference_contexts[symbol_qualified_name].append(context)
+        
+        self.reference_count += 1
+        
+        logger.debug("Symbol reference added",
+                    symbol=symbol_qualified_name,
+                    location=reference_location.get_range_key())
+    
+    def add_symbol_dependency(self, from_symbol: str, to_symbol: str) -> None:
+        """Add dependency relationship between symbols"""
+        self.symbol_dependencies[from_symbol].add(to_symbol)
+        self.reverse_dependencies[to_symbol].add(from_symbol)
+        
+        logger.debug("Symbol dependency added", from_symbol=from_symbol, to_symbol=to_symbol)
+    
+    def get_symbol_references(self, qualified_name: str) -> List[SymbolLocation]:
+        """Get all references to a symbol"""
+        return self.symbol_references.get(qualified_name, [])
+    
+    def get_symbol_dependencies(self, qualified_name: str, recursive: bool = False) -> Set[str]:
+        """Get symbols that this symbol depends on"""
+        if not recursive:
+            return self.symbol_dependencies.get(qualified_name, set())
+        
+        # Recursive dependency resolution
+        visited = set()
+        dependencies = set()
+        
+        def collect_dependencies(symbol: str):
+            if symbol in visited:
+                return
+            visited.add(symbol)
+            
+            direct_deps = self.symbol_dependencies.get(symbol, set())
+            dependencies.update(direct_deps)
+            
+            for dep in direct_deps:
+                collect_dependencies(dep)
+        
+        collect_dependencies(qualified_name)
+        return dependencies
+    
+    def get_symbol_dependents(self, qualified_name: str, recursive: bool = False) -> Set[str]:
+        """Get symbols that depend on this symbol"""
+        if not recursive:
+            return self.reverse_dependencies.get(qualified_name, set())
+        
+        # Recursive dependent resolution
+        visited = set()
+        dependents = set()
+        
+        def collect_dependents(symbol: str):
+            if symbol in visited:
+                return
+            visited.add(symbol)
+            
+            direct_deps = self.reverse_dependencies.get(symbol, set())
+            dependents.update(direct_deps)
+            
+            for dep in direct_deps:
+                collect_dependents(dep)
+        
+        collect_dependents(qualified_name)
+        return dependents
+    
+    def analyze_impact(self, qualified_name: str) -> Dict[str, Any]:
+        """
+        Analyze the impact of modifying or removing a symbol.
+        
+        Returns analysis including direct and transitive dependencies,
+        usage frequency, and affected files.
+        """
+        self.impact_analysis_count += 1
+        
+        references = self.get_symbol_references(qualified_name)
+        direct_dependents = self.get_symbol_dependents(qualified_name, recursive=False)
+        transitive_dependents = self.get_symbol_dependents(qualified_name, recursive=True)
+        
+        affected_files = set()
+        for ref in references:
+            affected_files.add(ref.file_path)
+        
+        usage_freq = self.usage_frequency.get(qualified_name, 0)
+        last_used = self.last_accessed.get(qualified_name, 0)
+        
+        impact_analysis = {
+            "symbol": qualified_name,
+            "reference_count": len(references),
+            "direct_dependents": len(direct_dependents),
+            "transitive_dependents": len(transitive_dependents),
+            "affected_files": len(affected_files),
+            "usage_frequency": usage_freq,
+            "last_accessed": last_used,
+            "impact_score": self._calculate_impact_score(
+                len(references), len(transitive_dependents), usage_freq
+            ),
+            "risk_level": self._assess_risk_level(qualified_name),
+            "affected_file_list": list(affected_files),
+            "dependent_symbols": list(direct_dependents)[:10]  # Top 10 dependents
+        }
+        
+        logger.info("Impact analysis completed",
+                   symbol=qualified_name,
+                   impact_score=impact_analysis["impact_score"],
+                   risk_level=impact_analysis["risk_level"])
+        
+        return impact_analysis
+    
+    def _calculate_impact_score(
+        self, 
+        reference_count: int, 
+        transitive_dependents: int, 
+        usage_frequency: int
+    ) -> float:
+        """Calculate overall impact score (0.0-1.0)"""
+        # Weighted formula considering multiple factors
+        ref_score = min(1.0, reference_count / 100.0)  # Normalize around 100 references
+        dep_score = min(1.0, transitive_dependents / 50.0)  # Normalize around 50 dependents
+        freq_score = min(1.0, usage_frequency / 200.0)  # Normalize around 200 uses
+        
+        # Weighted average with emphasis on dependencies
+        impact_score = (ref_score * 0.3 + dep_score * 0.5 + freq_score * 0.2)
+        return impact_score
+    
+    def _assess_risk_level(self, qualified_name: str) -> str:
+        """Assess risk level of modifying this symbol"""
+        references = len(self.get_symbol_references(qualified_name))
+        dependents = len(self.get_symbol_dependents(qualified_name, recursive=True))
+        usage_freq = self.usage_frequency.get(qualified_name, 0)
+        
+        if dependents > 20 or references > 50 or usage_freq > 100:
+            return "HIGH"
+        elif dependents > 5 or references > 15 or usage_freq > 30:
+            return "MEDIUM"
+        else:
+            return "LOW"
+    
+    def get_popular_symbols(self, limit: int = 20) -> List[Tuple[str, int]]:
+        """Get most frequently used symbols"""
+        return sorted(
+            self.usage_frequency.items(),
+            key=lambda x: x[1],
+            reverse=True
+        )[:limit]
+    
+    def get_statistics(self) -> Dict[str, Any]:
+        """Get cross-reference tracking statistics"""
+        return {
+            "total_references": self.reference_count,
+            "tracked_symbols": len(self.symbol_references),
+            "dependencies": len(self.symbol_dependencies),
+            "impact_analyses": self.impact_analysis_count,
+            "average_references_per_symbol": (
+                self.reference_count / max(1, len(self.symbol_references))
+            ),
+            "tracking_enabled": self.tracking_enabled
+        }
+
+
+class SymbolResolver:
+    """
+    High-performance symbol definition lookup system with O(1) resolution.
+    
+    This is the main interface for symbol resolution, providing instant access
+    to symbol definitions, locations, and context across workspace collections.
+    Integrates with existing Code Search and LSP Metadata systems.
+    """
+    
+    def __init__(
+        self, 
+        workspace_client: QdrantWorkspaceClient,
+        enable_cross_references: bool = True,
+        index_capacity: int = 10000,
+        cache_size: int = 1000
+    ):
+        """
+        Initialize symbol resolver.
+        
+        Args:
+            workspace_client: Initialized workspace client
+            enable_cross_references: Enable cross-reference tracking
+            index_capacity: Initial symbol index capacity  
+            cache_size: Resolution result cache size
+        """
+        self.workspace_client = workspace_client
+        self.enable_cross_references = enable_cross_references
+        
+        # Core components
+        self.symbol_index = SymbolIndex(index_capacity)
+        self.disambiguation_engine = DisambiguationEngine()
+        self.cross_ref_tracker = CrossReferenceTracker() if enable_cross_references else None
+        
+        # Integration with existing systems
+        self.code_search_engine: Optional[CodeSearchEngine] = None
+        
+        # Caching and performance
+        self.resolution_cache: Dict[str, List[SymbolResolutionResult]] = {}
+        self.cache_size = cache_size
+        self.cache_ttl = 300.0  # 5 minutes TTL
+        
+        # Workspace state
+        self.indexed_collections: Set[str] = set()
+        self.last_index_update: float = 0.0
+        self.index_update_threshold = 3600.0  # 1 hour
+        
+        # Performance tracking
+        self.resolution_count = 0
+        self.cache_hits = 0
+        self.total_resolution_time_ms = 0.0
+        
+        # Initialization state
+        self.initialized = False
+        
+        logger.info("Symbol resolver initialized",
+                   enable_cross_references=enable_cross_references,
+                   index_capacity=index_capacity,
+                   cache_size=cache_size)
+    
+    async def initialize(self, force_rebuild: bool = False) -> None:
+        """
+        Initialize the symbol resolver by building indexes from workspace collections.
+        
+        Args:
+            force_rebuild: Force complete index rebuild
+        """
+        if self.initialized and not force_rebuild:
+            # Check if index needs updating
+            current_time = time.time()
+            if current_time - self.last_index_update < self.index_update_threshold:
+                return
+        
+        logger.info("Initializing symbol resolver", force_rebuild=force_rebuild)
+        start_time = time.perf_counter()
+        
+        try:
+            # Initialize code search engine
+            self.code_search_engine = CodeSearchEngine(self.workspace_client)
+            await self.code_search_engine.initialize()
+            
+            # Get all workspace collections
+            collections = await self.workspace_client.list_collections()
+            logger.info("Found collections for indexing", count=len(collections))
+            
+            # Build symbol index from collections
+            if force_rebuild:
+                self.symbol_index.clear()
+                self.indexed_collections.clear()
+            
+            for collection in collections:
+                if collection not in self.indexed_collections or force_rebuild:
+                    await self._index_collection_symbols(collection)
+                    self.indexed_collections.add(collection)
+            
+            # Build cross-references if enabled
+            if self.cross_ref_tracker:
+                await self._build_cross_references()
+            
+            self.last_index_update = time.time()
+            self.initialized = True
+            
+            init_time = (time.perf_counter() - start_time) * 1000
+            index_stats = self.symbol_index.get_statistics()
+            
+            logger.info("Symbol resolver initialization completed",
+                       init_time_ms=init_time,
+                       symbols_indexed=index_stats["index_size"],
+                       collections_indexed=len(self.indexed_collections))
+                       
+        except Exception as e:
+            logger.error("Symbol resolver initialization failed", error=str(e))
+            raise WorkspaceError(
+                f"Symbol resolver initialization failed: {e}",
+                category=ErrorCategory.INITIALIZATION,
+                severity=ErrorSeverity.HIGH
+            )
+    
+    async def find_symbol_definitions(
+        self,
+        symbol_name: str,
+        collections: Optional[List[str]] = None,
+        symbol_kinds: Optional[List[SymbolKind]] = None,
+        context_file: Optional[str] = None,
+        context_line: Optional[int] = None
+    ) -> List[SymbolResolutionResult]:
+        """
+        Find all definitions of a symbol with instant O(1) lookup.
+        
+        Args:
+            symbol_name: Name of symbol to find
+            collections: Filter by specific collections
+            symbol_kinds: Filter by symbol kinds
+            context_file: Context file for disambiguation
+            context_line: Context line for disambiguation
+            
+        Returns:
+            List of symbol resolution results ranked by confidence
+        """
+        if not self.initialized:
+            await self.initialize()
+        
+        start_time = time.perf_counter()
+        self.resolution_count += 1
+        
+        # Check cache first
+        cache_key = self._generate_cache_key(
+            symbol_name, collections, symbol_kinds, context_file
+        )
+        
+        if cache_key in self.resolution_cache:
+            cached_result = self.resolution_cache[cache_key]
+            # Check cache TTL
+            if cached_result and time.time() - cached_result[0].resolution_time_ms < self.cache_ttl:
+                self.cache_hits += 1
+                logger.debug("Cache hit for symbol resolution", symbol=symbol_name)
+                return cached_result
+        
+        try:
+            # O(1) lookup by name
+            candidates = self.symbol_index.find_by_name(symbol_name)
+            
+            if not candidates:
+                logger.debug("No candidates found for symbol", symbol=symbol_name)
+                return []
+            
+            # Apply filters
+            if collections:
+                candidates = [c for c in candidates if c.location.collection in collections]
+            
+            if symbol_kinds:
+                candidates = [c for c in candidates if c.kind in symbol_kinds]
+            
+            # Disambiguate candidates
+            disambiguated = self.disambiguation_engine.disambiguate_symbols(
+                candidates, None, None, context_file, context_line
+            )
+            
+            # Create resolution results
+            results = []
+            for symbol in disambiguated:
+                resolution_time = (time.perf_counter() - start_time) * 1000
+                result = SymbolResolutionResult(
+                    symbol=symbol,
+                    match_confidence=symbol.confidence_score,
+                    resolution_method="index_lookup",
+                    resolution_time_ms=resolution_time
+                )
+                
+                # Find related symbols
+                result.related_symbols = await self._find_related_symbols(symbol)
+                
+                results.append(result)
+            
+            # Cache result
+            self._cache_resolution_result(cache_key, results)
+            
+            # Track cross-references
+            if self.cross_ref_tracker and context_file and context_line is not None:
+                for result in results:
+                    ref_location = SymbolLocation(
+                        file_path=context_file,
+                        file_uri=f"file://{context_file}",
+                        line=context_line,
+                        column=0,
+                        end_line=context_line,
+                        end_column=0,
+                        collection="unknown"  # Could be resolved from file
+                    )
+                    self.cross_ref_tracker.add_symbol_reference(
+                        result.symbol.qualified_name, ref_location
+                    )
+            
+            resolution_time = (time.perf_counter() - start_time) * 1000
+            self.total_resolution_time_ms += resolution_time
+            
+            logger.debug("Symbol definitions found",
+                        symbol=symbol_name,
+                        candidates=len(candidates),
+                        results=len(results),
+                        resolution_time_ms=resolution_time)
+            
+            return results
+            
+        except Exception as e:
+            logger.error("Symbol definition lookup failed", 
+                        symbol=symbol_name, 
+                        error=str(e))
+            raise WorkspaceError(
+                f"Symbol definition lookup failed: {e}",
+                category=ErrorCategory.SEARCH,
+                severity=ErrorSeverity.MEDIUM
+            )
+    
+    async def resolve_symbol_with_params(
+        self,
+        symbol_name: str,
+        parameter_types: List[str],
+        return_type: Optional[str] = None,
+        collections: Optional[List[str]] = None
+    ) -> List[SymbolResolutionResult]:
+        """
+        Resolve symbol with specific parameter signature for disambiguation.
+        
+        Args:
+            symbol_name: Name of symbol to resolve
+            parameter_types: Expected parameter types
+            return_type: Expected return type
+            collections: Filter by collections
+            
+        Returns:
+            List of resolution results ranked by signature match quality
+        """
+        if not self.initialized:
+            await self.initialize()
+        
+        start_time = time.perf_counter()
+        
+        # Find function overloads
+        candidates = self.symbol_index.find_overloads(symbol_name)
+        
+        if collections:
+            candidates = [c for c in candidates if c.location.collection in collections]
+        
+        # Score candidates by signature match
+        scored_candidates = []
+        for candidate in candidates:
+            match_score = candidate.matches_signature(parameter_types, return_type)
+            if match_score > 0.1:  # Minimum threshold
+                scored_candidates.append((candidate, match_score))
+        
+        # Sort by match score
+        scored_candidates.sort(key=lambda x: x[1], reverse=True)
+        
+        # Create results
+        results = []
+        for candidate, match_score in scored_candidates:
+            resolution_time = (time.perf_counter() - start_time) * 1000
+            result = SymbolResolutionResult(
+                symbol=candidate,
+                match_confidence=match_score,
+                resolution_method="signature_match",
+                disambiguation_info={
+                    "parameter_types": parameter_types,
+                    "return_type": return_type,
+                    "signature_match_score": match_score
+                },
+                resolution_time_ms=resolution_time
+            )
+            results.append(result)
+        
+        logger.debug("Symbol resolved with parameters",
+                    symbol=symbol_name,
+                    parameter_types=parameter_types,
+                    results=len(results))
+        
+        return results
+    
+    async def find_all_references(
+        self, 
+        qualified_name: str
+    ) -> List[SymbolLocation]:
+        """
+        Find all references to a symbol across the workspace.
+        
+        Args:
+            qualified_name: Fully qualified symbol name
+            
+        Returns:
+            List of all reference locations
+        """
+        if not self.cross_ref_tracker:
+            logger.warning("Cross-reference tracking is disabled")
+            return []
+        
+        return self.cross_ref_tracker.get_symbol_references(qualified_name)
+    
+    async def get_symbol_hierarchy(
+        self, 
+        qualified_name: str, 
+        include_children: bool = True,
+        include_parents: bool = True
+    ) -> Dict[str, Any]:
+        """
+        Get symbol hierarchy including parents and children.
+        
+        Args:
+            qualified_name: Symbol to get hierarchy for
+            include_children: Include child symbols
+            include_parents: Include parent symbols
+            
+        Returns:
+            Dictionary with hierarchy information
+        """
+        symbol = self.symbol_index.find_by_qualified_name(qualified_name)
+        if not symbol:
+            return {}
+        
+        hierarchy = {
+            "symbol": symbol.to_dict(),
+            "parents": [],
+            "children": []
+        }
+        
+        # Find parents
+        if include_parents and symbol.parent_symbol:
+            parent_chain = []
+            current_parent = symbol.parent_symbol
+            
+            while current_parent:
+                parent_symbol = self.symbol_index.find_by_qualified_name(current_parent)
+                if parent_symbol:
+                    parent_chain.append(parent_symbol.to_dict())
+                    current_parent = parent_symbol.parent_symbol
+                else:
+                    break
+            
+            hierarchy["parents"] = parent_chain
+        
+        # Find children
+        if include_children:
+            children = self.symbol_index.find_children(qualified_name)
+            hierarchy["children"] = [child.to_dict() for child in children]
+        
+        logger.debug("Symbol hierarchy retrieved",
+                    symbol=qualified_name,
+                    parents=len(hierarchy["parents"]),
+                    children=len(hierarchy["children"]))
+        
+        return hierarchy
+    
+    async def analyze_symbol_impact(self, qualified_name: str) -> Dict[str, Any]:
+        """
+        Analyze impact of modifying or removing a symbol.
+        
+        Args:
+            qualified_name: Symbol to analyze
+            
+        Returns:
+            Impact analysis including dependencies and usage
+        """
+        if not self.cross_ref_tracker:
+            logger.warning("Cross-reference tracking is disabled")
+            return {}
+        
+        return self.cross_ref_tracker.analyze_impact(qualified_name)
+    
+    async def search_symbols_by_kind(
+        self,
+        kind: SymbolKind,
+        collections: Optional[List[str]] = None,
+        limit: int = 100
+    ) -> List[SymbolEntry]:
+        """
+        Search symbols by kind with optional collection filtering.
+        
+        Args:
+            kind: Symbol kind to search for
+            collections: Filter by collections
+            limit: Maximum results to return
+            
+        Returns:
+            List of matching symbols
+        """
+        candidates = self.symbol_index.find_by_kind(kind, limit)
+        
+        if collections:
+            candidates = [c for c in candidates if c.location.collection in collections]
+        
+        return candidates[:limit]
+    
+    async def get_collection_symbols(self, collection: str) -> List[SymbolEntry]:
+        """Get all symbols from a specific collection"""
+        return self.symbol_index.find_by_collection(collection)
+    
+    async def get_file_symbols(self, file_path: str) -> List[SymbolEntry]:
+        """Get all symbols from a specific file"""
+        return self.symbol_index.find_by_file(file_path)
+    
+    # Helper methods
+    
+    async def _index_collection_symbols(self, collection: str) -> None:
+        """Build symbol index from collection metadata"""
+        try:
+            logger.info("Indexing symbols from collection", collection=collection)
+            
+            # Search for code symbols in the collection
+            symbol_filter = {"content_type": "code_symbol"}
+            results = await search_collection_by_metadata(
+                self.workspace_client,
+                collection, 
+                symbol_filter,
+                limit=10000  # Large limit for comprehensive indexing
+            )
+            
+            symbols_added = 0
+            for result in results.get("results", []):
+                symbol_data = result.get("payload", {}).get("symbol", {})
+                if symbol_data:
+                    symbol_entry = await self._create_symbol_entry(symbol_data, collection)
+                    if symbol_entry:
+                        self.symbol_index.add_symbol(symbol_entry)
+                        symbols_added += 1
+            
+            logger.info("Collection indexing completed",
+                       collection=collection,
+                       symbols_added=symbols_added)
+                       
+        except Exception as e:
+            logger.error("Failed to index collection",
+                        collection=collection,
+                        error=str(e))
+    
+    async def _create_symbol_entry(
+        self, 
+        symbol_data: Dict[str, Any], 
+        collection: str
+    ) -> Optional[SymbolEntry]:
+        """Create SymbolEntry from symbol metadata"""
+        try:
+            name = symbol_data.get("name", "")
+            if not name:
+                return None
+            
+            # Extract location information
+            range_data = symbol_data.get("range", {})
+            start_pos = range_data.get("start", {})
+            end_pos = range_data.get("end", {})
+            
+            file_uri = symbol_data.get("file_uri", "")
+            file_path = file_uri.replace("file://", "") if file_uri.startswith("file://") else file_uri
+            
+            location = SymbolLocation(
+                file_path=file_path,
+                file_uri=file_uri,
+                line=start_pos.get("line", 0),
+                column=start_pos.get("character", 0),
+                end_line=end_pos.get("line", 0),
+                end_column=end_pos.get("character", 0),
+                collection=collection
+            )
+            
+            # Create qualified name
+            parent_symbol = symbol_data.get("parent_symbol", "")
+            qualified_name = f"{parent_symbol}.{name}" if parent_symbol else name
+            
+            # Extract type information
+            type_info = symbol_data.get("type_info", {})
+            signature = type_info.get("type_signature", "")
+            return_type = type_info.get("return_type", "")
+            parameter_types = [
+                param.get("type", "") for param in type_info.get("parameter_types", [])
+            ]
+            
+            # Create symbol entry
+            kind_value = symbol_data.get("kind", 1)
+            try:
+                kind = SymbolKind(kind_value)
+            except ValueError:
+                kind = SymbolKind.VARIABLE
+            
+            symbol_entry = SymbolEntry(
+                name=name,
+                qualified_name=qualified_name,
+                symbol_id=hashlib.sha256(f"{qualified_name}:{file_path}".encode()).hexdigest()[:16],
+                kind=kind,
+                location=location,
+                language=symbol_data.get("language", "unknown"),
+                signature=signature,
+                return_type=return_type if return_type else None,
+                parameter_types=parameter_types,
+                visibility=symbol_data.get("visibility", "public"),
+                scope=SymbolScope.GLOBAL,  # Could be refined based on context
+                context_before=symbol_data.get("context_before", []),
+                context_after=symbol_data.get("context_after", []),
+                documentation_summary=self._extract_doc_summary(symbol_data),
+                parent_symbol=parent_symbol if parent_symbol else None,
+                child_symbols=symbol_data.get("children", []),
+                is_deprecated=symbol_data.get("deprecated", False),
+                is_experimental=symbol_data.get("experimental", False)
+            )
+            
+            return symbol_entry
+            
+        except Exception as e:
+            logger.debug("Failed to create symbol entry", 
+                        symbol_name=symbol_data.get("name", "unknown"),
+                        error=str(e))
+            return None
+    
+    def _extract_doc_summary(self, symbol_data: Dict[str, Any]) -> Optional[str]:
+        """Extract brief documentation summary"""
+        doc = symbol_data.get("documentation", {})
+        if not doc:
+            return None
+        
+        docstring = doc.get("docstring", "")
+        if docstring:
+            # Extract first sentence
+            first_sentence = docstring.split('.')[0].strip()
+            if len(first_sentence) > 10:
+                return first_sentence[:150] + "..." if len(first_sentence) > 150 else first_sentence
+        
+        # Try inline comments
+        inline_comments = doc.get("inline_comments", [])
+        if inline_comments:
+            return inline_comments[0][:100] + "..." if len(inline_comments[0]) > 100 else inline_comments[0]
+        
+        return None
+    
+    async def _build_cross_references(self) -> None:
+        """Build cross-reference relationships from indexed symbols"""
+        if not self.cross_ref_tracker:
+            return
+        
+        logger.info("Building cross-reference relationships")
+        
+        # This would typically involve analyzing relationships from LSP metadata
+        # For now, we'll implement a basic version that could be enhanced
+        
+        # Process all symbols to build dependency relationships
+        for collection in self.indexed_collections:
+            try:
+                # Search for relationship data in the collection
+                relationship_filter = {"content_type": "code_relationship"}
+                results = await search_collection_by_metadata(
+                    self.workspace_client,
+                    collection,
+                    relationship_filter,
+                    limit=5000
+                )
+                
+                for result in results.get("results", []):
+                    relationship_data = result.get("payload", {}).get("relationship", {})
+                    if relationship_data:
+                        from_symbol = relationship_data.get("from_symbol", "")
+                        to_symbol = relationship_data.get("to_symbol", "")
+                        
+                        if from_symbol and to_symbol:
+                            self.cross_ref_tracker.add_symbol_dependency(from_symbol, to_symbol)
+                            
+            except Exception as e:
+                logger.debug("Failed to build cross-references for collection",
+                           collection=collection, 
+                           error=str(e))
+    
+    async def _find_related_symbols(self, symbol: SymbolEntry) -> List[SymbolEntry]:
+        """Find symbols related to the given symbol"""
+        related = []
+        
+        # Find siblings (same parent)
+        if symbol.parent_symbol:
+            siblings = self.symbol_index.find_children(symbol.parent_symbol)
+            for sibling in siblings:
+                if sibling.qualified_name != symbol.qualified_name:
+                    related.append(sibling)
+                    if len(related) >= 5:  # Limit related symbols
+                        break
+        
+        # Find symbols with similar names
+        if len(related) < 5:
+            similar_name_pattern = symbol.name.lower()[:4]  # First 4 chars
+            name_candidates = []
+            for name, symbols in self.symbol_index.by_name.items():
+                if name.lower().startswith(similar_name_pattern) and name != symbol.name:
+                    name_candidates.extend(symbols)
+            
+            # Add up to remaining slots
+            remaining = 5 - len(related)
+            related.extend(name_candidates[:remaining])
+        
+        return related
+    
+    def _generate_cache_key(
+        self,
+        symbol_name: str,
+        collections: Optional[List[str]],
+        symbol_kinds: Optional[List[SymbolKind]], 
+        context_file: Optional[str]
+    ) -> str:
+        """Generate cache key for resolution request"""
+        collections_str = ','.join(sorted(collections)) if collections else ''
+        kinds_str = ','.join(sorted([k.name for k in symbol_kinds])) if symbol_kinds else ''
+        context_str = context_file or ''
+        
+        key_content = f"{symbol_name}:{collections_str}:{kinds_str}:{context_str}"
+        return hashlib.md5(key_content.encode()).hexdigest()[:16]
+    
+    def _cache_resolution_result(
+        self, 
+        cache_key: str, 
+        results: List[SymbolResolutionResult]
+    ) -> None:
+        """Cache resolution results with TTL"""
+        # Limit cache size
+        if len(self.resolution_cache) >= self.cache_size:
+            # Remove oldest entries (simple FIFO)
+            oldest_keys = list(self.resolution_cache.keys())[:100]
+            for key in oldest_keys:
+                del self.resolution_cache[key]
+        
+        self.resolution_cache[cache_key] = results
+    
+    def get_statistics(self) -> Dict[str, Any]:
+        """Get comprehensive resolver statistics"""
+        cache_hit_rate = (self.cache_hits / max(1, self.resolution_count)) * 100
+        avg_resolution_time = (self.total_resolution_time_ms / max(1, self.resolution_count))
+        
+        stats = {
+            "resolution_count": self.resolution_count,
+            "cache_hits": self.cache_hits,
+            "cache_hit_rate_percent": cache_hit_rate,
+            "average_resolution_time_ms": avg_resolution_time,
+            "indexed_collections": len(self.indexed_collections),
+            "last_index_update": self.last_index_update,
+            "initialized": self.initialized,
+            "symbol_index": self.symbol_index.get_statistics(),
+            "disambiguation_engine": self.disambiguation_engine.get_statistics()
+        }
+        
+        if self.cross_ref_tracker:
+            stats["cross_reference_tracker"] = self.cross_ref_tracker.get_statistics()
+        
+        return stats
+    
+    async def shutdown(self) -> None:
+        """Clean up resolver resources"""
+        logger.info("Shutting down symbol resolver")
+        
+        self.symbol_index.clear()
+        self.resolution_cache.clear()
+        self.indexed_collections.clear()
+        
+        if self.code_search_engine:
+            # Code search engine doesn't have explicit shutdown
+            self.code_search_engine = None
+        
+        self.initialized = False
+        logger.info("Symbol resolver shutdown completed")
+
+
+# Convenience functions for common operations
+
+async def find_symbol_definition(
+    workspace_client: QdrantWorkspaceClient,
+    symbol_name: str,
+    collections: Optional[List[str]] = None,
+    context_file: Optional[str] = None
+) -> List[SymbolResolutionResult]:
+    """
+    Convenience function to find symbol definition.
+    
+    Args:
+        workspace_client: Initialized workspace client
+        symbol_name: Name of symbol to find
+        collections: Filter by specific collections
+        context_file: Context file for disambiguation
+        
+    Returns:
+        List of symbol resolution results
+    """
+    resolver = SymbolResolver(workspace_client)
+    await resolver.initialize()
+    
+    try:
+        return await resolver.find_symbol_definitions(
+            symbol_name=symbol_name,
+            collections=collections,
+            context_file=context_file
+        )
+    finally:
+        await resolver.shutdown()
+
+
+async def resolve_function_overload(
+    workspace_client: QdrantWorkspaceClient,
+    function_name: str,
+    parameter_types: List[str],
+    return_type: Optional[str] = None,
+    collections: Optional[List[str]] = None
+) -> List[SymbolResolutionResult]:
+    """
+    Convenience function to resolve function overloads.
+    
+    Args:
+        workspace_client: Initialized workspace client
+        function_name: Name of function to resolve
+        parameter_types: Expected parameter types
+        return_type: Expected return type
+        collections: Filter by specific collections
+        
+    Returns:
+        List of resolution results ranked by signature match
+    """
+    resolver = SymbolResolver(workspace_client)
+    await resolver.initialize()
+    
+    try:
+        return await resolver.resolve_symbol_with_params(
+            symbol_name=function_name,
+            parameter_types=parameter_types,
+            return_type=return_type,
+            collections=collections
+        )
+    finally:
+        await resolver.shutdown()
+
+
+async def analyze_symbol_usage(
+    workspace_client: QdrantWorkspaceClient,
+    qualified_name: str
+) -> Dict[str, Any]:
+    """
+    Convenience function to analyze symbol usage and impact.
+    
+    Args:
+        workspace_client: Initialized workspace client  
+        qualified_name: Fully qualified symbol name
+        
+    Returns:
+        Usage analysis including references and dependencies
+    """
+    resolver = SymbolResolver(workspace_client, enable_cross_references=True)
+    await resolver.initialize()
+    
+    try:
+        return await resolver.analyze_symbol_impact(qualified_name)
+    finally:
+        await resolver.shutdown()
