@@ -1,0 +1,199 @@
+{
+  "task_154_completion": {
+    "overall_success": false,
+    "success_rate": 71.42857142857143,
+    "tests_passed": 5,
+    "tests_total": 7,
+    "validation_timestamp": 1757275251.3871381
+  },
+  "component_validation": {
+    "lsp_infrastructure": {
+      "total": 3,
+      "passed": 3,
+      "tests": [
+        {
+          "test_name": "import_lsp_client",
+          "success": true,
+          "duration_ms": 2598.8714839913882,
+          "error_message": null
+        },
+        {
+          "test_name": "import_lsp_metadata_extractor",
+          "success": true,
+          "duration_ms": 0.019926985260099173,
+          "error_message": null
+        },
+        {
+          "test_name": "import_lsp_health_monitor",
+          "success": true,
+          "duration_ms": 3.1149190035648644,
+          "error_message": null
+        }
+      ],
+      "success_rate": 100.0
+    },
+    "multi_language_support": {
+      "total": 1,
+      "passed": 1,
+      "tests": [
+        {
+          "test_name": "language_detection",
+          "success": true,
+          "duration_ms": 0.9307999862357974,
+          "error_message": null
+        }
+      ],
+      "success_rate": 100.0
+    },
+    "performance_infrastructure": {
+      "total": 1,
+      "passed": 1,
+      "tests": [
+        {
+          "test_name": "benchmark_simulation",
+          "success": true,
+          "duration_ms": 118.56155999703333,
+          "error_message": null
+        }
+      ],
+      "success_rate": 100.0
+    },
+    "metadata_synchronization": {
+      "total": 1,
+      "passed": 0,
+      "tests": [
+        {
+          "test_name": "sync_infrastructure",
+          "success": false,
+          "duration_ms": 15.46326099196449,
+          "error_message": "'SQLiteStateManager' object has no attribute 'set_file_metadata'"
+        }
+      ],
+      "success_rate": 0.0
+    },
+    "integration_points": {
+      "total": 1,
+      "passed": 0,
+      "tests": [
+        {
+          "test_name": "cli_integration",
+          "success": false,
+          "duration_ms": 3.559984004823491,
+          "error_message": "cannot import name 'LspManagementCommands' from 'src.workspace_qdrant_mcp.cli.commands.lsp_management' (/Users/chris/Dropbox/dev/ai/claude-code-cfg/mcp/workspace-qdrant-mcp/src/workspace_qdrant_mcp/cli/commands/lsp_management.py)"
+        }
+      ],
+      "success_rate": 0.0
+    }
+  },
+  "performance_metrics": {
+    "avg_test_duration_ms": 118.56155999703333,
+    "performance_tests_count": 1,
+    "meets_5ms_target": false
+  },
+  "detailed_results": [
+    {
+      "component": "lsp_infrastructure",
+      "test_name": "import_lsp_client",
+      "success": true,
+      "duration_ms": 2598.8714839913882,
+      "details": {
+        "module": "src.workspace_qdrant_mcp.core.lsp_client",
+        "classes_found": [
+          "AsyncioLspClient"
+        ],
+        "classes_expected": [
+          "AsyncioLspClient"
+        ],
+        "has_methods": true
+      },
+      "error_message": null
+    },
+    {
+      "component": "lsp_infrastructure",
+      "test_name": "import_lsp_metadata_extractor",
+      "success": true,
+      "duration_ms": 0.019926985260099173,
+      "details": {
+        "module": "src.workspace_qdrant_mcp.core.lsp_metadata_extractor",
+        "classes_found": [
+          "LspMetadataExtractor"
+        ],
+        "classes_expected": [
+          "LspMetadataExtractor"
+        ],
+        "has_methods": true
+      },
+      "error_message": null
+    },
+    {
+      "component": "lsp_infrastructure",
+      "test_name": "import_lsp_health_monitor",
+      "success": true,
+      "duration_ms": 3.1149190035648644,
+      "details": {
+        "module": "src.workspace_qdrant_mcp.core.lsp_health_monitor",
+        "classes_found": [
+          "LspHealthMonitor"
+        ],
+        "classes_expected": [
+          "LspHealthMonitor"
+        ],
+        "has_methods": true
+      },
+      "error_message": null
+    },
+    {
+      "component": "multi_language_support",
+      "test_name": "language_detection",
+      "success": true,
+      "duration_ms": 0.9307999862357974,
+      "details": {
+        "supported_languages": [
+          "python",
+          "typescript",
+          "rust",
+          "javascript"
+        ],
+        "detected_languages": {
+          ".py": "python",
+          ".ts": "typescript",
+          ".rs": "rust",
+          ".js": "javascript"
+        },
+        "language_count": 4
+      },
+      "error_message": null
+    },
+    {
+      "component": "performance_infrastructure",
+      "test_name": "benchmark_simulation",
+      "success": true,
+      "duration_ms": 118.56155999703333,
+      "details": {
+        "operations_count": 100,
+        "avg_duration_ms": 1.1848437393200584,
+        "min_duration_ms": 1.0420350008644164,
+        "max_duration_ms": 1.3218329986557364,
+        "target_duration_ms": 5.0,
+        "meets_target": true
+      },
+      "error_message": null
+    },
+    {
+      "component": "metadata_synchronization",
+      "test_name": "sync_infrastructure",
+      "success": false,
+      "duration_ms": 15.46326099196449,
+      "details": {},
+      "error_message": "'SQLiteStateManager' object has no attribute 'set_file_metadata'"
+    },
+    {
+      "component": "integration_points",
+      "test_name": "cli_integration",
+      "success": false,
+      "duration_ms": 3.559984004823491,
+      "details": {},
+      "error_message": "cannot import name 'LspManagementCommands' from 'src.workspace_qdrant_mcp.cli.commands.lsp_management' (/Users/chris/Dropbox/dev/ai/claude-code-cfg/mcp/workspace-qdrant-mcp/src/workspace_qdrant_mcp/cli/commands/lsp_management.py)"
+    }
+  ]
+}
