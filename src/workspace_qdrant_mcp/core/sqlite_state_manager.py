@@ -143,6 +143,27 @@ class ProcessingQueueItem:
             self.scheduled_at = self.created_at
 
 
+@dataclass
+class ProjectRecord:
+    """Record for tracking LSP-enabled projects."""
+
+    id: Optional[int]
+    name: str
+    root_path: str
+    collection_name: str
+    lsp_enabled: bool = False
+    last_scan: Optional[datetime] = None
+    created_at: datetime = None
+    updated_at: datetime = None
+    metadata: Optional[Dict[str, Any]] = None
+
+    def __post_init__(self):
+        if self.created_at is None:
+            self.created_at = datetime.now(timezone.utc)
+        if self.updated_at is None:
+            self.updated_at = self.created_at
+
+
 class DatabaseTransaction:
     """Context manager for ACID transactions with proper error handling."""
 
@@ -170,7 +191,7 @@ class DatabaseTransaction:
 class SQLiteStateManager:
     """SQLite-based state persistence manager with crash recovery."""
 
-    SCHEMA_VERSION = 1
+    SCHEMA_VERSION = 2  # Updated for LSP table additions
     WAL_CHECKPOINT_INTERVAL = 300  # 5 minutes
     MAINTENANCE_INTERVAL = 3600  # 1 hour
 
@@ -505,6 +526,26 @@ class SQLiteStateManager:
             )
             """,
             "CREATE INDEX idx_resource_usage_timestamp ON resource_usage(timestamp)",
+            # LSP Integration Tables (Schema Version 2+)
+            """
+            CREATE TABLE projects (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                name TEXT NOT NULL UNIQUE,
+                root_path TEXT NOT NULL UNIQUE,
+                collection_name TEXT NOT NULL,
+                lsp_enabled BOOLEAN NOT NULL DEFAULT 0,
+                last_scan TIMESTAMP,
+                created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                metadata TEXT  -- JSON for additional project configuration
+            )
+            """,
+            # Indexes for projects
+            "CREATE INDEX idx_projects_name ON projects(name)",
+            "CREATE INDEX idx_projects_root_path ON projects(root_path)",
+            "CREATE INDEX idx_projects_collection_name ON projects(collection_name)",
+            "CREATE INDEX idx_projects_lsp_enabled ON projects(lsp_enabled)",
+            "CREATE INDEX idx_projects_last_scan ON projects(last_scan)",
             # Insert initial schema version
             f"INSERT INTO schema_version (version) VALUES ({self.SCHEMA_VERSION})",
         ]
@@ -519,10 +560,38 @@ class SQLiteStateManager:
         """Migrate database schema between versions."""
         logger.info(f"Migrating database schema from {from_version} to {to_version}")
 
-        # Future migrations will be implemented here
-        # For now, we only have version 1
-
         with self.connection:
+            # Migrate from version 1 to version 2 - Add LSP tables
+            if from_version == 1 and to_version >= 2:
+                migration_sql = [
+                    # Add projects table for LSP integration
+                    """
+                    CREATE TABLE projects (
+                        id INTEGER PRIMARY KEY AUTOINCREMENT,
+                        name TEXT NOT NULL UNIQUE,
+                        root_path TEXT NOT NULL UNIQUE,
+                        collection_name TEXT NOT NULL,
+                        lsp_enabled BOOLEAN NOT NULL DEFAULT 0,
+                        last_scan TIMESTAMP,
+                        created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                        updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                        metadata TEXT  -- JSON for additional project configuration
+                    )
+                    """,
+                    # Add indexes for projects table
+                    "CREATE INDEX idx_projects_name ON projects(name)",
+                    "CREATE INDEX idx_projects_root_path ON projects(root_path)", 
+                    "CREATE INDEX idx_projects_collection_name ON projects(collection_name)",
+                    "CREATE INDEX idx_projects_lsp_enabled ON projects(lsp_enabled)",
+                    "CREATE INDEX idx_projects_last_scan ON projects(last_scan)",
+                ]
+                
+                for sql in migration_sql:
+                    self.connection.execute(sql)
+                
+                logger.info("Successfully migrated to schema version 2 (added projects table)")
+
+            # Record the migration
             self.connection.execute(
                 "INSERT INTO schema_version (version) VALUES (?)", (to_version,)
             )
@@ -2248,6 +2317,275 @@ class SQLiteStateManager:
         except Exception as e:
             logger.error(f"Failed to get database stats: {e}")
             return {"error": str(e)}
+
+    # LSP Integration - Project Management Methods
+    
+    async def create_project(self, project: ProjectRecord) -> Optional[int]:
+        """
+        Create a new project record.
+        
+        Args:
+            project: ProjectRecord to create
+            
+        Returns:
+            Project ID if created successfully, None otherwise
+        """
+        try:
+            async with self.transaction() as conn:
+                cursor = conn.execute(
+                    """
+                    INSERT INTO projects (name, root_path, collection_name, lsp_enabled, 
+                                        last_scan, metadata, created_at, updated_at)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                    """,
+                    (
+                        project.name,
+                        project.root_path,
+                        project.collection_name,
+                        project.lsp_enabled,
+                        project.last_scan,
+                        json.dumps(project.metadata) if project.metadata else None,
+                        project.created_at,
+                        project.updated_at,
+                    ),
+                )
+                
+                project_id = cursor.lastrowid
+                logger.info(f"Created project: {project.name} with ID {project_id}")
+                return project_id
+                
+        except Exception as e:
+            logger.error(f"Failed to create project {project.name}: {e}")
+            return None
+
+    async def get_project(self, project_id: int) -> Optional[ProjectRecord]:
+        """
+        Get project by ID.
+        
+        Args:
+            project_id: Project ID to retrieve
+            
+        Returns:
+            ProjectRecord if found, None otherwise
+        """
+        try:
+            async with self.transaction() as conn:
+                cursor = conn.execute(
+                    """
+                    SELECT id, name, root_path, collection_name, lsp_enabled, 
+                           last_scan, created_at, updated_at, metadata
+                    FROM projects WHERE id = ?
+                    """,
+                    (project_id,),
+                )
+                
+                row = cursor.fetchone()
+                if row:
+                    return ProjectRecord(
+                        id=row[0],
+                        name=row[1],
+                        root_path=row[2],
+                        collection_name=row[3],
+                        lsp_enabled=bool(row[4]),
+                        last_scan=datetime.fromisoformat(row[5]) if row[5] else None,
+                        created_at=datetime.fromisoformat(row[6]),
+                        updated_at=datetime.fromisoformat(row[7]),
+                        metadata=json.loads(row[8]) if row[8] else None,
+                    )
+                    
+        except Exception as e:
+            logger.error(f"Failed to get project {project_id}: {e}")
+        
+        return None
+        
+    async def get_project_by_path(self, root_path: str) -> Optional[ProjectRecord]:
+        """
+        Get project by root path.
+        
+        Args:
+            root_path: Project root path
+            
+        Returns:
+            ProjectRecord if found, None otherwise
+        """
+        try:
+            async with self.transaction() as conn:
+                cursor = conn.execute(
+                    """
+                    SELECT id, name, root_path, collection_name, lsp_enabled, 
+                           last_scan, created_at, updated_at, metadata
+                    FROM projects WHERE root_path = ?
+                    """,
+                    (root_path,),
+                )
+                
+                row = cursor.fetchone()
+                if row:
+                    return ProjectRecord(
+                        id=row[0],
+                        name=row[1],
+                        root_path=row[2],
+                        collection_name=row[3],
+                        lsp_enabled=bool(row[4]),
+                        last_scan=datetime.fromisoformat(row[5]) if row[5] else None,
+                        created_at=datetime.fromisoformat(row[6]),
+                        updated_at=datetime.fromisoformat(row[7]),
+                        metadata=json.loads(row[8]) if row[8] else None,
+                    )
+                    
+        except Exception as e:
+            logger.error(f"Failed to get project by path {root_path}: {e}")
+        
+        return None
+
+    async def update_project(self, project: ProjectRecord) -> bool:
+        """
+        Update an existing project.
+        
+        Args:
+            project: ProjectRecord with updated values
+            
+        Returns:
+            True if updated successfully
+        """
+        if not project.id:
+            logger.error("Cannot update project without ID")
+            return False
+            
+        try:
+            project.updated_at = datetime.now(timezone.utc)
+            
+            async with self.transaction() as conn:
+                cursor = conn.execute(
+                    """
+                    UPDATE projects 
+                    SET name = ?, root_path = ?, collection_name = ?, 
+                        lsp_enabled = ?, last_scan = ?, metadata = ?, updated_at = ?
+                    WHERE id = ?
+                    """,
+                    (
+                        project.name,
+                        project.root_path,
+                        project.collection_name,
+                        project.lsp_enabled,
+                        project.last_scan,
+                        json.dumps(project.metadata) if project.metadata else None,
+                        project.updated_at,
+                        project.id,
+                    ),
+                )
+                
+                if cursor.rowcount > 0:
+                    logger.info(f"Updated project {project.id}: {project.name}")
+                    return True
+                else:
+                    logger.warning(f"No project found with ID {project.id}")
+                    return False
+                    
+        except Exception as e:
+            logger.error(f"Failed to update project {project.id}: {e}")
+            return False
+
+    async def delete_project(self, project_id: int) -> bool:
+        """
+        Delete a project.
+        
+        Args:
+            project_id: Project ID to delete
+            
+        Returns:
+            True if deleted successfully
+        """
+        try:
+            async with self.transaction() as conn:
+                cursor = conn.execute("DELETE FROM projects WHERE id = ?", (project_id,))
+                
+                if cursor.rowcount > 0:
+                    logger.info(f"Deleted project {project_id}")
+                    return True
+                else:
+                    logger.warning(f"No project found with ID {project_id}")
+                    return False
+                    
+        except Exception as e:
+            logger.error(f"Failed to delete project {project_id}: {e}")
+            return False
+
+    async def list_projects(self, lsp_enabled_only: bool = False) -> List[ProjectRecord]:
+        """
+        List all projects.
+        
+        Args:
+            lsp_enabled_only: If True, only return LSP-enabled projects
+            
+        Returns:
+            List of ProjectRecord objects
+        """
+        projects = []
+        
+        try:
+            async with self.transaction() as conn:
+                query = """
+                    SELECT id, name, root_path, collection_name, lsp_enabled, 
+                           last_scan, created_at, updated_at, metadata
+                    FROM projects
+                """
+                
+                params = []
+                if lsp_enabled_only:
+                    query += " WHERE lsp_enabled = 1"
+                    
+                query += " ORDER BY name"
+                
+                cursor = conn.execute(query, params)
+                
+                for row in cursor:
+                    projects.append(ProjectRecord(
+                        id=row[0],
+                        name=row[1],
+                        root_path=row[2],
+                        collection_name=row[3],
+                        lsp_enabled=bool(row[4]),
+                        last_scan=datetime.fromisoformat(row[5]) if row[5] else None,
+                        created_at=datetime.fromisoformat(row[6]),
+                        updated_at=datetime.fromisoformat(row[7]),
+                        metadata=json.loads(row[8]) if row[8] else None,
+                    ))
+                    
+        except Exception as e:
+            logger.error(f"Failed to list projects: {e}")
+            
+        return projects
+
+    async def update_project_scan_time(self, project_id: int) -> bool:
+        """
+        Update the last scan time for a project.
+        
+        Args:
+            project_id: Project ID to update
+            
+        Returns:
+            True if updated successfully
+        """
+        try:
+            now = datetime.now(timezone.utc)
+            
+            async with self.transaction() as conn:
+                cursor = conn.execute(
+                    "UPDATE projects SET last_scan = ?, updated_at = ? WHERE id = ?",
+                    (now, now, project_id),
+                )
+                
+                if cursor.rowcount > 0:
+                    logger.debug(f"Updated scan time for project {project_id}")
+                    return True
+                else:
+                    logger.warning(f"No project found with ID {project_id}")
+                    return False
+                    
+        except Exception as e:
+            logger.error(f"Failed to update scan time for project {project_id}: {e}")
+            return False
 
 
 # Graceful shutdown handler
