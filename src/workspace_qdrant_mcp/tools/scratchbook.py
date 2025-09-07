@@ -64,6 +64,7 @@ from typing import Optional
 from qdrant_client.http import models
 
 from ..core.client import QdrantWorkspaceClient
+from ..core.collection_naming import CollectionPermissionError
 from ..core.hybrid_search import HybridSearchEngine
 from ..core.sparse_vectors import create_qdrant_sparse_vector
 
@@ -176,6 +177,12 @@ class ScratchbookManager:
             # Determine collection name using configured collections
             collection_name = self._get_scratchbook_collection_name(project_name)
 
+            # Check if MCP server can write to this collection
+            try:
+                self.client.collection_manager.validate_mcp_write_access(collection_name)
+            except CollectionPermissionError as e:
+                return {"error": str(e)}
+
             # Ensure collection exists (create automatically if needed)
             try:
                 await self.client.ensure_collection_exists(collection_name)
@@ -283,6 +290,12 @@ class ScratchbookManager:
         try:
             # Determine collection name using configured collections
             collection_name = self._get_scratchbook_collection_name(project_name)
+
+            # Check if MCP server can write to this collection
+            try:
+                self.client.collection_manager.validate_mcp_write_access(collection_name)
+            except CollectionPermissionError as e:
+                return {"error": str(e)}
 
             # Find existing note
             existing_points = self.client.client.scroll(
