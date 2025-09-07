@@ -72,7 +72,14 @@ from ..core.lsp_metadata_extractor import (
     CodeSymbol, SymbolKind, SymbolRelationship, RelationshipType, 
     Position, Range, TypeInformation, Documentation
 )
-from .code_search import CodeSearchEngine, CodeSearchResult, SymbolSearchType
+# Import code search components with fallback
+try:
+    from .code_search import CodeSearchEngine, CodeSearchResult, SymbolSearchType
+except ImportError:
+    # Fallback definitions for when code_search dependencies aren't available
+    CodeSearchEngine = None
+    CodeSearchResult = None
+    SymbolSearchType = None
 from .search import search_workspace, search_collection_by_metadata
 from .symbol_resolver import SymbolResolver, SymbolLocation
 
