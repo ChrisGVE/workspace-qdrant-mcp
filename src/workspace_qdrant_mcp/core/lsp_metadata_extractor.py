@@ -720,6 +720,293 @@ class JavaScriptExtractor(LanguageSpecificExtractor):
         return context_before, context_after
 
 
+class JavaExtractor(LanguageSpecificExtractor):
+    """Language-specific extractor for Java code"""
+    
+    def extract_documentation(self, source_lines: List[str], symbol_range: Range) -> Documentation:
+        """Extract Java Javadoc comments and regular comments"""
+        doc = Documentation()
+        start_line = symbol_range.start.line
+        
+        # Look for Javadoc comments before the symbol
+        javadoc_lines = []
+        for i in range(start_line - 1, max(0, start_line - 20), -1):
+            if i >= 0:
+                line = source_lines[i].strip()
+                if line.startswith("/**"):
+                    # Multi-line Javadoc comment
+                    for j in range(i, start_line):
+                        comment_line = source_lines[j].strip()
+                        if comment_line.startswith("/**"):
+                            javadoc_lines.append(comment_line[3:].strip())
+                        elif comment_line.startswith("*/"):
+                            break
+                        elif comment_line.startswith("*"):
+                            content = comment_line[1:].strip()
+                            if content.startswith("@"):
+                                # Javadoc tag
+                                tag_match = re.match(r'@(\w+)\s*(.*)', content)
+                                if tag_match:
+                                    tag_name, tag_content = tag_match.groups()
+                                    if tag_name not in doc.tags:
+                                        doc.tags[tag_name] = []
+                                    doc.tags[tag_name].append(tag_content.strip())
+                            else:
+                                javadoc_lines.append(content)
+                    break
+                elif not line or line.startswith("//"):
+                    continue
+                else:
+                    break
+        
+        if javadoc_lines:
+            doc.docstring = "\n".join(javadoc_lines)
+        
+        return doc
+    
+    def extract_type_information(self, symbol_data: Dict[str, Any], hover_data: Optional[Dict[str, Any]]) -> TypeInformation:
+        """Extract Java type information"""
+        type_info = TypeInformation()
+        
+        if hover_data and hover_data.get("contents"):
+            contents = hover_data["contents"]
+            if isinstance(contents, dict) and contents.get("value"):
+                type_text = contents["value"]
+                type_info.type_signature = type_text.strip()
+                
+                # Extract return type from method signature
+                if " -> " in type_text or ":" in type_text:
+                    # Look for return type patterns
+                    return_match = re.search(r':\s*([A-Za-z_][A-Za-z0-9_<>[\],\s]*)', type_text)
+                    if return_match:
+                        type_info.return_type = return_match.group(1).strip()
+        
+        return type_info
+    
+    def extract_imports_exports(self, source_lines: List[str]) -> Tuple[List[str], List[str]]:
+        """Extract Java import statements and public declarations"""
+        imports = []
+        exports = []
+        
+        for line in source_lines:
+            line = line.strip()
+            
+            # Import statements
+            if line.startswith("import "):
+                imports.append(line)
+            
+            # Public declarations (exports)
+            if line.startswith("public "):
+                exports.append(line)
+        
+        return imports, exports
+    
+    def get_minimal_context(self, source_lines: List[str], symbol_range: Range) -> Tuple[List[str], List[str]]:
+        """Get minimal context for Java symbols"""
+        start_line = symbol_range.start.line
+        
+        context_before = []
+        for i in range(start_line - 1, max(0, start_line - 2), -1):
+            if i >= 0:
+                line = source_lines[i].strip()
+                if line and not line.startswith("//") and not line.startswith("/*"):
+                    context_before.insert(0, source_lines[i])
+                    if len(context_before) >= 1:
+                        break
+        
+        context_after = []
+        return context_before, context_after
+
+
+class GoExtractor(LanguageSpecificExtractor):
+    """Language-specific extractor for Go code"""
+    
+    def extract_documentation(self, source_lines: List[str], symbol_range: Range) -> Documentation:
+        """Extract Go doc comments"""
+        doc = Documentation()
+        start_line = symbol_range.start.line
+        
+        # Look for doc comments before the symbol (// comments immediately before)
+        doc_lines = []
+        for i in range(start_line - 1, max(0, start_line - 10), -1):
+            if i >= 0:
+                line = source_lines[i].strip()
+                if line.startswith("//"):
+                    doc_lines.insert(0, line[2:].strip())
+                elif not line:
+                    continue  # Allow empty lines
+                else:
+                    break
+        
+        if doc_lines:
+            doc.docstring = "\n".join(doc_lines)
+        
+        return doc
+    
+    def extract_type_information(self, symbol_data: Dict[str, Any], hover_data: Optional[Dict[str, Any]]) -> TypeInformation:
+        """Extract Go type information"""
+        type_info = TypeInformation()
+        
+        if hover_data and hover_data.get("contents"):
+            contents = hover_data["contents"]
+            if isinstance(contents, dict) and contents.get("value"):
+                type_text = contents["value"]
+                type_info.type_signature = type_text.strip()
+                
+                # Extract return type from function signature
+                if "func " in type_text:
+                    # Look for return type after closing parenthesis
+                    paren_match = re.search(r'\)\s*([A-Za-z_][A-Za-z0-9_*\[\]]*)', type_text)
+                    if paren_match:
+                        type_info.return_type = paren_match.group(1).strip()
+        
+        return type_info
+    
+    def extract_imports_exports(self, source_lines: List[str]) -> Tuple[List[str], List[str]]:
+        """Extract Go import statements and exported symbols"""
+        imports = []
+        exports = []
+        
+        in_import_block = False
+        for line in source_lines:
+            line_stripped = line.strip()
+            
+            # Import statements
+            if line_stripped.startswith("import "):
+                if "(" in line_stripped:
+                    in_import_block = True
+                imports.append(line_stripped)
+            elif in_import_block:
+                if ")" in line_stripped:
+                    in_import_block = False
+                    imports.append(line_stripped)
+                elif line_stripped and not line_stripped.startswith("//"):
+                    imports.append(line_stripped)
+            
+            # Exported symbols (start with capital letter)
+            if (line_stripped.startswith("func ") or 
+                line_stripped.startswith("type ") or 
+                line_stripped.startswith("var ") or 
+                line_stripped.startswith("const ")):
+                # Check if the symbol name starts with capital letter (exported)
+                words = line_stripped.split()
+                if len(words) >= 2:
+                    symbol_name = words[1].split("(")[0]  # Remove parameters
+                    if symbol_name and symbol_name[0].isupper():
+                        exports.append(line_stripped)
+        
+        return imports, exports
+    
+    def get_minimal_context(self, source_lines: List[str], symbol_range: Range) -> Tuple[List[str], List[str]]:
+        """Get minimal context for Go symbols"""
+        start_line = symbol_range.start.line
+        
+        context_before = []
+        for i in range(start_line - 1, max(0, start_line - 2), -1):
+            if i >= 0:
+                line = source_lines[i].strip()
+                if line and not line.startswith("//"):
+                    context_before.insert(0, source_lines[i])
+                    if len(context_before) >= 1:
+                        break
+        
+        context_after = []
+        return context_before, context_after
+
+
+class CppExtractor(LanguageSpecificExtractor):
+    """Language-specific extractor for C/C++ code"""
+    
+    def extract_documentation(self, source_lines: List[str], symbol_range: Range) -> Documentation:
+        """Extract C/C++ doc comments (/// and /** */)"""
+        doc = Documentation()
+        start_line = symbol_range.start.line
+        
+        # Look for doc comments before the symbol
+        doc_lines = []
+        for i in range(start_line - 1, max(0, start_line - 15), -1):
+            if i >= 0:
+                line = source_lines[i].strip()
+                if line.startswith("///"):
+                    doc_lines.insert(0, line[3:].strip())
+                elif line.startswith("/**"):
+                    # Multi-line doc comment
+                    comment_lines = [line[3:].strip()]
+                    for j in range(i + 1, start_line):
+                        comment_line = source_lines[j].strip()
+                        if comment_line.endswith("*/"):
+                            comment_lines.append(comment_line[:-2].strip())
+                            break
+                        else:
+                            comment_lines.append(comment_line.lstrip("* "))
+                    doc_lines = comment_lines + doc_lines
+                    break
+                elif line.startswith("//") or not line:
+                    continue
+                else:
+                    break
+        
+        if doc_lines:
+            doc.docstring = "\n".join(doc_lines)
+        
+        return doc
+    
+    def extract_type_information(self, symbol_data: Dict[str, Any], hover_data: Optional[Dict[str, Any]]) -> TypeInformation:
+        """Extract C/C++ type information"""
+        type_info = TypeInformation()
+        
+        if hover_data and hover_data.get("contents"):
+            contents = hover_data["contents"]
+            if isinstance(contents, dict) and contents.get("value"):
+                type_text = contents["value"]
+                type_info.type_signature = type_text.strip()
+                
+                # Extract return type from function signature
+                if "(" in type_text and ")" in type_text:
+                    # Try to find return type before function name
+                    func_match = re.search(r'([A-Za-z_][A-Za-z0-9_*&:<>]+)\s+\w+\s*\(', type_text)
+                    if func_match:
+                        type_info.return_type = func_match.group(1).strip()
+        
+        return type_info
+    
+    def extract_imports_exports(self, source_lines: List[str]) -> Tuple[List[str], List[str]]:
+        """Extract C/C++ include statements and exported symbols"""
+        imports = []
+        exports = []
+        
+        for line in source_lines:
+            line = line.strip()
+            
+            # Include statements
+            if line.startswith("#include "):
+                imports.append(line)
+            
+            # Exported symbols (extern or in header context)
+            if (line.startswith("extern ") or 
+                (line.startswith("class ") or line.startswith("struct ")) or
+                line.startswith("namespace ")):
+                exports.append(line)
+        
+        return imports, exports
+    
+    def get_minimal_context(self, source_lines: List[str], symbol_range: Range) -> Tuple[List[str], List[str]]:
+        """Get minimal context for C/C++ symbols"""
+        start_line = symbol_range.start.line
+        
+        context_before = []
+        for i in range(start_line - 1, max(0, start_line - 2), -1):
+            if i >= 0:
+                line = source_lines[i].strip()
+                if line and not line.startswith("//") and not line.startswith("/*"):
+                    context_before.insert(0, source_lines[i])
+                    if len(context_before) >= 1:
+                        break
+        
+        context_after = []
+        return context_before, context_after
+
+
 class LspMetadataExtractor:
     """
     Main LSP-based code metadata extraction system.
@@ -768,6 +1055,10 @@ class LspMetadataExtractor:
             "rust": RustExtractor(), 
             "javascript": JavaScriptExtractor(),
             "typescript": JavaScriptExtractor(),  # TypeScript uses same extractor as JS
+            "java": JavaExtractor(),
+            "go": GoExtractor(),
+            "c": CppExtractor(),
+            "cpp": CppExtractor(),
         }
         
         # Language server configurations
