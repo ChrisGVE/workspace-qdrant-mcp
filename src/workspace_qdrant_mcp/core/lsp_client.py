@@ -8,6 +8,7 @@ JSON-RPC communication, request/response handling, and streaming notification pr
 import asyncio
 import json
 import os
+import subprocess
 import uuid
 from contextlib import asynccontextmanager
 from dataclasses import dataclass, field
@@ -30,6 +31,13 @@ class ConnectionState(Enum):
     CONNECTED = "connected"
     ERROR = "error"
     DISCONNECTING = "disconnecting"
+
+
+class CommunicationMode(Enum):
+    """LSP communication modes"""
+    STDIO = "stdio"
+    TCP = "tcp"
+    MANUAL = "manual"  # Manual stream provision
 
 
 class LspError(WorkspaceError):
@@ -316,6 +324,12 @@ class AsyncioLspClient:
         self._initialized = False
         self._server_capabilities: Optional[ServerCapabilities] = None
         
+        # Communication mode management
+        self._communication_mode = CommunicationMode.MANUAL
+        self._server_process: Optional[asyncio.subprocess.Process] = None
+        self._tcp_host: Optional[str] = None
+        self._tcp_port: Optional[int] = None
+        
         # Background tasks
         self._message_reader_task: Optional[asyncio.Task] = None
         self._shutdown_event = asyncio.Event()
@@ -350,13 +364,184 @@ class AsyncioLspClient:
         """Get server capabilities (available after initialization)"""
         return self._server_capabilities
 
+    @property
+    def communication_mode(self) -> CommunicationMode:
+        """Get current communication mode"""
+        return self._communication_mode
+
+    async def connect_stdio(
+        self,
+        server_command: List[str],
+        server_args: Optional[List[str]] = None,
+        cwd: Optional[str] = None,
+        env: Optional[Dict[str, str]] = None,
+    ) -> None:
+        """
+        Connect to an LSP server via stdio subprocess.
+        
+        Args:
+            server_command: Command and arguments to start the LSP server
+            server_args: Additional arguments for the server
+            cwd: Working directory for the server process
+            env: Environment variables for the server process
+        """
+        if self._connection_state != ConnectionState.DISCONNECTED:
+            raise LspError(
+                "Cannot connect: client is not in disconnected state",
+                server_name=self._server_name,
+                context={"current_state": self._connection_state.value},
+            )
+
+        command = server_command + (server_args or [])
+        logger.info(
+            "Starting LSP server via stdio",
+            server_name=self._server_name,
+            command=command,
+        )
+        
+        self._connection_state = ConnectionState.CONNECTING
+        
+        try:
+            # Start the LSP server process
+            self._server_process = await asyncio.create_subprocess_exec(
+                *command,
+                stdin=asyncio.subprocess.PIPE,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE,
+                cwd=cwd,
+                env=env,
+            )
+            
+            if not self._server_process.stdin or not self._server_process.stdout:
+                raise LspError(
+                    "Failed to create stdio pipes for LSP server",
+                    server_name=self._server_name,
+                )
+            
+            # Connect using the process streams
+            reader = asyncio.StreamReader()
+            protocol = asyncio.StreamReaderProtocol(reader)
+            await asyncio.get_event_loop().connect_read_pipe(
+                lambda: protocol, self._server_process.stdout
+            )
+            
+            writer = asyncio.StreamWriter(
+                self._server_process.stdin,
+                protocol,
+                reader,
+                asyncio.get_event_loop(),
+            )
+            
+            self._communication_mode = CommunicationMode.STDIO
+            await self._connect_streams(reader, writer)
+            
+            logger.info(
+                "Connected to LSP server via stdio",
+                server_name=self._server_name,
+                pid=self._server_process.pid,
+            )
+            
+        except Exception as e:
+            self._connection_state = ConnectionState.ERROR
+            if self._server_process:
+                try:
+                    self._server_process.terminate()
+                    await self._server_process.wait()
+                except:
+                    pass
+                self._server_process = None
+            
+            logger.error(
+                "Failed to connect to LSP server via stdio",
+                server_name=self._server_name,
+                command=command,
+                error=str(e),
+            )
+            raise LspError(
+                f"Failed to connect to LSP server via stdio: {e}",
+                server_name=self._server_name,
+                cause=e,
+            ) from e
+
+    async def connect_tcp(
+        self,
+        host: str = "localhost",
+        port: int = 9257,
+        connect_timeout: float = 10.0,
+    ) -> None:
+        """
+        Connect to an LSP server via TCP socket.
+        
+        Args:
+            host: Server hostname or IP address
+            port: Server port number  
+            connect_timeout: Connection timeout in seconds
+        """
+        if self._connection_state != ConnectionState.DISCONNECTED:
+            raise LspError(
+                "Cannot connect: client is not in disconnected state",
+                server_name=self._server_name,
+                context={"current_state": self._connection_state.value},
+            )
+
+        logger.info(
+            "Connecting to LSP server via TCP",
+            server_name=self._server_name,
+            host=host,
+            port=port,
+        )
+        
+        self._connection_state = ConnectionState.CONNECTING
+        
+        try:
+            # Connect to TCP socket
+            reader, writer = await asyncio.wait_for(
+                asyncio.open_connection(host, port),
+                timeout=connect_timeout,
+            )
+            
+            self._tcp_host = host
+            self._tcp_port = port
+            self._communication_mode = CommunicationMode.TCP
+            
+            await self._connect_streams(reader, writer)
+            
+            logger.info(
+                "Connected to LSP server via TCP",
+                server_name=self._server_name,
+                host=host,
+                port=port,
+            )
+            
+        except asyncio.TimeoutError:
+            self._connection_state = ConnectionState.ERROR
+            raise LspTimeoutError(
+                "TCP connection",
+                connect_timeout,
+                server_name=self._server_name,
+            )
+        except Exception as e:
+            self._connection_state = ConnectionState.ERROR
+            logger.error(
+                "Failed to connect to LSP server via TCP",
+                server_name=self._server_name,
+                host=host,
+                port=port,
+                error=str(e),
+            )
+            raise LspError(
+                f"Failed to connect to LSP server via TCP: {e}",
+                server_name=self._server_name,
+                cause=e,
+            ) from e
+
     async def connect(
         self, 
         reader: asyncio.StreamReader, 
         writer: asyncio.StreamWriter
     ) -> None:
         """
-        Connect the LSP client to a server via stdio streams.
+        Connect the LSP client to a server via manually provided streams.
         
         Args:
             reader: StreamReader for receiving messages
@@ -369,37 +554,52 @@ class AsyncioLspClient:
                 context={"current_state": self._connection_state.value},
             )
 
-        logger.info("Connecting to LSP server", server_name=self._server_name)
+        logger.info("Connecting to LSP server via manual streams", server_name=self._server_name)
         self._connection_state = ConnectionState.CONNECTING
         
         try:
-            self._reader = reader
-            self._writer = writer
-            self._shutdown_event.clear()
-            
-            # Start background tasks
-            self._message_reader_task = asyncio.create_task(
-                self._message_reader_loop()
-            )
-            self._request_cleanup_task = asyncio.create_task(
-                self._request_cleanup_loop()
-            )
-            
-            self._connection_state = ConnectionState.CONNECTED
-            logger.info("LSP client connected", server_name=self._server_name)
+            self._communication_mode = CommunicationMode.MANUAL
+            await self._connect_streams(reader, writer)
+            logger.info("LSP client connected via manual streams", server_name=self._server_name)
             
         except Exception as e:
             self._connection_state = ConnectionState.ERROR
             logger.error(
-                "Failed to connect LSP client",
+                "Failed to connect LSP client via manual streams",
                 server_name=self._server_name,
                 error=str(e),
             )
             raise LspError(
-                f"Failed to connect to LSP server: {e}",
+                f"Failed to connect to LSP server via manual streams: {e}",
                 server_name=self._server_name,
                 cause=e,
             ) from e
+
+    async def _connect_streams(
+        self,
+        reader: asyncio.StreamReader,
+        writer: asyncio.StreamWriter,
+    ) -> None:
+        """
+        Internal method to establish connection using provided streams.
+        
+        Args:
+            reader: StreamReader for receiving messages
+            writer: StreamWriter for sending messages
+        """
+        self._reader = reader
+        self._writer = writer
+        self._shutdown_event.clear()
+        
+        # Start background tasks
+        self._message_reader_task = asyncio.create_task(
+            self._message_reader_loop()
+        )
+        self._request_cleanup_task = asyncio.create_task(
+            self._request_cleanup_loop()
+        )
+        
+        self._connection_state = ConnectionState.CONNECTED
 
     async def disconnect(self) -> None:
         """Disconnect from the LSP server"""
@@ -444,6 +644,28 @@ class AsyncioLspClient:
         self._reader = None
         self._writer = None
         self._connection_state = ConnectionState.DISCONNECTED
+        
+        # Terminate server process if stdio mode
+        if self._communication_mode == CommunicationMode.STDIO and self._server_process:
+            logger.debug("Terminating LSP server process", server_name=self._server_name)
+            try:
+                self._server_process.terminate()
+                await asyncio.wait_for(self._server_process.wait(), timeout=5.0)
+            except asyncio.TimeoutError:
+                logger.warning("LSP server process did not terminate gracefully, killing", 
+                             server_name=self._server_name)
+                self._server_process.kill()
+                await self._server_process.wait()
+            except Exception as e:
+                logger.warning("Error terminating LSP server process", 
+                             server_name=self._server_name, error=str(e))
+            finally:
+                self._server_process = None
+        
+        # Reset connection state
+        self._communication_mode = CommunicationMode.MANUAL
+        self._tcp_host = None
+        self._tcp_port = None
         
         # Reset initialization state
         self._initialized = False
@@ -1017,6 +1239,7 @@ class AsyncioLspClient:
         stats = {
             "server_name": self._server_name,
             "connection_state": self._connection_state.value,
+            "communication_mode": self._communication_mode.value,
             "initialized": self._initialized,
             "pending_requests": len(self._pending_requests),
             "notification_handlers": {
@@ -1025,6 +1248,14 @@ class AsyncioLspClient:
             },
             "global_handlers": len(self._global_handlers),
         }
+        
+        # Add communication-specific details
+        if self._communication_mode == CommunicationMode.STDIO and self._server_process:
+            stats["process_id"] = self._server_process.pid
+            stats["process_returncode"] = self._server_process.returncode
+        elif self._communication_mode == CommunicationMode.TCP:
+            stats["tcp_host"] = self._tcp_host
+            stats["tcp_port"] = self._tcp_port
         
         # Add server capabilities if available
         if self._server_capabilities:
