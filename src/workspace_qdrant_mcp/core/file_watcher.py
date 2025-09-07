@@ -2,7 +2,8 @@
 File watching system for automatic library collection ingestion.
 
 This module provides file system monitoring capabilities for library collections,
-enabling automatic ingestion of new and modified files.
+enabling automatic ingestion of new and modified files with sophisticated 
+language-aware filtering.
 """
 
 import asyncio
@@ -15,6 +16,8 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional, Set
 
 from watchfiles import Change, awatch
+
+from .language_filters import LanguageAwareFilter
 
 logger = logging.getLogger(__name__)
 
@@ -47,6 +50,8 @@ class WatchConfiguration:
     status: str = "active"  # active, paused, error
     files_processed: int = 0
     errors_count: int = 0
+    files_filtered: int = 0  # New: track filtered files
+    use_language_filtering: bool = True  # New: enable/disable language-aware filtering
 
     def to_dict(self) -> dict[str, Any]:
         """Convert to dictionary for JSON serialization."""
@@ -83,6 +88,7 @@ class FileWatcher:
         config: WatchConfiguration,
         ingestion_callback: Callable[[str, str], None],
         event_callback: Callable[[WatchEvent], None] | None = None,
+        filter_config_path: str | None = None,
     ):
         """
         Initialize file watcher.
@@ -91,6 +97,7 @@ class FileWatcher:
             config: Watch configuration
             ingestion_callback: Callback for file ingestion (file_path, collection)
             event_callback: Optional callback for watch events
+            filter_config_path: Path to language filter configuration directory
         """
         self.config = config
         self.ingestion_callback = ingestion_callback
@@ -98,12 +105,30 @@ class FileWatcher:
         self._running = False
         self._task: asyncio.Task | None = None
         self._debounce_tasks: dict[str, asyncio.Task] = {}
+        
+        # Initialize language-aware filtering
+        self.language_filter: LanguageAwareFilter | None = None
+        if config.use_language_filtering:
+            self.language_filter = LanguageAwareFilter(filter_config_path)
+            # Load configuration asynchronously when starting
+        
+        logger.debug(f"FileWatcher initialized with language filtering: {config.use_language_filtering}")
 
     async def start(self) -> None:
         """Start watching the directory."""
         if self._running:
             logger.warning(f"Watcher for {self.config.path} is already running")
             return
+
+        # Initialize language filter if enabled
+        if self.language_filter:
+            try:
+                await self.language_filter.load_configuration()
+                logger.info(f"Language-aware filtering initialized for watcher {self.config.id}")
+            except Exception as e:
+                logger.error(f"Failed to initialize language filtering: {e}")
+                logger.info("Falling back to basic pattern matching")
+                self.language_filter = None
 
         self._running = True
         self.config.status = "active"
@@ -148,6 +173,30 @@ class FileWatcher:
     def is_running(self) -> bool:
         """Check if watcher is currently running."""
         return self._running and self._task is not None and not self._task.done()
+    
+    def get_filter_statistics(self) -> Dict[str, Any]:
+        """Get language filtering statistics if available."""
+        if self.language_filter:
+            stats = self.language_filter.get_statistics()
+            return {
+                "language_filtering": True,
+                "filter_config_summary": self.language_filter.get_configuration_summary(),
+                "detailed_stats": stats.to_dict(),
+            }
+        else:
+            return {
+                "language_filtering": False,
+                "files_filtered": self.config.files_filtered,
+                "files_processed": self.config.files_processed,
+                "filter_method": "basic_patterns"
+            }
+    
+    def reset_filter_statistics(self) -> None:
+        """Reset filtering statistics."""
+        if self.language_filter:
+            self.language_filter.reset_statistics()
+        self.config.files_filtered = 0
+        self.config.files_processed = 0
 
     async def _watch_loop(self) -> None:
         """Main watching loop."""
@@ -180,13 +229,22 @@ class FileWatcher:
             if not file_path.is_file():
                 continue
 
-            # Check if file matches patterns
-            if not self._matches_patterns(file_path):
-                continue
+            # Use language-aware filtering if available, otherwise fall back to basic pattern matching
+            if self.language_filter:
+                should_process, reason = self.language_filter.should_process_file(file_path)
+                if not should_process:
+                    self.config.files_filtered += 1
+                    logger.debug(f"Language filter rejected {file_path}: {reason}")
+                    continue
+            else:
+                # Fallback to basic pattern matching
+                if not self._matches_patterns(file_path):
+                    self.config.files_filtered += 1
+                    continue
 
-            # Check ignore patterns
-            if self._matches_ignore_patterns(file_path):
-                continue
+                if self._matches_ignore_patterns(file_path):
+                    self.config.files_filtered += 1
+                    continue
 
             # Create watch event
             change_name = self._get_change_name(change_type)
@@ -288,12 +346,17 @@ class WatchManager:
     and coordination between multiple directory watches.
     """
 
-    def __init__(self, config_file: str | None = None):
+    def __init__(
+        self, 
+        config_file: str | None = None,
+        filter_config_path: str | None = None
+    ):
         """
         Initialize watch manager.
 
         Args:
             config_file: Path to configuration file (default: ~/.wqm/watches.json)
+            filter_config_path: Path to language filter configuration directory
         """
         if config_file:
             self.config_file = Path(config_file)
@@ -307,6 +370,7 @@ class WatchManager:
         self.configurations: dict[str, WatchConfiguration] = {}
         self.ingestion_callback: Callable[[str, str], None] | None = None
         self.event_callback: Callable[[WatchEvent], None] | None = None
+        self.filter_config_path = filter_config_path
 
     def set_ingestion_callback(self, callback: Callable[[str, str], None]) -> None:
         """Set the ingestion callback for all watchers."""
@@ -474,6 +538,7 @@ class WatchManager:
             config=config,
             ingestion_callback=self.ingestion_callback,
             event_callback=self.event_callback,
+            filter_config_path=self.filter_config_path,
         )
 
         await watcher.start()
@@ -509,3 +574,39 @@ class WatchManager:
             configs = [c for c in configs if c.collection == collection]
 
         return sorted(configs, key=lambda c: c.created_at)
+    
+    def get_all_filter_statistics(self) -> Dict[str, Any]:
+        """Get filtering statistics from all watchers."""
+        all_stats = {}
+        total_files_checked = 0
+        total_files_processed = 0
+        total_files_filtered = 0
+        
+        for watch_id, watcher in self.watchers.items():
+            watcher_stats = watcher.get_filter_statistics()
+            all_stats[watch_id] = watcher_stats
+            
+            if watcher_stats.get("language_filtering", False):
+                detailed_stats = watcher_stats.get("detailed_stats", {})
+                total_files_checked += detailed_stats.get("total_files_checked", 0)
+                total_files_processed += detailed_stats.get("files_processed", 0)
+                total_files_filtered += detailed_stats.get("files_filtered_out", 0)
+            else:
+                total_files_processed += watcher_stats.get("files_processed", 0)
+                total_files_filtered += watcher_stats.get("files_filtered", 0)
+        
+        return {
+            "individual_watchers": all_stats,
+            "summary": {
+                "total_watchers": len(self.watchers),
+                "total_files_checked": total_files_checked,
+                "total_files_processed": total_files_processed,
+                "total_files_filtered": total_files_filtered,
+                "filter_efficiency": total_files_filtered / max(1, total_files_checked) if total_files_checked > 0 else 0.0
+            }
+        }
+    
+    def reset_all_filter_statistics(self) -> None:
+        """Reset filtering statistics for all watchers."""
+        for watcher in self.watchers.values():
+            watcher.reset_filter_statistics()
