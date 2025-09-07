@@ -37,6 +37,7 @@ Example:
 
 import asyncio
 import hashlib
+import json
 import logging
 import os
 import time
@@ -478,10 +479,32 @@ class DifferentialUpdater:
             return None
     
     async def _generate_embeddings(self, content: str) -> Optional[List[float]]:
-        """Generate embeddings for content."""
-        # Placeholder - would integrate with actual embedding service
-        # This would use the existing embeddings module
-        return None
+        """Generate embeddings for content using EmbeddingService."""
+        try:
+            # Import here to avoid circular imports
+            from .embeddings import EmbeddingService
+            from .config import Config
+            
+            # This could be injected as a dependency in real usage
+            # For now, create a simple instance
+            if not hasattr(self, '_embedding_service'):
+                config = Config()
+                self._embedding_service = EmbeddingService(config)
+                await self._embedding_service.initialize()
+            
+            embeddings = await self._embedding_service.generate_embeddings(
+                content, 
+                include_sparse=False  # Only dense embeddings for simplicity
+            )
+            
+            if embeddings and embeddings.dense_embedding:
+                return embeddings.dense_embedding.tolist()
+                
+            return None
+            
+        except Exception as e:
+            logger.error(f"Error generating embeddings: {e}")
+            return None
     
     def _get_document_id(self, file_path: str) -> str:
         """Generate consistent document ID from file path."""
