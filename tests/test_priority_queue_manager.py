@@ -18,7 +18,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 import psutil
 
-from workspace_qdrant_mcp.core.priority_queue_manager import (
+from src.workspace_qdrant_mcp.core.priority_queue_manager import (
     PriorityQueueManager,
     MCPActivityLevel,
     ProcessingMode,
@@ -30,14 +30,14 @@ from workspace_qdrant_mcp.core.priority_queue_manager import (
     ResourceConfiguration,
     ProcessingContextManager,
 )
-from workspace_qdrant_mcp.core.sqlite_state_manager import (
+from src.workspace_qdrant_mcp.core.sqlite_state_manager import (
     SQLiteStateManager,
     ProcessingPriority,
     FileProcessingStatus,
     FileProcessingRecord,
     ProcessingQueueItem,
 )
-from workspace_qdrant_mcp.core.incremental_processor import (
+from src.workspace_qdrant_mcp.core.incremental_processor import (
     IncrementalProcessor,
     FileChangeInfo,
     ChangeType,
@@ -45,7 +45,7 @@ from workspace_qdrant_mcp.core.incremental_processor import (
 
 
 @pytest.fixture
-async def temp_db_path():
+def temp_db_path():
     """Create a temporary database path."""
     with tempfile.NamedTemporaryFile(suffix=".db", delete=False) as tmp:
         db_path = tmp.name
@@ -67,7 +67,7 @@ async def state_manager(temp_db_path):
 
 
 @pytest.fixture
-async def incremental_processor(state_manager):
+def incremental_processor(state_manager):
     """Create a mock incremental processor."""
     processor = AsyncMock(spec=IncrementalProcessor)
     processor.detect_changes = AsyncMock(return_value=[])
@@ -124,6 +124,7 @@ def temp_files():
 class TestPriorityQueueManager:
     """Test suite for PriorityQueueManager."""
 
+    @pytest.mark.asyncio
     async def test_initialization(self, queue_manager):
         """Test queue manager initialization."""
         assert queue_manager._initialized is True
@@ -131,6 +132,7 @@ class TestPriorityQueueManager:
         assert queue_manager.mcp_activity.activity_level == MCPActivityLevel.INACTIVE
         assert queue_manager.statistics.health_status == QueueHealthStatus.HEALTHY
 
+    @pytest.mark.asyncio
     async def test_shutdown(self, state_manager, resource_config):
         """Test graceful shutdown."""
         manager = PriorityQueueManager(
@@ -144,6 +146,7 @@ class TestPriorityQueueManager:
         await manager.shutdown()
         assert manager._initialized is False
 
+    @pytest.mark.asyncio
     async def test_enqueue_file(self, queue_manager, temp_files):
         """Test file enqueueing with priority calculation."""
         file_path = temp_files[0]
@@ -164,6 +167,7 @@ class TestPriorityQueueManager:
         assert queue_item.file_path == file_path
         assert queue_item.collection == collection
 
+    @pytest.mark.asyncio
     async def test_priority_calculation_user_triggered(self, queue_manager, temp_files):
         """Test priority calculation for user-triggered files."""
         file_path = temp_files[0]
@@ -178,6 +182,7 @@ class TestPriorityQueueManager:
         queue_item = await queue_manager.state_manager.get_next_queue_item()
         assert queue_item.priority in [ProcessingPriority.HIGH, ProcessingPriority.URGENT]
 
+    @pytest.mark.asyncio
     async def test_priority_calculation_current_project(self, queue_manager, temp_files):
         """Test priority calculation for current project files."""
         file_path = temp_files[0]
@@ -195,6 +200,7 @@ class TestPriorityQueueManager:
         queue_item = await queue_manager.state_manager.get_next_queue_item()
         assert queue_item.priority in [ProcessingPriority.NORMAL, ProcessingPriority.HIGH]
 
+    @pytest.mark.asyncio
     async def test_mcp_activity_detection(self, queue_manager):
         """Test MCP activity level detection and processing mode adaptation."""
         # Simulate high MCP activity
@@ -208,6 +214,7 @@ class TestPriorityQueueManager:
         # Should switch to more aggressive mode with high activity
         assert queue_manager.processing_mode in [ProcessingMode.BALANCED, ProcessingMode.AGGRESSIVE]
 
+    @pytest.mark.asyncio
     async def test_processing_mode_resource_adaptation(self, queue_manager):
         """Test processing mode adaptation based on system resources."""
         # Mock high CPU usage
@@ -224,6 +231,7 @@ class TestPriorityQueueManager:
             # Should use conservative mode due to high resource usage
             assert queue_manager.processing_mode in [ProcessingMode.CONSERVATIVE, ProcessingMode.BALANCED]
 
+    @pytest.mark.asyncio
     async def test_backpressure_detection(self, queue_manager):
         """Test backpressure detection and handling."""
         # Mock high system resource usage
@@ -235,11 +243,13 @@ class TestPriorityQueueManager:
             backpressure = await queue_manager._check_backpressure()
             assert backpressure is True
 
+    @pytest.mark.asyncio
     async def test_process_next_batch_empty_queue(self, queue_manager):
         """Test processing when queue is empty."""
         completed_jobs = await queue_manager.process_next_batch()
         assert len(completed_jobs) == 0
 
+    @pytest.mark.asyncio
     async def test_process_next_batch_with_jobs(self, queue_manager, temp_files):
         """Test batch processing of queued files."""
         # Enqueue multiple files
@@ -260,6 +270,7 @@ class TestPriorityQueueManager:
             assert isinstance(job, ProcessingJob)
             assert job.metadata.get("success", False) is True
 
+    @pytest.mark.asyncio
     async def test_processing_context_manager(self, queue_manager, temp_files):
         """Test processing context manager for batch operations."""
         # Enqueue files
@@ -277,6 +288,7 @@ class TestPriorityQueueManager:
             completed_jobs = await context.process_next_batch()
             assert len(completed_jobs) <= len(temp_files)
 
+    @pytest.mark.asyncio
     async def test_queue_statistics_tracking(self, queue_manager, temp_files):
         """Test queue statistics and monitoring."""
         initial_stats = queue_manager.statistics
@@ -289,6 +301,7 @@ class TestPriorityQueueManager:
         assert queue_manager.statistics.total_items == 2
         assert len(queue_manager.statistics.items_by_priority) > 0
 
+    @pytest.mark.asyncio
     async def test_health_status_monitoring(self, queue_manager):
         """Test health status monitoring and reporting."""
         health_status = await queue_manager.get_health_status()
@@ -299,6 +312,7 @@ class TestPriorityQueueManager:
         assert "resource_status" in health_status
         assert "mcp_activity" in health_status
 
+    @pytest.mark.asyncio
     async def test_queue_status_reporting(self, queue_manager):
         """Test comprehensive queue status reporting."""
         status = await queue_manager.get_queue_status()
@@ -309,6 +323,7 @@ class TestPriorityQueueManager:
         assert "statistics" in status
         assert "active_jobs" in status
 
+    @pytest.mark.asyncio
     async def test_priority_calculation_hooks(self, queue_manager, temp_files):
         """Test custom priority calculation hooks."""
         hook_called = False
@@ -327,6 +342,7 @@ class TestPriorityQueueManager:
         
         assert hook_called is True
 
+    @pytest.mark.asyncio
     async def test_processing_hooks(self, queue_manager, temp_files):
         """Test processing completion hooks."""
         hook_calls = []
@@ -346,6 +362,7 @@ class TestPriorityQueueManager:
         # Hook should have been called for processed jobs
         assert len(hook_calls) == len(completed_jobs)
 
+    @pytest.mark.asyncio
     async def test_monitoring_hooks(self, queue_manager):
         """Test monitoring hooks for statistics updates."""
         hook_calls = []
@@ -366,6 +383,7 @@ class TestPriorityQueueManager:
         # Wait for monitoring loop to run
         await asyncio.sleep(0.1)
 
+    @pytest.mark.asyncio
     async def test_crash_recovery(self, state_manager, resource_config):
         """Test crash recovery functionality."""
         # Create manager and simulate processing items
@@ -399,6 +417,7 @@ class TestPriorityQueueManager:
         
         await new_manager.shutdown()
 
+    @pytest.mark.asyncio
     async def test_queue_clearing(self, queue_manager, temp_files):
         """Test queue clearing functionality."""
         # Enqueue files
@@ -411,6 +430,7 @@ class TestPriorityQueueManager:
         cleared_count = await queue_manager.clear_queue()
         assert cleared_count == len(temp_files)
 
+    @pytest.mark.asyncio
     async def test_resource_configuration_modes(self, state_manager):
         """Test different resource configuration modes."""
         configs = [
@@ -442,6 +462,7 @@ class TestPriorityQueueManager:
             
             await manager.shutdown()
 
+    @pytest.mark.asyncio
     async def test_optimal_batch_size_calculation(self, queue_manager):
         """Test optimal batch size calculation based on processing mode."""
         # Test different modes
@@ -460,6 +481,7 @@ class TestPriorityQueueManager:
             assert batch_size >= 1
             assert batch_size <= 10
 
+    @pytest.mark.asyncio
     async def test_job_failure_handling(self, queue_manager, temp_files):
         """Test job failure handling and retry logic."""
         # Mock incremental processor to fail
