@@ -60,9 +60,13 @@ class LspError(WorkspaceError):
     ):
         context = kwargs.pop("context", {})
         context.update({"server_name": server_name, "method": method})
+        
+        # Use provided category or default to IPC
+        category = kwargs.pop("category", ErrorCategory.IPC)
+        
         super().__init__(
             message,
-            category=ErrorCategory.IPC,  # Using IPC category for LSP communication
+            category=category,
             severity=kwargs.pop("severity", ErrorSeverity.MEDIUM),
             retryable=kwargs.pop("retryable", True),
             context=context,

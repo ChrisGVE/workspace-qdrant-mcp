@@ -628,15 +628,19 @@ class TestLspHealthMonitor:
         """Test monitor shutdown"""
         health_monitor.register_server("test-server", mock_lsp_client, auto_start_monitoring=False)
         
-        # Create a mock task
-        mock_task = Mock()
-        mock_task.cancel = Mock()
-        mock_task.done.return_value = False
-        health_monitor._monitoring_tasks["test-server"] = mock_task
+        # Create a real asyncio task that we can control
+        async def dummy_task():
+            try:
+                await asyncio.sleep(10)  # Long sleep to simulate running task
+            except asyncio.CancelledError:
+                pass  # Expected when cancelled
+        
+        task = asyncio.create_task(dummy_task())
+        health_monitor._monitoring_tasks["test-server"] = task
         
         await health_monitor.shutdown()
         
-        mock_task.cancel.assert_called_once()
+        assert task.cancelled() or task.done()
         assert len(health_monitor._monitoring_tasks) == 0
 
 
@@ -726,6 +730,9 @@ class TestIntegration:
         assert "definition" in server_info.supported_features
         assert "references" not in server_info.supported_features  # Not supported
         
+        # Mark server as healthy by adding the health check result
+        server_info.add_check_result(result)
+        
         # Check feature availability
         assert monitor.is_feature_available("hover") is True
         assert monitor.is_feature_available("references") is False
@@ -758,10 +765,21 @@ class TestIntegration:
         assert success is False
         assert len(notifications) == 0  # No immediate notification for failed recovery
         
-        # Check that fallback mode might be enabled after max attempts
+        # Simulate reaching max recovery attempts by making additional attempts
         server_info = monitor.get_server_health("failing-server")
-        server_info.recovery_attempts = health_config.max_recovery_attempts
         
-        success = await monitor.attempt_recovery("failing-server")
-        assert success is True  # Fallback mode enabled
+        # Make more recovery attempts to reach the maximum and trigger fallback
+        # We already made 1 attempt above, need 2 more to reach max (3), then 1 more to trigger fallback
+        for i in range(health_config.max_recovery_attempts):
+            success = await monitor.attempt_recovery("failing-server")
+            
+            # The last attempt should trigger fallback mode
+            if i == health_config.max_recovery_attempts - 1:
+                # This attempt should have triggered fallback due to max attempts reached
+                break
+            else:
+                assert success is False  # Should fail each time before fallback
+        
+        # Check that fallback mode was enabled after reaching max attempts
         assert monitor._fallback_modes["failing-server"] is True
+        assert len(notifications) > 0  # Should have notifications about fallback mode

@@ -21,6 +21,7 @@ Features:
 
 import asyncio
 import json
+import logging
 import os
 import time
 from contextlib import asynccontextmanager
@@ -1073,13 +1074,14 @@ class LspHealthMonitor:
         self._total_notifications_sent += 1
         
         # Log the notification
+        log_level = logging.WARNING if notification.level in (NotificationLevel.WARNING, NotificationLevel.ERROR) else logging.INFO
         logger.log(
-            logging.WARNING if notification.level in (NotificationLevel.WARNING, NotificationLevel.ERROR) else logging.INFO,
+            log_level,
             "LSP health notification",
             title=notification.title,
             message=notification.message,
             server_name=notification.server_name,
-            level=notification.level.value,
+            notification_level=notification.level.value,
         )
         
         # Send to registered handlers
