@@ -228,7 +228,7 @@ class TypeSearchEngine:
             logger.error("Failed to initialize type search engine", error=str(e))
             raise WorkspaceError(
                 f"Type search engine initialization failed: {e}",
-                category=ErrorCategory.INITIALIZATION,
+                category=ErrorCategory.CONFIGURATION,
                 severity=ErrorSeverity.HIGH
             )
     
@@ -287,7 +287,7 @@ class TypeSearchEngine:
             logger.error("Exact signature search failed", error=str(e))
             raise WorkspaceError(
                 f"Exact signature search failed: {e}",
-                category=ErrorCategory.SEARCH,
+                category=ErrorCategory.OPERATION,
                 severity=ErrorSeverity.MEDIUM
             )
     
@@ -340,7 +340,7 @@ class TypeSearchEngine:
             logger.error("Compatible signature search failed", error=str(e))
             raise WorkspaceError(
                 f"Compatible signature search failed: {e}",
-                category=ErrorCategory.SEARCH,
+                category=ErrorCategory.OPERATION,
                 severity=ErrorSeverity.MEDIUM
             )
     
@@ -388,7 +388,7 @@ class TypeSearchEngine:
             logger.error("Generic implementation search failed", error=str(e))
             raise WorkspaceError(
                 f"Generic implementation search failed: {e}",
-                category=ErrorCategory.SEARCH,
+                category=ErrorCategory.OPERATION,
                 severity=ErrorSeverity.MEDIUM
             )
     
@@ -435,7 +435,7 @@ class TypeSearchEngine:
             logger.error("Interface implementation search failed", error=str(e))
             raise WorkspaceError(
                 f"Interface implementation search failed: {e}",
-                category=ErrorCategory.SEARCH,
+                category=ErrorCategory.OPERATION,
                 severity=ErrorSeverity.MEDIUM
             )
     
@@ -483,7 +483,7 @@ class TypeSearchEngine:
             logger.error("Type compatibility analysis failed", error=str(e))
             raise WorkspaceError(
                 f"Type compatibility analysis failed: {e}",
-                category=ErrorCategory.SEARCH,
+                category=ErrorCategory.OPERATION,
                 severity=ErrorSeverity.MEDIUM
             )
     
@@ -652,8 +652,10 @@ class TypeSearchEngine:
         generic_params = type_info.get("generic_parameters", [])
         
         for pattern in patterns:
-            if any(await self._matches_generic_pattern(param, pattern) for param in generic_params):
-                return True
+            # Check if any generic parameter matches the pattern
+            for param in generic_params:
+                if await self._matches_generic_pattern(param, pattern):
+                    return True
         
         return False
     
