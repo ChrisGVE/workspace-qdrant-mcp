@@ -15,6 +15,7 @@ pub mod embedding;
 pub mod error;
 pub mod ipc;
 pub mod logging;
+pub mod lsp;
 pub mod processing;
 pub mod storage;
 // Temporarily disable watching module for compilation
@@ -35,6 +36,13 @@ pub use crate::error::{
 pub use crate::logging::{
     LoggingConfig, PerformanceMetrics, initialize_logging,
     track_async_operation, log_error_with_context, LoggingErrorMonitor
+};
+pub use crate::lsp::{
+    LspManager, LspConfig, Language, LspError, LspResult,
+    LspServerDetector, DetectedServer, ServerCapabilities,
+    LspServerManager, ServerInstance, ServerStatus,
+    JsonRpcClient, JsonRpcMessage, JsonRpcRequest, JsonRpcResponse,
+    LspStateManager
 };
 
 /// Core processing errors
