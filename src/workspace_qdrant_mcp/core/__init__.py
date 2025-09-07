@@ -30,6 +30,14 @@ from .sqlite_state_manager import (
     SQLiteStateManager,
     WatchFolderConfig,
 )
+from .priority_queue_manager import (
+    PriorityQueueManager,
+    MCPActivityLevel,
+    ProcessingMode,
+    QueueHealthStatus,
+    ProcessingContextManager,
+    ResourceConfiguration,
+)
 
 __all__ = [
     "QdrantWorkspaceClient",
@@ -59,4 +67,11 @@ __all__ = [
     "ProcessingPriority",
     "LSPServerStatus",
     "WatchFolderConfig",
+    # Priority queue components
+    "PriorityQueueManager",
+    "MCPActivityLevel",
+    "ProcessingMode",
+    "QueueHealthStatus",
+    "ProcessingContextManager",
+    "ResourceConfiguration",
 ]
