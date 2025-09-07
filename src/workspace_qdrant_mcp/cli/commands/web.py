@@ -1,9 +1,21 @@
 """Web UI command for workspace-qdrant-mcp.
 
+⚠️  SECURITY NOTICE - WEB UI TEMPORARILY DISABLED ⚠️
+
+This module is currently DISABLED in production due to critical security vulnerabilities
+identified in the web-ui submodule, including:
+- XSS vulnerabilities allowing arbitrary code execution
+- Memory leaks causing system instability
+- Potential data exposure risks
+
+Status: CLI commands disabled in main.py until vulnerabilities resolved
+Impact: Core MCP functionality remains fully operational
+Action: Web-ui access blocked to protect production systems
+
 This module implements the `wqm web` command to serve the integrated
 qdrant-web-ui with workspace-specific features and safety modifications.
 
-Usage:
+Usage (CURRENTLY DISABLED):
     wqm web start [--port=8080] [--host=localhost]    # Start web server
     wqm web build                                     # Build production assets
     wqm web dev                                       # Start development server
