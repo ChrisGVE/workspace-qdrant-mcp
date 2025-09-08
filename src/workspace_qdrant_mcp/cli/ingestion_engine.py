@@ -15,8 +15,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
-from ..core.client import QdrantWorkspaceClient
-from ..tools.documents import add_document
+from ..core.daemon_client import get_daemon_client, with_daemon_client
 from .parsers import (
     CodeParser,
     DocumentParser,
@@ -105,7 +104,6 @@ class DocumentIngestionEngine:
 
     def __init__(
         self,
-        client: QdrantWorkspaceClient,
         concurrency: int = 5,
         chunk_size: int = 1000,
         chunk_overlap: int = 200,
@@ -114,12 +112,10 @@ class DocumentIngestionEngine:
         Initialize the ingestion engine.
 
         Args:
-            client: Initialized workspace client
             concurrency: Maximum concurrent file processing operations
             chunk_size: Size limit for text chunks
             chunk_overlap: Overlap between chunks for context preservation
         """
-        self.client = client
         self.concurrency = concurrency
         self.chunk_size = chunk_size
         self.chunk_overlap = chunk_overlap
@@ -208,7 +204,11 @@ class DocumentIngestionEngine:
 
             # Verify collection exists
             if not dry_run:
-                available_collections = self.client.list_collections()
+                async def check_collection(daemon_client):
+                    response = await daemon_client.list_collections()
+                    return [c.name for c in response.collections]
+                
+                available_collections = await with_daemon_client(check_collection)
                 if collection not in available_collections:
                     return IngestionResult(
                         success=False,
@@ -392,20 +392,22 @@ class DocumentIngestionEngine:
                 )
 
                 if not dry_run:
-                    # Add to collection
-                    result = await add_document(
-                        client=self.client,
-                        content=parsed_doc.content,
-                        collection=collection,
-                        metadata=parsed_doc.metadata,
-                        document_id=f"{file_path.stem}_{parsed_doc.content_hash[:8]}",
-                        chunk_text=len(parsed_doc.content) > self.chunk_size,
-                    )
+                    # Add to collection via daemon
+                    async def process_document(daemon_client):
+                        return await daemon_client.process_document(
+                            file_path=str(file_path),
+                            collection=collection,
+                            metadata=parsed_doc.metadata,
+                            document_id=f"{file_path.stem}_{parsed_doc.content_hash[:8]}",
+                            chunk_text=len(parsed_doc.content) > self.chunk_size,
+                        )
 
-                    if result.get("error"):
-                        raise RuntimeError(result["error"])
+                    response = await with_daemon_client(process_document)
+                    
+                    if not response.success:
+                        raise RuntimeError(response.error_message)
 
-                    stats.total_chunks += result.get("points_added", 1)
+                    stats.total_chunks += response.chunks_added
                 else:
                     # Dry run - estimate chunks
                     estimated_chunks = max(
