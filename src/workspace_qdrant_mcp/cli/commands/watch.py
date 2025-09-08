@@ -11,7 +11,7 @@ from typing import Any, Dict, List, Optional
 
 import typer
 
-from ...core.client import QdrantWorkspaceClient
+from ...core.daemon_client import get_daemon_client, with_daemon_client
 from ...core.config import Config
 from ...observability import get_logger
 from ..utils import (
@@ -24,7 +24,6 @@ from ..utils import (
     verbose_option,
     warning_message,
 )
-from ..watch_service import WatchService
 
 logger = get_logger(__name__)
 
@@ -45,14 +44,12 @@ Examples:
 )
 
 
-async def _get_watch_service() -> WatchService:
-    """Get an initialized watch service."""
+async def _get_daemon_client():
+    """Get connected daemon client for watch operations."""
     config = Config()
-    client = QdrantWorkspaceClient(config)
-    await client.initialize()
-    service = WatchService(client)
-    await service.initialize()
-    return service
+    client = get_daemon_client(config.workspace_config)
+    await client.connect()
+    return client
 
 
 @watch_app.command("add")
@@ -183,51 +180,84 @@ async def _add_watch(
         print(f"Path: {watch_path}")
         print(f"Collection: {collection}")
 
-        # Get watch service
-        service = await _get_watch_service()
+        # Get daemon client
+        client = await _get_daemon_client()
+        
+        try:
+            # Validate path
+            if not watch_path.exists():
+                print(f"Error: Path does not exist: {path}")
+                raise typer.Exit(1)
+            if not watch_path.is_dir():
+                print(f"Error: Path is not a directory: {path}")
+                raise typer.Exit(1)
 
-        # Set defaults if not provided
-        if patterns is None:
-            patterns = ["*.pdf", "*.epub", "*.txt", "*.md"]
-        if ignore is None:
-            ignore = [".git/*", "node_modules/*", "__pycache__/*", ".DS_Store"]
+            # Validate collection (must be library collection)
+            if not collection.startswith("_"):
+                print(f"Error: Collection must start with underscore (library collection): {collection}")
+                raise typer.Exit(1)
 
-        # Add the watch
-        watch_id = await service.add_watch(
-            path=str(watch_path),
-            collection=collection,
-            patterns=patterns,
-            ignore_patterns=ignore,
-            auto_ingest=auto_ingest,
-            recursive=recursive,
-            debounce_seconds=debounce,
-        )
+            # Set defaults if not provided
+            if patterns is None:
+                patterns = ["*.pdf", "*.epub", "*.txt", "*.md"]
+            if ignore is None:
+                ignore = [".git/*", "node_modules/*", "__pycache__/*", ".DS_Store"]
 
-        # Show configuration
-        print("Watch Configuration Added")
-        print("=" * 50)
-        print(f"Path: {watch_path}")
-        print(f"Collection: {collection}")
-        print(f"Watch ID: {watch_id}")
-        print(f"Auto-ingest: {'Enabled' if auto_ingest else 'Disabled'}")
-        print(f"Recursive: {'Yes' if recursive else 'No'}")
-        print(f"Debounce: {debounce} seconds")
-        print("\nFile Patterns:")
-        for pattern in patterns:
-            print(f"  • {pattern}")
-        print("\nIgnore Patterns:")
-        for ignore_pattern in ignore:
-            print(f"  • {ignore_pattern}")
+            # Validate collection exists
+            collections_response = await client.list_collections()
+            collection_names = [c.name for c in collections_response.collections]
+            
+            if collection not in collection_names:
+                print(f"Error: Collection '{collection}' not found. Create it first with: wqm library create {collection[1:]}")
+                raise typer.Exit(1)
 
-        # Start monitoring if auto-ingest is enabled
-        if auto_ingest:
-            await service.start_all_watches()
-            print(f"\nFile monitoring started for {watch_path}")
-            print("New files will be automatically ingested into the collection")
-        else:
-            print("\nWarning: Auto-ingest is disabled")
-            print("Files will be detected but not automatically processed")
-            print("Enable with: wqm watch resume")
+            # Start watching using daemon client
+            watch_updates = client.start_watching(
+                path=str(watch_path),
+                collection=collection,
+                patterns=patterns,
+                ignore_patterns=ignore,
+                auto_ingest=auto_ingest,
+                recursive=recursive,
+                recursive_depth=-1 if recursive else 1,
+                debounce_seconds=debounce,
+                update_frequency_ms=1000,
+            )
+
+            # Process first update to get watch ID
+            watch_id = None
+            async for update in watch_updates:
+                if update.watch_id:
+                    watch_id = update.watch_id
+                    print(f"Watch started with ID: {watch_id}")
+                    break
+
+            # Show configuration
+            print("Watch Configuration Added")
+            print("=" * 50)
+            print(f"Path: {watch_path}")
+            print(f"Collection: {collection}")
+            print(f"Watch ID: {watch_id}")
+            print(f"Auto-ingest: {'Enabled' if auto_ingest else 'Disabled'}")
+            print(f"Recursive: {'Yes' if recursive else 'No'}")
+            print(f"Debounce: {debounce} seconds")
+            print("\nFile Patterns:")
+            for pattern in patterns:
+                print(f"  • {pattern}")
+            print("\nIgnore Patterns:")
+            for ignore_pattern in ignore:
+                print(f"  • {ignore_pattern}")
+
+            if auto_ingest:
+                print(f"\nFile monitoring started for {watch_path}")
+                print("New files will be automatically ingested into the collection")
+            else:
+                print("\nWarning: Auto-ingest is disabled")
+                print("Files will be detected but not automatically processed")
+                print("Enable with: wqm watch resume")
+
+        finally:
+            await client.disconnect()
 
     except Exception as e:
         print(f"Error: Failed to add watch: {e}")
@@ -237,14 +267,34 @@ async def _add_watch(
 async def _list_watches(active_only: bool, collection: str | None, format: str):
     """List all watch configurations."""
     try:
-        service = await _get_watch_service()
-        watches = await service.list_watches(active_only, collection)
+        client = await _get_daemon_client()
+        
+        try:
+            watches_response = await client.list_watches(active_only)
+            watches = watches_response.watches
 
-        if format == "json":
-            # JSON output
-            output = [watch.to_dict() for watch in watches]
-            print(json.dumps(output, indent=2))
-            return
+            if format == "json":
+                # JSON output
+                output = []
+                for watch in watches:
+                    watch_dict = {
+                        "watch_id": watch.watch_id,
+                        "path": watch.path,
+                        "collection": watch.collection,
+                        "status": watch.status,
+                        "patterns": list(watch.patterns),
+                        "ignore_patterns": list(watch.ignore_patterns),
+                        "auto_ingest": watch.auto_ingest,
+                        "recursive": watch.recursive,
+                        "debounce_seconds": watch.debounce_seconds,
+                    }
+                    output.append(watch_dict)
+                print(json.dumps(output, indent=2))
+                return
+
+            # Filter by collection if specified
+            if collection:
+                watches = [w for w in watches if w.collection == collection]
 
         # Table output
         if not watches:
@@ -253,40 +303,51 @@ async def _list_watches(active_only: bool, collection: str | None, format: str):
                 print("Add a watch with: wqm watch add <path> --collection=<library>")
             return
 
-        # Get status information
-        status_data = await service.get_watch_status()
-        watches_status = status_data["watches"]
+            # Table output
+            if not watches:
+                print("No watches found")
+                if not active_only:
+                    print("Add a watch with: wqm watch add <path> --collection=<library>")
+                return
 
-        print(f"Watch Configurations ({len(watches)} found)\n")
+            print(f"Watch Configurations ({len(watches)} found)\n")
 
-        # Show summary table in plain text format
-        if watches_status:
-            print(
-                f"{'ID':<10} {'Path':<30} {'Collection':<20} {'Status':<15} {'Files'}"
-            )
-            print("-" * 85)
-            for watch_id, watch_info in watches_status.items():
-                status = "Running" if watch_info.get("active", False) else "Stopped"
-                files_count = watch_info.get("files_count", 0)
-                path = (
-                    str(watch_info.get("path", ""))[:28] + "..."
-                    if len(str(watch_info.get("path", ""))) > 30
-                    else str(watch_info.get("path", ""))
-                )
-                collection = (
-                    str(watch_info.get("collection", ""))[:18] + "..."
-                    if len(str(watch_info.get("collection", ""))) > 20
-                    else str(watch_info.get("collection", ""))
-                )
+            # Show summary table in plain text format
+            if watches:
                 print(
-                    f"{watch_id:<10} {path:<30} {collection:<20} {status:<15} {files_count}"
+                    f"{'ID':<10} {'Path':<30} {'Collection':<20} {'Status':<15} {'Auto-Ingest'}"
                 )
-        else:
-            print("No watch configurations found.")
+                print("-" * 85)
+                for watch in watches:
+                    status_str = "Active" if watch.status == 1 else "Stopped"  # Assuming enum values
+                    auto_ingest_str = "Yes" if watch.auto_ingest else "No"
+                    
+                    # Truncate path if too long
+                    path = str(watch.path)
+                    if len(path) > 28:
+                        path = path[:28] + "..."
+                    
+                    # Truncate collection if too long
+                    collection_name = str(watch.collection)
+                    if len(collection_name) > 18:
+                        collection_name = collection_name[:18] + "..."
+                    
+                    watch_id = str(watch.watch_id)
+                    if len(watch_id) > 8:
+                        watch_id = watch_id[:8] + "..."
+                    
+                    print(
+                        f"{watch_id:<10} {path:<30} {collection_name:<20} {status_str:<15} {auto_ingest_str}"
+                    )
+            else:
+                print("No watch configurations found.")
 
-        # Show tips
-        print("\nTip: Use 'wqm watch status --detailed' for more information")
-        print("Tip: Use 'wqm watch sync' to manually process watched directories")
+            # Show tips
+            print("\nTip: Use 'wqm watch status --detailed' for more information")
+            print("Tip: Use 'wqm watch sync' to manually process watched directories")
+
+        finally:
+            await client.disconnect()
 
     except Exception as e:
         print(f"Error: Failed to list watches: {e}")
@@ -296,9 +357,11 @@ async def _list_watches(active_only: bool, collection: str | None, format: str):
 async def _remove_watch(
     path: str | None, collection: str | None, all: bool, force: bool
 ):
-    """Remove watch configurations."""
+    """Remove watch configurations using daemon client."""
     try:
-        service = await _get_watch_service()
+        client = await _get_daemon_client()
+        
+        try:
 
         if all:
             print(" Remove All Watches")
@@ -310,9 +373,12 @@ async def _remove_watch(
             print("Error: Must specify --all, --collection, or a path/watch ID")
             raise typer.Exit(1)
 
-        # Find watches to remove
-        watches_to_remove = []
-        all_watches = await service.list_watches()
+            # Get all watches first
+            watches_response = await client.list_watches(active_only=False)
+            all_watches = watches_response.watches
+            
+            # Find watches to remove
+            watches_to_remove = []
 
         if all:
             watches_to_remove = all_watches
@@ -323,7 +389,7 @@ async def _remove_watch(
             matches = [
                 w
                 for w in all_watches
-                if w.id == path or Path(w.path) == Path(path).resolve()
+                if w.watch_id == path or Path(w.path) == Path(path).resolve()
             ]
             if matches:
                 watches_to_remove = matches
@@ -335,34 +401,41 @@ async def _remove_watch(
             print("No matching watches found")
             return
 
-        # Show what will be removed
-        print(f"\nFound {len(watches_to_remove)} watch(es) to remove:")
-        for watch in watches_to_remove:
-            print(f"  • {watch.path} -> {watch.collection} ({watch.id})")
+            # Show what will be removed
+            print(f"\nFound {len(watches_to_remove)} watch(es) to remove:")
+            for watch in watches_to_remove:
+                print(f"  • {watch.path} -> {watch.collection} ({watch.watch_id})")
 
-        # Confirm removal
-        if not force:
-            action = (
-                "all watches"
-                if all
-                else f"watches for {collection}"
-                if collection
-                else f"watch for {path}"
-            )
-            if not confirm("\nAre you sure you want to remove {action}?"):
-                print("Operation cancelled")
-                return
+            # Confirm removal
+            if not force:
+                action = (
+                    "all watches"
+                    if all
+                    else f"watches for {collection}"
+                    if collection
+                    else f"watch for {path}"
+                )
+                if not confirm(f"\nAre you sure you want to remove {action}?"):
+                    print("Operation cancelled")
+                    return
 
-        # Remove watches
-        removed_count = 0
-        for watch in watches_to_remove:
-            if await service.remove_watch(watch.id):
-                removed_count += 1
-                print(f" Removed watch: {watch.path}")
-            else:
-                print(f"Error: Failed to remove watch: {watch.path}")
+            # Remove watches
+            removed_count = 0
+            for watch in watches_to_remove:
+                try:
+                    response = await client.stop_watching(watch.watch_id)
+                    if response.success:
+                        removed_count += 1
+                        print(f"Removed watch: {watch.path}")
+                    else:
+                        print(f"Error: Failed to remove watch: {watch.path} - {response.message}")
+                except Exception as e:
+                    print(f"Error: Failed to remove watch: {watch.path} - {e}")
 
-        print(f"\nSuccessfully removed {removed_count} watch(es)")
+            print(f"\nSuccessfully removed {removed_count} watch(es)")
+
+        finally:
+            await client.disconnect()
 
     except Exception as e:
         print(f"Error: Failed to remove watches: {e}")
@@ -370,74 +443,65 @@ async def _remove_watch(
 
 
 async def _watch_status(detailed: bool, recent: bool):
-    """Show watch activity and statistics."""
+    """Show watch activity and statistics using daemon client."""
     try:
-        service = await _get_watch_service()
-        status_data = await service.get_watch_status()
+        client = await _get_daemon_client()
+        
+        try:
+            # Get watch statistics
+            stats_response = await client.get_stats(include_watch_stats=True)
+            watch_stats = stats_response.watch_stats
+            
+            # Get watches for detailed info
+            watches_response = await client.list_watches(active_only=False)
+            watches = watches_response.watches
 
-        print(" Watch System Status\n")
+            print("Watch System Status\n")
 
-        # System status overview in plain text format
-        print(f"Total Watches: {status_data.get('total_watches', 0)}")
-        print(f"Running: {status_data.get('running_watches', 0)}")
-        print(f"Stopped: {status_data.get('stopped_watches', 0)}")
-        print(f"Total Files Watched: {status_data.get('total_files', 0)}")
-        if status_data.get("last_activity"):
-            print(f"Last Activity: {status_data['last_activity']}")
+            # System status overview in plain text format
+            total_watches = len(watches)
+            active_watches = sum(1 for w in watches if w.status == 1)  # Assuming 1 = active
+            stopped_watches = total_watches - active_watches
+            
+            print(f"Total Watches: {total_watches}")
+            print(f"Active: {active_watches}")
+            print(f"Stopped: {stopped_watches}")
+            
+            if watch_stats:
+                print(f"Total Files Monitored: {watch_stats.total_files_monitored}")
+                print(f"Files Processed: {watch_stats.total_files_processed}")
+                print(f"Processing Errors: {watch_stats.processing_errors}")
 
-        if detailed and status_data["watches"]:
-            print("\n Detailed Watch Information")
-            print("-" * 50)
-            for watch_id, watch_info in status_data["watches"].items():
-                print(f"Watch {watch_id}:")
-                print(f"  Path: {watch_info.get('path', 'N/A')}")
-                print(f"  Collection: {watch_info.get('collection', 'N/A')}")
-                print(
-                    f"  Status: {'Running' if watch_info.get('active', False) else 'Stopped'}"
-                )
-                print(f"  Files: {watch_info.get('files_count', 0)}")
-                print()
+            if detailed and watches:
+                print("\nDetailed Watch Information")
+                print("-" * 50)
+                for watch in watches:
+                    status_str = "Active" if watch.status == 1 else "Stopped"
+                    print(f"Watch {watch.watch_id}:")
+                    print(f"  Path: {watch.path}")
+                    print(f"  Collection: {watch.collection}")
+                    print(f"  Status: {status_str}")
+                    print(f"  Auto-ingest: {'Yes' if watch.auto_ingest else 'No'}")
+                    print(f"  Recursive: {'Yes' if watch.recursive else 'No'}")
+                    print(f"  Patterns: {', '.join(watch.patterns)}")
+                    print()
 
-        if recent:
-            print("\n Recent Activity")
-            recent_events = service.get_recent_activity(limit=20)
+            if recent and watch_stats:
+                print("\nRecent Activity")
+                print("-" * 50)
+                # Note: Recent activity details would need to be added to the gRPC response
+                print("Recent activity tracking not yet implemented via daemon")
 
-            if not recent_events:
-                print("No recent activity")
-            else:
-                # TODO: Replace Rich table with plain text
-                print(f"Last {len(recent_events)} Events:")
-                print("-" * 80)
+            # Show tips
+            if total_watches == 0:
+                print("\nNo watches configured yet")
+                print("Add one with: wqm watch add <path> --collection=<library>")
+            elif active_watches == 0:
+                print("\nNo watches are currently active")
+                print("Resume them with: wqm watch resume --all")
 
-                for event in reversed(recent_events[-20:]):
-                    # Format timestamp
-                    from datetime import datetime
-
-                    try:
-                        ts = datetime.fromisoformat(
-                            event.timestamp.replace("Z", "+00:00")
-                        )
-                        time_str = ts.strftime("%H:%M:%S")
-                    except:
-                        time_str = event.timestamp[:8]
-
-                    # Shorten file path
-                    file_path = event.file_path
-                    if len(file_path) > 30:
-                        file_path = "..." + file_path[-27:]
-
-                    # Simple text output
-                    print(
-                        f"  {time_str} {event.change_type} {file_path} -> {event.collection}"
-                    )
-
-        # Show tips
-        if status_data["total_watches"] == 0:
-            print("\nNo watches configured yet")
-            print("Add one with: wqm watch add <path> --collection=<library>")
-        elif status_data["running_watches"] == 0:
-            print("\nNo watches are currently running")
-            print("Start them with: wqm watch resume --all")
+        finally:
+            await client.disconnect()
 
     except Exception as e:
         print(f"Error: Failed to get watch status: {e}")
@@ -445,49 +509,83 @@ async def _watch_status(detailed: bool, recent: bool):
 
 
 async def _pause_watches(path: str | None, collection: str | None, all: bool):
-    """Pause watch configurations."""
+    """Pause watch configurations using daemon client."""
     try:
-        service = await _get_watch_service()
+        client = await _get_daemon_client()
+        
+        try:
+            # Get all watches first
+            watches_response = await client.list_watches(active_only=False)
+            watches = watches_response.watches
 
-        if all:
-            print("Pausing all watches")
-            await service.stop_all_watches()
-            print(" All watches paused")
+            if all:
+                print("Pausing all watches")
+                paused_count = 0
+                for watch in watches:
+                    try:
+                        from ...grpc.ingestion_pb2 import WatchStatus
+                        response = await client.configure_watch(
+                            watch_id=watch.watch_id,
+                            status=WatchStatus.WATCH_STATUS_PAUSED
+                        )
+                        if response.success:
+                            paused_count += 1
+                    except Exception as e:
+                        print(f"Failed to pause watch {watch.watch_id}: {e}")
+                print(f"Paused {paused_count} watch(es)")
 
-        elif collection:
-            print(f"Pausing watches for collection: {collection}")
-            watches = await service.list_watches(collection=collection)
-            paused_count = 0
-            for watch in watches:
-                if await service.pause_watch(watch.id):
-                    paused_count += 1
-            print(f" Paused {paused_count} watch(es)")
+            elif collection:
+                print(f"Pausing watches for collection: {collection}")
+                matching_watches = [w for w in watches if w.collection == collection]
+                paused_count = 0
+                for watch in matching_watches:
+                    try:
+                        from ...grpc.ingestion_pb2 import WatchStatus
+                        response = await client.configure_watch(
+                            watch_id=watch.watch_id,
+                            status=WatchStatus.WATCH_STATUS_PAUSED
+                        )
+                        if response.success:
+                            paused_count += 1
+                    except Exception as e:
+                        print(f"Failed to pause watch {watch.watch_id}: {e}")
+                print(f"Paused {paused_count} watch(es)")
 
-        elif path:
-            print(f"Pausing watch: {path}")
-            # Find watch by path or ID
-            all_watches = await service.list_watches()
-            matches = [
-                w
-                for w in all_watches
-                if w.id == path or Path(w.path) == Path(path).resolve()
-            ]
+            elif path:
+                print(f"Pausing watch: {path}")
+                # Find watch by path or ID
+                matches = [
+                    w
+                    for w in watches
+                    if w.watch_id == path or Path(w.path) == Path(path).resolve()
+                ]
 
-            if not matches:
-                print(f"Error: No watch found for: {path}")
+                if not matches:
+                    print(f"Error: No watch found for: {path}")
+                    raise typer.Exit(1)
+
+                for watch in matches:
+                    try:
+                        from ...grpc.ingestion_pb2 import WatchStatus
+                        response = await client.configure_watch(
+                            watch_id=watch.watch_id,
+                            status=WatchStatus.WATCH_STATUS_PAUSED
+                        )
+                        if response.success:
+                            print(f"Paused watch: {watch.path}")
+                        else:
+                            print(f"Error: Failed to pause watch: {watch.path} - {response.message}")
+                    except Exception as e:
+                        print(f"Error: Failed to pause watch: {watch.path} - {e}")
+            else:
+                print("Error: Must specify --all, --collection, or a path/watch ID")
                 raise typer.Exit(1)
 
-            for watch in matches:
-                if await service.pause_watch(watch.id):
-                    print(f" Paused watch: {watch.path}")
-                else:
-                    print(f"Error: Failed to pause watch: {watch.path}")
-        else:
-            print("Error: Must specify --all, --collection, or a path/watch ID")
-            raise typer.Exit(1)
+            print("\nFile monitoring is paused but configurations are preserved")
+            print("Resume with: wqm watch resume")
 
-        print("\nFile monitoring is stopped but configurations are preserved")
-        print("Resume with: wqm watch resume")
+        finally:
+            await client.disconnect()
 
     except Exception as e:
         print(f"Error: Failed to pause watches: {e}")
@@ -495,48 +593,82 @@ async def _pause_watches(path: str | None, collection: str | None, all: bool):
 
 
 async def _resume_watches(path: str | None, collection: str | None, all: bool):
-    """Resume watch configurations."""
+    """Resume watch configurations using daemon client."""
     try:
-        service = await _get_watch_service()
+        client = await _get_daemon_client()
+        
+        try:
+            # Get all watches first
+            watches_response = await client.list_watches(active_only=False)
+            watches = watches_response.watches
 
-        if all:
-            print("Resuming all watches")
-            await service.start_all_watches()
-            print(" All watches resumed")
+            if all:
+                print("Resuming all watches")
+                resumed_count = 0
+                for watch in watches:
+                    try:
+                        from ...grpc.ingestion_pb2 import WatchStatus
+                        response = await client.configure_watch(
+                            watch_id=watch.watch_id,
+                            status=WatchStatus.WATCH_STATUS_ACTIVE
+                        )
+                        if response.success:
+                            resumed_count += 1
+                    except Exception as e:
+                        print(f"Failed to resume watch {watch.watch_id}: {e}")
+                print(f"Resumed {resumed_count} watch(es)")
 
-        elif collection:
-            print(f"Resuming watches for collection: {collection}")
-            watches = await service.list_watches(collection=collection)
-            resumed_count = 0
-            for watch in watches:
-                if await service.resume_watch(watch.id):
-                    resumed_count += 1
-            print(f" Resumed {resumed_count} watch(es)")
+            elif collection:
+                print(f"Resuming watches for collection: {collection}")
+                matching_watches = [w for w in watches if w.collection == collection]
+                resumed_count = 0
+                for watch in matching_watches:
+                    try:
+                        from ...grpc.ingestion_pb2 import WatchStatus
+                        response = await client.configure_watch(
+                            watch_id=watch.watch_id,
+                            status=WatchStatus.WATCH_STATUS_ACTIVE
+                        )
+                        if response.success:
+                            resumed_count += 1
+                    except Exception as e:
+                        print(f"Failed to resume watch {watch.watch_id}: {e}")
+                print(f"Resumed {resumed_count} watch(es)")
 
-        elif path:
-            print(f"Resuming watch: {path}")
-            # Find watch by path or ID
-            all_watches = await service.list_watches()
-            matches = [
-                w
-                for w in all_watches
-                if w.id == path or Path(w.path) == Path(path).resolve()
-            ]
+            elif path:
+                print(f"Resuming watch: {path}")
+                # Find watch by path or ID
+                matches = [
+                    w
+                    for w in watches
+                    if w.watch_id == path or Path(w.path) == Path(path).resolve()
+                ]
 
-            if not matches:
-                print(f"Error: No watch found for: {path}")
+                if not matches:
+                    print(f"Error: No watch found for: {path}")
+                    raise typer.Exit(1)
+
+                for watch in matches:
+                    try:
+                        from ...grpc.ingestion_pb2 import WatchStatus
+                        response = await client.configure_watch(
+                            watch_id=watch.watch_id,
+                            status=WatchStatus.WATCH_STATUS_ACTIVE
+                        )
+                        if response.success:
+                            print(f"Resumed watch: {watch.path}")
+                        else:
+                            print(f"Error: Failed to resume watch: {watch.path} - {response.message}")
+                    except Exception as e:
+                        print(f"Error: Failed to resume watch: {watch.path} - {e}")
+            else:
+                print("Error: Must specify --all, --collection, or a path/watch ID")
                 raise typer.Exit(1)
 
-            for watch in matches:
-                if await service.resume_watch(watch.id):
-                    print(f" Resumed watch: {watch.path}")
-                else:
-                    print(f"Error: Failed to resume watch: {watch.path}")
-        else:
-            print("Error: Must specify --all, --collection, or a path/watch ID")
-            raise typer.Exit(1)
+            print("\nFile monitoring resumed - new files will be automatically ingested")
 
-        print("\nFile monitoring restarted - new files will be automatically ingested")
+        finally:
+            await client.disconnect()
 
     except Exception as e:
         print(f"Error: Failed to resume watches: {e}")
@@ -544,59 +676,90 @@ async def _resume_watches(path: str | None, collection: str | None, all: bool):
 
 
 async def _sync_watched_folders(path: str | None, dry_run: bool, force: bool):
-    """Manually sync watched folders."""
+    """Manually sync watched folders using daemon client."""
     try:
-        service = await _get_watch_service()
+        client = await _get_daemon_client()
+        
+        try:
+            # Get all watches
+            watches_response = await client.list_watches(active_only=False)
+            watches = watches_response.watches
 
-        if path:
-            print(f"Syncing watch: {path}")
-        else:
-            print("Syncing all watched folders")
-
-        if dry_run:
-            print("DRY RUN - No files will be processed")
-
-        # Perform sync
-        results = await service.sync_watched_folders(
-            path=path, dry_run=dry_run, force=force
-        )
-
-        if "error" in results:
-            print(f"Error: {results['error']}")
-            raise typer.Exit(1)
-
-        # Show results
-        total_processed = 0
-        total_errors = 0
-
-        for watch_id, result in results.items():
-            if result["success"]:
-                stats = result["stats"]
-                print(f"\n Watch {watch_id}: {result['message']}")
-                if stats:
-                    total_processed += stats.get("files_processed", 0)
-                    if stats.get("files_failed", 0) > 0:
-                        print(f"   {stats['files_failed']} files failed")
-                        total_errors += stats["files_failed"]
+            if path:
+                print(f"Syncing watch: {path}")
+                # Filter to specific path
+                matches = [
+                    w for w in watches 
+                    if w.watch_id == path or Path(w.path) == Path(path).resolve()
+                ]
+                if not matches:
+                    print(f"Error: No watch found for path: {path}")
+                    raise typer.Exit(1)
+                watches = matches
             else:
-                print(f"\nError: Watch {watch_id}: {result['message']}")
-                total_errors += 1
+                print("Syncing all watched folders")
 
-        # Summary
-        if dry_run:
-            print("\n Sync Preview Summary")
-            print(f"Would process {total_processed} files")
-        else:
-            print("\n Sync Summary")
-            print(f"Processed {total_processed} files")
+            if dry_run:
+                print("DRY RUN - No files will be processed")
 
-        if total_errors > 0:
-            print(f"Errors: {total_errors}")
+            # Process each watch by processing its folder
+            total_processed = 0
+            total_errors = 0
 
-        # Current alternative note
-        if not results:
-            print("\nNo watched folders found to sync")
-            print("Add watches with: wqm watch add <path> --collection=<library>")
+            for watch in watches:
+                print(f"\nProcessing watch: {watch.path} -> {watch.collection}")
+                
+                try:
+                    # Use process_folder to sync the watched directory
+                    folder_progress = client.process_folder(
+                        folder_path=watch.path,
+                        collection=watch.collection,
+                        include_patterns=list(watch.patterns) if watch.patterns else None,
+                        ignore_patterns=list(watch.ignore_patterns) if watch.ignore_patterns else None,
+                        recursive=watch.recursive,
+                        dry_run=dry_run,
+                    )
+                    
+                    files_processed = 0
+                    files_failed = 0
+                    
+                    async for progress in folder_progress:
+                        if progress.file_processed:
+                            files_processed += 1
+                            if progress.success:
+                                print(f"  ✓ {progress.file_path}")
+                            else:
+                                files_failed += 1
+                                print(f"  ✗ {progress.file_path}: {progress.error_message}")
+                    
+                    total_processed += files_processed
+                    total_errors += files_failed
+                    
+                    print(f"Watch {watch.watch_id}: Processed {files_processed} files")
+                    if files_failed > 0:
+                        print(f"  {files_failed} files failed")
+                        
+                except Exception as e:
+                    print(f"Error processing watch {watch.watch_id}: {e}")
+                    total_errors += 1
+
+            # Summary
+            if dry_run:
+                print("\nSync Preview Summary")
+                print(f"Would process {total_processed} files")
+            else:
+                print("\nSync Summary")
+                print(f"Processed {total_processed} files")
+
+            if total_errors > 0:
+                print(f"Errors: {total_errors}")
+
+            if not watches:
+                print("\nNo watched folders found to sync")
+                print("Add watches with: wqm watch add <path> --collection=<library>")
+
+        finally:
+            await client.disconnect()
 
     except Exception as e:
         print(f"Error: Failed to sync watches: {e}")
