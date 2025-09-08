@@ -54,6 +54,8 @@ from .collection_naming import (
     CollectionNamingManager,
     CollectionPermissionError,
     CollectionType,
+    build_project_collection_name,
+    build_system_memory_collection_name,
 )
 from .config import Config
 
@@ -383,9 +385,10 @@ class WorkspaceCollectionManager:
 
             # Main project collections
             for suffix in self.config.workspace.effective_collection_suffixes:
+                collection_name = build_project_collection_name(project_name, suffix)
                 collections_to_create.append(
                     CollectionConfig(
-                        name=f"{project_name}-{suffix}",
+                        name=collection_name,
                         description=f"{suffix.title()} collection for {project_name}",
                         collection_type=suffix,
                         project_name=project_name,
@@ -398,9 +401,10 @@ class WorkspaceCollectionManager:
             if subprojects:
                 for subproject in subprojects:
                     for suffix in self.config.workspace.effective_collection_suffixes:
+                        collection_name = build_project_collection_name(subproject, suffix)
                         collections_to_create.append(
                             CollectionConfig(
-                                name=f"{subproject}-{suffix}",
+                                name=collection_name,
                                 description=f"{suffix.title()} collection for {subproject}",
                                 collection_type=suffix,
                                 project_name=subproject,
