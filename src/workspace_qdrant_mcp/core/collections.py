@@ -57,6 +57,15 @@ from .collection_naming import (
     build_project_collection_name,
     build_system_memory_collection_name,
 )
+try:
+    from ..core.collection_types import (
+        CollectionTypeClassifier,
+        get_searchable_collections,
+        validate_collection_operation
+    )
+    COLLECTION_TYPES_AVAILABLE = True
+except ImportError:
+    COLLECTION_TYPES_AVAILABLE = False
 from .config import Config
 
 logger = logging.getLogger(__name__)
@@ -158,6 +167,9 @@ class WorkspaceCollectionManager:
             global_collections=self.config.workspace.global_collections,
             valid_project_suffixes=self.config.workspace.effective_collection_suffixes
         )
+        
+        # Initialize collection type classifier if available
+        self.type_classifier = CollectionTypeClassifier() if COLLECTION_TYPES_AVAILABLE else None
 
     def _get_current_project_name(self) -> Optional[str]:
         """
@@ -534,27 +546,30 @@ class WorkspaceCollectionManager:
 
     def list_workspace_collections(self) -> list[str]:
         """
-        List all collections that belong to the current workspace.
+        List all collections that belong to the current workspace with display names.
 
         Filters the complete list of Qdrant collections to return only those
-        that are part of the current workspace. Excludes external collections
-        like memexd daemon collections (ending in '-code') while including
-        project collections and global workspace collections.
+        that are part of the current workspace, returning display names that
+        remove prefixes for system and library collections.
 
         Filtering Logic:
-            - Include: Project-specific collections based on configured suffixes
-            - Include: Global collections defined in workspace configuration
+            - Include: System collections (__prefix) - CLI-writable, LLM-readable
+            - Include: Library collections (_prefix) - CLI-managed, MCP-readonly
+            - Include: Project collections ({project}-{suffix}) - user-created
+            - Include: Global collections (predefined system-wide)
             - Exclude: External daemon collections (e.g., memexd-*-code)
             - Exclude: Collections from other workspace instances
 
         Returns:
-            List[str]: Sorted list of workspace collection names.
+            List[str]: Sorted list of workspace collection display names.
+                System/library collections have prefixes removed for cleaner UX.
                 Returns empty list if no collections found or on error.
 
         Example:
             ```python
             collections = manager.list_workspace_collections()
-            # Example return: collections based on configured suffixes and global collections
+            # Example return: ['user_preferences', 'library_docs', 'project-documents']
+            # (display names: '__user_preferences' -> 'user_preferences')
 
             for collection in collections:
                 logger.info("Workspace collection: {collection}")
@@ -569,9 +584,20 @@ class WorkspaceCollectionManager:
             logger.debug("All collections: %s", all_collection_names)
 
             for collection in all_collections.collections:
-                # Filter for workspace collections (exclude memexd -code collections)
-                if self._is_workspace_collection(collection.name):
-                    workspace_collections.append(collection.name)
+                collection_name = collection.name
+                
+                # Use new collection type system if available, fallback to legacy filtering
+                if self.type_classifier and COLLECTION_TYPES_AVAILABLE:
+                    collection_info = self.type_classifier.get_collection_info(collection_name)
+                    # Include searchable collections and exclude system collections from global search
+                    # but still list system collections so they can be accessed explicitly
+                    if collection_info.is_searchable or self.type_classifier.is_system_collection(collection_name):
+                        display_name = self.type_classifier.get_display_name(collection_name)
+                        workspace_collections.append(display_name)
+                else:
+                    # Fallback to legacy workspace filtering
+                    if self._is_workspace_collection(collection_name):
+                        workspace_collections.append(collection_name)
 
             logger.info(
                 "Found %d workspace collections out of %d total collections", 
@@ -761,7 +787,8 @@ class WorkspaceCollectionManager:
         Resolve a display name to the actual collection name and permission info.
 
         This handles the mapping from user-facing display names to actual Qdrant
-        collection names, particularly for library collections that use underscore prefixes.
+        collection names, particularly for system and library collections that use prefixes.
+        Uses the new collection type system for better accuracy.
 
         Args:
             display_name: The collection name as shown to users
@@ -771,32 +798,61 @@ class WorkspaceCollectionManager:
 
         Example:
             ```python
-            # Library collection
-            actual, readonly = manager.resolve_collection_name("mylib")
-            # Returns: ("_mylib", True)
+            # System collection display name -> actual name
+            actual, readonly = manager.resolve_collection_name("user_preferences")
+            # Returns: ("__user_preferences", False)
+            
+            # Library collection display name -> actual name
+            actual, readonly = manager.resolve_collection_name("library_docs")
+            # Returns: ("_library_docs", True)
 
-            # Project collection
+            # Project collection (no change)
             actual, readonly = manager.resolve_collection_name("my-project-docs")
             # Returns: ("my-project-docs", False)
             ```
         """
-        # First, check if this display name corresponds to a library collection
-        potential_library_name = f"_{display_name}"
-
         try:
             all_collections = self.client.get_collections()
             all_collection_names = [col.name for col in all_collections.collections]
-
-            if potential_library_name in all_collection_names:
-                # This is a library collection
-                return potential_library_name, True
-            elif display_name in all_collection_names:
-                # This is a regular collection, check if it's readonly
-                info = self.naming_manager.get_collection_info(display_name)
-                return display_name, info.is_readonly_from_mcp
-            else:
+            
+            if self.type_classifier and COLLECTION_TYPES_AVAILABLE:
+                # Use new collection type system for reverse mapping
+                
+                # Try system collection (__ prefix)
+                system_name = f"__{display_name}"
+                if system_name in all_collection_names:
+                    collection_info = self.type_classifier.get_collection_info(system_name)
+                    return system_name, collection_info.is_readonly
+                
+                # Try library collection (_ prefix)
+                library_name = f"_{display_name}"
+                if library_name in all_collection_names:
+                    collection_info = self.type_classifier.get_collection_info(library_name)
+                    return library_name, collection_info.is_readonly
+                
+                # Check if display name matches actual collection name directly
+                if display_name in all_collection_names:
+                    collection_info = self.type_classifier.get_collection_info(display_name)
+                    return display_name, collection_info.is_readonly
+                    
                 # Collection doesn't exist - return the display name as-is for error handling
                 return display_name, False
+                
+            else:
+                # Fallback to legacy behavior
+                # First, check if this display name corresponds to a library collection
+                potential_library_name = f"_{display_name}"
+
+                if potential_library_name in all_collection_names:
+                    # This is a library collection
+                    return potential_library_name, True
+                elif display_name in all_collection_names:
+                    # This is a regular collection, check if it's readonly
+                    info = self.naming_manager.get_collection_info(display_name)
+                    return display_name, info.is_readonly_from_mcp
+                else:
+                    # Collection doesn't exist - return the display name as-is for error handling
+                    return display_name, False
 
         except Exception as e:
             logger.error(f"Failed to resolve collection name '{display_name}': {e}")
@@ -834,6 +890,82 @@ class WorkspaceCollectionManager:
             The CollectionNamingManager instance used by this manager
         """
         return self.naming_manager
+
+    def list_searchable_collections(self) -> list[str]:
+        """
+        List collections that should be included in global searches.
+        
+        This method returns display names for collections that are globally searchable,
+        excluding system collections (__ prefix) which are only accessible by explicit name.
+        
+        Returns:
+            List[str]: Display names of collections that are globally searchable
+        
+        Example:
+            ```python
+            searchable = manager.list_searchable_collections()
+            # Returns: ['library_docs', 'project-documents', 'algorithms']
+            # Excludes: '__user_preferences' (system collection)
+            ```
+        """
+        try:
+            all_collections = self.client.get_collections()
+            searchable_collections = []
+            
+            for collection in all_collections.collections:
+                collection_name = collection.name
+                
+                if self.type_classifier and COLLECTION_TYPES_AVAILABLE:
+                    collection_info = self.type_classifier.get_collection_info(collection_name)
+                    # Only include globally searchable collections (excludes system collections)
+                    if collection_info.is_searchable:
+                        display_name = self.type_classifier.get_display_name(collection_name)
+                        searchable_collections.append(display_name)
+                else:
+                    # Fallback: use legacy workspace filtering
+                    if self._is_workspace_collection(collection_name):
+                        searchable_collections.append(collection_name)
+                        
+            return sorted(searchable_collections)
+            
+        except Exception as e:
+            logger.error(f"Failed to list searchable collections: {e}")
+            return []
+
+    def validate_collection_operation(self, display_name: str, operation: str) -> tuple[bool, str]:
+        """
+        Validate if an operation is allowed on a collection based on its type.
+        
+        Args:
+            display_name: The display name of the collection
+            operation: The operation to validate ('read', 'write', 'delete', 'create')
+            
+        Returns:
+            Tuple[bool, str]: (is_valid, reason) where reason explains why if invalid
+        """
+        try:
+            actual_name, is_readonly = self.resolve_collection_name(display_name)
+            
+            if self.type_classifier and COLLECTION_TYPES_AVAILABLE:
+                # Use new collection type validation
+                from ..core.collection_types import validate_collection_operation
+                return validate_collection_operation(actual_name, operation)
+            else:
+                # Fallback validation
+                valid_operations = {'read', 'write', 'delete', 'create'}
+                if operation not in valid_operations:
+                    return False, f"Invalid operation '{operation}'. Must be one of: {valid_operations}"
+                
+                if operation == 'read':
+                    return True, "Read operations are generally allowed"
+                    
+                if is_readonly and operation in ('write', 'delete'):
+                    return False, f"Collection '{display_name}' is read-only via MCP"
+                    
+                return True, f"Operation '{operation}' is allowed on collection '{display_name}'"
+                
+        except Exception as e:
+            return False, f"Validation error: {e}"
 
     def _get_vector_size(self) -> int:
         """
