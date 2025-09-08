@@ -4,8 +4,117 @@
 
 use serde::{Deserialize, Serialize};
 use std::time::Duration;
+use std::path::PathBuf;
+use crate::storage::{StorageConfig, Http2Config, TransportMode};
 
-/// Processing engine configuration
+/// Auto-ingestion configuration
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AutoIngestionConfig {
+    pub enabled: bool,
+    pub auto_create_watches: bool,
+    pub include_common_files: bool,
+    pub include_source_files: bool,
+    pub target_collection_suffix: String,
+    pub max_files_per_batch: usize,
+    pub batch_delay_seconds: f64,
+    pub max_file_size_mb: usize,
+    pub recursive_depth: usize,
+    pub debounce_seconds: u64,
+}
+
+impl Default for AutoIngestionConfig {
+    fn default() -> Self {
+        Self {
+            enabled: true,
+            auto_create_watches: true,
+            include_common_files: true,
+            include_source_files: true,
+            target_collection_suffix: "scratchbook".to_string(),
+            max_files_per_batch: 5,
+            batch_delay_seconds: 2.0,
+            max_file_size_mb: 50,
+            recursive_depth: 5,
+            debounce_seconds: 10,
+        }
+    }
+}
+
+/// Logging configuration section
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct LoggingConfig {
+    pub info_includes_connection_events: bool,
+    pub info_includes_transport_details: bool,
+    pub info_includes_retry_attempts: bool,
+    pub info_includes_fallback_behavior: bool,
+    pub error_includes_stack_trace: bool,
+    pub error_includes_connection_state: bool,
+}
+
+impl Default for LoggingConfig {
+    fn default() -> Self {
+        Self {
+            info_includes_connection_events: true,
+            info_includes_transport_details: true,
+            info_includes_retry_attempts: true,
+            info_includes_fallback_behavior: true,
+            error_includes_stack_trace: true,
+            error_includes_connection_state: true,
+        }
+    }
+}
+
+/// Complete daemon configuration that matches the TOML structure
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct DaemonConfig {
+    /// Log file path
+    pub log_file: Option<PathBuf>,
+    /// Maximum number of concurrent tasks
+    pub max_concurrent_tasks: Option<usize>,
+    /// Default timeout for tasks in milliseconds
+    pub default_timeout_ms: Option<u64>,
+    /// Enable task preemption
+    pub enable_preemption: bool,
+    /// Document processing chunk size
+    pub chunk_size: usize,
+    /// Enable LSP support
+    pub enable_lsp: bool,
+    /// Log level configuration
+    pub log_level: String,
+    /// Enable metrics collection
+    pub enable_metrics: bool,
+    /// Metrics collection interval in seconds
+    pub metrics_interval_secs: u64,
+    /// Auto-ingestion configuration
+    pub auto_ingestion: AutoIngestionConfig,
+    /// Project path (workspace directory)
+    pub project_path: Option<PathBuf>,
+    /// Qdrant connection configuration
+    pub qdrant: StorageConfig,
+    /// Enhanced logging configuration
+    pub logging: LoggingConfig,
+}
+
+impl Default for DaemonConfig {
+    fn default() -> Self {
+        Self {
+            log_file: None,
+            max_concurrent_tasks: Some(4),
+            default_timeout_ms: Some(30_000),
+            enable_preemption: true,
+            chunk_size: 1000,
+            enable_lsp: true,
+            log_level: "info".to_string(),
+            enable_metrics: true,
+            metrics_interval_secs: 60,
+            auto_ingestion: AutoIngestionConfig::default(),
+            project_path: None,
+            qdrant: StorageConfig::default(),
+            logging: LoggingConfig::default(),
+        }
+    }
+}
+
+/// Processing engine configuration (backward compatible)
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Config {
     /// Maximum number of concurrent tasks
@@ -24,6 +133,21 @@ pub struct Config {
     pub enable_metrics: bool,
     /// Metrics collection interval in seconds
     pub metrics_interval_secs: u64,
+}
+
+impl From<DaemonConfig> for Config {
+    fn from(daemon_config: DaemonConfig) -> Self {
+        Self {
+            max_concurrent_tasks: daemon_config.max_concurrent_tasks,
+            default_timeout_ms: daemon_config.default_timeout_ms,
+            enable_preemption: daemon_config.enable_preemption,
+            chunk_size: daemon_config.chunk_size,
+            enable_lsp: daemon_config.enable_lsp,
+            log_level: daemon_config.log_level,
+            enable_metrics: daemon_config.enable_metrics,
+            metrics_interval_secs: daemon_config.metrics_interval_secs,
+        }
+    }
 }
 
 impl Config {

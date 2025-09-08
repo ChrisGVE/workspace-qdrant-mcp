@@ -64,6 +64,42 @@ impl Default for TransportMode {
     }
 }
 
+/// HTTP/2 configuration for gRPC transport
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct Http2Config {
+    /// Maximum frame size (bytes)
+    pub max_frame_size: Option<u32>,
+    /// Initial connection window size (bytes)
+    pub initial_window_size: Option<u32>,
+    /// Maximum header list size (bytes)
+    pub max_header_list_size: Option<u32>,
+    /// Enable HTTP/2 server push
+    pub enable_push: bool,
+    /// Enable TCP keepalive
+    pub tcp_keepalive: bool,
+    /// Keepalive interval in milliseconds
+    pub keepalive_interval_ms: Option<u32>,
+    /// Keepalive timeout in milliseconds
+    pub keepalive_timeout_ms: Option<u32>,
+    /// Enable HTTP/2 adaptive window sizing
+    pub http2_adaptive_window: bool,
+}
+
+impl Default for Http2Config {
+    fn default() -> Self {
+        Self {
+            max_frame_size: Some(8192), // Conservative default (vs 16384)
+            initial_window_size: Some(32768),
+            max_header_list_size: Some(8192),
+            enable_push: false,
+            tcp_keepalive: true,
+            keepalive_interval_ms: Some(30000),
+            keepalive_timeout_ms: Some(5000),
+            http2_adaptive_window: false,
+        }
+    }
+}
+
 /// Storage client configuration
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct StorageConfig {
@@ -87,6 +123,10 @@ pub struct StorageConfig {
     pub dense_vector_size: u64,
     /// Default sparse vector size
     pub sparse_vector_size: Option<u64>,
+    /// HTTP/2 configuration for gRPC transport
+    pub http2: Http2Config,
+    /// Skip compatibility checks during connection
+    pub check_compatibility: bool,
 }
 
 impl Default for StorageConfig {
@@ -102,6 +142,8 @@ impl Default for StorageConfig {
             tls: false,
             dense_vector_size: 1536, // Default for OpenAI embeddings
             sparse_vector_size: None,
+            http2: Http2Config::default(),
+            check_compatibility: true,
         }
     }
 }
@@ -245,17 +287,111 @@ impl StorageClient {
     pub fn with_config(config: StorageConfig) -> Self {
         use qdrant_client::config::QdrantConfig;
         
-        let mut qdrant_config = QdrantConfig::from_url(&config.url);
+        info!("Initializing Qdrant client with transport: {:?}", config.transport);
+        
+        // Determine the appropriate URL based on transport mode
+        let connection_url = match config.transport {
+            TransportMode::Grpc => {
+                // Use gRPC endpoint (typically different port or scheme)
+                if config.url.contains("://") {
+                    config.url.clone()
+                } else {
+                    // Default to HTTP for now, actual gRPC configuration would need different setup
+                    format!("http://{}", config.url.trim_start_matches("http://"))
+                }
+            },
+            TransportMode::Http => {
+                // Ensure HTTP scheme
+                if config.url.starts_with("http://") || config.url.starts_with("https://") {
+                    config.url.clone()
+                } else {
+                    format!("http://{}", config.url)
+                }
+            }
+        };
+        
+        info!("Connecting to Qdrant at: {}", connection_url);
+        
+        let mut qdrant_config = QdrantConfig::from_url(&connection_url);
         
         // Configure authentication
         if let Some(api_key) = &config.api_key {
+            info!("Configuring API key authentication");
             qdrant_config = qdrant_config.api_key(api_key.clone());
         }
         
         // Configure timeout
         qdrant_config = qdrant_config.timeout(Duration::from_millis(config.timeout_ms));
         
-        let client = Arc::new(Qdrant::new(qdrant_config).expect("Failed to build Qdrant client"));
+        // Configure connection timeout for better reliability
+        qdrant_config = qdrant_config.connect_timeout(Duration::from_millis(config.timeout_ms / 2));
+        
+        // Enable keep-alive for better connection stability
+        qdrant_config = qdrant_config.keep_alive_while_idle();
+        
+        // Configure compatibility checking
+        if !config.check_compatibility {
+            debug!("Disabling compatibility check as requested");
+            // Note: would need to configure this if the API supports it
+        }
+        
+        // Log HTTP/2 configuration info (settings stored for future use)
+        if matches!(config.transport, TransportMode::Grpc) {
+            info!("gRPC transport configured with HTTP/2 settings:");
+            if let Some(frame_size) = config.http2.max_frame_size {
+                info!("  - Max frame size: {} bytes", frame_size);
+            }
+            if let Some(window_size) = config.http2.initial_window_size {
+                info!("  - Initial window size: {} bytes", window_size);
+            }
+            if let Some(header_size) = config.http2.max_header_list_size {
+                info!("  - Max header list size: {} bytes", header_size);
+            }
+            info!("  - Server push: {}", config.http2.enable_push);
+            info!("  - TCP keepalive: {}", config.http2.tcp_keepalive);
+            
+            // Note: Actual HTTP/2 configuration would need to be applied at the transport layer
+            // For now, we're using the standard qdrant-client configuration
+            warn!("HTTP/2 fine-tuning requires transport-level configuration - using default settings");
+        }
+        
+        // Try to build the client with fallback to HTTP on gRPC failure
+        let client = match Qdrant::new(qdrant_config.clone()) {
+            Ok(client) => {
+                info!("Successfully created Qdrant client with {:?} transport", config.transport);
+                Arc::new(client)
+            },
+            Err(e) if matches!(config.transport, TransportMode::Grpc) => {
+                error!("Failed to create gRPC client: {}", e);
+                warn!("Attempting fallback to HTTP transport...");
+                
+                // Fallback to HTTP transport
+                let fallback_url = connection_url.replace("grpc://", "http://");
+                let mut fallback_config = QdrantConfig::from_url(&fallback_url)
+                    .timeout(Duration::from_millis(config.timeout_ms))
+                    .connect_timeout(Duration::from_millis(config.timeout_ms / 2))
+                    .keep_alive_while_idle();
+                    
+                if let Some(api_key) = &config.api_key {
+                    fallback_config = fallback_config.api_key(api_key.clone());
+                }
+                    
+                match Qdrant::new(fallback_config) {
+                    Ok(client) => {
+                        warn!("Successfully created fallback HTTP client");
+                        Arc::new(client)
+                    },
+                    Err(fallback_error) => {
+                        error!("Fallback to HTTP also failed: {}", fallback_error);
+                        panic!("Failed to build Qdrant client with both gRPC and HTTP: original error: {}, fallback error: {}", e, fallback_error);
+                    }
+                }
+            },
+            Err(e) => {
+                error!("Failed to build Qdrant client: {}", e);
+                panic!("Failed to build Qdrant client: {}", e);
+            }
+        };
         
         Self {
             client,

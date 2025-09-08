@@ -11,7 +11,7 @@ use tokio::signal;
 use tracing::{error, info, warn};
 use tracing_subscriber::{EnvFilter, FmtSubscriber};
 use workspace_qdrant_core::{
-    ProcessingEngine, config::Config, 
+    ProcessingEngine, config::{Config, DaemonConfig}, 
     LoggingConfig, initialize_logging,
     ErrorRecovery, ErrorRecoveryStrategy,
     track_async_operation, LoggingErrorMonitor,
@@ -182,30 +182,35 @@ fn check_existing_instance(pid_file: &Path) -> Result<(), Box<dyn std::error::Er
 }
 
 /// Load configuration from file or use defaults
-fn load_config(args: &DaemonArgs) -> Result<Config, Box<dyn std::error::Error>> {
+fn load_config(args: &DaemonArgs) -> Result<(Config, DaemonConfig), Box<dyn std::error::Error>> {
     match &args.config_file {
         Some(config_path) => {
             info!("Loading configuration from {}", config_path.display());
             let config_content = fs::read_to_string(config_path)?;
-            let config: Config = toml::from_str(&config_content)?;
+            let daemon_config: DaemonConfig = toml::from_str(&config_content)?;
+            
+            // Convert to engine config for backward compatibility
+            let engine_config = Config::from(daemon_config.clone());
             
             // Note: Port configuration would be handled by IPC layer if needed
             if args.port.is_some() {
                 info!("Port override specified: {}, but will be handled by IPC layer", args.port.unwrap());
             }
             
-            Ok(config)
+            info!("Configuration loaded successfully - Qdrant transport: {:?}", daemon_config.qdrant.transport);
+            Ok((engine_config, daemon_config))
         }
         None => {
             info!("Using default configuration");
-            let config = Config::default();
+            let daemon_config = DaemonConfig::default();
+            let engine_config = Config::from(daemon_config.clone());
             
             // Note: Port configuration would be handled by IPC layer if needed
             if args.port.is_some() {
                 info!("Port override specified: {}, but will be handled by IPC layer", args.port.unwrap());
             }
             
-            Ok(config)
+            Ok((engine_config, daemon_config))
         }
     }
 }
@@ -241,7 +246,7 @@ async fn setup_signal_handlers() -> Result<(), Box<dyn std::error::Error>> {
 }
 
 /// Main daemon loop
-async fn run_daemon(config: Config, args: DaemonArgs) -> Result<(), Box<dyn std::error::Error>> {
+async fn run_daemon(config: Config, daemon_config: DaemonConfig, args: DaemonArgs) -> Result<(), Box<dyn std::error::Error>> {
     info!("Starting memexd daemon (version 0.2.0)");
     
     // Check for existing instances
@@ -256,9 +261,9 @@ async fn run_daemon(config: Config, args: DaemonArgs) -> Result<(), Box<dyn std:
         remove_pid_file(&pid_file_cleanup);
     });
     
-    // Initialize the processing engine
-    info!("Initializing ProcessingEngine with configuration");
-    let mut engine = ProcessingEngine::with_config(config);
+    // Initialize the processing engine with daemon configuration
+    info!("Initializing ProcessingEngine with daemon configuration");
+    let mut engine = ProcessingEngine::with_daemon_config(daemon_config);
     
     // Start the engine with IPC support
     info!("Starting ProcessingEngine with IPC support");
@@ -302,13 +307,13 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     info!("Command-line arguments: {:?}", args);
     
     // Load configuration
-    let config = load_config(&args).map_err(|e| {
+    let (config, daemon_config) = load_config(&args).map_err(|e| {
         error!("Failed to load configuration: {}", e);
         e
     })?;
     
     // Run the daemon
-    if let Err(e) = run_daemon(config, args).await {
+    if let Err(e) = run_daemon(config, daemon_config, args).await {
         error!("Daemon failed: {}", e);
         process::exit(1);
     }
