@@ -13,7 +13,8 @@ Key functions:
 """
 
 import re
-from typing import str as String
+# Type alias for clarity
+String = str
 
 
 def normalize_collection_name_component(name: String) -> String:
