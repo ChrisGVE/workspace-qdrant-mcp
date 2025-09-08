@@ -64,7 +64,10 @@ from typing import Optional
 from qdrant_client.http import models
 
 from ..core.client import QdrantWorkspaceClient
-from ..core.collection_naming import CollectionPermissionError
+from ..core.collection_naming import (
+    CollectionPermissionError,
+    build_project_collection_name
+)
 from ..core.hybrid_search import HybridSearchEngine
 from ..core.sparse_vectors import create_qdrant_sparse_vector
 
@@ -144,7 +147,7 @@ class ScratchbookManager:
             )
 
         # Always use the consistent scratchbook naming pattern
-        return f"{project_name}-scratchbook"
+        return build_project_collection_name(project_name, "scratchbook")
 
     async def add_note(
         self,
