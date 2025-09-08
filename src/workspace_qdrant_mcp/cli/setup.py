@@ -45,7 +45,7 @@ from urllib.parse import urlparse
 
 import typer
 
-from ..core.client import QdrantWorkspaceClient
+from ..core.daemon_client import get_daemon_client, with_daemon_client
 from ..core.config import Config, EmbeddingConfig, QdrantConfig, WorkspaceConfig
 from ..core.embeddings import EmbeddingService
 from ..utils.config_validator import ConfigValidator
@@ -960,102 +960,96 @@ Remove a document from the collection.
     async def _ingest_sample_documents(self, sample_dir: Path) -> None:
         """Ingest sample documents into the system."""
         try:
-            # Initialize client with our configuration
-            client = QdrantWorkspaceClient(self.config)
-            await client.initialize()
-
-            # Determine collection name
-            project_info = client.get_project_info()
-            if project_info and project_info.get("main_project"):
-                collection = f"{project_info['main_project']}-project"
-            else:
+            # Use daemon client for operations
+            async def ingest_operation(client):
+                # Determine collection name from current project
                 collection = "sample-project"
-
-            print(f"Library Ingesting documents into collection: {collection}")
-
-            # Simple ingestion of sample files
-            for file_path in sample_dir.glob("*"):
-                if file_path.is_file():
+                try:
+                    # Check if we can determine a project-based collection
+                    collections_response = await client.list_collections()
+                    if collections_response.collections:
+                        # Use the first existing collection or create a sample one
+                        collection = collections_response.collections[0].name
+                except Exception:
+                    # Fallback to creating a sample collection
                     try:
-                        content = file_path.read_text()
-
-                        # Use the existing add_document tool
-                        from ..tools.documents import add_document
-
-                        result = await add_document(
-                            content=content,
-                            metadata={
-                                "filename": file_path.name,
-                                "filepath": str(file_path),
-                                "created_by": "setup_wizard",
-                                "sample_document": True,
-                            },
-                            collection=collection,
+                        await client.create_collection(
+                            collection_name="sample-project",
+                            description="Sample documents from setup wizard"
                         )
+                    except Exception:
+                        pass  # Collection might already exist
 
-                        if "successfully" in result.lower():
-                            print(
-                                f"  [OK] {file_path.name}",
+                print(f"Library Ingesting documents into collection: {collection}")
+
+                # Process sample files
+                for file_path in sample_dir.glob("*"):
+                    if file_path.is_file():
+                        try:
+                            # Use daemon client to process document
+                            result = await client.process_document(
+                                file_path=str(file_path),
+                                collection=collection,
+                                metadata={
+                                    "filename": file_path.name,
+                                    "filepath": str(file_path),
+                                    "created_by": "setup_wizard",
+                                    "sample_document": "true",
+                                },
                             )
-                        else:
-                            print(
-                                f"  [ERROR] {file_path.name}: {result}",
-                            )
 
-                    except Exception as e:
-                        print(
-                            f"  [ERROR] {file_path.name}: {e}",
-                        )
+                            if result.success:
+                                print(f"  [OK] {file_path.name}")
+                            else:
+                                print(f"  [ERROR] {file_path.name}: {result.message}")
 
-            await client.close()
-            print(
-                "[OK] Sample documents ingested successfully",
-            )
+                        except Exception as e:
+                            print(f"  [ERROR] {file_path.name}: {e}")
+
+                return True
+
+            # Execute with daemon client
+            await with_daemon_client(ingest_operation)
+            print("[OK] Sample documents ingested successfully")
 
         except Exception as e:
-            print(
-                f"[ERROR] Failed to ingest sample documents: {e}",
-            )
+            print(f"[ERROR] Failed to ingest sample documents: {e}")
 
     async def _verify_installation(self) -> bool:
         """Run final system verification."""
         try:
-            # Test complete system
-            client = QdrantWorkspaceClient(self.config)
-            await client.initialize()
+            # Test system through daemon client
+            async def verify_operation(client):
+                # Test daemon connectivity and basic operations
+                health = await client.health_check()
+                if health.status != health.status.HEALTHY:
+                    return False, "Health check failed"
 
-            status = await client.get_status()
-
-            if status.get("connected"):
-                print(
-                    "[OK] System verification passed",
-                )
-
-                # Show status summary
-                # Show status summary
+                # Test collections listing
+                collections_response = await client.list_collections(include_stats=True)
+                
+                # Test system status
+                status = await client.get_system_status()
+                
+                print("[OK] System verification passed")
                 print("System Status:")
-                print(f"  Qdrant Connection: Connected")
-                print(f"  Embedding Model: Loaded")
-                print(
-                    f"  Project Detection: {status.get('current_project', 'Unknown')}"
-                )
-                print(
-                    f"  Collections: {len(status.get('workspace_collections', []))} available"
-                )
+                print(f"  Daemon Connection: Connected")
+                print(f"  Qdrant Connection: {status.qdrant_status.connected}")
+                print(f"  Collections: {len(collections_response.collections)} available")
+                
+                if hasattr(status, 'embedding_models_loaded'):
+                    print(f"  Embedding Models: {len(status.embedding_models_loaded)} loaded")
+                
+                return True, "System verified successfully"
 
-                await client.close()
-                return True
-            else:
-                print(
-                    "[ERROR] System verification failed",
-                )
-                await client.close()
-                return False
+            # Execute verification with daemon client
+            success, message = await with_daemon_client(verify_operation)
+            if not success:
+                print(f"[ERROR] System verification failed: {message}")
+            return success
 
         except Exception as e:
-            print(
-                f"[ERROR] System verification failed: {e}",
-            )
+            print(f"[ERROR] System verification failed: {e}")
             return False
 
     def _show_completion_message(self, config_path: Path, claude_success: bool) -> None:
