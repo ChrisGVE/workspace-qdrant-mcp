@@ -103,6 +103,10 @@ from .tools.research import research_workspace as research_workspace_impl
 from .tools.scratchbook import ScratchbookManager, update_scratchbook
 from .tools.search import search_collection_by_metadata, search_workspace
 from .tools.watch_management import WatchToolsManager
+from .tools.simplified_interface import (
+    SimplifiedToolsMode,
+    register_simplified_tools,
+)
 from .utils.config_validator import ConfigValidator
 
 # Initialize structured logging
@@ -2439,6 +2443,22 @@ async def initialize_workspace(config_file: Optional[str] = None) -> None:
         )
         # Don't fail server startup if auto-ingestion fails
 
+    # Register tools based on configuration mode
+    mode = SimplifiedToolsMode.get_mode()
+    logger.info("Registering MCP tools", mode=mode)
+    
+    if SimplifiedToolsMode.is_simplified_mode():
+        # Register simplified tools interface
+        await register_simplified_tools(app, workspace_client, watch_tools_manager)
+        logger.info(
+            "Simplified tools registered", 
+            mode=mode,
+            tools=SimplifiedToolsMode.get_enabled_tools()
+        )
+    else:
+        # Full mode - all tools are already registered via @app.tool() decorators
+        logger.info("Running in full mode - all 30+ tools available", mode=mode)
+    
     # Register memory tools with the MCP app
     logger.debug("Registering memory tools")
     register_memory_tools(app)
@@ -2447,7 +2467,7 @@ async def initialize_workspace(config_file: Optional[str] = None) -> None:
     logger.debug("Starting background health monitoring")
     health_checker_instance.start_background_monitoring(interval=60.0)  # Every minute
 
-    logger.info("Workspace initialization completed successfully")
+    logger.info("Workspace initialization completed successfully", tool_mode=mode)
 
 
 def run_server(
