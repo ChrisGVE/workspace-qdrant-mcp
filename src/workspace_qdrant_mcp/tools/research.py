@@ -124,18 +124,23 @@ async def research_workspace(
                 if global_collections:
                     collections = global_collections
                 else:
-                    # Default global collections if not configured
-                    collections = ["memory", "_technical-books", "_standards"]
+                    # Default global collections if not configured - use display names
+                    collections = ["memory", "technical-books", "standards"]
             else:
-                collections = ["memory", "_technical-books", "_standards"]
+                collections = ["memory", "technical-books", "standards"]
 
         elif mode == "all":
             # Search all available collections
-            collections = client.list_collections()
+            if hasattr(client.collection_manager, 'list_searchable_collections') and not include_archived:
+                # Use searchable collections by default (excludes system collections)
+                collections = client.collection_manager.list_searchable_collections()
+            else:
+                # Fallback to full collection list
+                collections = client.list_collections()
 
-            # Optionally filter out archived collections
-            if not include_archived:
-                collections = [c for c in collections if not c.endswith("_archive")]
+                # Optionally filter out archived collections
+                if not include_archived:
+                    collections = [c for c in collections if not c.endswith("_archive")]
 
         # Perform the search
         search_results = await search_workspace(

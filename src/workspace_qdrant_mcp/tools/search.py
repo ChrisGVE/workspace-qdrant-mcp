@@ -150,7 +150,11 @@ async def search_workspace(
         # Get collections to search
         display_collections = collections  # Keep original for user reference
         if collections is None:
-            display_collections = client.list_collections()
+            # Use searchable collections to exclude system collections from global search
+            if hasattr(client.collection_manager, 'list_searchable_collections'):
+                display_collections = client.collection_manager.list_searchable_collections()
+            else:
+                display_collections = client.list_collections()
             collections = display_collections
         else:
             # Validate collections exist
