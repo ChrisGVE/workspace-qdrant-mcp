@@ -24,6 +24,7 @@ import logging
 from typing import Any
 
 from ..core.client import QdrantWorkspaceClient
+from ..core.collection_naming import build_project_collection_name
 from .search import search_workspace
 
 logger = logging.getLogger(__name__)
@@ -97,11 +98,17 @@ async def research_workspace(
             subprojects = project_info.get("subprojects", [])
 
             # Add main project collections
-            collections.extend([f"{main_project}-scratchbook", f"{main_project}-docs"])
+            collections.extend([
+                build_project_collection_name(main_project, "scratchbook"),
+                build_project_collection_name(main_project, "docs")
+            ])
 
             # Add subproject collections
             for subproject in subprojects:
-                collections.extend([f"{subproject}-scratchbook", f"{subproject}-docs"])
+                collections.extend([
+                    build_project_collection_name(subproject, "scratchbook"),
+                    build_project_collection_name(subproject, "docs")
+                ])
 
         elif mode == "collection":
             # Search specific collection only
