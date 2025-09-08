@@ -7,6 +7,7 @@ use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::Duration;
 use qdrant_client::{Qdrant, QdrantError};
+use qdrant_client::config::QdrantConfig;
 use qdrant_client::qdrant::{PointStruct, SearchPoints, UpsertPoints};
 use qdrant_client::qdrant::{CreateCollection, DeleteCollection, Distance, VectorParams, VectorsConfig};
 use qdrant_client::qdrant::Datatype;
@@ -14,6 +15,8 @@ use serde::{Serialize, Deserialize};
 use tokio::time::sleep;
 use thiserror::Error;
 use tracing::{debug, info, warn, error};
+// Note: tonic, hyper, and url imports removed as they're not currently used
+// They would be needed for advanced gRPC HTTP/2 configuration
 
 /// Storage-related errors
 #[derive(Error, Debug)]
@@ -285,7 +288,6 @@ impl StorageClient {
     
     /// Create a storage client with custom configuration
     pub fn with_config(config: StorageConfig) -> Self {
-        use qdrant_client::config::QdrantConfig;
         
         info!("Initializing Qdrant client with transport: {:?}", config.transport);
         
@@ -335,7 +337,7 @@ impl StorageClient {
             // Note: would need to configure this if the API supports it
         }
         
-        // Log HTTP/2 configuration info (settings stored for future use)
+        // Log and apply HTTP/2 configuration for gRPC transport
         if matches!(config.transport, TransportMode::Grpc) {
             info!("gRPC transport configured with HTTP/2 settings:");
             if let Some(frame_size) = config.http2.max_frame_size {
@@ -350,9 +352,20 @@ impl StorageClient {
             info!("  - Server push: {}", config.http2.enable_push);
             info!("  - TCP keepalive: {}", config.http2.tcp_keepalive);
             
-            // Note: Actual HTTP/2 configuration would need to be applied at the transport layer
-            // For now, we're using the standard qdrant-client configuration
-            warn!("HTTP/2 fine-tuning requires transport-level configuration - using default settings");
+            // Apply HTTP/2 settings to qdrant_config where possible
+            // Note: The qdrant-client library doesn't expose direct HTTP/2 frame size configuration,
+            // so we configure what we can at the connection level
+            if config.http2.tcp_keepalive {
+                qdrant_config = qdrant_config.keep_alive_while_idle();
+            }
+            
+            // For frame size configuration, we'll need to set environment variables
+            // or use other mechanisms since qdrant-client doesn't expose these directly
+            if let Some(frame_size) = config.http2.max_frame_size {
+                // This is a workaround - we can't directly configure frame size in qdrant-client
+                warn!("HTTP/2 max frame size configuration requires lower-level gRPC configuration");
+                warn!("Consider using HTTP transport if frame size errors persist");
+            }
         }
         
         // Try to build the client with fallback to HTTP on gRPC failure

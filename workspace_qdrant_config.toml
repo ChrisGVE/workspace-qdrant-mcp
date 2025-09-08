@@ -33,7 +33,7 @@ project_path = "/Users/chris/Dropbox/dev/ai/claude-code-cfg/mcp/workspace-qdrant
 # Qdrant connection configuration
 [qdrant]
 url = "http://localhost:6333"
-transport = "Grpc"  # Now using gRPC with HTTP/2 configuration
+transport = "Grpc"  # Using gRPC with improved HTTP/2 configuration
 timeout_ms = 30000
 max_retries = 3
 retry_delay_ms = 1000
