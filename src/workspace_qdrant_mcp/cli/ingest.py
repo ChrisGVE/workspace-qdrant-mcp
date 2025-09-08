@@ -9,6 +9,8 @@ reporting, and user interaction for the ingestion process.
 import asyncio
 import logging
 import sys
+import tempfile
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
@@ -25,8 +27,8 @@ from rich.progress import (
 )
 from rich.table import Table
 
-from ..core.client import QdrantWorkspaceClient
-from ..core.config import Config
+from ..core.daemon_client import get_daemon_client, with_daemon_client
+from ..core.yaml_config import load_config
 from .ingestion_engine import DocumentIngestionEngine, IngestionResult, IngestionStats
 from .parsers import SecurityConfig, WebIngestionInterface, create_secure_web_parser
 
@@ -247,61 +249,109 @@ async def _run_ingestion(
     """Run the main ingestion process."""
 
     try:
-        # Initialize client
-        console.print("🚀 Initializing workspace client...", style="blue")
-        config = Config()
-        client = QdrantWorkspaceClient(config)
-        await client.initialize()
+        # Initialize daemon client
+        console.print("🚀 Connecting to daemon...", style="blue")
+        config = load_config()
+        daemon_client = get_daemon_client(config)
+        await daemon_client.connect()
 
-        console.print(f"✅ Connected to Qdrant at {config.qdrant.url}", style="green")
+        console.print(f"✅ Connected to daemon at {config.daemon.grpc.host}:{config.daemon.grpc.port}", style="green")
 
-        # Show project info
-        project_info = client.get_project_info()
-        if project_info:
-            console.print(f"📁 Project: {project_info['main_project']}", style="cyan")
+        # Show system status
+        system_status = await daemon_client.get_system_status()
+        console.print(f"📁 Daemon status: {system_status.status}", style="cyan")
 
-        # Initialize ingestion engine
-        engine = DocumentIngestionEngine(
-            client=client,
-            concurrency=concurrency,
-            chunk_size=chunk_size,
-            chunk_overlap=chunk_overlap,
-        )
-
-        # Get estimation
-        console.print("📊 Analyzing directory...", style="blue")
-        estimation = await engine.estimate_processing_time(path, formats)
-
-        # Display estimation
-        _display_estimation(estimation, dry_run)
-
+        # Process folder using daemon with progress tracking
+        include_patterns = [f"*.{fmt}" for fmt in formats] if formats else None
+        ignore_patterns = exclude_patterns or []
+        
+        # Show basic estimation first
+        directory_path = Path(path)
+        if directory_path.exists():
+            file_count = len(list(directory_path.rglob("*")))
+            console.print(f"📊 Found approximately {file_count} files to analyze", style="blue")
+        
         # Confirmation (unless dry run or auto-confirmed)
         if not dry_run and not auto_confirm:
             if not typer.confirm("\n🤔 Proceed with ingestion?"):
                 console.print("❌ Operation cancelled", style="red")
                 return
 
-        # Run ingestion with progress tracking
+        # Run ingestion with progress tracking via daemon
         progress_task = None
         if show_progress:
             progress_task = _create_progress_tracker()
 
+        stats = {
+            'files_found': 0,
+            'files_processed': 0, 
+            'files_failed': 0,
+            'files_skipped': 0,
+            'total_documents': 0,
+            'total_chunks': 0,
+            'total_characters': 0,
+            'total_words': 0,
+            'errors': [],
+            'start_time': datetime.now(timezone.utc)
+        }
+        
         try:
-            result = await engine.process_directory(
-                directory_path=path,
+            # Process folder via daemon
+            async for progress in daemon_client.process_folder(
+                folder_path=path,
                 collection=collection,
-                formats=formats,
-                dry_run=dry_run,
+                include_patterns=include_patterns,
+                ignore_patterns=ignore_patterns,
                 recursive=recursive,
-                exclude_patterns=exclude_patterns,
-                progress_callback=_create_progress_callback(progress_task)
-                if progress_task
-                else None,
-            )
+                dry_run=dry_run
+            ):
+                # Update stats from progress
+                stats['files_found'] = progress.total_files
+                stats['files_processed'] = progress.processed_files
+                stats['files_failed'] = progress.failed_files
+                
+                if progress_task:
+                    task_id = progress_task.task_ids[0] if progress_task.task_ids else progress_task.add_task("Processing files...", total=progress.total_files)
+                    progress_task.update(
+                        task_id,
+                        completed=progress.processed_files,
+                        total=progress.total_files,
+                        description=f"Processing files... ({progress.processed_files} processed, {progress.failed_files} failed)"
+                    )
 
         finally:
             if progress_task:
                 progress_task.stop()
+            
+        # Build result from daemon processing
+        stats['end_time'] = datetime.now(timezone.utc)
+        stats['processing_time'] = (stats['end_time'] - stats['start_time']).total_seconds()
+        
+        # Create result structure compatible with existing display code
+        from .ingestion_engine import IngestionStats, IngestionResult
+        
+        ingestion_stats = IngestionStats(
+            files_found=stats['files_found'],
+            files_processed=stats['files_processed'],
+            files_failed=stats['files_failed'],
+            files_skipped=stats['files_skipped'],
+            total_documents=stats['total_documents'],
+            total_chunks=stats['total_chunks'],
+            total_characters=stats['total_characters'],
+            total_words=stats['total_words'],
+            start_time=stats['start_time'],
+            end_time=stats['end_time'],
+            processing_time=stats['processing_time'],
+            errors=stats['errors']
+        )
+        
+        result = IngestionResult(
+            success=stats['files_failed'] == 0,
+            stats=ingestion_stats,
+            collection=collection,
+            message=f"Processed {stats['files_processed']} files via daemon",
+            dry_run=dry_run
+        )
 
         # Display results
         _display_results(result)
@@ -315,8 +365,8 @@ async def _run_ingestion(
         raise typer.Exit(1)
 
     finally:
-        if "client" in locals():
-            await client.close()
+        if "daemon_client" in locals():
+            await daemon_client.disconnect()
 
 
 def _display_estimation(estimation: dict[str, Any], dry_run: bool) -> None:
@@ -632,18 +682,17 @@ async def _run_web_ingestion(
                 console.print("❌ Operation cancelled", style="red")
                 return
 
-        # Initialize client
-        console.print("🚀 Initializing workspace client...", style="blue")
-        config = Config()
-        client = QdrantWorkspaceClient(config)
-        await client.initialize()
+        # Initialize daemon client
+        console.print("🚀 Connecting to daemon...", style="blue")
+        config = load_config()
+        daemon_client = get_daemon_client(config)
+        await daemon_client.connect()
 
-        console.print(f"✅ Connected to Qdrant at {config.qdrant.url}", style="green")
+        console.print(f"✅ Connected to daemon at {config.daemon.grpc.host}:{config.daemon.grpc.port}", style="green")
 
-        # Show project info
-        project_info = client.get_project_info()
-        if project_info:
-            console.print(f"📁 Project: {project_info['main_project']}", style="cyan")
+        # Show system status
+        system_status = await daemon_client.get_system_status()
+        console.print(f"📁 Daemon status: {system_status.status}", style="cyan")
 
         # Configure web parser
         console.print("🔧 Configuring secure web parser...", style="blue")
@@ -744,13 +793,27 @@ async def _run_web_ingestion(
             f"💾 Adding content to collection '{collection}'...", style="blue"
         )
 
-        result = await add_document(
-            client=client,
-            collection=collection,
-            document=parsed_doc,
-            chunk_size=chunk_size,
-            chunk_overlap=chunk_overlap,
-        )
+        # Process document via daemon
+        with tempfile.NamedTemporaryFile(mode='w', suffix='.txt', delete=False) as temp_file:
+            temp_file.write(parsed_doc.content)
+            temp_file_path = temp_file.name
+        
+        try:
+            response = await daemon_client.process_document(
+                file_path=temp_file_path,
+                collection=collection,
+                metadata=parsed_doc.additional_metadata or {},
+                chunk_text=True
+            )
+            
+            result = {
+                'success': response.success,
+                'document_id': response.document_id,
+                'chunks_created': response.chunks_created,
+                'error': response.error_message if not response.success else None
+            }
+        finally:
+            Path(temp_file_path).unlink(missing_ok=True)
 
         # Display results
         if result and result.get("success", False):
@@ -775,8 +838,8 @@ async def _run_web_ingestion(
         raise typer.Exit(1)
 
     finally:
-        if "client" in locals():
-            await client.close()
+        if "daemon_client" in locals():
+            await daemon_client.disconnect()
 
 
 def main() -> None:
