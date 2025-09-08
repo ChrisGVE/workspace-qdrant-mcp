@@ -126,10 +126,75 @@ class ServiceManager:
                 "plist_dir": str(plist_dir),
             }
 
+        # Setup Application Support configuration
+        app_support_dir = Path.home() / "Library" / "Application Support" / "workspace-qdrant-mcp"
+        app_support_config = app_support_dir / "workspace_qdrant_config.toml"
+        
+        # Create Application Support directory if it doesn't exist
+        try:
+            app_support_dir.mkdir(parents=True, exist_ok=True)
+            logger.debug(f"Created Application Support directory: {app_support_dir}")
+        except Exception as e:
+            logger.error(f"Failed to create Application Support directory: {e}")
+            return {
+                "success": False,
+                "error": f"Cannot create Application Support directory: {e}",
+            }
+        
+        # If no config file specified, use/create default in Application Support
+        if not config_file:
+            config_file = app_support_config
+            
+        # Copy default config if target doesn't exist
+        if not config_file.exists():
+            # Look for default config in project directory first
+            project_config = Path.cwd() / "workspace_qdrant_config.toml"
+            if project_config.exists():
+                import shutil
+                shutil.copy2(project_config, config_file)
+                logger.debug(f"Copied project config to: {config_file}")
+            else:
+                # Create a minimal default config
+                default_config = '''# Workspace Qdrant MCP Configuration
+# TOML format for memexd daemon
+
+# Logging configuration
+log_file = "/Users/{}/Library/Logs/memexd.log"
+
+# Processing engine configuration
+max_concurrent_tasks = 4
+default_timeout_ms = 30000
+enable_preemption = true
+chunk_size = 1000
+enable_lsp = true
+log_level = "info"
+enable_metrics = true
+metrics_interval_secs = 60
+
+# Auto-ingestion configuration
+[auto_ingestion]
+enabled = true
+auto_create_watches = true
+include_common_files = true
+include_source_files = true
+target_collection_suffix = "scratchbook"
+max_files_per_batch = 5
+batch_delay_seconds = 2.0
+max_file_size_mb = 50
+recursive_depth = 5
+debounce_seconds = 10
+
+# Workspace directory (auto-detected from current working directory)
+project_path = "{}"
+'''.format(Path.home().name, Path.cwd())
+                
+                config_file.write_text(default_config)
+                logger.debug(f"Created default config: {config_file}")
+
         # Build daemon arguments
         daemon_args = [str(daemon_path)]
-        if config_file:
-            daemon_args.extend(["--config", str(config_file)])
+        # Always include config file
+        daemon_args.extend(["--config", str(config_file)])
         daemon_args.extend(["--log-level", log_level])
 
         # Create plist content with priority-based resource management
@@ -142,7 +207,7 @@ class ServiceManager:
     
     <key>ProgramArguments</key>
     <array>
-        {"".join(f"<string>{arg}</string>" for arg in daemon_args)}
+        {chr(10).join(f"        <string>{arg}</string>" for arg in daemon_args)}
     </array>
     
     <key>RunAtLoad</key>
