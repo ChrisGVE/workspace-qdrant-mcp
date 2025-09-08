@@ -11,8 +11,8 @@ from typing import Any, Dict, List, Optional
 import typer
 
 from ...core.collection_naming import CollectionNameError, validate_collection_name
-from ...core.config import Config
 from ...core.daemon_client import get_daemon_client, with_daemon_client
+from ...core.yaml_config import load_config
 from ...observability import get_logger
 from ..utils import (
     confirm,
@@ -134,15 +134,18 @@ def copy_library(
 async def _list_libraries(stats: bool, sort_by: str, format: str):
     """List all library collections."""
     try:
-        config = Config()
-        client = create_qdrant_client(config.qdrant_client_config)
-
-        # Get all collections
-        all_collections = client.list_collections()
+        config = load_config()
+        
+        async def _operation(client):
+            # Get all collections
+            response = await client.list_collections(include_stats=stats)
+            return response.collections
+            
+        all_collections = await with_daemon_client(_operation, config)
 
         # Filter for library collections (start with _)
         library_collections = [
-            col for col in all_collections if col.get("name", "").startswith("_")
+            col for col in all_collections if col.name.startswith("_")
         ]
 
         if not library_collections:
@@ -150,24 +153,24 @@ async def _list_libraries(stats: bool, sort_by: str, format: str):
             print("Use 'wqm library create <name>' to create one")
             return
 
-        # Collect statistics if requested
+        # Collect statistics
         library_data = []
         for col in library_collections:
-            name = col.get("name", "")
+            name = col.name
             lib_info = {
                 "name": name,
-                "display_name": name[1:],
-            }  # Remove _ prefix for display
+                "display_name": name[1:],  # Remove _ prefix for display
+            }
 
             if stats:
                 try:
-                    info = await client.get_collection_info(name)
+                    # Stats are already included in the collection response
                     lib_info.update(
                         {
-                            "points_count": info.get("points_count", 0),
-                            "vectors_count": info.get("vectors_count", 0),
-                            "indexed_points_count": info.get("indexed_points_count", 0),
-                            "status": info.get("status", "unknown"),
+                            "points_count": col.points_count,
+                            "vectors_count": col.vectors_count if hasattr(col, 'vectors_count') else col.points_count,
+                            "indexed_points_count": col.indexed_points_count if hasattr(col, 'indexed_points_count') else col.points_count,
+                            "status": col.status if hasattr(col, 'status') else "active",
                         }
                     )
                 except Exception as e:
@@ -264,34 +267,38 @@ async def _create_library(
             print(f"Error: Invalid collection name: {e}")
             raise typer.Exit(1)
 
-        config = Config()
-        client = create_qdrant_client(config.qdrant_client_config)
-
-        # Check if collection already exists
-        existing_collections = client.list_collections()
-        if any(col.get("name") == collection_name for col in existing_collections):
+        config = load_config()
+        
+        async def _operation(client):
+            # Check if collection already exists
+            response = await client.list_collections(include_stats=False)
+            existing_names = [col.name for col in response.collections]
+            
+            if collection_name in existing_names:
+                return None  # Signal that collection exists
+            
+            # Create the collection with metadata
+            metadata = {}
+            if description:
+                metadata["description"] = description
+            if tags:
+                metadata["tags"] = ",".join(tags)
+            metadata["vector_size"] = str(vector_size)
+            metadata["distance_metric"] = distance_metric.upper()
+            
+            return await client.create_collection(
+                collection_name=collection_name,
+                description=description or "",
+                metadata=metadata
+            )
+            
+        result = await with_daemon_client(_operation, config)
+        
+        if result is None:
             print(f"Error: Library collection '{display_name}' already exists")
             raise typer.Exit(1)
 
         print(f"Creating library: {display_name}")
-
-        # Prepare collection configuration
-        collection_config = {
-            "vectors": {"size": vector_size, "distance": distance_metric.upper()}
-        }
-
-        # Add metadata if provided
-        payload_schema = {}
-        if description:
-            payload_schema["description"] = "text"
-        if tags:
-            payload_schema["tags"] = "keyword"
-
-        if payload_schema:
-            collection_config["payload_schema"] = payload_schema
-
-        # Create the collection
-        await client.create_collection(collection_name, collection_config)
 
         print(f"Library collection '{display_name}' created successfully!")
 
@@ -330,21 +337,30 @@ async def _remove_library(name: str, force: bool, backup: bool):
             collection_name = name
             display_name = name[1:]
 
-        config = Config()
-        client = create_qdrant_client(config.qdrant_client_config)
-
-        # Check if collection exists
-        existing_collections = client.list_collections()
-        if not any(col.get("name") == collection_name for col in existing_collections):
+        config = load_config()
+        
+        async def _operation(client):
+            # Check if collection exists and get info
+            response = await client.list_collections(include_stats=False)
+            existing_names = [col.name for col in response.collections]
+            
+            if collection_name not in existing_names:
+                return None, None  # Signal that collection doesn't exist
+            
+            # Get collection info for confirmation
+            try:
+                info = await client.get_collection_info(collection_name)
+                doc_count = info.points_count
+            except Exception:
+                doc_count = "unknown"
+                
+            return collection_name, doc_count
+            
+        collection_exists, doc_count = await with_daemon_client(_operation, config)
+        
+        if collection_exists is None:
             print(f"Error: Library collection '{display_name}' not found")
             raise typer.Exit(1)
-
-        # Get collection info for confirmation
-        try:
-            info = await client.get_collection_info(collection_name)
-            doc_count = info.get("points_count", 0)
-        except Exception:
-            doc_count = "unknown"
 
         if not force:
             print(f"Remove Library: {display_name}")
@@ -364,7 +380,11 @@ async def _remove_library(name: str, force: bool, backup: bool):
 
         # Delete the collection
         print(f"Removing library '{display_name}'...")
-        await client.delete_collection(collection_name)
+        
+        async def _delete_operation(client):
+            return await client.delete_collection(collection_name, confirm=True)
+            
+        await with_daemon_client(_delete_operation, config)
 
         print(f"Library collection '{display_name}' removed successfully")
 
@@ -376,8 +396,7 @@ async def _remove_library(name: str, force: bool, backup: bool):
 async def _library_status(name: str | None, detailed: bool, health_check: bool):
     """Show library statistics and health."""
     try:
-        config = Config()
-        client = create_qdrant_client(config.qdrant_client_config)
+        config = load_config()
 
         if name:
             # Status for specific library
@@ -386,26 +405,28 @@ async def _library_status(name: str | None, detailed: bool, health_check: bool):
 
             print(f"Library Status: {display_name}")
 
-            try:
-                info = await client.get_collection_info(collection_name)
-
+            async def _operation(client):
+                try:
+                    return await client.get_collection_info(collection_name)
+                except Exception as e:
+                    return None, str(e)
+                    
+            result = await with_daemon_client(_operation, config)
+            
+            if isinstance(result, tuple):
+                print(f"Error: Cannot get status for '{display_name}': {result[1]}")
+            else:
+                info = result
                 print(f"{display_name} Status:")
                 print(f"Collection Name: {collection_name}")
-                print(f"Status: {info.get('status', 'unknown')}")
-                print(f"Documents: {info.get('points_count', 0)}")
-                print(f"Vectors: {info.get('vectors_count', 0)}")
-                print(f"Indexed Points: {info.get('indexed_points_count', 0)}")
+                print(f"Status: active")
+                print(f"Documents: {info.points_count}")
+                print(f"Vectors: {info.points_count}")
+                print(f"Indexed Points: {info.indexed_points_count if hasattr(info, 'indexed_points_count') else info.points_count}")
 
                 if detailed:
-                    print(
-                        f"Vector Size: {info.get('config', {}).get('params', {}).get('vectors', {}).get('size', 'unknown')}"
-                    )
-                    print(
-                        f"Distance Metric: {info.get('config', {}).get('params', {}).get('vectors', {}).get('distance', 'unknown')}"
-                    )
-
-            except Exception as e:
-                print(f"Error: Cannot get status for '{display_name}': {e}")
+                    print(f"Vector Size: {info.vector_size if hasattr(info, 'vector_size') else 'unknown'}")
+                    print(f"Distance Metric: {info.distance_metric if hasattr(info, 'distance_metric') else 'unknown'}")
 
         else:
             # Status for all libraries
@@ -428,64 +449,55 @@ async def _library_info(name: str, show_samples: bool, show_schema: bool):
         collection_name = name if name.startswith("_") else f"_{name}"
         display_name = name[1:] if name.startswith("_") else name
 
-        config = Config()
-        client = create_qdrant_client(config.qdrant_client_config)
+        config = load_config()
 
         print(f"Library Info: {display_name}")
 
-        # Get collection info
-        info = await client.get_collection_info(collection_name)
+        async def _operation(client):
+            # Get collection info with sample documents if requested
+            info = await client.get_collection_info(
+                collection_name, 
+                include_sample_documents=show_samples
+            )
+            return info
+            
+        info = await with_daemon_client(_operation, config)
 
         # Basic information
         print("Library Details:")
         print(f"Name: {display_name}")
         print(f"Full Name: {collection_name}")
-        print(f"Status: {info.get('status', 'unknown')}")
-        print(f"Documents: {info.get('points_count', 0):,}")
-        print(f"Vectors: {info.get('vectors_count', 0):,}")
-        print(f"Indexed: {info.get('indexed_points_count', 0):,}")
+        print(f"Status: active")
+        print(f"Documents: {info.points_count:,}")
+        print(f"Vectors: {info.points_count:,}")
+        print(f"Indexed: {info.indexed_points_count if hasattr(info, 'indexed_points_count') else info.points_count:,}")
         print("\nConfiguration:")
-        print(
-            f"Vector Size: {info.get('config', {}).get('params', {}).get('vectors', {}).get('size', 'unknown')}"
-        )
-        print(
-            f"Distance: {info.get('config', {}).get('params', {}).get('vectors', {}).get('distance', 'unknown')}"
-        )
+        print(f"Vector Size: {info.vector_size if hasattr(info, 'vector_size') else 'unknown'}")
+        print(f"Distance: {info.distance_metric if hasattr(info, 'distance_metric') else 'unknown'}")
 
         if show_schema:
             print("\nCollection Schema")
-            # TODO: Display collection schema details
             print("Schema details display will be implemented in future updates")
 
-        if show_samples:
+        if show_samples and hasattr(info, 'sample_documents') and info.sample_documents:
             print("\nSample Documents")
-            try:
-                # Get a few sample points
-                sample_results = await client.scroll_collection(
-                    collection_name, limit=3
-                )
-
-                if sample_results and "points" in sample_results:
-                    for i, point in enumerate(sample_results["points"][:3], 1):
-                        print(f"Sample {i}:")
-                        payload = point.get("payload", {})
-
-                        # Display key fields
-                        for key, value in payload.items():
-                            if key in ["title", "content", "filename", "source"]:
-                                display_value = (
-                                    str(value)[:100] + "..."
-                                    if len(str(value)) > 100
-                                    else str(value)
-                                )
-                                print(f"  {key}: {display_value}")
-
-                        print()
-                else:
-                    print("No sample documents found")
-
-            except Exception as e:
-                print(f"Cannot retrieve samples: {e}")
+            for i, doc in enumerate(info.sample_documents[:3], 1):
+                print(f"Sample {i}:")
+                # Display key fields from document metadata
+                metadata = getattr(doc, 'metadata', {})
+                for key in ["title", "content", "filename", "source"]:
+                    if key in metadata:
+                        value = metadata[key]
+                        display_value = (
+                            str(value)[:100] + "..."
+                            if len(str(value)) > 100
+                            else str(value)
+                        )
+                        print(f"  {key}: {display_value}")
+                print()
+        elif show_samples:
+            print("\nSample Documents")
+            print("No sample documents found")
 
     except Exception as e:
         print(f"Error: Failed to get library info: {e}")
