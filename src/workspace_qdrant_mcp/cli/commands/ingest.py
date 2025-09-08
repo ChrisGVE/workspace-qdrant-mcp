@@ -10,9 +10,7 @@ from typing import List, Optional
 
 import typer
 
-from ...cli.enhanced_ingestion import EnhancedIngestionEngine
 from ...cli.ingestion_engine import DocumentIngestionEngine, IngestionResult
-from ...core.client import QdrantWorkspaceClient
 from ...core.daemon_client import get_daemon_client, with_daemon_client
 from ...core.yaml_config import load_config
 from ...core.yaml_metadata import YamlMetadataWorkflow
@@ -215,21 +213,6 @@ def smart_ingest(
     handle_async(_smart_ingest(path, collection, auto_chunk, concurrency, dry_run))
 
 
-# Enhanced ingestion helper
-async def _get_enhanced_engine() -> EnhancedIngestionEngine:
-    """Get enhanced ingestion engine with workspace client."""
-    try:
-        from ...core.config import Config
-        from ...core.client import create_qdrant_client
-        
-        config = Config()
-        qdrant_client = create_qdrant_client(config.qdrant_client_config)
-        workspace_client = QdrantWorkspaceClient(qdrant_client, config)
-        
-        return EnhancedIngestionEngine(workspace_client)
-    except Exception as e:
-        print(f"Error: Failed to initialize enhanced ingestion engine: {e}")
-        raise typer.Exit(1)
 
 # Async implementation functions
 async def _ingest_file(
@@ -240,47 +223,15 @@ async def _ingest_file(
     dry_run: bool,
     force: bool,
 ):
-    """Ingest a single file using enhanced ingestion engine."""
+    """Ingest a single file using daemon client."""
     file_path = Path(path)
     
-    try:
-        # Get enhanced engine
-        engine = await _get_enhanced_engine()
+    if not file_path.exists():
+        error_message(f"File not found: {path}")
+        raise typer.Exit(1)
         
-        # Use enhanced ingestion with integrated validation and progress tracking
-        result = await engine.ingest_single_file(
-            file_path=file_path,
-            collection=collection,
-            chunk_size=chunk_size,
-            chunk_overlap=chunk_overlap,
-            dry_run=dry_run
-        )
-        
-        if result["success"]:
-            if dry_run:
-                analysis = result["analysis"]
-                print("\nFile Analysis:")
-                print(f"  Path: {analysis['path']}")
-                print(f"  Size: {analysis['size_mb']} MB")
-                print(f"  Extension: {analysis['extension']}")
-                print(f"  Estimated chunks: {analysis['estimated_chunks']}")
-                print(f"  Target collection: {analysis['target_collection']}")
-                print(f"  Processing estimate: {analysis['processing_estimate']}")
-            else:
-                print(f"\nSuccess! Document ingested:")
-                print(f"  Document ID: {result['document_id']}")
-                print(f"  Chunks created: {result['chunks_created']}")
-                print(f"  Collection: {result['collection']}")
-        else:
-            print(f"\nError: {result['error']}")
-            if "suggestions" in result:
-                print("\nSuggestions:")
-                for suggestion in result["suggestions"]:
-                    print(f"  • {suggestion}")
-            raise typer.Exit(1)
-            
-    except Exception as e:
-        print(f"Error: File ingestion failed: {e}")
+    if not file_path.is_file():
+        error_message(f"Path is not a file: {path}")
         raise typer.Exit(1)
 
     async def ingest_operation(daemon_client):
@@ -299,20 +250,22 @@ async def _ingest_file(
             }
 
             # Display file analysis in plain text
-            print("File Analysis:")
-            print(f"Path: {file_info['path']}")
-            print(f"Size: {file_info['size_mb']} MB")
-            print(f"Extension: {file_info['extension']}")
-            print(f"Supported: {'Yes' if file_info['supported'] else 'No'}")
+            print("\nFile Analysis:")
+            print(f"  Path: {file_info['path']}")
+            print(f"  Size: {file_info['size_mb']} MB")
+            print(f"  Extension: {file_info['extension']}")
+            print(f"  Supported: {'Yes' if file_info['supported'] else 'No'}")
 
             if file_info["supported"]:
-                print("File can be processed with current settings")
+                print("  File can be processed with current settings")
                 estimated_chunks = max(
                     1, int(file_info["size_mb"] * 1024 * 1024 / chunk_size)
                 )
-                print(f"Estimated chunks: ~{estimated_chunks}")
+                print(f"  Estimated chunks: ~{estimated_chunks}")
+                print(f"  Target collection: {collection}")
             else:
-                print(f"Error: Unsupported file format: {file_info['extension']}")
+                error_message(f"Unsupported file format: {file_info['extension']}")
+                raise typer.Exit(1)
 
             return
 
@@ -334,25 +287,26 @@ async def _ingest_file(
             )
 
             if response.success:
-                print(f"Document processed successfully")
+                success_message(f"Document processed successfully")
                 print(f"Document ID: {response.document_id}")
                 print(f"Chunks added: {response.chunks_added}")
+                print(f"Collection: {collection}")
                 if response.applied_metadata:
                     print("Applied metadata:")
                     for key, value in response.applied_metadata.items():
                         print(f"  {key}: {value}")
             else:
-                print(f"Error: Processing failed: {response.message}")
+                error_message(f"Processing failed: {response.message}")
                 raise typer.Exit(1)
 
         except Exception as e:
-            print(f"Error: Processing failed: {e}")
+            error_message(f"Processing failed: {e}")
             raise typer.Exit(1)
 
     try:
         await with_daemon_client(ingest_operation)
     except Exception as e:
-        print(f"Error: Ingestion failed: {e}")
+        error_message(f"Ingestion failed: {e}")
         raise typer.Exit(1)
 
 
@@ -368,56 +322,76 @@ async def _ingest_folder(
     dry_run: bool,
     force: bool,
 ):
-    """Ingest all files in a folder using enhanced ingestion engine."""
+    """Ingest all files in a folder using daemon client."""
     folder_path = Path(path)
     
-    try:
-        # Get enhanced engine
-        engine = await _get_enhanced_engine()
+    if not folder_path.exists():
+        error_message(f"Folder not found: {path}")
+        raise typer.Exit(1)
         
-        # Use enhanced folder ingestion with progress tracking and validation
-        result = await engine.ingest_folder(
-            folder_path=folder_path,
-            collection=collection,
-            formats=formats,
-            chunk_size=chunk_size,
-            chunk_overlap=chunk_overlap,
-            recursive=recursive,
-            exclude_patterns=exclude,
-            concurrency=concurrency,
-            dry_run=dry_run
-        )
+    if not folder_path.is_dir():
+        error_message(f"Path is not a directory: {path}")
+        raise typer.Exit(1)
+    
+    async def folder_operation(daemon_client):
+        print(f"Processing Folder: {folder_path.name}")
         
-        if result["success"]:
-            if dry_run:
-                analysis = result["analysis"]
-                print("\nFolder Analysis Summary:")
-                print(f"  Total files: {analysis['total_files']}")
-                print(f"  Total size: {analysis['total_size_mb']} MB")
-                print(f"  Estimated chunks: {analysis['estimated_total_chunks']}")
-                print(f"  Target collection: {analysis['target_collection']}")
-                print(f"  Processing estimate: {analysis['processing_estimate']}")
-                
-                print("\nFormat breakdown:")
-                for ext, stats in analysis['format_breakdown'].items():
-                    print(f"  .{ext}: {stats['count']} files, {stats['size_mb']:.2f} MB, ~{stats['chunks']} chunks")
-            else:
-                print(f"\nFolder ingestion completed successfully!")
-                print(f"Files processed: {result['files_processed']}")
-                print(f"Total chunks created: {result['total_chunks']}")
-                summary = result['summary']
-                print(f"Success rate: {summary['success_rate']:.1f}%")
-                print(f"Processing time: {summary['elapsed_seconds']:.2f}s")
-        else:
-            print(f"\nError: {result['error']}")
-            if "suggestions" in result:
-                print("\nSuggestions:")
-                for suggestion in result["suggestions"]:
-                    print(f"  • {suggestion}")
-            raise typer.Exit(1)
+        try:
+            metadata = {
+                "source": "cli",
+                "chunk_size": str(chunk_size),
+                "chunk_overlap": str(chunk_overlap),
+                "concurrency": str(concurrency),
+            }
             
+            # Convert formats to include patterns if provided
+            include_patterns = []
+            if formats:
+                for fmt in formats:
+                    if not fmt.startswith('.'):
+                        fmt = f'.{fmt}'
+                    include_patterns.append(f"*{fmt}")
+            
+            files_processed = 0
+            total_chunks = 0
+            
+            async for progress in daemon_client.process_folder(
+                folder_path=str(folder_path),
+                collection=collection,
+                include_patterns=include_patterns,
+                ignore_patterns=exclude or [],
+                recursive=recursive,
+                max_depth=10,  # Reasonable default
+                dry_run=dry_run,
+                metadata=metadata,
+            ):
+                if dry_run:
+                    if hasattr(progress, 'file_path'):
+                        print(f"  Would process: {progress.file_path}")
+                else:
+                    if hasattr(progress, 'file_path') and hasattr(progress, 'chunks_added'):
+                        files_processed += 1
+                        total_chunks += progress.chunks_added
+                        print(f"  Processed: {progress.file_path} ({progress.chunks_added} chunks)")
+                    elif hasattr(progress, 'error'):
+                        warning_message(f"  Failed: {progress.file_path} - {progress.error}")
+            
+            if not dry_run:
+                success_message(f"Folder processing completed!")
+                print(f"Files processed: {files_processed}")
+                print(f"Total chunks created: {total_chunks}")
+                print(f"Collection: {collection}")
+            else:
+                print(f"\nDry run analysis completed for folder: {folder_path}")
+                
+        except Exception as e:
+            error_message(f"Folder processing failed: {e}")
+            raise typer.Exit(1)
+    
+    try:
+        await with_daemon_client(folder_operation)
     except Exception as e:
-        print(f"Error: Folder ingestion failed: {e}")
+        error_message(f"Folder ingestion failed: {e}")
         raise typer.Exit(1)
 
 
@@ -608,51 +582,84 @@ async def _ingest_web_pages(
 
 
 async def _ingestion_status(collection: Optional[str], recent: bool):
-    """Show ingestion status and statistics using enhanced engine."""
-    try:
-        # Get enhanced engine
-        engine = await _get_enhanced_engine()
-        
-        # Use enhanced status functionality
-        result = await engine.get_ingestion_status(collection)
-        
-        if result["success"]:
+    """Show ingestion status and statistics using daemon client."""
+    async def status_operation(daemon_client):
+        try:
             print("\nIngestion Status")
-            status = result["status"]
             
             if collection:
-                # Single collection status
-                print(f"Collection: {collection}")
-                if "error" not in status:
-                    print("Collection information retrieved successfully")
-                else:
-                    print(f"Error retrieving collection info: {status.get('error')}")
+                # Single collection info
+                try:
+                    info = await daemon_client.get_collection_info(
+                        collection_name=collection,
+                        include_sample_documents=False
+                    )
+                    print(f"Collection: {collection}")
+                    print(f"  Documents: {info.document_count}")
+                    print(f"  Vectors: {info.vector_count}")
+                    print(f"  Index status: {info.status}")
+                    if info.description:
+                        print(f"  Description: {info.description}")
+                except Exception as e:
+                    error_message(f"Error retrieving collection info: {e}")
+                    raise typer.Exit(1)
             else:
                 # All collections status
-                if "collections" in status:
-                    collections = status["collections"]
-                    print(f"\nFound {len(collections)} collections:")
-                    print(f"{'Collection':<30} {'Type':<10} {'Status':<10}")
-                    print("-" * 55)
+                try:
+                    response = await daemon_client.list_collections(include_stats=True)
                     
-                    for col_name in collections:
-                        col_type = "Library" if col_name.startswith("_") else "Project"
-                        # For now, we'll show basic status - enhanced collection info could be added
-                        print(f"{col_name:<30} {col_type:<10} {'Available':<10}")
-                else:
-                    print("No collections found or error retrieving collections")
+                    if response.collections:
+                        print(f"\nFound {len(response.collections)} collections:")
+                        print(f"{'Collection':<30} {'Documents':<12} {'Vectors':<12} {'Type':<10}")
+                        print("-" * 70)
+                        
+                        for collection_info in response.collections:
+                            col_type = "Library" if collection_info.name.startswith("_") else "Project"
+                            print(f"{collection_info.name:<30} {collection_info.document_count:<12} {collection_info.vector_count:<12} {col_type:<10}")
+                    else:
+                        print("No collections found")
+                        
+                    # Show system stats
+                    stats = await daemon_client.get_stats(
+                        include_collection_stats=True,
+                        include_watch_stats=recent
+                    )
+                    
+                    print(f"\nSystem Statistics:")
+                    print(f"  Total collections: {stats.total_collections}")
+                    print(f"  Total documents: {stats.total_documents}")
+                    print(f"  Total vectors: {stats.total_vectors}")
+                    
+                except Exception as e:
+                    error_message(f"Error retrieving status: {e}")
+                    raise typer.Exit(1)
             
             # Show recent activity if requested
             if recent:
-                print("\nRecent activity tracking will be available in future updates")
-                print("Current status shows available collections for ingestion")
+                try:
+                    processing_status = await daemon_client.get_processing_status(
+                        include_history=True,
+                        history_limit=10
+                    )
+                    
+                    if processing_status.recent_operations:
+                        print(f"\nRecent Processing Activity:")
+                        for op in processing_status.recent_operations[:5]:
+                            print(f"  {op.timestamp}: {op.operation} - {op.status}")
+                    else:
+                        print(f"\nNo recent processing activity")
+                        
+                except Exception as e:
+                    print(f"  Warning: Could not retrieve recent activity: {e}")
                 
-        else:
-            print(f"\nError retrieving ingestion status: {result['error']}")
+        except Exception as e:
+            error_message(f"Status check failed: {e}")
             raise typer.Exit(1)
-            
+    
+    try:
+        await with_daemon_client(status_operation)
     except Exception as e:
-        print(f"Error: Status check failed: {e}")
+        error_message(f"Status operation failed: {e}")
         raise typer.Exit(1)
 
 
@@ -663,96 +670,97 @@ async def _validate_files(
     verbose: bool
 ):
     """Validate files for ingestion compatibility."""
-    try:
-        target_path = Path(path)
-        
-        if not target_path.exists():
-            print(f"Error: Path not found: {path}")
-            raise typer.Exit(1)
-        
-        # Get enhanced engine
-        engine = await _get_enhanced_engine()
-        
-        print(f"Validating: {target_path}")
-        
-        if target_path.is_file():
-            # Single file validation
-            validation_result = await engine._validate_file(target_path)
-            
-            print(f"\nFile Validation Result:")
-            print(f"  Path: {target_path}")
-            print(f"  Valid: {'Yes' if validation_result['valid'] else 'No'}")
-            
-            if not validation_result['valid']:
-                print(f"  Error: {validation_result['error']}")
-                if 'suggestions' in validation_result:
-                    print("  Suggestions:")
-                    for suggestion in validation_result['suggestions']:
-                        print(f"    • {suggestion}")
-            else:
-                if 'warning' in validation_result:
-                    print(f"  Warning: {validation_result['warning']}")
-                    if 'suggestions' in validation_result:
-                        print("  Recommendations:")
-                        for suggestion in validation_result['suggestions']:
-                            print(f"    • {suggestion}")
-                print("  File is ready for ingestion")
-                
-        else:
-            # Folder validation
-            files = await engine._find_files(target_path, formats, recursive, None)
-            
-            print(f"\nFolder Validation Result:")
-            print(f"  Path: {target_path}")
-            print(f"  Files found: {len(files)}")
-            
-            if not files:
-                print("  Status: No compatible files found")
-                print("  Suggestions:")
-                print("    • Check file formats are supported")
-                print("    • Verify folder contains documents")
-                print("    • Try different format filters")
-                return
-            
-            valid_files = 0
-            invalid_files = 0
-            warnings = 0
-            
-            print("\nFile-by-file validation:")
-            for file_path in files:
-                validation_result = await engine._validate_file(file_path)
-                
-                if validation_result['valid']:
-                    valid_files += 1
-                    status = "✓ Valid"
-                    if 'warning' in validation_result:
-                        warnings += 1
-                        status += " (Warning)"
-                else:
-                    invalid_files += 1
-                    status = "✗ Invalid"
-                
-                if verbose:
-                    print(f"    {file_path.name:<40} {status}")
-                    if not validation_result['valid']:
-                        print(f"      Error: {validation_result['error']}")
-                    elif 'warning' in validation_result:
-                        print(f"      Warning: {validation_result['warning']}")
-            
-            print(f"\nValidation Summary:")
-            print(f"  Valid files: {valid_files}")
-            print(f"  Invalid files: {invalid_files}")
-            print(f"  Files with warnings: {warnings}")
-            print(f"  Success rate: {(valid_files / len(files)) * 100:.1f}%")
-            
-            if valid_files > 0:
-                print(f"  Status: {valid_files} files ready for ingestion")
-            else:
-                print("  Status: No files can be processed")
-                
-    except Exception as e:
-        print(f"Error: Validation failed: {e}")
+    target_path = Path(path)
+    
+    if not target_path.exists():
+        error_message(f"Path not found: {path}")
         raise typer.Exit(1)
+    
+    print(f"Validating: {target_path}")
+    
+    if target_path.is_file():
+        # Single file validation
+        file_info = {
+            "path": str(target_path),
+            "size_mb": round(target_path.stat().st_size / (1024 * 1024), 2),
+            "extension": target_path.suffix.lower(),
+            "supported": target_path.suffix.lower() in [".pdf", ".txt", ".md", ".docx"],
+        }
+        
+        print(f"\nFile Validation Result:")
+        print(f"  Path: {target_path}")
+        print(f"  Size: {file_info['size_mb']} MB")
+        print(f"  Extension: {file_info['extension']}")
+        print(f"  Valid: {'Yes' if file_info['supported'] else 'No'}")
+        
+        if file_info['supported']:
+            success_message("File is ready for ingestion")
+        else:
+            error_message(f"Unsupported file format: {file_info['extension']}")
+            print("  Supported formats: .pdf, .txt, .md, .docx")
+    else:
+        # Folder validation
+        supported_extensions = [".pdf", ".txt", ".md", ".docx"]
+        
+        # Find files matching criteria
+        files = []
+        for file_path in target_path.rglob("*" if recursive else "*") if recursive else target_path.iterdir():
+            if file_path.is_file():
+                if formats:
+                    # Check if file matches format filter
+                    for fmt in formats:
+                        if not fmt.startswith('.'):
+                            fmt = f'.{fmt}'
+                        if file_path.suffix.lower() == fmt:
+                            files.append(file_path)
+                            break
+                else:
+                    # Check against supported extensions
+                    if file_path.suffix.lower() in supported_extensions:
+                        files.append(file_path)
+        
+        print(f"\nFolder Validation Result:")
+        print(f"  Path: {target_path}")
+        print(f"  Files found: {len(files)}")
+        
+        if not files:
+            warning_message("No compatible files found")
+            print("  Suggestions:")
+            print("    • Check file formats are supported (.pdf, .txt, .md, .docx)")
+            print("    • Verify folder contains documents")
+            print("    • Try different format filters")
+            return
+        
+        valid_files = 0
+        invalid_files = 0
+        total_size = 0
+        
+        print("\nFile-by-file validation:")
+        for file_path in files:
+            size_mb = file_path.stat().st_size / (1024 * 1024)
+            total_size += size_mb
+            supported = file_path.suffix.lower() in supported_extensions
+            
+            if supported:
+                valid_files += 1
+                status = "✓ Valid"
+            else:
+                invalid_files += 1
+                status = "✗ Invalid"
+            
+            if verbose:
+                print(f"    {file_path.name:<40} {status} ({size_mb:.2f} MB)")
+        
+        print(f"\nValidation Summary:")
+        print(f"  Valid files: {valid_files}")
+        print(f"  Invalid files: {invalid_files}")
+        print(f"  Total size: {total_size:.2f} MB")
+        print(f"  Success rate: {(valid_files / len(files)) * 100:.1f}%")
+        
+        if valid_files > 0:
+            success_message(f"{valid_files} files ready for ingestion")
+        else:
+            warning_message("No files can be processed")
 
 
 async def _smart_ingest(
@@ -762,93 +770,58 @@ async def _smart_ingest(
     concurrency: int, 
     dry_run: bool
 ):
-    """Smart ingestion with auto-detection and optimization."""
-    try:
-        target_path = Path(path)
-        
-        if not target_path.exists():
-            print(f"Error: Path not found: {path}")
-            raise typer.Exit(1)
-        
-        # Get enhanced engine
-        engine = await _get_enhanced_engine()
-        
-        # Auto-detect collection if not provided
-        if not collection:
-            if target_path.is_file():
-                # Use parent directory name for single files
-                collection = target_path.parent.name
-            else:
-                # Use directory name for folders
-                collection = target_path.name
-            print(f"Auto-detected collection: {collection}")
-        
-        # Auto-determine chunk parameters if enabled
-        if auto_chunk:
-            chunk_size = 1200  # Slightly larger for better semantic coherence
-            chunk_overlap = 150  # Reduced overlap for efficiency
-            print(f"Auto-optimized chunking: {chunk_size} chars with {chunk_overlap} overlap")
-        else:
-            chunk_size = 1000
-            chunk_overlap = 200
-        
-        print(f"Smart ingestion: {target_path}")
-        
-        if target_path.is_file():
-            # Smart single file ingestion
-            result = await engine.ingest_single_file(
-                file_path=target_path,
-                collection=collection,
-                chunk_size=chunk_size,
-                chunk_overlap=chunk_overlap,
-                dry_run=dry_run,
-                metadata={"ingestion_mode": "smart", "auto_optimized": auto_chunk}
-            )
-            
-            if result["success"]:
-                if dry_run:
-                    analysis = result["analysis"]
-                    print("\nSmart Analysis:")
-                    print(f"  Optimized processing: {analysis['processing_estimate']}")
-                else:
-                    print("\nSmart ingestion completed successfully!")
-                    print(f"  Document ID: {result['document_id']}")
-                    print(f"  Chunks created: {result['chunks_created']}")
-            else:
-                print(f"\nSmart ingestion failed: {result['error']}")
-                raise typer.Exit(1)
-        
-        else:
-            # Smart folder ingestion with auto-detection
-            result = await engine.ingest_folder(
-                folder_path=target_path,
-                collection=collection,
-                formats=None,  # Auto-detect all supported formats
-                chunk_size=chunk_size,
-                chunk_overlap=chunk_overlap,
-                recursive=True,
-                exclude_patterns=[".*", "__*", "*.tmp", "*.log"],  # Smart exclusions
-                concurrency=concurrency,
-                dry_run=dry_run
-            )
-            
-            if result["success"]:
-                if dry_run:
-                    analysis = result["analysis"]
-                    print("\nSmart Folder Analysis:")
-                    print(f"  Total processing estimate: {analysis['processing_estimate']}")
-                    print(f"  Recommended concurrency: {min(concurrency, analysis['total_files'])}")
-                else:
-                    print("\nSmart folder ingestion completed successfully!")
-                    summary = result['summary']
-                    print(f"  Optimization: {summary['success_rate']:.1f}% success rate")
-            else:
-                print(f"\nSmart ingestion failed: {result['error']}")
-                raise typer.Exit(1)
-                
-    except Exception as e:
-        print(f"Error: Smart ingestion failed: {e}")
+    """Smart ingestion with auto-detection and optimization using daemon client."""
+    target_path = Path(path)
+    
+    if not target_path.exists():
+        error_message(f"Path not found: {path}")
         raise typer.Exit(1)
+    
+    # Auto-detect collection if not provided
+    if not collection:
+        if target_path.is_file():
+            # Use parent directory name for single files
+            collection = target_path.parent.name
+        else:
+            # Use directory name for folders
+            collection = target_path.name
+        print(f"Auto-detected collection: {collection}")
+    
+    # Auto-determine chunk parameters if enabled
+    if auto_chunk:
+        chunk_size = 1200  # Slightly larger for better semantic coherence
+        chunk_overlap = 150  # Reduced overlap for efficiency
+        print(f"Auto-optimized chunking: {chunk_size} chars with {chunk_overlap} overlap")
+    else:
+        chunk_size = 1000
+        chunk_overlap = 200
+    
+    print(f"Smart ingestion: {target_path}")
+    
+    if target_path.is_file():
+        # Smart single file ingestion - reuse existing file ingestion logic
+        await _ingest_file(
+            path=str(target_path),
+            collection=collection,
+            chunk_size=chunk_size,
+            chunk_overlap=chunk_overlap,
+            dry_run=dry_run,
+            force=False  # Smart ingestion doesn't force overwrite
+        )
+    else:
+        # Smart folder ingestion - reuse existing folder ingestion logic
+        await _ingest_folder(
+            path=str(target_path),
+            collection=collection,
+            formats=None,  # Auto-detect all supported formats
+            chunk_size=chunk_size,
+            chunk_overlap=chunk_overlap,
+            recursive=True,
+            exclude=[".*", "__*", "*.tmp", "*.log"],  # Smart exclusions
+            concurrency=concurrency,
+            dry_run=dry_run,
+            force=False  # Smart ingestion doesn't force overwrite
+        )
 
 
 def _display_ingestion_result(result: IngestionResult, filename: str):
