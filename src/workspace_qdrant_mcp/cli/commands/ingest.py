@@ -182,6 +182,39 @@ def ingestion_status(
     handle_async(_ingestion_status(collection, recent))
 
 
+@ingest_app.command("validate")
+def validate_files(
+    path: str = typer.Argument(..., help="Path to file or folder to validate"),
+    formats: Optional[List[str]] = typer.Option(
+        None, "--format", "-f", help="File formats to validate (e.g. pdf,md,txt)"
+    ),
+    recursive: bool = typer.Option(
+        True, "--recursive/--no-recursive", help="Check subdirectories recursively"
+    ),
+    verbose: bool = verbose_option(),
+):
+    """Validate files for ingestion compatibility without processing them."""
+    handle_async(_validate_files(path, formats, recursive, verbose))
+
+
+@ingest_app.command("smart")
+def smart_ingest(
+    path: str = typer.Argument(..., help="Path to file or folder for smart ingestion"),
+    collection: Optional[str] = typer.Option(
+        None, "--collection", "-c", help="Target collection (auto-detected if not specified)"
+    ),
+    auto_chunk: bool = typer.Option(
+        True, "--auto-chunk/--no-auto-chunk", help="Automatically determine optimal chunk size"
+    ),
+    concurrency: int = typer.Option(
+        3, "--concurrency", help="Number of concurrent processing tasks for folders"
+    ),
+    dry_run: bool = dry_run_option(),
+):
+    """Smart ingestion with auto-detection and optimization."""
+    handle_async(_smart_ingest(path, collection, auto_chunk, concurrency, dry_run))
+
+
 # Enhanced ingestion helper
 async def _get_enhanced_engine() -> EnhancedIngestionEngine:
     """Get enhanced ingestion engine with workspace client."""
@@ -620,6 +653,201 @@ async def _ingestion_status(collection: Optional[str], recent: bool):
             
     except Exception as e:
         print(f"Error: Status check failed: {e}")
+        raise typer.Exit(1)
+
+
+async def _validate_files(
+    path: str, 
+    formats: Optional[List[str]], 
+    recursive: bool, 
+    verbose: bool
+):
+    """Validate files for ingestion compatibility."""
+    try:
+        target_path = Path(path)
+        
+        if not target_path.exists():
+            print(f"Error: Path not found: {path}")
+            raise typer.Exit(1)
+        
+        # Get enhanced engine
+        engine = await _get_enhanced_engine()
+        
+        print(f"Validating: {target_path}")
+        
+        if target_path.is_file():
+            # Single file validation
+            validation_result = await engine._validate_file(target_path)
+            
+            print(f"\nFile Validation Result:")
+            print(f"  Path: {target_path}")
+            print(f"  Valid: {'Yes' if validation_result['valid'] else 'No'}")
+            
+            if not validation_result['valid']:
+                print(f"  Error: {validation_result['error']}")
+                if 'suggestions' in validation_result:
+                    print("  Suggestions:")
+                    for suggestion in validation_result['suggestions']:
+                        print(f"    • {suggestion}")
+            else:
+                if 'warning' in validation_result:
+                    print(f"  Warning: {validation_result['warning']}")
+                    if 'suggestions' in validation_result:
+                        print("  Recommendations:")
+                        for suggestion in validation_result['suggestions']:
+                            print(f"    • {suggestion}")
+                print("  File is ready for ingestion")
+                
+        else:
+            # Folder validation
+            files = await engine._find_files(target_path, formats, recursive, None)
+            
+            print(f"\nFolder Validation Result:")
+            print(f"  Path: {target_path}")
+            print(f"  Files found: {len(files)}")
+            
+            if not files:
+                print("  Status: No compatible files found")
+                print("  Suggestions:")
+                print("    • Check file formats are supported")
+                print("    • Verify folder contains documents")
+                print("    • Try different format filters")
+                return
+            
+            valid_files = 0
+            invalid_files = 0
+            warnings = 0
+            
+            print("\nFile-by-file validation:")
+            for file_path in files:
+                validation_result = await engine._validate_file(file_path)
+                
+                if validation_result['valid']:
+                    valid_files += 1
+                    status = "✓ Valid"
+                    if 'warning' in validation_result:
+                        warnings += 1
+                        status += " (Warning)"
+                else:
+                    invalid_files += 1
+                    status = "✗ Invalid"
+                
+                if verbose:
+                    print(f"    {file_path.name:<40} {status}")
+                    if not validation_result['valid']:
+                        print(f"      Error: {validation_result['error']}")
+                    elif 'warning' in validation_result:
+                        print(f"      Warning: {validation_result['warning']}")
+            
+            print(f"\nValidation Summary:")
+            print(f"  Valid files: {valid_files}")
+            print(f"  Invalid files: {invalid_files}")
+            print(f"  Files with warnings: {warnings}")
+            print(f"  Success rate: {(valid_files / len(files)) * 100:.1f}%")
+            
+            if valid_files > 0:
+                print(f"  Status: {valid_files} files ready for ingestion")
+            else:
+                print("  Status: No files can be processed")
+                
+    except Exception as e:
+        print(f"Error: Validation failed: {e}")
+        raise typer.Exit(1)
+
+
+async def _smart_ingest(
+    path: str,
+    collection: Optional[str],
+    auto_chunk: bool,
+    concurrency: int, 
+    dry_run: bool
+):
+    """Smart ingestion with auto-detection and optimization."""
+    try:
+        target_path = Path(path)
+        
+        if not target_path.exists():
+            print(f"Error: Path not found: {path}")
+            raise typer.Exit(1)
+        
+        # Get enhanced engine
+        engine = await _get_enhanced_engine()
+        
+        # Auto-detect collection if not provided
+        if not collection:
+            if target_path.is_file():
+                # Use parent directory name for single files
+                collection = target_path.parent.name
+            else:
+                # Use directory name for folders
+                collection = target_path.name
+            print(f"Auto-detected collection: {collection}")
+        
+        # Auto-determine chunk parameters if enabled
+        if auto_chunk:
+            chunk_size = 1200  # Slightly larger for better semantic coherence
+            chunk_overlap = 150  # Reduced overlap for efficiency
+            print(f"Auto-optimized chunking: {chunk_size} chars with {chunk_overlap} overlap")
+        else:
+            chunk_size = 1000
+            chunk_overlap = 200
+        
+        print(f"Smart ingestion: {target_path}")
+        
+        if target_path.is_file():
+            # Smart single file ingestion
+            result = await engine.ingest_single_file(
+                file_path=target_path,
+                collection=collection,
+                chunk_size=chunk_size,
+                chunk_overlap=chunk_overlap,
+                dry_run=dry_run,
+                metadata={"ingestion_mode": "smart", "auto_optimized": auto_chunk}
+            )
+            
+            if result["success"]:
+                if dry_run:
+                    analysis = result["analysis"]
+                    print("\nSmart Analysis:")
+                    print(f"  Optimized processing: {analysis['processing_estimate']}")
+                else:
+                    print("\nSmart ingestion completed successfully!")
+                    print(f"  Document ID: {result['document_id']}")
+                    print(f"  Chunks created: {result['chunks_created']}")
+            else:
+                print(f"\nSmart ingestion failed: {result['error']}")
+                raise typer.Exit(1)
+        
+        else:
+            # Smart folder ingestion with auto-detection
+            result = await engine.ingest_folder(
+                folder_path=target_path,
+                collection=collection,
+                formats=None,  # Auto-detect all supported formats
+                chunk_size=chunk_size,
+                chunk_overlap=chunk_overlap,
+                recursive=True,
+                exclude_patterns=[".*", "__*", "*.tmp", "*.log"],  # Smart exclusions
+                concurrency=concurrency,
+                dry_run=dry_run
+            )
+            
+            if result["success"]:
+                if dry_run:
+                    analysis = result["analysis"]
+                    print("\nSmart Folder Analysis:")
+                    print(f"  Total processing estimate: {analysis['processing_estimate']}")
+                    print(f"  Recommended concurrency: {min(concurrency, analysis['total_files'])}")
+                else:
+                    print("\nSmart folder ingestion completed successfully!")
+                    summary = result['summary']
+                    print(f"  Optimization: {summary['success_rate']:.1f}% success rate")
+            else:
+                print(f"\nSmart ingestion failed: {result['error']}")
+                raise typer.Exit(1)
+                
+    except Exception as e:
+        print(f"Error: Smart ingestion failed: {e}")
         raise typer.Exit(1)
 
 
