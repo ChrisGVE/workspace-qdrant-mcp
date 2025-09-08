@@ -47,6 +47,17 @@ import typer
 from fastmcp import FastMCP
 from pydantic import BaseModel
 
+# Import FastMCP optimizations if available
+try:
+    from ..optimization.complete_fastmcp_optimization import (
+        OptimizedWorkspaceServer, OptimizedFastMCPApp, StreamingStdioProtocol
+    )
+    OPTIMIZATIONS_AVAILABLE = True
+    logger.info("FastMCP optimizations loaded successfully")
+except ImportError:
+    OPTIMIZATIONS_AVAILABLE = False
+    logger.info("FastMCP optimizations not available, using standard FastMCP")
+
 from .core.advanced_watch_config import (
     AdvancedConfigValidator,
     AdvancedWatchConfig,
@@ -112,8 +123,32 @@ from .utils.config_validator import ConfigValidator
 # Initialize structured logging
 logger = get_logger(__name__)
 
-# Initialize FastMCP application
-app = FastMCP("workspace-qdrant-mcp")
+# Import FastMCP optimizations if available
+try:
+    from .optimization.complete_fastmcp_optimization import (
+        OptimizedWorkspaceServer, OptimizedFastMCPApp, StreamingStdioProtocol
+    )
+    OPTIMIZATIONS_AVAILABLE = True
+    logger.info("FastMCP optimizations loaded successfully")
+except ImportError:
+    OPTIMIZATIONS_AVAILABLE = False
+    logger.info("FastMCP optimizations not available, using standard FastMCP")
+
+# Initialize FastMCP application with optimizations if available
+if OPTIMIZATIONS_AVAILABLE and os.getenv("DISABLE_FASTMCP_OPTIMIZATIONS", "false").lower() != "true":
+    # Use optimized FastMCP implementation
+    try:
+        _optimizer = OptimizedWorkspaceServer(enable_optimizations=True)
+        app = _optimizer.create_optimized_app("workspace-qdrant-mcp")
+        logger.info("Initialized with FastMCP optimizations enabled")
+    except Exception as e:
+        logger.warning(f"Failed to initialize optimized FastMCP: {e}")
+        app = FastMCP("workspace-qdrant-mcp")
+        logger.info("Falling back to standard FastMCP")
+else:
+    # Use standard FastMCP
+    app = FastMCP("workspace-qdrant-mcp")
+    logger.info("Initialized with standard FastMCP")
 
 # Global client instance
 workspace_client: QdrantWorkspaceClient | None = None
@@ -2538,7 +2573,16 @@ def run_server(
     if transport == "stdio":
         # MCP protocol over stdin/stdout (default for Claude Desktop/Code)
         logger.info("Starting MCP server with stdio transport")
-        app.run(transport="stdio")
+        
+        # Use optimized stdio transport if available
+        if (OPTIMIZATIONS_AVAILABLE and 
+            hasattr(app, 'run_stdio') and 
+            os.getenv("DISABLE_STDIO_OPTIMIZATIONS", "false").lower() != "true"):
+            
+            logger.info("Using optimized stdio transport with compression and batching")
+            asyncio.run(app.run_stdio())
+        else:
+            app.run(transport="stdio")
     else:
         # HTTP-based transport for web clients
         logger.info("Starting MCP server with HTTP transport", host=host, port=port)
