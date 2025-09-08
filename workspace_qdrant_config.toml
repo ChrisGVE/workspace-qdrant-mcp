@@ -2,7 +2,7 @@
 # TOML format for memexd daemon
 
 # Logging configuration
-log_file = "./memexd.log"
+log_file = "/Users/chris/Library/Logs/memexd.log"
 
 # Processing engine configuration
 max_concurrent_tasks = 4

@@ -1,0 +1,143 @@
+{
+  "task_156_completion": {
+    "overall_success": false,
+    "success_rate": 0.0,
+    "subtasks_passed": 0,
+    "subtasks_total": 4,
+    "validation_timestamp": 1757275698.900123
+  },
+  "performance_summary": {
+    "avg_precision": 0.4095238095238095,
+    "avg_recall": 0.4375,
+    "avg_response_time_ms": 1.533925834034259,
+    "precision_target_met": false,
+    "recall_target_met": false,
+    "time_target_met": true
+  },
+  "subtask_results": [
+    {
+      "subtask_id": "156.1",
+      "test_name": "gold_standard_dataset_creation",
+      "success": false,
+      "precision": 0.30476190476190473,
+      "recall": 1.0,
+      "response_time_ms": 0.018623017240315676,
+      "details": {
+        "total_queries": 21,
+        "query_types": [
+          "semantic",
+          "hybrid",
+          "cross_collection",
+          "symbol"
+        ],
+        "languages": [
+          "python",
+          "rust",
+          "typescript"
+        ],
+        "symbol_queries": 10,
+        "semantic_queries": 6,
+        "hybrid_queries": 3,
+        "edge_case_queries": 5,
+        "quality_score": 0.30476190476190473,
+        "has_all_query_types": true,
+        "has_multi_language": true
+      },
+      "error_message": null
+    },
+    {
+      "subtask_id": "156.2",
+      "test_name": "hybrid_search_rrf_fusion",
+      "success": false,
+      "precision": 0.0,
+      "recall": 0.0,
+      "response_time_ms": 2.192371330844859,
+      "details": {
+        "queries_tested": 3,
+        "individual_results": [
+          {
+            "precision": 0.0,
+            "recall": 0.0,
+            "time_ms": 2.5337789847981185
+          },
+          {
+            "precision": 0.0,
+            "recall": 0.0,
+            "time_ms": 2.12684299913235
+          },
+          {
+            "precision": 0.0,
+            "recall": 0.0,
+            "time_ms": 1.9164920086041093
+          }
+        ],
+        "precision_target": 0.94,
+        "recall_target": 0.78,
+        "time_target_ms": 2.5
+      },
+      "error_message": null
+    },
+    {
+      "subtask_id": "156.3",
+      "test_name": "dense_sparse_search_accuracy",
+      "success": false,
+      "precision": 0.3333333333333333,
+      "recall": 0.16666666666666666,
+      "response_time_ms": 1.971377496374771,
+      "details": {
+        "dense_search": {
+          "precision": 0.3333333333333333,
+          "recall": 0.16666666666666666,
+          "meets_precision_target": false,
+          "meets_recall_target": false,
+          "queries_tested": 3
+        },
+        "sparse_search": {
+          "precision": 0.0,
+          "recall": 0.0,
+          "meets_precision_target": false,
+          "meets_recall_target": false,
+          "queries_tested": 3
+        }
+      },
+      "error_message": null
+    },
+    {
+      "subtask_id": "156.4",
+      "test_name": "cross_collection_search_performance",
+      "success": false,
+      "precision": 1.0,
+      "recall": 0.5833333333333333,
+      "response_time_ms": 1.9533314916770905,
+      "details": {
+        "queries_tested": 2,
+        "avg_response_time_ms": 1.9533314916770905,
+        "p95_response_time_ms": 2.328417991520837,
+        "time_target_ms": 2.5,
+        "meets_time_target": true,
+        "metadata_integrity_rate": 0.5,
+        "meets_integrity_target": false,
+        "performance_distribution": {
+          "min_ms": 1.578244991833344,
+          "max_ms": 2.328417991520837,
+          "std_dev": 0.53045241514208
+        }
+      },
+      "error_message": null
+    }
+  ],
+  "gold_standard_summary": {
+    "total_queries": 21,
+    "query_types": [
+      "semantic",
+      "hybrid",
+      "cross_collection",
+      "symbol"
+    ],
+    "languages": [
+      "python",
+      "rust",
+      "typescript"
+    ]
+  }
+}
