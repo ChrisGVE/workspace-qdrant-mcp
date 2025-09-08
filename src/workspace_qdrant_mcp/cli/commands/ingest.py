@@ -10,7 +10,7 @@ from typing import List, Optional
 
 import typer
 
-from ...cli.ingestion_engine import DocumentIngestionEngine, IngestionResult
+from ...cli.ingestion_engine import IngestionResult
 from ...core.daemon_client import get_daemon_client, with_daemon_client
 from ...core.yaml_config import load_config
 from ...core.yaml_metadata import YamlMetadataWorkflow

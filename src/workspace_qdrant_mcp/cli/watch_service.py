@@ -39,7 +39,7 @@ class WatchService:
         """
         self.client = client
         self.watch_manager = WatchManager()
-        self.ingestion_engine = DocumentIngestionEngine(client)
+        self.ingestion_engine = DocumentIngestionEngine()
         self.activity_log: list[WatchEvent] = []
         self.max_activity_log = 1000
 
