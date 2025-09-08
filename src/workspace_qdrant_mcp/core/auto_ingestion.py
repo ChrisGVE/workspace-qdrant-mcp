@@ -31,6 +31,10 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional, Set
 
 from ..core.client import QdrantWorkspaceClient
+from ..core.collection_naming import (
+    build_project_collection_name,
+    normalize_collection_name_component
+)
 from ..core.config import AutoIngestionConfig
 from ..tools.watch_management import WatchToolsManager
 from ..utils.project_detection import ProjectDetector
@@ -475,7 +479,7 @@ class AutoIngestionManager:
         
         # First preference: exact match for configured target suffix
         if target_suffix:
-            target_collection = f"{main_project}-{target_suffix}"
+            target_collection = build_project_collection_name(main_project, target_suffix)
             if target_collection in collections:
                 logger.info(f"Selected existing target collection for auto-ingestion: {target_collection}")
                 return target_collection, False
@@ -485,7 +489,8 @@ class AutoIngestionManager:
                 logger.info(f"Available collections: {collections}")
                 
                 # Check if any project-related collections exist before creating new one
-                project_collections = [c for c in collections if c.startswith(f"{main_project}-") or c.startswith(f"{main_project}.")]
+                normalized_project = normalize_collection_name_component(main_project)
+                project_collections = [c for c in collections if c.startswith(f"{normalized_project}-") or c.startswith(f"{normalized_project}.")]
                 if project_collections:
                     selected = project_collections[0]
                     logger.info(f"Selected existing project collection for auto-ingestion: {selected}")
@@ -500,7 +505,8 @@ class AutoIngestionManager:
             return main_project, False
 
         # Third preference: any collection that starts with the project name
-        matching = [c for c in collections if c.startswith(f"{main_project}.") or c.startswith(f"{main_project}-")]
+        normalized_project = normalize_collection_name_component(main_project)
+        matching = [c for c in collections if c.startswith(f"{normalized_project}.") or c.startswith(f"{normalized_project}-")]
         if matching:
             selected = matching[0]
             logger.info(f"Selected first matching project collection for auto-ingestion: {selected}")
