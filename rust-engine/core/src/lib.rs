@@ -24,7 +24,7 @@ pub mod storage;
 use crate::processing::{Pipeline, TaskSubmitter, TaskPriority, TaskSource, TaskPayload, TaskResult};
 use crate::ipc::{IpcServer, IpcClient};
 use crate::storage::StorageClient;
-use crate::config::Config;
+use crate::config::{Config, DaemonConfig};
 pub use crate::embedding::{
     EmbeddingGenerator, EmbeddingConfig, EmbeddingResult, 
     DenseEmbedding, SparseEmbedding, EmbeddingError
@@ -623,6 +623,29 @@ impl ProcessingEngine {
             storage_client: Arc::new(StorageClient::new()),
             document_processor: Arc::new(DocumentProcessor::new()),
             config: Arc::new(Config::default()),
+        }
+    }
+    
+    /// Create a processing engine with custom daemon configuration
+    pub fn with_daemon_config(daemon_config: DaemonConfig) -> Self {
+        let config = Config::from(daemon_config.clone());
+        let max_concurrent = config.max_concurrent_tasks.unwrap_or(4);
+        let pipeline = Arc::new(Mutex::new(Pipeline::new(max_concurrent)));
+        let task_submitter = {
+            let pipeline_lock = pipeline.try_lock().unwrap();
+            pipeline_lock.task_submitter()
+        };
+        
+        // Create storage client with the Qdrant configuration from daemon config
+        let storage_client = Arc::new(StorageClient::with_config(daemon_config.qdrant));
+        
+        Self {
+            pipeline,
+            task_submitter,
+            ipc_server: None,
+            storage_client,
+            document_processor: Arc::new(DocumentProcessor::new()),
+            config: Arc::new(config),
         }
     }
     

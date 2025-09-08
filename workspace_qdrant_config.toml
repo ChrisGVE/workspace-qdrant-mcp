@@ -29,3 +29,39 @@ debounce_seconds = 10
 
 # Workspace directory (auto-detected from current working directory)
 project_path = "/Users/chris/Dropbox/dev/ai/claude-code-cfg/mcp/workspace-qdrant-mcp"
+
+# Qdrant connection configuration
+[qdrant]
+url = "http://localhost:6333"
+transport = "Grpc"  # Now using gRPC with HTTP/2 configuration
+timeout_ms = 30000
+max_retries = 3
+retry_delay_ms = 1000
+pool_size = 10
+tls = false
+dense_vector_size = 1536
+check_compatibility = false  # Skip version check during startup
+
+# HTTP/2 settings for gRPC compatibility
+[qdrant.http2]
+# Conservative frame sizes compatible with most Qdrant configurations
+max_frame_size = 8192          # Reduced from default 16384
+initial_window_size = 32768    # Conservative window size
+max_header_list_size = 8192    # Conservative header list size
+enable_push = false            # Disable server push
+# Connection settings
+tcp_keepalive = true
+keepalive_interval_ms = 30000
+keepalive_timeout_ms = 5000
+http2_adaptive_window = false  # Disable adaptive window sizing
+
+# Enhanced logging configuration
+[logging]
+# Add connection lifecycle events to INFO level
+info_includes_connection_events = true
+info_includes_transport_details = true
+info_includes_retry_attempts = true
+info_includes_fallback_behavior = true
+# Add more granular error context
+error_includes_stack_trace = true
+error_includes_connection_state = true
