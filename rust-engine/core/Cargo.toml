@@ -49,6 +49,8 @@ glob = "0.3"
 
 # Vector database client  
 qdrant-client = "1.15"
+# Note: gRPC and HTTP/2 dependencies (tonic, hyper) would be needed for advanced configuration
+# but are not currently used as the basic qdrant-client configuration is sufficient
 
 # Embedding generation
 ort = { version = "2.0.0-rc.10", features = ["download-binaries"] }
