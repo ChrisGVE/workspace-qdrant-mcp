@@ -369,7 +369,7 @@ class DaemonInstance:
             rust_engine_path / "target" / "debug",
         ]
 
-        binary_name = "workspace-qdrant-grpc"
+        binary_name = "memexd"
         if platform.system() == "Windows":
             binary_name += ".exe"
 
@@ -390,7 +390,7 @@ class DaemonInstance:
                     "build",
                     "--release",
                     "--bin",
-                    "workspace-qdrant-grpc",
+                    "memexd",
                     cwd=str(rust_engine_path),
                     stdout=asyncio.subprocess.PIPE,
                     stderr=asyncio.subprocess.PIPE,
