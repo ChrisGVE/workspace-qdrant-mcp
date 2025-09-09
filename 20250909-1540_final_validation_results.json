@@ -1,0 +1,178 @@
+{
+  "test_results": {
+    "installation_status": {
+      "returncode": 0,
+      "stdout": "workspace-qdrant-mcp v0.2.1.dev0\n- workspace-qdrant-mcp\n",
+      "stderr": "",
+      "success": true,
+      "cwd": "/Users/chris/Dropbox/dev/ai/claude-code-cfg/mcp/workspace-qdrant-mcp"
+    },
+    "which_workspace": {
+      "returncode": 0,
+      "stdout": "/Users/chris/.local/bin/workspace-qdrant-mcp\n",
+      "stderr": "",
+      "success": true,
+      "cwd": "/Users/chris/Dropbox/dev/ai/claude-code-cfg/mcp/workspace-qdrant-mcp"
+    },
+    "which_wqm": {
+      "returncode": 0,
+      "stdout": "/Users/chris/.local/bin/wqm\n",
+      "stderr": "",
+      "success": true,
+      "cwd": "/Users/chris/Dropbox/dev/ai/claude-code-cfg/mcp/workspace-qdrant-mcp"
+    },
+    "workspace_help": {
+      "returncode": 1,
+      "stdout": "",
+      "stderr": "Traceback (most recent call last):\n  File \"/Users/chris/.local/bin/workspace-qdrant-mcp\", line 4, in <module>\n    from workspace_qdrant_mcp.server import main\n  File \"/Users/chris/Dropbox/dev/ai/claude-code-cfg/mcp/workspace-qdrant-mcp/src/workspace_qdrant_mcp/server.py\", line 59, in <module>\n    from .core.auto_ingestion import AutoIngestionManager\n  File \"/Users/chris/Dropbox/dev/ai/claude-code-cfg/mcp/workspace-qdrant-mcp/src/workspace_qdrant_mcp/core/auto_ingestion.py\", line 49, in <module>\n    from ..tools.watch_management import WatchToolsManager\n  File \"/Users/chris/Dropbox/dev/ai/claude-code-cfg/mcp/workspace-qdrant-mcp/src/workspace_qdrant_mcp/tools/__init__.py\", line 6, in <module>\n    from .type_search import TypeSearchEngine, TypeMatchMode, TypePattern, TypeSignature\n  File \"/Users/chris/Dropbox/dev/ai/claude-code-cfg/mcp/workspace-qdrant-mcp/src/workspace_qdrant_mcp/tools/type_search.py\", line 70, in <module>\n    from .code_search import CodeSearchEngine, CodeSearchResult, SignatureSearchQuery\n  File \"/Users/chris/Dropbox/dev/ai/claude-code-cfg/mcp/workspace-qdrant-mcp/src/workspace_qdrant_mcp/tools/code_search.py\", line 70, in <module>\n    from fuzzywuzzy import fuzz, process\nModuleNotFoundError: No module named 'fuzzywuzzy'\n",
+      "success": false,
+      "cwd": "/Users/chris/Dropbox/dev/ai/claude-code-cfg/mcp/workspace-qdrant-mcp"
+    },
+    "wqm_help": {
+      "returncode": 1,
+      "stdout": "",
+      "stderr": "Traceback (most recent call last):\n  File \"/Users/chris/.local/bin/wqm\", line 4, in <module>\n    from workspace_qdrant_mcp.cli.main import cli\n  File \"/Users/chris/Dropbox/dev/ai/claude-code-cfg/mcp/workspace-qdrant-mcp/src/workspace_qdrant_mcp/cli/main.py\", line 73, in <module>\n    from .commands.config import config_app\n  File \"/Users/chris/Dropbox/dev/ai/claude-code-cfg/mcp/workspace-qdrant-mcp/src/workspace_qdrant_mcp/cli/commands/config.py\", line 349, in <module>\n    type=typer.Choice(['toml', 'yaml', 'json']),\n         ^^^^^^^^^^^^\nAttributeError: module 'typer' has no attribute 'Choice'\n",
+      "success": false,
+      "cwd": "/Users/chris/Dropbox/dev/ai/claude-code-cfg/mcp/workspace-qdrant-mcp"
+    },
+    "wqm_version": {
+      "returncode": 0,
+      "stdout": "0.2.1dev0\n",
+      "stderr": "",
+      "success": true,
+      "cwd": "/Users/chris/Dropbox/dev/ai/claude-code-cfg/mcp/workspace-qdrant-mcp"
+    },
+    "cross_dir_0": {
+      "returncode": 0,
+      "stdout": "0.2.1dev0\n",
+      "stderr": "",
+      "success": true,
+      "cwd": "/tmp"
+    },
+    "cross_dir_1": {
+      "returncode": 0,
+      "stdout": "0.2.1dev0\n",
+      "stderr": "",
+      "success": true,
+      "cwd": "/Users/chris"
+    },
+    "cross_dir_2": {
+      "returncode": 0,
+      "stdout": "0.2.1dev0\n",
+      "stderr": "",
+      "success": true,
+      "cwd": "/Users/chris/Dropbox/dev/ai/claude-code-cfg/mcp/workspace-qdrant-mcp"
+    },
+    "cli_debug": {
+      "returncode": 1,
+      "stdout": "",
+      "stderr": "Traceback (most recent call last):\n  File \"/Users/chris/.local/bin/wqm\", line 4, in <module>\n    from workspace_qdrant_mcp.cli.main import cli\n  File \"/Users/chris/Dropbox/dev/ai/claude-code-cfg/mcp/workspace-qdrant-mcp/src/workspace_qdrant_mcp/cli/main.py\", line 73, in <module>\n    from .commands.config import config_app\n  File \"/Users/chris/Dropbox/dev/ai/claude-code-cfg/mcp/workspace-qdrant-mcp/src/workspace_qdrant_mcp/cli/commands/config.py\", line 349, in <module>\n    type=typer.Choice(['toml', 'yaml', 'json']),\n         ^^^^^^^^^^^^\nAttributeError: module 'typer' has no attribute 'Choice'\n",
+      "success": false,
+      "cwd": "/Users/chris/Dropbox/dev/ai/claude-code-cfg/mcp/workspace-qdrant-mcp"
+    },
+    "env_config": {
+      "returncode": 0,
+      "stdout": "0.2.1dev0\n",
+      "stderr": "",
+      "success": true,
+      "cwd": "/Users/chris/Dropbox/dev/ai/claude-code-cfg/mcp/workspace-qdrant-mcp"
+    },
+    "yaml_config": {
+      "returncode": 1,
+      "stdout": "",
+      "stderr": "Traceback (most recent call last):\n  File \"/Users/chris/.local/bin/wqm\", line 4, in <module>\n    from workspace_qdrant_mcp.cli.main import cli\n  File \"/Users/chris/Dropbox/dev/ai/claude-code-cfg/mcp/workspace-qdrant-mcp/src/workspace_qdrant_mcp/cli/main.py\", line 73, in <module>\n    from .commands.config import config_app\n  File \"/Users/chris/Dropbox/dev/ai/claude-code-cfg/mcp/workspace-qdrant-mcp/src/workspace_qdrant_mcp/cli/commands/config.py\", line 349, in <module>\n    type=typer.Choice(['toml', 'yaml', 'json']),\n         ^^^^^^^^^^^^\nAttributeError: module 'typer' has no attribute 'Choice'\n",
+      "success": false,
+      "cwd": "/Users/chris/Dropbox/dev/ai/claude-code-cfg/mcp/workspace-qdrant-mcp"
+    },
+    "mcp_stdio": {
+      "returncode": 1,
+      "stdout": "",
+      "stderr": "Traceback (most recent call last):\n  File \"/Users/chris/.local/bin/workspace-qdrant-mcp\", line 4, in <module>\n    from workspace_qdrant_mcp.server import main\n  File \"/Users/chris/Dropbox/dev/ai/claude-code-cfg/mcp/workspace-qdrant-mcp/src/workspace_qdrant_mcp/server.py\", line 59, in <module>\n    from .core.auto_ingestion import AutoIngestionManager\n  File \"/Users/chris/Dropbox/dev/ai/claude-code-cfg/mcp/workspace-qdrant-mcp/src/workspace_qdrant_mcp/core/auto_ingestion.py\", line 49, in <module>\n    from ..tools.watch_management import WatchToolsManager\n  File \"/Users/chris/Dropbox/dev/ai/claude-code-cfg/mcp/workspace-qdrant-mcp/src/workspace_qdrant_mcp/tools/__init__.py\", line 6, in <module>\n    from .type_search import TypeSearchEngine, TypeMatchMode, TypePattern, TypeSignature\n  File \"/Users/chris/Dropbox/dev/ai/claude-code-cfg/mcp/workspace-qdrant-mcp/src/workspace_qdrant_mcp/tools/type_search.py\", line 70, in <module>\n    from .code_search import CodeSearchEngine, CodeSearchResult, SignatureSearchQuery\n  File \"/Users/chris/Dropbox/dev/ai/claude-code-cfg/mcp/workspace-qdrant-mcp/src/workspace_qdrant_mcp/tools/code_search.py\", line 70, in <module>\n    from fuzzywuzzy import fuzz, process\nModuleNotFoundError: No module named 'fuzzywuzzy'\n",
+      "success": false,
+      "cwd": "/Users/chris/Dropbox/dev/ai/claude-code-cfg/mcp/workspace-qdrant-mcp"
+    },
+    "mcp_http": {
+      "returncode": 1,
+      "stdout": "",
+      "stderr": "Traceback (most recent call last):\n  File \"/Users/chris/.local/bin/workspace-qdrant-mcp\", line 4, in <module>\n    from workspace_qdrant_mcp.server import main\n  File \"/Users/chris/Dropbox/dev/ai/claude-code-cfg/mcp/workspace-qdrant-mcp/src/workspace_qdrant_mcp/server.py\", line 59, in <module>\n    from .core.auto_ingestion import AutoIngestionManager\n  File \"/Users/chris/Dropbox/dev/ai/claude-code-cfg/mcp/workspace-qdrant-mcp/src/workspace_qdrant_mcp/core/auto_ingestion.py\", line 49, in <module>\n    from ..tools.watch_management import WatchToolsManager\n  File \"/Users/chris/Dropbox/dev/ai/claude-code-cfg/mcp/workspace-qdrant-mcp/src/workspace_qdrant_mcp/tools/__init__.py\", line 6, in <module>\n    from .type_search import TypeSearchEngine, TypeMatchMode, TypePattern, TypeSignature\n  File \"/Users/chris/Dropbox/dev/ai/claude-code-cfg/mcp/workspace-qdrant-mcp/src/workspace_qdrant_mcp/tools/type_search.py\", line 70, in <module>\n    from .code_search import CodeSearchEngine, CodeSearchResult, SignatureSearchQuery\n  File \"/Users/chris/Dropbox/dev/ai/claude-code-cfg/mcp/workspace-qdrant-mcp/src/workspace_qdrant_mcp/tools/code_search.py\", line 70, in <module>\n    from fuzzywuzzy import fuzz, process\nModuleNotFoundError: No module named 'fuzzywuzzy'\n",
+      "success": false,
+      "cwd": "/Users/chris/Dropbox/dev/ai/claude-code-cfg/mcp/workspace-qdrant-mcp"
+    },
+    "mcp_sse": {
+      "returncode": 1,
+      "stdout": "",
+      "stderr": "Traceback (most recent call last):\n  File \"/Users/chris/.local/bin/workspace-qdrant-mcp\", line 4, in <module>\n    from workspace_qdrant_mcp.server import main\n  File \"/Users/chris/Dropbox/dev/ai/claude-code-cfg/mcp/workspace-qdrant-mcp/src/workspace_qdrant_mcp/server.py\", line 59, in <module>\n    from .core.auto_ingestion import AutoIngestionManager\n  File \"/Users/chris/Dropbox/dev/ai/claude-code-cfg/mcp/workspace-qdrant-mcp/src/workspace_qdrant_mcp/core/auto_ingestion.py\", line 49, in <module>\n    from ..tools.watch_management import WatchToolsManager\n  File \"/Users/chris/Dropbox/dev/ai/claude-code-cfg/mcp/workspace-qdrant-mcp/src/workspace_qdrant_mcp/tools/__init__.py\", line 6, in <module>\n    from .type_search import TypeSearchEngine, TypeMatchMode, TypePattern, TypeSignature\n  File \"/Users/chris/Dropbox/dev/ai/claude-code-cfg/mcp/workspace-qdrant-mcp/src/workspace_qdrant_mcp/tools/type_search.py\", line 70, in <module>\n    from .code_search import CodeSearchEngine, CodeSearchResult, SignatureSearchQuery\n  File \"/Users/chris/Dropbox/dev/ai/claude-code-cfg/mcp/workspace-qdrant-mcp/src/workspace_qdrant_mcp/tools/code_search.py\", line 70, in <module>\n    from fuzzywuzzy import fuzz, process\nModuleNotFoundError: No module named 'fuzzywuzzy'\n",
+      "success": false,
+      "cwd": "/Users/chris/Dropbox/dev/ai/claude-code-cfg/mcp/workspace-qdrant-mcp"
+    },
+    "mcp_port": {
+      "returncode": 1,
+      "stdout": "",
+      "stderr": "Traceback (most recent call last):\n  File \"/Users/chris/.local/bin/workspace-qdrant-mcp\", line 4, in <module>\n    from workspace_qdrant_mcp.server import main\n  File \"/Users/chris/Dropbox/dev/ai/claude-code-cfg/mcp/workspace-qdrant-mcp/src/workspace_qdrant_mcp/server.py\", line 59, in <module>\n    from .core.auto_ingestion import AutoIngestionManager\n  File \"/Users/chris/Dropbox/dev/ai/claude-code-cfg/mcp/workspace-qdrant-mcp/src/workspace_qdrant_mcp/core/auto_ingestion.py\", line 49, in <module>\n    from ..tools.watch_management import WatchToolsManager\n  File \"/Users/chris/Dropbox/dev/ai/claude-code-cfg/mcp/workspace-qdrant-mcp/src/workspace_qdrant_mcp/tools/__init__.py\", line 6, in <module>\n    from .type_search import TypeSearchEngine, TypeMatchMode, TypePattern, TypeSignature\n  File \"/Users/chris/Dropbox/dev/ai/claude-code-cfg/mcp/workspace-qdrant-mcp/src/workspace_qdrant_mcp/tools/type_search.py\", line 70, in <module>\n    from .code_search import CodeSearchEngine, CodeSearchResult, SignatureSearchQuery\n  File \"/Users/chris/Dropbox/dev/ai/claude-code-cfg/mcp/workspace-qdrant-mcp/src/workspace_qdrant_mcp/tools/code_search.py\", line 70, in <module>\n    from fuzzywuzzy import fuzz, process\nModuleNotFoundError: No module named 'fuzzywuzzy'\n",
+      "success": false,
+      "cwd": "/Users/chris/Dropbox/dev/ai/claude-code-cfg/mcp/workspace-qdrant-mcp"
+    },
+    "mcp_host": {
+      "returncode": 1,
+      "stdout": "",
+      "stderr": "Traceback (most recent call last):\n  File \"/Users/chris/.local/bin/workspace-qdrant-mcp\", line 4, in <module>\n    from workspace_qdrant_mcp.server import main\n  File \"/Users/chris/Dropbox/dev/ai/claude-code-cfg/mcp/workspace-qdrant-mcp/src/workspace_qdrant_mcp/server.py\", line 59, in <module>\n    from .core.auto_ingestion import AutoIngestionManager\n  File \"/Users/chris/Dropbox/dev/ai/claude-code-cfg/mcp/workspace-qdrant-mcp/src/workspace_qdrant_mcp/core/auto_ingestion.py\", line 49, in <module>\n    from ..tools.watch_management import WatchToolsManager\n  File \"/Users/chris/Dropbox/dev/ai/claude-code-cfg/mcp/workspace-qdrant-mcp/src/workspace_qdrant_mcp/tools/__init__.py\", line 6, in <module>\n    from .type_search import TypeSearchEngine, TypeMatchMode, TypePattern, TypeSignature\n  File \"/Users/chris/Dropbox/dev/ai/claude-code-cfg/mcp/workspace-qdrant-mcp/src/workspace_qdrant_mcp/tools/type_search.py\", line 70, in <module>\n    from .code_search import CodeSearchEngine, CodeSearchResult, SignatureSearchQuery\n  File \"/Users/chris/Dropbox/dev/ai/claude-code-cfg/mcp/workspace-qdrant-mcp/src/workspace_qdrant_mcp/tools/code_search.py\", line 70, in <module>\n    from fuzzywuzzy import fuzz, process\nModuleNotFoundError: No module named 'fuzzywuzzy'\n",
+      "success": false,
+      "cwd": "/Users/chris/Dropbox/dev/ai/claude-code-cfg/mcp/workspace-qdrant-mcp"
+    },
+    "memory_test": {
+      "returncode": 1,
+      "stdout": "",
+      "stderr": "Traceback (most recent call last):\n  File \"/Users/chris/.local/bin/wqm\", line 4, in <module>\n    from workspace_qdrant_mcp.cli.main import cli\n  File \"/Users/chris/Dropbox/dev/ai/claude-code-cfg/mcp/workspace-qdrant-mcp/src/workspace_qdrant_mcp/cli/main.py\", line 73, in <module>\n    from .commands.config import config_app\n  File \"/Users/chris/Dropbox/dev/ai/claude-code-cfg/mcp/workspace-qdrant-mcp/src/workspace_qdrant_mcp/cli/commands/config.py\", line 349, in <module>\n    type=typer.Choice(['toml', 'yaml', 'json']),\n         ^^^^^^^^^^^^\nAttributeError: module 'typer' has no attribute 'Choice'\n",
+      "success": false,
+      "cwd": "/Users/chris/Dropbox/dev/ai/claude-code-cfg/mcp/workspace-qdrant-mcp",
+      "execution_time": 2.152
+    },
+    "invalid_transport": {
+      "returncode": 1,
+      "stdout": "",
+      "stderr": "Traceback (most recent call last):\n  File \"/Users/chris/.local/bin/workspace-qdrant-mcp\", line 4, in <module>\n    from workspace_qdrant_mcp.server import main\n  File \"/Users/chris/Dropbox/dev/ai/claude-code-cfg/mcp/workspace-qdrant-mcp/src/workspace_qdrant_mcp/server.py\", line 59, in <module>\n    from .core.auto_ingestion import AutoIngestionManager\n  File \"/Users/chris/Dropbox/dev/ai/claude-code-cfg/mcp/workspace-qdrant-mcp/src/workspace_qdrant_mcp/core/auto_ingestion.py\", line 49, in <module>\n    from ..tools.watch_management import WatchToolsManager\n  File \"/Users/chris/Dropbox/dev/ai/claude-code-cfg/mcp/workspace-qdrant-mcp/src/workspace_qdrant_mcp/tools/__init__.py\", line 6, in <module>\n    from .type_search import TypeSearchEngine, TypeMatchMode, TypePattern, TypeSignature\n  File \"/Users/chris/Dropbox/dev/ai/claude-code-cfg/mcp/workspace-qdrant-mcp/src/workspace_qdrant_mcp/tools/type_search.py\", line 70, in <module>\n    from .code_search import CodeSearchEngine, CodeSearchResult, SignatureSearchQuery\n  File \"/Users/chris/Dropbox/dev/ai/claude-code-cfg/mcp/workspace-qdrant-mcp/src/workspace_qdrant_mcp/tools/code_search.py\", line 70, in <module>\n    from fuzzywuzzy import fuzz, process\nModuleNotFoundError: No module named 'fuzzywuzzy'\n",
+      "success": false,
+      "cwd": "/Users/chris/Dropbox/dev/ai/claude-code-cfg/mcp/workspace-qdrant-mcp"
+    },
+    "invalid_port": {
+      "returncode": 1,
+      "stdout": "",
+      "stderr": "Traceback (most recent call last):\n  File \"/Users/chris/.local/bin/workspace-qdrant-mcp\", line 4, in <module>\n    from workspace_qdrant_mcp.server import main\n  File \"/Users/chris/Dropbox/dev/ai/claude-code-cfg/mcp/workspace-qdrant-mcp/src/workspace_qdrant_mcp/server.py\", line 59, in <module>\n    from .core.auto_ingestion import AutoIngestionManager\n  File \"/Users/chris/Dropbox/dev/ai/claude-code-cfg/mcp/workspace-qdrant-mcp/src/workspace_qdrant_mcp/core/auto_ingestion.py\", line 49, in <module>\n    from ..tools.watch_management import WatchToolsManager\n  File \"/Users/chris/Dropbox/dev/ai/claude-code-cfg/mcp/workspace-qdrant-mcp/src/workspace_qdrant_mcp/tools/__init__.py\", line 6, in <module>\n    from .type_search import TypeSearchEngine, TypeMatchMode, TypePattern, TypeSignature\n  File \"/Users/chris/Dropbox/dev/ai/claude-code-cfg/mcp/workspace-qdrant-mcp/src/workspace_qdrant_mcp/tools/type_search.py\", line 70, in <module>\n    from .code_search import CodeSearchEngine, CodeSearchResult, SignatureSearchQuery\n  File \"/Users/chris/Dropbox/dev/ai/claude-code-cfg/mcp/workspace-qdrant-mcp/src/workspace_qdrant_mcp/tools/code_search.py\", line 70, in <module>\n    from fuzzywuzzy import fuzz, process\nModuleNotFoundError: No module named 'fuzzywuzzy'\n",
+      "success": false,
+      "cwd": "/Users/chris/Dropbox/dev/ai/claude-code-cfg/mcp/workspace-qdrant-mcp"
+    },
+    "nonexistent_config": {
+      "returncode": 1,
+      "stdout": "",
+      "stderr": "Traceback (most recent call last):\n  File \"/Users/chris/.local/bin/wqm\", line 4, in <module>\n    from workspace_qdrant_mcp.cli.main import cli\n  File \"/Users/chris/Dropbox/dev/ai/claude-code-cfg/mcp/workspace-qdrant-mcp/src/workspace_qdrant_mcp/cli/main.py\", line 73, in <module>\n    from .commands.config import config_app\n  File \"/Users/chris/Dropbox/dev/ai/claude-code-cfg/mcp/workspace-qdrant-mcp/src/workspace_qdrant_mcp/cli/commands/config.py\", line 349, in <module>\n    type=typer.Choice(['toml', 'yaml', 'json']),\n         ^^^^^^^^^^^^\nAttributeError: module 'typer' has no attribute 'Choice'\n",
+      "success": false,
+      "cwd": "/Users/chris/Dropbox/dev/ai/claude-code-cfg/mcp/workspace-qdrant-mcp"
+    }
+  },
+  "analysis": {
+    "task_112_status": "NEEDS_WORK",
+    "requirements_met": {
+      "global_installation": "PASS",
+      "command_availability": "FAIL",
+      "project_detection": "PASS",
+      "configuration_precedence": "FAIL",
+      "memory_optimization": "PASS",
+      "cross_platform_support": "FAIL",
+      "mcp_integration": "FAIL"
+    },
+    "performance_metrics": {
+      "help_command_time": 2.152
+    },
+    "issues_found": [
+      "Commands not working from global installation",
+      "Configuration precedence issues",
+      "MCP integration issues"
+    ],
+    "recommendations": [
+      "Significant improvements needed for production use"
+    ],
+    "grade": "C",
+    "summary": "Needs work. Only 3/7 requirements met."
+  },
+  "timestamp": 1757422076.632519
+}

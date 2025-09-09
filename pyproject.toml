@@ -51,6 +51,8 @@ dependencies = [
   # Configuration management
   "toml>=0.10.0",
   "watchdog>=3.0.0",
+  "fuzzywuzzy>=0.18.0",
+  "python-levenshtein>=0.20.0",  # Optional but recommended for fuzzywuzzy performance
 ]
 
 [project.optional-dependencies]

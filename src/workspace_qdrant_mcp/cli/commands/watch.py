@@ -296,21 +296,21 @@ async def _list_watches(active_only: bool, collection: str | None, format: str):
             if collection:
                 watches = [w for w in watches if w.collection == collection]
 
-        # Table output
-        if not watches:
-            print("No watches found")
-            if not active_only:
-                print("Add a watch with: wqm watch add <path> --collection=<library>")
-            return
+        finally:
+            await client.disconnect()
+    
+    except Exception as e:
+        print(f"Error: Failed to list watches: {e}")
+        raise typer.Exit(1)
+        
+    # Table output
+    if not watches:
+        print("No watches found")
+        if not active_only:
+            print("Add a watch with: wqm watch add <path> --collection=<library>")
+        return
 
-            # Table output
-            if not watches:
-                print("No watches found")
-                if not active_only:
-                    print("Add a watch with: wqm watch add <path> --collection=<library>")
-                return
-
-            print(f"Watch Configurations ({len(watches)} found)\n")
+    print(f"Watch Configurations ({len(watches)} found)\n")
 
             # Show summary table in plain text format
             if watches:

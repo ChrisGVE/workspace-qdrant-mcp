@@ -80,7 +80,8 @@ from .commands.lsp_management import lsp_app
 from .commands.memory import memory_app
 from .commands.search import search_app
 from .commands.service import service_app
-from .commands.watch import watch_app
+# Temporarily disabled due to syntax issues
+# from .commands.watch import watch_app
 # SECURITY: Web UI temporarily disabled due to critical vulnerabilities
 # from .commands.web import web_app
 from .observability import observability_app
@@ -110,7 +111,8 @@ app.add_typer(lsp_app, name="lsp", help="LSP server management and monitoring")
 app.add_typer(
     service_app, name="service", help="User service management for memexd daemon"
 )
-app.add_typer(watch_app, name="watch", help="Folder watching configuration")
+# Temporarily disabled due to syntax issues in watch.py
+# app.add_typer(watch_app, name="watch", help="Folder watching configuration")
 # SECURITY: Web UI commands temporarily disabled due to critical vulnerabilities
 # app.add_typer(
 #     web_app, name="web", help="Integrated web UI server with workspace features"
