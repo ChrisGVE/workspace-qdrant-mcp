@@ -1,0 +1,505 @@
+{
+  "test_info": {
+    "test_name": "Progressive Scaling Validation System v2",
+    "task_number": 146,
+    "timestamp": "20250906-220546",
+    "qmk_path": "/Users/chris/Dropbox/dev/ai/claude-code-cfg/mcp/workspace-qdrant-mcp/LT_20250906-1822_testing_sandbox/qmk_integration/qmk_firmware",
+    "total_phases": 6,
+    "completed_phases": 6
+  },
+  "system_info": {
+    "cpu_count": 16,
+    "memory_gb": 64.0,
+    "python_version": "3.13.7 (main, Aug 14 2025, 11:12:11) [Clang 17.0.0 (clang-1700.0.13.3)]",
+    "platform": "darwin"
+  },
+  "phase_results": [
+    {
+      "phase_name": "baseline",
+      "description": "Current workspace only (reference point)",
+      "expected_files": 0,
+      "actual_files": 0,
+      "start_time": 1757189068.879646,
+      "paths_count": 0,
+      "resource_stats": {
+        "duration_seconds": 10.0,
+        "samples": 10,
+        "cpu": {
+          "min": 0.0,
+          "max": 15.1,
+          "avg": 10.629999999999999
+        },
+        "memory": {
+          "min_percent": 49.8,
+          "max_percent": 49.8,
+          "avg_percent": 49.8,
+          "min_mb": 31047.640625,
+          "max_mb": 31061.9140625,
+          "avg_mb": 31056.076171875
+        }
+      },
+      "workspace_status": {
+        "connected": true,
+        "collections": [
+          "workspace-qdrant-web-ui-repo",
+          "tmpgrylra99-scratchbook",
+          "workspace-qdrant-web-ui-scratchbook",
+          "workspace-qdrant-mcp-scratchbook",
+          "standards",
+          "docs",
+          "workspace-qdrant-mcp-repo",
+          "reference",
+          "qmk-scaling-test-small_scale"
+        ],
+        "collections_count": 9
+      },
+      "success": true,
+      "total_time_seconds": 10.074591875076294
+    },
+    {
+      "phase_name": "small_scale",
+      "description": "First 10 keyboard directories",
+      "expected_files": 171,
+      "actual_files": 171,
+      "start_time": 1757189085.982056,
+      "paths_count": 10,
+      "collection_name": "qmk-scaling-test-small_scale",
+      "collection_info": {
+        "status": "green",
+        "optimizer_status": "ok",
+        "indexed_vectors_count": 0,
+        "points_count": 0,
+        "segments_count": 8,
+        "config": {
+          "params": {
+            "vectors": {
+              "size": 384,
+              "distance": "Cosine"
+            },
+            "shard_number": 1,
+            "replication_factor": 1,
+            "write_consistency_factor": 1,
+            "on_disk_payload": true
+          },
+          "hnsw_config": {
+            "m": 16,
+            "ef_construct": 100,
+            "full_scan_threshold": 10000,
+            "max_indexing_threads": 0,
+            "on_disk": false
+          },
+          "optimizer_config": {
+            "deleted_threshold": 0.2,
+            "vacuum_min_vector_number": 1000,
+            "default_segment_number": 0,
+            "max_segment_size": null,
+            "memmap_threshold": null,
+            "indexing_threshold": 10000,
+            "flush_interval_sec": 5,
+            "max_optimization_threads": null
+          },
+          "wal_config": {
+            "wal_capacity_mb": 32,
+            "wal_segments_ahead": 0,
+            "wal_retain_closed": 1
+          },
+          "quantization_config": null,
+          "strict_mode_config": {
+            "enabled": false
+          }
+        },
+        "payload_schema": {}
+      },
+      "documents_collected": 171,
+      "ingestion_time_seconds": 0.021555185317993164,
+      "ingestion_result": {
+        "success": false,
+        "error": "Batch 1 failed: HTTP 400",
+        "added": 0
+      },
+      "performance_time_seconds": 0.013276815414428711,
+      "performance_results": {
+        "search_tests": 5,
+        "successful_searches": 5,
+        "avg_search_time_ms": 2.5421619415283203,
+        "max_search_time_ms": 2.9549598693847656,
+        "min_search_time_ms": 1.9240379333496094
+      },
+      "resource_stats": {
+        "duration_seconds": 1.0,
+        "samples": 1,
+        "cpu": {
+          "min": 0.0,
+          "max": 0.0,
+          "avg": 0.0
+        },
+        "memory": {
+          "min_percent": 49.8,
+          "max_percent": 49.8,
+          "avg_percent": 49.8,
+          "min_mb": 31042.328125,
+          "max_mb": 31042.328125,
+          "avg_mb": 31042.328125
+        }
+      },
+      "success": false,
+      "total_time_seconds": 4.309544086456299
+    },
+    {
+      "phase_name": "medium_scale",
+      "description": "First 50 keyboard directories",
+      "expected_files": 951,
+      "actual_files": 951,
+      "start_time": 1757189097.3190348,
+      "paths_count": 50,
+      "collection_name": "qmk-scaling-test-medium_scale",
+      "collection_info": {
+        "status": "green",
+        "optimizer_status": "ok",
+        "indexed_vectors_count": 0,
+        "points_count": 0,
+        "segments_count": 8,
+        "config": {
+          "params": {
+            "vectors": {
+              "size": 384,
+              "distance": "Cosine"
+            },
+            "shard_number": 1,
+            "replication_factor": 1,
+            "write_consistency_factor": 1,
+            "on_disk_payload": true
+          },
+          "hnsw_config": {
+            "m": 16,
+            "ef_construct": 100,
+            "full_scan_threshold": 10000,
+            "max_indexing_threads": 0,
+            "on_disk": false
+          },
+          "optimizer_config": {
+            "deleted_threshold": 0.2,
+            "vacuum_min_vector_number": 1000,
+            "default_segment_number": 0,
+            "max_segment_size": null,
+            "memmap_threshold": null,
+            "indexing_threshold": 10000,
+            "flush_interval_sec": 5,
+            "max_optimization_threads": null
+          },
+          "wal_config": {
+            "wal_capacity_mb": 32,
+            "wal_segments_ahead": 0,
+            "wal_retain_closed": 1
+          },
+          "quantization_config": null,
+          "strict_mode_config": {
+            "enabled": false
+          }
+        },
+        "payload_schema": {}
+      },
+      "documents_collected": 951,
+      "ingestion_time_seconds": 0.06613492965698242,
+      "ingestion_result": {
+        "success": false,
+        "error": "Batch 1 failed: HTTP 400",
+        "added": 0
+      },
+      "performance_time_seconds": 0.012529134750366211,
+      "performance_results": {
+        "search_tests": 5,
+        "successful_searches": 5,
+        "avg_search_time_ms": 2.4042129516601562,
+        "max_search_time_ms": 3.1049251556396484,
+        "min_search_time_ms": 2.039194107055664
+      },
+      "resource_stats": {
+        "duration_seconds": 1.0,
+        "samples": 1,
+        "cpu": {
+          "min": 8.3,
+          "max": 8.3,
+          "avg": 8.3
+        },
+        "memory": {
+          "min_percent": 40.6,
+          "max_percent": 40.6,
+          "avg_percent": 40.6,
+          "min_mb": 25034.76953125,
+          "max_mb": 25034.76953125,
+          "avg_mb": 25034.76953125
+        }
+      },
+      "success": false,
+      "total_time_seconds": 4.260641098022461
+    },
+    {
+      "phase_name": "large_scale",
+      "description": "keyboards + quantum + docs",
+      "expected_files": 2000,
+      "actual_files": 20096,
+      "start_time": 1757189108.607043,
+      "paths_count": 3,
+      "collection_name": "qmk-scaling-test-large_scale",
+      "collection_info": {
+        "status": "green",
+        "optimizer_status": "ok",
+        "indexed_vectors_count": 0,
+        "points_count": 0,
+        "segments_count": 8,
+        "config": {
+          "params": {
+            "vectors": {
+              "size": 384,
+              "distance": "Cosine"
+            },
+            "shard_number": 1,
+            "replication_factor": 1,
+            "write_consistency_factor": 1,
+            "on_disk_payload": true
+          },
+          "hnsw_config": {
+            "m": 16,
+            "ef_construct": 100,
+            "full_scan_threshold": 10000,
+            "max_indexing_threads": 0,
+            "on_disk": false
+          },
+          "optimizer_config": {
+            "deleted_threshold": 0.2,
+            "vacuum_min_vector_number": 1000,
+            "default_segment_number": 0,
+            "max_segment_size": null,
+            "memmap_threshold": null,
+            "indexing_threshold": 10000,
+            "flush_interval_sec": 5,
+            "max_optimization_threads": null
+          },
+          "wal_config": {
+            "wal_capacity_mb": 32,
+            "wal_segments_ahead": 0,
+            "wal_retain_closed": 1
+          },
+          "quantization_config": null,
+          "strict_mode_config": {
+            "enabled": false
+          }
+        },
+        "payload_schema": {}
+      },
+      "documents_collected": 2000,
+      "ingestion_time_seconds": 0.12498283386230469,
+      "ingestion_result": {
+        "success": false,
+        "error": "Batch 1 failed: HTTP 400",
+        "added": 0
+      },
+      "performance_time_seconds": 0.009543180465698242,
+      "performance_results": {
+        "search_tests": 5,
+        "successful_searches": 5,
+        "avg_search_time_ms": 1.806497573852539,
+        "max_search_time_ms": 2.2919178009033203,
+        "min_search_time_ms": 1.5978813171386719
+      },
+      "resource_stats": {
+        "duration_seconds": 1.0,
+        "samples": 1,
+        "cpu": {
+          "min": 6.2,
+          "max": 6.2,
+          "avg": 6.2
+        },
+        "memory": {
+          "min_percent": 41.1,
+          "max_percent": 41.1,
+          "avg_percent": 41.1,
+          "min_mb": 25375.59765625,
+          "max_mb": 25375.59765625,
+          "avg_mb": 25375.59765625
+        }
+      },
+      "success": false,
+      "total_time_seconds": 6.351318120956421
+    },
+    {
+      "phase_name": "extra_large_scale",
+      "description": "Major directories",
+      "expected_files": 5000,
+      "actual_files": 21032,
+      "start_time": 1757189121.97468,
+      "paths_count": 7,
+      "collection_name": "qmk-scaling-test-extra_large_scale",
+      "collection_info": {
+        "status": "green",
+        "optimizer_status": "ok",
+        "indexed_vectors_count": 0,
+        "points_count": 0,
+        "segments_count": 8,
+        "config": {
+          "params": {
+            "vectors": {
+              "size": 384,
+              "distance": "Cosine"
+            },
+            "shard_number": 1,
+            "replication_factor": 1,
+            "write_consistency_factor": 1,
+            "on_disk_payload": true
+          },
+          "hnsw_config": {
+            "m": 16,
+            "ef_construct": 100,
+            "full_scan_threshold": 10000,
+            "max_indexing_threads": 0,
+            "on_disk": false
+          },
+          "optimizer_config": {
+            "deleted_threshold": 0.2,
+            "vacuum_min_vector_number": 1000,
+            "default_segment_number": 0,
+            "max_segment_size": null,
+            "memmap_threshold": null,
+            "indexing_threshold": 10000,
+            "flush_interval_sec": 5,
+            "max_optimization_threads": null
+          },
+          "wal_config": {
+            "wal_capacity_mb": 32,
+            "wal_segments_ahead": 0,
+            "wal_retain_closed": 1
+          },
+          "quantization_config": null,
+          "strict_mode_config": {
+            "enabled": false
+          }
+        },
+        "payload_schema": {}
+      },
+      "documents_collected": 2000,
+      "ingestion_time_seconds": 0.12365603446960449,
+      "ingestion_result": {
+        "success": false,
+        "error": "Batch 1 failed: HTTP 400",
+        "added": 0
+      },
+      "performance_time_seconds": 0.010877370834350586,
+      "performance_results": {
+        "search_tests": 5,
+        "successful_searches": 5,
+        "avg_search_time_ms": 2.0669937133789062,
+        "max_search_time_ms": 2.338886260986328,
+        "min_search_time_ms": 1.8439292907714844
+      },
+      "resource_stats": {
+        "duration_seconds": 1.0,
+        "samples": 1,
+        "cpu": {
+          "min": 7.7,
+          "max": 7.7,
+          "avg": 7.7
+        },
+        "memory": {
+          "min_percent": 41.8,
+          "max_percent": 41.8,
+          "avg_percent": 41.8,
+          "min_mb": 25802.0234375,
+          "max_mb": 25802.0234375,
+          "avg_mb": 25802.0234375
+        }
+      },
+      "success": false,
+      "total_time_seconds": 5.993794918060303
+    },
+    {
+      "phase_name": "maximum_scale",
+      "description": "Full QMK repository",
+      "expected_files": 22066,
+      "actual_files": 22058,
+      "start_time": 1757189134.9959419,
+      "paths_count": 1,
+      "collection_name": "qmk-scaling-test-maximum_scale",
+      "collection_info": {
+        "status": "green",
+        "optimizer_status": "ok",
+        "indexed_vectors_count": 0,
+        "points_count": 0,
+        "segments_count": 8,
+        "config": {
+          "params": {
+            "vectors": {
+              "size": 384,
+              "distance": "Cosine"
+            },
+            "shard_number": 1,
+            "replication_factor": 1,
+            "write_consistency_factor": 1,
+            "on_disk_payload": true
+          },
+          "hnsw_config": {
+            "m": 16,
+            "ef_construct": 100,
+            "full_scan_threshold": 10000,
+            "max_indexing_threads": 0,
+            "on_disk": false
+          },
+          "optimizer_config": {
+            "deleted_threshold": 0.2,
+            "vacuum_min_vector_number": 1000,
+            "default_segment_number": 0,
+            "max_segment_size": null,
+            "memmap_threshold": null,
+            "indexing_threshold": 10000,
+            "flush_interval_sec": 5,
+            "max_optimization_threads": null
+          },
+          "wal_config": {
+            "wal_capacity_mb": 32,
+            "wal_segments_ahead": 0,
+            "wal_retain_closed": 1
+          },
+          "quantization_config": null,
+          "strict_mode_config": {
+            "enabled": false
+          }
+        },
+        "payload_schema": {}
+      },
+      "documents_collected": 2000,
+      "ingestion_time_seconds": 0.1214599609375,
+      "ingestion_result": {
+        "success": false,
+        "error": "Batch 1 failed: HTTP 400",
+        "added": 0
+      },
+      "performance_time_seconds": 0.009315013885498047,
+      "performance_results": {
+        "search_tests": 5,
+        "successful_searches": 5,
+        "avg_search_time_ms": 1.7623424530029297,
+        "max_search_time_ms": 2.3093223571777344,
+        "min_search_time_ms": 1.569986343383789
+      },
+      "resource_stats": {
+        "duration_seconds": 1.0,
+        "samples": 1,
+        "cpu": {
+          "min": 9.6,
+          "max": 9.6,
+          "avg": 9.6
+        },
+        "memory": {
+          "min_percent": 42.1,
+          "max_percent": 42.1,
+          "avg_percent": 42.1,
+          "min_mb": 26023.796875,
+          "max_mb": 26023.796875,
+          "avg_mb": 26023.796875
+        }
+      },
+      "success": false,
+      "total_time_seconds": 5.591080188751221
+    }
+  ]
+}

@@ -156,7 +156,11 @@ class MCPServerWithDiscovery:
     
     async def _run_health_server(self) -> None:
         """Run a simple HTTP server for health checks"""
-        from aiohttp import web
+        try:
+            from aiohttp import web
+        except ImportError:
+            logger.warning("aiohttp not available, health server disabled")
+            return
         
         async def health_handler(request):
             """Health check endpoint handler"""

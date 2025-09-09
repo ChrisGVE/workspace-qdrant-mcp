@@ -1,0 +1,49 @@
+{
+  "timestamp": "2025-09-06T21:43:37.521931",
+  "memory": {
+    "total_gb": 64.0,
+    "available_gb": 36.161407470703125,
+    "percent_used": 43.5,
+    "free_gb": 3.6719970703125,
+    "cached_gb": 0
+  },
+  "cpu": {
+    "percent_used": 14.9,
+    "core_count": 16,
+    "core_count_logical": 16,
+    "frequency_mhz": 3800,
+    "load_average": [
+      2.841796875,
+      2.935546875,
+      2.81494140625
+    ]
+  },
+  "disk": {
+    "total_gb": 1863.3576927185059,
+    "free_gb": 588.6476364135742,
+    "used_gb": 10.484912872314453,
+    "percent_used": 0.5626892202869388
+  },
+  "disk_io": {
+    "read_count": 75972746,
+    "write_count": 16723837,
+    "read_bytes": 2479811055616,
+    "write_bytes": 217592225792,
+    "read_time": 125413063,
+    "write_time": 191965669
+  },
+  "network": {
+    "bytes_sent": 1817290752,
+    "bytes_recv": 4775721984,
+    "packets_sent": 5936102,
+    "packets_recv": 9401817,
+    "errors_in": 0,
+    "errors_out": 1,
+    "drops_in": 0,
+    "drops_out": 0
+  },
+  "processes": {
+    "total_count": 838,
+    "python_processes": 0
+  }
+}
