@@ -115,7 +115,7 @@ logger = get_logger(__name__)
 
 # Log optimization availability
 try:
-    from ..optimization.complete_fastmcp_optimization import (
+    from .optimization.complete_fastmcp_optimization import (
         OptimizedWorkspaceServer, OptimizedFastMCPApp, StreamingStdioProtocol
     )
     OPTIMIZATIONS_AVAILABLE = True
@@ -2419,9 +2419,8 @@ async def initialize_workspace(config_file: Optional[str] = None) -> None:
     # Initialize automatic file ingestion system
     logger.debug("Setting up automatic file ingestion")
     try:
-        # Convert config dictionary to AutoIngestionConfig object
-        from .core.config import AutoIngestionConfig
-        auto_ingestion_config = AutoIngestionConfig(**config.auto_ingestion) if isinstance(config.auto_ingestion, dict) else config.auto_ingestion
+        # Use the already-configured auto_ingestion config object
+        auto_ingestion_config = config.auto_ingestion
         
         auto_ingestion_manager = AutoIngestionManager(
             workspace_client, watch_tools_manager, auto_ingestion_config
