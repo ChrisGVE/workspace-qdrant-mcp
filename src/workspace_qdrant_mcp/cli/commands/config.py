@@ -21,6 +21,7 @@ from rich.table import Table
 from rich.text import Text
 
 from ...core.config import Config
+from ...core.unified_config import UnifiedConfigManager, ConfigFormat, ConfigValidationError, ConfigFormatError
 from ...observability import get_logger
 from ..utils import (
     create_command_app,
@@ -260,19 +261,23 @@ def validate_config(
     """Validate configuration file and settings."""
     try:
         if config_file:
-            # Validate specific file
+            # Use unified config manager for validation
             config_path = Path(config_file)
             if not config_path.exists():
                 error_message(f"Configuration file '{config_path}' not found")
                 raise typer.Exit(1)
                 
-            # Load and validate
-            with open(config_path, 'r') as f:
-                config_data = yaml.safe_load(f)
-                
-            # Create Config instance from file data
-            # Note: This is a simplified validation - full Config class handles more
-            print(f"Validating configuration file: {config_path}")
+            config_manager = UnifiedConfigManager()
+            issues = config_manager.validate_config_file(config_path)
+            
+            if issues:
+                error_message(f"Configuration validation failed for {config_path}:")
+                for issue in issues:
+                    console.print(f"  - {issue}")
+                raise typer.Exit(1)
+            else:
+                success_message(f"Configuration file is valid: {config_path}")
+                return
             
         # Load and validate current configuration
         config = Config()
@@ -330,6 +335,322 @@ def validate_config(
             
     except Exception as e:
         error_message(f"Validation failed: {e}")
+        raise typer.Exit(1)
+
+
+@config_app.command("info")
+def config_info(
+    config_dir: Optional[str] = typer.Option(
+        None, "--config-dir", "-d",
+        help="Configuration directory to search"
+    ),
+    format_type: Optional[str] = typer.Option(
+        None, "--format", "-f",
+        type=typer.Choice(['toml', 'yaml', 'json']),
+        help="Preferred configuration format"
+    ),
+):
+    """Display configuration information and discovered sources."""
+    try:
+        prefer_format = ConfigFormat(format_type) if format_type else None
+        config_manager = UnifiedConfigManager(config_dir=config_dir)
+        
+        info_data = config_manager.get_config_info()
+        
+        # Create display
+        console.print("\n[bold blue]Configuration Information[/bold blue]")
+        console.print(f"Config Directory: [green]{info_data['config_dir']}[/green]")
+        console.print(f"Environment Prefix: [cyan]{info_data['env_prefix']}[/cyan]")
+        
+        # Sources table
+        table = Table(title="Discovered Configuration Sources")
+        table.add_column("File", style="cyan")
+        table.add_column("Format", style="magenta")
+        table.add_column("Exists", style="green")
+        table.add_column("Last Modified", style="yellow")
+        
+        for source in info_data['sources']:
+            exists_icon = "✓" if source['exists'] else "✗"
+            exists_style = "green" if source['exists'] else "red"
+            last_mod = source['last_modified']
+            last_mod_str = f"{last_mod:.0f}" if last_mod else "N/A"
+            
+            table.add_row(
+                source['file_path'],
+                source['format'],
+                f"[{exists_style}]{exists_icon}[/{exists_style}]",
+                last_mod_str
+            )
+        
+        console.print(table)
+        
+        # Preferred source
+        if info_data['preferred_source']:
+            console.print(f"\n[bold green]Preferred Source:[/bold green] {info_data['preferred_source']}")
+        else:
+            console.print("\n[bold red]No configuration files found[/bold red]")
+        
+        # Current config status
+        config_loaded = info_data['current_config_loaded']
+        status_text = "Loaded" if config_loaded else "Not loaded"
+        status_color = "green" if config_loaded else "yellow"
+        console.print(f"Configuration Status: [{status_color}]{status_text}[/{status_color}]")
+        
+    except Exception as e:
+        error_message(f"Error getting configuration info: {e}")
+        raise typer.Exit(1)
+
+
+@config_app.command("convert")
+def convert_config(
+    source_file: str = typer.Argument(..., help="Source configuration file"),
+    target_file: str = typer.Argument(..., help="Target configuration file"),
+    target_format: Optional[str] = typer.Option(
+        None, "--target-format", "-f",
+        type=typer.Choice(['toml', 'yaml', 'json']),
+        help="Target format (auto-detect from extension if not specified)"
+    ),
+    validate_first: bool = typer.Option(
+        True, "--validate/--no-validate",
+        help="Validate source before conversion"
+    ),
+):
+    """Convert configuration file between formats."""
+    try:
+        source_path = Path(source_file)
+        target_path = Path(target_file)
+        
+        if not source_path.exists():
+            error_message(f"Source configuration file not found: {source_path}")
+            raise typer.Exit(1)
+        
+        config_manager = UnifiedConfigManager()
+        
+        if validate_first:
+            console.print("Validating source configuration...")
+            issues = config_manager.validate_config_file(source_path)
+            if issues:
+                error_message("Source configuration is invalid:")
+                for issue in issues:
+                    console.print(f"  - {issue}")
+                raise typer.Exit(1)
+            success_message("✓ Source configuration is valid")
+        
+        target_fmt = ConfigFormat(target_format) if target_format else None
+        
+        console.print(f"Converting [cyan]{source_file}[/cyan] to [cyan]{target_file}[/cyan]...")
+        config_manager.convert_config(source_path, target_path, target_fmt)
+        
+        success_message("✓ Configuration converted successfully")
+        
+        # Validate target file
+        target_issues = config_manager.validate_config_file(target_path)
+        if target_issues:
+            warning_message("Warning: Converted configuration has issues:")
+            for issue in target_issues:
+                console.print(f"  - {issue}")
+        else:
+            success_message("✓ Converted configuration is valid")
+            
+    except Exception as e:
+        error_message(f"Error converting configuration: {e}")
+        raise typer.Exit(1)
+
+
+@config_app.command("init-unified")
+def init_unified_config(
+    config_dir: Optional[str] = typer.Option(
+        None, "--config-dir", "-d",
+        help="Configuration directory"
+    ),
+    formats: List[str] = typer.Option(
+        ["toml", "yaml"], "--format", "-f",
+        help="Formats to create (can specify multiple)"
+    ),
+    force: bool = typer.Option(
+        False, "--force",
+        help="Overwrite existing files"
+    ),
+):
+    """Initialize default configuration files in multiple formats."""
+    try:
+        config_manager = UnifiedConfigManager(config_dir=config_dir)
+        
+        # Validate format choices
+        valid_formats = ['toml', 'yaml', 'json']
+        invalid_formats = [f for f in formats if f not in valid_formats]
+        if invalid_formats:
+            error_message(f"Invalid formats: {invalid_formats}. Valid options: {valid_formats}")
+            raise typer.Exit(1)
+        
+        format_objs = [ConfigFormat(f) for f in formats]
+        
+        if force:
+            # Remove existing files if force is specified
+            for fmt in format_objs:
+                if fmt == ConfigFormat.TOML:
+                    file_path = config_manager.config_dir / "workspace_qdrant_config.toml"
+                elif fmt == ConfigFormat.YAML:
+                    file_path = config_manager.config_dir / "workspace_qdrant_config.yaml"
+                elif fmt == ConfigFormat.JSON:
+                    file_path = config_manager.config_dir / "workspace_qdrant_config.json"
+                
+                if file_path.exists():
+                    file_path.unlink()
+                    warning_message(f"Removed existing: {file_path}")
+        
+        created_files = config_manager.create_default_configs(format_objs)
+        
+        if created_files:
+            success_message("Created configuration files:")
+            for fmt, file_path in created_files.items():
+                console.print(f"  {fmt.value}: [cyan]{file_path}[/cyan]")
+        else:
+            warning_message("All specified configuration files already exist")
+            console.print("Use --force to overwrite existing files")
+        
+    except Exception as e:
+        error_message(f"Error initializing configuration: {e}")
+        raise typer.Exit(1)
+
+
+@config_app.command("watch")
+def watch_config(
+    config_file: Optional[str] = typer.Option(
+        None, "--file", "-f",
+        help="Specific config file to watch"
+    ),
+    config_dir: Optional[str] = typer.Option(
+        None, "--config-dir", "-d",
+        help="Configuration directory to search"
+    ),
+    interval: int = typer.Option(
+        1, "--interval", "-i",
+        help="Check interval in seconds"
+    ),
+):
+    """Watch configuration file for changes and validate on change."""
+    try:
+        config_manager = UnifiedConfigManager(config_dir=config_dir)
+        
+        if config_file:
+            config_path = Path(config_file)
+            if not config_path.exists():
+                error_message(f"Configuration file not found: {config_path}")
+                raise typer.Exit(1)
+            console.print(f"Watching configuration file: [cyan]{config_file}[/cyan]")
+        else:
+            source = config_manager.get_preferred_config_source()
+            if source and source.exists:
+                console.print(f"Watching configuration file: [cyan]{source.file_path}[/cyan]")
+            else:
+                error_message("No configuration file found to watch")
+                raise typer.Exit(1)
+        
+        def on_config_change(new_config: Config):
+            from datetime import datetime
+            timestamp = datetime.now().strftime("%H:%M:%S")
+            console.print(f"\n[yellow][{timestamp}] Configuration changed[/yellow]")
+            issues = new_config.validate_config()
+            if issues:
+                error_message(f"Configuration has {len(issues)} issues:")
+                for issue in issues:
+                    console.print(f"  - {issue}")
+                
+                # Show service restart notification for config changes
+                show_service_restart_notification("configuration changes")
+            else:
+                success_message("✓ Configuration is valid")
+        
+        console.print("Press Ctrl+C to stop watching...")
+        config_manager.watch_config(on_config_change)
+        
+        try:
+            while True:
+                import time
+                time.sleep(interval)
+        except KeyboardInterrupt:
+            console.print("\n[yellow]Stopping configuration watcher...[/yellow]")
+            config_manager.stop_watching()
+        
+    except Exception as e:
+        error_message(f"Error watching configuration: {e}")
+        raise typer.Exit(1)
+
+
+@config_app.command("env-vars")
+def show_env_vars(
+    config_dir: Optional[str] = typer.Option(
+        None, "--config-dir", "-d",
+        help="Configuration directory to search"
+    ),
+):
+    """Show environment variables that can override configuration."""
+    try:
+        config_manager = UnifiedConfigManager(config_dir=config_dir)
+        
+        console.print("\n[bold blue]Environment Variable Overrides[/bold blue]")
+        console.print(f"Prefix: [cyan]{config_manager.env_prefix}[/cyan]")
+        
+        # Create sections for different config areas
+        sections = [
+            ("Server Configuration", [
+                (f"{config_manager.env_prefix}HOST", "Server host address"),
+                (f"{config_manager.env_prefix}PORT", "Server port number"),
+                (f"{config_manager.env_prefix}DEBUG", "Enable debug mode (true/false)"),
+            ]),
+            ("Qdrant Configuration", [
+                (f"{config_manager.env_prefix}QDRANT__URL", "Qdrant server URL"),
+                (f"{config_manager.env_prefix}QDRANT__API_KEY", "Qdrant API key"),
+                (f"{config_manager.env_prefix}QDRANT__TIMEOUT", "Connection timeout"),
+                (f"{config_manager.env_prefix}QDRANT__PREFER_GRPC", "Use gRPC protocol"),
+            ]),
+            ("Embedding Configuration", [
+                (f"{config_manager.env_prefix}EMBEDDING__MODEL", "Embedding model name"),
+                (f"{config_manager.env_prefix}EMBEDDING__ENABLE_SPARSE_VECTORS", "Enable sparse vectors"),
+                (f"{config_manager.env_prefix}EMBEDDING__CHUNK_SIZE", "Text chunk size"),
+                (f"{config_manager.env_prefix}EMBEDDING__CHUNK_OVERLAP", "Chunk overlap size"),
+                (f"{config_manager.env_prefix}EMBEDDING__BATCH_SIZE", "Processing batch size"),
+            ]),
+            ("Workspace Configuration", [
+                (f"{config_manager.env_prefix}WORKSPACE__COLLECTION_SUFFIXES", "Collection suffixes (comma-separated)"),
+                (f"{config_manager.env_prefix}WORKSPACE__GLOBAL_COLLECTIONS", "Global collections (comma-separated)"),
+                (f"{config_manager.env_prefix}WORKSPACE__GITHUB_USER", "GitHub username"),
+                (f"{config_manager.env_prefix}WORKSPACE__COLLECTION_PREFIX", "Collection name prefix"),
+                (f"{config_manager.env_prefix}WORKSPACE__MAX_COLLECTIONS", "Maximum collections limit"),
+                (f"{config_manager.env_prefix}WORKSPACE__AUTO_CREATE_COLLECTIONS", "Auto-create collections"),
+            ]),
+            ("Auto-Ingestion Configuration", [
+                (f"{config_manager.env_prefix}AUTO_INGESTION__ENABLED", "Enable auto-ingestion"),
+                (f"{config_manager.env_prefix}AUTO_INGESTION__AUTO_CREATE_WATCHES", "Auto-create file watches"),
+                (f"{config_manager.env_prefix}AUTO_INGESTION__TARGET_COLLECTION_SUFFIX", "Target collection suffix"),
+            ]),
+            ("gRPC Configuration", [
+                (f"{config_manager.env_prefix}GRPC__ENABLED", "Enable gRPC"),
+                (f"{config_manager.env_prefix}GRPC__HOST", "gRPC server host"),
+                (f"{config_manager.env_prefix}GRPC__PORT", "gRPC server port"),
+            ]),
+        ]
+        
+        for section_name, env_vars in sections:
+            table = Table(title=section_name)
+            table.add_column("Environment Variable", style="cyan")
+            table.add_column("Description", style="white")
+            
+            for env_var, description in env_vars:
+                table.add_row(env_var, description)
+            
+            console.print(table)
+            console.print()  # Add spacing between tables
+        
+        # Show example
+        console.print("[bold yellow]Example Usage:[/bold yellow]")
+        console.print(f"export {config_manager.env_prefix}QDRANT__URL=http://localhost:6333")
+        console.print(f"export {config_manager.env_prefix}EMBEDDING__MODEL=sentence-transformers/all-MiniLM-L6-v2")
+        console.print(f"export {config_manager.env_prefix}DEBUG=true")
+        
+    except Exception as e:
+        error_message(f"Error displaying environment variables: {e}")
         raise typer.Exit(1)
 
 
