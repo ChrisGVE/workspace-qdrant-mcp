@@ -51,21 +51,16 @@ from qdrant_client.http import models
 from qdrant_client.http.exceptions import ResponseHandlingException
 
 from .collection_naming import (
-    CollectionNamingManager,
-    CollectionPermissionError,
-    CollectionType,
     build_project_collection_name,
     build_system_memory_collection_name,
 )
-try:
-    from ..core.collection_types import (
-        CollectionTypeClassifier,
-        get_searchable_collections,
-        validate_collection_operation
-    )
-    COLLECTION_TYPES_AVAILABLE = True
-except ImportError:
-    COLLECTION_TYPES_AVAILABLE = False
+from .collection_types import (
+    CollectionTypeClassifier,
+    get_searchable_collections,
+    validate_collection_operation,
+    CollectionType,
+    CollectionPermissionError
+)
 from .config import Config
 
 logger = logging.getLogger(__name__)
@@ -162,14 +157,9 @@ class WorkspaceCollectionManager:
         self.config = config
         self._collections_cache: dict[str, CollectionConfig] | None = None
         self._project_info: dict | None = None  # Will be set during initialization
-        # Initialize the naming manager with legacy global collections for compatibility
-        self.naming_manager = CollectionNamingManager(
-            global_collections=self.config.workspace.global_collections,
-            valid_project_suffixes=self.config.workspace.effective_collection_suffixes
-        )
         
-        # Initialize collection type classifier if available
-        self.type_classifier = CollectionTypeClassifier() if COLLECTION_TYPES_AVAILABLE else None
+        # Initialize collection type classifier
+        self.type_classifier = CollectionTypeClassifier()
 
     def _get_current_project_name(self) -> Optional[str]:
         """
@@ -586,18 +576,14 @@ class WorkspaceCollectionManager:
             for collection in all_collections.collections:
                 collection_name = collection.name
                 
-                # Use new collection type system if available, fallback to legacy filtering
-                if self.type_classifier and COLLECTION_TYPES_AVAILABLE:
-                    collection_info = self.type_classifier.get_collection_info(collection_name)
-                    # Include searchable collections and exclude system collections from global search
-                    # but still list system collections so they can be accessed explicitly
-                    if collection_info.is_searchable or self.type_classifier.is_system_collection(collection_name):
-                        display_name = self.type_classifier.get_display_name(collection_name)
-                        workspace_collections.append(display_name)
-                else:
-                    # Fallback to legacy workspace filtering
-                    if self._is_workspace_collection(collection_name):
-                        workspace_collections.append(collection_name)
+                # Use new collection type system for classification and display names
+                collection_info = self.type_classifier.get_collection_info(collection_name)
+                
+                # Include all workspace collections (system, library, project, global)
+                # but exclude unknown/external collections
+                if collection_info.collection_type != CollectionType.UNKNOWN:
+                    display_name = self.type_classifier.get_display_name(collection_name)
+                    workspace_collections.append(display_name)
 
             logger.info(
                 "Found %d workspace collections out of %d total collections", 
@@ -915,16 +901,13 @@ class WorkspaceCollectionManager:
             for collection in all_collections.collections:
                 collection_name = collection.name
                 
-                if self.type_classifier and COLLECTION_TYPES_AVAILABLE:
-                    collection_info = self.type_classifier.get_collection_info(collection_name)
-                    # Only include globally searchable collections (excludes system collections)
-                    if collection_info.is_searchable:
-                        display_name = self.type_classifier.get_display_name(collection_name)
-                        searchable_collections.append(display_name)
-                else:
-                    # Fallback: use legacy workspace filtering
-                    if self._is_workspace_collection(collection_name):
-                        searchable_collections.append(collection_name)
+                # Use new collection type system to determine searchability
+                collection_info = self.type_classifier.get_collection_info(collection_name)
+                
+                # Only include globally searchable collections (excludes system collections)
+                if collection_info.is_searchable:
+                    display_name = self.type_classifier.get_display_name(collection_name)
+                    searchable_collections.append(display_name)
                         
             return sorted(searchable_collections)
             
