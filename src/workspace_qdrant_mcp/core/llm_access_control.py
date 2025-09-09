@@ -201,13 +201,15 @@ class LLMAccessController:
         name = name.strip()
         operation = operation.lower()
         
-        # Validate collection name format
-        if not collection_naming.validate_collection_name(name):
+        # Validate collection name format - use the naming manager
+        naming_manager = CollectionNamingManager()
+        validation_result = naming_manager.validate_collection_name(name)
+        if not validation_result.is_valid:
             violation = AccessViolation(
                 violation_type=AccessViolationType.INVALID_COLLECTION_NAME,
                 collection_name=name,
                 operation=operation,
-                message=f"Invalid collection name format: '{name}' - must follow valid naming patterns"
+                message=f"Invalid collection name format: '{name}' - {validation_result.error_message}"
             )
             raise LLMAccessControlError(violation)
         

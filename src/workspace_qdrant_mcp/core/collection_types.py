@@ -51,9 +51,9 @@ GLOBAL_COLLECTIONS = [
 ]
 
 # Pattern formats for different collection types
-PROJECT_PATTERN = r"^[a-zA-Z0-9_]+-[a-zA-Z0-9_]+$"  # {project}-{suffix}
-SYSTEM_MEMORY_PATTERN = r"^__[a-zA-Z0-9_]+$"      # __{memory_name}
-PROJECT_MEMORY_PATTERN = r"^[a-zA-Z0-9_]+-memory$" # {project}-memory
+PROJECT_PATTERN = r"^[a-zA-Z0-9_-]+-[a-zA-Z0-9_-]+$"  # {project}-{suffix}
+SYSTEM_MEMORY_PATTERN = r"^__[a-zA-Z0-9_-]+$"      # __{memory_name}
+PROJECT_MEMORY_PATTERN = r"^[a-zA-Z0-9_-]+-memory$" # {project}-memory
 
 
 class CollectionType(Enum):
@@ -264,7 +264,7 @@ class CollectionTypeClassifier:
         # Determine properties based on type
         if collection_type == CollectionType.SYSTEM:
             is_searchable = False  # Not globally searchable
-            is_readonly = False    # CLI-writable
+            is_readonly = True     # CLI-writable only, read-only from MCP
         elif collection_type == CollectionType.LIBRARY:
             is_searchable = True   # Globally searchable
             is_readonly = True     # MCP-readonly

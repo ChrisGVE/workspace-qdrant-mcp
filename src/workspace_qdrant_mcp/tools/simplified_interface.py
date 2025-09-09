@@ -203,21 +203,40 @@ def get_all_collections(client) -> List[str]:
 
 
 def get_memory_collections(client) -> List[str]:
-    """Get both system and project memory collections."""
-    memory_collections = []
-    all_collections = client.list_collections()
+    """Get both system and project memory collections using the new collection type system."""
+    from ..core.collections import MemoryCollectionManager
+    from ..core.config import Config
+    from ..core.collection_types import CollectionTypeClassifier
     
-    # Compile patterns for memory collections
-    system_memory_pattern = re.compile(SYSTEM_MEMORY_PATTERN)
-    project_memory_pattern = re.compile(PROJECT_MEMORY_PATTERN)
-    
-    for collection_name in all_collections:
-        # Check if collection matches memory patterns
-        if (system_memory_pattern.match(collection_name) or 
-            project_memory_pattern.match(collection_name)):
-            memory_collections.append(collection_name)
-    
-    return sorted(memory_collections)
+    try:
+        # Use the collection type classifier to identify memory collections
+        classifier = CollectionTypeClassifier()
+        memory_collections = []
+        all_collections = client.list_collections()
+        
+        for collection_name in all_collections:
+            collection_info = classifier.get_collection_info(collection_name)
+            if collection_info.is_memory_collection:
+                memory_collections.append(collection_name)
+        
+        return sorted(memory_collections)
+        
+    except Exception as e:
+        # Fallback to pattern matching if collection type system fails
+        memory_collections = []
+        all_collections = client.list_collections()
+        
+        # Compile patterns for memory collections
+        system_memory_pattern = re.compile(SYSTEM_MEMORY_PATTERN)
+        project_memory_pattern = re.compile(PROJECT_MEMORY_PATTERN)
+        
+        for collection_name in all_collections:
+            # Check if collection matches memory patterns
+            if (system_memory_pattern.match(collection_name) or 
+                project_memory_pattern.match(collection_name)):
+                memory_collections.append(collection_name)
+        
+        return sorted(memory_collections)
 
 
 class SimplifiedToolsMode:
