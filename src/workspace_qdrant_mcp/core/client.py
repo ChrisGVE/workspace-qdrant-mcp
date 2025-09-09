@@ -41,18 +41,17 @@ from qdrant_client import QdrantClient
 
 from ..observability import get_logger
 from ..utils.project_detection import ProjectDetector
-from .collections import WorkspaceCollectionManager
+from .collections import WorkspaceCollectionManager, MemoryCollectionManager
 from .config import Config
 from .embeddings import EmbeddingService
 from .ssl_config import create_secure_qdrant_config, get_ssl_manager
 
 # Import LLM access control system
-# TODO: llm_access_control module doesn't exist - fix imports after Task 175 integration
-# try:
-#     from .llm_access_control import validate_llm_collection_access, LLMAccessControlError
-# except ImportError:
-#     # Fallback for direct imports when not used as a package
-#     from llm_access_control import validate_llm_collection_access, LLMAccessControlError
+try:
+    from .llm_access_control import validate_llm_collection_access, LLMAccessControlError
+except ImportError:
+    # Fallback for direct imports when not used as a package
+    from llm_access_control import validate_llm_collection_access, LLMAccessControlError
 
 logger = get_logger(__name__)
 
@@ -109,6 +108,7 @@ class QdrantWorkspaceClient:
         self.config = config
         self.client: QdrantClient | None = None
         self.collection_manager: WorkspaceCollectionManager | None = None
+        self.memory_collection_manager: MemoryCollectionManager | None = None
         self.embedding_service = EmbeddingService(config)
         self.project_detector = ProjectDetector(
             github_user=self.config.workspace.github_user
@@ -208,6 +208,11 @@ class QdrantWorkspaceClient:
             self.collection_manager = WorkspaceCollectionManager(
                 self.client, self.config
             )
+            
+            # Initialize memory collection manager
+            self.memory_collection_manager = MemoryCollectionManager(
+                self.client, self.config
+            )
 
             # Initialize embedding service
             await self.embedding_service.initialize()
@@ -218,6 +223,15 @@ class QdrantWorkspaceClient:
                 project_name=self.project_info["main_project"],
                 subprojects=self.project_info["subprojects"],
             )
+            
+            # Ensure memory collections exist for the main project
+            if self.project_info["main_project"]:
+                memory_results = await self.memory_collection_manager.ensure_memory_collections_exist(
+                    project=self.project_info["main_project"]
+                )
+                logger.info(f"Memory collection setup: {memory_results}")
+            else:
+                logger.warning("No project detected for memory collection initialization")
 
             self.initialized = True
 
