@@ -29,8 +29,11 @@ workspace-qdrant-mcp provides intelligent vector database operations through the
 
 - [✨ Key Features](#-key-features)
 - [Quick Start](#quick-start)
+  - [Daemon Service Installation](#daemon-service-installation)
+  - [Interactive Setup](#interactive-setup)
 - [Prerequisites](#prerequisites)
 - [Installation](#installation)
+- [Daemon Service Setup](#daemon-service-setup)
 - [MCP Integration](#mcp-integration)
 - [Configuration](#configuration)
 - [Usage](#usage)
@@ -42,7 +45,27 @@ workspace-qdrant-mcp provides intelligent vector database operations through the
 
 ## Quick Start
 
-Get up and running in just a few minutes:
+### Daemon Service Installation
+
+For production deployments with continuous document processing:
+
+1. **Install the package**: `uv tool install workspace-qdrant-mcp`
+2. **Install daemon service**: `wqm service install`
+3. **Start the service**: `wqm service start`
+4. **Verify installation**: `wqm service status`
+
+The daemon service provides:
+- ✅ Continuous document monitoring and processing
+- ✅ Background embedding generation with file watching
+- ✅ Automatic startup on system boot with crash recovery
+- ✅ Robust error recovery and structured logging
+- ✅ IPC communication for Python integration
+
+**📖 Complete Installation Guide**: [docs/daemon-installation.md](docs/daemon-installation.md)
+
+### Interactive Setup
+
+For quick testing and development:
 
 1. **Install the package**: `uv tool install workspace-qdrant-mcp`
 2. **Run the setup wizard**: `workspace-qdrant-setup`
@@ -81,6 +104,47 @@ workspace-qdrant-setup
 This interactive wizard will guide you through configuration, test your setup, and get you ready to use the MCP server with Claude in minutes.
 
 For development setup, see [CONTRIBUTING.md](CONTRIBUTING.md).
+
+## Daemon Service Setup
+
+The `memexd` daemon provides continuous document processing and monitoring capabilities for production deployments:
+
+### Quick Service Installation
+
+```bash
+# Install daemon service (auto-detects platform)
+wqm service install
+
+# Start the service
+wqm service start
+
+# Verify installation
+wqm service status
+```
+
+### Service Management
+
+```bash
+# Service control
+wqm service start|stop|restart|status
+
+# View logs
+wqm service logs
+
+# Health monitoring
+workspace-qdrant-health --daemon
+```
+
+### Daemon Benefits
+
+The daemon service automatically:
+- 📁 **Monitors document changes** in real-time with file watching
+- 🤖 **Generates embeddings** in the background for optimal performance
+- 🔄 **Maintains collection health** and consistency across restarts
+- 🔌 **Provides IPC communication** for seamless Python integration
+- 🚀 **Starts on system boot** with automatic crash recovery
+
+**📖 Complete Installation Guide**: [docs/daemon-installation.md](docs/daemon-installation.md) - Covers systemd (Linux), launchd (macOS), and Windows Service with security configurations.
 
 ## MCP Integration
 
@@ -422,6 +486,7 @@ workspace-qdrant-ingest /path/to/docs -c my-project --dry-run
 
 ## Documentation
 
+- **[Daemon Service Installation](docs/daemon-installation.md)** - Complete system service setup guide for Linux (systemd), macOS (launchd), and Windows Service
 - **[API Reference](API.md)** - Complete MCP tools documentation
 - **[Contributing Guide](CONTRIBUTING.md)** - Development setup and guidelines
 - **[Release Process](docs/RELEASE_PROCESS.md)** - Automated releases and emergency procedures

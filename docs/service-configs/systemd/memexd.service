@@ -1,0 +1,46 @@
+[Unit]
+Description=Memory eXchange Daemon - Document processing service
+Documentation=https://github.com/ChrisGVE/workspace-qdrant-mcp
+After=network-online.target
+Wants=network-online.target
+RequiresMountsFor=/var/lib/memexd
+
+[Service]
+Type=simple
+User=memexd
+Group=memexd
+WorkingDirectory=/var/lib/memexd
+ExecStart=/usr/local/bin/memexd --config=/etc/memexd/config.toml --pid-file=/var/run/memexd.pid
+ExecReload=/bin/kill -HUP $MAINPID
+
+# Restart configuration
+Restart=always
+RestartSec=10
+StartLimitInterval=300
+StartLimitBurst=3
+
+# Security settings
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/var/lib/memexd /var/log/memexd
+PrivateTmp=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+RestrictNamespaces=true
+RestrictSUIDSGID=true
+
+# Resource limits
+MemoryHigh=1G
+MemoryMax=2G
+TasksMax=100
+CPUQuota=80%
+
+# Logging
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=memexd
+
+[Install]
+WantedBy=multi-user.target

@@ -1,0 +1,169 @@
+# memexd Daemon Configuration
+# 
+# This configuration file controls the Memory eXchange Daemon (memexd) behavior.
+# Place this file at:
+#   - Linux: /etc/memexd/config.toml
+#   - macOS: /usr/local/etc/memexd/config.toml  
+#   - Windows: C:\ProgramData\MemexD\config.toml
+
+[daemon]
+# IPC communication port for Python integration
+port = 8765
+
+# Logging level: error, warn, info, debug, trace
+log_level = "info"
+
+# Number of worker threads for document processing
+# Recommended: match number of CPU cores
+worker_threads = 4
+
+# Enable file watching for real-time document updates
+enable_file_watching = true
+
+# Document processing batch size
+batch_size = 50
+
+[qdrant]
+# Qdrant server URL
+url = "http://localhost:6333"
+
+# API key for Qdrant Cloud (leave empty for local)
+api_key = ""
+
+# Connection timeout in seconds
+timeout = 30
+
+# Prefer gRPC over HTTP (better performance)
+prefer_grpc = false
+
+# Connection pool settings
+max_connections = 10
+idle_timeout = 300
+
+[embedding]
+# Embedding model to use
+model = "sentence-transformers/all-MiniLM-L6-v2"
+
+# Enable sparse vectors for hybrid search
+enable_sparse_vectors = true
+
+# Document chunking settings
+chunk_size = 800
+chunk_overlap = 120
+
+# Processing batch size for embeddings
+batch_size = 50
+
+# Cache settings
+cache_embeddings = true
+cache_size_mb = 256
+
+[workspace]
+# Collection suffixes to create for each project
+collections = ["project"]
+
+# Global collections (shared across projects)
+global_collections = []
+
+# GitHub user filter for subproject detection
+github_user = ""
+
+# Collection name prefix
+collection_prefix = ""
+
+# Maximum number of collections to manage
+max_collections = 100
+
+# File patterns to include/exclude
+[workspace.file_patterns]
+include = [
+    "*.md",
+    "*.txt", 
+    "*.py",
+    "*.js",
+    "*.ts",
+    "*.json",
+    "*.yaml",
+    "*.yml",
+    "*.toml",
+    "*.rs",
+    "*.go",
+    "*.java",
+    "*.cpp",
+    "*.c",
+    "*.h",
+    "*.hpp"
+]
+exclude = [
+    "node_modules/**",
+    ".git/**",
+    "target/**",
+    "build/**",
+    "dist/**",
+    "*.pyc",
+    "*.pyo",
+    "*.pyd",
+    ".DS_Store",
+    "Thumbs.db"
+]
+
+[logging]
+# Enable file logging
+file_logging = true
+
+# Log file path (platform-specific defaults if empty)
+log_file_path = ""
+
+# Enable JSON structured logging
+json_format = false
+
+# Log rotation settings
+max_file_size_mb = 100
+max_backup_files = 5
+
+# Enable performance metrics logging
+metrics_enabled = true
+metrics_interval_seconds = 300
+
+[security]
+# Bind daemon to specific interface (localhost for security)
+bind_address = "127.0.0.1"
+
+# Enable request authentication (future)
+enable_auth = false
+
+# Maximum request size in MB
+max_request_size_mb = 10
+
+# Request rate limiting
+rate_limit_requests_per_minute = 1000
+
+[performance]
+# Memory limits
+max_memory_mb = 2048
+gc_threshold_mb = 1536
+
+# Processing timeouts
+document_timeout_seconds = 300
+embedding_timeout_seconds = 60
+
+# Background task intervals
+health_check_interval_seconds = 60
+cleanup_interval_seconds = 3600
+
+# File watching settings
+watch_debounce_ms = 500
+max_watched_files = 10000
+
+[development]
+# Enable development features
+debug_mode = false
+
+# Enable hot reloading of configuration
+hot_reload = false
+
+# Enable API profiling
+enable_profiling = false
+
+# Temporary directory for development
+temp_dir = ""

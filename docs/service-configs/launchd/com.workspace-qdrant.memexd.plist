@@ -1,0 +1,66 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>com.workspace-qdrant.memexd</string>
+    
+    <key>ProgramArguments</key>
+    <array>
+        <string>/usr/local/bin/memexd</string>
+        <string>--config</string>
+        <string>/usr/local/etc/memexd/config.toml</string>
+        <string>--pid-file</string>
+        <string>/usr/local/var/run/memexd.pid</string>
+    </array>
+    
+    <key>WorkingDirectory</key>
+    <string>/usr/local/var/lib/memexd</string>
+    
+    <key>StandardOutPath</key>
+    <string>/usr/local/var/log/memexd/memexd.log</string>
+    
+    <key>StandardErrorPath</key>
+    <string>/usr/local/var/log/memexd/memexd.error.log</string>
+    
+    <key>KeepAlive</key>
+    <dict>
+        <key>SuccessfulExit</key>
+        <false/>
+        <key>Crashed</key>
+        <true/>
+    </dict>
+    
+    <key>ThrottleInterval</key>
+    <integer>10</integer>
+    
+    <key>RunAtLoad</key>
+    <true/>
+    
+    <key>ProcessType</key>
+    <string>Background</string>
+    
+    <key>UserName</key>
+    <string>_memexd</string>
+    
+    <key>GroupName</key>
+    <string>_memexd</string>
+    
+    <key>Nice</key>
+    <integer>10</integer>
+    
+    <key>EnvironmentVariables</key>
+    <dict>
+        <key>PATH</key>
+        <string>/usr/local/bin:/usr/bin:/bin</string>
+    </dict>
+    
+    <key>SoftResourceLimits</key>
+    <dict>
+        <key>NumberOfProcesses</key>
+        <integer>100</integer>
+        <key>NumberOfFiles</key>
+        <integer>1024</integer>
+    </dict>
+</dict>
+</plist>
