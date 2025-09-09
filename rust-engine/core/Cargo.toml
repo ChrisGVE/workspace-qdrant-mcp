@@ -110,6 +110,10 @@ tokio-process = "0.2"
 name = "memexd"
 path = "src/bin/memexd.rs"
 
+[[bin]]
+name = "daemon_with_discovery"
+path = "src/bin/daemon_with_discovery.rs"
+
 # Note: Platform-specific optimizations temporarily removed for compatibility
 
 # Feature flags for platform-specific optimizations and testing
