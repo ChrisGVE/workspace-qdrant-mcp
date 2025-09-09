@@ -394,6 +394,7 @@ class SimplifiedToolsRouter:
     async def qdrant_find(
         self,
         query: str,
+        search_scope: str = "project",  # NEW PARAMETER
         collection: str = None,
         limit: int = 10,
         score_threshold: float = 0.7,
@@ -404,7 +405,7 @@ class SimplifiedToolsRouter:
         include_relationships: bool = False,
     ) -> Dict[str, Any]:
         """
-        Find relevant information from database (Reference implementation compatible).
+        Find relevant information from database with search scope support.
         
         Universal search and retrieval that consolidates functionality from:
         - search_workspace_tool: Multi-collection semantic search
@@ -416,7 +417,13 @@ class SimplifiedToolsRouter:
         
         Args:
             query: Natural language search query or exact text to find
-            collection: Specific collection to search (searches all if None)
+            search_scope: Search scope - "collection", "project", "workspace", "all", "memory"
+                - "collection": Search specific collection (collection param required)
+                - "project": Search current project collections only
+                - "workspace": Search project + global collections (excludes system)
+                - "all": Search all collections (includes readonly, excludes system) 
+                - "memory": Search both system and project memory collections
+            collection: Specific collection (required for "collection" scope)
             limit: Maximum number of results to return (1-100)
             score_threshold: Minimum relevance score (0.0-1.0)
             search_mode: Search strategy - "hybrid", "semantic", "keyword", "exact"
@@ -430,19 +437,23 @@ class SimplifiedToolsRouter:
             
         Example:
             ```python
-            # Reference implementation compatible usage
+            # Search within current project only
             results = await qdrant_find(
-                query="authentication implementation"
+                query="authentication implementation",
+                search_scope="project"
             )
             
-            # Advanced search with filtering
+            # Search specific collection
             results = await qdrant_find(
                 query="API documentation",
-                collection="my-project",
-                search_mode="hybrid",
-                tags=["api", "docs"],
-                note_types=["document"],
-                limit=5
+                search_scope="collection",
+                collection="my-project-docs"
+            )
+            
+            # Search memory collections only
+            results = await qdrant_find(
+                query="important notes",
+                search_scope="memory"
             )
             ```
         """
@@ -464,6 +475,7 @@ class SimplifiedToolsRouter:
         logger.debug(
             "Simplified find request",
             query_length=len(query),
+            search_scope=search_scope,
             collection=collection,
             search_mode=search_mode,
             filters=filters,
@@ -472,6 +484,21 @@ class SimplifiedToolsRouter:
         )
         
         try:
+            # First resolve search scope to determine target collections
+            try:
+                target_collections = resolve_search_scope(
+                    search_scope, collection, self.workspace_client, {}
+                )
+                logger.debug(
+                    "Search scope resolved",
+                    scope=search_scope,
+                    resolved_collections=target_collections,
+                    collection_count=len(target_collections)
+                )
+            except (SearchScopeError, ScopeValidationError, CollectionNotFoundError) as e:
+                logger.error("Search scope resolution failed", error=str(e))
+                return {"error": f"Search scope error: {str(e)}", "success": False}
+            
             # Determine search context and route appropriately
             if note_types and any(nt in ["note", "scratchbook"] for nt in note_types):
                 # Route to scratchbook search for notes
@@ -535,16 +562,11 @@ class SimplifiedToolsRouter:
                 }
                 internal_mode = mode_mapping.get(search_mode, "hybrid")
                 
-                # Determine collections to search
-                if collection:
-                    collections = [collection]
-                else:
-                    collections = None  # Search all accessible collections
-                
+                # Use resolved collections from search scope
                 result = await search_workspace(
                     self.workspace_client,
                     query=query,
-                    collections=collections,
+                    collections=target_collections,
                     mode=internal_mode,
                     limit=limit,
                     score_threshold=score_threshold
@@ -556,11 +578,18 @@ class SimplifiedToolsRouter:
                         result, filters, tags, note_types
                     )
             
+            # Add search scope information to result
+            if isinstance(result, dict) and result.get("success", True):
+                result["search_scope"] = search_scope
+                result["resolved_collections"] = target_collections
+                result["total_collections_searched"] = len(target_collections)
+            
             logger.info(
                 "Search completed successfully",
                 results_count=result.get("total_results", 0),
+                search_scope=search_scope,
                 search_mode=search_mode,
-                collection=collection
+                collections_searched=len(target_collections)
             )
             
             return result
@@ -940,6 +969,7 @@ async def register_simplified_tools(app, workspace_client, watch_tools_manager=N
         @app.tool()
         async def qdrant_find(
             query: str,
+            search_scope: str = "project",  # NEW PARAMETER
             collection: str = None,
             limit: int = 10,
             score_threshold: float = 0.7,
@@ -949,9 +979,10 @@ async def register_simplified_tools(app, workspace_client, watch_tools_manager=N
             tags: List[str] = None,
             include_relationships: bool = False,
         ) -> dict:
-            """Find relevant information from database (Reference implementation compatible)."""
+            """Find relevant information from database with search scope support."""
             return await router.qdrant_find(
                 query=query,
+                search_scope=search_scope,
                 collection=collection,
                 limit=limit,
                 score_threshold=score_threshold,
