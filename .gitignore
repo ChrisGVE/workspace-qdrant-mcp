@@ -176,26 +176,8 @@ test_runner.py
 !run_config_tests_final.py
 !20250108-0245_config_test_summary.md
 
-# Temporary files (YYYYMMDD-HHMM_ prefix) - as per git discipline
-20250*-*_*.py
-20250*-*_*.md
-20250*-*_*.txt
-20250*-*_*.json
-
-# Long-term temporary files (LT_YYYYMMDD-HHMM_ prefix) - as per git discipline
-LT_20250*-*_*
-LT_20250*-*_*.py
-LT_20250*-*_*.md
-LT_20250*-*_*.txt
-LT_20250*-*_*.json
-
-# Testing sandbox directories
-*testing_sandbox/
-*_testing_sandbox/
-
-# Task Master temporary files
-task_*_validation_report.json
-*_stress_test_report.json
+# Note: Temporary files (YYYYMMDD-HHMM_ prefix) and Long-term temporary files (LT_YYYYMMDD-HHMM_ prefix)
+# are NOT included in .gitignore as per git discipline - they must never be staged with git add
 
 # Permanent files on local storage only - MUST NOT BE IN REPO
 CLAUDE.md
