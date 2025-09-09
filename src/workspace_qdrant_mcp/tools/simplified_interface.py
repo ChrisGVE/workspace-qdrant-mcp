@@ -265,7 +265,7 @@ class SimplifiedToolsMode:
         if mode == cls.BASIC or mode == cls.COMPATIBLE:
             return ["qdrant_store", "qdrant_find"]
         elif mode == cls.STANDARD:
-            return ["qdrant_store", "qdrant_find", "qdrant_manage", "qdrant_watch"]
+            return ["qdrant_store", "qdrant_find", "qdrant_manage", "qdrant_read"]
         else:  # FULL mode
             return []  # Return empty to indicate all tools enabled
 
@@ -288,124 +288,96 @@ class SimplifiedToolsRouter:
     @with_error_handling(ErrorRecoveryStrategy.database_strategy(), "qdrant_store")
     async def qdrant_store(
         self,
-        information: str,
-        collection: str = None,
-        metadata: dict = None,
-        document_id: str = None,
-        note_type: str = "document",
-        tags: List[str] = None,
-        chunk_text: bool = None,
+        content: str,
+        collection: str,
+        document_type: str = "text",
+        source: str = "user_input",
         title: str = None,
+        metadata: dict = None,
     ) -> Dict[str, Any]:
         """
-        Store information in Qdrant database (Reference implementation compatible).
+        Universal content ingestion with clear source type classification.
         
-        Universal document storage that consolidates functionality from:
+        Routes to existing add_document functionality while maintaining all validation rules.
+        Consolidates functionality from:
         - add_document_tool: Standard document ingestion
         - update_scratchbook_tool: Note and scratchbook management
         - process_document_via_grpc_tool: High-performance gRPC processing
         
         Args:
-            information: Document text content or note content to store
-            collection: Target collection name (auto-detected if None)
+            content: Document text content to store
+            collection: Target collection name (required)
+            document_type: Type of content - "text", "code", "markdown", "note"
+            source: Source of content - "user_input", "file", "api", "scratchbook"
+            title: Optional title for the document
             metadata: Optional metadata dictionary for document organization
-            document_id: Custom document identifier (UUID generated if None)
-            note_type: Type of content - "document", "note", "scratchbook", "code"
-            tags: List of tags for organization and filtering
-            chunk_text: Whether to split large documents (auto-detect if None)
-            title: Title for scratchbook notes (auto-generated if None)
             
         Returns:
             dict: Storage result with success status, document_id, and metadata
             
         Example:
             ```python
-            # Reference implementation compatible usage
             result = await qdrant_store(
-                information="This is important information to remember",
-                collection="my-project"
-            )
-            
-            # Advanced usage with full metadata
-            result = await qdrant_store(
-                information=file_content,
-                collection="documentation",
-                metadata={"file_path": "/docs/api.md", "file_type": "markdown"},
-                note_type="document",
-                tags=["api", "documentation"],
-                chunk_text=True
+                content="This is important information to remember",
+                collection="my-project",
+                document_type="text",
+                source="user_input"
             )
             ```
         """
         if not self.workspace_client:
             return {"error": "Workspace client not initialized"}
         
+        # Validate required parameters
+        if not content or not content.strip():
+            return {"error": "Content cannot be empty", "success": False}
+        if not collection or not collection.strip():
+            return {"error": "Collection name is required", "success": False}
+        
         logger.debug(
             "Simplified store request",
-            content_length=len(information),
+            content_length=len(content),
             collection=collection,
-            note_type=note_type,
-            tags=tags
+            document_type=document_type,
+            source=source
         )
         
         try:
-            # Auto-detect collection if not provided
-            if not collection:
-                if note_type == "scratchbook":
-                    collection = "scratchbook"
-                else:
-                    # Use default project collection
-                    status = await self.workspace_client.get_status()
-                    collection = status.get("current_project", "default")
+            # Route to standard document ingestion with validation
+            from .documents import add_document
             
-            # Handle different content types through appropriate tools
-            if note_type in ["note", "scratchbook"]:
-                # Route to scratchbook functionality
-                from .scratchbook import update_scratchbook
-                result = await update_scratchbook(
-                    self.workspace_client,
-                    content=information,
-                    note_id=document_id,
-                    title=title,
-                    tags=tags,
-                    note_type=note_type
-                )
-            else:
-                # Route to standard document ingestion
-                from .documents import add_document
+            # Auto-detect chunking based on content size
+            chunk_text = len(content) > 4000  # Chunk if > 4KB
+            
+            # Enhance metadata with source classification
+            if metadata is None:
+                metadata = {}
+            metadata["document_type"] = document_type
+            metadata["source"] = source
+            if title:
+                metadata["title"] = title
                 
-                # Auto-detect chunking based on content size if not specified
-                if chunk_text is None:
-                    chunk_text = len(information) > 4000  # Chunk if > 4KB
-                
-                # Enhance metadata with tags if provided
-                if metadata is None:
-                    metadata = {}
-                if tags:
-                    metadata["tags"] = tags
-                if note_type:
-                    metadata["note_type"] = note_type
-                    
-                result = await add_document(
-                    self.workspace_client,
-                    content=information,
-                    collection=collection,
-                    metadata=metadata,
-                    document_id=document_id,
-                    chunk_text=chunk_text
-                )
+            # Route through existing add_document function which includes all validation
+            result = await add_document(
+                self.workspace_client,
+                content=content,
+                collection=collection,
+                metadata=metadata,
+                chunk_text=chunk_text
+            )
             
             logger.info(
                 "Document stored successfully",
                 collection=collection,
                 document_id=result.get("document_id"),
-                note_type=note_type
+                document_type=document_type,
+                source=source
             )
             
             return result
             
         except Exception as e:
-            logger.error("Failed to store information", error=str(e), exc_info=True)
+            logger.error("Failed to store content", error=str(e), exc_info=True)
             return {"error": f"Storage failed: {str(e)}", "success": False}
 
     @monitor_async("qdrant_find", timeout_warning=2.0, slow_threshold=1.0)
@@ -413,20 +385,19 @@ class SimplifiedToolsRouter:
     async def qdrant_find(
         self,
         query: str,
-        search_scope: str = "project",  # NEW PARAMETER
+        search_scope: str = "project",
         collection: str = None,
         limit: int = 10,
         score_threshold: float = 0.7,
-        search_mode: str = "hybrid",
-        filters: Dict[str, Any] = None,
-        note_types: List[str] = None,
-        tags: List[str] = None,
-        include_relationships: bool = False,
-    ) -> Dict[str, Any]:
+        document_type: str = None,
+        include_metadata: bool = False,
+        date_range: dict = None,
+    ) -> list:
         """
-        Find relevant information from database with search scope support.
+        Search with precise scope control and filtering.
         
-        Universal search and retrieval that consolidates functionality from:
+        Uses search scope architecture from task 175. Universal search and retrieval 
+        that consolidates functionality from:
         - search_workspace_tool: Multi-collection semantic search
         - search_scratchbook_tool: Specialized note search with filtering
         - research_workspace: Advanced semantic research with context control
@@ -445,14 +416,12 @@ class SimplifiedToolsRouter:
             collection: Specific collection (required for "collection" scope)
             limit: Maximum number of results to return (1-100)
             score_threshold: Minimum relevance score (0.0-1.0)
-            search_mode: Search strategy - "hybrid", "semantic", "keyword", "exact"
-            filters: Metadata filters for result refinement
-            note_types: Filter by content types (["note", "document", "scratchbook"])
-            tags: Filter by specific tags
-            include_relationships: Include related documents and version chains
+            document_type: Filter by document type ("text", "code", "markdown", "note")
+            include_metadata: Include full document metadata in results
+            date_range: Date range filter {"start": "YYYY-MM-DD", "end": "YYYY-MM-DD"}
             
         Returns:
-            dict: Search results with ranked matches and metadata
+            list: Search results with ranked matches and metadata
             
         Example:
             ```python
@@ -468,16 +437,14 @@ class SimplifiedToolsRouter:
                 search_scope="collection",
                 collection="my-project-docs"
             )
-            
-            # Search memory collections only
-            results = await qdrant_find(
-                query="important notes",
-                search_scope="memory"
-            )
             ```
         """
         if not self.workspace_client:
-            return {"error": "Workspace client not initialized"}
+            return [{"error": "Workspace client not initialized"}]
+        
+        # Validate required parameters
+        if not query or not query.strip():
+            return [{"error": "Query cannot be empty"}]
         
         # Validate parameters
         try:
@@ -485,21 +452,19 @@ class SimplifiedToolsRouter:
             score_threshold = float(score_threshold) if isinstance(score_threshold, str) else score_threshold
             
             if limit <= 0:
-                return {"error": "limit must be greater than 0"}
+                return [{"error": "limit must be greater than 0"}]
             if not (0.0 <= score_threshold <= 1.0):
-                return {"error": "score_threshold must be between 0.0 and 1.0"}
+                return [{"error": "score_threshold must be between 0.0 and 1.0"}]
         except (ValueError, TypeError) as e:
-            return {"error": f"Invalid parameter types: {e}"}
+            return [{"error": f"Invalid parameter types: {e}"}]
         
         logger.debug(
             "Simplified find request",
             query_length=len(query),
             search_scope=search_scope,
             collection=collection,
-            search_mode=search_mode,
-            filters=filters,
-            note_types=note_types,
-            tags=tags
+            document_type=document_type,
+            include_metadata=include_metadata
         )
         
         try:
@@ -516,150 +481,71 @@ class SimplifiedToolsRouter:
                 )
             except (SearchScopeError, ScopeValidationError, CollectionNotFoundError) as e:
                 logger.error("Search scope resolution failed", error=str(e))
-                return {"error": f"Search scope error: {str(e)}", "success": False}
+                return [{"error": f"Search scope error: {str(e)}"}]
             
-            # Determine search context and route appropriately
-            if note_types and any(nt in ["note", "scratchbook"] for nt in note_types):
-                # Route to scratchbook search for notes
-                from .scratchbook import ScratchbookManager
-                manager = ScratchbookManager(self.workspace_client)
-                
-                result = await manager.search_notes(
-                    query=query,
-                    note_types=note_types,
-                    tags=tags,
-                    project_name=collection,  # Use collection as project filter
-                    limit=limit,
-                    mode=search_mode
-                )
-            elif collection and search_mode == "exact":
-                # Route to metadata search for exact matches
-                from .search import search_collection_by_metadata
-                
-                # Create metadata filter for exact text search
-                metadata_filter = {"content": query}
-                if filters:
-                    metadata_filter.update(filters)
-                
-                result = await search_collection_by_metadata(
-                    self.workspace_client,
-                    collection=collection,
-                    metadata_filter=metadata_filter,
-                    limit=limit
-                )
-            elif include_relationships:
-                # Route to advanced research functionality
-                from .research import research_workspace as research_workspace_impl
-                
-                # Determine research mode
-                if collection:
-                    mode = "collection"
-                    target_collection = collection
-                else:
-                    mode = "project"
-                    target_collection = None
-                
-                result = await research_workspace_impl(
-                    client=self.workspace_client,
-                    query=query,
-                    mode=mode,
-                    target_collection=target_collection,
-                    include_relationships=include_relationships,
-                    limit=limit,
-                    score_threshold=score_threshold
-                )
-            else:
-                # Route to standard workspace search
-                from .search import search_workspace
-                
-                # Convert search_mode to internal mode parameter
-                mode_mapping = {
-                    "hybrid": "hybrid",
-                    "semantic": "dense",
-                    "keyword": "sparse",
-                    "exact": "sparse"
-                }
-                internal_mode = mode_mapping.get(search_mode, "hybrid")
-                
-                # Use resolved collections from search scope
-                result = await search_workspace(
-                    self.workspace_client,
-                    query=query,
-                    collections=target_collections,
-                    mode=internal_mode,
-                    limit=limit,
-                    score_threshold=score_threshold
-                )
-                
-                # Apply additional filtering if specified
-                if filters or tags or note_types:
-                    result = self._apply_additional_filters(
-                        result, filters, tags, note_types
-                    )
+            # Route to standard workspace search with scope-resolved collections
+            from .search import search_workspace
             
-            # Add search scope information to result
-            if isinstance(result, dict) and result.get("success", True):
-                result["search_scope"] = search_scope
-                result["resolved_collections"] = target_collections
-                result["total_collections_searched"] = len(target_collections)
-            
-            logger.info(
-                "Search completed successfully",
-                results_count=result.get("total_results", 0),
-                search_scope=search_scope,
-                search_mode=search_mode,
-                collections_searched=len(target_collections)
+            # Use hybrid search mode for best results
+            result = await search_workspace(
+                self.workspace_client,
+                query=query,
+                collections=target_collections,
+                mode="hybrid",
+                limit=limit,
+                score_threshold=score_threshold
             )
             
-            return result
+            # Apply document type filtering if specified
+            if document_type and isinstance(result, dict) and result.get("results"):
+                filtered_results = []
+                for item in result["results"]:
+                    payload = item.get("payload", {})
+                    if payload.get("document_type") == document_type:
+                        filtered_results.append(item)
+                result["results"] = filtered_results
+                result["total_results"] = len(filtered_results)
+            
+            # Apply date range filtering if specified
+            if date_range and isinstance(result, dict) and result.get("results"):
+                from datetime import datetime
+                start_date = datetime.fromisoformat(date_range.get("start", "1970-01-01"))
+                end_date = datetime.fromisoformat(date_range.get("end", "9999-12-31"))
+                
+                filtered_results = []
+                for item in result["results"]:
+                    payload = item.get("payload", {})
+                    created_at = payload.get("created_at")
+                    if created_at:
+                        item_date = datetime.fromisoformat(created_at.replace("Z", "+00:00"))
+                        if start_date <= item_date <= end_date:
+                            filtered_results.append(item)
+                    else:
+                        # Include items without date if no strict filtering
+                        filtered_results.append(item)
+                result["results"] = filtered_results
+                result["total_results"] = len(filtered_results)
+            
+            # Convert result to list format as specified
+            if isinstance(result, dict) and result.get("results"):
+                search_results = result["results"]
+                if not include_metadata:
+                    # Strip metadata if not requested
+                    for item in search_results:
+                        if "payload" in item and isinstance(item["payload"], dict):
+                            # Keep only essential fields
+                            essential_fields = {"content", "title", "document_type", "source"}
+                            filtered_payload = {k: v for k, v in item["payload"].items() 
+                                              if k in essential_fields}
+                            item["payload"] = filtered_payload
+                return search_results
+            else:
+                return []
             
         except Exception as e:
             logger.error("Failed to find information", error=str(e), exc_info=True)
-            return {"error": f"Search failed: {str(e)}", "success": False}
+            return [{"error": f"Search failed: {str(e)}"}]
 
-    def _apply_additional_filters(
-        self,
-        result: Dict[str, Any],
-        filters: Dict[str, Any] = None,
-        tags: List[str] = None,
-        note_types: List[str] = None
-    ) -> Dict[str, Any]:
-        """Apply additional client-side filtering to search results."""
-        if not result.get("results"):
-            return result
-        
-        filtered_results = []
-        
-        for item in result["results"]:
-            payload = item.get("payload", {})
-            
-            # Apply metadata filters
-            if filters:
-                matches_filter = True
-                for key, value in filters.items():
-                    if key not in payload or payload[key] != value:
-                        matches_filter = False
-                        break
-                if not matches_filter:
-                    continue
-            
-            # Apply tag filters
-            if tags:
-                item_tags = payload.get("tags", [])
-                if not any(tag in item_tags for tag in tags):
-                    continue
-            
-            # Apply note type filters
-            if note_types:
-                item_note_type = payload.get("note_type", "document")
-                if item_note_type not in note_types:
-                    continue
-            
-            filtered_results.append(item)
-        
-        result["results"] = filtered_results
-        result["total_results"] = len(filtered_results)
-        return result
 
     @monitor_async("qdrant_manage", timeout_warning=5.0)
     @with_error_handling(ErrorRecoveryStrategy.database_strategy(), "qdrant_manage")
@@ -667,34 +553,22 @@ class SimplifiedToolsRouter:
         self,
         action: str,
         collection: str = None,
-        document_id: str = None,
-        note_id: str = None,
-        include_vectors: bool = False,
-        note_type: str = None,
-        tags: List[str] = None,
-        limit: int = 50,
-        **kwargs
-    ) -> Dict[str, Any]:
+        new_name: str = None,
+    ) -> dict:
         """
-        Manage workspace collections and documents.
+        System status and collection management.
         
-        Consolidates functionality from:
+        Routes to existing workspace status and collection tools. Consolidates functionality from:
         - workspace_status: Get workspace and collection status
         - list_workspace_collections: List available collections
-        - get_document_tool: Retrieve specific documents
-        - list_scratchbook_notes_tool: List notes with filtering
-        - delete_scratchbook_note_tool: Delete notes and documents
+        - create_collection: Create new collections
+        - delete_collection: Remove collections
+        - rename_collection: Rename existing collections
         
         Args:
-            action: Management action - "status", "collections", "get", "list_notes", "delete"
-            collection: Target collection name (required for some actions)
-            document_id: Document identifier (required for "get", "delete")
-            note_id: Note identifier (required for note operations)
-            include_vectors: Include embedding vectors in response
-            note_type: Filter by note type for listing operations
-            tags: Filter by tags for listing operations
-            limit: Maximum results for listing operations
-            **kwargs: Additional parameters for specific actions
+            action: Management action - "status", "list", "create", "delete", "rename"
+            collection: Target collection name (required for create/delete/rename)
+            new_name: New name for collection (required for rename)
             
         Returns:
             dict: Management operation results
@@ -705,227 +579,275 @@ class SimplifiedToolsRouter:
             status = await qdrant_manage(action="status")
             
             # List available collections
-            collections = await qdrant_manage(action="collections")
+            collections = await qdrant_manage(action="list")
             
-            # Get specific document
-            doc = await qdrant_manage(
-                action="get",
-                collection="my-project",
-                document_id="doc-123"
-            )
+            # Create new collection
+            result = await qdrant_manage(action="create", collection="new-collection")
             
-            # List notes with filtering
-            notes = await qdrant_manage(
-                action="list_notes",
-                note_type="scratchbook",
-                tags=["important"]
+            # Rename collection
+            result = await qdrant_manage(
+                action="rename",
+                collection="old-name",
+                new_name="new-name"
             )
             ```
         """
         if not self.workspace_client:
             return {"error": "Workspace client not initialized"}
         
+        # Validate required parameters
+        if not action or not action.strip():
+            return {"error": "Action is required", "success": False}
+        
         logger.debug("Management action requested", action=action, collection=collection)
         
         try:
             if action == "status":
-                # Route to workspace status
+                # Route to workspace status through existing functionality
                 status = await self.workspace_client.get_status()
                 logger.info("Workspace status retrieved", connected=status.get("connected"))
                 return status
                 
-            elif action == "collections":
-                # Route to list collections
+            elif action == "list":
+                # Route to list collections through existing functionality
                 collections = self.workspace_client.list_collections()
                 logger.info("Collections listed", count=len(collections))
-                return {"collections": collections, "count": len(collections)}
+                return {"collections": collections, "count": len(collections), "success": True}
                 
-            elif action == "get":
-                if not document_id or not collection:
-                    return {"error": "document_id and collection required for get action"}
+            elif action == "create":
+                if not collection or not collection.strip():
+                    return {"error": "Collection name required for create action", "success": False}
                 
-                # Route to get document
-                from .documents import get_document
-                result = await get_document(
-                    self.workspace_client,
-                    document_id=document_id,
-                    collection=collection,
-                    include_vectors=include_vectors
-                )
-                logger.info("Document retrieved", document_id=document_id, collection=collection)
-                return result
-                
-            elif action == "list_notes":
-                # Route to list scratchbook notes
-                from .scratchbook import ScratchbookManager
-                manager = ScratchbookManager(self.workspace_client)
-                
-                result = await manager.list_notes(
-                    project_name=collection,
-                    note_type=note_type,
-                    tags=tags,
-                    limit=limit
-                )
-                logger.info("Notes listed", count=result.get("total_notes", 0))
-                return result
+                # Route through client collection management with validation
+                try:
+                    # Check if collection already exists
+                    existing = self.workspace_client.list_collections()
+                    if collection in existing:
+                        return {"error": f"Collection '{collection}' already exists", "success": False}
+                    
+                    # Create collection through client (which includes all validation)
+                    await self.workspace_client.create_collection(collection)
+                    logger.info("Collection created", collection=collection)
+                    return {"collection": collection, "success": True, "message": "Collection created successfully"}
+                    
+                except Exception as create_error:
+                    logger.error("Collection creation failed", collection=collection, error=str(create_error))
+                    return {"error": f"Failed to create collection: {str(create_error)}", "success": False}
                 
             elif action == "delete":
-                if note_id:
-                    # Route to delete scratchbook note
-                    from .scratchbook import ScratchbookManager
-                    manager = ScratchbookManager(self.workspace_client)
+                if not collection or not collection.strip():
+                    return {"error": "Collection name required for delete action", "success": False}
+                
+                # Route through client collection management with validation
+                try:
+                    # Check if collection exists
+                    existing = self.workspace_client.list_collections()
+                    if collection not in existing:
+                        return {"error": f"Collection '{collection}' does not exist", "success": False}
                     
-                    result = await manager.delete_note(note_id, collection)
-                    logger.info("Note deleted", note_id=note_id)
-                    return result
-                else:
-                    return {"error": "note_id required for delete action"}
+                    # Delete collection through client (which includes all validation)
+                    await self.workspace_client.delete_collection(collection)
+                    logger.info("Collection deleted", collection=collection)
+                    return {"collection": collection, "success": True, "message": "Collection deleted successfully"}
+                    
+                except Exception as delete_error:
+                    logger.error("Collection deletion failed", collection=collection, error=str(delete_error))
+                    return {"error": f"Failed to delete collection: {str(delete_error)}", "success": False}
+                
+            elif action == "rename":
+                if not collection or not collection.strip():
+                    return {"error": "Collection name required for rename action", "success": False}
+                if not new_name or not new_name.strip():
+                    return {"error": "New name required for rename action", "success": False}
+                
+                # Route through client collection management with validation
+                try:
+                    # Check if source collection exists
+                    existing = self.workspace_client.list_collections()
+                    if collection not in existing:
+                        return {"error": f"Collection '{collection}' does not exist", "success": False}
+                    if new_name in existing:
+                        return {"error": f"Collection '{new_name}' already exists", "success": False}
+                    
+                    # Rename through client (which includes all validation)
+                    await self.workspace_client.rename_collection(collection, new_name)
+                    logger.info("Collection renamed", old_name=collection, new_name=new_name)
+                    return {
+                        "old_name": collection, 
+                        "new_name": new_name, 
+                        "success": True, 
+                        "message": "Collection renamed successfully"
+                    }
+                    
+                except Exception as rename_error:
+                    logger.error("Collection rename failed", collection=collection, new_name=new_name, error=str(rename_error))
+                    return {"error": f"Failed to rename collection: {str(rename_error)}", "success": False}
                 
             else:
-                return {"error": f"Unknown management action: {action}"}
+                valid_actions = ["status", "list", "create", "delete", "rename"]
+                return {
+                    "error": f"Unknown management action: {action}. Valid actions: {', '.join(valid_actions)}", 
+                    "success": False
+                }
                 
         except Exception as e:
             logger.error("Management action failed", action=action, error=str(e), exc_info=True)
             return {"error": f"Management action failed: {str(e)}", "success": False}
 
-    @monitor_async("qdrant_watch", timeout_warning=10.0)
-    @with_error_handling(ErrorRecoveryStrategy.database_strategy(), "qdrant_watch")
-    async def qdrant_watch(
+    @monitor_async("qdrant_read", timeout_warning=5.0)
+    @with_error_handling(ErrorRecoveryStrategy.database_strategy(), "qdrant_read")
+    async def qdrant_read(
         self,
         action: str,
-        path: str = None,
-        collection: str = None,
-        watch_id: str = None,
-        patterns: List[str] = None,
-        auto_ingest: bool = True,
-        recursive: bool = True,
-        debounce_seconds: int = 5,
-        **kwargs
-    ) -> Dict[str, Any]:
+        collection: str,
+        document_id: str = None,
+        limit: int = 100,
+        include_metadata: bool = True,
+        sort_by: str = "ingestion_date",
+    ) -> dict:
         """
-        Manage folder watching for automatic document ingestion.
+        Direct document retrieval without search.
         
-        Simplified interface for all 13 watch-related tools:
-        - add_watch_folder, remove_watch_folder, list_watched_folders
-        - configure_watch_settings, get_watch_status, validate_watch_path
-        - And 7 additional advanced watch management tools
+        Routes to existing get_document functionality. Consolidates functionality from:
+        - get_document_tool: Retrieve specific documents
+        - list_collection_documents: List documents in collection
+        - get_document_by_metadata: Find documents by metadata
         
         Args:
-            action: Watch action - "add", "remove", "list", "status", "configure", "validate"
-            path: Directory path to watch (required for "add", "validate")
-            collection: Target collection for ingested files
-            watch_id: Watch identifier (required for "remove", "configure", "status")
-            patterns: File patterns to include (e.g., ["*.pdf", "*.txt"])
-            auto_ingest: Enable automatic file ingestion
-            recursive: Watch subdirectories recursively
-            debounce_seconds: Delay before processing file changes
-            **kwargs: Additional parameters for specific actions
+            action: Read action - "get", "list", "find_by_metadata"
+            collection: Target collection name (required)
+            document_id: Document identifier (required for "get")
+            limit: Maximum results for listing operations
+            include_metadata: Include full document metadata in response
+            sort_by: Sort order for listing - "ingestion_date", "title", "document_id"
             
         Returns:
-            dict: Watch management operation results
+            dict: Read operation results
             
         Example:
             ```python
-            # Add new folder watch
-            result = await qdrant_watch(
-                action="add",
-                path="/home/user/documents",
+            # Get specific document
+            doc = await qdrant_read(
+                action="get",
                 collection="my-project",
-                patterns=["*.pdf", "*.docx"]
+                document_id="doc-123"
             )
             
-            # List all watches
-            watches = await qdrant_watch(action="list")
-            
-            # Get watch status
-            status = await qdrant_watch(
-                action="status",
-                watch_id="my-watch"
+            # List documents in collection
+            docs = await qdrant_read(
+                action="list",
+                collection="my-project",
+                limit=50
             )
             ```
         """
-        if not self.workspace_client or not self.watch_tools_manager:
-            return {"error": "Watch management not initialized"}
+        if not self.workspace_client:
+            return {"error": "Workspace client not initialized"}
         
-        logger.debug("Watch action requested", action=action, path=path, watch_id=watch_id)
+        # Validate required parameters
+        if not action or not action.strip():
+            return {"error": "Action is required", "success": False}
+        if not collection or not collection.strip():
+            return {"error": "Collection name is required", "success": False}
+        
+        logger.debug("Read action requested", action=action, collection=collection, document_id=document_id)
         
         try:
-            if action == "add":
-                if not path or not collection:
-                    return {"error": "path and collection required for add action"}
+            if action == "get":
+                if not document_id or not document_id.strip():
+                    return {"error": "document_id required for get action", "success": False}
                 
-                result = await self.watch_tools_manager.add_watch_folder(
-                    path=path,
+                # Route to get_document with validation
+                from .documents import get_document
+                result = await get_document(
+                    self.workspace_client,
+                    document_id=document_id,
                     collection=collection,
-                    patterns=patterns,
-                    auto_ingest=auto_ingest,
-                    recursive=recursive,
-                    debounce_seconds=debounce_seconds,
-                    **kwargs
+                    include_vectors=False  # Don't include vectors unless specifically needed
                 )
-                logger.info("Watch added", path=path, collection=collection)
-                return result
                 
-            elif action == "remove":
-                if not watch_id:
-                    return {"error": "watch_id required for remove action"}
+                # Enhance result with metadata control
+                if not include_metadata and isinstance(result, dict) and "payload" in result:
+                    # Strip metadata if not requested, keep only essential fields
+                    essential_fields = {"content", "title", "document_type", "source"}
+                    if isinstance(result["payload"], dict):
+                        filtered_payload = {k: v for k, v in result["payload"].items() 
+                                          if k in essential_fields}
+                        result["payload"] = filtered_payload
                 
-                result = await self.watch_tools_manager.remove_watch_folder(watch_id)
-                logger.info("Watch removed", watch_id=watch_id)
+                logger.info("Document retrieved", document_id=document_id, collection=collection)
                 return result
                 
             elif action == "list":
-                result = await self.watch_tools_manager.list_watched_folders(
-                    **kwargs
-                )
-                logger.info("Watches listed", count=result.get("summary", {}).get("total_watches", 0))
-                return result
+                # Get collection info and list documents
+                try:
+                    # Check if collection exists
+                    existing = self.workspace_client.list_collections()
+                    if collection not in existing:
+                        return {"error": f"Collection '{collection}' does not exist", "success": False}
+                    
+                    # Get collection info through client
+                    collection_info = await self.workspace_client.get_collection_info(collection)
+                    
+                    if not collection_info or "documents" not in collection_info:
+                        return {"documents": [], "count": 0, "collection": collection, "success": True}
+                    
+                    # Get documents with optional sorting
+                    documents = collection_info["documents"]
+                    
+                    # Apply sorting
+                    if sort_by == "ingestion_date":
+                        documents = sorted(documents, key=lambda x: x.get("created_at", ""), reverse=True)
+                    elif sort_by == "title":
+                        documents = sorted(documents, key=lambda x: x.get("title", x.get("id", "")))
+                    elif sort_by == "document_id":
+                        documents = sorted(documents, key=lambda x: x.get("id", ""))
+                    
+                    # Apply limit
+                    if limit > 0:
+                        documents = documents[:limit]
+                    
+                    # Apply metadata filtering
+                    if not include_metadata:
+                        essential_fields = {"id", "content", "title", "document_type", "source"}
+                        filtered_docs = []
+                        for doc in documents:
+                            if isinstance(doc, dict):
+                                filtered_doc = {k: v for k, v in doc.items() if k in essential_fields}
+                                filtered_docs.append(filtered_doc)
+                        documents = filtered_docs
+                    
+                    logger.info("Documents listed", collection=collection, count=len(documents))
+                    return {
+                        "documents": documents,
+                        "count": len(documents),
+                        "collection": collection,
+                        "sort_by": sort_by,
+                        "success": True
+                    }
+                    
+                except Exception as list_error:
+                    logger.error("Document listing failed", collection=collection, error=str(list_error))
+                    return {"error": f"Failed to list documents: {str(list_error)}", "success": False}
                 
-            elif action == "status":
-                result = await self.watch_tools_manager.get_watch_status(watch_id)
-                logger.info("Watch status retrieved", watch_id=watch_id)
-                return result
+            elif action == "find_by_metadata":
+                # Route to metadata search functionality
+                from .search import search_collection_by_metadata
                 
-            elif action == "configure":
-                if not watch_id:
-                    return {"error": "watch_id required for configure action"}
-                
-                result = await self.watch_tools_manager.configure_watch_settings(
-                    watch_id=watch_id,
-                    patterns=patterns,
-                    auto_ingest=auto_ingest,
-                    recursive=recursive,
-                    debounce_seconds=debounce_seconds,
-                    **kwargs
-                )
-                logger.info("Watch configured", watch_id=watch_id)
-                return result
-                
-            elif action == "validate":
-                if not path:
-                    return {"error": "path required for validate action"}
-                
-                from ..core.watch_validation import WatchPathValidator
-                from pathlib import Path
-                
-                validation_result = WatchPathValidator.validate_watch_path(Path(path))
-                logger.info("Path validated", path=path, valid=validation_result.valid)
-                
-                return {
-                    "valid": validation_result.valid,
-                    "path": path,
-                    "error_code": validation_result.error_code,
-                    "error_message": validation_result.error_message,
-                    "warnings": validation_result.warnings,
-                    "metadata": validation_result.metadata,
-                }
+                # This would require metadata filters to be passed, but they're not in the spec
+                # Return error for now or implement basic metadata search
+                return {"error": "find_by_metadata action not fully implemented - use qdrant_find instead", "success": False}
                 
             else:
-                return {"error": f"Unknown watch action: {action}"}
+                valid_actions = ["get", "list", "find_by_metadata"]
+                return {
+                    "error": f"Unknown read action: {action}. Valid actions: {', '.join(valid_actions)}", 
+                    "success": False
+                }
                 
         except Exception as e:
-            logger.error("Watch action failed", action=action, error=str(e), exc_info=True)
-            return {"error": f"Watch action failed: {str(e)}", "success": False}
+            logger.error("Read action failed", action=action, error=str(e), exc_info=True)
+            return {"error": f"Read action failed: {str(e)}", "success": False}
 
 
 # Global router instance (will be initialized by server)
@@ -962,25 +884,21 @@ async def register_simplified_tools(app, workspace_client, watch_tools_manager=N
     if "qdrant_store" in enabled_tools:
         @app.tool()
         async def qdrant_store(
-            information: str,
-            collection: str = None,
-            metadata: dict = None,
-            document_id: str = None,
-            note_type: str = "document",
-            tags: List[str] = None,
-            chunk_text: bool = None,
+            content: str,
+            collection: str,
+            document_type: str = "text",
+            source: str = "user_input",
             title: str = None,
+            metadata: dict = None,
         ) -> dict:
-            """Store information in Qdrant database (Reference implementation compatible)."""
+            """Universal content ingestion with clear source type classification."""
             return await router.qdrant_store(
-                information=information,
+                content=content,
                 collection=collection,
-                metadata=metadata,
-                document_id=document_id,
-                note_type=note_type,
-                tags=tags,
-                chunk_text=chunk_text,
+                document_type=document_type,
+                source=source,
                 title=title,
+                metadata=metadata,
             )
     
     # Register qdrant_find (always enabled in simplified modes)
@@ -988,28 +906,24 @@ async def register_simplified_tools(app, workspace_client, watch_tools_manager=N
         @app.tool()
         async def qdrant_find(
             query: str,
-            search_scope: str = "project",  # NEW PARAMETER
+            search_scope: str = "project",
             collection: str = None,
             limit: int = 10,
             score_threshold: float = 0.7,
-            search_mode: str = "hybrid",
-            filters: dict = None,
-            note_types: List[str] = None,
-            tags: List[str] = None,
-            include_relationships: bool = False,
-        ) -> dict:
-            """Find relevant information from database with search scope support."""
+            document_type: str = None,
+            include_metadata: bool = False,
+            date_range: dict = None,
+        ) -> list:
+            """Search with precise scope control and filtering."""
             return await router.qdrant_find(
                 query=query,
                 search_scope=search_scope,
                 collection=collection,
                 limit=limit,
                 score_threshold=score_threshold,
-                search_mode=search_mode,
-                filters=filters,
-                note_types=note_types,
-                tags=tags,
-                include_relationships=include_relationships,
+                document_type=document_type,
+                include_metadata=include_metadata,
+                date_range=date_range,
             )
     
     # Register qdrant_manage (enabled in standard mode)
@@ -1018,52 +932,34 @@ async def register_simplified_tools(app, workspace_client, watch_tools_manager=N
         async def qdrant_manage(
             action: str,
             collection: str = None,
-            document_id: str = None,
-            note_id: str = None,
-            include_vectors: bool = False,
-            note_type: str = None,
-            tags: List[str] = None,
-            limit: int = 50,
-            **kwargs
+            new_name: str = None,
         ) -> dict:
-            """Manage workspace collections and documents."""
+            """System status and collection management."""
             return await router.qdrant_manage(
                 action=action,
                 collection=collection,
-                document_id=document_id,
-                note_id=note_id,
-                include_vectors=include_vectors,
-                note_type=note_type,
-                tags=tags,
-                limit=limit,
-                **kwargs
+                new_name=new_name,
             )
     
-    # Register qdrant_watch (enabled in standard mode)
-    if "qdrant_watch" in enabled_tools:
+    # Register qdrant_read (enabled in standard mode) - replaces qdrant_watch
+    if "qdrant_manage" in enabled_tools:  # Use same condition as manage for 4-tool architecture
         @app.tool()
-        async def qdrant_watch(
+        async def qdrant_read(
             action: str,
-            path: str = None,
-            collection: str = None,
-            watch_id: str = None,
-            patterns: List[str] = None,
-            auto_ingest: bool = True,
-            recursive: bool = True,
-            debounce_seconds: int = 5,
-            **kwargs
+            collection: str,
+            document_id: str = None,
+            limit: int = 100,
+            include_metadata: bool = True,
+            sort_by: str = "ingestion_date",
         ) -> dict:
-            """Manage folder watching for automatic document ingestion."""
-            return await router.qdrant_watch(
+            """Direct document retrieval without search."""
+            return await router.qdrant_read(
                 action=action,
-                path=path,
                 collection=collection,
-                watch_id=watch_id,
-                patterns=patterns,
-                auto_ingest=auto_ingest,
-                recursive=recursive,
-                debounce_seconds=debounce_seconds,
-                **kwargs
+                document_id=document_id,
+                limit=limit,
+                include_metadata=include_metadata,
+                sort_by=sort_by,
             )
     
     logger.info(f"Simplified tools registered successfully: {enabled_tools}")
