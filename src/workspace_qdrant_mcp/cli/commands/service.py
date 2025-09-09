@@ -126,24 +126,36 @@ class ServiceManager:
                 "plist_dir": str(plist_dir),
             }
 
-        # Setup Application Support configuration
-        app_support_dir = Path.home() / "Library" / "Application Support" / "workspace-qdrant-mcp"
-        app_support_config = app_support_dir / "workspace_qdrant_config.toml"
+        # Setup XDG-compliant configuration directory
+        # Check XDG_CONFIG_HOME first, fall back to system default
+        xdg_config_home = os.environ.get('XDG_CONFIG_HOME')
+        if xdg_config_home:
+            config_dir = Path(xdg_config_home) / "workspace-qdrant"
+        else:
+            # Fall back to system canonical location
+            if self.system == "darwin":
+                config_dir = Path.home() / ".config" / "workspace-qdrant"
+            elif self.system == "linux":
+                config_dir = Path.home() / ".config" / "workspace-qdrant"
+            else:  # windows
+                config_dir = Path.home() / ".config" / "workspace-qdrant"
         
-        # Create Application Support directory if it doesn't exist
+        config_file_default = config_dir / "workspace_qdrant_config.toml"
+        
+        # Create XDG config directory if it doesn't exist
         try:
-            app_support_dir.mkdir(parents=True, exist_ok=True)
-            logger.debug(f"Created Application Support directory: {app_support_dir}")
+            config_dir.mkdir(parents=True, exist_ok=True)
+            logger.debug(f"Created XDG config directory: {config_dir}")
         except Exception as e:
-            logger.error(f"Failed to create Application Support directory: {e}")
+            logger.error(f"Failed to create XDG config directory: {e}")
             return {
                 "success": False,
-                "error": f"Cannot create Application Support directory: {e}",
+                "error": f"Cannot create XDG config directory: {e}",
             }
         
-        # If no config file specified, use/create default in Application Support
+        # If no config file specified, use/create default in XDG location
         if not config_file:
-            config_file = app_support_config
+            config_file = config_file_default
             
         # Copy default config if target doesn't exist
         if not config_file.exists():
@@ -196,6 +208,8 @@ project_path = "{}"
         # Always include config file
         daemon_args.extend(["--config", str(config_file)])
         daemon_args.extend(["--log-level", log_level])
+        # Add foreground mode for user services (launchd manages the process)
+        daemon_args.append("--foreground")
 
         # Create plist content with priority-based resource management
         plist_content = f"""<?xml version="1.0" encoding="UTF-8"?>
@@ -249,6 +263,8 @@ project_path = "{}"
         <string>100</string>
         <key>MEMEXD_LOW_PRIORITY_QUEUE_SIZE</key>
         <string>1000</string>
+        <key>WQM_LOG_FILE</key>
+        <string>false</string>
     </dict>
     
     <key>SoftResourceLimits</key>
