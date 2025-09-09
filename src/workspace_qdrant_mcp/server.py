@@ -47,16 +47,6 @@ import typer
 from fastmcp import FastMCP
 from pydantic import BaseModel
 
-# Import FastMCP optimizations if available
-try:
-    from ..optimization.complete_fastmcp_optimization import (
-        OptimizedWorkspaceServer, OptimizedFastMCPApp, StreamingStdioProtocol
-    )
-    OPTIMIZATIONS_AVAILABLE = True
-    logger.info("FastMCP optimizations loaded successfully")
-except ImportError:
-    OPTIMIZATIONS_AVAILABLE = False
-    logger.info("FastMCP optimizations not available, using standard FastMCP")
 
 from .core.advanced_watch_config import (
     AdvancedConfigValidator,
@@ -123,9 +113,9 @@ from .utils.config_validator import ConfigValidator
 # Initialize structured logging
 logger = get_logger(__name__)
 
-# Import FastMCP optimizations if available
+# Log optimization availability
 try:
-    from .optimization.complete_fastmcp_optimization import (
+    from ..optimization.complete_fastmcp_optimization import (
         OptimizedWorkspaceServer, OptimizedFastMCPApp, StreamingStdioProtocol
     )
     OPTIMIZATIONS_AVAILABLE = True
