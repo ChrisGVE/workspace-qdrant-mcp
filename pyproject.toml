@@ -48,6 +48,9 @@ dependencies = [
   "aiohttp>=3.9.0", # Async HTTP client for web crawling
   "aiofiles>=23.0.0", # Async file operations
   "maturin>=1.9.4",
+  # Configuration management
+  "toml>=0.10.0",
+  "watchdog>=3.0.0",
 ]
 
 [project.optional-dependencies]
