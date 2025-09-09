@@ -22,6 +22,7 @@ from rich.text import Text
 
 from ...core.config import Config
 from ...core.unified_config import UnifiedConfigManager, ConfigFormat, ConfigValidationError, ConfigFormatError
+from ...core.ingestion_config import IngestionConfigManager, IngestionConfig
 from ...observability import get_logger
 from ..utils import (
     create_command_app,
@@ -734,3 +735,309 @@ def _show_validation_results(
         table.add_row(component, f"[{style}]{status}[/{style}]")
     
     console.print(table)
+
+
+# Ingestion configuration commands
+
+@config_app.command("ingestion", help="Ingestion configuration management")
+def ingestion_command():
+    """Ingestion configuration management commands.
+    
+    Use subcommands:
+    - wqm config ingestion show    # Show current ingestion config
+    - wqm config ingestion edit    # Edit ingestion config
+    - wqm config ingestion validate # Validate ingestion config
+    - wqm config ingestion reset   # Reset to defaults
+    """
+    console.print("[yellow]Use subcommands: show, edit, validate, reset[/yellow]")
+    console.print("Example: [cyan]wqm config ingestion show[/cyan]")
+
+
+@config_app.command("ingestion-show")
+def show_ingestion_config(
+    format_type: str = typer.Option(
+        "yaml", "--format", "-f",
+        help="Output format: yaml, json, table"
+    ),
+    section: Optional[str] = typer.Option(
+        None, "--section", "-s",
+        help="Show specific section (ignore_patterns, performance, languages)"
+    ),
+):
+    """Show current ingestion configuration."""
+    try:
+        manager = IngestionConfigManager()
+        config = manager.load_config()
+        config_dict = config.model_dump()
+        
+        if section:
+            if section not in config_dict:
+                error_message(f"Section '{section}' not found in ingestion configuration")
+                raise typer.Exit(1)
+            config_dict = {section: config_dict[section]}
+        
+        if format_type == "json":
+            print(json.dumps(config_dict, indent=2, default=str))
+        elif format_type == "table":
+            _show_ingestion_config_table(config_dict)
+        else:  # yaml (default)
+            print(yaml.dump(config_dict, default_flow_style=False, sort_keys=False))
+            
+    except Exception as e:
+        error_message(f"Failed to show ingestion configuration: {e}")
+        raise typer.Exit(1)
+
+
+@config_app.command("ingestion-edit")
+def edit_ingestion_config(
+    editor: Optional[str] = typer.Option(
+        None, "--editor", "-e",
+        help="Editor to use (defaults to $EDITOR environment variable)"
+    ),
+):
+    """Edit ingestion configuration in your preferred editor."""
+    try:
+        manager = IngestionConfigManager()
+        
+        # Find existing config or create template
+        config_file = manager._find_ingestion_config()
+        if not config_file:
+            # Create default config file
+            config_file = Path.cwd() / "ingestion.yaml"
+            default_config = manager._get_default_config()
+            with config_file.open('w') as f:
+                yaml.dump(default_config, f, default_flow_style=False, sort_keys=False)
+            success_message(f"Created default ingestion config: {config_file}")
+        
+        # Determine editor
+        editor_cmd = editor or os.getenv('EDITOR')
+        if not editor_cmd:
+            if platform.system() == 'Darwin':  # macOS
+                editor_cmd = 'open -t'
+            elif platform.system() == 'Windows':
+                editor_cmd = 'notepad'
+            else:  # Linux/Unix
+                editor_cmd = 'nano'
+        
+        console.print(f"Opening [cyan]{config_file}[/cyan] with [yellow]{editor_cmd}[/yellow]")
+        
+        # Open editor
+        if platform.system() == 'Darwin' and editor_cmd == 'open -t':
+            subprocess.run(['open', '-t', str(config_file)], check=True)
+        else:
+            subprocess.run([editor_cmd, str(config_file)], check=True)
+        
+        # Validate after editing
+        try:
+            manager.load_config(config_file)
+            success_message("Ingestion configuration is valid")
+        except Exception as e:
+            warning_message(f"Configuration validation failed: {e}")
+            
+    except subprocess.CalledProcessError:
+        error_message(f"Failed to open editor: {editor_cmd}")
+        raise typer.Exit(1)
+    except Exception as e:
+        error_message(f"Failed to edit ingestion configuration: {e}")
+        raise typer.Exit(1)
+
+
+@config_app.command("ingestion-validate")
+def validate_ingestion_config(
+    config_file: Optional[str] = typer.Option(
+        None, "--config", "-c",
+        help="Specific config file to validate"
+    ),
+    verbose: bool = typer.Option(
+        False, "--verbose", "-v",
+        help="Show detailed validation information"
+    ),
+):
+    """Validate ingestion configuration."""
+    try:
+        manager = IngestionConfigManager()
+        
+        if config_file:
+            config_path = Path(config_file)
+            if not config_path.exists():
+                error_message(f"Configuration file not found: {config_file}")
+                raise typer.Exit(1)
+            config = manager.load_config(config_path)
+        else:
+            config = manager.load_config()
+        
+        # Validate configuration
+        issues = config.validate_config()
+        
+        if not issues:
+            success_message("✓ Ingestion configuration is valid")
+            
+            if verbose:
+                info = manager.get_config_info()
+                console.print("\n[bold blue]Configuration Summary[/bold blue]")
+                console.print(f"Status: [green]{info['status']}[/green]")
+                console.print(f"Enabled: [cyan]{info['enabled']}[/cyan]")
+                console.print(f"Languages supported: [cyan]{info['languages_supported']}[/cyan]")
+                console.print(f"Ignore directories: [cyan]{info['ignore_directories']}[/cyan]")
+                console.print(f"Ignore extensions: [cyan]{info['ignore_extensions']}[/cyan]")
+                console.print(f"Pattern cache size: [cyan]{info['pattern_cache_size']}[/cyan]")
+        else:
+            error_message("✗ Ingestion configuration validation failed:")
+            for issue in issues:
+                console.print(f"  [red]•[/red] {issue}")
+            raise typer.Exit(1)
+            
+    except Exception as e:
+        error_message(f"Failed to validate ingestion configuration: {e}")
+        raise typer.Exit(1)
+
+
+@config_app.command("ingestion-reset")
+def reset_ingestion_config(
+    target_file: Optional[str] = typer.Option(
+        None, "--output", "-o",
+        help="Output file for reset config (default: ingestion.yaml)"
+    ),
+    force: bool = typer.Option(
+        False, "--force", "-f",
+        help="Overwrite existing file without confirmation"
+    ),
+):
+    """Reset ingestion configuration to defaults."""
+    try:
+        manager = IngestionConfigManager()
+        
+        # Determine output file
+        if target_file:
+            output_path = Path(target_file)
+        else:
+            output_path = Path.cwd() / "ingestion.yaml"
+        
+        # Check if file exists and confirm overwrite
+        if output_path.exists() and not force:
+            overwrite = typer.confirm(
+                f"File {output_path} already exists. Overwrite?"
+            )
+            if not overwrite:
+                console.print("Operation cancelled.")
+                return
+        
+        # Create default configuration
+        default_config = manager._get_default_config()
+        
+        # Write to file
+        with output_path.open('w') as f:
+            yaml.dump(default_config, f, default_flow_style=False, sort_keys=False)
+        
+        success_message(f"✓ Reset ingestion configuration to defaults: {output_path}")
+        console.print("\n[yellow]Note:[/yellow] Edit the file to customize patterns for your project")
+        console.print(f"[cyan]wqm config ingestion-edit[/cyan] to edit")
+        
+    except Exception as e:
+        error_message(f"Failed to reset ingestion configuration: {e}")
+        raise typer.Exit(1)
+
+
+@config_app.command("ingestion-info")
+def show_ingestion_info():
+    """Show ingestion system information and statistics."""
+    try:
+        manager = IngestionConfigManager()
+        info = manager.get_config_info()
+        
+        if info["status"] == "not_loaded":
+            warning_message("Ingestion configuration not loaded")
+            console.print("Run [cyan]wqm config ingestion-reset[/cyan] to create default config")
+            return
+        
+        # Show configuration info
+        console.print("\n[bold blue]Ingestion System Information[/bold blue]")
+        
+        status_style = "green" if info["enabled"] else "red"
+        console.print(f"Status: [{status_style}]{info['status'].upper()}[/{status_style}]")
+        console.print(f"Enabled: [{status_style}]{info['enabled']}[/{status_style}]")
+        
+        console.print(f"\n[bold]Pattern Statistics:[/bold]")
+        console.print(f"• Languages supported: [cyan]{info['languages_supported']}[/cyan]")
+        console.print(f"• Ignore directories: [cyan]{info['ignore_directories']}[/cyan]")
+        console.print(f"• Ignore extensions: [cyan]{info['ignore_extensions']}[/cyan]")
+        console.print(f"• Pattern cache size: [cyan]{info['pattern_cache_size']}[/cyan]")
+        
+        console.print(f"\n[bold]Performance Settings:[/bold]")
+        perf = info["performance_settings"]
+        console.print(f"• Max file size: [cyan]{perf['max_file_size_mb']} MB[/cyan]")
+        console.print(f"• Max files per directory: [cyan]{perf['max_files_per_directory']}[/cyan]")
+        console.print(f"• Max files per batch: [cyan]{perf['max_files_per_batch']}[/cyan]")
+        console.print(f"• Debounce seconds: [cyan]{perf['debounce_seconds']}[/cyan]")
+        
+        # Show supported languages
+        console.print(f"\n[bold]Supported Languages:[/bold]")
+        languages = [
+            "JavaScript/TypeScript", "Python", "Rust", "Java/JVM", "Go", "C/C++",
+            "C#/.NET", "Ruby", "PHP", "Swift", "Dart/Flutter", "R", "Julia",
+            "Haskell", "Elixir", "And 10+ more..."
+        ]
+        for i, lang in enumerate(languages[:8], 1):
+            console.print(f"  {i:2}. [cyan]{lang}[/cyan]")
+        if len(languages) > 8:
+            console.print(f"  ... [cyan]{languages[-1]}[/cyan]")
+            
+    except Exception as e:
+        error_message(f"Failed to show ingestion information: {e}")
+        raise typer.Exit(1)
+
+
+def _show_ingestion_config_table(config_dict: Dict[str, Any]) -> None:
+    """Display ingestion configuration in a formatted table."""
+    
+    # Overview table
+    overview_table = Table(title="Ingestion Configuration Overview")
+    overview_table.add_column("Setting", style="cyan")
+    overview_table.add_column("Value", style="white")
+    
+    if "enabled" in config_dict:
+        status = "[green]Enabled[/green]" if config_dict["enabled"] else "[red]Disabled[/red]"
+        overview_table.add_row("Status", status)
+    
+    console.print(overview_table)
+    
+    # Ignore patterns table if present
+    if "ignore_patterns" in config_dict:
+        patterns = config_dict["ignore_patterns"]
+        
+        patterns_table = Table(title="Ignore Patterns")
+        patterns_table.add_column("Type", style="cyan")
+        patterns_table.add_column("Count", style="white")
+        patterns_table.add_column("Examples", style="dim")
+        
+        if "directories" in patterns:
+            dirs = patterns["directories"]
+            examples = ", ".join(dirs[:3]) + ("..." if len(dirs) > 3 else "")
+            patterns_table.add_row("Directories", str(len(dirs)), examples)
+            
+        if "file_extensions" in patterns:
+            exts = patterns["file_extensions"]
+            examples = ", ".join(exts[:3]) + ("..." if len(exts) > 3 else "")
+            patterns_table.add_row("File Extensions", str(len(exts)), examples)
+            
+        console.print(patterns_table)
+    
+    # Performance settings table if present
+    if "performance" in config_dict:
+        perf = config_dict["performance"]
+        
+        perf_table = Table(title="Performance Settings")
+        perf_table.add_column("Setting", style="cyan")
+        perf_table.add_column("Value", style="white")
+        
+        for key, value in perf.items():
+            display_key = key.replace("_", " ").title()
+            if "mb" in key.lower():
+                display_value = f"{value} MB"
+            elif "seconds" in key.lower():
+                display_value = f"{value} seconds"
+            else:
+                display_value = str(value)
+            perf_table.add_row(display_key, display_value)
+            
+        console.print(perf_table)
