@@ -155,78 +155,55 @@ cython_debug/
 # PyCharm
 #  JetBrains specific template is maintained in a separate JetBrains.gitignore that can
 #  be added to the global gitignore or merged into this project gitignore.  For a PyCharm
-#  project, it is generally recommended to exclude files from version control.
-#  https://github.com/github/gitignore/blob/main/Global/JetBrains.gitignore
+#  project, it is possible to generate the gitignore file directly from the project
+#  settings, taking into account the actual PyCharm configuration.
 .idea/
 
-# VS Code
-.vscode/
+# Temporary files created during testing
+20250108-02*_*.py
+temp_cleanup_script.py
+run_config_tests.py
+execute_config_tests.py
+run_tests_direct.py
+test_simple_import.py
+validate_config_system.py
+manual_config_test.py
+test_runner.py
+20250108-0246_cleanup_temp_files.py
 
-# Rust
-target/
-Cargo.lock
+# Keep important test and documentation files
+!20250108-0240_config_test_execution.py
+!run_config_tests_final.py
+!20250108-0245_config_test_summary.md
 
-# OS generated files
-.DS_Store
-.DS_Store?
-._*
-.Spotlight-V100
-.Trashes
-ehthumbs.db
-Thumbs.db
+# Temporary files (YYYYMMDD-HHMM_ prefix) - as per git discipline
+20250*-*_*.py
+20250*-*_*.md
+20250*-*_*.txt
+20250*-*_*.json
 
-# Project specific
-*.sqlite
-*.db
-.workspace-qdrant/
-.wqm/
+# Long-term temporary files (LT_YYYYMMDD-HHMM_ prefix) - as per git discipline
+LT_20250*-*_*
+LT_20250*-*_*.py
+LT_20250*-*_*.md
+LT_20250*-*_*.txt
+LT_20250*-*_*.json
 
-# Task Master files that should not be tracked
-.taskmaster/
-PRD.txt
-PRD.md
+# Testing sandbox directories
+*testing_sandbox/
+*_testing_sandbox/
+
+# Task Master temporary files
+task_*_validation_report.json
+*_stress_test_report.json
+
+# Permanent files on local storage only - MUST NOT BE IN REPO
+CLAUDE.md
 CLAUDE.local.md
-claude.json
 .claude/
-
-# Test artifacts and reports (never include in repo)
-.pytest_cache/
-htmlcov/
-.coverage
-
-# Temporary files
-*.tmp
-*.temp
-*~
-
-# Log files
-*.log
-logs/
-
-# Configuration files with secrets
-config/secrets.json
-.env.local
-.env.production
-
-# Logs
-logs
-npm-debug.log*
-yarn-debug.log*
-yarn-error.log*
-dev-debug.log
-# Dependency directories
-node_modules/
-# Environment variables
-# Editor directories and files
-.idea
-.vscode
-*.suo
-*.ntvs*
-*.njsproj
-*.sln
-*.sw?
-# OS specific
-
-# Task files
-# tasks.json
-# tasks/ 
+.taskmaster/
+specs/
+*PRD.txt
+*PRD.md
+*_PRD.txt
+*_PRD.md
