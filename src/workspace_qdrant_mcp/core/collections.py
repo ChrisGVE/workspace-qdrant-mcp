@@ -50,25 +50,29 @@ from qdrant_client import QdrantClient
 from qdrant_client.http import models
 from qdrant_client.http.exceptions import ResponseHandlingException
 
-from .collection_naming import (
-    build_project_collection_name,
-    build_system_memory_collection_name,
-)
-from .collection_types import (
-    CollectionTypeClassifier,
-    get_searchable_collections,
-    validate_collection_operation,
-    CollectionType,
-    CollectionPermissionError
-)
+# from .collection_naming import (
+#     build_project_collection_name,
+#     build_system_memory_collection_name,
+# )
+# TODO: These functions don't exist in collection_naming.py - fix imports after Task 175 integration
+from .collection_naming import CollectionNamingManager  # This class exists
+# from .collection_types import (
+#     CollectionTypeClassifier,
+#     get_searchable_collections,
+#     validate_collection_operation,
+#     CollectionType,
+#     CollectionPermissionError
+# )
+# TODO: collection_types module doesn't exist - fix imports after Task 175 integration
 from .config import Config
 
 # Import LLM access control system
-try:
-    from ..core.llm_access_control import validate_llm_collection_access, LLMAccessControlError
-except ImportError:
-    # Fallback for direct imports when not used as a package
-    from core.llm_access_control import validate_llm_collection_access, LLMAccessControlError
+# TODO: llm_access_control module doesn't exist - fix imports after Task 175 integration
+# try:
+#     from ..core.llm_access_control import validate_llm_collection_access, LLMAccessControlError
+# except ImportError:
+#     # Fallback for direct imports when not used as a package
+#     from core.llm_access_control import validate_llm_collection_access, LLMAccessControlError
 
 logger = logging.getLogger(__name__)
 
