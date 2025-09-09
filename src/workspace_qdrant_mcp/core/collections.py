@@ -63,6 +63,13 @@ from .collection_types import (
 )
 from .config import Config
 
+# Import LLM access control system
+try:
+    from ..core.llm_access_control import validate_llm_collection_access, LLMAccessControlError
+except ImportError:
+    # Fallback for direct imports when not used as a package
+    from core.llm_access_control import validate_llm_collection_access, LLMAccessControlError
+
 logger = logging.getLogger(__name__)
 
 
@@ -455,7 +462,7 @@ class WorkspaceCollectionManager:
 
         Raises:
             ResponseHandlingException: If Qdrant API calls fail
-            ValueError: If configuration parameters are invalid
+            ValueError: If configuration parameters are invalid or LLM access control blocks creation
             ConnectionError: If database is unreachable
 
         Example:
@@ -471,6 +478,13 @@ class WorkspaceCollectionManager:
             ```
         """
         try:
+            # Apply LLM access control validation for collection creation
+            try:
+                validate_llm_collection_access('create', collection_config.name, self.config)
+            except LLMAccessControlError as e:
+                logger.warning("LLM access control blocked collection creation: %s", str(e))
+                raise ValueError(f"Collection creation blocked: {str(e)}") from e
+            
             # Check if collection already exists
             existing_collections = self.client.get_collections()
             collection_names = {col.name for col in existing_collections.collections}
