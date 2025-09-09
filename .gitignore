@@ -207,3 +207,8 @@ specs/
 *PRD.md
 *_PRD.txt
 *_PRD.md
+
+# System and editor files
+.DS_Store
+.vscode/
+.idea/
