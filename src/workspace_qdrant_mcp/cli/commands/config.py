@@ -346,8 +346,7 @@ def config_info(
     ),
     format_type: Optional[str] = typer.Option(
         None, "--format", "-f",
-        type=typer.Choice(['toml', 'yaml', 'json']),
-        help="Preferred configuration format"
+        help="Preferred configuration format (toml, yaml, json)"
     ),
 ):
     """Display configuration information and discovered sources."""
@@ -407,8 +406,7 @@ def convert_config(
     target_file: str = typer.Argument(..., help="Target configuration file"),
     target_format: Optional[str] = typer.Option(
         None, "--target-format", "-f",
-        type=typer.Choice(['toml', 'yaml', 'json']),
-        help="Target format (auto-detect from extension if not specified)"
+        help="Target format - toml, yaml, or json (auto-detect from extension if not specified)"
     ),
     validate_first: bool = typer.Option(
         True, "--validate/--no-validate",
