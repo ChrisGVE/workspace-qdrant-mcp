@@ -536,6 +536,23 @@ def validate_collection_name(name: str, allow_library: bool = False) -> None:
         raise CollectionNameError(f"Invalid collection name: {result.error_message}")
 
 
+def build_project_collection_name(project_name: str, suffix: str) -> str:
+    """
+    Build a project collection name from project name and suffix.
+    
+    Args:
+        project_name: The project name
+        suffix: The collection type suffix
+        
+    Returns:
+        Formatted collection name
+    """
+    # Simple implementation for compatibility
+    project_clean = re.sub(r'[^a-z0-9]', '', project_name.lower())
+    suffix_clean = re.sub(r'[^a-z0-9]', '', suffix.lower()) 
+    return f"{project_clean}-{suffix_clean}"
+
+
 def create_naming_manager(
     global_collections: list[str] = None,
 ) -> CollectionNamingManager:
