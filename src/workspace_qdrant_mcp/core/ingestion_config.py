@@ -36,7 +36,7 @@ from enum import Enum
 from dataclasses import dataclass, field
 
 import yaml
-from pydantic import BaseModel, Field, validator, ValidationError
+from pydantic import BaseModel, Field, field_validator, ValidationError
 
 from ..observability import get_logger
 
@@ -221,7 +221,8 @@ class IngestionConfig(BaseModel):
         description="LSP integration settings"
     )
     
-    @validator('languages')
+    @field_validator('languages')
+    @classmethod
     def validate_languages(cls, v):
         """Validate language configurations."""
         for lang_name, lang_config in v.items():
@@ -497,11 +498,12 @@ class IngestionConfigManager:
         
         # Create config with defaults and overrides
         try:
-            # Merge with default patterns
-            if not config_data:
-                config_data = self._get_default_config()
-            else:
+            # Always start with defaults, then merge user config
+            default_config = self._get_default_config()
+            if config_data:
                 config_data = self._merge_with_defaults(config_data)
+            else:
+                config_data = default_config
             
             self.current_config = IngestionConfig(**config_data)
             

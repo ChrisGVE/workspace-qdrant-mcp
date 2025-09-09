@@ -1,198 +1,466 @@
-# Workspace Qdrant MCP - Ingestion Configuration Template
-# This file defines what should be ingested and ignored during auto-ingestion
+# Workspace Qdrant MCP - Enhanced Ingestion Configuration Template
+# This comprehensive configuration supports 25+ programming languages with optimized patterns
 # Copy to ~/.config/workspace-qdrant-mcp/ingestion.yaml and customize as needed
 
-# Default ignore patterns covering top 25+ programming languages
+# Global ingestion control
+enabled: true
+
+# Comprehensive ignore patterns for 25+ programming languages
 ignore_patterns:
-  # Universal: Ignore all dot files and folders (tools configuration)
-  dot_files: true  # .git/, .vscode/, .idea/, .DS_Store, etc.
+  # Universal: Ignore all dot files and folders (version control, IDE config, etc.)
+  dot_files: true  # .git/, .vscode/, .idea/, .DS_Store, .gitignore, .editorconfig, etc.
   
-  # Language-specific dependency directories
+  # Version control systems (always ignored)
+  version_control:
+    - ".git"
+    - ".svn" 
+    - ".hg"
+    - ".bzr"
+    - ".fossil"
+  
+  # Language-specific dependency and build directories
   directories:
-    # JavaScript/TypeScript/Node.js
-    - "node_modules"
-    - "bower_components"
+    # === Web Technologies ===
+    # JavaScript/TypeScript/Node.js ecosystem
+    - "node_modules"          # npm packages
+    - "bower_components"      # bower packages (legacy)
+    - ".npm"                  # npm cache
+    - ".yarn"                 # yarn cache
+    - ".pnp"                  # yarn pnp
+    - ".next"                 # Next.js build
+    - ".nuxt"                 # Nuxt.js build
+    - "coverage"              # test coverage reports
     
-    # Python
-    - "__pycache__"
-    - ".pytest_cache"
-    - ".mypy_cache" 
-    - ".coverage"
-    - "venv"
-    - ".venv"
-    - "env"
-    - ".env"
-    - "site-packages"
+    # === Backend Languages ===
+    # Python ecosystem
+    - "__pycache__"           # Python bytecode cache
+    - ".pytest_cache"         # pytest cache
+    - ".mypy_cache"           # mypy type checker cache
+    - ".coverage"             # coverage.py cache
+    - "venv"                  # virtual environment
+    - ".venv"                 # virtual environment (dot version)
+    - "env"                   # environment folder
+    - ".env"                  # environment folder (dot version)
+    - "site-packages"         # Python packages
+    - ".tox"                  # tox testing tool
+    - "htmlcov"               # coverage HTML reports
+    - ".nox"                  # nox testing tool
+    - "pip-wheel-metadata"    # pip metadata
     
-    # Java/JVM (Java, Kotlin, Scala)
-    - "target"          # Maven
-    - ".gradle"         # Gradle
-    - "gradle"
-    - ".m2"             # Maven local repo
+    # Java/JVM ecosystem (Java, Kotlin, Scala, Clojure)
+    - "target"                # Maven build output
+    - ".gradle"               # Gradle cache/config
+    - "gradle"                # Gradle wrapper
+    - ".m2"                   # Maven local repository
+    - "build"                 # Generic build directory
+    - "out"                   # IntelliJ IDEA build output
+    - "classes"               # Compiled classes
+    - ".mvn"                  # Maven wrapper
     
-    # C#/.NET
-    - "bin"
-    - "obj"
-    - "packages"
-    - ".vs"
+    # Rust ecosystem
+    - "target"                # Cargo build output (overlaps with Java)
+    - ".cargo"                # Cargo cache/config
     
-    # C/C++
-    - "build"
-    - "cmake-build-debug"
-    - "cmake-build-release"
+    # Go ecosystem  
+    - "vendor"                # Go vendor directory
+    - "go.work.sum"           # Go workspace checksum
     
-    # Rust
-    - "target"          # Also used by Rust (overlaps with Java)
-    - ".cargo"
+    # C/C++ ecosystem
+    - "build"                 # CMake/generic build (overlaps)
+    - "cmake-build-debug"     # CMake debug build
+    - "cmake-build-release"   # CMake release build
+    - "cmake-build-*"         # Any CMake build variant
+    - "Debug"                 # Visual Studio debug
+    - "Release"               # Visual Studio release
+    - "x64"                   # Platform-specific builds
+    - "x86"                   # Platform-specific builds
+    - ".vs"                   # Visual Studio cache
+    - "vcpkg_installed"       # vcpkg package manager
+    - "conan"                 # Conan package manager
     
-    # Go
-    - "vendor"
+    # C#/.NET ecosystem
+    - "bin"                   # Compiled binaries
+    - "obj"                   # Object files
+    - "packages"              # NuGet packages
+    - ".vs"                   # Visual Studio (overlaps with C++)
+    - ".vscode"               # VS Code settings
+    - "TestResults"           # Test results
+    - "artifacts"             # Build artifacts
     
-    # Ruby
-    - "gems"
-    - ".bundle"
+    # === Dynamic Languages ===
+    # Ruby ecosystem
+    - "gems"                  # Ruby gems
+    - ".bundle"               # Bundler cache
+    - "vendor/bundle"         # Bundled gems
+    - ".gem"                  # Gem cache
     
-    # PHP
-    - "vendor"          # Also used by PHP (overlaps with Go)
+    # PHP ecosystem  
+    - "vendor"                # Composer packages (overlaps with Go)
+    - "composer.phar"         # Composer executable
+    - ".phpunit.cache"        # PHPUnit cache
     
-    # Swift
-    - ".build"
-    - "Packages"
+    # Perl ecosystem
+    - "blib"                  # Build library
+    - "_build"                # Module::Build
+    - ".build"                # Build artifacts
     
-    # Dart/Flutter  
-    - ".dart_tool"
-    - ".pub-cache"
+    # === Mobile Development ===
+    # Swift/iOS ecosystem
+    - ".build"                # Swift Package Manager (overlaps)
+    - "Packages"              # Swift packages
+    - ".swiftpm"              # SwiftPM cache
+    - "DerivedData"           # Xcode derived data
+    - "xcuserdata"            # Xcode user data
+    - "*.xcworkspace"         # Xcode workspace
     
-    # R
-    - ".Rproj.user"
-    - "packrat"
-    - "renv"
+    # Android/Gradle
+    - "app/build"             # Android app build
+    - ".gradle"               # Gradle (overlaps)
+    - "local.properties"      # Android local config
     
-    # Elixir
-    - "_build"
-    - "deps"
+    # Dart/Flutter ecosystem
+    - ".dart_tool"            # Dart tooling
+    - ".pub-cache"            # Pub package cache
+    - ".packages"             # Package resolution
+    - "build"                 # Flutter build (overlaps)
     
-    # Julia
-    - ".julia"
+    # === Data Science & Research ===
+    # R ecosystem
+    - ".Rproj.user"           # RStudio project files
+    - "packrat"               # R package management
+    - "renv"                  # R environment management
+    - ".Rhistory"             # R history
+    - ".RData"                # R data files
     
-    # Zig
-    - "zig-cache"
-    - "zig-out"
+    # Python data science (additional)
+    - ".ipynb_checkpoints"    # Jupyter notebook checkpoints
+    - "mlruns"                # MLflow experiment tracking
+    - "wandb"                 # Weights & Biases runs
+    - "__pycache__"           # Already listed but important for data
     
-    # Multi-language build/output directories
-    - "dist"
-    - "out"
-    - "output"
-    - "release"
-    - "debug"
+    # Julia ecosystem
+    - ".julia"                # Julia packages/cache
+    - "Manifest.toml"         # Package manifest (file, but in dir list for ease)
     
-    # Documentation builds
-    - "_site"           # Jekyll
-    - "site"            # MkDocs
-    - "_build"          # Sphinx
-    - "public"          # Hugo/Gatsby
+    # === Functional Languages ===
+    # Haskell ecosystem
+    - ".stack-work"           # Stack build cache
+    - "dist"                  # Cabal build output
+    - "dist-newstyle"         # New Cabal build style
+    - ".stack"                # Stack global cache
     
-    # Test/fixture data
-    - "fixtures"
-    - "test-data"
-    - "sample-data"
-    - "__fixtures__"
+    # Elixir/Erlang ecosystem
+    - "_build"                # Mix build output (overlaps)
+    - "deps"                  # Mix dependencies
+    - "cover"                 # Coverage reports
+    - "erl_crash.dump"        # Erlang crash dumps
     
-    # Logs and temporary
-    - "logs"
-    - "tmp"
-    - "temp"
-    - ".cache"
-
-  # File extensions to ignore
+    # OCaml/ReasonML ecosystem
+    - "_build"                # Dune/OCaml build (overlaps)
+    - ".merlin"               # Merlin configuration
+    - "node_modules"          # ReasonML npm deps (overlaps)
+    
+    # F# ecosystem  
+    - "bin"                   # F# binaries (overlaps with C#)
+    - "obj"                   # F# objects (overlaps with C#)
+    - ".fake"                 # FAKE build system
+    - "paket-files"           # Paket package manager
+    
+    # === System Languages ===
+    # Zig ecosystem
+    - "zig-cache"             # Zig build cache
+    - "zig-out"               # Zig build output
+    
+    # Nim ecosystem  
+    - "nimcache"              # Nim compilation cache
+    
+    # === Documentation & Static Sites ===
+    # Documentation generators
+    - "_site"                 # Jekyll/GitHub Pages
+    - "site"                  # MkDocs
+    - "_build"                # Sphinx (overlaps)
+    - "public"                # Hugo/Gatsby (overlaps)
+    - "docs/_build"           # Sphinx in docs folder
+    - ".docusaurus"           # Docusaurus cache
+    - ".vuepress"             # VuePress cache
+    
+    # === Testing & CI ===
+    # Test artifacts and fixtures
+    - "fixtures"              # Test fixtures
+    - "test-data"             # Test data
+    - "sample-data"           # Sample data
+    - "__fixtures__"          # Jest fixtures
+    - "test-results"          # Generic test results
+    - "coverage"              # Coverage reports (overlaps)
+    - ".nyc_output"           # NYC coverage output
+    - "allure-results"        # Allure test reports
+    - "allure-report"         # Allure generated reports
+    
+    # === Generic Build & Cache Directories ===
+    # Generic build/output directories (multi-language)
+    - "dist"                  # Distribution/build output
+    - "lib"                   # Library output
+    - "output"                # Generic output
+    - "release"               # Release builds
+    - "debug"                 # Debug builds
+    - ".cache"                # Generic cache
+    - "tmp"                   # Temporary files
+    - "temp"                  # Temporary files
+    - "logs"                  # Log files
+    - ".DS_Store"             # macOS system files
+    - "Thumbs.db"             # Windows system files
+  
+  # File extensions and patterns to ignore
   file_extensions:
+    # === Compiled/Binary Files ===
     # Python bytecode
-    - "*.pyc"
-    - "*.pyo"
+    - "*.pyc"                 # Compiled Python
+    - "*.pyo"                 # Optimized Python bytecode
+    - "*.pyd"                 # Python extension modules
     
-    # Java/JVM bytecode
-    - "*.class"
-    - "*.jar"           # Maybe include small JARs?
-    - "*.war"
-    - "*.ear"
+    # Java/JVM bytecode and archives
+    - "*.class"               # Java compiled classes
+    - "*.jar"                 # Java archives
+    - "*.war"                 # Web application archives
+    - "*.ear"                 # Enterprise application archives
+    - "*.aar"                 # Android archives
     
-    # C/C++/native compiled
-    - "*.o"
-    - "*.obj" 
-    - "*.a"             # Static libraries
-    - "*.lib"
-    - "*.so"            # Shared libraries
-    - "*.dll"
-    - "*.dylib"
-    - "*.exe"
+    # Native compiled files (C/C++/Rust/Go/etc.)
+    - "*.o"                   # Object files (Unix/Linux)
+    - "*.obj"                 # Object files (Windows)
+    - "*.a"                   # Static libraries (Unix/Linux)
+    - "*.lib"                 # Static libraries (Windows)
+    - "*.so"                  # Shared libraries (Linux)
+    - "*.dll"                 # Dynamic libraries (Windows)
+    - "*.dylib"               # Dynamic libraries (macOS)
+    - "*.exe"                 # Executables (Windows)
+    - "*.app"                 # macOS applications
+    - "*.deb"                 # Debian packages
+    - "*.rpm"                 # Red Hat packages
+    - "*.dmg"                 # macOS disk images
+    - "*.pkg"                 # Package files
+    - "*.msi"                 # Windows installer packages
     
-    # JavaScript/web built assets
-    - "*.min.js"
-    - "*.min.css"
-    - "*.bundle.js"
-    - "*.bundle.css"
-    - "*.map"           # Source maps
+    # === Generated/Processed Files ===
+    # Web assets (minified/processed)
+    - "*.min.js"              # Minified JavaScript
+    - "*.min.css"             # Minified CSS
+    - "*.bundle.js"           # Bundled JavaScript
+    - "*.bundle.css"          # Bundled CSS
+    - "*.map"                 # Source maps
+    - "*.chunk.js"            # Webpack chunks
+    - "*.chunk.css"           # CSS chunks
     
-    # Image/media (usually binary, not searchable)
-    - "*.png"
-    - "*.jpg"
-    - "*.jpeg"
-    - "*.gif"
-    - "*.svg"           # Maybe include SVGs?
-    - "*.ico"
-    - "*.pdf"           # Maybe include PDFs for docs?
-    - "*.mp4"
-    - "*.avi"
-    - "*.mov"
-    - "*.mp3"
-    - "*.wav"
+    # Language-specific generated files
+    - "*.generated.*"         # Any generated file
+    - "*.g.cs"                # Generated C# files
+    - "*.g.dart"              # Generated Dart files
+    - "*.freezed.dart"        # Freezed generated Dart
+    - "*.pb.go"               # Protocol buffer Go files
+    - "*.pb.cc"               # Protocol buffer C++ files
+    - "*.pb.h"                # Protocol buffer headers
+    - "_pb2.py"               # Python protobuf files
+    - "_pb2_grpc.py"          # Python gRPC files
     
-    # Archives
-    - "*.zip"
-    - "*.tar"
-    - "*.tar.gz"
-    - "*.rar"
-    - "*.7z"
+    # === Archive Files ===
+    - "*.zip"                 # ZIP archives
+    - "*.tar"                 # TAR archives
+    - "*.tar.gz"              # Gzipped TAR archives
+    - "*.tgz"                 # Gzipped TAR (short)
+    - "*.tar.bz2"             # Bzip2 TAR archives
+    - "*.rar"                 # RAR archives
+    - "*.7z"                  # 7-Zip archives
+    - "*.gz"                  # Gzip files
+    - "*.bz2"                 # Bzip2 files
+    - "*.xz"                  # XZ archives
     
+    # === Media Files (Usually Not Code) ===
+    # Images
+    - "*.png"                 # PNG images
+    - "*.jpg"                 # JPEG images
+    - "*.jpeg"                # JPEG images (full extension)
+    - "*.gif"                 # GIF images
+    - "*.svg"                 # SVG images (consider including for icons)
+    - "*.ico"                 # Icon files
+    - "*.bmp"                 # Bitmap images
+    - "*.tiff"                # TIFF images
+    - "*.webp"                # WebP images
+    
+    # Documents (consider including *.md, *.txt for documentation)
+    - "*.pdf"                 # PDF documents (consider including for specs)
+    - "*.doc"                 # Word documents
+    - "*.docx"                # Word documents (new format)
+    - "*.xls"                 # Excel spreadsheets
+    - "*.xlsx"                # Excel spreadsheets (new format)
+    - "*.ppt"                 # PowerPoint presentations
+    - "*.pptx"                # PowerPoint presentations (new format)
+    
+    # Audio/Video
+    - "*.mp3"                 # MP3 audio
+    - "*.wav"                 # WAV audio
+    - "*.flac"                # FLAC audio
+    - "*.ogg"                 # OGG audio
+    - "*.mp4"                 # MP4 video
+    - "*.avi"                 # AVI video
+    - "*.mov"                 # QuickTime video
+    - "*.mkv"                 # Matroska video
+    - "*.webm"                # WebM video
+    
+    # === Temporary & System Files ===
     # Logs and temporary files
-    - "*.log"
-    - "*.tmp"
-    - "*.temp"
-    - "*.swp"           # Vim swap files
-    - "*.swo"
-    - "*~"              # Backup files
+    - "*.log"                 # Log files
+    - "*.tmp"                 # Temporary files
+    - "*.temp"                # Temporary files
+    - "*.cache"               # Cache files
+    - "*.swp"                 # Vim swap files
+    - "*.swo"                 # Vim swap files
+    - "*~"                    # Backup files (many editors)
+    - "*.bak"                 # Backup files
+    - "*.orig"                # Original files (from merges)
+    
+    # System files
+    - ".DS_Store"             # macOS folder attributes
+    - "Thumbs.db"             # Windows thumbnails
+    - "desktop.ini"           # Windows desktop config
+    - "*.lnk"                 # Windows shortcuts
+  
+  # Glob patterns for complex matching
+  glob_patterns:
+    - "**/node_modules/**"    # Any nested node_modules
+    - "**/__pycache__/**"     # Any nested Python cache
+    - "**/target/debug/**"    # Rust debug builds
+    - "**/target/release/**"  # Rust release builds
+    - "**/.git/**"            # Any nested git (submodules)
+    - "**/build/intermediates/**" # Android intermediate builds
+    - "**/DerivedData/**"     # Xcode derived data anywhere
+    - "**/*.generated.*"      # Any generated file anywhere
+    - "**/coverage/**"        # Any coverage reports
+    - "**/.cache/**"          # Any cache directory
 
-# Performance constraints
+# Performance and resource constraints
 performance:
-  max_file_size_mb: 10        # Skip files larger than 10MB
-  max_files_per_batch: 100    # Process in batches
-  debounce_seconds: 5         # Wait before processing changes
-
-# Future expansion - LSP integration for code analysis
-lsp_integration:
-  enabled: false
-  extract_symbols: false      # Extract function/class definitions
-  extract_imports: false      # Extract import relationships
-  extract_references: false   # Extract symbol references
+  # File size limits
+  max_file_size_mb: 10              # Skip files larger than 10MB (configurable: 1-1000)
+  
+  # Directory and batch processing limits
+  max_files_per_directory: 1000     # Max files to scan per directory (10-10000) 
+  max_files_per_batch: 100          # Files to process simultaneously (1-1000)
+  
+  # Timing constraints
+  debounce_seconds: 5.0             # Debounce file change events (0.1-60.0)
+  
+  # Optimization settings
+  pattern_cache_size: 10000         # Compiled pattern cache size (100-100000)
+  enable_pattern_compilation: true   # Enable regex compilation for performance
 
 # Collection routing - where different file types go
 collection_routing:
-  code_suffix: "code"         # project-name-code
-  docs_suffix: "docs"         # project-name-docs  
-  config_suffix: "config"     # project-name-config
-  default_suffix: "repo"      # project-name-repo
+  # Collection suffixes for different content types
+  code_suffix: "code"               # Source code files → project-name-code
+  docs_suffix: "docs"               # Documentation → project-name-docs  
+  config_suffix: "config"           # Configuration files → project-name-config
+  data_suffix: "data"               # Data files → project-name-data
+  default_suffix: "repo"            # Everything else → project-name-repo
+  
+  # File type to collection mapping (extension → suffix)
+  file_type_routing:
+    # Source code extensions → code collection
+    "py": "code"
+    "js": "code"
+    "ts": "code"
+    "jsx": "code"
+    "tsx": "code"
+    "rs": "code"
+    "go": "code"
+    "java": "code"
+    "kt": "code"
+    "swift": "code"
+    "cpp": "code"
+    "c": "code"
+    "h": "code"
+    "cs": "code"
+    "rb": "code"
+    "php": "code"
+    
+    # Documentation extensions → docs collection
+    "md": "docs"
+    "txt": "docs" 
+    "rst": "docs"
+    "adoc": "docs"
+    "org": "docs"
+    
+    # Configuration extensions → config collection
+    "yaml": "config"
+    "yml": "config"
+    "json": "config"
+    "toml": "config"
+    "ini": "config"
+    "cfg": "config"
+    "conf": "config"
+    "env": "config"
+    
+    # Data extensions → data collection
+    "csv": "data"
+    "tsv": "data"
+    "parquet": "data"
+    "avro": "data"
+    "jsonl": "data"
 
-# User customization (overrides defaults)
+# Language-specific configurations (future expansion)
+languages:
+  javascript:
+    name: "javascript"
+    enabled: true
+    # Custom patterns can override defaults per language
+    custom_patterns:
+      directories: []           # Additional directories to ignore
+      file_extensions: []       # Additional file extensions to ignore
+    # Performance overrides for this language
+    performance_overrides:
+      max_file_size_mb: 5       # Smaller limit for JS files
+  
+  python:
+    name: "python"
+    enabled: true
+    custom_patterns:
+      directories: 
+        - ".pytest_cache"       # Already in defaults, shown as example
+        - "notebooks/.ipynb_checkpoints"  # Nested Jupyter checkpoints
+    
+  typescript:
+    name: "typescript"
+    enabled: true
+    custom_patterns:
+      file_extensions:
+        - "*.tsbuildinfo"       # TypeScript incremental compilation info
+
+# User customization and overrides
 user_overrides:
   # Additional patterns to ignore beyond defaults
   additional_ignores:
-    directories: []
-    file_extensions: []
+    directories: []             # e.g., ["my-temp-folder", "custom-cache"]
+    file_extensions: []         # e.g., ["*.custom", "*.temp"]
+    file_patterns: []           # e.g., ["temp-*", "*-backup"]
+    glob_patterns: []           # e.g., ["**/my-ignore/**"]
     
   # Force include patterns (override ignores for specific cases)
   force_include:
-    directories: []             # e.g., ["important-vendor-lib"]
+    directories: []             # e.g., ["important-vendor-lib"] 
     file_extensions: []         # e.g., ["*.important"]
+    file_patterns: []           # e.g., ["keep-this-*"]
+    glob_patterns: []           # e.g., ["**/must-include/**"]
     
-  # Per-project overrides
-  project_specific: {}          # Future: per-project custom rules
+  # Per-project overrides (future feature)
+  project_specific: {}          # Project name → custom config
+  
+  # Environment-specific overrides (dev/staging/prod)
+  environment_overrides: {}     # Environment → custom config
+
+# Future expansion - LSP integration for advanced code analysis
+lsp_integration:
+  enabled: false               # Enable LSP-based file analysis
+  extract_symbols: false       # Extract function/class definitions
+  extract_imports: false       # Extract import relationships  
+  extract_references: false    # Extract symbol references
+  extract_documentation: false # Extract inline documentation
+  language_servers: {}         # Language → LSP server config
