@@ -65,6 +65,13 @@ from ..core.client import QdrantWorkspaceClient
 from ..core.collection_naming import CollectionPermissionError
 from ..core.sparse_vectors import create_qdrant_sparse_vector
 
+# Import LLM access control system
+try:
+    from ..core.llm_access_control import validate_llm_collection_access, LLMAccessControlError
+except ImportError:
+    # Fallback for direct imports when not used as a package
+    from core.llm_access_control import validate_llm_collection_access, LLMAccessControlError
+
 logger = logging.getLogger(__name__)
 
 
@@ -279,6 +286,13 @@ async def _add_single_document(
         # Create point
         point = models.PointStruct(id=point_id, vector=vectors, payload=payload)
 
+        # Apply LLM access control validation for collection writes
+        try:
+            validate_llm_collection_access('write', actual_collection, client.config)
+        except LLMAccessControlError as e:
+            logger.warning("LLM access control blocked document write: %s", str(e))
+            return {"error": f"Document write blocked: {str(e)}"}
+
         # Insert into Qdrant (use actual collection name)
         client.client.upsert(collection_name=actual_collection, points=[point])
 
@@ -395,6 +409,13 @@ async def update_document(
                         id=point.id, vector=point.vector, payload=new_payload
                     )
 
+                # Apply LLM access control validation for collection writes
+                try:
+                    validate_llm_collection_access('write', collection, client.config)
+                except LLMAccessControlError as e:
+                    logger.warning("LLM access control blocked document update: %s", str(e))
+                    return {"error": f"Document update blocked: {str(e)}"}
+
                 client.client.upsert(collection_name=collection, points=[updated_point])
 
                 points_updated += 1
@@ -449,6 +470,13 @@ async def delete_document(
         actual_collection, _ = client.collection_manager.resolve_collection_name(
             collection
         )
+
+        # Apply LLM access control validation for collection writes (deletes are write operations)
+        try:
+            validate_llm_collection_access('write', actual_collection, client.config)
+        except LLMAccessControlError as e:
+            logger.warning("LLM access control blocked document delete: %s", str(e))
+            return {"error": f"Document delete blocked: {str(e)}"}
 
         # Delete points with matching document_id
         result = client.client.delete(
