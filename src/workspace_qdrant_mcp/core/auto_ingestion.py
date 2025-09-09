@@ -31,10 +31,20 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional, Set
 
 from ..core.client import QdrantWorkspaceClient
-from ..core.collection_naming import (
-    build_project_collection_name,
-    normalize_collection_name_component
-)
+# from ..core.collection_naming import (
+#     build_project_collection_name,
+#     normalize_collection_name_component
+# )
+# TODO: These functions don't exist - fix imports after Task 175 integration
+
+# Temporary implementations for compatibility
+def build_project_collection_name(project: str, suffix: str) -> str:
+    """Temporary implementation - build project collection name"""
+    return f"{project.replace('-', '_')}-{suffix}"
+
+def normalize_collection_name_component(name: str) -> str:
+    """Temporary implementation - normalize collection name component"""
+    return name.replace('-', '_').replace(' ', '_')
 from ..core.config import AutoIngestionConfig
 from ..tools.watch_management import WatchToolsManager
 from ..utils.project_detection import ProjectDetector
