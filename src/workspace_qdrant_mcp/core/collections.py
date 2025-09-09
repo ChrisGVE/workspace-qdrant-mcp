@@ -50,29 +50,28 @@ from qdrant_client import QdrantClient
 from qdrant_client.http import models
 from qdrant_client.http.exceptions import ResponseHandlingException
 
-# from .collection_naming import (
-#     build_project_collection_name,
-#     build_system_memory_collection_name,
-# )
-# TODO: These functions don't exist in collection_naming.py - fix imports after Task 175 integration
-from .collection_naming import CollectionNamingManager  # This class exists
-# from .collection_types import (
-#     CollectionTypeClassifier,
-#     get_searchable_collections,
-#     validate_collection_operation,
-#     CollectionType,
-#     CollectionPermissionError
-# )
-# TODO: collection_types module doesn't exist - fix imports after Task 175 integration
+from .collection_naming import (
+    CollectionNamingManager,
+    build_project_collection_name,
+    build_system_memory_collection_name,
+    normalize_collection_name_component,
+    CollectionPermissionError
+)
+from .collection_types import (
+    CollectionTypeClassifier,
+    get_searchable_collections,
+    validate_collection_operation,
+    CollectionType,
+    COLLECTION_TYPES_AVAILABLE
+)
 from .config import Config
 
 # Import LLM access control system
-# TODO: llm_access_control module doesn't exist - fix imports after Task 175 integration
-# try:
-#     from ..core.llm_access_control import validate_llm_collection_access, LLMAccessControlError
-# except ImportError:
-#     # Fallback for direct imports when not used as a package
-#     from core.llm_access_control import validate_llm_collection_access, LLMAccessControlError
+try:
+    from .llm_access_control import validate_llm_collection_access, LLMAccessControlError
+except ImportError:
+    # Fallback for direct imports when not used as a package
+    from llm_access_control import validate_llm_collection_access, LLMAccessControlError
 
 logger = logging.getLogger(__name__)
 
@@ -169,8 +168,12 @@ class WorkspaceCollectionManager:
         self._collections_cache: dict[str, CollectionConfig] | None = None
         self._project_info: dict | None = None  # Will be set during initialization
         
-        # Initialize collection type classifier
+        # Initialize collection type classifier and naming manager
         self.type_classifier = CollectionTypeClassifier()
+        self.naming_manager = CollectionNamingManager(
+            global_collections=config.workspace.global_collections,
+            valid_project_suffixes=config.workspace.effective_collection_suffixes
+        )
 
     def _get_current_project_name(self) -> Optional[str]:
         """
@@ -1006,4 +1009,403 @@ class WorkspaceCollectionManager:
             "nomic-ai/nomic-embed-text-v1.5": 768,
         }
 
+        return model_sizes.get(self.config.embedding.model, 384)
+
+
+class MemoryCollectionManager:
+    """
+    Manages memory collections with proper access controls and auto-creation.
+    
+    This class handles both system memory collections (__memory_*) and project memory
+    collections ({project}-memory) with appropriate access control enforcement:
+    
+    - System memory collections: CLI-writable only, LLM read-only
+    - Project memory collections: MCP read-write access
+    - Memory collections cannot be deleted by LLM
+    - Auto-creation functionality for missing memory collections
+    
+    The manager integrates with the existing access control system and ensures
+    that memory collections appear in appropriate search scopes.
+    """
+    
+    def __init__(self, workspace_client: QdrantClient, config: Config) -> None:
+        """
+        Initialize the memory collection manager.
+        
+        Args:
+            workspace_client: Configured Qdrant client instance
+            config: Configuration object containing workspace and memory settings
+        """
+        self.workspace_client = workspace_client
+        self.config = config
+        self.naming_manager = CollectionNamingManager(
+            global_collections=config.workspace.global_collections,
+            valid_project_suffixes=config.workspace.effective_collection_suffixes
+        )
+        self.type_classifier = CollectionTypeClassifier()
+        
+        # Memory collection configuration
+        self.memory_collection = "memory"  # Default memory collection name from config
+        if hasattr(config, 'memory_collection'):
+            self.memory_collection = config.memory_collection
+    
+    async def ensure_memory_collections_exist(self, project: str) -> dict:
+        """
+        Ensure both system and project memory collections exist.
+        
+        Creates missing memory collections with proper access controls:
+        - System memory: __{memory_collection_name} (CLI-only writable)
+        - Project memory: {project}-{memory_collection_name} (MCP read-write)
+        
+        Args:
+            project: Project name for project-scoped memory collection
+            
+        Returns:
+            dict: Results of collection creation with keys:
+                - system_memory: Creation result for system memory collection (if created)
+                - project_memory: Creation result for project memory collection (if created)
+                - existing: List of collections that already existed
+        """
+        results = {
+            'existing': [],
+            'created': []
+        }
+        
+        # Build collection names
+        system_memory = build_system_memory_collection_name(self.memory_collection)
+        project_memory = build_project_collection_name(project, self.memory_collection)
+        
+        logger.info(f"Ensuring memory collections exist: system='{system_memory}', project='{project_memory}'")
+        
+        # Check and create system memory collection if missing
+        if not await self.collection_exists(system_memory):
+            logger.info(f"Creating system memory collection: {system_memory}")
+            system_result = await self.create_system_memory_collection(system_memory)
+            results['system_memory'] = system_result
+            results['created'].append(system_memory)
+        else:
+            results['existing'].append(system_memory)
+            logger.debug(f"System memory collection already exists: {system_memory}")
+        
+        # Check and create project memory collection if missing
+        if not await self.collection_exists(project_memory):
+            logger.info(f"Creating project memory collection: {project_memory}")
+            project_result = await self.create_project_memory_collection(project_memory)
+            results['project_memory'] = project_result
+            results['created'].append(project_memory)
+        else:
+            results['existing'].append(project_memory)
+            logger.debug(f"Project memory collection already exists: {project_memory}")
+        
+        return results
+    
+    async def collection_exists(self, collection_name: str) -> bool:
+        """
+        Check if a collection exists in Qdrant.
+        
+        Args:
+            collection_name: Name of the collection to check
+            
+        Returns:
+            bool: True if collection exists, False otherwise
+        """
+        try:
+            collections = self.workspace_client.get_collections()
+            existing_names = {col.name for col in collections.collections}
+            return collection_name in existing_names
+        except Exception as e:
+            logger.error(f"Error checking collection existence for '{collection_name}': {e}")
+            return False
+    
+    async def create_system_memory_collection(self, collection_name: str) -> dict:
+        """
+        Create a system memory collection with CLI-only write access.
+        
+        System memory collections use the __ prefix and are configured as:
+        - CLI-writable only (LLM cannot write)
+        - LLM-readable for context retrieval
+        - Not globally searchable (explicit access only)
+        
+        Args:
+            collection_name: Full collection name including __ prefix
+            
+        Returns:
+            dict: Creation result with collection info and access control settings
+            
+        Raises:
+            ValueError: If collection name doesn't follow system memory pattern
+            ResponseHandlingException: If Qdrant creation fails
+        """
+        # Validate system memory collection name pattern
+        if not collection_name.startswith("__"):
+            raise ValueError(f"System memory collection must start with '__': {collection_name}")
+        
+        # Validate against access control
+        try:
+            validate_llm_collection_access('create', collection_name, self.config)
+        except LLMAccessControlError as e:
+            # This is expected for system collections - CLI can create them
+            logger.debug(f"LLM access control validation failed as expected for system collection: {e}")
+        
+        try:
+            # Create collection with standard memory configuration
+            collection_config = CollectionConfig(
+                name=collection_name,
+                description=f"System memory collection: {collection_name[2:]}",  # Remove __ prefix for description
+                collection_type="system_memory",
+                project_name=None,
+                vector_size=self._get_vector_size(),
+                enable_sparse_vectors=self.config.embedding.enable_sparse_vectors,
+            )
+            
+            self._create_memory_collection(collection_config)
+            
+            result = {
+                'collection_name': collection_name,
+                'type': 'system_memory',
+                'access_control': {
+                    'cli_writable': True,
+                    'llm_writable': False,
+                    'llm_readable': True,
+                    'mcp_readable': True,
+                    'globally_searchable': False
+                },
+                'description': collection_config.description,
+                'status': 'created'
+            }
+            
+            logger.info(f"Successfully created system memory collection: {collection_name}")
+            return result
+            
+        except Exception as e:
+            logger.error(f"Failed to create system memory collection '{collection_name}': {e}")
+            raise
+    
+    async def create_project_memory_collection(self, collection_name: str) -> dict:
+        """
+        Create a project memory collection with MCP read-write access.
+        
+        Project memory collections are configured as:
+        - MCP read-write access (LLM can read and write)
+        - Globally searchable for project context
+        - Standard project collection permissions
+        
+        Args:
+            collection_name: Full collection name in project-memory format
+            
+        Returns:
+            dict: Creation result with collection info and access control settings
+            
+        Raises:
+            ValueError: If collection name doesn't follow project memory pattern
+            ResponseHandlingException: If Qdrant creation fails
+        """
+        # Validate project memory collection name pattern
+        if not collection_name.endswith("-memory"):
+            raise ValueError(f"Project memory collection must end with '-memory': {collection_name}")
+        
+        # Extract project name
+        project_name = collection_name[:-7]  # Remove "-memory" suffix
+        
+        try:
+            # Create collection with standard memory configuration
+            collection_config = CollectionConfig(
+                name=collection_name,
+                description=f"Project memory collection for {project_name}",
+                collection_type="project_memory",
+                project_name=project_name,
+                vector_size=self._get_vector_size(),
+                enable_sparse_vectors=self.config.embedding.enable_sparse_vectors,
+            )
+            
+            self._create_memory_collection(collection_config)
+            
+            result = {
+                'collection_name': collection_name,
+                'type': 'project_memory',
+                'project_name': project_name,
+                'access_control': {
+                    'cli_writable': True,
+                    'llm_writable': True,
+                    'llm_readable': True,
+                    'mcp_readable': True,
+                    'mcp_writable': True,
+                    'globally_searchable': True
+                },
+                'description': collection_config.description,
+                'status': 'created'
+            }
+            
+            logger.info(f"Successfully created project memory collection: {collection_name}")
+            return result
+            
+        except Exception as e:
+            logger.error(f"Failed to create project memory collection '{collection_name}': {e}")
+            raise
+    
+    def _create_memory_collection(self, collection_config: CollectionConfig) -> None:
+        """
+        Create a memory collection with optimized settings.
+        
+        Memory collections are optimized for:
+        - Fast retrieval of contextual information
+        - Efficient storage of user preferences and settings
+        - Quick search across stored memory items
+        
+        Args:
+            collection_config: Complete configuration for the memory collection
+            
+        Raises:
+            ResponseHandlingException: If Qdrant API calls fail
+        """
+        try:
+            # Create collection with memory-optimized settings
+            if collection_config.enable_sparse_vectors:
+                # Memory collections with both dense and sparse vectors for hybrid search
+                self.workspace_client.create_collection(
+                    collection_name=collection_config.name,
+                    vectors_config={
+                        "dense": models.VectorParams(
+                            size=collection_config.vector_size,
+                            distance=getattr(
+                                models.Distance,
+                                collection_config.distance_metric.upper(),
+                            ),
+                        )
+                    },
+                    sparse_vectors_config={"sparse": models.SparseVectorParams()},
+                )
+            else:
+                # Dense vectors only
+                self.workspace_client.create_collection(
+                    collection_name=collection_config.name,
+                    vectors_config=models.VectorParams(
+                        size=collection_config.vector_size,
+                        distance=getattr(
+                            models.Distance, collection_config.distance_metric.upper()
+                        ),
+                    ),
+                )
+            
+            # Apply memory-optimized collection settings
+            self.workspace_client.update_collection(
+                collection_name=collection_config.name,
+                optimizer_config=models.OptimizersConfigDiff(
+                    default_segment_number=1,  # Smaller segments for memory collections
+                    memmap_threshold=10000,    # Lower threshold for faster access
+                ),
+                hnsw_config=models.HnswConfigDiff(
+                    m=24,  # Higher connectivity for better recall
+                    ef_construct=200,  # Better index quality for memory retrieval
+                    full_scan_threshold=5000,  # Lower threshold for small collections
+                ),
+            )
+            
+        except Exception as e:
+            logger.error(f"Failed to create memory collection '{collection_config.name}': {e}")
+            raise
+    
+    def get_memory_collections(self, project: str) -> dict:
+        """
+        Get information about memory collections for a project.
+        
+        Args:
+            project: Project name to get memory collections for
+            
+        Returns:
+            dict: Information about system and project memory collections
+        """
+        system_memory = build_system_memory_collection_name(self.memory_collection)
+        project_memory = build_project_collection_name(project, self.memory_collection)
+        
+        try:
+            collections = self.workspace_client.get_collections()
+            existing_names = {col.name for col in collections.collections}
+            
+            return {
+                'system_memory': {
+                    'name': system_memory,
+                    'display_name': system_memory[2:],  # Remove __ prefix for display
+                    'exists': system_memory in existing_names,
+                    'access_control': {
+                        'cli_writable': True,
+                        'llm_writable': False,
+                        'llm_readable': True,
+                        'mcp_readable': True,
+                        'globally_searchable': False
+                    }
+                },
+                'project_memory': {
+                    'name': project_memory,
+                    'display_name': project_memory,
+                    'exists': project_memory in existing_names,
+                    'project_name': project,
+                    'access_control': {
+                        'cli_writable': True,
+                        'llm_writable': True,
+                        'llm_readable': True,
+                        'mcp_readable': True,
+                        'mcp_writable': True,
+                        'globally_searchable': True
+                    }
+                }
+            }
+            
+        except Exception as e:
+            logger.error(f"Failed to get memory collection info for project '{project}': {e}")
+            return {
+                'system_memory': {'name': system_memory, 'exists': False, 'error': str(e)},
+                'project_memory': {'name': project_memory, 'exists': False, 'error': str(e)}
+            }
+    
+    def validate_memory_collection_access(self, collection_name: str, operation: str) -> tuple[bool, str]:
+        """
+        Validate access to memory collections based on their type.
+        
+        Args:
+            collection_name: Name of the memory collection
+            operation: Operation to validate ('read', 'write', 'delete')
+            
+        Returns:
+            tuple[bool, str]: (is_allowed, reason)
+        """
+        collection_info = self.type_classifier.get_collection_info(collection_name)
+        
+        # Memory collections cannot be deleted by LLM regardless of type
+        if operation == 'delete':
+            return False, f"Memory collection '{collection_name}' cannot be deleted by LLM"
+        
+        # System memory collections are read-only from LLM/MCP
+        if collection_info.type == CollectionType.SYSTEM:
+            if operation == 'write':
+                return False, f"System memory collection '{collection_name}' is CLI-writable only"
+            elif operation == 'read':
+                return True, f"Read access allowed for system memory collection"
+        
+        # Project memory collections allow read/write from MCP
+        elif collection_info.type == CollectionType.PROJECT:
+            if operation in ['read', 'write']:
+                return True, f"{operation.title()} access allowed for project memory collection"
+        
+        return False, f"Unknown memory collection type for '{collection_name}'"
+    
+    def _get_vector_size(self) -> int:
+        """
+        Get the vector dimension size for the currently configured embedding model.
+        
+        Returns:
+            int: Vector dimension size for the configured model
+        """
+        # This mirrors the implementation in WorkspaceCollectionManager
+        model_sizes = {
+            "sentence-transformers/all-MiniLM-L6-v2": 384,
+            "BAAI/bge-base-en-v1.5": 768,
+            "BAAI/bge-large-en-v1.5": 1024,
+            "BAAI/bge-m3": 1024,
+            "sentence-transformers/all-mpnet-base-v2": 768,
+            "jinaai/jina-embeddings-v2-base-en": 768,
+            "thenlper/gte-base": 768,
+            "nomic-ai/nomic-embed-text-v1.5": 768,
+        }
+        
         return model_sizes.get(self.config.embedding.model, 384)

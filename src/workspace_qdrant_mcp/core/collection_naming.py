@@ -536,6 +536,24 @@ def validate_collection_name(name: str, allow_library: bool = False) -> None:
         raise CollectionNameError(f"Invalid collection name: {result.error_message}")
 
 
+def normalize_collection_name_component(name: str) -> str:
+    """
+    Normalize a collection name component to be valid in Qdrant.
+    
+    Args:
+        name: The name component to normalize
+        
+    Returns:
+        Normalized name component (lowercase, alphanumeric with hyphens)
+    """
+    # Convert to lowercase and replace invalid characters with hyphens
+    normalized = re.sub(r'[^a-z0-9-]', '-', name.lower())
+    # Remove multiple consecutive hyphens
+    normalized = re.sub(r'-+', '-', normalized)
+    # Remove leading/trailing hyphens
+    return normalized.strip('-')
+
+
 def build_project_collection_name(project_name: str, suffix: str) -> str:
     """
     Build a project collection name from project name and suffix.
@@ -547,10 +565,24 @@ def build_project_collection_name(project_name: str, suffix: str) -> str:
     Returns:
         Formatted collection name
     """
-    # Simple implementation for compatibility
-    project_clean = re.sub(r'[^a-z0-9]', '', project_name.lower())
-    suffix_clean = re.sub(r'[^a-z0-9]', '', suffix.lower()) 
+    # Use the normalize function for consistency
+    project_clean = normalize_collection_name_component(project_name)
+    suffix_clean = normalize_collection_name_component(suffix)
     return f"{project_clean}-{suffix_clean}"
+
+
+def build_system_memory_collection_name(memory_name: str) -> str:
+    """
+    Build a system memory collection name with proper prefix.
+    
+    Args:
+        memory_name: The memory collection name
+        
+    Returns:
+        System memory collection name with __ prefix
+    """
+    normalized = normalize_collection_name_component(memory_name)
+    return f"__{normalized}"
 
 
 def create_naming_manager(

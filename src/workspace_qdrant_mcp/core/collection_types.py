@@ -30,6 +30,9 @@ except ImportError:
     # For direct imports when not used as a package
     import collection_naming
 
+# Flag to indicate collection types module is available
+COLLECTION_TYPES_AVAILABLE = True
+
 
 # Collection Type Constants
 SYSTEM_PREFIX = "__"  # CLI-writable, LLM-readable, not globally searchable
