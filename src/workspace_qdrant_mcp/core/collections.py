@@ -1078,9 +1078,9 @@ class MemoryCollectionManager:
         logger.info(f"Ensuring memory collections exist: system='{system_memory}', project='{project_memory}'")
         
         # Check and create system memory collection if missing
-        if not await self.collection_exists(system_memory):
+        if not self.collection_exists(system_memory):
             logger.info(f"Creating system memory collection: {system_memory}")
-            system_result = await self.create_system_memory_collection(system_memory)
+            system_result = self.create_system_memory_collection(system_memory)
             results['system_memory'] = system_result
             results['created'].append(system_memory)
         else:
@@ -1088,9 +1088,9 @@ class MemoryCollectionManager:
             logger.debug(f"System memory collection already exists: {system_memory}")
         
         # Check and create project memory collection if missing
-        if not await self.collection_exists(project_memory):
+        if not self.collection_exists(project_memory):
             logger.info(f"Creating project memory collection: {project_memory}")
-            project_result = await self.create_project_memory_collection(project_memory)
+            project_result = self.create_project_memory_collection(project_memory)
             results['project_memory'] = project_result
             results['created'].append(project_memory)
         else:
@@ -1099,7 +1099,7 @@ class MemoryCollectionManager:
         
         return results
     
-    async def collection_exists(self, collection_name: str) -> bool:
+    def collection_exists(self, collection_name: str) -> bool:
         """
         Check if a collection exists in Qdrant.
         
@@ -1117,7 +1117,7 @@ class MemoryCollectionManager:
             logger.error(f"Error checking collection existence for '{collection_name}': {e}")
             return False
     
-    async def create_system_memory_collection(self, collection_name: str) -> dict:
+    def create_system_memory_collection(self, collection_name: str) -> dict:
         """
         Create a system memory collection with CLI-only write access.
         
@@ -1181,7 +1181,7 @@ class MemoryCollectionManager:
             logger.error(f"Failed to create system memory collection '{collection_name}': {e}")
             raise
     
-    async def create_project_memory_collection(self, collection_name: str) -> dict:
+    def create_project_memory_collection(self, collection_name: str) -> dict:
         """
         Create a project memory collection with MCP read-write access.
         
