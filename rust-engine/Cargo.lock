@@ -322,6 +322,12 @@ dependencies = [
 ]
 
 [[package]]
+name = "broadcast"
+version = "0.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "fb214f702da3cc6aa1666520f40ea66f506644db5e1065be4bbc972f7ec3750b"
+
+[[package]]
 name = "bumpalo"
 version = "3.19.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -5473,6 +5479,7 @@ version = "0.2.1-debug"
 dependencies = [
  "ahash",
  "anyhow",
+ "broadcast",
  "bytes 1.10.1",
  "chardet",
  "chrono",
@@ -5485,6 +5492,7 @@ dependencies = [
  "fastrand",
  "futures 0.3.31",
  "glob",
+ "libc",
  "md5",
  "mime_guess",
  "notify",
@@ -5520,6 +5528,7 @@ dependencies = [
  "uuid",
  "walkdir",
  "which",
+ "winapi 0.3.9",
  "zip 0.6.6",
 ]
 

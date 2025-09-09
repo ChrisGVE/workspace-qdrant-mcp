@@ -6,8 +6,14 @@ including HTTP health checks, process validation, and service status monitoring.
 """
 
 import asyncio
-import aiohttp
 import os
+try:
+    import aiohttp
+    AIOHTTP_AVAILABLE = True
+except ImportError:
+    AIOHTTP_AVAILABLE = False
+    import urllib.request
+    import urllib.error
 import time
 from dataclasses import dataclass, field
 from datetime import datetime, timezone

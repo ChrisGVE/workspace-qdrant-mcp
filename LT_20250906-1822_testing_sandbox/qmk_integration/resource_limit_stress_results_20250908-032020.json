@@ -1,0 +1,162 @@
+{
+  "test_start_time": 1757191075.417449,
+  "test_end_time": 1757294420.8645399,
+  "system_info": {
+    "cpu_count": 16,
+    "cpu_count_logical": 16,
+    "memory_total_gb": 64.0,
+    "memory_available_gb": 37.703853607177734,
+    "platform": "darwin",
+    "python_version": "3.13.7 (main, Aug 14 2025, 11:12:11) [Clang 17.0.0 (clang-1700.0.13.3)]",
+    "max_safe_memory_percent": 80.0,
+    "max_safe_cpu_percent": 80.0,
+    "emergency_stop_memory": 95.0,
+    "emergency_stop_cpu": 95.0
+  },
+  "safety_monitoring": {
+    "duration_seconds": 2257.0,
+    "samples": 4514,
+    "emergency_stop_triggered": true,
+    "breaking_points": {
+      "memory_warning": null,
+      "memory_critical": null,
+      "cpu_warning": {
+        "timestamp": 1757193183.358621,
+        "cpu_percent": 82.5
+      },
+      "cpu_critical": {
+        "timestamp": 1757193368.640018,
+        "cpu_percent": 97.8
+      },
+      "emergency_stop": {
+        "timestamp": 1757193368.640018,
+        "cpu_percent": 97.8,
+        "memory_percent": 49.9,
+        "memory_gb": 30.40029525756836,
+        "trigger": "cpu"
+      }
+    },
+    "resource_peaks": {
+      "cpu_max": 97.8,
+      "memory_max_percent": 54.5,
+      "memory_max_gb": 33.36981201171875,
+      "cpu_avg": 14.99612317235268,
+      "memory_avg_percent": 46.27649534780682
+    },
+    "safety_violations": 16,
+    "critical_violations": 1
+  },
+  "baseline_measurements": {
+    "timestamp": 1757191068.401246,
+    "memory_percent": 41.1,
+    "memory_gb": 24.76980209350586,
+    "memory_available_gb": 37.696529388427734,
+    "cpu_percent": 5.7,
+    "available_headroom": {
+      "memory_percent": 38.9,
+      "cpu_percent": 74.3
+    }
+  },
+  "stress_test_results": {
+    "memory_stress": {
+      "start_time": 1757191075.417634,
+      "phases": [
+        {
+          "target_mb": 50,
+          "success": true,
+          "duration": 0.38538122177124023,
+          "upsert_stats": {
+            "success_count": 3,
+            "error_count": 0,
+            "throughput_docs_per_sec": 8.195329352549473,
+            "batch_size": 1
+          },
+          "memory_before_percent": 41.2,
+          "memory_after_percent": 41.2,
+          "memory_delta_mb": 0.0
+        },
+        {
+          "target_mb": 100,
+          "success": false,
+          "duration": 103340.05174899101,
+          "upsert_stats": {
+            "success_count": 0,
+            "error_count": 3,
+            "throughput_docs_per_sec": 0.0,
+            "batch_size": 1
+          },
+          "memory_before_percent": 41.5,
+          "memory_after_percent": 77.2,
+          "memory_delta_mb": -10106.9609375
+        }
+      ],
+      "breaking_point": {
+        "memory_mb": 100,
+        "memory_percent": 77.2,
+        "reason": "upsert_failure"
+      },
+      "max_memory_reached": 77.2,
+      "emergency_stop": false,
+      "end_time": 1757294420.864479,
+      "total_duration": 103345.44684505463
+    }
+  },
+  "breaking_points_summary": {
+    "memory_stress": {
+      "memory_mb": 100,
+      "memory_percent": 77.2,
+      "reason": "upsert_failure"
+    },
+    "safety_monitor": {
+      "memory_warning": null,
+      "memory_critical": null,
+      "cpu_warning": {
+        "timestamp": 1757193183.358621,
+        "cpu_percent": 82.5
+      },
+      "cpu_critical": {
+        "timestamp": 1757193368.640018,
+        "cpu_percent": 97.8
+      },
+      "emergency_stop": {
+        "timestamp": 1757193368.640018,
+        "cpu_percent": 97.8,
+        "memory_percent": 49.9,
+        "memory_gb": 30.40029525756836,
+        "trigger": "cpu"
+      }
+    }
+  },
+  "recovery_analysis": {},
+  "production_recommendations": {
+    "memory_limits": {
+      "tested_maximum": 54.5,
+      "recommended_warning_threshold": 60,
+      "recommended_critical_threshold": 75,
+      "production_headroom_required": "25%"
+    },
+    "cpu_limits": {
+      "tested_maximum": 97.8,
+      "recommended_warning_threshold": 70,
+      "recommended_critical_threshold": 83.13,
+      "production_headroom_required": "20%"
+    },
+    "operational_guidelines": [
+      "Monitor memory usage continuously during heavy ingestion phases",
+      "Limit concurrent processing threads to tested safe levels",
+      "Implement circuit breakers for search query rate limiting",
+      "Use progressive stress escalation for capacity planning",
+      "Maintain 20% system resource headroom for OS operations",
+      "Implement automatic graceful degradation at warning thresholds"
+    ],
+    "monitoring_thresholds": {
+      "memory_warning_percent": 70,
+      "memory_critical_percent": 80,
+      "cpu_warning_percent": 75,
+      "cpu_critical_percent": 85,
+      "emergency_stop_memory_percent": 95.0,
+      "emergency_stop_cpu_percent": 95.0
+    },
+    "safety_margins": {}
+  }
+}
