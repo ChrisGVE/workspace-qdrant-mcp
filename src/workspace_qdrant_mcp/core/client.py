@@ -46,6 +46,13 @@ from .config import Config
 from .embeddings import EmbeddingService
 from .ssl_config import create_secure_qdrant_config, get_ssl_manager
 
+# Import LLM access control system
+try:
+    from .llm_access_control import validate_llm_collection_access, LLMAccessControlError
+except ImportError:
+    # Fallback for direct imports when not used as a package
+    from llm_access_control import validate_llm_collection_access, LLMAccessControlError
+
 logger = get_logger(__name__)
 
 
@@ -360,7 +367,7 @@ class QdrantWorkspaceClient:
             collection_type: Type of collection (used for description)
 
         Raises:
-            RuntimeError: If client not initialized or collection creation fails
+            RuntimeError: If client not initialized, collection creation fails, or LLM access control blocks creation
             ValueError: If collection_name is invalid
 
         Example:
@@ -377,6 +384,13 @@ class QdrantWorkspaceClient:
 
         if not collection_name or not collection_name.strip():
             raise ValueError("Collection name cannot be empty")
+
+        # Apply LLM access control validation for collection creation
+        try:
+            validate_llm_collection_access('create', collection_name, self.config)
+        except LLMAccessControlError as e:
+            logger.warning("LLM access control blocked collection creation: %s", str(e))
+            raise RuntimeError(f"Collection creation blocked: {str(e)}") from e
 
         try:
             # Import here to avoid circular imports
