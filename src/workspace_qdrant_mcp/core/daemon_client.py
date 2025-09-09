@@ -80,6 +80,13 @@ from ..grpc.ingestion_pb2_grpc import IngestServiceStub
 from ..observability import get_logger
 from .yaml_config import WorkspaceConfig, load_config
 
+# Import LLM access control system
+try:
+    from .llm_access_control import validate_llm_collection_access, LLMAccessControlError
+except ImportError:
+    # Fallback for direct imports when not used as a package
+    from llm_access_control import validate_llm_collection_access, LLMAccessControlError
+
 logger = get_logger(__name__)
 
 
@@ -200,6 +207,13 @@ class DaemonClient:
     ) -> ProcessDocumentResponse:
         """Process a single document."""
         self._ensure_connected()
+        
+        # Apply LLM access control validation for collection writes
+        try:
+            validate_llm_collection_access('write', collection, self.config)
+        except LLMAccessControlError as e:
+            logger.warning("LLM access control blocked collection write: %s", str(e))
+            raise DaemonConnectionError(f"Collection write blocked: {str(e)}") from e
 
         request = ProcessDocumentRequest(
             file_path=file_path,
@@ -224,6 +238,14 @@ class DaemonClient:
     ) -> Iterator[ProcessFolderProgress]:
         """Process all documents in a folder."""
         self._ensure_connected()
+        
+        # Apply LLM access control validation for collection writes (unless dry run)
+        if not dry_run:
+            try:
+                validate_llm_collection_access('write', collection, self.config)
+            except LLMAccessControlError as e:
+                logger.warning("LLM access control blocked collection write: %s", str(e))
+                raise DaemonConnectionError(f"Collection write blocked: {str(e)}") from e
 
         request = ProcessFolderRequest(
             folder_path=folder_path,
@@ -367,6 +389,13 @@ class DaemonClient:
     ) -> CreateCollectionResponse:
         """Create a new collection."""
         self._ensure_connected()
+        
+        # Apply LLM access control validation for collection creation
+        try:
+            validate_llm_collection_access('create', collection_name, self.config)
+        except LLMAccessControlError as e:
+            logger.warning("LLM access control blocked collection creation: %s", str(e))
+            raise DaemonConnectionError(f"Collection creation blocked: {str(e)}") from e
 
         request = CreateCollectionRequest(
             collection_name=collection_name,
@@ -381,6 +410,13 @@ class DaemonClient:
     ) -> DeleteCollectionResponse:
         """Delete a collection."""
         self._ensure_connected()
+        
+        # Apply LLM access control validation for collection deletion
+        try:
+            validate_llm_collection_access('delete', collection_name, self.config)
+        except LLMAccessControlError as e:
+            logger.warning("LLM access control blocked collection deletion: %s", str(e))
+            raise DaemonConnectionError(f"Collection deletion blocked: {str(e)}") from e
 
         request = DeleteCollectionRequest(
             collection_name=collection_name, confirm=confirm
