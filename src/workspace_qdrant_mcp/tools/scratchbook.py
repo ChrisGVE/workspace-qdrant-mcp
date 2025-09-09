@@ -71,6 +71,13 @@ from ..core.collection_naming import (
 from ..core.hybrid_search import HybridSearchEngine
 from ..core.sparse_vectors import create_qdrant_sparse_vector
 
+# Import LLM access control system
+try:
+    from ..core.llm_access_control import validate_llm_collection_access, LLMAccessControlError
+except ImportError:
+    # Fallback for direct imports when not used as a package
+    from core.llm_access_control import validate_llm_collection_access, LLMAccessControlError
+
 logger = logging.getLogger(__name__)
 
 
@@ -245,6 +252,13 @@ class ScratchbookManager:
             # Create point
             point = models.PointStruct(id=note_id, vector=vectors, payload=payload)
 
+            # Apply LLM access control validation for collection writes
+            try:
+                validate_llm_collection_access('write', collection_name, self.client.config)
+            except LLMAccessControlError as e:
+                logger.warning("LLM access control blocked scratchbook write: %s", str(e))
+                return {"error": f"Scratchbook write blocked: {str(e)}"}
+
             # Insert into Qdrant
             self.client.client.upsert(
                 collection_name=collection_name, points=[point]
@@ -369,6 +383,13 @@ class ScratchbookManager:
                     vector=existing_point.vector,  # Preserve existing vector
                     payload=new_payload,
                 )
+
+            # Apply LLM access control validation for collection writes
+            try:
+                validate_llm_collection_access('write', collection_name, self.client.config)
+            except LLMAccessControlError as e:
+                logger.warning("LLM access control blocked scratchbook update: %s", str(e))
+                return {"error": f"Scratchbook update blocked: {str(e)}"}
 
             self.client.client.upsert(
                 collection_name=collection_name, points=[updated_point]
@@ -619,6 +640,13 @@ class ScratchbookManager:
                 return {
                     "error": f"Note '{note_id}' not found in scratchbook '{collection_name}'"
                 }
+
+            # Apply LLM access control validation for collection writes
+            try:
+                validate_llm_collection_access('write', collection_name, self.client.config)
+            except LLMAccessControlError as e:
+                logger.warning("LLM access control blocked scratchbook delete: %s", str(e))
+                return {"error": f"Scratchbook delete blocked: {str(e)}"}
 
             # Delete the note
             result = self.client.client.delete(
