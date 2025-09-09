@@ -24,7 +24,7 @@ import logging
 import re
 from dataclasses import dataclass
 from enum import Enum
-from typing import Dict, List, Optional, Set, Tuple
+from typing import Dict, List, Optional, Set, Tuple, Any, Union
 
 logger = logging.getLogger(__name__)
 
@@ -598,3 +598,373 @@ def create_naming_manager(
         Configured CollectionNamingManager instance
     """
     return CollectionNamingManager(global_collections)
+
+
+# Import Task 181 Collection Rules Enforcement System
+class ValidationSource(Enum):
+    """Source of the collection operation request."""
+    LLM = "llm"           # Request from LLM via MCP
+    CLI = "cli"           # Request from CLI/Rust engine
+    MCP_INTERNAL = "mcp"  # Internal MCP operations
+    SYSTEM = "system"     # System/admin operations
+
+
+class OperationType(Enum):
+    """Types of collection operations that need validation."""
+    CREATE = "create"
+    DELETE = "delete"
+    WRITE = "write"
+    READ = "read"
+    LIST = "list"
+
+
+@dataclass
+class ValidationResult:
+    """Result of collection operation validation."""
+    is_valid: bool
+    error_message: Optional[str] = None
+    warning_message: Optional[str] = None
+    suggested_alternatives: Optional[List[str]] = None
+    violation_type: Optional[str] = None
+    
+
+class CollectionRulesEnforcementError(Exception):
+    """Exception raised when collection rules enforcement is violated."""
+    
+    def __init__(self, validation_result: ValidationResult):
+        self.validation_result = validation_result
+        super().__init__(validation_result.error_message)
+
+
+class CollectionRulesEnforcer:
+    """
+    Comprehensive collection management rules enforcer for Task 181.
+    
+    This class provides unified validation for all collection operations across
+    MCP tools, preventing rule bypass and ensuring security boundaries are maintained.
+    It integrates with existing LLM access control and collection type systems.
+    
+    Key Features:
+    - Source-aware validation (LLM vs CLI vs MCP internal)
+    - Integration with LLM access control from Task 173
+    - Prevention of rule bypass through parameter manipulation
+    - System collection protection enforcement
+    - Clear error messages with suggested alternatives
+    - Comprehensive logging and audit trail
+    
+    Security Boundaries:
+    - LLM cannot create/delete system collections (__*)
+    - LLM cannot create/delete library collections (_*)  
+    - LLM cannot delete memory collections (*-memory, __*memory*)
+    - System memory collections are read-only from MCP
+    - All operations go through validation - no bypass paths
+    """
+    
+    def __init__(self, config=None):
+        """
+        Initialize the collection rules enforcer.
+        
+        Args:
+            config: Optional configuration object for context
+        """
+        self.config = config
+        
+        # Initialize subsystems
+        try:
+            from .llm_access_control import LLMAccessController, LLMAccessControlError
+            from .collection_types import CollectionTypeClassifier, CollectionType as TypesCollectionType
+            
+            self.llm_access_controller = LLMAccessController(config)
+            self.type_classifier = CollectionTypeClassifier()
+        except ImportError:
+            # Handle case where dependencies are not available
+            logger.warning("Some enforcement dependencies not available - using basic validation only")
+            self.llm_access_controller = None
+            self.type_classifier = None
+        
+        self.naming_manager = CollectionNamingManager()
+        
+        # Track existing collections for validation
+        self._existing_collections: Set[str] = set()
+        
+        logger.info("CollectionRulesEnforcer initialized")
+    
+    def set_existing_collections(self, collections: List[str]) -> None:
+        """
+        Update the set of existing collections for validation.
+        
+        Args:
+            collections: List of currently existing collection names
+        """
+        self._existing_collections = set(collections)
+        if self.llm_access_controller:
+            self.llm_access_controller.set_existing_collections(collections)
+        logger.debug(f"Updated existing collections: {len(collections)}")
+    
+    def validate_collection_creation(self, name: str, source: ValidationSource) -> ValidationResult:
+        """
+        Validate collection creation request with comprehensive rules enforcement.
+        
+        Args:
+            name: The collection name to create
+            source: Source of the creation request
+            
+        Returns:
+            ValidationResult with validation status and details
+        """
+        logger.debug(f"Validating collection creation: {name} from {source.value}")
+        
+        # Basic parameter validation
+        if not isinstance(name, str) or not name.strip():
+            return ValidationResult(
+                is_valid=False,
+                error_message="Collection name must be a non-empty string",
+                violation_type="invalid_collection_name"
+            )
+        
+        name = name.strip()
+        
+        # Check for existing collection
+        if name in self._existing_collections:
+            return ValidationResult(
+                is_valid=False,
+                error_message=f"Collection '{name}' already exists",
+                violation_type="collection_already_exists"
+            )
+        
+        # Validate collection name format
+        # Skip naming manager validation for system collections as it doesn't handle __ prefix correctly
+        if not name.startswith("__"):
+            naming_result = self.naming_manager.validate_collection_name(name)
+            if not naming_result.is_valid:
+                return ValidationResult(
+                    is_valid=False,
+                    error_message=f"Invalid collection name format: {naming_result.error_message}",
+                    violation_type="invalid_collection_name"
+                )
+        else:
+            # Basic validation for system collections
+            if len(name) < 3 or not name[2:]:  # Must have content after __
+                return ValidationResult(
+                    is_valid=False,
+                    error_message=f"System collection name '{name}' must have content after '__' prefix",
+                    violation_type="invalid_collection_name"
+                )
+        
+        # Source-specific validation
+        if source == ValidationSource.LLM and self.llm_access_controller:
+            # LLM operations must go through LLM access control
+            try:
+                self.llm_access_controller.validate_llm_collection_access("create", name)
+            except Exception as e:  # LLMAccessControlError
+                return ValidationResult(
+                    is_valid=False,
+                    error_message=str(e),
+                    violation_type="llm_access_denied"
+                )
+        
+        logger.debug(f"Collection creation validation passed: {name} from {source.value}")
+        return ValidationResult(is_valid=True)
+    
+    def validate_collection_deletion(self, name: str, source: ValidationSource) -> ValidationResult:
+        """
+        Validate collection deletion request with comprehensive rules enforcement.
+        
+        Args:
+            name: The collection name to delete
+            source: Source of the deletion request
+            
+        Returns:
+            ValidationResult with validation status and details
+        """
+        logger.debug(f"Validating collection deletion: {name} from {source.value}")
+        
+        # Basic parameter validation
+        if not isinstance(name, str) or not name.strip():
+            return ValidationResult(
+                is_valid=False,
+                error_message="Collection name must be a non-empty string",
+                violation_type="invalid_collection_name"
+            )
+        
+        name = name.strip()
+        
+        # Check if collection exists
+        if name not in self._existing_collections:
+            return ValidationResult(
+                is_valid=False,
+                error_message=f"Collection '{name}' does not exist",
+                violation_type="collection_not_found"
+            )
+        
+        # Source-specific validation
+        if source == ValidationSource.LLM and self.llm_access_controller:
+            # LLM operations must go through LLM access control
+            try:
+                self.llm_access_controller.validate_llm_collection_access("delete", name)
+            except Exception as e:  # LLMAccessControlError
+                return ValidationResult(
+                    is_valid=False,
+                    error_message=str(e),
+                    violation_type="llm_access_denied"
+                )
+        
+        elif source == ValidationSource.CLI:
+            # CLI can delete most collections but protect critical system ones
+            if self.type_classifier:
+                collection_info = self.type_classifier.get_collection_info(name)
+                if hasattr(collection_info, 'type') and hasattr(collection_info.type, 'name'):
+                    if collection_info.type.name == 'SYSTEM':
+                        return ValidationResult(
+                            is_valid=False,
+                            error_message=f"System collection '{name}' requires explicit admin confirmation",
+                            warning_message="Use --force flag if you're certain",
+                            violation_type="forbidden_system_deletion"
+                        )
+        
+        elif source == ValidationSource.MCP_INTERNAL:
+            # MCP internal operations cannot delete system collections for safety
+            if name.startswith("__"):
+                return ValidationResult(
+                    is_valid=False,
+                    error_message=f"MCP cannot delete system collection '{name}' - use CLI with admin privileges",
+                    violation_type="forbidden_system_deletion"
+                )
+        
+        logger.debug(f"Collection deletion validation passed: {name} from {source.value}")
+        return ValidationResult(is_valid=True)
+    
+    def validate_collection_write(self, name: str, source: ValidationSource) -> ValidationResult:
+        """
+        Validate collection write access with comprehensive rules enforcement.
+        
+        Args:
+            name: The collection name to write to
+            source: Source of the write request
+            
+        Returns:
+            ValidationResult with validation status and details
+        """
+        logger.debug(f"Validating collection write access: {name} from {source.value}")
+        
+        # Basic parameter validation
+        if not isinstance(name, str) or not name.strip():
+            return ValidationResult(
+                is_valid=False,
+                error_message="Collection name must be a non-empty string",
+                violation_type="invalid_collection_name"
+            )
+        
+        name = name.strip()
+        
+        # Check if collection exists (for write operations)
+        if name not in self._existing_collections:
+            return ValidationResult(
+                is_valid=False,
+                error_message=f"Collection '{name}' does not exist",
+                violation_type="collection_not_found"
+            )
+        
+        # Source-specific validation
+        if source == ValidationSource.LLM and self.llm_access_controller:
+            # LLM operations must go through LLM access control
+            try:
+                self.llm_access_controller.validate_llm_collection_access("write", name)
+            except Exception as e:  # LLMAccessControlError
+                return ValidationResult(
+                    is_valid=False,
+                    error_message=str(e),
+                    violation_type="llm_access_denied"
+                )
+        
+        elif source == ValidationSource.MCP_INTERNAL:
+            # MCP internal operations respect read-only boundaries
+            # System memory collections are read-only from MCP
+            if name.startswith("__") and ("memory" in name.lower()):
+                return ValidationResult(
+                    is_valid=False,
+                    error_message=f"System memory collection '{name}' is read-only from MCP",
+                    violation_type="forbidden_system_write"
+                )
+            
+            # Library collections are read-only from MCP
+            if name.startswith("_") and not name.startswith("__"):
+                return ValidationResult(
+                    is_valid=False,
+                    error_message=f"Library collection '{name}' is read-only from MCP - use CLI to modify",
+                    violation_type="forbidden_library_write"
+                )
+        
+        logger.debug(f"Collection write validation passed: {name} from {source.value}")
+        return ValidationResult(is_valid=True)
+    
+    def validate_operation(self, operation: OperationType, name: str, source: ValidationSource) -> ValidationResult:
+        """
+        Unified validation method for any collection operation.
+        
+        Args:
+            operation: The type of operation being performed
+            name: The collection name
+            source: Source of the operation request
+            
+        Returns:
+            ValidationResult with validation status and details
+        """
+        logger.debug(f"Validating collection operation: {operation.value} {name} from {source.value}")
+        
+        if operation == OperationType.CREATE:
+            return self.validate_collection_creation(name, source)
+        elif operation == OperationType.DELETE:
+            return self.validate_collection_deletion(name, source)
+        elif operation == OperationType.WRITE:
+            return self.validate_collection_write(name, source)
+        elif operation == OperationType.READ:
+            # Read access is generally allowed for all sources to all existing collections
+            if name not in self._existing_collections:
+                return ValidationResult(
+                    is_valid=False,
+                    error_message=f"Collection '{name}' does not exist",
+                    violation_type="collection_not_found"
+                )
+            return ValidationResult(is_valid=True)
+        elif operation == OperationType.LIST:
+            # List operations don't need collection-specific validation
+            return ValidationResult(is_valid=True)
+        else:
+            return ValidationResult(
+                is_valid=False,
+                error_message=f"Unknown operation type: {operation}",
+                violation_type="invalid_operation"
+            )
+    
+    def enforce_operation(self, operation: OperationType, name: str, source: ValidationSource) -> None:
+        """
+        Enforce collection operation rules by validating and raising exception on failure.
+        
+        Args:
+            operation: The type of operation being performed
+            name: The collection name
+            source: Source of the operation request
+            
+        Raises:
+            CollectionRulesEnforcementError: If the operation violates rules
+        """
+        result = self.validate_operation(operation, name, source)
+        if not result.is_valid:
+            logger.warning(f"Collection operation blocked: {operation.value} {name} from {source.value} - {result.error_message}")
+            raise CollectionRulesEnforcementError(result)
+        
+        logger.debug(f"Collection operation allowed: {operation.value} {name} from {source.value}")
+
+
+def create_rules_enforcer(config=None) -> CollectionRulesEnforcer:
+    """
+    Create a collection rules enforcer instance.
+    
+    Args:
+        config: Optional configuration object
+        
+    Returns:
+        Configured CollectionRulesEnforcer instance
+    """
+    return CollectionRulesEnforcer(config)

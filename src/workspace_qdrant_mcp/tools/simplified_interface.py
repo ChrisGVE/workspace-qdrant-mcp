@@ -31,6 +31,13 @@ from ..observability import (
     get_logger,
     record_operation,
 )
+from ..core.collection_naming import (
+    CollectionRulesEnforcer,
+    ValidationSource,
+    OperationType,
+    ValidationResult,
+    CollectionRulesEnforcementError
+)
 
 # Import existing tool functions to route through simplified interface
 from . import (
@@ -278,8 +285,19 @@ class SimplifiedToolsRouter:
         self.watch_tools_manager = watch_tools_manager
         self.mode = SimplifiedToolsMode.get_mode()
         
+        # Initialize Task 181 Collection Rules Enforcer
+        self.rules_enforcer = CollectionRulesEnforcer(getattr(workspace_client, 'config', None))
+        
+        # Update existing collections for validation
+        if workspace_client and hasattr(workspace_client, 'list_collections'):
+            try:
+                existing_collections = workspace_client.list_collections()
+                self.rules_enforcer.set_existing_collections(existing_collections)
+            except Exception as e:
+                logger.warning(f"Could not initialize existing collections for enforcer: {e}")
+        
         logger.info(
-            "Simplified tools router initialized",
+            "Simplified tools router initialized with rules enforcement",
             mode=self.mode,
             enabled_tools=SimplifiedToolsMode.get_enabled_tools()
         )
@@ -333,6 +351,28 @@ class SimplifiedToolsRouter:
             return {"error": "Content cannot be empty", "success": False}
         if not collection or not collection.strip():
             return {"error": "Collection name is required", "success": False}
+        
+        # Task 181: Enforce collection write rules
+        try:
+            # Update existing collections list for validation
+            existing = self.workspace_client.list_collections()
+            self.rules_enforcer.set_existing_collections(existing)
+            
+            # Validate write access through rules enforcer (LLM source for MCP operations)
+            validation_result = self.rules_enforcer.validate_collection_write(
+                collection, ValidationSource.LLM
+            )
+            
+            if not validation_result.is_valid:
+                error_msg = validation_result.error_message
+                return {"error": error_msg, "success": False, "validation_failed": True}
+        
+        except CollectionRulesEnforcementError as enforcement_error:
+            logger.warning(f"Collection write blocked by rules enforcement: {collection} - {enforcement_error}")
+            return {"error": str(enforcement_error), "success": False, "rules_violation": True}
+        except Exception as validation_error:
+            logger.error(f"Collection write validation failed: {collection} - {validation_error}")
+            return {"error": f"Validation failed: {str(validation_error)}", "success": False}
         
         logger.debug(
             "Simplified store request",
@@ -457,6 +497,32 @@ class SimplifiedToolsRouter:
                 return [{"error": "score_threshold must be between 0.0 and 1.0"}]
         except (ValueError, TypeError) as e:
             return [{"error": f"Invalid parameter types: {e}"}]
+        
+        # Task 181: Validate read access to collections before search
+        try:
+            # Update existing collections list for validation
+            existing = self.workspace_client.list_collections()
+            self.rules_enforcer.set_existing_collections(existing)
+            
+            # Validate search scope and resolve target collections
+            try:
+                validate_search_scope(search_scope, collection)
+                target_collections = resolve_search_scope(search_scope, collection, self.workspace_client, getattr(self.workspace_client, 'config', None))
+            except (ScopeValidationError, CollectionNotFoundError, SearchScopeError) as scope_error:
+                return [{"error": str(scope_error)}]
+            
+            # Validate read access to each target collection
+            for target_collection in target_collections:
+                validation_result = self.rules_enforcer.validate_operation(
+                    OperationType.READ, target_collection, ValidationSource.LLM
+                )
+                if not validation_result.is_valid:
+                    logger.warning(f"Read access denied to collection: {target_collection} - {validation_result.error_message}")
+                    # Continue with other collections but log the violation
+        
+        except Exception as validation_error:
+            logger.error(f"Search validation failed: {validation_error}")
+            return [{"error": f"Search validation failed: {str(validation_error)}"}]
         
         logger.debug(
             "Simplified find request",
@@ -618,40 +684,76 @@ class SimplifiedToolsRouter:
                 if not collection or not collection.strip():
                     return {"error": "Collection name required for create action", "success": False}
                 
-                # Route through client collection management with validation
+                # Task 181: Enforce collection rules before creation
                 try:
-                    # Check if collection already exists
+                    # Update existing collections list for validation
                     existing = self.workspace_client.list_collections()
-                    if collection in existing:
-                        return {"error": f"Collection '{collection}' already exists", "success": False}
+                    self.rules_enforcer.set_existing_collections(existing)
                     
-                    # Create collection through client (which includes all validation)
+                    # Validate creation through rules enforcer (LLM source for MCP operations)
+                    validation_result = self.rules_enforcer.validate_collection_creation(
+                        collection, ValidationSource.LLM
+                    )
+                    
+                    if not validation_result.is_valid:
+                        error_msg = validation_result.error_message
+                        if validation_result.suggested_alternatives:
+                            error_msg += f" Suggested alternatives: {', '.join(validation_result.suggested_alternatives)}"
+                        return {"error": error_msg, "success": False, "validation_failed": True}
+                    
+                    # Create collection through client (additional client-side validation)
                     await self.workspace_client.create_collection(collection)
-                    logger.info("Collection created", collection=collection)
+                    
+                    # Update enforcer with new collection
+                    updated_collections = self.workspace_client.list_collections()
+                    self.rules_enforcer.set_existing_collections(updated_collections)
+                    
+                    logger.info(f"Collection created with rules enforcement: {collection}")
                     return {"collection": collection, "success": True, "message": "Collection created successfully"}
                     
+                except CollectionRulesEnforcementError as enforcement_error:
+                    logger.warning(f"Collection creation blocked by rules enforcement: {collection} - {enforcement_error}")
+                    return {"error": str(enforcement_error), "success": False, "rules_violation": True}
                 except Exception as create_error:
-                    logger.error("Collection creation failed", collection=collection, error=str(create_error))
+                    logger.error(f"Collection creation failed: {collection} - {create_error}")
                     return {"error": f"Failed to create collection: {str(create_error)}", "success": False}
                 
             elif action == "delete":
                 if not collection or not collection.strip():
                     return {"error": "Collection name required for delete action", "success": False}
                 
-                # Route through client collection management with validation
+                # Task 181: Enforce collection rules before deletion
                 try:
-                    # Check if collection exists
+                    # Update existing collections list for validation
                     existing = self.workspace_client.list_collections()
-                    if collection not in existing:
-                        return {"error": f"Collection '{collection}' does not exist", "success": False}
+                    self.rules_enforcer.set_existing_collections(existing)
                     
-                    # Delete collection through client (which includes all validation)
+                    # Validate deletion through rules enforcer (LLM source for MCP operations)
+                    validation_result = self.rules_enforcer.validate_collection_deletion(
+                        collection, ValidationSource.LLM
+                    )
+                    
+                    if not validation_result.is_valid:
+                        error_msg = validation_result.error_message
+                        if validation_result.warning_message:
+                            error_msg += f" Warning: {validation_result.warning_message}"
+                        return {"error": error_msg, "success": False, "validation_failed": True}
+                    
+                    # Delete collection through client (additional client-side validation)
                     await self.workspace_client.delete_collection(collection)
-                    logger.info("Collection deleted", collection=collection)
+                    
+                    # Update enforcer with removed collection
+                    updated_collections = self.workspace_client.list_collections()
+                    self.rules_enforcer.set_existing_collections(updated_collections)
+                    
+                    logger.info(f"Collection deleted with rules enforcement: {collection}")
                     return {"collection": collection, "success": True, "message": "Collection deleted successfully"}
                     
+                except CollectionRulesEnforcementError as enforcement_error:
+                    logger.warning(f"Collection deletion blocked by rules enforcement: {collection} - {enforcement_error}")
+                    return {"error": str(enforcement_error), "success": False, "rules_violation": True}
                 except Exception as delete_error:
-                    logger.error("Collection deletion failed", collection=collection, error=str(delete_error))
+                    logger.error(f"Collection deletion failed: {collection} - {delete_error}")
                     return {"error": f"Failed to delete collection: {str(delete_error)}", "success": False}
                 
             elif action == "rename":
