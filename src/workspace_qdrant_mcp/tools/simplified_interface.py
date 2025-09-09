@@ -16,6 +16,8 @@ and the existing comprehensive tool implementations.
 """
 
 import os
+import re
+from enum import Enum
 from typing import Dict, List, Optional, Any, Union
 import logging
 
@@ -40,6 +42,182 @@ from . import (
 )
 
 logger = get_logger(__name__)
+
+
+# Search Scope System Integration
+class SearchScope(Enum):
+    """Enumeration of supported search scopes."""
+    COLLECTION = "collection"  # Single specified collection
+    PROJECT = "project"        # Collections belonging to current project
+    WORKSPACE = "workspace"    # Project + global collections (excludes system)
+    ALL = "all"               # All accessible collections (includes readonly, excludes system)
+    MEMORY = "memory"         # Both system and project memory collections
+
+
+class SearchScopeError(Exception):
+    """Exception raised for search scope related errors."""
+    pass
+
+
+class ScopeValidationError(SearchScopeError):
+    """Exception raised when scope/collection combination is invalid."""
+    pass
+
+
+class CollectionNotFoundError(SearchScopeError):
+    """Exception raised when specified collection is not found."""
+    pass
+
+
+# Search scope constants
+VALID_SEARCH_SCOPES = {scope.value for scope in SearchScope}
+SYSTEM_MEMORY_PATTERN = r"^__[a-zA-Z0-9_]+$"
+PROJECT_MEMORY_PATTERN = r"^[a-zA-Z0-9_]+-memory$"
+GLOBAL_COLLECTIONS = [
+    "algorithms", "codebase", "context", "documents", 
+    "knowledge", "memory", "projects", "workspace"
+]
+
+
+def validate_search_scope(scope: str, collection: str) -> None:
+    """Validate that a scope/collection combination is valid."""
+    if not scope:
+        raise ScopeValidationError("Search scope cannot be empty")
+    
+    if scope not in VALID_SEARCH_SCOPES:
+        raise ScopeValidationError(
+            f"Invalid search scope '{scope}'. Must be one of: {', '.join(VALID_SEARCH_SCOPES)}"
+        )
+    
+    # Validate collection parameter based on scope
+    if scope == SearchScope.COLLECTION.value:
+        if not collection:
+            raise ScopeValidationError(
+                "Collection name is required when using 'collection' scope"
+            )
+
+
+def resolve_search_scope(scope: str, collection: str, client, config) -> List[str]:
+    """Resolve search scope strings to collection lists."""
+    validate_search_scope(scope, collection)
+    
+    if not client or not config:
+        raise SearchScopeError("Client and config are required for scope resolution")
+    
+    if not hasattr(client, 'initialized') or not client.initialized:
+        raise SearchScopeError("Client must be initialized before resolving search scope")
+    
+    try:
+        if scope == SearchScope.COLLECTION.value:
+            return _resolve_single_collection(collection, client)
+        elif scope == SearchScope.PROJECT.value:
+            return get_project_collections(client)
+        elif scope == SearchScope.WORKSPACE.value:
+            return get_workspace_collections(client)
+        elif scope == SearchScope.ALL.value:
+            return get_all_collections(client)
+        elif scope == SearchScope.MEMORY.value:
+            return get_memory_collections(client)
+        else:
+            raise ScopeValidationError(f"Unsupported scope: {scope}")
+            
+    except Exception as e:
+        if isinstance(e, (ScopeValidationError, CollectionNotFoundError)):
+            raise
+        raise SearchScopeError(f"Failed to resolve search scope '{scope}': {e}") from e
+
+
+def _resolve_single_collection(collection: str, client) -> List[str]:
+    """Resolve a single collection name to a collection list."""
+    available_collections = client.list_collections()
+    
+    if collection not in available_collections:
+        raise CollectionNotFoundError(
+            f"Collection '{collection}' not found. "
+            f"Available collections: {', '.join(available_collections)}"
+        )
+    
+    return [collection]
+
+
+def get_project_collections(client) -> List[str]:
+    """Get collections belonging to the current project."""
+    project_collections = []
+    all_collections = client.list_collections()
+    
+    # Get current project info
+    try:
+        project_info = client.get_project_info()
+        if not project_info or not project_info.get("main_project"):
+            return project_collections
+        
+        current_project = project_info["main_project"]
+        
+        # Filter for project collections (simple pattern matching)
+        for collection_name in all_collections:
+            if collection_name.startswith(f"{current_project}-"):
+                project_collections.append(collection_name)
+                
+    except Exception:
+        # If project info is not available, return empty list
+        pass
+    
+    return sorted(project_collections)
+
+
+def get_workspace_collections(client) -> List[str]:
+    """Get workspace collections (project + global, excludes system)."""
+    workspace_collections = []
+    all_collections = client.list_collections()
+    
+    # Include project collections
+    project_collections = get_project_collections(client)
+    workspace_collections.extend(project_collections)
+    
+    # Include global collections and library collections
+    for collection_name in all_collections:
+        if (collection_name in GLOBAL_COLLECTIONS and 
+            collection_name not in workspace_collections):
+            workspace_collections.append(collection_name)
+        
+        # Include library collections (_prefix but not __)
+        elif (collection_name.startswith("_") and 
+              not collection_name.startswith("__") and
+              collection_name not in workspace_collections):
+            workspace_collections.append(collection_name)
+    
+    return sorted(workspace_collections)
+
+
+def get_all_collections(client) -> List[str]:
+    """Get all accessible collections (includes readonly, excludes system)."""
+    accessible_collections = []
+    all_collections = client.list_collections()
+    
+    for collection_name in all_collections:
+        # Exclude only system collections (__ prefix)
+        if not collection_name.startswith("__"):
+            accessible_collections.append(collection_name)
+    
+    return sorted(accessible_collections)
+
+
+def get_memory_collections(client) -> List[str]:
+    """Get both system and project memory collections."""
+    memory_collections = []
+    all_collections = client.list_collections()
+    
+    # Compile patterns for memory collections
+    system_memory_pattern = re.compile(SYSTEM_MEMORY_PATTERN)
+    project_memory_pattern = re.compile(PROJECT_MEMORY_PATTERN)
+    
+    for collection_name in all_collections:
+        # Check if collection matches memory patterns
+        if (system_memory_pattern.match(collection_name) or 
+            project_memory_pattern.match(collection_name)):
+            memory_collections.append(collection_name)
+    
+    return sorted(memory_collections)
 
 
 class SimplifiedToolsMode:
