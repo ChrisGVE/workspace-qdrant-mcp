@@ -17,6 +17,7 @@ pub mod ipc;
 pub mod logging;
 pub mod lsp;
 pub mod processing;
+pub mod service_discovery;
 pub mod storage;
 pub mod unified_config;
 // Temporarily disable watching module for compilation
@@ -48,6 +49,12 @@ pub use crate::lsp::{
 };
 pub use crate::unified_config::{
     UnifiedConfigManager, UnifiedConfigError, ConfigFormat
+};
+pub use crate::service_discovery::{
+    DiscoveryManager, ServiceRegistry, ServiceInfo, ServiceStatus,
+    NetworkDiscovery, DiscoveryMessage, DiscoveryMessageType,
+    HealthChecker, HealthStatus, HealthConfig,
+    DiscoveryConfig, DiscoveryError, DiscoveryResult
 };
 
 /// Core processing errors
