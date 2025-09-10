@@ -307,10 +307,11 @@ fn init_logging(log_level: &str, foreground: bool) -> Result<(), Box<dyn std::er
     
     // Configure based on daemon mode
     if !foreground {
-        // For daemon mode, use structured JSON logging with file output
-        config.json_format = true;
-        config.file_logging = true;
-        config.log_file_path = Some(PathBuf::from("/var/log/memexd.log"));
+        // For daemon mode, disable file logging to let launchd handle redirection
+        // The plist redirects stdout/stderr to user-writable log files
+        config.json_format = false; // Keep readable format for launchd logs
+        config.file_logging = false; // Let launchd handle file logging
+        config.log_file_path = None; // No direct file logging
     }
     
     initialize_logging(config).map_err(|e| Box::new(e) as Box<dyn std::error::Error>)
