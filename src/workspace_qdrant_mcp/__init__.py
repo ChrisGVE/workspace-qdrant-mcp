@@ -57,9 +57,37 @@ __description__ = "Advanced project-scoped Qdrant MCP server with hybrid search"
 __url__ = "https://github.com/your-org/workspace-qdrant-mcp"
 
 # Import server app only when needed to avoid dependency issues
-try:
-    from .server import app
+# Skip server import during CLI usage to prevent initialization logging
+import os
+import sys
 
-    __all__ = ["app"]
-except ImportError:
+# More reliable CLI detection - avoid server imports completely during CLI usage
+_is_cli_context = (
+    # Check the executable name
+    sys.argv[0].endswith('/wqm') or 
+    sys.argv[0].endswith('wqm') or
+    'wqm' in os.path.basename(sys.argv[0]) or
+    # Check if any CLI commands are present
+    any(cmd in sys.argv for cmd in ["service", "status", "start", "stop", "restart", "admin", "config", "init", "ingest", "search", "memory"]) or
+    # Check environment variables
+    os.getenv("WQM_CLI_MODE") == "true" or
+    os.getenv("WQM_LOG_INIT") == "false"
+)
+
+_is_server_context = not _is_cli_context and (
+    # Explicitly running the server
+    "server.py" in str(sys.argv) or
+    "--transport" in sys.argv or
+    # Direct server module execution
+    "__main__.py" in str(sys.argv) or
+    "workspace-qdrant-mcp" in str(sys.argv) and "--transport" not in str(sys.argv)
+)
+
+if _is_server_context:
+    try:
+        from .server import app
+        __all__ = ["app"]
+    except ImportError:
+        __all__ = []
+else:
     __all__ = []

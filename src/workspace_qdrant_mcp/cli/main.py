@@ -18,6 +18,8 @@ import sys
 
 # Suppress observability initialization logging for CLI usage
 os.environ.setdefault("WQM_LOG_INIT", "false")
+# Set CLI mode to prevent server imports in __init__.py
+os.environ.setdefault("WQM_CLI_MODE", "true")
 
 # Suppress warnings for version-only calls before any imports
 if len(sys.argv) >= 2 and (sys.argv[1] == "--version" or sys.argv[1] == "-v"):
