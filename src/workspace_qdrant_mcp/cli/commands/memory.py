@@ -22,8 +22,8 @@ from ...core.memory import (
     create_memory_manager,
     parse_conversational_memory_update,
 )
-from ...core.ssl_config import get_ssl_manager
 from ...observability import get_logger
+from ..utils import get_configured_client
 from ..formatting import (
     create_data_table,
     display_operation_result,
@@ -175,14 +175,7 @@ async def _list_memory_rules(
     """List memory rules with optional filtering."""
     try:
         config = Config()
-        ssl_manager = get_ssl_manager()
-
-        # Create client with appropriate SSL context
-        if ssl_manager.is_localhost_url(config.qdrant.url):
-            with ssl_manager.for_localhost():
-                client = QdrantClient(**config.qdrant_client_config)
-        else:
-            client = QdrantClient(**config.qdrant_client_config)
+        client = get_configured_client(config)
         naming_manager = create_naming_manager(config.workspace.global_collections)
         memory_manager = create_memory_manager(client, naming_manager)
 
@@ -263,14 +256,7 @@ async def _add_memory_rule(
     """Add a new memory rule."""
     try:
         config = Config()
-        ssl_manager = get_ssl_manager()
-
-        # Create client with appropriate SSL context
-        if ssl_manager.is_localhost_url(config.qdrant.url):
-            with ssl_manager.for_localhost():
-                client = QdrantClient(**config.qdrant_client_config)
-        else:
-            client = QdrantClient(**config.qdrant_client_config)
+        client = get_configured_client(config)
         naming_manager = create_naming_manager(config.workspace.global_collections)
         memory_manager = create_memory_manager(client, naming_manager)
 
@@ -345,14 +331,7 @@ async def _edit_memory_rule(rule_id: str):
     """Edit an existing memory rule."""
     try:
         config = Config()
-        ssl_manager = get_ssl_manager()
-
-        # Create client with appropriate SSL context
-        if ssl_manager.is_localhost_url(config.qdrant.url):
-            with ssl_manager.for_localhost():
-                client = QdrantClient(**config.qdrant_client_config)
-        else:
-            client = QdrantClient(**config.qdrant_client_config)
+        client = get_configured_client(config)
         naming_manager = create_naming_manager(config.workspace.global_collections)
         memory_manager = create_memory_manager(client, naming_manager)
 
@@ -423,14 +402,7 @@ async def _remove_memory_rule(rule_id: str, force: bool):
     """Remove a memory rule."""
     try:
         config = Config()
-        ssl_manager = get_ssl_manager()
-
-        # Create client with appropriate SSL context
-        if ssl_manager.is_localhost_url(config.qdrant.url):
-            with ssl_manager.for_localhost():
-                client = QdrantClient(**config.qdrant_client_config)
-        else:
-            client = QdrantClient(**config.qdrant_client_config)
+        client = get_configured_client(config)
         naming_manager = create_naming_manager(config.workspace.global_collections)
         memory_manager = create_memory_manager(client, naming_manager)
 
@@ -473,14 +445,7 @@ async def _show_token_usage():
     """Show token usage statistics."""
     try:
         config = Config()
-        ssl_manager = get_ssl_manager()
-
-        # Create client with appropriate SSL context
-        if ssl_manager.is_localhost_url(config.qdrant.url):
-            with ssl_manager.for_localhost():
-                client = QdrantClient(**config.qdrant_client_config)
-        else:
-            client = QdrantClient(**config.qdrant_client_config)
+        client = get_configured_client(config)
         naming_manager = create_naming_manager(config.workspace.global_collections)
         memory_manager = create_memory_manager(client, naming_manager)
 
@@ -525,14 +490,7 @@ async def _trim_memory(max_tokens: int, dry_run: bool):
     """Interactive memory optimization."""
     try:
         config = Config()
-        ssl_manager = get_ssl_manager()
-
-        # Create client with appropriate SSL context
-        if ssl_manager.is_localhost_url(config.qdrant.url):
-            with ssl_manager.for_localhost():
-                client = QdrantClient(**config.qdrant_client_config)
-        else:
-            client = QdrantClient(**config.qdrant_client_config)
+        client = get_configured_client(config)
         naming_manager = create_naming_manager(config.workspace.global_collections)
         memory_manager = create_memory_manager(client, naming_manager)
 
@@ -576,14 +534,7 @@ async def _detect_conflicts(auto_resolve: bool):
     """Detect and resolve memory conflicts."""
     try:
         config = Config()
-        ssl_manager = get_ssl_manager()
-
-        # Create client with appropriate SSL context
-        if ssl_manager.is_localhost_url(config.qdrant.url):
-            with ssl_manager.for_localhost():
-                client = QdrantClient(**config.qdrant_client_config)
-        else:
-            client = QdrantClient(**config.qdrant_client_config)
+        client = get_configured_client(config)
         naming_manager = create_naming_manager(config.workspace.global_collections)
         memory_manager = create_memory_manager(client, naming_manager)
 
@@ -647,14 +598,7 @@ async def _parse_conversational_update(message: str):
 
             if confirm("\nAdd this as a memory rule?"):
                 config = Config()
-                ssl_manager = get_ssl_manager()
-
-                # Create client with appropriate SSL context
-                if ssl_manager.is_localhost_url(config.qdrant.url):
-                    with ssl_manager.for_localhost():
-                        client = QdrantClient(**config.qdrant_client_config)
-                else:
-                    client = QdrantClient(**config.qdrant_client_config)
+                client = get_configured_client(config)
                 naming_manager = create_naming_manager(
                     config.workspace.global_collections
                 )
