@@ -484,12 +484,166 @@ WantedBy=default.target
         self, config_file: Optional[Path], log_level: str, auto_start: bool
     ) -> Dict[str, Any]:
         """Install Windows service."""
-        # TODO: Implement Windows service installation
-        return {
-            "success": False,
-            "error": "Windows service installation not yet implemented",
-            "platform": "windows",
-        }
+        # Find daemon binary
+        daemon_path = await self._find_daemon_binary()
+        if not daemon_path:
+            return {
+                "success": False,
+                "error": "memexd.exe binary not found. Build it first with: cargo build --release --bin memexd",
+            }
+
+        service_name = f"memexd-{self.service_name}"
+        
+        # Setup Windows-appropriate configuration directory
+        import os
+        local_appdata = os.environ.get('LOCALAPPDATA', str(Path.home() / "AppData" / "Local"))
+        config_dir = Path(local_appdata) / "workspace-qdrant"
+        config_file_default = config_dir / "workspace_qdrant_config.toml"
+        
+        # Create config directory if it doesn't exist
+        try:
+            config_dir.mkdir(parents=True, exist_ok=True)
+            logger.debug(f"Created Windows config directory: {config_dir}")
+        except Exception as e:
+            logger.error(f"Failed to create Windows config directory: {e}")
+            return {
+                "success": False,
+                "error": f"Cannot create config directory: {e}",
+            }
+        
+        # If no config file specified, use/create default in Windows location
+        if not config_file:
+            config_file = config_file_default
+            
+        # Copy default config if target doesn't exist
+        if not config_file.exists():
+            # Look for default config in project directory first
+            project_config = Path.cwd() / "workspace_qdrant_config.toml"
+            if project_config.exists():
+                import shutil
+                shutil.copy2(project_config, config_file)
+                logger.debug(f"Copied project config to: {config_file}")
+            else:
+                # Create a minimal default config for Windows
+                default_config = f'''# Workspace Qdrant MCP Configuration
+# TOML format for memexd daemon
+
+# Logging configuration (Windows paths)
+log_file = "{self._get_log_path("memexd.log").replace(chr(92), chr(92) + chr(92))}"
+
+# Processing engine configuration
+max_concurrent_tasks = 4
+default_timeout_ms = 30000
+enable_preemption = true
+chunk_size = 1000
+enable_lsp = true
+log_level = "info"
+enable_metrics = true
+metrics_interval_secs = 60
+
+# Auto-ingestion configuration
+[auto_ingestion]
+enabled = true
+auto_create_watches = true
+include_common_files = true
+include_source_files = true
+target_collection_suffix = "scratchbook"
+max_files_per_batch = 5
+batch_delay_seconds = 2.0
+max_file_size_mb = 50
+recursive_depth = 5
+debounce_seconds = 10
+
+# Workspace directory (auto-detected from current working directory)
+project_path = "{str(Path.cwd()).replace(chr(92), chr(92) + chr(92))}"
+'''
+                
+                config_file.write_text(default_config)
+                logger.debug(f"Created default Windows config: {config_file}")
+
+        # Build daemon arguments
+        daemon_args = [str(daemon_path)]
+        daemon_args.extend(["--config", str(config_file)])
+        daemon_args.extend(["--log-level", log_level])
+        # Windows service-specific PID file
+        windows_pid_file = str(Path(os.environ.get('TEMP', 'C:\\temp')) / "memexd-service.pid")
+        daemon_args.extend(["--pid-file", windows_pid_file])
+
+        # Build service command string for Windows
+        service_cmd = ' '.join(f'"{arg}"' if ' ' in arg else arg for arg in daemon_args)
+        
+        try:
+            # Check if service already exists
+            check_cmd = ["sc", "query", service_name]
+            result = await asyncio.create_subprocess_exec(
+                *check_cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE
+            )
+            stdout, stderr = await result.communicate()
+            
+            if result.returncode == 0:
+                return {
+                    "success": False,
+                    "error": f"Service {service_name} already exists. Uninstall it first.",
+                    "service_name": service_name,
+                }
+
+            # Create Windows service using sc create
+            create_cmd = [
+                "sc", "create", service_name,
+                f"binPath={service_cmd}",
+                "type=own",
+                "start=demand",  # Manual start by default, enable if auto_start
+                f"DisplayName=Memory eXchange Daemon ({self.service_name})",
+                "obj=LocalSystem"  # Run as LocalSystem for user services
+            ]
+            
+            result = await asyncio.create_subprocess_exec(
+                *create_cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE
+            )
+            stdout, stderr = await result.communicate()
+
+            if result.returncode != 0:
+                error_msg = stderr.decode().strip() or stdout.decode().strip()
+                return {
+                    "success": False,
+                    "error": f"Failed to create Windows service: {error_msg}",
+                    "service_name": service_name,
+                }
+
+            # Configure service description
+            desc_cmd = [
+                "sc", "description", service_name,
+                "Document processing and embedding service with priority-based resource management"
+            ]
+            await asyncio.create_subprocess_exec(*desc_cmd)
+
+            # Set service to auto-start if requested
+            if auto_start:
+                auto_cmd = ["sc", "config", service_name, "start=auto"]
+                result = await asyncio.create_subprocess_exec(
+                    *auto_cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE
+                )
+                stdout, stderr = await result.communicate()
+                
+                if result.returncode != 0:
+                    logger.warning(f"Failed to set auto-start: {stderr.decode()}")
+
+            return {
+                "success": True,
+                "service_name": service_name,
+                "daemon_path": str(daemon_path),
+                "config_file": str(config_file),
+                "auto_start": auto_start,
+                "message": f"Windows service {service_name} installed successfully",
+            }
+
+        except Exception as e:
+            logger.error("Windows service installation failed", error=str(e), exc_info=True)
+            return {
+                "success": False,
+                "error": f"Installation failed: {e}",
+                "platform": "windows",
+            }
 
     async def uninstall_service(self) -> Dict[str, Any]:
         """Uninstall user service."""
