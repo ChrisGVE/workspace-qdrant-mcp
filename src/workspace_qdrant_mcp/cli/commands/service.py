@@ -606,6 +606,16 @@ WantedBy=default.target
         service_id = f"com.workspace-qdrant-mcp.{self.service_name}"
 
         try:
+            # First check if service is installed
+            status_check = await self._get_macos_service_status()
+            if not status_check.get("loaded", False):
+                return {
+                    "success": False,
+                    "error": "Service is not installed",
+                    "suggestion": "Run 'wqm service install' first to install the service",
+                    "help_command": "wqm service install",
+                }
+
             # Step 1: Clean up any stale resources before starting
             await self._cleanup_service_resources()
 
@@ -625,8 +635,8 @@ WantedBy=default.target
                 logger.debug(f"launchctl start failed: {error_msg}")
                 
                 # Check if the service is actually running despite the error
-                status_check = await self._get_macos_service_status()
-                if status_check.get("status") == "running":
+                status_check_after = await self._get_macos_service_status()
+                if status_check_after.get("status") == "running":
                     return {
                         "success": True,
                         "service_id": service_id,
@@ -634,16 +644,28 @@ WantedBy=default.target
                         "warning": f"launchctl start returned error but service is running: {error_msg}"
                     }
                 
-                return {
-                    "success": False,
-                    "error": f"Failed to start service: {error_msg}",
-                    "debug_info": {
-                        "service_id": service_id,
-                        "returncode": result.returncode,
-                        "stdout": stdout.decode().strip(),
-                        "stderr": error_msg
+                # Provide better error messages based on common failure scenarios
+                if result.returncode == 3:
+                    return {
+                        "success": False,
+                        "error": "Service failed to start - service definition not found",
+                        "suggestion": "Try reinstalling the service with 'wqm service uninstall' followed by 'wqm service install'",
+                        "technical_details": f"launchctl returned: {error_msg}",
                     }
-                }
+                elif result.returncode == 5:
+                    return {
+                        "success": False,
+                        "error": "Service failed to start - input/output error",
+                        "suggestion": "This usually indicates a configuration problem. Check that the daemon binary exists and is executable",
+                        "technical_details": f"launchctl returned: {error_msg}",
+                    }
+                else:
+                    return {
+                        "success": False,
+                        "error": f"Service failed to start (exit code {result.returncode})",
+                        "suggestion": "Check service logs with 'wqm service logs' for more details",
+                        "technical_details": error_msg if error_msg else "No additional error message",
+                    }
 
             # Step 4: Verify the service actually started
             await asyncio.sleep(2)  # Give service time to initialize
@@ -760,6 +782,16 @@ WantedBy=default.target
         service_name = f"{self.service_name}.service"
         systemctl_args = ["systemctl", "--user"]
 
+        # First check if service is installed
+        status_check = await self._get_linux_service_status()
+        if not status_check.get("success", False) or "not found" in status_check.get("error", "").lower():
+            return {
+                "success": False,
+                "error": "Service is not installed",
+                "suggestion": "Run 'wqm service install' first to install the service",
+                "help_command": "wqm service install",
+            }
+
         cmd = systemctl_args + ["start", service_name]
         result = await asyncio.create_subprocess_exec(
             *cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE
@@ -767,10 +799,31 @@ WantedBy=default.target
         stdout, stderr = await result.communicate()
 
         if result.returncode != 0:
-            return {
-                "success": False,
-                "error": f"Failed to start service: {stderr.decode()}",
-            }
+            error_msg = stderr.decode().strip()
+            
+            # Provide better error messages based on common systemd errors
+            if "not found" in error_msg.lower() or "could not find" in error_msg.lower():
+                return {
+                    "success": False,
+                    "error": "Service is not installed or not found",
+                    "suggestion": "Run 'wqm service install' first to install the service",
+                    "help_command": "wqm service install",
+                    "technical_details": error_msg,
+                }
+            elif "permission denied" in error_msg.lower():
+                return {
+                    "success": False,
+                    "error": "Permission denied when starting service",
+                    "suggestion": "Make sure you have permission to start user services",
+                    "technical_details": error_msg,
+                }
+            else:
+                return {
+                    "success": False,
+                    "error": f"Service failed to start (exit code {result.returncode})",
+                    "suggestion": "Check service logs with 'wqm service logs' for more details",
+                    "technical_details": error_msg,
+                }
 
         return {
             "success": True,
@@ -1282,9 +1335,23 @@ def start_service() -> None:
                 )
             )
         else:
+            error_text = f"❌ Failed to start service!\n\nError: {result['error']}"
+            
+            # Add suggestion if available
+            if 'suggestion' in result:
+                error_text += f"\n\n💡 Suggestion:\n{result['suggestion']}"
+            
+            # Add help command if available
+            if 'help_command' in result:
+                error_text += f"\n\n🔧 Quick fix:\n{result['help_command']}"
+            
+            # Add technical details if available
+            if 'technical_details' in result:
+                error_text += f"\n\n🔍 Technical details:\n{result['technical_details']}"
+            
             console.print(
                 Panel.fit(
-                    f"❌ Failed to start service!\n\nError: {result['error']}",
+                    error_text,
                     title="Start Error",
                     style="red",
                 )
