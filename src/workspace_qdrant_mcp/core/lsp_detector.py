@@ -16,6 +16,15 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Dict, List, Optional, Set, Tuple
 
+# Import configuration management
+try:
+    from .lsp_config import get_default_config, get_default_cache, LSPCacheEntry
+except ImportError:
+    # Fallback if config module is not available
+    get_default_config = None
+    get_default_cache = None
+    LSPCacheEntry = None
+
 logger = logging.getLogger(__name__)
 
 
@@ -195,18 +204,40 @@ class LSPDetector:
         }
     }
     
-    def __init__(self, cache_ttl: int = 300, detection_timeout: float = 5.0):
+    def __init__(self, cache_ttl: int = 300, detection_timeout: float = 5.0, config_file: Optional[str] = None):
         """
         Initialize LSP detector.
         
         Args:
-            cache_ttl: Cache time-to-live in seconds
-            detection_timeout: Timeout for binary detection calls in seconds
+            cache_ttl: Cache time-to-live in seconds (overridden by config if available)
+            detection_timeout: Timeout for binary detection calls in seconds (overridden by config)
+            config_file: Optional path to configuration file
         """
+        # Initialize with defaults
         self.cache_ttl = cache_ttl
         self.detection_timeout = detection_timeout
         self._cached_result: Optional[LSPDetectionResult] = None
         self._last_scan_time: float = 0.0
+        
+        # Try to load configuration
+        self.config = None
+        self.cache = None
+        
+        if get_default_config is not None:
+            try:
+                self.config = get_default_config(config_file)
+                # Override defaults with config values
+                self.cache_ttl = self.config.cache_ttl
+                self.detection_timeout = self.config.detection_timeout
+                
+                # Initialize cache if available
+                if get_default_cache is not None:
+                    self.cache = get_default_cache()
+                    
+                logger.debug("LSP detector initialized with configuration management")
+            except Exception as e:
+                logger.warning(f"Failed to initialize LSP configuration: {e}")
+                # Continue with defaults
     
     def _is_cache_valid(self) -> bool:
         """Check if cached detection result is still valid."""
@@ -214,6 +245,41 @@ class LSPDetector:
             return False
         return (time.time() - self._last_scan_time) < self.cache_ttl
     
+    def _load_from_persistent_cache(self) -> Optional[LSPDetectionResult]:
+        """Load detection result from persistent cache if valid."""
+        if not self.cache:
+            return None
+        
+        try:
+            result = LSPDetectionResult()
+            valid_entries = 0
+            
+            for lsp_name in self.LSP_EXTENSION_MAP.keys():
+                cache_entry = self.cache.get(lsp_name, self.cache_ttl)
+                if cache_entry:
+                    server_info = LSPServerInfo(
+                        name=cache_entry.lsp_name,
+                        binary_path=cache_entry.binary_path,
+                        version=cache_entry.version,
+                        supported_extensions=cache_entry.supported_extensions,
+                        priority=cache_entry.priority,
+                        capabilities=cache_entry.capabilities,
+                        detection_time=cache_entry.detection_time
+                    )
+                    result.detected_lsps[lsp_name] = server_info
+                    valid_entries += 1
+            
+            if valid_entries > 0:
+                result.scan_time = time.time()
+                result.scan_duration = 0.0  # From cache
+                logger.debug(f"Loaded {valid_entries} LSPs from persistent cache")
+                return result
+            
+        except Exception as e:
+            logger.warning(f"Failed to load from persistent cache: {e}")
+        
+        return None
+
     def _check_binary_exists(self, binary_name: str) -> Optional[str]:
         """
         Check if a binary exists in PATH using subprocess with timeout.
@@ -289,7 +355,7 @@ class LSPDetector:
     
     def scan_available_lsps(self, force_refresh: bool = False) -> LSPDetectionResult:
         """
-        Scan PATH for available LSP servers.
+        Scan PATH for available LSP servers, using persistent cache when available.
         
         Args:
             force_refresh: Force rescan even if cache is valid
@@ -297,9 +363,19 @@ class LSPDetector:
         Returns:
             LSPDetectionResult containing detected LSP servers
         """
+        # Check memory cache first
         if not force_refresh and self._is_cache_valid():
             logger.debug("Using cached LSP detection result")
             return self._cached_result
+        
+        # Check persistent cache if available
+        if not force_refresh and self.cache is not None:
+            cached_result = self._load_from_persistent_cache()
+            if cached_result:
+                logger.debug("Using persistent cached LSP detection result")
+                self._cached_result = cached_result
+                self._last_scan_time = time.time()
+                return cached_result
         
         logger.info("Scanning for available LSP servers...")
         start_time = time.time()
@@ -307,48 +383,93 @@ class LSPDetector:
         result = LSPDetectionResult()
         
         for lsp_name, lsp_info in self.LSP_EXTENSION_MAP.items():
-            # Try all alternative names for this LSP
-            for binary_name in lsp_info['alternative_names']:
-                binary_path = self._check_binary_exists(binary_name)
-                if binary_path:
-                    # Get version information
-                    version = self._get_lsp_version(binary_path, lsp_name)
-                    
-                    # Create LSPServerInfo
-                    server_info = LSPServerInfo(
-                        name=lsp_name,
+            # Check if LSP is enabled in configuration
+            if self.config and not self.config.is_lsp_enabled(lsp_name):
+                logger.debug(f"LSP {lsp_name} is disabled in configuration, skipping")
+                continue
+            
+            # Check for custom binary path first
+            custom_path = None
+            if self.config:
+                custom_path = self.config.get_lsp_binary_path(lsp_name)
+            
+            binary_path = None
+            if custom_path:
+                # Use custom path if configured
+                if self._check_binary_exists(custom_path):
+                    binary_path = custom_path
+                    logger.debug(f"Using custom path for {lsp_name}: {custom_path}")
+                else:
+                    logger.warning(f"Custom path for {lsp_name} not found: {custom_path}")
+            else:
+                # Try all alternative names for this LSP
+                for binary_name in lsp_info['alternative_names']:
+                    binary_path = self._check_binary_exists(binary_name)
+                    if binary_path:
+                        break  # Found this LSP, no need to check other names
+            
+            if binary_path:
+                # Get version information
+                version = self._get_lsp_version(binary_path, lsp_name)
+                
+                # Create LSPServerInfo
+                server_info = LSPServerInfo(
+                    name=lsp_name,
+                    binary_path=binary_path,
+                    version=version,
+                    supported_extensions=lsp_info['extensions'].copy(),
+                    priority=lsp_info['priority'],
+                    capabilities=lsp_info['capabilities'].copy()
+                )
+                
+                result.detected_lsps[lsp_name] = server_info
+                logger.info(f"Detected LSP: {lsp_name} at {binary_path}")
+                
+                # Store in persistent cache if available
+                if self.cache and LSPCacheEntry:
+                    cache_entry = LSPCacheEntry(
+                        lsp_name=lsp_name,
                         binary_path=binary_path,
                         version=version,
                         supported_extensions=lsp_info['extensions'].copy(),
                         priority=lsp_info['priority'],
                         capabilities=lsp_info['capabilities'].copy()
                     )
-                    
-                    result.detected_lsps[lsp_name] = server_info
-                    logger.info(f"Detected LSP: {lsp_name} at {binary_path}")
-                    break  # Found this LSP, no need to check other names
+                    self.cache.set(lsp_name, cache_entry)
         
         result.scan_duration = time.time() - start_time
         
-        # Cache the result
+        # Cache the result in memory
         self._cached_result = result
         self._last_scan_time = time.time()
         
         logger.info(f"LSP scan completed in {result.scan_duration:.2f}s, found {len(result.detected_lsps)} LSPs")
         return result
     
-    def get_supported_extensions(self, force_refresh: bool = False, include_fallbacks: bool = True) -> List[str]:
+    def get_supported_extensions(self, force_refresh: bool = False, include_fallbacks: Optional[bool] = None) -> List[str]:
         """
         Get list of file extensions supported by detected LSP servers.
         
         Args:
             force_refresh: Force rescan of LSP servers
-            include_fallbacks: Include fallback extensions and build tools
+            include_fallbacks: Include fallback extensions and build tools (uses config default if None)
             
         Returns:
             List of file extensions (including the dot)
         """
         detection_result = self.scan_available_lsps(force_refresh)
+        
+        # Use configuration values if not explicitly specified
+        if include_fallbacks is None:
+            include_fallbacks = True  # Default
+            if self.config:
+                include_fallbacks = self.config.include_fallbacks
+        
+        include_build_tools = True
+        include_infrastructure = True
+        if self.config:
+            include_build_tools = self.config.include_build_tools
+            include_infrastructure = self.config.include_infrastructure
         
         # Start with essential extensions
         extensions = set(self.ESSENTIAL_EXTENSIONS)
@@ -369,13 +490,15 @@ class LSPDetector:
                 if not any(ext in detected_extensions for ext in fallback_exts):
                     extensions.update(fallback_exts)
             
-            # Add build tool extensions
-            for tool_exts in self.BUILD_TOOL_EXTENSIONS.values():
-                extensions.update(tool_exts)
+            # Add build tool extensions if enabled
+            if include_build_tools:
+                for tool_exts in self.BUILD_TOOL_EXTENSIONS.values():
+                    extensions.update(tool_exts)
             
-            # Add infrastructure extensions
-            for infra_exts in self.INFRASTRUCTURE_EXTENSIONS.values():
-                extensions.update(infra_exts)
+            # Add infrastructure extensions if enabled
+            if include_infrastructure:
+                for infra_exts in self.INFRASTRUCTURE_EXTENSIONS.values():
+                    extensions.update(infra_exts)
         
         return sorted(list(extensions))
     
