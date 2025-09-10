@@ -24,20 +24,28 @@ from ...core.memory import (
 )
 from ...core.ssl_config import get_ssl_manager
 from ...observability import get_logger
+from ..formatting import (
+    create_data_table,
+    display_operation_result,
+    display_table_or_empty,
+    error_panel,
+    format_rule_summary,
+    info_panel,
+    simple_error,
+    simple_info,
+    simple_success,
+    success_panel,
+)
 from ..utils import (
     CLIError,
     confirm,
     create_command_app,
-    error_message,
     force_option,
-    format_table,
     handle_async,
     handle_cli_error,
     json_output_option,
     prompt_input,
-    success_message,
     verbose_option,
-    warning_message,
 )
 
 logger = get_logger(__name__)
@@ -210,43 +218,38 @@ async def _list_memory_rules(
 
             logger.info("Output", data=json.dumps(rules_data, indent=2))
         else:
-            # Display in table format
+            # Display in Rich table format
             if not rules:
-                print("No memory rules found.")
+                simple_info("No memory rules found.")
                 return
 
-            # Format as plain text table
-            headers = ["ID", "Category", "Name", "Authority", "Rule", "Scope"]
-            table_rows = []
+            # Create Rich table
+            table = create_data_table(
+                f"Memory Rules ({len(rules)} found)",
+                ["ID", "Category", "Name", "Authority", "Rule", "Scope"]
+            )
 
             for rule in rules:
                 scope_text = ", ".join(rule.scope) if rule.scope else "-"
                 rule_text = rule.rule[:47] + "..." if len(rule.rule) > 50 else rule.rule
 
-                table_rows.append(
-                    [
-                        rule.id[-8:],  # Show last 8 chars of ID
-                        rule.category.value,
-                        rule.name,
-                        rule.authority.value,
-                        rule_text,
-                        scope_text,
-                    ]
+                table.add_row(
+                    rule.id[-8:],  # Show last 8 chars of ID
+                    rule.category.value,
+                    rule.name,
+                    rule.authority.value,
+                    rule_text,
+                    scope_text,
                 )
 
-            table_output = format_table(
-                headers, table_rows, f"Memory Rules ({len(rules)} found)"
-            )
-            print(table_output)
+            display_table_or_empty(table, "No memory rules found.")
 
             # Show summary
             stats = await memory_manager.get_memory_stats()
-            print(
-                f"\nTotal: {stats.total_rules} rules, ~{stats.estimated_tokens} tokens"
-            )
+            simple_info(format_rule_summary(stats.total_rules, stats.estimated_tokens))
 
     except Exception as e:
-        print(f"Error listing memory rules: {e}")
+        error_panel(f"Failed to list memory rules: {e}")
         raise typer.Exit(1)
 
 
@@ -276,18 +279,17 @@ async def _add_memory_rule(
 
         # Interactive mode for collecting details
         if interactive:
-            print("Add Memory Rule")
-            print("Enter details for the new memory rule.\n")
+            info_panel("Enter details for the new memory rule.", "Add Memory Rule")
 
             # Get rule text if not provided
             if not rule:
                 rule = prompt_input("Rule text")
             else:
-                print(f"Rule text: {rule}")
+                simple_info(f"Rule text: {rule}")
 
             if not category:
                 category_choices = [c.value for c in MemoryCategory]
-                print(f"Category choices: {', '.join(category_choices)}")
+                simple_info(f"Category choices: {', '.join(category_choices)}")
                 category = prompt_input("Category", "preference")
 
             # Generate name from rule if not provided
@@ -295,7 +297,7 @@ async def _add_memory_rule(
 
             if authority not in [a.value for a in AuthorityLevel]:
                 authority_choices = [a.value for a in AuthorityLevel]
-                print(f"Authority level choices: {', '.join(authority_choices)}")
+                simple_info(f"Authority level choices: {', '.join(authority_choices)}")
                 authority = prompt_input("Authority level", "default")
 
             if not scope:
@@ -324,15 +326,18 @@ async def _add_memory_rule(
             source="cli_user",
         )
 
-        print(f" Added memory rule with ID: {rule_id}")
-        print(f"  Name: {name}")
-        print(f"  Category: {category_enum.value}")
-        print(f"  Authority: {authority_enum.value}")
+        # Format success message
+        success_msg = f"Added memory rule with ID: {rule_id}\n\n"
+        success_msg += f"Name: {name}\n"
+        success_msg += f"Category: {category_enum.value}\n"
+        success_msg += f"Authority: {authority_enum.value}"
         if scope_list:
-            print(f"  Scope: {', '.join(scope_list)}")
+            success_msg += f"\nScope: {', '.join(scope_list)}"
+        
+        success_panel(success_msg, "Memory Rule Added")
 
     except Exception as e:
-        print(f"Error adding memory rule: {e}")
+        error_panel(f"Failed to add memory rule: {e}")
         raise typer.Exit(1)
 
 
@@ -354,11 +359,10 @@ async def _edit_memory_rule(rule_id: str):
         # Get existing rule
         rule = await memory_manager.get_memory_rule(rule_id)
         if not rule:
-            print(f"Memory rule {rule_id} not found.")
+            error_panel(f"Memory rule {rule_id} not found.")
             raise typer.Exit(1)
 
-        print(f"Edit Memory Rule: {rule.name}")
-        print(f"Current rule: {rule.rule}\n")
+        info_panel(f"Editing rule: {rule.name}\nCurrent rule: {rule.rule}", "Edit Memory Rule")
 
         # Collect updates
         updates = {}
@@ -385,28 +389,33 @@ async def _edit_memory_rule(rule_id: str):
             updates["scope"] = new_scope_list
 
         if not updates:
-            print("No changes made.")
+            simple_info("No changes made.")
             return
 
-        # Confirm changes
-        print("\nProposed changes:")
+        # Show proposed changes
+        changes_text = "Proposed changes:\n"
         for key, value in updates.items():
-            print(f"  {key}: {getattr(rule, key)} → {value}")
+            changes_text += f"  {key}: {getattr(rule, key)} → {value}\n"
+        
+        info_panel(changes_text.strip(), "Proposed Changes")
 
-        if not confirm("\nApply changes?"):
-            print("Changes cancelled.")
+        if not confirm("Apply changes?"):
+            simple_info("Changes cancelled.")
             return
 
         # Apply updates
         success = await memory_manager.update_memory_rule(rule_id, updates)
 
-        if success:
-            print(f" Updated memory rule {rule_id}")
-        else:
-            print(f"Failed to update memory rule {rule_id}")
+        display_operation_result(
+            success,
+            f"Updated memory rule {rule_id}",
+            f"Failed to update memory rule {rule_id}",
+            "Rule Updated",
+            "Update Failed"
+        )
 
     except Exception as e:
-        print(f"Error editing memory rule: {e}")
+        error_panel(f"Failed to edit memory rule: {e}")
         raise typer.Exit(1)
 
 
@@ -428,31 +437,35 @@ async def _remove_memory_rule(rule_id: str, force: bool):
         # Get rule details for confirmation
         rule = await memory_manager.get_memory_rule(rule_id)
         if not rule:
-            print(f"Memory rule {rule_id} not found.")
+            error_panel(f"Memory rule {rule_id} not found.")
             raise typer.Exit(1)
 
         # Confirm deletion
         if not force:
-            print("Remove Memory Rule")
-            print(f"ID: {rule.id}")
-            print(f"Name: {rule.name}")
-            print(f"Rule: {rule.rule}")
-            print(f"Authority: {rule.authority.value}")
+            rule_details = f"ID: {rule.id}\n"
+            rule_details += f"Name: {rule.name}\n"
+            rule_details += f"Rule: {rule.rule}\n"
+            rule_details += f"Authority: {rule.authority.value}"
+            
+            info_panel(rule_details, "Remove Memory Rule")
 
-            if not confirm("\nAre you sure you want to delete this rule?"):
-                print("Deletion cancelled.")
+            if not confirm("Are you sure you want to delete this rule?"):
+                simple_info("Deletion cancelled.")
                 return
 
         # Delete the rule
         success = await memory_manager.delete_memory_rule(rule_id)
 
-        if success:
-            print(f" Deleted memory rule {rule_id}")
-        else:
-            print(f"Failed to delete memory rule {rule_id}")
+        display_operation_result(
+            success,
+            f"Deleted memory rule {rule_id}",
+            f"Failed to delete memory rule {rule_id}",
+            "Rule Deleted",
+            "Deletion Failed"
+        )
 
     except Exception as e:
-        print(f"Error removing memory rule: {e}")
+        error_panel(f"Failed to remove memory rule: {e}")
         raise typer.Exit(1)
 
 
