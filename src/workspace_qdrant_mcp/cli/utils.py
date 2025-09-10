@@ -279,20 +279,23 @@ def create_command_app(
     )
 
 
-# Success/info message formatting
+# Success/info message formatting (using Rich for consistency)
 def success_message(message: str) -> None:
     """Print a success message to stdout."""
-    print(f"✓ {message}")
+    from .formatting import simple_success
+    simple_success(message)
 
 
 def info_message(message: str) -> None:
     """Print an info message to stdout."""
-    print(f"ℹ {message}")
+    from .formatting import simple_info
+    simple_info(message)
 
 
 def warning_message(message: str) -> None:
     """Print a warning message to stderr."""
-    print(f"⚠ {message}", file=sys.stderr)
+    from .formatting import simple_warning
+    simple_warning(message)
 
 
 def show_service_restart_notification(reason: str = "configuration changes") -> None:
@@ -360,7 +363,8 @@ def show_service_restart_help() -> None:
 
 def error_message(message: str) -> None:
     """Print an error message to stderr."""
-    print(f"✗ {message}", file=sys.stderr)
+    from .formatting import simple_error
+    simple_error(message)
 
 
 # Configuration change tracking
