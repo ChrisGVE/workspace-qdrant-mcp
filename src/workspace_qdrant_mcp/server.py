@@ -896,7 +896,7 @@ async def configure_watch_settings(
         ignore_patterns: New file patterns to ignore (optional)
         auto_ingest: Enable/disable automatic ingestion (optional)
         recursive: Enable/disable recursive watching (optional)
-        recursive_depth: Set maximum recursive depth (optional)
+        recursive_depth: Set maximum recursive depth: 0=current only, 3=shallow, 10=deep, -1=unlimited (optional)
         debounce_seconds: Set debounce delay in seconds (optional)
         update_frequency: Set check frequency in milliseconds (optional)
         status: Set watch status: 'active', 'paused', 'disabled' (optional)
@@ -917,6 +917,12 @@ async def configure_watch_settings(
             watch_id="docs-watch",
             patterns=["*.pdf", "*.epub"],
             debounce_seconds=15
+        )
+        
+        # Configure depth for performance optimization
+        result = await configure_watch_settings(
+            watch_id="large-project",
+            recursive_depth=5  # Limit to 5 levels for better performance
         )
         ```
     """
