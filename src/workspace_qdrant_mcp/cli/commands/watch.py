@@ -35,7 +35,8 @@ Configure automatic folder watching for library collections.
     
 Examples:
     wqm watch list                      # Show all watch configurations
-    wqm watch add ~/docs --collection=docs  # Watch folder for changes
+    wqm watch add ~/docs --collection=docs --depth=5  # Watch folder for changes
+    wqm watch configure watch_id --depth=10  # Change watch depth
     wqm watch remove ~/docs             # Stop watching folder
     wqm watch status                    # Show watch service status
     wqm watch enable --name=docs-watch  # Enable specific watch""",
@@ -153,6 +154,20 @@ def resume_watches(
     handle_async(_resume_watches(path, collection, all))
 
 
+@watch_app.command("configure")
+def configure_watch(
+    watch_id: str = typer.Argument(..., help="Watch ID or path to configure"),
+    depth: int | None = typer.Option(None, "--depth", help="Maximum directory depth to watch (-1 for unlimited)"),
+    patterns: list[str] | None = typer.Option(None, "--pattern", "-p", help="File patterns to watch"),
+    ignore: list[str] | None = typer.Option(None, "--ignore", "-i", help="Ignore patterns"),
+    auto_ingest: bool | None = typer.Option(None, "--auto/--no-auto", help="Enable/disable automatic ingestion"),
+    recursive: bool | None = typer.Option(None, "--recursive/--no-recursive", help="Enable/disable recursive watching"),
+    debounce: int | None = typer.Option(None, "--debounce", help="Debounce time in seconds"),
+):
+    """Configure an existing watch."""
+    handle_async(_configure_watch(watch_id, depth, patterns, ignore, auto_ingest, recursive, debounce))
+
+
 @watch_app.command("sync")
 def sync_watched_folders(
     path: str | None = typer.Argument(None, help="Specific path to sync"),
@@ -164,6 +179,106 @@ def sync_watched_folders(
 
 
 # Async implementation functions
+async def _configure_watch(
+    watch_id: str,
+    depth: int | None,
+    patterns: list[str] | None,
+    ignore: list[str] | None,
+    auto_ingest: bool | None,
+    recursive: bool | None,
+    debounce: int | None,
+):
+    """Configure an existing watch."""
+    try:
+        client = await _get_daemon_client()
+        
+        try:
+            # First, validate that the watch exists
+            watches_response = await client.list_watches(active_only=False)
+            watches = watches_response.watches
+            
+            # Find the watch by ID or path
+            target_watch = None
+            for watch in watches:
+                if watch.watch_id == watch_id or Path(watch.path) == Path(watch_id).resolve():
+                    target_watch = watch
+                    break
+            
+            if not target_watch:
+                print(f"Error: No watch found with ID or path: {watch_id}")
+                raise typer.Exit(1)
+            
+            # Validate depth parameter if provided
+            if depth is not None and depth < -1:
+                print(f"Error: Depth must be -1 (unlimited) or a non-negative integer, got: {depth}")
+                raise typer.Exit(1)
+            
+            # Build configuration parameters
+            config_params = {}
+            if depth is not None:
+                config_params['recursive_depth'] = depth
+            if patterns is not None:
+                config_params['patterns'] = patterns
+            if ignore is not None:
+                config_params['ignore_patterns'] = ignore
+            if auto_ingest is not None:
+                config_params['auto_ingest'] = auto_ingest
+            if recursive is not None:
+                config_params['recursive'] = recursive
+            if debounce is not None:
+                config_params['debounce_seconds'] = debounce
+            
+            if not config_params:
+                print("Error: No configuration parameters provided")
+                print("Use --help to see available options")
+                raise typer.Exit(1)
+            
+            print(f"Configuring watch: {target_watch.watch_id}")
+            print(f"Path: {target_watch.path}")
+            print(f"Collection: {target_watch.collection}")
+            
+            # Apply configuration
+            response = await client.configure_watch(
+                watch_id=target_watch.watch_id,
+                **config_params
+            )
+            
+            if response.success:
+                print("\nConfiguration updated successfully!")
+                
+                # Show what was changed
+                print("\nUpdated Settings:")
+                if depth is not None:
+                    depth_str = "Unlimited" if depth == -1 else str(depth)
+                    print(f"  Depth: {depth_str}")
+                if patterns is not None:
+                    print(f"  Patterns: {', '.join(patterns)}")
+                if ignore is not None:
+                    print(f"  Ignore patterns: {', '.join(ignore)}")
+                if auto_ingest is not None:
+                    print(f"  Auto-ingest: {'Enabled' if auto_ingest else 'Disabled'}")
+                if recursive is not None:
+                    print(f"  Recursive: {'Yes' if recursive else 'No'}")
+                if debounce is not None:
+                    print(f"  Debounce: {debounce} seconds")
+                
+                # Show performance warning for unlimited depth
+                if depth == -1:
+                    print("\n⚠️  Warning: Unlimited depth may impact performance on large directory structures")
+                    print("   Consider using a specific depth limit for better performance")
+                
+            else:
+                print(f"Error: Failed to configure watch: {response.message}")
+                raise typer.Exit(1)
+            
+        finally:
+            await client.disconnect()
+    
+    except Exception as e:
+        print(f"Error: Failed to configure watch: {e}")
+        raise typer.Exit(1)
+
+
 async def _add_watch(
     path: str,
     collection: str,
