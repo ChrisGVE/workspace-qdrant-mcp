@@ -208,6 +208,9 @@ project_path = "{}"
         # Always include config file
         daemon_args.extend(["--config", str(config_file)])
         daemon_args.extend(["--log-level", log_level])
+        # Add launchd-specific PID file to avoid conflicts with manual instances
+        launchd_pid_file = f"/tmp/memexd-launchd.pid"
+        daemon_args.extend(["--pid-file", launchd_pid_file])
         # Add foreground mode for user services (launchd manages the process)
         daemon_args.append("--foreground")
 
@@ -599,26 +602,141 @@ WantedBy=default.target
             return {"success": False, "error": f"Failed to start service: {e}"}
 
     async def _start_macos_service(self) -> Dict[str, Any]:
-        """Start macOS service."""
+        """Start macOS service with comprehensive cleanup and validation."""
         service_id = f"com.workspace-qdrant-mcp.{self.service_name}"
 
-        cmd = ["launchctl", "start", service_id]
-        result = await asyncio.create_subprocess_exec(
-            *cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE
-        )
-        stdout, stderr = await result.communicate()
+        try:
+            # Step 1: Clean up any stale resources before starting
+            await self._cleanup_service_resources()
 
-        if result.returncode != 0:
+            # Step 2: Give resources time to fully clean up
+            await asyncio.sleep(1)
+
+            # Step 3: Start the service
+            cmd = ["launchctl", "start", service_id]
+            result = await asyncio.create_subprocess_exec(
+                *cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE
+            )
+            stdout, stderr = await result.communicate()
+
+            if result.returncode != 0:
+                error_msg = stderr.decode().strip()
+                # Enhanced error reporting with diagnostic information
+                logger.debug(f"launchctl start failed: {error_msg}")
+                
+                # Check if the service is actually running despite the error
+                status_check = await self._get_macos_service_status()
+                if status_check.get("status") == "running":
+                    return {
+                        "success": True,
+                        "service_id": service_id,
+                        "message": f"Service {service_id} is running (launchctl reported error but service is active)",
+                        "warning": f"launchctl start returned error but service is running: {error_msg}"
+                    }
+                
+                return {
+                    "success": False,
+                    "error": f"Failed to start service: {error_msg}",
+                    "debug_info": {
+                        "service_id": service_id,
+                        "returncode": result.returncode,
+                        "stdout": stdout.decode().strip(),
+                        "stderr": error_msg
+                    }
+                }
+
+            # Step 4: Verify the service actually started
+            await asyncio.sleep(2)  # Give service time to initialize
+            status_check = await self._get_macos_service_status()
+            
+            if status_check.get("status") == "running":
+                return {
+                    "success": True,
+                    "service_id": service_id,
+                    "message": f"Service {service_id} started successfully and is running",
+                    "status": status_check
+                }
+            else:
+                return {
+                    "success": False,
+                    "error": f"Service started but is not running. Status: {status_check.get('status', 'unknown')}",
+                    "debug_info": status_check
+                }
+
+        except Exception as e:
+            logger.error(f"Exception in _start_macos_service: {e}")
             return {
                 "success": False,
-                "error": f"Failed to start service: {stderr.decode()}",
+                "error": f"Exception starting service: {e}",
             }
 
-        return {
-            "success": True,
-            "service_id": service_id,
-            "message": f"Service {service_id} started successfully",
-        }
+    async def _cleanup_service_resources(self) -> None:
+        """Clean up stale service resources before starting."""
+        try:
+            # Clean up any stale PID files
+            pid_files = ["/tmp/memexd.pid", "/tmp/memexd-launchd.pid", "/tmp/memexd-manual.pid"]
+            for pid_file in pid_files:
+                if Path(pid_file).exists():
+                    try:
+                        # Check if the PID in the file is still a running memexd process
+                        with open(pid_file, 'r') as f:
+                            pid_str = f.read().strip()
+                            if pid_str.isdigit():
+                                pid = int(pid_str)
+                                
+                                # Check if process exists and is memexd
+                                check_cmd = ["ps", "-p", str(pid), "-o", "comm="]
+                                result = await asyncio.create_subprocess_exec(
+                                    *check_cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE
+                                )
+                                stdout, _ = await result.communicate()
+                                
+                                if result.returncode == 0 and b"memexd" in stdout:
+                                    logger.info(f"Found running memexd process {pid}, killing it")
+                                    kill_cmd = ["kill", "-TERM", str(pid)]
+                                    await asyncio.create_subprocess_exec(*kill_cmd)
+                                    await asyncio.sleep(1)  # Give it time to terminate
+                                
+                                # Remove the stale PID file
+                                Path(pid_file).unlink()
+                                logger.debug(f"Removed stale PID file: {pid_file}")
+                    
+                    except (ValueError, OSError) as e:
+                        logger.debug(f"Error cleaning PID file {pid_file}: {e}")
+                        # Remove malformed PID file
+                        try:
+                            Path(pid_file).unlink()
+                        except OSError:
+                            pass
+
+            # Clean up any zombie memexd processes
+            try:
+                # Find all memexd processes
+                pgrep_cmd = ["pgrep", "-f", "memexd"]
+                result = await asyncio.create_subprocess_exec(
+                    *pgrep_cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE
+                )
+                stdout, _ = await result.communicate()
+                
+                if result.returncode == 0:
+                    pids = stdout.decode().strip().split('\n')
+                    for pid_str in pids:
+                        if pid_str.strip().isdigit():
+                            pid = int(pid_str.strip())
+                            logger.debug(f"Terminating memexd process {pid}")
+                            kill_cmd = ["kill", "-TERM", str(pid)]
+                            await asyncio.create_subprocess_exec(*kill_cmd)
+                    
+                    if pids and pids[0].strip():
+                        logger.info(f"Terminated {len([p for p in pids if p.strip()])} stale memexd processes")
+                        # Give processes time to clean up
+                        await asyncio.sleep(2)
+                
+            except Exception as e:
+                logger.debug(f"Error cleaning up processes: {e}")
+
+        except Exception as e:
+            logger.error(f"Error in resource cleanup: {e}")
 
     async def _start_linux_service(self) -> Dict[str, Any]:
         """Start Linux service."""
@@ -742,6 +860,8 @@ WantedBy=default.target
         # Get service info if loaded
         status = "unknown"
         pid = None
+        launchd_running = False
+        
         if service_loaded:
             # Extract PID and status from launchctl list output
             for line in output.split("\n"):
@@ -753,19 +873,67 @@ WantedBy=default.target
                             if pid_str != "-":
                                 pid = int(pid_str)
                                 status = "running"
+                                launchd_running = True
                             else:
                                 status = "stopped"
                         except ValueError:
                             status = "error"
                     break
 
+        # If not running via launchd, check for manually running processes
+        if not launchd_running:
+            try:
+                # Check for any memexd processes
+                cmd = ["pgrep", "-f", "memexd"]
+                result = await asyncio.create_subprocess_exec(
+                    *cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE
+                )
+                stdout, stderr = await result.communicate()
+                
+                if result.returncode == 0 and stdout.strip():
+                    # Found running memexd processes, check if they're using launchd PID file
+                    pids = [int(p.strip()) for p in stdout.decode().split('\n') if p.strip()]
+                    if pids:
+                        # Check if any process is using the launchd PID file
+                        launchd_pid_file = "/tmp/memexd-launchd.pid"
+                        manual_pids = []
+                        
+                        for process_pid in pids:
+                            # Check PID file content to determine if it's a launchd process
+                            try:
+                                if Path(launchd_pid_file).exists():
+                                    launchd_file_pid = int(Path(launchd_pid_file).read_text().strip())
+                                    if process_pid == launchd_file_pid:
+                                        # This is actually a launchd process, update status
+                                        pid = process_pid
+                                        status = "running"
+                                        launchd_running = True
+                                        break
+                                manual_pids.append(process_pid)
+                            except (ValueError, FileNotFoundError):
+                                manual_pids.append(process_pid)
+                        
+                        if not launchd_running and manual_pids:
+                            pid = manual_pids[0]  # Use first manual PID found
+                            status = "running_manual" if service_loaded else "running"
+                        
+            except Exception:
+                # pgrep failed, continue with launchd status
+                pass
+                
+        # Set final status based on what we found
+        if not service_loaded and status == "unknown":
+            status = "not_loaded"
+
         return {
             "success": True,
             "service_id": service_id,
-            "status": "loaded" if service_loaded else "not_loaded",
-            "running": status == "running",
+            "status": status if service_loaded else "not_loaded",
+            "running": status in ["running", "running_manual"],
             "pid": pid,
             "platform": "macOS",
+            "loaded": service_loaded,
+            "launchd_running": launchd_running,
         }
 
     async def _get_linux_service_status(self) -> Dict[str, Any]:
@@ -1216,11 +1384,16 @@ def get_status(
 
             # Status with color coding
             if running:
-                status_text = Text("Running", style="green")
+                if status == "running_manual":
+                    status_text = Text("Running (Manual)", style="green")
+                else:
+                    status_text = Text("Running", style="green")
             elif status == "stopped":
                 status_text = Text("Stopped", style="yellow")
             elif status == "failed":
                 status_text = Text("Failed", style="red")
+            elif status == "not_loaded":
+                status_text = Text("Not Loaded", style="dim")
             else:
                 status_text = Text(status.title(), style="dim")
 
