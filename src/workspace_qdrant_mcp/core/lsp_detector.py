@@ -48,6 +48,77 @@ class LSPDetector:
     and maintains mappings to file extensions.
     """
     
+    # Essential extensions that should always be watched regardless of LSP availability
+    ESSENTIAL_EXTENSIONS = [
+        '.md', '.txt', '.rst', '.adoc',  # Documentation
+        '.json', '.yaml', '.yml', '.toml', '.xml', '.ini', '.cfg',  # Configuration
+        '.sh', '.bash', '.zsh', '.fish', '.ps1', '.bat', '.cmd',  # Scripts
+        '.sql', '.sqlite', '.db',  # Database
+        '.log', '.csv', '.tsv',  # Data files
+        '.dockerfile', 'Dockerfile', 'docker-compose.yml', 'docker-compose.yaml',  # Docker
+        '.gitignore', '.gitattributes', 'LICENSE', 'README*',  # Project files
+    ]
+    
+    # Build tool and configuration file patterns
+    BUILD_TOOL_EXTENSIONS = {
+        'make': ['.mk', 'Makefile', 'makefile', 'GNUmakefile'],
+        'cmake': ['.cmake', 'CMakeLists.txt', '*.cmake.in'],
+        'gradle': ['build.gradle', 'build.gradle.kts', 'gradle.properties', 'settings.gradle'],
+        'maven': ['pom.xml', '*.pom'],
+        'npm': ['package.json', 'package-lock.json', '.npmrc'],
+        'yarn': ['yarn.lock', '.yarnrc', '.yarnrc.yml'],
+        'pip': ['requirements.txt', 'requirements-*.txt', 'setup.py', 'pyproject.toml', 'Pipfile', 'Pipfile.lock'],
+        'cargo': ['Cargo.toml', 'Cargo.lock'],
+        'composer': ['composer.json', 'composer.lock'],
+        'bundler': ['Gemfile', 'Gemfile.lock', '*.gemspec'],
+        'go-modules': ['go.mod', 'go.sum'],
+        'deno': ['deno.json', 'deno.jsonc'],
+    }
+    
+    # Containerization and infrastructure patterns  
+    INFRASTRUCTURE_EXTENSIONS = {
+        'docker': ['Dockerfile*', 'docker-compose*.yml', 'docker-compose*.yaml', '.dockerignore'],
+        'kubernetes': ['*.k8s.yaml', '*.k8s.yml', 'kustomization.yaml', 'kustomization.yml'],
+        'terraform': ['*.tf', '*.tfvars', '*.hcl', 'terraform.tfstate*'],
+        'ansible': ['*.yml', '*.yaml', 'hosts', 'ansible.cfg'],
+        'vagrant': ['Vagrantfile'],
+        'helm': ['Chart.yaml', 'Chart.yml', 'values.yaml', 'values.yml'],
+    }
+    
+    # Fallback extensions for common languages when no LSP is available
+    LANGUAGE_FALLBACKS = {
+        'python': ['.py', '.pyi', '.pyx', '.pxd', '.pyw'],
+        'javascript': ['.js', '.jsx', '.mjs', '.cjs'],
+        'typescript': ['.ts', '.tsx', '.d.ts'],
+        'rust': ['.rs'],
+        'go': ['.go'],
+        'java': ['.java', '.jar', '.class'],
+        'c_cpp': ['.c', '.cpp', '.cc', '.cxx', '.c++', '.h', '.hpp', '.hxx', '.h++'],
+        'csharp': ['.cs', '.csx', '.cake'],
+        'php': ['.php', '.php3', '.php4', '.php5', '.phtml'],
+        'ruby': ['.rb', '.rbw', '.rake', '.gemspec'],
+        'swift': ['.swift'],
+        'kotlin': ['.kt', '.kts'],
+        'scala': ['.scala', '.sc'],
+        'lua': ['.lua'],
+        'perl': ['.pl', '.pm', '.t', '.pod'],
+        'r': ['.r', '.R', '.rmd', '.Rmd'],
+        'matlab': ['.m', '.mlx'],
+        'julia': ['.jl'],
+        'dart': ['.dart'],
+        'elixir': ['.ex', '.exs'],
+        'erlang': ['.erl', '.hrl'],
+        'haskell': ['.hs', '.lhs'],
+        'ocaml': ['.ml', '.mli', '.mll', '.mly'],
+        'fsharp': ['.fs', '.fsi', '.fsx'],
+        'clojure': ['.clj', '.cljs', '.cljc', '.edn'],
+        'zig': ['.zig'],
+        'nim': ['.nim', '.nims'],
+        'crystal': ['.cr'],
+        'v': ['.v'],
+        'odin': ['.odin'],
+    }
+    
     # Comprehensive mapping of LSP servers to file extensions
     LSP_EXTENSION_MAP = {
         'rust-analyzer': {
@@ -266,22 +337,45 @@ class LSPDetector:
         logger.info(f"LSP scan completed in {result.scan_duration:.2f}s, found {len(result.detected_lsps)} LSPs")
         return result
     
-    def get_supported_extensions(self, force_refresh: bool = False) -> List[str]:
+    def get_supported_extensions(self, force_refresh: bool = False, include_fallbacks: bool = True) -> List[str]:
         """
         Get list of file extensions supported by detected LSP servers.
         
         Args:
             force_refresh: Force rescan of LSP servers
+            include_fallbacks: Include fallback extensions and build tools
             
         Returns:
             List of file extensions (including the dot)
         """
         detection_result = self.scan_available_lsps(force_refresh)
         
-        # Collect all extensions from detected LSPs
-        extensions = set()
+        # Start with essential extensions
+        extensions = set(self.ESSENTIAL_EXTENSIONS)
+        
+        # Add extensions from detected LSPs
         for lsp_info in detection_result.detected_lsps.values():
             extensions.update(lsp_info.supported_extensions)
+        
+        if include_fallbacks:
+            # Add fallback extensions for languages without detected LSPs
+            detected_extensions = set()
+            for lsp_info in detection_result.detected_lsps.values():
+                detected_extensions.update(lsp_info.supported_extensions)
+            
+            # Add fallbacks for languages that don't have LSPs detected
+            for language, fallback_exts in self.LANGUAGE_FALLBACKS.items():
+                # Check if any fallback extension is already covered by LSPs
+                if not any(ext in detected_extensions for ext in fallback_exts):
+                    extensions.update(fallback_exts)
+            
+            # Add build tool extensions
+            for tool_exts in self.BUILD_TOOL_EXTENSIONS.values():
+                extensions.update(tool_exts)
+            
+            # Add infrastructure extensions
+            for infra_exts in self.INFRASTRUCTURE_EXTENSIONS.values():
+                extensions.update(infra_exts)
         
         return sorted(list(extensions))
     
@@ -347,29 +441,117 @@ class LSPDetector:
         self._last_scan_time = 0.0
         logger.debug("LSP detection cache cleared")
     
+    def get_fallback_extensions_for_language(self, language: str) -> List[str]:
+        """
+        Get fallback extensions for a specific language.
+        
+        Args:
+            language: Language name (e.g., 'python', 'javascript')
+            
+        Returns:
+            List of fallback extensions for the language
+        """
+        return self.LANGUAGE_FALLBACKS.get(language, [])
+    
+    def get_build_tool_extensions(self) -> List[str]:
+        """
+        Get all build tool and configuration file extensions.
+        
+        Returns:
+            List of build tool related extensions
+        """
+        extensions = set()
+        for tool_exts in self.BUILD_TOOL_EXTENSIONS.values():
+            extensions.update(tool_exts)
+        return sorted(list(extensions))
+    
+    def get_infrastructure_extensions(self) -> List[str]:
+        """
+        Get all infrastructure and containerization file extensions.
+        
+        Returns:
+            List of infrastructure related extensions
+        """
+        extensions = set()
+        for infra_exts in self.INFRASTRUCTURE_EXTENSIONS.values():
+            extensions.update(infra_exts)
+        return sorted(list(extensions))
+    
+    def get_extensions_by_category(self) -> Dict[str, List[str]]:
+        """
+        Get extensions organized by category.
+        
+        Returns:
+            Dictionary with categories as keys and extension lists as values
+        """
+        detection_result = self.scan_available_lsps()
+        
+        categories = {
+            'lsp_supported': [],
+            'essential': list(self.ESSENTIAL_EXTENSIONS),
+            'build_tools': self.get_build_tool_extensions(),
+            'infrastructure': self.get_infrastructure_extensions(),
+            'language_fallbacks': []
+        }
+        
+        # Get LSP supported extensions
+        for lsp_info in detection_result.detected_lsps.values():
+            categories['lsp_supported'].extend(lsp_info.supported_extensions)
+        categories['lsp_supported'] = sorted(list(set(categories['lsp_supported'])))
+        
+        # Get fallback extensions for languages without LSPs
+        detected_extensions = set(categories['lsp_supported'])
+        for language, fallback_exts in self.LANGUAGE_FALLBACKS.items():
+            if not any(ext in detected_extensions for ext in fallback_exts):
+                categories['language_fallbacks'].extend(fallback_exts)
+        categories['language_fallbacks'] = sorted(list(set(categories['language_fallbacks'])))
+        
+        return categories
+    
+    def get_priority_ordered_lsps(self) -> List[Tuple[str, LSPServerInfo]]:
+        """
+        Get detected LSPs ordered by priority (highest first).
+        
+        Returns:
+            List of tuples containing (lsp_name, LSPServerInfo) ordered by priority
+        """
+        detection_result = self.scan_available_lsps()
+        
+        lsp_list = [(name, info) for name, info in detection_result.detected_lsps.items()]
+        return sorted(lsp_list, key=lambda x: x[1].priority, reverse=True)
+    
     def get_detection_summary(self) -> Dict[str, any]:
         """
-        Get a summary of the current LSP detection state.
+        Get a comprehensive summary of the current LSP detection state.
         
         Returns:
             Dictionary with detection summary information
         """
         detection_result = self.scan_available_lsps()
+        categories = self.get_extensions_by_category()
         
         return {
             'total_lsps_detected': len(detection_result.detected_lsps),
             'total_extensions_supported': len(self.get_supported_extensions()),
             'scan_duration': detection_result.scan_duration,
             'cache_age': time.time() - self._last_scan_time,
+            'extensions_by_category': {
+                category: len(extensions) for category, extensions in categories.items()
+            },
             'detected_lsps': {
                 name: {
                     'binary_path': info.binary_path,
                     'version': info.version,
                     'extensions': info.supported_extensions,
-                    'priority': info.priority
+                    'priority': info.priority,
+                    'capabilities': list(info.capabilities)
                 }
                 for name, info in detection_result.detected_lsps.items()
-            }
+            },
+            'priority_order': [name for name, _ in self.get_priority_ordered_lsps()],
+            'fallback_languages_available': list(self.LANGUAGE_FALLBACKS.keys()),
+            'build_tools_supported': list(self.BUILD_TOOL_EXTENSIONS.keys()),
+            'infrastructure_tools_supported': list(self.INFRASTRUCTURE_EXTENSIONS.keys())
         }
 
 
