@@ -13,15 +13,24 @@ import typer
 
 from ...core.daemon_client import get_daemon_client, with_daemon_client
 from ...observability import get_logger
+from ..formatting import (
+    create_data_table,
+    display_operation_result,
+    display_table_or_empty,
+    error_panel,
+    info_panel,
+    simple_error,
+    simple_info,
+    simple_success,
+    simple_warning,
+    success_panel,
+)
 from ..utils import (
     confirm,
     create_command_app,
-    error_message,
     force_option,
     handle_async,
-    success_message,
     verbose_option,
-    warning_message,
 )
 
 logger = get_logger(__name__)
@@ -231,7 +240,7 @@ async def _configure_watch(
                     break
             
             if not target_watch:
-                print(f"Error: No watch found with ID or path: {watch_id}")
+                error_panel(f"No watch found with ID or path: {watch_id}")
                 raise typer.Exit(1)
             
             # Validate depth parameter if provided using comprehensive validation
@@ -240,20 +249,19 @@ async def _configure_watch(
                 depth_result = validate_recursive_depth(depth)
                 
                 if not depth_result.is_valid:
-                    print(f"Error: {depth_result.error_message}")
+                    error_panel(depth_result.error_message)
                     raise typer.Exit(1)
                 
                 # Show warnings for depth selection
                 if depth_result.warnings:
                     for warning in depth_result.warnings:
-                        print(f"Warning: {warning}")
+                        simple_warning(warning)
                 
                 # Show recommendations
                 if depth_result.recommendations:
-                    print("Depth Recommendations:")
-                    for rec in depth_result.recommendations:
-                        print(f"  • {rec}")
-                    print()
+                    rec_text = "Depth Recommendations:\n"
+                    rec_text += "\n".join(f"  • {rec}" for rec in depth_result.recommendations)
+                    info_panel(rec_text, "Recommendations")
             
             # Build configuration parameters
             config_params = {}
@@ -271,13 +279,13 @@ async def _configure_watch(
                 config_params['debounce_seconds'] = debounce
             
             if not config_params:
-                print("Error: No configuration parameters provided")
-                print("Use --help to see available options")
+                error_panel("No configuration parameters provided\nUse --help to see available options")
                 raise typer.Exit(1)
             
-            print(f"Configuring watch: {target_watch.watch_id}")
-            print(f"Path: {target_watch.path}")
-            print(f"Collection: {target_watch.collection}")
+            config_info = f"Configuring watch: {target_watch.watch_id}\n"
+            config_info += f"Path: {target_watch.path}\n"
+            config_info += f"Collection: {target_watch.collection}"
+            info_panel(config_info, "Watch Configuration")
             
             # Apply configuration
             response = await client.configure_watch(
@@ -286,37 +294,37 @@ async def _configure_watch(
             )
             
             if response.success:
-                print("\nConfiguration updated successfully!")
-                
                 # Show what was changed
-                print("\nUpdated Settings:")
+                settings_text = "Updated Settings:\n"
                 if depth is not None:
-                    print(f"  Depth: {format_depth_display(depth)}")
+                    settings_text += f"  Depth: {format_depth_display(depth)}\n"
                 if patterns is not None:
-                    print(f"  Patterns: {', '.join(patterns)}")
+                    settings_text += f"  Patterns: {', '.join(patterns)}\n"
                 if ignore is not None:
-                    print(f"  Ignore patterns: {', '.join(ignore)}")
+                    settings_text += f"  Ignore patterns: {', '.join(ignore)}\n"
                 if auto_ingest is not None:
-                    print(f"  Auto-ingest: {'Enabled' if auto_ingest else 'Disabled'}")
+                    settings_text += f"  Auto-ingest: {'Enabled' if auto_ingest else 'Disabled'}\n"
                 if recursive is not None:
-                    print(f"  Recursive: {'Yes' if recursive else 'No'}")
+                    settings_text += f"  Recursive: {'Yes' if recursive else 'No'}\n"
                 if debounce is not None:
-                    print(f"  Debounce: {debounce} seconds")
+                    settings_text += f"  Debounce: {debounce} seconds\n"
+                
+                success_panel(settings_text.strip(), "Configuration Updated")
                 
                 # Show performance warning for unlimited depth
                 if depth == -1:
-                    print("\n⚠️  Warning: Unlimited depth may impact performance on large directory structures")
-                    print("   Consider using a specific depth limit for better performance")
+                    simple_warning("Unlimited depth may impact performance on large directory structures")
+                    simple_info("Consider using a specific depth limit for better performance")
                 
             else:
-                print(f"Error: Failed to configure watch: {response.message}")
+                error_panel(f"Failed to configure watch: {response.message}")
                 raise typer.Exit(1)
             
         finally:
             await client.disconnect()
     
     except Exception as e:
-        print(f"Error: Failed to configure watch: {e}")
+        error_panel(f"Failed to configure watch: {e}")
         raise typer.Exit(1)
 
 
@@ -334,9 +342,8 @@ async def _add_watch(
     try:
         watch_path = Path(path).resolve()
 
-        print("Adding watch configuration")
-        print(f"Path: {watch_path}")
-        print(f"Collection: {collection}")
+        watch_info = f"Path: {watch_path}\nCollection: {collection}"
+        info_panel(watch_info, "Adding Watch Configuration")
 
         # Get daemon client
         client = await _get_daemon_client()
@@ -344,10 +351,10 @@ async def _add_watch(
         try:
             # Validate path
             if not watch_path.exists():
-                print(f"Error: Path does not exist: {path}")
+                error_panel(f"Path does not exist: {path}")
                 raise typer.Exit(1)
             if not watch_path.is_dir():
-                print(f"Error: Path is not a directory: {path}")
+                error_panel(f"Path is not a directory: {path}")
                 raise typer.Exit(1)
 
             # Validate depth parameter using comprehensive validation
@@ -355,24 +362,23 @@ async def _add_watch(
             depth_result = validate_recursive_depth(depth)
             
             if not depth_result.is_valid:
-                print(f"Error: {depth_result.error_message}")
+                error_panel(depth_result.error_message)
                 raise typer.Exit(1)
             
             # Show warnings for depth selection
             if depth_result.warnings:
                 for warning in depth_result.warnings:
-                    print(f"Warning: {warning}")
+                    simple_warning(warning)
             
             # Show recommendations
             if depth_result.recommendations:
-                print("Recommendations:")
-                for rec in depth_result.recommendations:
-                    print(f"  • {rec}")
-                print()
+                rec_text = "Recommendations:\n"
+                rec_text += "\n".join(f"  • {rec}" for rec in depth_result.recommendations)
+                info_panel(rec_text, "Depth Recommendations")
 
             # Validate collection (must be library collection)
             if not collection.startswith("_"):
-                print(f"Error: Collection must start with underscore (library collection): {collection}")
+                error_panel(f"Collection must start with underscore (library collection): {collection}")
                 raise typer.Exit(1)
 
             # Set defaults if not provided
@@ -386,7 +392,7 @@ async def _add_watch(
             collection_names = [c.name for c in collections_response.collections]
             
             if collection not in collection_names:
-                print(f"Error: Collection '{collection}' not found. Create it first with: wqm library create {collection[1:]}")
+                error_panel(f"Collection '{collection}' not found. Create it first with: wqm library create {collection[1:]}")
                 raise typer.Exit(1)
 
             # Start watching using daemon client
@@ -407,40 +413,42 @@ async def _add_watch(
             async for update in watch_updates:
                 if update.watch_id:
                     watch_id = update.watch_id
-                    print(f"Watch started with ID: {watch_id}")
+                    simple_success(f"Watch started with ID: {watch_id}")
                     break
 
             # Show configuration
-            print("Watch Configuration Added")
-            print("=" * 50)
-            print(f"Path: {watch_path}")
-            print(f"Collection: {collection}")
-            print(f"Watch ID: {watch_id}")
-            print(f"Auto-ingest: {'Enabled' if auto_ingest else 'Disabled'}")
-            print(f"Recursive: {'Yes' if recursive else 'No'}")
             from ...core.depth_validation import format_depth_display
-            print(f"Depth: {format_depth_display(depth)}")
-            print(f"Debounce: {debounce} seconds")
-            print("\nFile Patterns:")
+            config_text = f"Path: {watch_path}\n"
+            config_text += f"Collection: {collection}\n"
+            config_text += f"Watch ID: {watch_id}\n"
+            config_text += f"Auto-ingest: {'Enabled' if auto_ingest else 'Disabled'}\n"
+            config_text += f"Recursive: {'Yes' if recursive else 'No'}\n"
+            config_text += f"Depth: {format_depth_display(depth)}\n"
+            config_text += f"Debounce: {debounce} seconds\n\n"
+            
+            config_text += "File Patterns:\n"
             for pattern in patterns:
-                print(f"  • {pattern}")
-            print("\nIgnore Patterns:")
+                config_text += f"  • {pattern}\n"
+            
+            config_text += "\nIgnore Patterns:\n"
             for ignore_pattern in ignore:
-                print(f"  • {ignore_pattern}")
+                config_text += f"  • {ignore_pattern}"
+
+            success_panel(config_text, "Watch Configuration Added")
 
             if auto_ingest:
-                print(f"\nFile monitoring started for {watch_path}")
-                print("New files will be automatically ingested into the collection")
+                simple_info(f"File monitoring started for {watch_path}")
+                simple_info("New files will be automatically ingested into the collection")
             else:
-                print("\nWarning: Auto-ingest is disabled")
-                print("Files will be detected but not automatically processed")
-                print("Enable with: wqm watch resume")
+                simple_warning("Auto-ingest is disabled")
+                simple_info("Files will be detected but not automatically processed")
+                simple_info("Enable with: wqm watch resume")
 
         finally:
             await client.disconnect()
 
     except Exception as e:
-        print(f"Error: Failed to add watch: {e}")
+        error_panel(f"Failed to add watch: {e}")
         raise typer.Exit(1)
 
 
@@ -478,52 +486,53 @@ async def _list_watches(active_only: bool, collection: str | None, format: str):
 
             # Table output
             if not watches:
-                print("No watches found")
+                simple_info("No watches found")
                 if not active_only:
-                    print("Add a watch with: wqm watch add <path> --collection=<library>")
+                    simple_info("Add a watch with: wqm watch add <path> --collection=<library>")
                 return
 
-            print(f"Watch Configurations ({len(watches)} found)\n")
+            # Create Rich table
+            table = create_data_table(
+                f"Watch Configurations ({len(watches)} found)",
+                ["ID", "Path", "Collection", "Status", "Auto-Ingest"]
+            )
 
-            # Show summary table in plain text format
-            if watches:
-                print(
-                    f"{'ID':<10} {'Path':<30} {'Collection':<20} {'Status':<15} {'Auto-Ingest'}"
+            for watch in watches:
+                status_str = "Active" if watch.status == 1 else "Stopped"  # Assuming enum values
+                auto_ingest_str = "Yes" if watch.auto_ingest else "No"
+                
+                # Truncate fields if too long
+                watch_id = str(watch.watch_id)
+                if len(watch_id) > 8:
+                    watch_id = watch_id[:8] + "..."
+                
+                path = str(watch.path)
+                if len(path) > 28:
+                    path = path[:28] + "..."
+                
+                collection_name = str(watch.collection)
+                if len(collection_name) > 18:
+                    collection_name = collection_name[:18] + "..."
+                
+                table.add_row(
+                    watch_id,
+                    path,
+                    collection_name,
+                    status_str,
+                    auto_ingest_str
                 )
-                print("-" * 85)
-                for watch in watches:
-                    status_str = "Active" if watch.status == 1 else "Stopped"  # Assuming enum values
-                    auto_ingest_str = "Yes" if watch.auto_ingest else "No"
-                    
-                    # Truncate path if too long
-                    path = str(watch.path)
-                    if len(path) > 28:
-                        path = path[:28] + "..."
-                    
-                    # Truncate collection if too long
-                    collection_name = str(watch.collection)
-                    if len(collection_name) > 18:
-                        collection_name = collection_name[:18] + "..."
-                    
-                    watch_id = str(watch.watch_id)
-                    if len(watch_id) > 8:
-                        watch_id = watch_id[:8] + "..."
-                    
-                    print(
-                        f"{watch_id:<10} {path:<30} {collection_name:<20} {status_str:<15} {auto_ingest_str}"
-                    )
-            else:
-                print("No watch configurations found.")
+
+            display_table_or_empty(table, "No watch configurations found.")
 
             # Show tips
-            print("\nTip: Use 'wqm watch status --detailed' for more information")
-            print("Tip: Use 'wqm watch sync' to manually process watched directories")
+            simple_info("Use 'wqm watch status --detailed' for more information")
+            simple_info("Use 'wqm watch sync' to manually process watched directories")
 
         finally:
             await client.disconnect()
 
     except Exception as e:
-        print(f"Error: Failed to list watches: {e}")
+        error_panel(f"Failed to list watches: {e}")
         raise typer.Exit(1)
 
 
