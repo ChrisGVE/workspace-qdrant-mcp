@@ -296,21 +296,14 @@ async def _list_watches(active_only: bool, collection: str | None, format: str):
             if collection:
                 watches = [w for w in watches if w.collection == collection]
 
-        finally:
-            await client.disconnect()
-    
-    except Exception as e:
-        print(f"Error: Failed to list watches: {e}")
-        raise typer.Exit(1)
-        
-    # Table output
-    if not watches:
-        print("No watches found")
-        if not active_only:
-            print("Add a watch with: wqm watch add <path> --collection=<library>")
-        return
+            # Table output
+            if not watches:
+                print("No watches found")
+                if not active_only:
+                    print("Add a watch with: wqm watch add <path> --collection=<library>")
+                return
 
-    print(f"Watch Configurations ({len(watches)} found)\n")
+            print(f"Watch Configurations ({len(watches)} found)\n")
 
             # Show summary table in plain text format
             if watches:
@@ -362,16 +355,15 @@ async def _remove_watch(
         client = await _get_daemon_client()
         
         try:
-
-        if all:
-            print(" Remove All Watches")
-        elif collection:
-            print(f" Remove Watches for Collection: {collection}")
-        elif path:
-            print(f" Remove Watch: {path}")
-        else:
-            print("Error: Must specify --all, --collection, or a path/watch ID")
-            raise typer.Exit(1)
+            if all:
+                print(" Remove All Watches")
+            elif collection:
+                print(f" Remove Watches for Collection: {collection}")
+            elif path:
+                print(f" Remove Watch: {path}")
+            else:
+                print("Error: Must specify --all, --collection, or a path/watch ID")
+                raise typer.Exit(1)
 
             # Get all watches first
             watches_response = await client.list_watches(active_only=False)
@@ -380,26 +372,26 @@ async def _remove_watch(
             # Find watches to remove
             watches_to_remove = []
 
-        if all:
-            watches_to_remove = all_watches
-        elif collection:
-            watches_to_remove = [w for w in all_watches if w.collection == collection]
-        elif path:
-            # Try as watch ID first, then as path
-            matches = [
-                w
-                for w in all_watches
-                if w.watch_id == path or Path(w.path) == Path(path).resolve()
-            ]
-            if matches:
-                watches_to_remove = matches
-            else:
-                print(f"Error: No watch found for: {path}")
-                raise typer.Exit(1)
+            if all:
+                watches_to_remove = all_watches
+            elif collection:
+                watches_to_remove = [w for w in all_watches if w.collection == collection]
+            elif path:
+                # Try as watch ID first, then as path
+                matches = [
+                    w
+                    for w in all_watches
+                    if w.watch_id == path or Path(w.path) == Path(path).resolve()
+                ]
+                if matches:
+                    watches_to_remove = matches
+                else:
+                    print(f"Error: No watch found for: {path}")
+                    raise typer.Exit(1)
 
-        if not watches_to_remove:
-            print("No matching watches found")
-            return
+            if not watches_to_remove:
+                print("No matching watches found")
+                return
 
             # Show what will be removed
             print(f"\nFound {len(watches_to_remove)} watch(es) to remove:")
