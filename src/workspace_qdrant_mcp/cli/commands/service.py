@@ -1209,8 +1209,18 @@ WantedBy=default.target
 
     def _get_log_path(self, filename: str) -> str:
         """Get appropriate log path for user service."""
-        # User service - use user's log directory
-        user_log_dir = Path.home() / "Library" / "Logs"
+        if self.system == "windows":
+            # Windows - use LocalAppData for user logs
+            import os
+            local_appdata = os.environ.get('LOCALAPPDATA', str(Path.home() / "AppData" / "Local"))
+            user_log_dir = Path(local_appdata) / "workspace-qdrant" / "logs"
+        elif self.system == "darwin":
+            # macOS - use ~/Library/Logs
+            user_log_dir = Path.home() / "Library" / "Logs"
+        else:
+            # Linux - use XDG log directory
+            user_log_dir = Path.home() / ".local" / "share" / "workspace-qdrant" / "logs"
+        
         user_log_dir.mkdir(parents=True, exist_ok=True)
         return str(user_log_dir / filename)
 
