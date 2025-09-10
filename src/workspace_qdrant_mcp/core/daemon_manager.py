@@ -31,6 +31,8 @@ from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional
 
+from ..utils.project_detection import DaemonIdentifier, ProjectDetector
+
 logger = logging.getLogger(__name__)
 
 
@@ -40,6 +42,7 @@ class DaemonConfig:
 
     project_name: str
     project_path: str
+    project_id: Optional[str] = None  # Unique project identifier for multi-instance support
     grpc_host: str = "127.0.0.1"
     grpc_port: int = 50051
     qdrant_url: str = "http://localhost:6333"
@@ -77,14 +80,25 @@ class DaemonInstance:
         self.health_task: Optional[asyncio.Task] = None
         self.shutdown_event = asyncio.Event()
         self.log_handlers: List[Callable[[str], None]] = []
+        
+        # Generate or use provided project identifier
+        if not config.project_id:
+            detector = ProjectDetector()
+            identifier = detector.create_daemon_identifier(config.project_path)
+            config.project_id = identifier.generate_identifier()
 
-        # Create instance-specific temp directory for config files
-        self.temp_dir = Path(tempfile.mkdtemp(prefix=f"daemon_{config.project_name}_"))
+        # Create project-specific temp directory using project identifier
+        temp_prefix = f"daemon_{config.project_id}_"
+        self.temp_dir = Path(tempfile.mkdtemp(prefix=temp_prefix))
         self.config_file = self.temp_dir / "daemon_config.json"
+        
+        # Store project-specific PID file path
+        self.pid_file = self.temp_dir / f"{config.project_id}.pid"
 
         logger.info(
             "Created daemon instance",
             project=config.project_name,
+            project_id=config.project_id,
             port=config.grpc_port,
             temp_dir=str(self.temp_dir),
         )
@@ -616,10 +630,11 @@ class DaemonManager:
                 daemon_key=daemon_key,
             )
 
-            # Create configuration
+            # Create configuration with project identifier
             config = DaemonConfig(
                 project_name=project_name,
                 project_path=project_path,
+                project_id=daemon_key,  # Use the daemon key as project_id
                 grpc_port=self._get_available_port(project_name),
             )
 
@@ -726,10 +741,11 @@ class DaemonManager:
         self.shutdown_handlers.append(handler)
 
     def _get_daemon_key(self, project_name: str, project_path: str) -> str:
-        """Generate a unique key for daemon identification."""
-        # Create hash from project path to handle long paths
-        path_hash = hashlib.md5(project_path.encode()).hexdigest()[:8]
-        return f"{project_name}_{path_hash}"
+        """Generate a unique key for daemon identification using enhanced system."""
+        # Use the new DaemonIdentifier for consistent, collision-resistant identification
+        detector = ProjectDetector()
+        identifier = detector.create_daemon_identifier(project_path)
+        return identifier.generate_identifier()
 
     def _get_available_port(self, project_name: str, base_port: int = 50051) -> int:
         """Find an available port for a new daemon."""
