@@ -134,17 +134,51 @@ fn init_logging(log_level: &str, foreground: bool) -> Result<(), Box<dyn std::er
 /// Create PID file with current process ID
 fn create_pid_file(pid_file: &Path) -> Result<(), Box<dyn std::error::Error>> {
     let pid = process::id();
-    fs::write(pid_file, pid.to_string())?;
+    
+    // Create parent directory if it doesn't exist
+    if let Some(parent) = pid_file.parent() {
+        if !parent.exists() {
+            fs::create_dir_all(parent)?;
+        }
+    }
+    
+    // Write PID file atomically
+    let temp_file = pid_file.with_extension("tmp");
+    fs::write(&temp_file, format!("{}\n", pid))?;
+    
+    // Set appropriate permissions (readable by owner and group)
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        let mut perms = fs::metadata(&temp_file)?.permissions();
+        perms.set_mode(0o644);
+        fs::set_permissions(&temp_file, perms)?;
+    }
+    
+    // Atomically move temp file to final location
+    fs::rename(&temp_file, pid_file)?;
+    
     info!("Created PID file at {} with PID {}", pid_file.display(), pid);
     Ok(())
 }
 
-/// Remove PID file
+/// Remove PID file and any temporary files
 fn remove_pid_file(pid_file: &Path) {
+    // Remove main PID file
     if let Err(e) = fs::remove_file(pid_file) {
-        warn!("Failed to remove PID file {}: {}", pid_file.display(), e);
+        if e.kind() != std::io::ErrorKind::NotFound {
+            warn!("Failed to remove PID file {}: {}", pid_file.display(), e);
+        }
     } else {
         info!("Removed PID file {}", pid_file.display());
+    }
+    
+    // Also clean up any temporary files
+    let temp_file = pid_file.with_extension("tmp");
+    if temp_file.exists() {
+        if let Err(e) = fs::remove_file(&temp_file) {
+            warn!("Failed to remove temporary PID file {}: {}", temp_file.display(), e);
+        }
     }
 }
 
@@ -154,22 +188,57 @@ fn check_existing_instance(pid_file: &Path) -> Result<(), Box<dyn std::error::Er
         let pid_content = fs::read_to_string(pid_file)?;
         let pid: u32 = pid_content.trim().parse()?;
         
-        // Check if process with this PID is still running
+        // Check if process with this PID is still running and is memexd
         #[cfg(unix)]
         {
             use std::process::Command;
             let output = Command::new("ps")
-                .args(["-p", &pid.to_string()])
+                .args(["-p", &pid.to_string(), "-o", "comm="])
                 .output()?;
             
             if output.status.success() && !output.stdout.is_empty() {
                 let stdout = String::from_utf8_lossy(&output.stdout);
-                if stdout.lines().count() > 1 { // Header + process line
+                let process_name = stdout.trim();
+                
+                // Check if it's actually a memexd process
+                if process_name.contains("memexd") {
+                    return Err(format!(
+                        "Another memexd instance is already running with PID {} (process: {}). \
+                         Use 'kill {}' to stop it or remove stale PID file at {}",
+                        pid, process_name, pid, pid_file.display()
+                    ).into());
+                } else {
+                    // PID exists but it's not memexd - remove stale file
+                    warn!(
+                        "PID file {} contains PID {} but process '{}' is not memexd, removing stale file",
+                        pid_file.display(), pid, process_name
+                    );
+                }
+            }
+        }
+        
+        // Windows process detection
+        #[cfg(windows)]
+        {
+            use std::process::Command;
+            let output = Command::new("tasklist")
+                .args(["/FI", &format!("PID eq {}", pid), "/FO", "CSV", "/NH"])
+                .output()?;
+            
+            if output.status.success() && !output.stdout.is_empty() {
+                let stdout = String::from_utf8_lossy(&output.stdout);
+                if !stdout.trim().is_empty() && stdout.contains("memexd") {
                     return Err(format!(
                         "Another memexd instance is already running with PID {}. \
-                         Use 'kill {}' to stop it or remove stale PID file at {}",
+                         Use 'taskkill /PID {}' to stop it or remove stale PID file at {}",
                         pid, pid, pid_file.display()
                     ).into());
+                } else if !stdout.trim().is_empty() {
+                    // PID exists but it's not memexd - remove stale file
+                    warn!(
+                        "PID file {} contains PID {} but process is not memexd, removing stale file",
+                        pid_file.display(), pid
+                    );
                 }
             }
         }
