@@ -854,6 +854,16 @@ impl Default for ErrorRecovery {
 
 // Note: ProcessingError will be defined in processing module
 
+// Conversion from UnifiedConfigError
+impl From<crate::unified_config::UnifiedConfigError> for WorkspaceError {
+    fn from(error: crate::unified_config::UnifiedConfigError) -> Self {
+        WorkspaceError::Configuration {
+            message: error.to_string(),
+            source: Some(Box::new(error)),
+        }
+    }
+}
+
 // Type alias for common result type
 pub type Result<T> = std::result::Result<T, WorkspaceError>;
 

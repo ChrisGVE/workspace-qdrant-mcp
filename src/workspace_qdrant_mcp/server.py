@@ -2539,9 +2539,12 @@ def run_server(
     # Store configuration file path for later use
     config_file_path = config
 
-    # Configure logging early
+    # Configure logging early - use stderr for stdio mode to avoid interfering with MCP protocol
     configure_logging(
-        level=os.getenv("LOG_LEVEL", "INFO"), json_format=True, console_output=True
+        level=os.getenv("LOG_LEVEL", "INFO"), 
+        json_format=True, 
+        console_output=True,
+        stdio_mode=(transport == "stdio")
     )
 
     logger.info(

@@ -13,7 +13,9 @@ use std::sync::Arc;
 use tokio::sync::RwLock;
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
+#[cfg(feature = "ml")]
 use ort::{session::Session, value::Value};
+#[cfg(feature = "ml")]
 use tokenizers::Tokenizer;
 // use uuid::Uuid;  // Currently unused
 use ahash::AHashMap;
@@ -33,6 +35,7 @@ pub enum EmbeddingError {
     OnnxError { message: String },
     
     #[error("Tokenization error: {source}")]
+    #[cfg(feature = "ml")]
     TokenizationError { source: Box<tokenizers::Error> },
     
     #[error("Text preprocessing failed: {message}")]

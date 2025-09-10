@@ -47,9 +47,6 @@ pub use crate::lsp::{
     JsonRpcClient, JsonRpcMessage, JsonRpcRequest, JsonRpcResponse,
     LspStateManager
 };
-pub use crate::unified_config::{
-    UnifiedConfigManager, UnifiedConfigError, ConfigFormat
-};
 pub use crate::service_discovery::{
     DiscoveryManager, ServiceRegistry, ServiceInfo, ServiceStatus,
     NetworkDiscovery, DiscoveryMessage, DiscoveryMessageType,
@@ -662,7 +659,7 @@ impl ProcessingEngine {
     }
     
     /// Create a processing engine with unified configuration (supports TOML/YAML)
-    pub fn with_unified_config(config_file: Option<&Path>, config_dir: Option<&Path>) -> Result<Self, UnifiedConfigError> {
+    pub fn with_unified_config(config_file: Option<&Path>, config_dir: Option<&Path>) -> std::result::Result<Self, UnifiedConfigError> {
         let config_manager = UnifiedConfigManager::new(config_dir);
         let daemon_config = config_manager.load_config(config_file)?;
         
@@ -671,7 +668,7 @@ impl ProcessingEngine {
     }
     
     /// Create a processing engine with unified configuration and auto-discovery
-    pub fn from_unified_config() -> Result<Self, UnifiedConfigError> {
+    pub fn from_unified_config() -> std::result::Result<Self, UnifiedConfigError> {
         Self::with_unified_config(None, None)
     }
     
