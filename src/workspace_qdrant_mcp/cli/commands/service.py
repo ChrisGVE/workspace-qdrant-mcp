@@ -33,10 +33,14 @@ from rich.text import Text
 
 from ...core.daemon_manager import DaemonManager, get_daemon_manager
 from ...observability import get_logger
-from ..utils import handle_async_command
+from ..utils import create_command_app, handle_async_command
 
 # Initialize app and logger
-service_app = typer.Typer(name="service", help="User service management")
+service_app = create_command_app(
+    name="service",
+    help_text="User service management for memexd daemon",
+    no_args_is_help=True,
+)
 console = Console()
 logger = get_logger(__name__)
 
