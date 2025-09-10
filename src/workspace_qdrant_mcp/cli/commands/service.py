@@ -33,6 +33,7 @@ from rich.text import Text
 
 from ...core.daemon_manager import DaemonManager, get_daemon_manager
 from ...observability import get_logger
+from ...utils.project_detection import ProjectDetector
 from ..utils import create_command_app, handle_async_command
 
 # Initialize app and logger
@@ -1776,6 +1777,95 @@ project_path = "{str(Path.cwd()).replace(chr(92), chr(92) + chr(92))}"
 service_manager = ServiceManager()
 
 
+@service_app.command("list")
+def list_services(
+    project: Optional[str] = typer.Option(
+        None, "--project", "-p", help="Filter by specific project identifier"
+    ),
+    show_ports: bool = typer.Option(
+        False, "--ports", help="Show allocated ports for each daemon"
+    ),
+) -> None:
+    """List all project daemon instances."""
+
+    async def _list():
+        manager = await get_daemon_manager()
+        daemons = await manager.list_daemons()
+        
+        if not daemons:
+            console.print("No daemon instances found.")
+            return
+        
+        # Create table
+        table = Table(title="Daemon Instances")
+        table.add_column("Project ID", style="cyan")
+        table.add_column("Project Name", style="white")
+        table.add_column("Status", style="white")
+        table.add_column("PID", style="dim")
+        if show_ports:
+            table.add_column("Port", style="yellow")
+        table.add_column("Health", style="white")
+        
+        for daemon_key, daemon_info in daemons.items():
+            config = daemon_info.get("config", {})
+            status_info = daemon_info.get("status", {})
+            process_info = daemon_info.get("process_info", {})
+            
+            project_id = config.get("project_id", daemon_key)
+            project_name = config.get("project_name", "unknown")
+            
+            # Filter by project if specified
+            if project and project not in project_id:
+                continue
+            
+            # Format status with colors
+            state = status_info.get("state", "unknown")
+            if state == "running":
+                status_text = Text("Running", style="green")
+            elif state == "stopped":
+                status_text = Text("Stopped", style="yellow")
+            elif state == "failed":
+                status_text = Text("Failed", style="red")
+            else:
+                status_text = Text(state.title(), style="dim")
+            
+            # Format health status
+            health_status = status_info.get("health_status", "unknown")
+            if health_status == "healthy":
+                health_text = Text("Healthy", style="green")
+            elif health_status == "unhealthy":
+                health_text = Text("Unhealthy", style="red")
+            else:
+                health_text = Text("Unknown", style="dim")
+            
+            pid = process_info.get("pid", "-")
+            pid_str = str(pid) if pid else "-"
+            
+            row = [project_id, project_name, str(status_text), pid_str]
+            if show_ports:
+                port = config.get("grpc_port", "-")
+                row.append(str(port))
+            row.append(str(health_text))
+            
+            table.add_row(*row)
+        
+        console.print(table)
+        
+        # Show port allocation summary if requested
+        if show_ports:
+            from ...core.daemon_manager import PortManager
+            port_manager = PortManager.get_instance()
+            allocated_ports = port_manager.get_allocated_ports()
+            
+            if allocated_ports:
+                console.print(f"\nPort allocations: {len(allocated_ports)} ports in use")
+                port_ranges = sorted(allocated_ports.keys())
+                if port_ranges:
+                    console.print(f"Range: {min(port_ranges)}-{max(port_ranges)}")
+
+    handle_async_command(_list())
+
+
 @service_app.command("install")
 def install_service(
     config_file: Optional[str] = typer.Option(
@@ -1874,75 +1964,145 @@ def uninstall_service(
 
 
 @service_app.command("start")
-def start_service() -> None:
-    """Start the memexd user service."""
+def start_service(
+    project: Optional[str] = typer.Option(
+        None, "--project", "-p", help="Target specific project daemon instance"
+    ),
+) -> None:
+    """Start the memexd user service or specific project daemon."""
 
     async def _start():
-        result = await service_manager.start_service()
-
-        if result["success"]:
-            console.print(
-                Panel.fit(
-                    f"✅ Service started successfully!\n\n"
-                    f"Service: {result.get('service_id', result.get('service_name'))}\n"
-                    f"Priority-based processing: Active\n"
-                    f"Resource management: Enabled",
-                    title="Service Start",
-                    style="green",
+        if project:
+            # Start specific project daemon
+            manager = await get_daemon_manager()
+            detector = ProjectDetector()
+            project_name = detector.get_project_name()
+            project_path = os.getcwd()
+            
+            success = await manager.start_daemon(project_name, project_path)
+            
+            if success:
+                console.print(
+                    Panel.fit(
+                        f"✅ Project daemon started successfully!\n\n"
+                        f"Project: {project_name}\n"
+                        f"Project ID: {project}",
+                        title="Daemon Start",
+                        style="green",
+                    )
                 )
-            )
+            else:
+                console.print(
+                    Panel.fit(
+                        f"❌ Failed to start project daemon!\n\n"
+                        f"Project: {project_name}",
+                        title="Start Error",
+                        style="red",
+                    )
+                )
+                raise typer.Exit(1)
         else:
-            error_text = f"❌ Failed to start service!\n\nError: {result['error']}"
+            # Start system service
+            result = await service_manager.start_service()
             
-            # Add suggestion if available
-            if 'suggestion' in result:
-                error_text += f"\n\n💡 Suggestion:\n{result['suggestion']}"
-            
-            # Add help command if available
-            if 'help_command' in result:
-                error_text += f"\n\n🔧 Quick fix:\n{result['help_command']}"
-            
-            # Add technical details if available
-            if 'technical_details' in result:
-                error_text += f"\n\n🔍 Technical details:\n{result['technical_details']}"
-            
-            console.print(
-                Panel.fit(
-                    error_text,
-                    title="Start Error",
-                    style="red",
+            if result["success"]:
+                console.print(
+                    Panel.fit(
+                        f"✅ Service started successfully!\n\n"
+                        f"Service: {result.get('service_id', result.get('service_name'))}\n"
+                        f"Priority-based processing: Active\n"
+                        f"Resource management: Enabled",
+                        title="Service Start",
+                        style="green",
+                    )
                 )
-            )
-            raise typer.Exit(1)
+            else:
+                error_text = f"❌ Failed to start service!\n\nError: {result['error']}"
+                
+                # Add suggestion if available
+                if 'suggestion' in result:
+                    error_text += f"\n\n💡 Suggestion:\n{result['suggestion']}"
+                
+                # Add help command if available
+                if 'help_command' in result:
+                    error_text += f"\n\n🔧 Quick fix:\n{result['help_command']}"
+                
+                # Add technical details if available
+                if 'technical_details' in result:
+                    error_text += f"\n\n🔍 Technical details:\n{result['technical_details']}"
+                
+                console.print(
+                    Panel.fit(
+                        error_text,
+                        title="Start Error",
+                        style="red",
+                    )
+                )
+                raise typer.Exit(1)
 
     handle_async_command(_start())
 
 
 @service_app.command("stop")
-def stop_service() -> None:
-    """Stop the memexd user service."""
+def stop_service(
+    project: Optional[str] = typer.Option(
+        None, "--project", "-p", help="Target specific project daemon instance"
+    ),
+) -> None:
+    """Stop the memexd user service or specific project daemon."""
 
     async def _stop():
-        result = await service_manager.stop_service()
-
-        if result["success"]:
-            console.print(
-                Panel.fit(
-                    f"✅ Service stopped successfully!\n\n"
-                    f"Service: {result.get('service_id', result.get('service_name'))}",
-                    title="Service Stop",
-                    style="green",
+        if project:
+            # Stop specific project daemon
+            manager = await get_daemon_manager()
+            detector = ProjectDetector()
+            project_name = detector.get_project_name()
+            project_path = os.getcwd()
+            
+            success = await manager.stop_daemon(project_name, project_path)
+            
+            if success:
+                console.print(
+                    Panel.fit(
+                        f"✅ Project daemon stopped successfully!\n\n"
+                        f"Project: {project_name}\n"
+                        f"Project ID: {project}",
+                        title="Daemon Stop",
+                        style="green",
+                    )
                 )
-            )
+            else:
+                console.print(
+                    Panel.fit(
+                        f"❌ Failed to stop project daemon!\n\n"
+                        f"Project: {project_name}",
+                        title="Stop Error",
+                        style="red",
+                    )
+                )
+                raise typer.Exit(1)
         else:
-            console.print(
-                Panel.fit(
-                    f"❌ Failed to stop service!\n\nError: {result['error']}",
-                    title="Stop Error",
-                    style="red",
+            # Stop system service
+            result = await service_manager.stop_service()
+            
+            if result["success"]:
+                console.print(
+                    Panel.fit(
+                        f"✅ Service stopped successfully!\n\n"
+                        f"Service: {result.get('service_id', result.get('service_name'))}",
+                        title="Service Stop",
+                        style="green",
+                    )
                 )
-            )
-            raise typer.Exit(1)
+            else:
+                console.print(
+                    Panel.fit(
+                        f"❌ Failed to stop service!\n\nError: {result['error']}",
+                        title="Stop Error",
+                        style="red",
+                    )
+                )
+                raise typer.Exit(1)
 
     handle_async_command(_stop())
 
