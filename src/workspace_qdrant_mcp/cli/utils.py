@@ -11,6 +11,7 @@ from typing import Any, Callable, Dict, List, Optional, Union
 
 import platform
 import typer
+from qdrant_client import QdrantClient
 
 
 class CLIError(Exception):
@@ -400,6 +401,56 @@ def requires_service_restart(config_key: str) -> bool:
     return any(config_key.startswith(pattern.split('.')[0]) and 
               (len(pattern.split('.')) == 1 or config_key == pattern) 
               for pattern in restart_required_keys)
+
+
+def get_configured_client(config=None) -> QdrantClient:
+    """Create a properly configured QdrantClient with SSL handling.
+    
+    This function centralizes the client creation pattern used across CLI commands,
+    handling SSL configuration for localhost connections and providing consistent
+    error handling for connection failures.
+    
+    Args:
+        config: Optional Config object. If None, creates a new one.
+        
+    Returns:
+        Configured QdrantClient instance
+        
+    Raises:
+        CLIError: If client creation or connection fails
+    """
+    try:
+        # Import here to avoid circular imports
+        from ..core.config import Config
+        from ..core.ssl_config import get_ssl_manager
+        
+        if config is None:
+            config = Config()
+            
+        ssl_manager = get_ssl_manager()
+        
+        # Create client with appropriate SSL context
+        if ssl_manager.is_localhost_url(config.qdrant.url):
+            with ssl_manager.for_localhost():
+                client = QdrantClient(**config.qdrant_client_config)
+        else:
+            client = QdrantClient(**config.qdrant_client_config)
+            
+        # Test connection to ensure client is working
+        try:
+            # Simple health check - this will raise an exception if connection fails
+            client.get_collections()
+        except Exception as e:
+            raise CLIError(
+                f"Failed to connect to Qdrant server at {config.qdrant.url}: {str(e)}"
+            )
+            
+        return client
+        
+    except CLIError:
+        raise
+    except Exception as e:
+        raise CLIError(f"Failed to create Qdrant client: {str(e)}")
 
 
 # Alias for backward compatibility with service commands
