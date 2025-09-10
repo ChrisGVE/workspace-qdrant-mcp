@@ -34,6 +34,12 @@ from typing import Any, Callable, Dict, List, Optional, Set
 
 from ..utils.project_detection import DaemonIdentifier, ProjectDetector
 from .resource_manager import ResourceManager, ResourceLimits, get_resource_manager
+from .project_config_manager import (
+    ProjectConfigManager, 
+    DaemonProjectConfig, 
+    ConfigScope,
+    get_project_config_manager
+)
 
 logger = logging.getLogger(__name__)
 
@@ -60,6 +66,33 @@ class DaemonConfig:
     # Resource limits
     resource_limits: Optional[ResourceLimits] = None
     enable_resource_monitoring: bool = True
+    
+    @classmethod
+    def from_project_config(cls, project_config: DaemonProjectConfig) -> "DaemonConfig":
+        """Create DaemonConfig from DaemonProjectConfig."""
+        return cls(
+            project_name=project_config.project_name,
+            project_path=project_config.project_path,
+            project_id=project_config.project_id,
+            grpc_host=project_config.grpc_host,
+            grpc_port=project_config.grpc_port or 50051,
+            qdrant_url=project_config.qdrant_url,
+            log_level=project_config.log_level,
+            max_concurrent_jobs=project_config.max_concurrent_jobs,
+            health_check_interval=project_config.health_check_interval,
+            startup_timeout=project_config.startup_timeout,
+            shutdown_timeout=project_config.shutdown_timeout,
+            restart_on_failure=project_config.restart_on_failure,
+            max_restart_attempts=project_config.max_restart_attempts,
+            resource_limits=ResourceLimits(
+                max_memory_mb=project_config.max_memory_mb,
+                max_cpu_percent=project_config.max_cpu_percent,
+                max_open_files=project_config.max_open_files,
+                processing_timeout=project_config.startup_timeout,
+                connection_timeout=project_config.startup_timeout
+            ),
+            enable_resource_monitoring=project_config.enable_resource_monitoring
+        )
 
 
 @dataclass
@@ -341,6 +374,8 @@ class DaemonInstance:
         self.log_handlers: List[Callable[[str], None]] = []
         self.port_manager = PortManager.get_instance()
         self.resource_monitor = None  # Will be set during start()
+        self.config_manager: Optional[ProjectConfigManager] = None
+        self.project_config: Optional[DaemonProjectConfig] = None
         
         # Generate or use provided project identifier
         if not config.project_id:
@@ -382,6 +417,28 @@ class DaemonInstance:
             self.status.state = "starting"
             self.status.start_time = datetime.now()
             self.status.last_error = None
+
+            # Load project-specific configuration
+            try:
+                self.config_manager = get_project_config_manager(self.config.project_path)
+                self.project_config = self.config_manager.load_config(self.config.project_id)
+                
+                # Start configuration watching for hot-reload
+                if self.project_config.config_hot_reload:
+                    self.config_manager.add_change_callback(self._on_config_change)
+                    self.config_manager.start_watching()
+                
+                logger.info(
+                    "Project configuration loaded",
+                    project=self.config.project_name,
+                    project_id=self.config.project_id,
+                )
+            except Exception as e:
+                logger.warning(
+                    "Failed to load project configuration, using defaults",
+                    project=self.config.project_name,
+                    error=str(e),
+                )
 
             # Write configuration file for Rust daemon
             await self._write_config_file()
@@ -545,6 +602,21 @@ class DaemonInstance:
                         error=str(e),
                     )
 
+            # Stop configuration watching
+            if self.config_manager:
+                try:
+                    self.config_manager.stop_watching()
+                    logger.info(
+                        "Configuration watching stopped",
+                        project=self.config.project_name,
+                    )
+                except Exception as e:
+                    logger.warning(
+                        "Failed to stop configuration watching",
+                        project=self.config.project_name,
+                        error=str(e),
+                    )
+
             self.status.state = "stopped"
             self.status.pid = None
             self.status.grpc_available = False
@@ -690,20 +762,101 @@ class DaemonInstance:
         
         return status_dict
 
+    def _on_config_change(self, new_config: DaemonProjectConfig) -> None:
+        """Handle configuration changes from hot-reload."""
+        logger.info(
+            "Configuration change detected",
+            project=self.config.project_name,
+            project_id=self.config.project_id,
+        )
+        
+        # Update stored project config
+        self.project_config = new_config
+        
+        # Apply configuration changes that can be updated at runtime
+        try:
+            # Update resource limits if monitoring is active
+            if self.resource_monitor:
+                asyncio.create_task(self._update_resource_limits(new_config))
+            
+            # Update health check interval if changed
+            if new_config.health_check_interval != self.config.health_check_interval:
+                self.config.health_check_interval = new_config.health_check_interval
+                logger.info(
+                    "Updated health check interval",
+                    new_interval=new_config.health_check_interval,
+                )
+            
+            logger.info("Configuration updated successfully")
+            
+        except Exception as e:
+            logger.error(
+                "Error applying configuration changes",
+                project=self.config.project_name,
+                error=str(e),
+            )
+
+    async def _update_resource_limits(self, new_config: DaemonProjectConfig) -> None:
+        """Update resource limits from new configuration."""
+        try:
+            resource_manager = await get_resource_manager()
+            
+            # Unregister old limits
+            await resource_manager.unregister_project(self.config.project_id)
+            
+            # Register with new limits
+            new_limits = ResourceLimits(
+                max_memory_mb=new_config.max_memory_mb,
+                max_cpu_percent=new_config.max_cpu_percent,
+                max_open_files=new_config.max_open_files,
+                processing_timeout=new_config.startup_timeout,
+                connection_timeout=new_config.startup_timeout
+            )
+            
+            self.resource_monitor = await resource_manager.register_project(
+                self.config.project_id,
+                new_limits
+            )
+            
+            logger.info(
+                "Resource limits updated",
+                project=self.config.project_name,
+                memory_mb=new_config.max_memory_mb,
+                cpu_percent=new_config.max_cpu_percent,
+            )
+            
+        except Exception as e:
+            logger.error(
+                "Failed to update resource limits",
+                project=self.config.project_name,
+                error=str(e),
+            )
+
     async def _write_config_file(self):
-        """Write configuration file for the Rust daemon."""
+        """Write configuration file for the Rust daemon with project-specific settings."""
         # Create project-specific log file path
         log_file_path = self.temp_dir / f"{self.config.project_id}.log"
         
+        # Use project config if available, otherwise use daemon config
+        config_source = self.project_config if self.project_config else self.config
+        
         config_data = {
-            "project_name": self.config.project_name,
-            "project_path": self.config.project_path,
-            "project_id": self.config.project_id,
-            "grpc": {"host": self.config.grpc_host, "port": self.config.grpc_port},
-            "qdrant": {"url": self.config.qdrant_url},
-            "processing": {"max_concurrent_jobs": self.config.max_concurrent_jobs},
+            "project_name": config_source.project_name,
+            "project_path": config_source.project_path,
+            "project_id": config_source.project_id,
+            "grpc": {
+                "host": getattr(config_source, 'grpc_host', self.config.grpc_host),
+                "port": getattr(config_source, 'grpc_port', self.config.grpc_port)
+            },
+            "qdrant": {
+                "url": getattr(config_source, 'qdrant_url', self.config.qdrant_url),
+                "api_key": getattr(config_source, 'qdrant_api_key', None)
+            },
+            "processing": {
+                "max_concurrent_jobs": getattr(config_source, 'max_concurrent_jobs', self.config.max_concurrent_jobs)
+            },
             "logging": {
-                "level": self.config.log_level,
+                "level": getattr(config_source, 'log_level', self.config.log_level),
                 "file": str(log_file_path),
                 "project_scoped": True,
             },
@@ -712,6 +865,32 @@ class DaemonInstance:
                 "temp_directory": str(self.temp_dir),
             },
         }
+        
+        # Add project-specific settings if available
+        if self.project_config:
+            config_data.update({
+                "ingestion": {
+                    "default_collection": self.project_config.default_collection,
+                    "auto_create_collections": self.project_config.auto_create_collections,
+                    "chunk_size": self.project_config.chunk_size,
+                    "chunk_overlap": self.project_config.chunk_overlap,
+                },
+                "watching": {
+                    "enabled": self.project_config.enable_file_watching,
+                    "patterns": self.project_config.watch_patterns,
+                    "ignore_patterns": self.project_config.ignore_patterns,
+                },
+                "resource_limits": {
+                    "max_memory_mb": self.project_config.max_memory_mb,
+                    "max_cpu_percent": self.project_config.max_cpu_percent,
+                    "max_open_files": self.project_config.max_open_files,
+                },
+                "monitoring": {
+                    "enabled": self.project_config.enable_resource_monitoring,
+                    "metrics_collection": self.project_config.enable_metrics_collection,
+                },
+                "custom_settings": self.project_config.custom_settings,
+            })
 
         with open(self.config_file, "w") as f:
             json.dump(config_data, f, indent=2)
