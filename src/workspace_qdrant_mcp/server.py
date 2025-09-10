@@ -113,16 +113,18 @@ from .utils.config_validator import ConfigValidator
 # Initialize structured logging
 logger = get_logger(__name__)
 
-# Log optimization availability
+# Log optimization availability (only if not in CLI mode)
 try:
     from .optimization.complete_fastmcp_optimization import (
         OptimizedWorkspaceServer, OptimizedFastMCPApp, StreamingStdioProtocol
     )
     OPTIMIZATIONS_AVAILABLE = True
-    logger.info("FastMCP optimizations loaded successfully")
+    if os.getenv("WQM_CLI_MODE") != "true":
+        logger.info("FastMCP optimizations loaded successfully")
 except ImportError:
     OPTIMIZATIONS_AVAILABLE = False
-    logger.info("FastMCP optimizations not available, using standard FastMCP")
+    if os.getenv("WQM_CLI_MODE") != "true":
+        logger.info("FastMCP optimizations not available, using standard FastMCP")
 
 # Initialize FastMCP application with optimizations if available
 if OPTIMIZATIONS_AVAILABLE and os.getenv("DISABLE_FASTMCP_OPTIMIZATIONS", "false").lower() != "true":
@@ -130,15 +132,19 @@ if OPTIMIZATIONS_AVAILABLE and os.getenv("DISABLE_FASTMCP_OPTIMIZATIONS", "false
     try:
         _optimizer = OptimizedWorkspaceServer(enable_optimizations=True)
         app = _optimizer.create_optimized_app("workspace-qdrant-mcp")
-        logger.info("Initialized with FastMCP optimizations enabled")
+        if os.getenv("WQM_CLI_MODE") != "true":
+            logger.info("Initialized with FastMCP optimizations enabled")
     except Exception as e:
-        logger.warning(f"Failed to initialize optimized FastMCP: {e}")
+        if os.getenv("WQM_CLI_MODE") != "true":
+            logger.warning(f"Failed to initialize optimized FastMCP: {e}")
         app = FastMCP("workspace-qdrant-mcp")
-        logger.info("Falling back to standard FastMCP")
+        if os.getenv("WQM_CLI_MODE") != "true":
+            logger.info("Falling back to standard FastMCP")
 else:
     # Use standard FastMCP
     app = FastMCP("workspace-qdrant-mcp")
-    logger.info("Initialized with standard FastMCP")
+    if os.getenv("WQM_CLI_MODE") != "true":
+        logger.info("Initialized with standard FastMCP")
 
 # Global client instance
 workspace_client: QdrantWorkspaceClient | None = None
