@@ -219,7 +219,7 @@ impl ServiceRegistry {
     /// List all registered services
     pub fn list_services(&self) -> Result<Vec<(String, ServiceInfo)>, RegistryError> {
         let registry = self.load_registry()?;
-        let services = registry.services.into_iter().collect();
+        let services: Vec<_> = registry.services.into_iter().collect();
         debug!("Listed {} registered services", services.len());
         Ok(services)
     }
@@ -237,8 +237,9 @@ impl ServiceRegistry {
             service_info.last_health_check = Some(current_iso_timestamp());
             registry.last_updated = current_iso_timestamp();
             
+            let status_debug = service_info.status.clone();
             self.save_registry(&registry)?;
-            debug!("Updated status for service {} to {:?}", service_name, service_info.status);
+            debug!("Updated status for service {} to {:?}", service_name, status_debug);
             Ok(true)
         } else {
             debug!("Service {} not found for status update", service_name);

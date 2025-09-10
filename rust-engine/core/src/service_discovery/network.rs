@@ -189,7 +189,12 @@ impl NetworkDiscovery {
         socket.set_nonblocking(true)?;
         
         // Join multicast group
-        socket.join_multicast_v4(&self.multicast_addr.ip().clone().try_into().unwrap(), &Ipv4Addr::UNSPECIFIED)?;
+        let ip = self.multicast_addr.ip();
+        if let IpAddr::V4(ipv4) = ip {
+            socket.join_multicast_v4(&ipv4, &Ipv4Addr::UNSPECIFIED)?;
+        } else {
+            return Err(NetworkError::InvalidMulticastAddress("Multicast address must be IPv4".to_string()));
+        }
         
         {
             let mut socket_guard = self.socket.write().await;

@@ -75,7 +75,7 @@ pub struct HealthCheckResult {
 }
 
 /// Health checker configuration
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct HealthConfig {
     /// HTTP request timeout
     pub request_timeout: Duration,
@@ -106,6 +106,7 @@ impl Default for HealthConfig {
 }
 
 /// Health checker for service monitoring
+#[derive(Clone)]
 pub struct HealthChecker {
     /// HTTP client for health checks
     client: reqwest::Client,
@@ -254,7 +255,7 @@ impl HealthChecker {
                 interval.tick().await;
                 
                 for (service_name, service_info) in &services {
-                    let checker = &health_checker;
+                    let checker = health_checker.clone();
                     let name = service_name.clone();
                     let info = service_info.clone();
                     

@@ -104,7 +104,7 @@ impl DiscoveryManager {
             None
         };
         
-        let network_discovery = if config.enable_network_discovery {
+        let network_discovery = if config.enable_network {
             Some(NetworkDiscovery::new(
                 &config.multicast_address,
                 config.multicast_port,
@@ -150,7 +150,7 @@ impl DiscoveryManager {
         info!("Starting service discovery manager");
         
         // Start network discovery if enabled
-        if self.config.enable_network_discovery {
+        if self.config.enable_network {
             self.network_discovery.start().await?;
             self.start_network_event_processing().await;
         }
@@ -167,7 +167,7 @@ impl DiscoveryManager {
         info!("Stopping service discovery manager");
         
         // Stop network discovery
-        if self.config.enable_network_discovery {
+        if self.config.enable_network {
             self.network_discovery.stop().await?;
         }
         
@@ -193,7 +193,7 @@ impl DiscoveryManager {
         self.registry.register_service(service_name, service_info.clone())?;
         
         // Announce via network discovery if enabled
-        if self.config.enable_network_discovery {
+        if self.config.enable_network {
             self.network_discovery.announce_service(service_name, &service_info).await?;
         }
         
@@ -222,7 +222,7 @@ impl DiscoveryManager {
         let _ = self.registry.deregister_service(service_name)?;
         
         // Announce shutdown via network discovery if enabled
-        if self.config.enable_network_discovery {
+        if self.config.enable_network {
             let _ = self.network_discovery.announce_shutdown(service_name).await;
         }
         
@@ -252,7 +252,7 @@ impl DiscoveryManager {
         }
         
         // Strategy 2: Network discovery
-        if self.config.enable_network_discovery {
+        if self.config.enable_network {
             if let Some(service_info) = self.try_network_discovery(service_name).await? {
                 return Ok(Some(service_info));
             }

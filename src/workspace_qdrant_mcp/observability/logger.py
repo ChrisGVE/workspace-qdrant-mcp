@@ -152,6 +152,7 @@ def configure_logging(
     max_file_size: int = 10 * 1024 * 1024,  # 10MB
     backup_count: int = 5,
     console_output: bool = True,
+    stdio_mode: bool = False,
 ) -> None:
     """Configure structured logging for the application.
 
@@ -162,6 +163,7 @@ def configure_logging(
         max_file_size: Maximum log file size before rotation
         backup_count: Number of backup log files to keep
         console_output: Whether to output logs to console
+        stdio_mode: Whether running in MCP stdio mode (disables stdout logging)
     """
     # Convert string level to logging level
     if isinstance(level, str):
@@ -186,7 +188,9 @@ def configure_logging(
 
     # Console handler
     if console_output:
-        console_handler = logging.StreamHandler(sys.stdout)
+        # In stdio mode (MCP), use stderr to avoid interfering with JSON-RPC protocol on stdout
+        stream = sys.stderr if stdio_mode else sys.stdout
+        console_handler = logging.StreamHandler(stream)
         console_handler.setLevel(level)
         console_handler.setFormatter(formatter)
         root_logger.addHandler(console_handler)
