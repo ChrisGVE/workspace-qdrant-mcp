@@ -14,6 +14,13 @@ from typing import Any, Dict, List, Optional, Tuple, cast
 
 from pydantic import BaseModel, Field, field_validator
 
+# Import LSP detector for dynamic extension detection
+try:
+    from .lsp_detector import get_default_detector
+except ImportError:
+    # Fallback if LSP detector is not available
+    get_default_detector = None
+
 logger = logging.getLogger(__name__)
 
 
@@ -207,6 +214,13 @@ class AdvancedWatchConfig:
         default_factory=lambda: CollectionTargeting(default_collection="default")
     )
 
+    # LSP-based extension detection
+    lsp_based_extensions: bool = True
+    lsp_detection_cache_ttl: int = 300
+    lsp_fallback_enabled: bool = True
+    lsp_include_build_tools: bool = True
+    lsp_include_infrastructure: bool = True
+
     # Processing options
     auto_ingest: bool = True
     preserve_timestamps: bool = True
@@ -256,8 +270,68 @@ class AdvancedWatchConfig:
         return issues
 
     def get_effective_patterns(self) -> tuple[list[str], list[str]]:
-        """Get effective include and exclude patterns."""
-        return (self.file_filters.include_patterns, self.file_filters.exclude_patterns)
+        """
+        Get effective include and exclude patterns, optionally enhanced with LSP detection.
+        
+        Returns:
+            Tuple of (include_patterns, exclude_patterns)
+        """
+        # Start with configured patterns
+        include_patterns = list(self.file_filters.include_patterns)
+        exclude_patterns = list(self.file_filters.exclude_patterns)
+        
+        # Add LSP-based patterns if enabled and detector is available
+        if self.lsp_based_extensions and get_default_detector is not None:
+            try:
+                detector = get_default_detector()
+                detector.cache_ttl = self.lsp_detection_cache_ttl
+                
+                # Get LSP-detected extensions
+                lsp_extensions = detector.get_supported_extensions(
+                    include_fallbacks=self.lsp_fallback_enabled
+                )
+                
+                # Convert extensions to glob patterns
+                lsp_patterns = [f"*{ext}" for ext in lsp_extensions if ext.startswith('.')]
+                
+                # Add non-extension patterns (like Dockerfile, Makefile)
+                for ext in lsp_extensions:
+                    if not ext.startswith('.'):
+                        lsp_patterns.append(ext)
+                
+                # Optionally add build tool patterns
+                if self.lsp_include_build_tools:
+                    build_patterns = []
+                    for patterns in detector.BUILD_TOOL_EXTENSIONS.values():
+                        for pattern in patterns:
+                            if pattern.startswith('*.'):
+                                build_patterns.append(pattern)
+                            elif not pattern.startswith('.'):
+                                build_patterns.append(pattern)
+                    lsp_patterns.extend(build_patterns)
+                
+                # Optionally add infrastructure patterns  
+                if self.lsp_include_infrastructure:
+                    infra_patterns = []
+                    for patterns in detector.INFRASTRUCTURE_EXTENSIONS.values():
+                        for pattern in patterns:
+                            if pattern.startswith('*.'):
+                                infra_patterns.append(pattern)
+                            elif not pattern.startswith('.'):
+                                infra_patterns.append(pattern)
+                    lsp_patterns.extend(infra_patterns)
+                
+                # Merge patterns, avoiding duplicates
+                all_patterns = set(include_patterns + lsp_patterns)
+                include_patterns = sorted(list(all_patterns))
+                
+                logger.debug(f"Enhanced patterns with LSP detection: {len(lsp_patterns)} LSP patterns added")
+                
+            except Exception as e:
+                logger.warning(f"Failed to get LSP-based patterns: {e}")
+                # Fall back to original patterns
+        
+        return (include_patterns, exclude_patterns)
 
     def should_process_file(self, file_path: Path) -> Tuple[bool, str]:
         """
