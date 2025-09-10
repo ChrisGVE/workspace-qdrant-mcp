@@ -46,16 +46,258 @@ Example:
     ```
 """
 
+import hashlib
 import logging
 import os
 import re
-from typing import Any, Optional
+from typing import Any, Dict, Optional, Set
 from urllib.parse import urlparse
 
 import git
 from git.exc import GitError, InvalidGitRepositoryError
 
 logger = logging.getLogger(__name__)
+
+
+class DaemonIdentifier:
+    """
+    Project-specific daemon identifier with collision detection and validation.
+    
+    This class generates unique, consistent identifiers for daemon instances based on
+    project information, with built-in collision detection and validation to ensure
+    proper isolation between multiple daemon instances.
+    
+    Key Features:
+        - Consistent identifier generation from project path and name
+        - Hash-based collision detection with configurable length
+        - Validation for duplicate identifiers across projects
+        - Configurable naming strategies with user-defined suffixes
+        - Registry tracking for active daemon identifiers
+    
+    Identifier Format:
+        {project_name}_{path_hash}[_{suffix}]
+        
+    Example:
+        workspace-qdrant-mcp_a1b2c3d4
+        my-project_x9y8z7w6_dev
+    """
+    
+    # Class-level registry to track active identifiers
+    _active_identifiers: Set[str] = set()
+    _identifier_registry: Dict[str, Dict[str, Any]] = {}
+    
+    def __init__(self, project_name: str, project_path: str, suffix: Optional[str] = None):
+        """Initialize daemon identifier with project information.
+        
+        Args:
+            project_name: Base project name for the identifier
+            project_path: Full path to the project directory
+            suffix: Optional suffix for custom identification (e.g., 'dev', 'test')
+        """
+        self.project_name = project_name
+        self.project_path = os.path.abspath(project_path)
+        self.suffix = suffix
+        self._identifier = None
+        self._path_hash = None
+        
+    def generate_identifier(self, hash_length: int = 8) -> str:
+        """Generate a unique daemon identifier for this project.
+        
+        Args:
+            hash_length: Length of the path hash component (default: 8)
+            
+        Returns:
+            Unique daemon identifier string
+            
+        Raises:
+            ValueError: If identifier collision is detected
+        """
+        if self._identifier:
+            return self._identifier
+            
+        # Generate path hash from absolute path
+        self._path_hash = self._generate_path_hash(self.project_path, hash_length)
+        
+        # Build identifier components
+        base_identifier = f"{self.project_name}_{self._path_hash}"
+        
+        if self.suffix:
+            full_identifier = f"{base_identifier}_{self.suffix}"
+        else:
+            full_identifier = base_identifier
+            
+        # Validate uniqueness
+        if self._check_collision(full_identifier):
+            # Try with longer hash if collision detected
+            if hash_length < 16:
+                logger.warning(
+                    "Identifier collision detected for %s, trying longer hash",
+                    full_identifier
+                )
+                return self.generate_identifier(hash_length + 4)
+            else:
+                raise ValueError(
+                    f"Cannot generate unique identifier for project {self.project_name} "
+                    f"at path {self.project_path}. Consider using a suffix."
+                )
+        
+        self._identifier = full_identifier
+        self._register_identifier()
+        
+        logger.debug(
+            "Generated daemon identifier",
+            identifier=self._identifier,
+            project=self.project_name,
+            path=self.project_path,
+            hash=self._path_hash
+        )
+        
+        return self._identifier
+    
+    def get_identifier(self) -> Optional[str]:
+        """Get the current identifier without generating a new one.
+        
+        Returns:
+            Current identifier or None if not yet generated
+        """
+        return self._identifier
+    
+    def get_path_hash(self) -> Optional[str]:
+        """Get the path hash component of the identifier.
+        
+        Returns:
+            Path hash string or None if not yet generated
+        """
+        return self._path_hash
+    
+    def validate_identifier(self, identifier: str) -> bool:
+        """Validate that an identifier follows the expected format.
+        
+        Args:
+            identifier: Identifier string to validate
+            
+        Returns:
+            True if identifier is valid, False otherwise
+        """
+        # Basic format validation: name_hash or name_hash_suffix
+        pattern = r'^[a-zA-Z0-9_-]+_[a-f0-9]{4,16}(?:_[a-zA-Z0-9_-]+)?$'
+        
+        if not re.match(pattern, identifier):
+            return False
+            
+        # Additional validation: check if it matches our project
+        if self._identifier and identifier == self._identifier:
+            return True
+            
+        # Check if it's a valid identifier for this project path
+        parts = identifier.split('_')
+        if len(parts) >= 2:
+            name_part = parts[0]
+            hash_part = parts[1]
+            
+            # Verify the hash matches our project path
+            expected_hash = self._generate_path_hash(self.project_path, len(hash_part))
+            return hash_part == expected_hash
+            
+        return False
+    
+    def release_identifier(self) -> None:
+        """Release the current identifier from the active registry."""
+        if self._identifier and self._identifier in self._active_identifiers:
+            self._active_identifiers.remove(self._identifier)
+            if self._identifier in self._identifier_registry:
+                del self._identifier_registry[self._identifier]
+                
+            logger.debug(
+                "Released daemon identifier",
+                identifier=self._identifier,
+                project=self.project_name
+            )
+    
+    def _generate_path_hash(self, path: str, length: int = 8) -> str:
+        """Generate a consistent hash from the project path.
+        
+        Args:
+            path: Project path to hash
+            length: Desired hash length
+            
+        Returns:
+            Hexadecimal hash string
+        """
+        # Normalize path for consistent hashing
+        normalized_path = os.path.normpath(os.path.abspath(path))
+        
+        # Use SHA-256 for consistent, collision-resistant hashing
+        hash_obj = hashlib.sha256(normalized_path.encode('utf-8'))
+        return hash_obj.hexdigest()[:length]
+    
+    def _check_collision(self, identifier: str) -> bool:
+        """Check if an identifier collides with existing ones.
+        
+        Args:
+            identifier: Identifier to check
+            
+        Returns:
+            True if collision detected, False otherwise
+        """
+        if identifier in self._active_identifiers:
+            # Check if it's the same project path (allowed)
+            existing_info = self._identifier_registry.get(identifier)
+            if existing_info and existing_info['project_path'] == self.project_path:
+                return False  # Same project, not a collision
+            return True  # Different project, collision detected
+        return False
+    
+    def _register_identifier(self) -> None:
+        """Register the current identifier in the active registry."""
+        if self._identifier:
+            self._active_identifiers.add(self._identifier)
+            self._identifier_registry[self._identifier] = {
+                'project_name': self.project_name,
+                'project_path': self.project_path,
+                'suffix': self.suffix,
+                'path_hash': self._path_hash,
+                'registered_at': os.getcwd(),  # Current working directory when registered
+            }
+    
+    @classmethod
+    def get_active_identifiers(cls) -> Set[str]:
+        """Get all currently active daemon identifiers.
+        
+        Returns:
+            Set of active identifier strings
+        """
+        return cls._active_identifiers.copy()
+    
+    @classmethod
+    def get_identifier_info(cls, identifier: str) -> Optional[Dict[str, Any]]:
+        """Get information about a registered identifier.
+        
+        Args:
+            identifier: Identifier to look up
+            
+        Returns:
+            Dictionary with identifier information or None if not found
+        """
+        return cls._identifier_registry.get(identifier)
+    
+    @classmethod
+    def clear_registry(cls) -> None:
+        """Clear all registered identifiers (for testing/cleanup)."""
+        cls._active_identifiers.clear()
+        cls._identifier_registry.clear()
+    
+    def __str__(self) -> str:
+        """String representation of the daemon identifier."""
+        if self._identifier:
+            return self._identifier
+        return f"DaemonIdentifier(project={self.project_name}, ungenerated)"
+    
+    def __repr__(self) -> str:
+        """Detailed representation of the daemon identifier."""
+        return (f"DaemonIdentifier(project_name='{self.project_name}', "
+                f"project_path='{self.project_path}', suffix='{self.suffix}', "
+                f"identifier='{self._identifier}')")
 
 
 class ProjectDetector:
@@ -468,3 +710,22 @@ class ProjectDetector:
                 "user_owned_submodules": [],
                 "error": str(e),
             }
+
+    def create_daemon_identifier(self, path: str = ".", suffix: Optional[str] = None) -> DaemonIdentifier:
+        """Create a DaemonIdentifier for the project at the specified path.
+        
+        Args:
+            path: Path to analyze (defaults to current directory)
+            suffix: Optional suffix for the identifier
+            
+        Returns:
+            DaemonIdentifier instance for the project
+        """
+        project_name = self.get_project_name(path)
+        project_path = os.path.abspath(path)
+        
+        return DaemonIdentifier(
+            project_name=project_name,
+            project_path=project_path,
+            suffix=suffix
+        )
