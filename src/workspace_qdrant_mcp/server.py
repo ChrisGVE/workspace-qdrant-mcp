@@ -113,18 +113,23 @@ from .utils.config_validator import ConfigValidator
 # Initialize structured logging
 logger = get_logger(__name__)
 
-# Log optimization availability (only if not in CLI mode)
-try:
-    from .optimization.complete_fastmcp_optimization import (
-        OptimizedWorkspaceServer, OptimizedFastMCPApp, StreamingStdioProtocol
-    )
-    OPTIMIZATIONS_AVAILABLE = True
-    if os.getenv("WQM_CLI_MODE") != "true":
+# Only import optimizations if not in CLI mode to prevent logging during CLI startup
+if os.getenv("WQM_CLI_MODE") != "true":
+    try:
+        from .optimization.complete_fastmcp_optimization import (
+            OptimizedWorkspaceServer, OptimizedFastMCPApp, StreamingStdioProtocol
+        )
+        OPTIMIZATIONS_AVAILABLE = True
         logger.info("FastMCP optimizations loaded successfully")
-except ImportError:
-    OPTIMIZATIONS_AVAILABLE = False
-    if os.getenv("WQM_CLI_MODE") != "true":
+    except ImportError:
+        OPTIMIZATIONS_AVAILABLE = False
         logger.info("FastMCP optimizations not available, using standard FastMCP")
+else:
+    # In CLI mode, skip optimization imports completely to prevent logging
+    OPTIMIZATIONS_AVAILABLE = False
+    OptimizedWorkspaceServer = None
+    OptimizedFastMCPApp = None
+    StreamingStdioProtocol = None
 
 # Initialize FastMCP application with optimizations if available
 if OPTIMIZATIONS_AVAILABLE and os.getenv("DISABLE_FASTMCP_OPTIMIZATIONS", "false").lower() != "true":
