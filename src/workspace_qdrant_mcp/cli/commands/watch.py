@@ -74,11 +74,14 @@ def add_watch(
     recursive: bool = typer.Option(
         True, "--recursive/--no-recursive", help="Watch subdirectories"
     ),
+    depth: int = typer.Option(
+        -1, "--depth", help="Maximum directory depth to watch (-1 for unlimited, 0 for current folder only)"
+    ),
     debounce: int = typer.Option(5, "--debounce", help="Debounce time in seconds"),
 ):
     """Add a folder to watch for automatic ingestion."""
     handle_async(
-        _add_watch(path, collection, patterns, ignore, auto_ingest, recursive, debounce)
+        _add_watch(path, collection, patterns, ignore, auto_ingest, recursive, depth, debounce)
     )
 
 
@@ -168,6 +171,7 @@ async def _add_watch(
     ignore: list[str] | None,
     auto_ingest: bool,
     recursive: bool,
+    depth: int,
     debounce: int,
 ):
     """Add a folder watch configuration."""
@@ -188,6 +192,11 @@ async def _add_watch(
                 raise typer.Exit(1)
             if not watch_path.is_dir():
                 print(f"Error: Path is not a directory: {path}")
+                raise typer.Exit(1)
+
+            # Validate depth parameter
+            if depth < -1:
+                print(f"Error: Depth must be -1 (unlimited) or a non-negative integer, got: {depth}")
                 raise typer.Exit(1)
 
             # Validate collection (must be library collection)
@@ -217,7 +226,7 @@ async def _add_watch(
                 ignore_patterns=ignore,
                 auto_ingest=auto_ingest,
                 recursive=recursive,
-                recursive_depth=-1 if recursive else 1,
+                recursive_depth=depth,
                 debounce_seconds=debounce,
                 update_frequency_ms=1000,
             )
@@ -238,6 +247,7 @@ async def _add_watch(
             print(f"Watch ID: {watch_id}")
             print(f"Auto-ingest: {'Enabled' if auto_ingest else 'Disabled'}")
             print(f"Recursive: {'Yes' if recursive else 'No'}")
+            print(f"Depth: {'Unlimited' if depth == -1 else str(depth)}")
             print(f"Debounce: {debounce} seconds")
             print("\nFile Patterns:")
             for pattern in patterns:
