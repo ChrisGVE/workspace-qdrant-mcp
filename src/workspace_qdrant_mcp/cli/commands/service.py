@@ -709,7 +709,7 @@ WantedBy=default.target
                         except OSError:
                             pass
 
-            # Clean up any zombie memexd processes
+            # Clean up non-launchd memexd processes only
             try:
                 # Find all memexd processes
                 pgrep_cmd = ["pgrep", "-f", "memexd"]
@@ -720,20 +720,37 @@ WantedBy=default.target
                 
                 if result.returncode == 0:
                     pids = stdout.decode().strip().split('\n')
+                    killed_processes = []
+                    
                     for pid_str in pids:
                         if pid_str.strip().isdigit():
                             pid = int(pid_str.strip())
-                            logger.debug(f"Terminating memexd process {pid}")
-                            kill_cmd = ["kill", "-TERM", str(pid)]
-                            await asyncio.create_subprocess_exec(*kill_cmd)
+                            
+                            # Check if this is a launchd process by examining its arguments
+                            ps_cmd = ["ps", "-p", str(pid), "-o", "args="]
+                            ps_result = await asyncio.create_subprocess_exec(
+                                *ps_cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE
+                            )
+                            ps_stdout, _ = await ps_result.communicate()
+                            
+                            if ps_result.returncode == 0:
+                                args = ps_stdout.decode().strip()
+                                # Only kill processes that are NOT using the launchd PID file
+                                if "--pid-file /tmp/memexd-launchd.pid" not in args and "memexd" in args:
+                                    logger.debug(f"Terminating non-launchd memexd process {pid}: {args[:100]}...")
+                                    kill_cmd = ["kill", "-TERM", str(pid)]
+                                    await asyncio.create_subprocess_exec(*kill_cmd)
+                                    killed_processes.append(pid)
+                                else:
+                                    logger.debug(f"Preserving launchd memexd process {pid}")
                     
-                    if pids and pids[0].strip():
-                        logger.info(f"Terminated {len([p for p in pids if p.strip()])} stale memexd processes")
+                    if killed_processes:
+                        logger.info(f"Terminated {len(killed_processes)} non-launchd memexd processes: {killed_processes}")
                         # Give processes time to clean up
                         await asyncio.sleep(2)
                 
             except Exception as e:
-                logger.debug(f"Error cleaning up processes: {e}")
+                logger.debug(f"Error cleaning up non-launchd processes: {e}")
 
         except Exception as e:
             logger.error(f"Error in resource cleanup: {e}")
@@ -880,45 +897,43 @@ WantedBy=default.target
                             status = "error"
                     break
 
-        # If not running via launchd, check for manually running processes
+        # If not running via launchd, check ONLY for launchd-related processes
         if not launchd_running:
             try:
-                # Check for any memexd processes
-                cmd = ["pgrep", "-f", "memexd"]
-                result = await asyncio.create_subprocess_exec(
-                    *cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE
-                )
-                stdout, stderr = await result.communicate()
-                
-                if result.returncode == 0 and stdout.strip():
-                    # Found running memexd processes, check if they're using launchd PID file
-                    pids = [int(p.strip()) for p in stdout.decode().split('\n') if p.strip()]
-                    if pids:
-                        # Check if any process is using the launchd PID file
-                        launchd_pid_file = "/tmp/memexd-launchd.pid"
-                        manual_pids = []
+                # Only check if there's a process using the launchd PID file specifically
+                launchd_pid_file = "/tmp/memexd-launchd.pid"
+                if Path(launchd_pid_file).exists():
+                    try:
+                        launchd_file_pid = int(Path(launchd_pid_file).read_text().strip())
                         
-                        for process_pid in pids:
-                            # Check PID file content to determine if it's a launchd process
+                        # Check if this PID is actually running and is memexd
+                        cmd = ["ps", "-p", str(launchd_file_pid), "-o", "comm="]
+                        result = await asyncio.create_subprocess_exec(
+                            *cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE
+                        )
+                        stdout, stderr = await result.communicate()
+                        
+                        if result.returncode == 0 and b"memexd" in stdout:
+                            # Found a running memexd process with the launchd PID
+                            pid = launchd_file_pid
+                            status = "running"
+                            launchd_running = True
+                            logger.debug(f"Found launchd memexd process via PID file: {pid}")
+                        else:
+                            # PID file exists but process is not running, clean it up
+                            Path(launchd_pid_file).unlink()
+                            logger.debug(f"Removed stale launchd PID file: {launchd_pid_file}")
+                            
+                    except (ValueError, FileNotFoundError, OSError):
+                        # Invalid or missing PID file, ignore
+                        if Path(launchd_pid_file).exists():
                             try:
-                                if Path(launchd_pid_file).exists():
-                                    launchd_file_pid = int(Path(launchd_pid_file).read_text().strip())
-                                    if process_pid == launchd_file_pid:
-                                        # This is actually a launchd process, update status
-                                        pid = process_pid
-                                        status = "running"
-                                        launchd_running = True
-                                        break
-                                manual_pids.append(process_pid)
-                            except (ValueError, FileNotFoundError):
-                                manual_pids.append(process_pid)
-                        
-                        if not launchd_running and manual_pids:
-                            pid = manual_pids[0]  # Use first manual PID found
-                            status = "running_manual" if service_loaded else "running"
+                                Path(launchd_pid_file).unlink()
+                            except OSError:
+                                pass
                         
             except Exception:
-                # pgrep failed, continue with launchd status
+                # PID file check failed, continue with launchd status
                 pass
                 
         # Set final status based on what we found
