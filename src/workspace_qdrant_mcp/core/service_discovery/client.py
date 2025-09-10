@@ -140,18 +140,18 @@ class ServiceDiscoveryClient:
         identifier = self.project_detector.create_daemon_identifier(project_path)
         project_id = identifier.generate_identifier()
         
-        logger.debug("Discovering daemon for project", project_id=project_id, project_path=project_path)
+        logger.debug(f"Discovering daemon for project {project_id} at {project_path}")
         
         # Strategy 1: Check registry
         endpoint = await self._discover_from_registry(project_id)
         if endpoint and await self._verify_endpoint_health(endpoint):
-            logger.info("Found daemon via registry", endpoint=endpoint.address, project_id=project_id)
+            logger.info(f"Found daemon via registry: {endpoint.address} for project {project_id}")
             return endpoint
         
         # Strategy 2: Network discovery
         endpoint = await self._discover_via_network(project_id)
         if endpoint and await self._verify_endpoint_health(endpoint):
-            logger.info("Found daemon via network discovery", endpoint=endpoint.address, project_id=project_id)
+            logger.info(f"Found daemon via network discovery: {endpoint.address} for project {project_id}")
             await self._register_endpoint(endpoint)
             return endpoint
         
@@ -164,7 +164,7 @@ class ServiceDiscoveryClient:
                 service_name="workspace-qdrant-daemon"
             )
             if await self._verify_endpoint_health(endpoint):
-                logger.info("Found daemon via configuration", endpoint=endpoint.address, project_id=project_id)
+                logger.info(f"Found daemon via configuration: {endpoint.address} for project {project_id}")
                 await self._register_endpoint(endpoint)
                 return endpoint
         
@@ -177,11 +177,11 @@ class ServiceDiscoveryClient:
                 service_name="workspace-qdrant-daemon"
             )
             if await self._verify_endpoint_health(endpoint):
-                logger.info("Found daemon via default scan", endpoint=endpoint.address, project_id=project_id)
+                logger.info(f"Found daemon via default scan: {endpoint.address} for project {project_id}")
                 await self._register_endpoint(endpoint)
                 return endpoint
         
-        logger.warning("No healthy daemon found for project", project_id=project_id)
+        logger.warning(f"No healthy daemon found for project {project_id}")
         return None
     
     async def list_available_daemons(self) -> List[ServiceEndpoint]:
@@ -206,7 +206,7 @@ class ServiceDiscoveryClient:
         if project_id in self.endpoints_cache:
             del self.endpoints_cache[project_id]
             await self._save_registry()
-            logger.info("Unregistered daemon", project_id=project_id)
+            logger.info(f"Unregistered daemon {project_id}")
     
     async def _discovery_loop(self) -> None:
         """Background discovery loop."""
@@ -225,7 +225,7 @@ class ServiceDiscoveryClient:
         except asyncio.CancelledError:
             logger.debug("Discovery loop cancelled")
         except Exception as e:
-            logger.error("Error in discovery loop", error=str(e))
+            logger.error(f"Error in discovery loop: {str(e)}")
     
     async def _discover_from_registry(self, project_id: str) -> Optional[ServiceEndpoint]:
         """Discover service from registry file."""
@@ -277,14 +277,14 @@ class ServiceDiscoveryClient:
                     return endpoint
                     
             except socket.timeout:
-                logger.debug("Network discovery timeout", project_id=project_id)
+                logger.debug(f"Network discovery timeout for project {project_id}")
             except json.JSONDecodeError as e:
-                logger.warning("Invalid discovery response", error=str(e))
+                logger.warning(f"Invalid discovery response {error=str(e}"))
             
             sock.close()
             
         except Exception as e:
-            logger.warning("Network discovery failed", project_id=project_id, error=str(e))
+            logger.warning(f"Network discovery failed {project_id=project_id, error=str(e}"))
         
         return None
     
@@ -307,7 +307,7 @@ class ServiceDiscoveryClient:
             sock.close()
             
         except Exception as e:
-            logger.debug("Network discovery scan failed", error=str(e))
+            logger.debug(f"Network discovery scan failed {error=str(e}"))
     
     async def _verify_endpoint_health(self, endpoint: ServiceEndpoint) -> bool:
         """Verify that an endpoint is healthy and reachable."""
@@ -327,7 +327,7 @@ class ServiceDiscoveryClient:
             return True
             
         except (asyncio.TimeoutError, ConnectionRefusedError, OSError) as e:
-            logger.debug("Health check failed", endpoint=endpoint.address, error=str(e))
+            logger.debug(f"Health check failed {endpoint=endpoint.address, error=str(e}"))
             endpoint.health_status = "unhealthy"
             return False
     
@@ -335,7 +335,7 @@ class ServiceDiscoveryClient:
         """Register an endpoint in the cache and persistent registry."""
         self.endpoints_cache[endpoint.project_id] = endpoint
         await self._save_registry()
-        logger.debug("Registered endpoint", endpoint=endpoint.address, project_id=endpoint.project_id)
+        logger.debug(f"Registered endpoint {endpoint.address} for project {endpoint.project_id}")
     
     async def _load_registry(self) -> None:
         """Load endpoints from persistent registry."""
@@ -358,10 +358,10 @@ class ServiceDiscoveryClient:
                 )
                 self.endpoints_cache[project_id] = endpoint
             
-            logger.debug("Loaded registry", count=len(self.endpoints_cache))
+            logger.debug(f"Loaded registry {count=len(self.endpoints_cache}"))
             
         except (json.JSONDecodeError, KeyError, FileNotFoundError) as e:
-            logger.warning("Failed to load service registry", error=str(e))
+            logger.warning(f"Failed to load service registry {error=str(e}"))
     
     async def _save_registry(self) -> None:
         """Save endpoints to persistent registry."""
@@ -391,10 +391,10 @@ class ServiceDiscoveryClient:
                 json.dump(data, f, indent=2)
             
             temp_path.replace(self.config.registry_path)
-            logger.debug("Saved registry", count=len(data))
+            logger.debug(f"Saved registry {count=len(data}"))
             
         except Exception as e:
-            logger.warning("Failed to save service registry", error=str(e))
+            logger.warning(f"Failed to save service registry {error=str(e}"))
     
     async def _cleanup_stale_endpoints(self) -> None:
         """Remove stale endpoints from cache."""
@@ -405,7 +405,7 @@ class ServiceDiscoveryClient:
         
         for project_id in stale_projects:
             del self.endpoints_cache[project_id]
-            logger.debug("Removed stale endpoint", project_id=project_id)
+            logger.debug(f"Removed stale endpoint for project {project_id}")
         
         if stale_projects:
             await self._save_registry()
