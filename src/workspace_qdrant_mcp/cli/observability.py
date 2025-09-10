@@ -43,13 +43,14 @@ from ..observability import (
     health_checker_instance,
     metrics_instance,
 )
+from .utils import create_command_app
 
 logger = get_logger(__name__)
 
 # CLI app for observability commands
-observability_app = typer.Typer(
+observability_app = create_command_app(
     name="observability",
-    help="Observability and monitoring tools",
+    help_text="Observability, monitoring, and health checks",
     no_args_is_help=True,
 )
 
