@@ -33,6 +33,7 @@ from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional, Set
 
 from ..utils.project_detection import DaemonIdentifier, ProjectDetector
+from .resource_manager import ResourceManager, ResourceLimits, get_resource_manager
 
 logger = logging.getLogger(__name__)
 
@@ -55,6 +56,10 @@ class DaemonConfig:
     restart_on_failure: bool = True
     max_restart_attempts: int = 3
     restart_backoff_base: float = 2.0
+    
+    # Resource limits
+    resource_limits: Optional[ResourceLimits] = None
+    enable_resource_monitoring: bool = True
 
 
 @dataclass
@@ -335,6 +340,7 @@ class DaemonInstance:
         self.shutdown_event = asyncio.Event()
         self.log_handlers: List[Callable[[str], None]] = []
         self.port_manager = PortManager.get_instance()
+        self.resource_monitor = None  # Will be set during start()
         
         # Generate or use provided project identifier
         if not config.project_id:
@@ -432,6 +438,26 @@ class DaemonInstance:
                 self.status.state = "running"
                 self.status.grpc_available = True
 
+                # Start resource monitoring if enabled
+                if self.config.enable_resource_monitoring and self.config.project_id:
+                    try:
+                        resource_manager = await get_resource_manager()
+                        self.resource_monitor = await resource_manager.register_project(
+                            self.config.project_id,
+                            self.config.resource_limits
+                        )
+                        logger.info(
+                            "Resource monitoring started",
+                            project=self.config.project_name,
+                            project_id=self.config.project_id,
+                        )
+                    except Exception as e:
+                        logger.warning(
+                            "Failed to start resource monitoring",
+                            project=self.config.project_name,
+                            error=str(e),
+                        )
+
                 # Start health monitoring
                 self.health_task = asyncio.create_task(self._health_monitor_loop())
 
@@ -501,6 +527,23 @@ class DaemonInstance:
                             "Failed to kill daemon process",
                             project=self.config.project_name,
                         )
+
+            # Cleanup resource monitoring
+            if self.resource_monitor and self.config.project_id:
+                try:
+                    resource_manager = await get_resource_manager()
+                    await resource_manager.unregister_project(self.config.project_id)
+                    logger.info(
+                        "Resource monitoring stopped",
+                        project=self.config.project_name,
+                        project_id=self.config.project_id,
+                    )
+                except Exception as e:
+                    logger.warning(
+                        "Failed to stop resource monitoring",
+                        project=self.config.project_name,
+                        error=str(e),
+                    )
 
             self.status.state = "stopped"
             self.status.pid = None
@@ -577,6 +620,28 @@ class DaemonInstance:
                 self.status.health_status = "healthy" if is_healthy else "unhealthy"
                 self.status.grpc_available = is_healthy
 
+                # Check resource health if monitoring is enabled
+                if is_healthy and self.resource_monitor:
+                    try:
+                        resource_manager = await get_resource_manager()
+                        resource_usage = await resource_manager.get_project_usage(self.config.project_id)
+                        
+                        if resource_usage and not resource_usage.is_healthy:
+                            logger.warning(
+                                "Resource health check failed",
+                                project=self.config.project_name,
+                                warnings=resource_usage.warnings,
+                                errors=resource_usage.errors,
+                            )
+                            # Consider resource issues as health degradation but not failure
+                            is_healthy = len(resource_usage.errors) == 0
+                    except Exception as e:
+                        logger.debug(
+                            "Resource health check error",
+                            project=self.config.project_name,
+                            error=str(e),
+                        )
+
                 return is_healthy
 
             except Exception as e:
@@ -600,9 +665,9 @@ class DaemonInstance:
         """Add a log handler for daemon output."""
         self.log_handlers.append(handler)
 
-    def get_status(self) -> Dict[str, Any]:
-        """Get comprehensive status information."""
-        return {
+    async def get_status(self) -> Dict[str, Any]:
+        """Get comprehensive status information including resource usage."""
+        status_dict = {
             "config": asdict(self.config),
             "status": asdict(self.status),
             "process_info": {
@@ -611,6 +676,19 @@ class DaemonInstance:
                 "return_code": self.process.returncode if self.process else None,
             },
         }
+        
+        # Add resource information if monitoring is enabled
+        if self.resource_monitor and self.config.project_id:
+            try:
+                resource_manager = await get_resource_manager()
+                resource_usage = await resource_manager.get_project_usage(self.config.project_id)
+                
+                if resource_usage:
+                    status_dict["resource_usage"] = asdict(resource_usage)
+            except Exception as e:
+                status_dict["resource_error"] = str(e)
+        
+        return status_dict
 
     async def _write_config_file(self):
         """Write configuration file for the Rust daemon."""
@@ -968,11 +1046,14 @@ class DaemonManager:
         if daemon_key not in self.daemons:
             return None
 
-        return self.daemons[daemon_key].get_status()
+        return await self.daemons[daemon_key].get_status()
 
     async def list_daemons(self) -> Dict[str, Dict[str, Any]]:
-        """List all active daemons."""
-        return {key: daemon.get_status() for key, daemon in self.daemons.items()}
+        """List all active daemons with resource information."""
+        results = {}
+        for key, daemon in self.daemons.items():
+            results[key] = await daemon.get_status()
+        return results
 
     async def health_check_all(self) -> Dict[str, bool]:
         """Perform health check on all daemons."""
@@ -1010,12 +1091,33 @@ class DaemonManager:
             except asyncio.TimeoutError:
                 logger.warning("Daemon shutdown timeout exceeded")
 
+        # Cleanup global resource manager
+        try:
+            resource_manager = await get_resource_manager()
+            await resource_manager.cleanup_all()
+            logger.info("Resource manager cleaned up")
+        except Exception as e:
+            logger.error("Error cleaning up resource manager", error=str(e))
+
         self.daemons.clear()
         logger.info("All daemons shut down")
 
     def add_shutdown_handler(self, handler: Callable[[], None]):
         """Add a shutdown handler."""
         self.shutdown_handlers.append(handler)
+
+    async def get_system_resource_status(self) -> Dict[str, Any]:
+        """Get comprehensive system resource status across all daemons."""
+        try:
+            resource_manager = await get_resource_manager()
+            return await resource_manager.get_system_status()
+        except Exception as e:
+            logger.error("Failed to get system resource status", error=str(e))
+            return {
+                "error": str(e),
+                "total_projects": len(self.daemons),
+                "daemons": list(self.daemons.keys())
+            }
 
     def _get_daemon_key(self, project_name: str, project_path: str) -> str:
         """Generate a unique key for daemon identification using enhanced system."""
