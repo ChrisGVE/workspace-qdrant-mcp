@@ -17,6 +17,13 @@ from typing import Any, Optional, Union
 
 from pydantic import BaseModel, Field, ValidationError, field_validator
 
+# Import LSP detector for dynamic extension detection
+try:
+    from .lsp_detector import get_default_detector
+except ImportError:
+    # Fallback if LSP detector is not available
+    get_default_detector = None
+
 logger = logging.getLogger(__name__)
 
 
@@ -38,6 +45,16 @@ class WatchConfigSchema(BaseModel):
             ".DS_Store",
         ],
         description="File patterns to ignore",
+    )
+    lsp_based_extensions: bool = Field(
+        default=True,
+        description="Enable dynamic extension detection based on available LSP servers",
+    )
+    lsp_detection_cache_ttl: int = Field(
+        default=300,
+        ge=60,
+        le=3600,
+        description="LSP detection cache TTL in seconds",
     )
     auto_ingest: bool = Field(default=True, description="Enable automatic ingestion")
     recursive: bool = Field(
@@ -134,6 +151,8 @@ class WatchConfigurationPersistent:
             ".DS_Store",
         ]
     )
+    lsp_based_extensions: bool = True
+    lsp_detection_cache_ttl: int = 300
     auto_ingest: bool = True
     recursive: bool = True
     debounce_seconds: int = 5
@@ -192,6 +211,47 @@ class WatchConfigurationPersistent:
             issues.append("Recursive depth must be -1 (unlimited) or positive integer")
 
         return issues
+
+    def get_effective_patterns(self) -> tuple[list[str], list[str]]:
+        """
+        Get effective include and exclude patterns, optionally enhanced with LSP detection.
+        
+        Returns:
+            Tuple of (include_patterns, exclude_patterns)
+        """
+        # Start with configured patterns
+        include_patterns = list(self.patterns)
+        exclude_patterns = list(self.ignore_patterns)
+        
+        # Add LSP-based patterns if enabled and detector is available
+        if self.lsp_based_extensions and get_default_detector is not None:
+            try:
+                detector = get_default_detector()
+                detector.cache_ttl = self.lsp_detection_cache_ttl
+                
+                # Get LSP-detected extensions
+                lsp_extensions = detector.get_supported_extensions(include_fallbacks=True)
+                
+                # Convert extensions to glob patterns  
+                lsp_patterns = []
+                for ext in lsp_extensions:
+                    if ext.startswith('.'):
+                        lsp_patterns.append(f"*{ext}")
+                    else:
+                        # Handle non-extension patterns (like Dockerfile, Makefile)
+                        lsp_patterns.append(ext)
+                
+                # Merge patterns, avoiding duplicates
+                all_patterns = set(include_patterns + lsp_patterns)
+                include_patterns = sorted(list(all_patterns))
+                
+                logger.debug(f"Enhanced patterns with LSP detection: {len(lsp_patterns)} LSP patterns added")
+                
+            except Exception as e:
+                logger.warning(f"Failed to get LSP-based patterns: {e}")
+                # Fall back to original patterns
+        
+        return (include_patterns, exclude_patterns)
 
 
 class PersistentWatchConfigManager:
