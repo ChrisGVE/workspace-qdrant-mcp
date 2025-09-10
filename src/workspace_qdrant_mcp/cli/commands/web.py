@@ -32,16 +32,16 @@ import typer
 from rich.console import Console
 
 from ...observability import get_logger
+from ..utils import create_command_app
 
 console = Console()
 logger = get_logger(__name__)
 
 # Create the web app
-web_app = typer.Typer(
+web_app = create_command_app(
     name="web",
-    help="Web UI server for workspace-qdrant-mcp",
-    add_completion=False,
-    rich_markup_mode=None,
+    help_text="Web UI server for workspace-qdrant-mcp",
+    no_args_is_help=True,
 )
 
 
