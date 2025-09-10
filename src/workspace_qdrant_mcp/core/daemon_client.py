@@ -3,13 +3,15 @@ Unified gRPC client for workspace-qdrant-mcp daemon communication.
 
 This module provides a single interface for all components (CLI, MCP server, web UI)
 to communicate with the daemon, eliminating direct Qdrant client usage and code duplication.
+Includes automatic service discovery for multi-instance daemon support.
 """
 
 import asyncio
 import logging
+import os
 from contextlib import asynccontextmanager
 from pathlib import Path
-from typing import Any, Dict, Iterator, List, Optional
+from typing import Any, Dict, Iterator, List, Optional, Tuple
 
 import grpc
 from google.protobuf.empty_pb2 import Empty
@@ -79,6 +81,7 @@ from ..grpc.ingestion_pb2 import (
 from ..grpc.ingestion_pb2_grpc import IngestServiceStub
 from ..observability import get_logger
 from .yaml_config import WorkspaceConfig, load_config
+from .service_discovery import discover_daemon_endpoint, ServiceEndpoint
 
 # Import LLM access control system
 try:
@@ -98,26 +101,51 @@ class DaemonConnectionError(Exception):
 
 class DaemonClient:
     """
-    Unified gRPC client for daemon communication.
+    Unified gRPC client for daemon communication with automatic service discovery.
 
     Provides a single interface for all workspace-qdrant-mcp operations,
     replacing direct Qdrant client usage throughout the codebase.
+    Automatically discovers the correct daemon instance for the current project context.
     """
 
-    def __init__(self, config: Optional[WorkspaceConfig] = None):
-        """Initialize daemon client with configuration."""
+    def __init__(self, config: Optional[WorkspaceConfig] = None, project_path: Optional[str] = None):
+        """Initialize daemon client with configuration and optional project context."""
         self.config = config or load_config()
+        self.project_path = project_path or os.getcwd()
         self.channel: Optional[grpc.aio.Channel] = None
         self.stub: Optional[IngestServiceStub] = None
         self._connected = False
+        self._discovered_endpoint: Optional[ServiceEndpoint] = None
 
     async def connect(self) -> None:
-        """Establish connection to daemon."""
+        """Establish connection to daemon using service discovery."""
         if self._connected:
             return
 
+        # First, attempt service discovery for project-specific daemon
         grpc_config = self.config.daemon.grpc
-        address = f"{grpc_config.host}:{grpc_config.port}"
+        preferred_endpoint = (grpc_config.host, grpc_config.port)
+        
+        logger.info("Attempting service discovery for daemon connection", 
+                   project_path=self.project_path)
+        
+        # Try to discover daemon endpoint for this project
+        discovered_endpoint = await discover_daemon_endpoint(
+            self.project_path, 
+            preferred_endpoint
+        )
+        
+        if discovered_endpoint:
+            address = discovered_endpoint.address
+            self._discovered_endpoint = discovered_endpoint
+            logger.info("Using discovered daemon endpoint", 
+                       address=address, 
+                       project_id=discovered_endpoint.project_id)
+        else:
+            # Fallback to configured endpoint
+            address = f"{grpc_config.host}:{grpc_config.port}"
+            logger.warning("Service discovery failed, using configured endpoint", 
+                          address=address)
 
         try:
             # Create channel with appropriate options
@@ -170,6 +198,7 @@ class DaemonClient:
             self.channel = None
             self.stub = None
             self._connected = False
+            self._discovered_endpoint = None
             logger.info("Disconnected from daemon")
 
     @asynccontextmanager
@@ -194,6 +223,31 @@ class DaemonClient:
                 "\n"
                 "For more help: wqm admin diagnostics"
             )
+
+    def get_connection_info(self) -> Dict[str, Any]:
+        """Get information about the current daemon connection."""
+        info = {
+            "connected": self._connected,
+            "project_path": self.project_path,
+            "discovery_used": self._discovered_endpoint is not None,
+        }
+        
+        if self._discovered_endpoint:
+            info.update({
+                "endpoint": self._discovered_endpoint.address,
+                "project_id": self._discovered_endpoint.project_id,
+                "service_name": self._discovered_endpoint.service_name,
+                "health_status": self._discovered_endpoint.health_status,
+                "discovery_strategy": "service_discovery"
+            })
+        else:
+            grpc_config = self.config.daemon.grpc
+            info.update({
+                "endpoint": f"{grpc_config.host}:{grpc_config.port}",
+                "discovery_strategy": "configuration"
+            })
+        
+        return info
 
     # Document processing operations
 
@@ -611,18 +665,30 @@ class DaemonClient:
 _daemon_client: Optional[DaemonClient] = None
 
 
-def get_daemon_client(config: Optional[WorkspaceConfig] = None) -> DaemonClient:
-    """Get the global daemon client instance."""
+def get_daemon_client(
+    config: Optional[WorkspaceConfig] = None, 
+    project_path: Optional[str] = None
+) -> DaemonClient:
+    """Get the global daemon client instance with optional project context."""
     global _daemon_client
 
-    if _daemon_client is None or config is not None:
-        _daemon_client = DaemonClient(config)
+    if _daemon_client is None or config is not None or project_path is not None:
+        _daemon_client = DaemonClient(config, project_path)
 
     return _daemon_client
 
 
-async def with_daemon_client(operation, config: Optional[WorkspaceConfig] = None):
+async def with_daemon_client(
+    operation, 
+    config: Optional[WorkspaceConfig] = None,
+    project_path: Optional[str] = None
+):
     """Execute an operation with a connected daemon client."""
-    client = get_daemon_client(config)
+    client = get_daemon_client(config, project_path)
     async with client.connection():
         return await operation(client)
+
+
+def create_project_client(project_path: str, config: Optional[WorkspaceConfig] = None) -> DaemonClient:
+    """Create a new daemon client for a specific project path."""
+    return DaemonClient(config, project_path)
