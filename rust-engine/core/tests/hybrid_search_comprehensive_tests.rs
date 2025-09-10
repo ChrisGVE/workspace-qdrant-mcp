@@ -17,7 +17,7 @@ use workspace_qdrant_core::embedding::{
     EmbeddingConfig, EmbeddingGenerator, BM25, TextPreprocessor
 };
 use workspace_qdrant_core::storage::{
-    StorageClient, StorageConfig, HybridSearchMode, DocumentPoint, SearchResult
+    StorageClient, StorageConfig, HybridSearchMode, DocumentPoint, SearchResult, SearchParams
 };
 use serde_json::json;
 
@@ -454,28 +454,28 @@ async fn test_hybrid_search_integration() {
     query_sparse.insert(2, 0.7);
     
     // Test dense search
-    let dense_results = storage.search(
-        collection_name,
-        Some(query_vector.clone()),
-        None,
-        HybridSearchMode::Dense,
-        5,
-        None,
-        None,
-    ).await.expect("Dense search failed");
+    let dense_params = SearchParams {
+        dense_vector: Some(query_vector.clone()),
+        sparse_vector: None,
+        search_mode: HybridSearchMode::Dense,
+        limit: 5,
+        score_threshold: None,
+        filter: None,
+    };
+    let dense_results = storage.search(collection_name, dense_params).await.expect("Dense search failed");
     
     assert!(dense_results.len() <= 5, "Should return at most 5 results");
     
     // Test hybrid search
-    let hybrid_results = storage.search(
-        collection_name,
-        Some(query_vector),
-        Some(query_sparse),
-        HybridSearchMode::Hybrid { dense_weight: 1.0, sparse_weight: 1.0 },
-        5,
-        None,
-        None,
-    ).await.expect("Hybrid search failed");
+    let hybrid_params = SearchParams {
+        dense_vector: Some(query_vector),
+        sparse_vector: Some(query_sparse),
+        search_mode: HybridSearchMode::Hybrid { dense_weight: 1.0, sparse_weight: 1.0 },
+        limit: 5,
+        score_threshold: None,
+        filter: None,
+    };
+    let hybrid_results = storage.search(collection_name, hybrid_params).await.expect("Hybrid search failed");
     
     assert!(hybrid_results.len() <= 5, "Should return at most 5 results");
     
@@ -548,15 +548,15 @@ async fn test_reciprocal_rank_fusion_correctness() {
     let query_sparse: HashMap<u32, f32> = [(0, 2.5), (1, 1.5)].iter().cloned().collect();
     
     for (dense_weight, sparse_weight) in weight_tests {
-        let results = storage.search(
-            collection_name,
-            Some(query_dense.clone()),
-            Some(query_sparse.clone()),
-            HybridSearchMode::Hybrid { dense_weight, sparse_weight },
-            5,
-            None,
-            None,
-        ).await.expect("RRF search failed");
+        let params = SearchParams {
+            dense_vector: Some(query_dense.clone()),
+            sparse_vector: Some(query_sparse.clone()),
+            search_mode: HybridSearchMode::Hybrid { dense_weight, sparse_weight },
+            limit: 5,
+            score_threshold: None,
+            filter: None,
+        };
+        let results = storage.search(collection_name, params).await.expect("RRF search failed");
         
         // Validate RRF properties
         assert!(!results.is_empty(), "RRF should return results");
@@ -861,15 +861,15 @@ async fn test_cross_collection_search_capabilities() {
     let mut all_results = Vec::new();
     
     for collection in &collections {
-        let results = storage.search(
-            collection,
-            Some(query_vector.clone()),
-            Some(query_sparse.clone()),
-            HybridSearchMode::Hybrid { dense_weight: 1.0, sparse_weight: 1.0 },
-            5,
-            None,
-            None,
-        ).await.expect("Cross-collection search failed");
+        let params = SearchParams {
+            dense_vector: Some(query_vector.clone()),
+            sparse_vector: Some(query_sparse.clone()),
+            search_mode: HybridSearchMode::Hybrid { dense_weight: 1.0, sparse_weight: 1.0 },
+            limit: 5,
+            score_threshold: None,
+            filter: None,
+        };
+        let results = storage.search(collection, params).await.expect("Cross-collection search failed");
         
         // Tag results with collection name and add to all_results
         for result in results {
@@ -1041,15 +1041,15 @@ async fn test_end_to_end_hybrid_search_pipeline() {
             .collect();
         
         // Test hybrid search
-        let results = storage.search(
-            collection_name,
-            Some(vec![0.1; 384]), // Mock query embedding
-            Some(query_sparse_map),
-            HybridSearchMode::Hybrid { dense_weight: 1.0, sparse_weight: 1.0 },
-            5,
-            None,
-            None,
-        ).await.expect("End-to-end search failed");
+        let params = SearchParams {
+            dense_vector: Some(vec![0.1; 384]), // Mock query embedding
+            sparse_vector: Some(query_sparse_map),
+            search_mode: HybridSearchMode::Hybrid { dense_weight: 1.0, sparse_weight: 1.0 },
+            limit: 5,
+            score_threshold: None,
+            filter: None,
+        };
+        let results = storage.search(collection_name, params).await.expect("End-to-end search failed");
         
         let metrics = SearchQualityMetrics::calculate(&results, expected_docs);
         
@@ -1171,15 +1171,15 @@ async fn test_performance_benchmarking() {
         
         let search_start = Instant::now();
         
-        let results = storage.search(
-            collection_name,
-            Some(vec![fastrand::f32(); 384]),
-            Some(query_sparse_map),
-            HybridSearchMode::Hybrid { dense_weight: 1.0, sparse_weight: 1.0 },
-            10,
-            None,
-            None,
-        ).await.expect("Benchmark search failed");
+        let params = SearchParams {
+            dense_vector: Some(vec![fastrand::f32(); 384]),
+            sparse_vector: Some(query_sparse_map),
+            search_mode: HybridSearchMode::Hybrid { dense_weight: 1.0, sparse_weight: 1.0 },
+            limit: 10,
+            score_threshold: None,
+            filter: None,
+        };
+        let results = storage.search(collection_name, params).await.expect("Benchmark search failed");
         
         let search_time = search_start.elapsed();
         search_times.push(search_time);
@@ -1301,15 +1301,15 @@ async fn test_storage_error_recovery() {
     assert!(connection_result.is_err(), "Should fail to connect to non-existent server");
     
     // Test search failure handling
-    let search_result = storage.search(
-        "non_existent_collection",
-        Some(vec![0.1; 384]),
-        None,
-        HybridSearchMode::Dense,
-        5,
-        None,
-        None,
-    ).await;
+    let params = SearchParams {
+        dense_vector: Some(vec![0.1; 384]),
+        sparse_vector: None,
+        search_mode: HybridSearchMode::Dense,
+        limit: 5,
+        score_threshold: None,
+        filter: None,
+    };
+    let search_result = storage.search("non_existent_collection", params).await;
     
     assert!(search_result.is_err(), "Should fail to search non-existent collection");
 }
