@@ -12,7 +12,6 @@ from typing import Any, Dict, List, Optional
 import typer
 
 from ...core.daemon_client import get_daemon_client, with_daemon_client
-from ...core.config import Config
 from ...observability import get_logger
 from ..utils import (
     confirm,
@@ -46,8 +45,7 @@ Examples:
 
 async def _get_daemon_client():
     """Get connected daemon client for watch operations."""
-    config = Config()
-    client = get_daemon_client(config.workspace_config)
+    client = get_daemon_client()
     await client.connect()
     return client
 
