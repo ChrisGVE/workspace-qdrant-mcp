@@ -208,10 +208,26 @@ async def _configure_watch(
                 print(f"Error: No watch found with ID or path: {watch_id}")
                 raise typer.Exit(1)
             
-            # Validate depth parameter if provided
-            if depth is not None and depth < -1:
-                print(f"Error: Depth must be -1 (unlimited) or a non-negative integer, got: {depth}")
-                raise typer.Exit(1)
+            # Validate depth parameter if provided using comprehensive validation
+            if depth is not None:
+                from ...core.depth_validation import validate_recursive_depth, format_depth_display
+                depth_result = validate_recursive_depth(depth)
+                
+                if not depth_result.is_valid:
+                    print(f"Error: {depth_result.error_message}")
+                    raise typer.Exit(1)
+                
+                # Show warnings for depth selection
+                if depth_result.warnings:
+                    for warning in depth_result.warnings:
+                        print(f"Warning: {warning}")
+                
+                # Show recommendations
+                if depth_result.recommendations:
+                    print("Depth Recommendations:")
+                    for rec in depth_result.recommendations:
+                        print(f"  • {rec}")
+                    print()
             
             # Build configuration parameters
             config_params = {}
@@ -309,10 +325,25 @@ async def _add_watch(
                 print(f"Error: Path is not a directory: {path}")
                 raise typer.Exit(1)
 
-            # Validate depth parameter
-            if depth < -1:
-                print(f"Error: Depth must be -1 (unlimited) or a non-negative integer, got: {depth}")
+            # Validate depth parameter using comprehensive validation
+            from ...core.depth_validation import validate_recursive_depth, format_depth_display
+            depth_result = validate_recursive_depth(depth)
+            
+            if not depth_result.is_valid:
+                print(f"Error: {depth_result.error_message}")
                 raise typer.Exit(1)
+            
+            # Show warnings for depth selection
+            if depth_result.warnings:
+                for warning in depth_result.warnings:
+                    print(f"Warning: {warning}")
+            
+            # Show recommendations
+            if depth_result.recommendations:
+                print("Recommendations:")
+                for rec in depth_result.recommendations:
+                    print(f"  • {rec}")
+                print()
 
             # Validate collection (must be library collection)
             if not collection.startswith("_"):
