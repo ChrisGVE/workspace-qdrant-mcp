@@ -29,17 +29,37 @@ logger = get_logger(__name__)
 # Create the watch app using shared utilities
 watch_app = create_command_app(
     name="watch",
-    help_text="""Folder watching configuration.
+    help_text="""Folder watching configuration with configurable depth control.
     
-Configure automatic folder watching for library collections.
+Configure automatic folder watching for library collections with precise depth control
+for optimal performance and resource usage.
+
+Depth Configuration:
+    --depth=0     Current directory only (no subdirectories)
+    --depth=3     Shallow watching (2-3 levels, good performance)
+    --depth=10    Deep watching (10+ levels, moderate performance)
+    --depth=-1    Unlimited depth (may impact performance on large structures)
     
 Examples:
+    # Basic watching with default depth
+    wqm watch add ~/docs --collection=docs
+    
+    # Shallow watching for performance (recommended for large directories)
+    wqm watch add ~/projects --collection=code --depth=3
+    
+    # Deep watching for nested structures
+    wqm watch add ~/research --collection=papers --depth=15
+    
+    # Unlimited depth (use with caution on large file systems)
+    wqm watch add ~/archive --collection=backup --depth=-1
+    
+    # Configure existing watch depth
+    wqm watch configure watch_abc123 --depth=5
+    
+    # List and manage watches
     wqm watch list                      # Show all watch configurations
-    wqm watch add ~/docs --collection=docs --depth=5  # Watch folder for changes
-    wqm watch configure watch_id --depth=10  # Change watch depth
-    wqm watch remove ~/docs             # Stop watching folder
-    wqm watch status                    # Show watch service status
-    wqm watch enable --name=docs-watch  # Enable specific watch""",
+    wqm watch status --detailed         # Show detailed watch statistics
+    wqm watch remove ~/docs             # Stop watching folder""",
     no_args_is_help=True,
 )
 
@@ -76,7 +96,9 @@ def add_watch(
         True, "--recursive/--no-recursive", help="Watch subdirectories"
     ),
     depth: int = typer.Option(
-        -1, "--depth", help="Maximum directory depth to watch (-1 for unlimited, 0 for current folder only)"
+        -1, 
+        "--depth", 
+        help="Maximum directory depth to watch. Examples: 0=current only, 3=shallow (recommended), 10=deep, -1=unlimited (use with caution)"
     ),
     debounce: int = typer.Option(5, "--debounce", help="Debounce time in seconds"),
 ):
@@ -157,7 +179,11 @@ def resume_watches(
 @watch_app.command("configure")
 def configure_watch(
     watch_id: str = typer.Argument(..., help="Watch ID or path to configure"),
-    depth: int | None = typer.Option(None, "--depth", help="Maximum directory depth to watch (-1 for unlimited)"),
+    depth: int | None = typer.Option(
+        None, 
+        "--depth", 
+        help="Change maximum directory depth. Examples: 0=current only, 3=shallow, 10=deep, -1=unlimited"
+    ),
     patterns: list[str] | None = typer.Option(None, "--pattern", "-p", help="File patterns to watch"),
     ignore: list[str] | None = typer.Option(None, "--ignore", "-i", help="Ignore patterns"),
     auto_ingest: bool | None = typer.Option(None, "--auto/--no-auto", help="Enable/disable automatic ingestion"),
@@ -265,8 +291,7 @@ async def _configure_watch(
                 # Show what was changed
                 print("\nUpdated Settings:")
                 if depth is not None:
-                    depth_str = "Unlimited" if depth == -1 else str(depth)
-                    print(f"  Depth: {depth_str}")
+                    print(f"  Depth: {format_depth_display(depth)}")
                 if patterns is not None:
                     print(f"  Patterns: {', '.join(patterns)}")
                 if ignore is not None:
@@ -393,7 +418,8 @@ async def _add_watch(
             print(f"Watch ID: {watch_id}")
             print(f"Auto-ingest: {'Enabled' if auto_ingest else 'Disabled'}")
             print(f"Recursive: {'Yes' if recursive else 'No'}")
-            print(f"Depth: {'Unlimited' if depth == -1 else str(depth)}")
+            from ...core.depth_validation import format_depth_display
+            print(f"Depth: {format_depth_display(depth)}")
             print(f"Debounce: {debounce} seconds")
             print("\nFile Patterns:")
             for pattern in patterns:
