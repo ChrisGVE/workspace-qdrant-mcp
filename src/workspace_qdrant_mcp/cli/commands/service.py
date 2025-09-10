@@ -733,10 +733,72 @@ project_path = "{str(Path.cwd()).replace(chr(92), chr(92) + chr(92))}"
 
     async def _uninstall_windows_service(self) -> Dict[str, Any]:
         """Uninstall Windows service."""
-        return {
-            "success": False,
-            "error": "Windows service uninstallation not yet implemented",
-        }
+        service_name = f"memexd-{self.service_name}"
+        
+        try:
+            # Check if service exists
+            check_cmd = ["sc", "query", service_name]
+            result = await asyncio.create_subprocess_exec(
+                *check_cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE
+            )
+            stdout, stderr = await result.communicate()
+            
+            if result.returncode != 0:
+                return {
+                    "success": False,
+                    "error": f"Service {service_name} not found or already uninstalled",
+                    "service_name": service_name,
+                }
+
+            # Stop service if it's running before uninstalling
+            stop_cmd = ["sc", "stop", service_name]
+            result = await asyncio.create_subprocess_exec(
+                *stop_cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE
+            )
+            await result.communicate()
+            # Don't fail if stop fails - service might already be stopped
+
+            # Wait a moment for service to stop
+            await asyncio.sleep(2)
+
+            # Delete the service
+            delete_cmd = ["sc", "delete", service_name]
+            result = await asyncio.create_subprocess_exec(
+                *delete_cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE
+            )
+            stdout, stderr = await result.communicate()
+
+            if result.returncode != 0:
+                error_msg = stderr.decode().strip() or stdout.decode().strip()
+                return {
+                    "success": False,
+                    "error": f"Failed to delete Windows service: {error_msg}",
+                    "service_name": service_name,
+                }
+
+            # Clean up Windows service-specific PID file if it exists
+            import os
+            windows_pid_file = Path(os.environ.get('TEMP', 'C:\\temp')) / "memexd-service.pid"
+            if windows_pid_file.exists():
+                try:
+                    windows_pid_file.unlink()
+                    logger.debug(f"Removed Windows service PID file: {windows_pid_file}")
+                except OSError as e:
+                    logger.warning(f"Could not remove PID file: {e}")
+
+            return {
+                "success": True,
+                "service_name": service_name,
+                "message": f"Windows service {service_name} uninstalled successfully",
+            }
+
+        except Exception as e:
+            logger.error("Windows service uninstallation failed", error=str(e), exc_info=True)
+            return {
+                "success": False,
+                "error": f"Uninstallation failed: {e}",
+                "service_name": service_name,
+            }
 
     async def start_service(self) -> Dict[str, Any]:
         """Start the user service."""
@@ -987,7 +1049,94 @@ project_path = "{str(Path.cwd()).replace(chr(92), chr(92) + chr(92))}"
 
     async def _start_windows_service(self) -> Dict[str, Any]:
         """Start Windows service."""
-        return {"success": False, "error": "Windows service start not yet implemented"}
+        service_name = f"memexd-{self.service_name}"
+        
+        try:
+            # First check if service is installed
+            status_check = await self._get_windows_service_status()
+            if not status_check.get("success", False):
+                return {
+                    "success": False,
+                    "error": "Service is not installed",
+                    "suggestion": "Run 'wqm service install' first to install the service",
+                    "help_command": "wqm service install",
+                }
+
+            # Check if service is already running
+            if status_check.get("status") == "running":
+                return {
+                    "success": True,
+                    "service_name": service_name,
+                    "message": f"Service {service_name} is already running",
+                    "warning": "Service was already started",
+                }
+
+            # Start the service
+            start_cmd = ["sc", "start", service_name]
+            result = await asyncio.create_subprocess_exec(
+                *start_cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE
+            )
+            stdout, stderr = await result.communicate()
+
+            if result.returncode != 0:
+                error_msg = stderr.decode().strip() or stdout.decode().strip()
+                
+                # Provide better error messages based on common Windows errors
+                if "1056" in error_msg or "already running" in error_msg.lower():
+                    return {
+                        "success": True,
+                        "service_name": service_name,
+                        "message": f"Service {service_name} is already running",
+                        "warning": "Service was already started",
+                    }
+                elif "1053" in error_msg:
+                    return {
+                        "success": False,
+                        "error": "Service failed to respond to start request in timely fashion",
+                        "suggestion": "Check service logs and ensure daemon binary is executable",
+                        "technical_details": error_msg,
+                    }
+                elif "2" in error_msg or "not found" in error_msg.lower():
+                    return {
+                        "success": False,
+                        "error": "Service is not installed or not found",
+                        "suggestion": "Run 'wqm service install' first to install the service",
+                        "help_command": "wqm service install",
+                        "technical_details": error_msg,
+                    }
+                else:
+                    return {
+                        "success": False,
+                        "error": f"Service failed to start (exit code {result.returncode})",
+                        "suggestion": "Check service logs with 'wqm service logs' for more details",
+                        "technical_details": error_msg,
+                    }
+
+            # Verify the service actually started by waiting and checking status
+            await asyncio.sleep(3)  # Give service time to initialize
+            status_check = await self._get_windows_service_status()
+            
+            if status_check.get("status") == "running":
+                return {
+                    "success": True,
+                    "service_name": service_name,
+                    "message": f"Service {service_name} started successfully and is running",
+                    "status": status_check
+                }
+            else:
+                return {
+                    "success": False,
+                    "error": f"Service started but is not running. Status: {status_check.get('status', 'unknown')}",
+                    "debug_info": status_check
+                }
+
+        except Exception as e:
+            logger.error(f"Exception in _start_windows_service: {e}")
+            return {
+                "success": False,
+                "error": f"Exception starting service: {e}",
+                "service_name": service_name,
+            }
 
     async def stop_service(self) -> Dict[str, Any]:
         """Stop the user service."""
@@ -1048,7 +1197,78 @@ project_path = "{str(Path.cwd()).replace(chr(92), chr(92) + chr(92))}"
 
     async def _stop_windows_service(self) -> Dict[str, Any]:
         """Stop Windows service."""
-        return {"success": False, "error": "Windows service stop not yet implemented"}
+        service_name = f"memexd-{self.service_name}"
+        
+        try:
+            # Check if service exists and get current status
+            status_check = await self._get_windows_service_status()
+            if not status_check.get("success", False):
+                return {
+                    "success": False,
+                    "error": f"Service {service_name} not found",
+                    "service_name": service_name,
+                }
+
+            # Check if service is already stopped
+            if status_check.get("status") in ["stopped", "stop_pending"]:
+                return {
+                    "success": True,
+                    "service_name": service_name,
+                    "message": f"Service {service_name} is already stopped",
+                    "warning": "Service was already stopped",
+                }
+
+            # Stop the service
+            stop_cmd = ["sc", "stop", service_name]
+            result = await asyncio.create_subprocess_exec(
+                *stop_cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE
+            )
+            stdout, stderr = await result.communicate()
+
+            if result.returncode != 0:
+                error_msg = stderr.decode().strip() or stdout.decode().strip()
+                
+                # Provide better error messages based on common Windows errors
+                if "1062" in error_msg or "not started" in error_msg.lower():
+                    return {
+                        "success": True,
+                        "service_name": service_name,
+                        "message": f"Service {service_name} is already stopped",
+                        "warning": "Service was not running",
+                    }
+                elif "2" in error_msg or "not found" in error_msg.lower():
+                    return {
+                        "success": False,
+                        "error": f"Service {service_name} not found",
+                        "service_name": service_name,
+                        "technical_details": error_msg,
+                    }
+                else:
+                    return {
+                        "success": False,
+                        "error": f"Failed to stop service (exit code {result.returncode})",
+                        "service_name": service_name,
+                        "technical_details": error_msg,
+                    }
+
+            # Wait for service to stop and verify
+            await asyncio.sleep(2)
+            final_status = await self._get_windows_service_status()
+            
+            return {
+                "success": True,
+                "service_name": service_name,
+                "message": f"Service {service_name} stop command sent successfully",
+                "final_status": final_status.get("status", "unknown")
+            }
+
+        except Exception as e:
+            logger.error(f"Exception in _stop_windows_service: {e}")
+            return {
+                "success": False,
+                "error": f"Exception stopping service: {e}",
+                "service_name": service_name,
+            }
 
     async def get_service_status(self) -> Dict[str, Any]:
         """Get user service status."""
@@ -1221,7 +1441,92 @@ project_path = "{str(Path.cwd()).replace(chr(92), chr(92) + chr(92))}"
 
     async def _get_windows_service_status(self) -> Dict[str, Any]:
         """Get Windows service status."""
-        return {"success": False, "error": "Windows service status not yet implemented"}
+        service_name = f"memexd-{self.service_name}"
+        
+        try:
+            # Use sc queryex for detailed service information
+            query_cmd = ["sc", "queryex", service_name]
+            result = await asyncio.create_subprocess_exec(
+                *query_cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE
+            )
+            stdout, stderr = await result.communicate()
+
+            if result.returncode != 0:
+                # Service not found or error
+                error_msg = stderr.decode().strip() or stdout.decode().strip()
+                if "1060" in error_msg or "does not exist" in error_msg.lower():
+                    return {
+                        "success": False,
+                        "error": f"Service {service_name} is not installed",
+                        "service_name": service_name,
+                        "status": "not_installed",
+                    }
+                else:
+                    return {
+                        "success": False,
+                        "error": f"Failed to query service status: {error_msg}",
+                        "service_name": service_name,
+                    }
+
+            # Parse the service status output
+            output = stdout.decode()
+            status = "unknown"
+            pid = None
+            auto_start = False
+            
+            # Parse the state from sc queryex output
+            for line in output.split('\n'):
+                line = line.strip()
+                if 'STATE' in line:
+                    if 'RUNNING' in line:
+                        status = "running"
+                    elif 'STOPPED' in line:
+                        status = "stopped"
+                    elif 'START_PENDING' in line:
+                        status = "start_pending"
+                    elif 'STOP_PENDING' in line:
+                        status = "stop_pending"
+                    elif 'PAUSED' in line:
+                        status = "paused"
+                elif 'PID' in line:
+                    # Extract PID if service is running
+                    parts = line.split()
+                    for i, part in enumerate(parts):
+                        if part == 'PID' and i + 2 < len(parts):
+                            try:
+                                pid = int(parts[i + 2])
+                            except ValueError:
+                                pass
+
+            # Check if service is set to auto-start by querying configuration
+            config_cmd = ["sc", "qc", service_name]
+            config_result = await asyncio.create_subprocess_exec(
+                *config_cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE
+            )
+            config_stdout, _ = await config_result.communicate()
+            
+            if config_result.returncode == 0:
+                config_output = config_stdout.decode()
+                if 'AUTO_START' in config_output:
+                    auto_start = True
+
+            return {
+                "success": True,
+                "service_name": service_name,
+                "status": status,
+                "running": status == "running",
+                "pid": pid,
+                "auto_start": auto_start,
+                "platform": "Windows",
+            }
+
+        except Exception as e:
+            logger.error(f"Exception in _get_windows_service_status: {e}")
+            return {
+                "success": False,
+                "error": f"Exception getting service status: {e}",
+                "service_name": service_name,
+            }
 
     async def get_service_logs(
         self, lines: int = 50
@@ -1319,7 +1624,91 @@ project_path = "{str(Path.cwd()).replace(chr(92), chr(92) + chr(92))}"
 
     async def _get_windows_service_logs(self, lines: int) -> Dict[str, Any]:
         """Get Windows service logs."""
-        return {"success": False, "error": "Windows service logs not yet implemented"}
+        service_name = f"memexd-{self.service_name}"
+        
+        try:
+            logs = []
+            
+            # First, try to read from our log files in Windows-appropriate location
+            log_dir = Path(self._get_log_path("")).parent  # Get log directory
+            log_files = [
+                log_dir / "memexd.log",
+                log_dir / "memexd.error.log"
+            ]
+            
+            for log_file in log_files:
+                if log_file.exists():
+                    try:
+                        with open(log_file, "r", encoding='utf-8', errors='ignore') as f:
+                            content = f.readlines()[-lines:]
+                        logs.extend([f"[{log_file.name}] {line.rstrip()}" for line in content])
+                    except Exception as e:
+                        logs.append(f"[{log_file.name}] Error reading log: {e}")
+
+            # If no file logs found, try Windows Event Log
+            if not logs:
+                try:
+                    # Use PowerShell to query Windows Event Log for our service
+                    # This is a fallback approach using powershell
+                    powershell_cmd = [
+                        "powershell", "-Command",
+                        f"Get-EventLog -LogName System -Source 'Service Control Manager' -Newest {lines} | "
+                        f"Where-Object {{$_.Message -like '*{service_name}*'}} | "
+                        "Select-Object -Property TimeGenerated,EntryType,Message | "
+                        "Format-Table -AutoSize | Out-String"
+                    ]
+                    
+                    result = await asyncio.create_subprocess_exec(
+                        *powershell_cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE
+                    )
+                    stdout, stderr = await result.communicate()
+                    
+                    if result.returncode == 0 and stdout:
+                        event_logs = stdout.decode('utf-8', errors='ignore').split('\n')
+                        logs.extend([line.strip() for line in event_logs if line.strip()])
+                    else:
+                        logs.append("No Windows Event Log entries found for this service")
+                        
+                except Exception as e:
+                    logs.append(f"Could not access Windows Event Log: {e}")
+
+            # If still no logs, check for any memexd process logs in temp
+            if not logs:
+                import os
+                temp_dir = Path(os.environ.get('TEMP', 'C:\\temp'))
+                temp_log_patterns = ["memexd*.log", "memexd*.pid"]
+                
+                for pattern in temp_log_patterns:
+                    for temp_file in temp_dir.glob(pattern):
+                        if temp_file.is_file():
+                            try:
+                                content = temp_file.read_text(encoding='utf-8', errors='ignore')
+                                logs.append(f"[{temp_file.name}] {content}")
+                            except Exception:
+                                logs.append(f"[{temp_file.name}] Could not read file")
+
+            if not logs:
+                logs = [
+                    "No logs available.",
+                    f"Expected log location: {log_dir}",
+                    "Check if the service has been started and is generating logs.",
+                ]
+
+            return {
+                "success": True,
+                "service_name": service_name,
+                "logs": logs,
+                "lines_requested": lines,
+                "platform": "Windows",
+            }
+
+        except Exception as e:
+            logger.error(f"Exception in _get_windows_service_logs: {e}")
+            return {
+                "success": False,
+                "error": f"Exception getting service logs: {e}",
+                "service_name": service_name,
+            }
 
     async def _find_daemon_binary(self) -> Optional[Path]:
         """Find the memexd binary."""
