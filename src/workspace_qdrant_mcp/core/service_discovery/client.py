@@ -17,8 +17,8 @@ from pathlib import Path
 from typing import Dict, List, Optional, Tuple, Any
 from contextlib import asynccontextmanager
 
-from ..utils.project_detection import ProjectDetector
-from .yaml_config import WorkspaceConfig
+from ...utils.project_detection import ProjectDetector
+from ..yaml_config import WorkspaceConfig
 
 logger = logging.getLogger(__name__)
 
