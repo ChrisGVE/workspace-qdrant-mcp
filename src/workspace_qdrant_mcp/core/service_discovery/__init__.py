@@ -19,6 +19,7 @@ from .registry import ServiceRegistry, ServiceInfo, ServiceStatus
 from .network import NetworkDiscovery, DiscoveryMessage, DiscoveryMessageType
 from .health import HealthChecker, HealthStatus, HealthConfig
 from .exceptions import DiscoveryError, RegistryError, NetworkError, HealthError
+from .client import ServiceDiscoveryClient, ServiceEndpoint, DiscoveryConfig, discover_daemon_endpoint, list_available_daemons
 
 __all__ = [
     # Main components
@@ -26,14 +27,21 @@ __all__ = [
     'ServiceRegistry', 
     'NetworkDiscovery',
     'HealthChecker',
+    'ServiceDiscoveryClient',
     
     # Data structures
     'ServiceInfo',
     'ServiceStatus', 
+    'ServiceEndpoint',
     'DiscoveryMessage',
     'DiscoveryMessageType',
     'HealthStatus',
     'HealthConfig',
+    'DiscoveryConfig',
+    
+    # Convenience functions
+    'discover_daemon_endpoint',
+    'list_available_daemons',
     
     # Exceptions
     'DiscoveryError',
