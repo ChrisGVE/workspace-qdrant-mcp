@@ -23,13 +23,14 @@ import os
 import platform
 import shutil
 import signal
+import socket
 import subprocess
 import tempfile
 import time
 from dataclasses import asdict, dataclass
 from datetime import datetime, timedelta
 from pathlib import Path
-from typing import Any, Callable, Dict, List, Optional
+from typing import Any, Callable, Dict, List, Optional, Set
 
 from ..utils.project_detection import DaemonIdentifier, ProjectDetector
 
@@ -70,6 +71,259 @@ class DaemonStatus:
     grpc_available: bool = False
 
 
+class PortManager:
+    """
+    Intelligent port allocation system for multiple daemon instances.
+    
+    This class manages port allocation across multiple daemon instances with:
+    - Conflict detection and automatic port selection
+    - Port range configuration and scanning
+    - Registry persistence across daemon restarts
+    - Health checks on allocated ports before assignment
+    """
+    
+    # Class-level registry to track allocated ports
+    _allocated_ports: Set[int] = set()
+    _port_registry: Dict[int, Dict[str, Any]] = {}
+    _registry_file: Optional[Path] = None
+    
+    def __init__(self, port_range: tuple[int, int] = (50051, 51051)):
+        """Initialize port manager with configurable port range.
+        
+        Args:
+            port_range: Tuple of (start_port, end_port) for allocation range
+        """
+        self.start_port, self.end_port = port_range
+        
+        # Initialize registry file in temp directory
+        if not self._registry_file:
+            temp_dir = Path(tempfile.gettempdir())
+            self._registry_file = temp_dir / "wqm_port_registry.json"
+            self._load_registry()
+    
+    def allocate_port(self, project_id: str, preferred_port: Optional[int] = None) -> int:
+        """Allocate an available port for a project.
+        
+        Args:
+            project_id: Unique project identifier
+            preferred_port: Optional preferred port number
+            
+        Returns:
+            Allocated port number
+            
+        Raises:
+            RuntimeError: If no available ports found in range
+        """
+        # Check if we already have a port allocated for this project
+        existing_port = self._get_project_port(project_id)
+        if existing_port and self._is_port_available(existing_port):
+            logger.debug("Reusing existing port", project_id=project_id, port=existing_port)
+            return existing_port
+        
+        # Try preferred port first if specified
+        if preferred_port and self._is_port_usable(preferred_port):
+            self._register_port(preferred_port, project_id)
+            return preferred_port
+        
+        # Scan for available ports in range
+        for port in range(self.start_port, self.end_port + 1):
+            if self._is_port_usable(port):
+                self._register_port(port, project_id)
+                return port
+        
+        # If no ports available, try to reclaim stale allocations
+        self._cleanup_stale_allocations()
+        
+        # Try again after cleanup
+        for port in range(self.start_port, self.end_port + 1):
+            if self._is_port_usable(port):
+                self._register_port(port, project_id)
+                return port
+        
+        raise RuntimeError(
+            f"No available ports in range {self.start_port}-{self.end_port} "
+            f"for project {project_id}"
+        )
+    
+    def release_port(self, port: int, project_id: str) -> bool:
+        """Release a port allocation.
+        
+        Args:
+            port: Port number to release
+            project_id: Project identifier that allocated the port
+            
+        Returns:
+            True if port was released, False if not allocated to this project
+        """
+        port_info = self._port_registry.get(port)
+        if port_info and port_info.get('project_id') == project_id:
+            self._allocated_ports.discard(port)
+            del self._port_registry[port]
+            self._save_registry()
+            
+            logger.debug("Released port", port=port, project_id=project_id)
+            return True
+        
+        return False
+    
+    def get_allocated_ports(self) -> Dict[int, Dict[str, Any]]:
+        """Get all currently allocated ports and their information.
+        
+        Returns:
+            Dictionary mapping port numbers to allocation information
+        """
+        return self._port_registry.copy()
+    
+    def is_port_allocated(self, port: int) -> bool:
+        """Check if a port is currently allocated.
+        
+        Args:
+            port: Port number to check
+            
+        Returns:
+            True if port is allocated, False otherwise
+        """
+        return port in self._allocated_ports
+    
+    def _is_port_available(self, port: int) -> bool:
+        """Check if a port is available for binding.
+        
+        Args:
+            port: Port number to check
+            
+        Returns:
+            True if port is available, False if in use
+        """
+        try:
+            with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
+                sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+                sock.bind(('127.0.0.1', port))
+                return True
+        except (socket.error, OSError):
+            return False
+    
+    def _is_port_usable(self, port: int) -> bool:
+        """Check if a port is usable (available and not allocated).
+        
+        Args:
+            port: Port number to check
+            
+        Returns:
+            True if port can be used, False otherwise
+        """
+        return (
+            port not in self._allocated_ports and
+            self._is_port_available(port) and
+            self.start_port <= port <= self.end_port
+        )
+    
+    def _get_project_port(self, project_id: str) -> Optional[int]:
+        """Get the currently allocated port for a project.
+        
+        Args:
+            project_id: Project identifier
+            
+        Returns:
+            Port number if allocated, None otherwise
+        """
+        for port, info in self._port_registry.items():
+            if info.get('project_id') == project_id:
+                return port
+        return None
+    
+    def _register_port(self, port: int, project_id: str) -> None:
+        """Register a port allocation.
+        
+        Args:
+            port: Port number to register
+            project_id: Project identifier
+        """
+        self._allocated_ports.add(port)
+        self._port_registry[port] = {
+            'project_id': project_id,
+            'allocated_at': datetime.now().isoformat(),
+            'pid': os.getpid(),
+            'host': '127.0.0.1',
+        }
+        self._save_registry()
+        
+        logger.debug("Registered port", port=port, project_id=project_id)
+    
+    def _cleanup_stale_allocations(self) -> None:
+        """Clean up stale port allocations from dead processes."""
+        stale_ports = []
+        
+        for port, info in self._port_registry.items():
+            # Check if the process that allocated this port is still running
+            pid = info.get('pid')
+            if pid:
+                try:
+                    # Check if process exists (doesn't kill it)
+                    os.kill(pid, 0)
+                except (OSError, ProcessLookupError):
+                    # Process doesn't exist, mark as stale
+                    stale_ports.append(port)
+            
+            # Also check if port is actually in use
+            if not self._is_port_available(port):
+                # Port is in use by something else, but not necessarily stale
+                continue
+        
+        # Remove stale allocations
+        for port in stale_ports:
+            project_id = self._port_registry[port].get('project_id', 'unknown')
+            logger.info("Cleaning up stale port allocation", port=port, project_id=project_id)
+            
+            self._allocated_ports.discard(port)
+            del self._port_registry[port]
+        
+        if stale_ports:
+            self._save_registry()
+    
+    def _load_registry(self) -> None:
+        """Load port registry from persistent storage."""
+        if self._registry_file and self._registry_file.exists():
+            try:
+                with open(self._registry_file, 'r') as f:
+                    data = json.load(f)
+                    
+                # Convert string keys back to integers
+                for port_str, info in data.items():
+                    port = int(port_str)
+                    self._allocated_ports.add(port)
+                    self._port_registry[port] = info
+                    
+                logger.debug("Loaded port registry", registry_file=str(self._registry_file))
+                
+            except (json.JSONDecodeError, ValueError, KeyError) as e:
+                logger.warning("Failed to load port registry", error=str(e))
+                # Start with clean registry if loading fails
+                self._allocated_ports.clear()
+                self._port_registry.clear()
+    
+    def _save_registry(self) -> None:
+        """Save port registry to persistent storage."""
+        if self._registry_file:
+            try:
+                # Convert integer keys to strings for JSON serialization
+                data = {str(port): info for port, info in self._port_registry.items()}
+                
+                with open(self._registry_file, 'w') as f:
+                    json.dump(data, f, indent=2)
+                    
+                logger.debug("Saved port registry", registry_file=str(self._registry_file))
+                
+            except (OSError, json.JSONEncodeError) as e:
+                logger.warning("Failed to save port registry", error=str(e))
+    
+    @classmethod
+    def get_instance(cls) -> "PortManager":
+        """Get singleton instance of port manager."""
+        if not hasattr(cls, '_instance'):
+            cls._instance = cls()
+        return cls._instance
+
+
 class DaemonInstance:
     """Manages a single daemon process instance."""
 
@@ -80,6 +334,7 @@ class DaemonInstance:
         self.health_task: Optional[asyncio.Task] = None
         self.shutdown_event = asyncio.Event()
         self.log_handlers: List[Callable[[str], None]] = []
+        self.port_manager = PortManager.get_instance()
         
         # Generate or use provided project identifier
         if not config.project_id:
@@ -574,6 +829,10 @@ class DaemonInstance:
     def _cleanup(self):
         """Clean up temporary resources."""
         try:
+            # Release allocated port
+            if self.config.project_id and hasattr(self, 'port_manager'):
+                self.port_manager.release_port(self.config.grpc_port, self.config.project_id)
+            
             if self.temp_dir.exists():
                 shutil.rmtree(str(self.temp_dir))
                 logger.debug("Cleaned up temp directory", path=str(self.temp_dir))
@@ -653,7 +912,7 @@ class DaemonManager:
                 project_name=project_name,
                 project_path=project_path,
                 project_id=daemon_key,  # Use the daemon key as project_id
-                grpc_port=self._get_available_port(project_name),
+                grpc_port=self._get_available_port(daemon_key, project_path),
             )
 
             # Apply any overrides
@@ -765,13 +1024,22 @@ class DaemonManager:
         identifier = detector.create_daemon_identifier(project_path)
         return identifier.generate_identifier()
 
-    def _get_available_port(self, project_name: str, base_port: int = 50051) -> int:
-        """Find an available port for a new daemon."""
-        # Use project name hash to get consistent port assignment
-        name_hash = hashlib.md5(project_name.encode()).hexdigest()
-        port_offset = int(name_hash[:4], 16) % 1000  # 0-999 offset
-
-        return base_port + port_offset
+    def _get_available_port(self, project_id: str, project_path: str = ".", base_port: int = 50051) -> int:
+        """Find an available port for a new daemon using intelligent allocation."""
+        
+        # Use project ID hash to get preferred port
+        id_hash = hashlib.md5(project_id.encode()).hexdigest()
+        port_offset = int(id_hash[:4], 16) % 1000  # 0-999 offset
+        preferred_port = base_port + port_offset
+        
+        # Use PortManager for intelligent allocation
+        port_manager = PortManager.get_instance()
+        try:
+            return port_manager.allocate_port(project_id, preferred_port)
+        except RuntimeError as e:
+            logger.error("Failed to allocate port", project_id=project_id, error=str(e))
+            # Fallback to original simple method as last resort
+            return preferred_port
 
 
 # Module-level convenience functions
