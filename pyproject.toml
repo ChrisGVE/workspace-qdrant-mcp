@@ -87,7 +87,7 @@ full = ["markdown>=3.4.0", "PyYAML>=6.0.0", "pypdf>=4.0.0"]
 
 [project.scripts]
 workspace-qdrant-mcp = "workspace_qdrant_mcp.server:main"
-wqm = "workspace_qdrant_mcp.cli.main:cli"
+wqm = "workspace_qdrant_mcp.cli_wrapper:main"
 
 [project.urls]
 Homepage = "https://github.com/ChrisGVE/workspace-qdrant-mcp"
