@@ -16,6 +16,10 @@ Usage:
 import os
 import sys
 
+# Disable all console logging immediately for CLI usage
+import logging
+logging.disable(logging.CRITICAL)
+
 # Suppress observability initialization logging for CLI usage
 os.environ.setdefault("WQM_LOG_INIT", "false")
 # Set CLI mode to prevent server imports in __init__.py
@@ -181,14 +185,25 @@ def main(
     import os
 
     if debug:
+        # Re-enable logging for debug mode only
+        logging.disable(logging.NOTSET)
         # Enable verbose logging and initialization messages in debug mode
         os.environ["WQM_LOG_INIT"] = "true"
         configure_logging(level="DEBUG", json_format=True, console_output=True)
         logger.debug("Debug mode enabled")
     else:
-        # Disable initialization logging and reduce verbosity for CLI usage
-        os.environ["WQM_LOG_INIT"] = "false"
-        configure_logging(level="ERROR", json_format=False, console_output=False)
+        # Keep logging disabled for normal CLI usage
+        # Configure file-only logging but don't enable console logging
+        from pathlib import Path
+        log_dir = Path.home() / ".config" / "workspace-qdrant" / "logs"
+        log_dir.mkdir(parents=True, exist_ok=True)
+        log_file = log_dir / "wqm-cli.log"
+        configure_logging(
+            level="WARNING", 
+            json_format=True, 
+            console_output=False,  # Completely disable console output
+            log_file=log_file
+        )
 
     if config_path:
         # TODO: Load custom config
