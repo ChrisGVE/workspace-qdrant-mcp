@@ -141,15 +141,21 @@ class DaemonInstance:
                 }
             )
 
-            # Start the daemon process
-            self.process = await asyncio.create_subprocess_exec(
+            # Start the daemon process with project-specific parameters
+            daemon_args = [
                 str(daemon_path),
-                "--config",
-                str(self.config_file),
-                "--port",
-                str(self.config.grpc_port),
-                "--host",
-                self.config.grpc_host,
+                "--config", str(self.config_file),
+                "--port", str(self.config.grpc_port),
+                "--host", self.config.grpc_host,
+                "--pid-file", str(self.pid_file),
+            ]
+            
+            # Add project-id if available for multi-instance support
+            if self.config.project_id:
+                daemon_args.extend(["--project-id", self.config.project_id])
+                
+            self.process = await asyncio.create_subprocess_exec(
+                *daemon_args,
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE,
                 env=env,
@@ -353,13 +359,25 @@ class DaemonInstance:
 
     async def _write_config_file(self):
         """Write configuration file for the Rust daemon."""
+        # Create project-specific log file path
+        log_file_path = self.temp_dir / f"{self.config.project_id}.log"
+        
         config_data = {
             "project_name": self.config.project_name,
             "project_path": self.config.project_path,
+            "project_id": self.config.project_id,
             "grpc": {"host": self.config.grpc_host, "port": self.config.grpc_port},
             "qdrant": {"url": self.config.qdrant_url},
             "processing": {"max_concurrent_jobs": self.config.max_concurrent_jobs},
-            "logging": {"level": self.config.log_level},
+            "logging": {
+                "level": self.config.log_level,
+                "file": str(log_file_path),
+                "project_scoped": True,
+            },
+            "daemon": {
+                "pid_file": str(self.pid_file),
+                "temp_directory": str(self.temp_dir),
+            },
         }
 
         with open(self.config_file, "w") as f:

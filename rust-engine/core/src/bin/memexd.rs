@@ -30,6 +30,8 @@ struct DaemonArgs {
     pid_file: PathBuf,
     /// Run in foreground (don't daemonize)
     foreground: bool,
+    /// Project identifier for multi-instance support
+    project_id: Option<String>,
 }
 
 impl Default for DaemonArgs {
@@ -40,6 +42,7 @@ impl Default for DaemonArgs {
             log_level: "info".to_string(),
             pid_file: PathBuf::from("/tmp/memexd.pid"),
             foreground: false,
+            project_id: None,
         }
     }
 }
@@ -90,6 +93,13 @@ fn parse_args() -> DaemonArgs {
                 .help("Run in foreground (don't daemonize)")
                 .action(clap::ArgAction::SetTrue),
         )
+        .arg(
+            Arg::new("project-id")
+                .long("project-id")
+                .value_name("ID")
+                .help("Project identifier for multi-instance support")
+                .value_parser(clap::value_parser!(String)),
+        )
         .get_matches();
 
     DaemonArgs {
@@ -98,6 +108,7 @@ fn parse_args() -> DaemonArgs {
         log_level: matches.get_one::<String>("log-level").unwrap().clone(),
         pid_file: matches.get_one::<PathBuf>("pid-file").unwrap().clone(),
         foreground: matches.get_flag("foreground"),
+        project_id: matches.get_one::<String>("project-id").cloned(),
     }
 }
 
@@ -131,8 +142,8 @@ fn init_logging(log_level: &str, foreground: bool) -> Result<(), Box<dyn std::er
     initialize_logging(config).map_err(|e| Box::new(e) as Box<dyn std::error::Error>)
 }
 
-/// Create PID file with current process ID
-fn create_pid_file(pid_file: &Path) -> Result<(), Box<dyn std::error::Error>> {
+/// Create PID file with current process ID, with project-specific naming support
+fn create_pid_file(pid_file: &Path, project_id: Option<&String>) -> Result<(), Box<dyn std::error::Error>> {
     let pid = process::id();
     
     // Create parent directory if it doesn't exist
@@ -158,7 +169,8 @@ fn create_pid_file(pid_file: &Path) -> Result<(), Box<dyn std::error::Error>> {
     // Atomically move temp file to final location
     fs::rename(&temp_file, pid_file)?;
     
-    info!("Created PID file at {} with PID {}", pid_file.display(), pid);
+    let project_info = project_id.map(|id| format!(" for project {}", id)).unwrap_or_default();
+    info!("Created PID file at {} with PID {}{}", pid_file.display(), pid, project_info);
     Ok(())
 }
 
@@ -182,8 +194,8 @@ fn remove_pid_file(pid_file: &Path) {
     }
 }
 
-/// Check if another instance is already running
-fn check_existing_instance(pid_file: &Path) -> Result<(), Box<dyn std::error::Error>> {
+/// Check if another instance is already running for this project
+fn check_existing_instance(pid_file: &Path, project_id: Option<&String>) -> Result<(), Box<dyn std::error::Error>> {
     if pid_file.exists() {
         let pid_content = fs::read_to_string(pid_file)?;
         let pid: u32 = pid_content.trim().parse()?;
@@ -202,10 +214,11 @@ fn check_existing_instance(pid_file: &Path) -> Result<(), Box<dyn std::error::Er
                 
                 // Check if it's actually a memexd process
                 if process_name.contains("memexd") {
+                    let project_info = project_id.map(|id| format!(" for project {}", id)).unwrap_or_default();
                     return Err(format!(
-                        "Another memexd instance is already running with PID {} (process: {}). \
+                        "Another memexd instance is already running{} with PID {} (process: {}). \
                          Use 'kill {}' to stop it or remove stale PID file at {}",
-                        pid, process_name, pid, pid_file.display()
+                        project_info, pid, process_name, pid, pid_file.display()
                     ).into());
                 } else {
                     // PID exists but it's not memexd - remove stale file
@@ -316,13 +329,14 @@ async fn setup_signal_handlers() -> Result<(), Box<dyn std::error::Error>> {
 
 /// Main daemon loop
 async fn run_daemon(config: Config, daemon_config: DaemonConfig, args: DaemonArgs) -> Result<(), Box<dyn std::error::Error>> {
-    info!("Starting memexd daemon (version 0.2.0)");
+    let project_info = args.project_id.as_ref().map(|id| format!(" for project {}", id)).unwrap_or_default();
+    info!("Starting memexd daemon (version 0.2.0){}", project_info);
     
     // Check for existing instances
-    check_existing_instance(&args.pid_file)?;
+    check_existing_instance(&args.pid_file, args.project_id.as_ref())?;
     
     // Create PID file
-    create_pid_file(&args.pid_file)?;
+    create_pid_file(&args.pid_file, args.project_id.as_ref())?;
     
     // Ensure PID file is cleaned up on exit
     let pid_file_cleanup = args.pid_file.clone();
