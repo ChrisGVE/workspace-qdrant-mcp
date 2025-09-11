@@ -14,10 +14,10 @@ from typing import Any, Optional
 import psutil
 import typer
 
-from ...core.client import QdrantWorkspaceClient, create_qdrant_client
-from ...core.config import Config
-from ...observability import get_logger
-from ...utils.project_detection import ProjectDetector
+from common.core.client import QdrantWorkspaceClient, create_qdrant_client
+from common.core.config import Config
+from common.observability import get_logger
+from common.utils.project_detection import ProjectDetector
 from ..utils import (
     config_path_option,
     create_command_app,

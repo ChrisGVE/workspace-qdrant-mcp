@@ -20,10 +20,10 @@ from rich.panel import Panel
 from rich.table import Table
 from rich.text import Text
 
-from ...core.config import Config
-from ...core.unified_config import UnifiedConfigManager, ConfigFormat, ConfigValidationError, ConfigFormatError
-from ...core.ingestion_config import IngestionConfigManager, IngestionConfig
-from ...observability import get_logger
+from common.core.config import Config
+from common.core.unified_config import UnifiedConfigManager, ConfigFormat, ConfigValidationError, ConfigFormatError
+from common.core.ingestion_config import IngestionConfigManager, IngestionConfig
+from common.observability import get_logger
 from ..utils import (
     create_command_app,
     error_message,

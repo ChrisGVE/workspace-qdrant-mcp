@@ -31,9 +31,9 @@ from rich.panel import Panel
 from rich.table import Table
 from rich.text import Text
 
-from ...core.daemon_manager import DaemonManager, get_daemon_manager
-from ...observability import get_logger
-from ...utils.project_detection import ProjectDetector
+from common.core.daemon_manager import DaemonManager, get_daemon_manager
+from common.observability import get_logger
+from common.utils.project_detection import ProjectDetector
 from ..utils import create_command_app, handle_async_command
 
 # Initialize app and logger
@@ -1853,7 +1853,7 @@ def list_services(
         
         # Show port allocation summary if requested
         if show_ports:
-            from ...core.daemon_manager import PortManager
+            from common.core.daemon_manager import PortManager
             port_manager = PortManager.get_instance()
             allocated_ports = port_manager.get_allocated_ports()
             

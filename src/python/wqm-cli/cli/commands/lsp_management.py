@@ -22,15 +22,15 @@ from typing import Any, Dict, List, Optional, Set, Tuple
 
 import typer
 
-from ...core.lsp_client import AsyncioLspClient, ConnectionState
-from ...core.lsp_health_monitor import (
+from common.core.lsp_client import AsyncioLspClient, ConnectionState
+from common.core.lsp_health_monitor import (
     LspHealthMonitor, 
     HealthCheckConfig, 
     HealthStatus,
     NotificationLevel,
     UserNotification
 )
-from ...observability import get_logger
+from common.observability import get_logger
 from ..utils import (
     create_command_app,
     debug_option,
