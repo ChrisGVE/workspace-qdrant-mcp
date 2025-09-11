@@ -1138,7 +1138,7 @@ class DiagnosticTool:
                 # Test document addition using the MCP tools
                 test_content = "This is an integration test document for the workspace-qdrant-mcp system. It tests the complete workflow from document ingestion to search retrieval."
 
-                from common.tools.documents import add_document
+                from workspace_qdrant_mcp.tools.documents import add_document
 
                 add_result = await add_document(
                     content=test_content,
@@ -1151,7 +1151,7 @@ class DiagnosticTool:
                 )
 
                 # Test search using MCP tools
-                from common.tools.search import semantic_search
+                from workspace_qdrant_mcp.tools.search import semantic_search
 
                 search_result = await semantic_search(
                     query="integration test document",
@@ -1294,7 +1294,7 @@ class DiagnosticTool:
                 for query in test_queries:
                     start_time = time.time()
                     try:
-                        from common.tools.search import semantic_search
+                        from workspace_qdrant_mcp.tools.search import semantic_search
 
                         await semantic_search(query, collections[0], limit=10)
                         search_time = time.time() - start_time
