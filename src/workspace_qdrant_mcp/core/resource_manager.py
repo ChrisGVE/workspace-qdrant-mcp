@@ -131,8 +131,10 @@ class SharedResourcePool:
                 logger.info(f"Creating new shared Qdrant connection: {url}")
                 # Import here to avoid circular dependencies
                 from qdrant_client import AsyncQdrantClient
+                from .ssl_config import suppress_qdrant_ssl_warnings
                 
-                client = AsyncQdrantClient(url=url, timeout=timeout)
+                with suppress_qdrant_ssl_warnings():
+                    client = AsyncQdrantClient(url=url, timeout=timeout)
                 self._qdrant_connections[url] = client
                 self._connection_locks[url] = asyncio.Lock()
                 self._usage_counts[url] = 0

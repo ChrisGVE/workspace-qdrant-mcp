@@ -22,8 +22,10 @@ Example:
     ```python
     from workspace_qdrant_mcp.core.collections import WorkspaceCollectionManager
     from qdrant_client import QdrantClient
+    from .ssl_config import suppress_qdrant_ssl_warnings
 
-    client = QdrantClient("http://localhost:6333")
+    with suppress_qdrant_ssl_warnings():
+        client = QdrantClient("http://localhost:6333")
     manager = WorkspaceCollectionManager(client, config)
 
     # Initialize collections for detected project
@@ -139,8 +141,10 @@ class WorkspaceCollectionManager:
         ```python
         from qdrant_client import QdrantClient
         from workspace_qdrant_mcp.core.config import Config
+        from .ssl_config import suppress_qdrant_ssl_warnings
 
-        client = QdrantClient("http://localhost:6333")
+        with suppress_qdrant_ssl_warnings():
+            client = QdrantClient("http://localhost:6333")
         config = Config()
         manager = WorkspaceCollectionManager(client, config)
 
