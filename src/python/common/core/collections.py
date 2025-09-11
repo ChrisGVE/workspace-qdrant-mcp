@@ -1,0 +1,1415 @@
+"""
+Collection management for workspace-scoped Qdrant collections.
+
+This module provides comprehensive collection management for project-aware Qdrant
+vector databases. It handles automatic creation, configuration, and lifecycle
+management of workspace-scoped collections based on detected project structure.
+
+Key Features:
+    - Automatic collection creation based on project detection
+    - Support for project-specific and global collections
+    - Dense and sparse vector configuration
+    - Optimized collection settings for search performance
+    - Workspace isolation and collection filtering
+    - Parallel collection creation for better performance
+
+Collection Types:
+    - Project collections: [project-name]-{suffix} for each configured suffix
+    - Subproject collections: [subproject-name]-{suffix} for each configured suffix
+    - Global collections: User-defined collections that span across projects
+
+Example:
+    ```python
+    from workspace_qdrant_mcp.core.collections import WorkspaceCollectionManager
+    from qdrant_client import QdrantClient
+    from .ssl_config import suppress_qdrant_ssl_warnings
+
+    with suppress_qdrant_ssl_warnings():
+        client = QdrantClient("http://localhost:6333")
+    manager = WorkspaceCollectionManager(client, config)
+
+    # Initialize collections for detected project
+    await manager.initialize_workspace_collections(
+        project_name="my-project",
+        subprojects=["frontend", "backend"]
+    )
+
+    # List available workspace collections
+    collections = manager.list_workspace_collections()
+    ```
+"""
+
+import asyncio
+import logging
+import os
+from dataclasses import dataclass
+from pathlib import Path
+from typing import Optional
+
+import git
+
+from qdrant_client import QdrantClient
+from qdrant_client.http import models
+from qdrant_client.http.exceptions import ResponseHandlingException
+
+from .collection_naming import (
+    CollectionNamingManager,
+    build_project_collection_name,
+    build_system_memory_collection_name,
+    normalize_collection_name_component,
+    CollectionPermissionError
+)
+from .collection_types import (
+    CollectionTypeClassifier,
+    get_searchable_collections,
+    validate_collection_operation,
+    CollectionType,
+    COLLECTION_TYPES_AVAILABLE
+)
+from .config import Config
+
+# Import LLM access control system
+try:
+    from .llm_access_control import validate_llm_collection_access, LLMAccessControlError
+except ImportError:
+    # Fallback for direct imports when not used as a package
+    from llm_access_control import validate_llm_collection_access, LLMAccessControlError
+
+logger = logging.getLogger(__name__)
+
+
+@dataclass
+class CollectionConfig:
+    """Configuration specification for a workspace collection.
+
+    Defines the complete configuration for creating and managing workspace
+    collections including vector parameters, metadata, and optimization settings.
+
+    Attributes:
+        name: Unique collection identifier within the Qdrant database
+        description: Human-readable description of collection purpose
+        collection_type: Collection category - user-defined type or 'global'
+        project_name: Associated project name (None for global collections)
+        vector_size: Dimension of dense embedding vectors (model-dependent)
+        distance_metric: Vector similarity metric - 'Cosine', 'Euclidean', 'Dot'
+        enable_sparse_vectors: Whether to enable sparse keyword-based vectors
+
+    Example:
+        ```python
+        config = CollectionConfig(
+            name="my-project-docs",
+            description="Documentation for my-project",
+            collection_type="docs",
+            project_name="my-project",
+            vector_size=384,
+            enable_sparse_vectors=True
+        )
+        ```
+    """
+
+    name: str
+    description: str
+    collection_type: str  # user-defined type or 'global'
+    project_name: str | None = None
+    vector_size: int = 384  # all-MiniLM-L6-v2 dimension
+    distance_metric: str = "Cosine"
+    enable_sparse_vectors: bool = True
+
+
+class WorkspaceCollectionManager:
+    """
+    Manages project-scoped collections for workspace-aware Qdrant operations.
+
+    This class handles the complete lifecycle of workspace collections including
+    creation, configuration, optimization, and management. It provides workspace
+    isolation by managing project-specific collections while maintaining access
+    to global shared collections.
+
+    The manager automatically:
+        - Creates project and subproject collections based on detection
+        - Configures dense and sparse vector support
+        - Applies performance optimization settings
+        - Filters workspace collections from external collections
+        - Manages collection metadata and statistics
+
+    Attributes:
+        client: Underlying Qdrant client for database operations
+        config: Configuration object with workspace and embedding settings
+        _collections_cache: Optional cache for collection configurations
+
+    Example:
+        ```python
+        from qdrant_client import QdrantClient
+        from workspace_qdrant_mcp.core.config import Config
+        from .ssl_config import suppress_qdrant_ssl_warnings
+
+        with suppress_qdrant_ssl_warnings():
+            client = QdrantClient("http://localhost:6333")
+        config = Config()
+        manager = WorkspaceCollectionManager(client, config)
+
+        # Initialize workspace collections
+        await manager.initialize_workspace_collections(
+            project_name="my-app",
+            subprojects=["frontend", "backend", "api"]
+        )
+
+        # Get workspace status
+        collections = manager.list_workspace_collections()
+        info = await manager.get_collection_info()
+        ```
+    """
+
+    def __init__(self, client: QdrantClient, config: Config) -> None:
+        """Initialize the collection manager.
+
+        Args:
+            client: Configured Qdrant client instance for database operations
+            config: Configuration object containing workspace and embedding settings
+        """
+        self.client = client
+        self.config = config
+        self._collections_cache: dict[str, CollectionConfig] | None = None
+        self._project_info: dict | None = None  # Will be set during initialization
+        
+        # Initialize collection type classifier and naming manager
+        self.type_classifier = CollectionTypeClassifier()
+        self.naming_manager = CollectionNamingManager(
+            global_collections=config.workspace.global_collections,
+            valid_project_suffixes=config.workspace.effective_collection_suffixes
+        )
+
+    def _get_current_project_name(self) -> Optional[str]:
+        """
+        Determine the current project name from working directory or git repository.
+
+        Attempts to extract the project name from:
+        1. Git repository name (if in a git repository)
+        2. Current working directory name
+        3. Parent directory name (if current is a subdirectory)
+
+        Returns:
+            str: Project name if determinable, None otherwise
+
+        Example:
+            For /path/to/workspace-qdrant-mcp -> "workspace-qdrant-mcp"
+            For git repo myproject -> "myproject"
+        """
+        try:
+            # Try to get project name from git repository
+            try:
+                repo = git.Repo(search_parent_directories=True)
+                if repo.remotes:
+                    # Extract from remote URL (e.g., git@github.com:user/project.git -> project)
+                    remote_url = repo.remotes[0].url
+                    if remote_url.endswith('.git'):
+                        remote_url = remote_url[:-4]
+                    project_name = remote_url.split('/')[-1]
+                    if project_name and project_name != '.' and not project_name.startswith('.'):
+                        return project_name
+            except (git.InvalidGitRepositoryError, git.GitCommandError):
+                pass
+
+            # Fallback to directory name
+            current_dir = Path.cwd()
+            project_name = current_dir.name
+            
+            # Skip common subdirectory names and go to parent
+            skip_dirs = {'src', 'lib', 'app', 'core', 'workspace_qdrant_mcp'}
+            if project_name in skip_dirs and current_dir.parent != current_dir:
+                project_name = current_dir.parent.name
+
+            if project_name and project_name != '.' and not project_name.startswith('.'):
+                return project_name
+
+        except Exception as e:
+            logger.debug("Could not determine project name: %s", e)
+
+        return None
+
+    def _get_all_project_names(self) -> list[str]:
+        """
+        Get all project names including main project and subprojects.
+
+        Returns:
+            List[str]: List of all project names that should be considered
+                      for workspace collection filtering
+        """
+        project_names = []
+        
+        # Try to get project info from stored data first
+        if self._project_info:
+            main_project = self._project_info.get('main_project')
+            if main_project:
+                project_names.append(main_project)
+            
+            subprojects = self._project_info.get('subprojects', [])
+            project_names.extend(subprojects)
+        else:
+            # Fallback to current project name detection
+            current_project = self._get_current_project_name()
+            if current_project:
+                project_names.append(current_project)
+        
+        # Remove duplicates and empty values
+        project_names = list(set(name for name in project_names if name))
+        
+        logger.debug("All project names for collection filtering: %s", project_names)
+        return project_names
+
+    def validate_collection_filtering(self) -> dict:
+        """
+        Validate and diagnose collection filtering configuration.
+        
+        This method provides diagnostic information about the current
+        collection filtering setup, useful for debugging issues.
+        
+        Returns:
+            Dict: Diagnostic information containing:
+                - project_info: Stored project information
+                - project_names: All project names used for filtering
+                - config_info: Configuration settings
+                - all_collections: All collections in Qdrant
+                - workspace_collections: Filtered workspace collections
+                - filtering_results: Per-collection filtering decisions
+        """
+        try:
+            # Get current state
+            all_collections = self.client.get_collections()
+            all_names = [c.name for c in all_collections.collections]
+            project_names = self._get_all_project_names()
+            workspace_collections = self.list_workspace_collections()
+            
+            # Test filtering for each collection
+            filtering_results = {}
+            for name in all_names:
+                filtering_results[name] = {
+                    'is_workspace': self._is_workspace_collection(name),
+                    'reason': self._get_filtering_reason(name)
+                }
+            
+            return {
+                'project_info': self._project_info,
+                'project_names': project_names,
+                'config_info': {
+                    'effective_collection_suffixes': self.config.workspace.effective_collection_suffixes,
+                    'global_collections': self.config.workspace.global_collections,
+                    'auto_create_collections': self.config.workspace.auto_create_collections
+                },
+                'all_collections': all_names,
+                'workspace_collections': workspace_collections,
+                'filtering_results': filtering_results,
+                'summary': {
+                    'total_collections': len(all_names),
+                    'workspace_collections': len(workspace_collections),
+                    'excluded_collections': len(all_names) - len(workspace_collections)
+                }
+            }
+        except Exception as e:
+            logger.error("Failed to validate collection filtering: %s", e)
+            return {'error': str(e)}
+    
+    def _get_filtering_reason(self, collection_name: str) -> str:
+        """
+        Get the reason why a collection is included or excluded from workspace.
+        
+        Args:
+            collection_name: Name of the collection to check
+            
+        Returns:
+            str: Human-readable reason for the filtering decision
+        """
+        # Check exclusion criteria first
+        if collection_name.endswith("-code"):
+            return "Excluded: memexd daemon collection (ends with -code)"
+        
+        # Check inclusion criteria
+        if collection_name in self.config.workspace.global_collections:
+            return "Included: global collection"
+            
+        for suffix in self.config.workspace.effective_collection_suffixes:
+            if collection_name.endswith(f"-{suffix}"):
+                return f"Included: ends with configured suffix '{suffix}'"
+        
+        # Check project-based inclusion
+        if not self.config.workspace.effective_collection_suffixes and not self.config.workspace.global_collections:
+            project_names = self._get_all_project_names()
+            
+            for project_name in project_names:
+                if collection_name.startswith(f"{project_name}-"):
+                    return f"Included: matches project '{project_name}' pattern"
+                if collection_name == project_name:
+                    return f"Included: exact match with project '{project_name}'"
+            
+            common_standalone = ["reference", "docs", "standards", "notes", "scratchbook", "memory", "knowledge"]
+            if collection_name in common_standalone:
+                return "Included: common standalone collection"
+        
+        return "Excluded: does not match any inclusion criteria"
+
+    async def initialize_workspace_collections(
+        self, project_name: str, subprojects: list[str] | None = None
+    ) -> None:
+        """
+        Initialize collections for the current workspace based on configuration and project structure.
+
+        Behavior depends on the auto_create_collections setting:
+        - When auto_create_collections=True: Creates project collections, subproject collections, and global collections
+        - When auto_create_collections=False: No collections are created automatically
+
+        Collection Creation Patterns:
+            With auto_create_collections=True:
+                Main project: [project-name]-{suffix} for each workspace.collections suffix
+                Subprojects: [subproject-name]-{suffix} for each workspace.collections suffix
+                Global: All collections from workspace.global_collections
+
+            With auto_create_collections=False:
+                Only: No collections are created (user must explicitly configure collections)
+
+        Args:
+            project_name: Main project identifier (used as collection name prefix)
+            subprojects: Optional list of subproject names for additional collections
+
+        Raises:
+            ConnectionError: If Qdrant database is unreachable
+            ResponseHandlingException: If collection creation fails due to Qdrant errors
+            RuntimeError: If configuration or optimization settings are invalid
+
+        Example:
+            ```python
+            # Initialize for simple project (respects auto_create_collections setting)
+            await manager.initialize_workspace_collections("my-app")
+
+            # Initialize with subprojects (respects auto_create_collections setting)
+            await manager.initialize_workspace_collections(
+                project_name="enterprise-system",
+                subprojects=["web-frontend", "mobile-app", "api-gateway"]
+            )
+            ```
+        """
+        # Store project information for collection filtering
+        self._project_info = {
+            'main_project': project_name,
+            'subprojects': subprojects or []
+        }
+        
+        logger.debug(
+            "Setting project info for collection filtering: main_project=%s, subprojects=%s",
+            project_name, subprojects
+        )
+        
+        collections_to_create = []
+
+        if self.config.workspace.auto_create_collections:
+            # Full collection creation when auto_create_collections=True
+
+            # Main project collections
+            for suffix in self.config.workspace.effective_collection_suffixes:
+                collection_name = build_project_collection_name(project_name, suffix)
+                collections_to_create.append(
+                    CollectionConfig(
+                        name=collection_name,
+                        description=f"{suffix.title()} collection for {project_name}",
+                        collection_type=suffix,
+                        project_name=project_name,
+                        vector_size=self._get_vector_size(),
+                        enable_sparse_vectors=self.config.embedding.enable_sparse_vectors,
+                    )
+                )
+
+            # Subproject collections
+            if subprojects:
+                for subproject in subprojects:
+                    for suffix in self.config.workspace.effective_collection_suffixes:
+                        collection_name = build_project_collection_name(subproject, suffix)
+                        collections_to_create.append(
+                            CollectionConfig(
+                                name=collection_name,
+                                description=f"{suffix.title()} collection for {subproject}",
+                                collection_type=suffix,
+                                project_name=subproject,
+                                vector_size=self._get_vector_size(),
+                                enable_sparse_vectors=self.config.embedding.enable_sparse_vectors,
+                            )
+                        )
+
+            # Global collections
+            for global_collection in self.config.workspace.global_collections:
+                collections_to_create.append(
+                    CollectionConfig(
+                        name=global_collection,
+                        description=f"Global {global_collection} collection",
+                        collection_type="global",
+                        vector_size=self._get_vector_size(),
+                        enable_sparse_vectors=self.config.embedding.enable_sparse_vectors,
+                    )
+                )
+        # If auto_create_collections=False, no collections are created
+        # All collections must be explicitly configured by the user
+
+        # Create collections sequentially since they use synchronous Qdrant client
+        if collections_to_create:
+            for config in collections_to_create:
+                self._ensure_collection_exists(config)
+
+    def _ensure_collection_exists(
+        self, collection_config: CollectionConfig
+    ) -> None:
+        """
+        Ensure a collection exists with proper configuration, creating if necessary.
+
+        Performs idempotent collection creation with optimized vector settings,
+        HNSW indexing parameters, and memory management configuration. If the
+        collection already exists, no action is taken.
+
+        The method configures:
+            - Dense vector parameters (size, distance metric)
+            - Sparse vector support (if enabled)
+            - HNSW index optimization (m=16, ef_construct=100)
+            - Memory mapping thresholds and segment management
+
+        Args:
+            collection_config: Complete configuration specification for the collection
+
+        Raises:
+            ResponseHandlingException: If Qdrant API calls fail
+            ValueError: If configuration parameters are invalid or LLM access control blocks creation
+            ConnectionError: If database is unreachable
+
+        Example:
+            ```python
+            config = CollectionConfig(
+                name="project-docs",
+                description="Project documentation",
+                collection_type="docs",
+                vector_size=384,
+                enable_sparse_vectors=True
+            )
+            await manager._ensure_collection_exists(config)
+            ```
+        """
+        try:
+            # Apply LLM access control validation for collection creation
+            try:
+                validate_llm_collection_access('create', collection_config.name, self.config)
+            except LLMAccessControlError as e:
+                logger.warning("LLM access control blocked collection creation: %s", str(e))
+                raise ValueError(f"Collection creation blocked: {str(e)}") from e
+            
+            # Check if collection already exists
+            existing_collections = self.client.get_collections()
+            collection_names = {col.name for col in existing_collections.collections}
+
+            if collection_config.name in collection_names:
+                logger.info("Collection %s already exists", collection_config.name)
+                return
+
+            # Create collection with correct API format for Qdrant 1.15+
+            if collection_config.enable_sparse_vectors:
+                # Collections with both dense and sparse vectors
+                self.client.create_collection(
+                    collection_name=collection_config.name,
+                    vectors_config={
+                        "dense": models.VectorParams(
+                            size=collection_config.vector_size,
+                            distance=getattr(
+                                models.Distance,
+                                collection_config.distance_metric.upper(),
+                            ),
+                        )
+                    },
+                    sparse_vectors_config={"sparse": models.SparseVectorParams()},
+                )
+            else:
+                # Dense vectors only
+                self.client.create_collection(
+                    collection_name=collection_config.name,
+                    vectors_config=models.VectorParams(
+                        size=collection_config.vector_size,
+                        distance=getattr(
+                            models.Distance, collection_config.distance_metric.upper()
+                        ),
+                    ),
+                )
+
+            # Set collection metadata
+            self.client.update_collection(
+                collection_name=collection_config.name,
+                optimizer_config=models.OptimizersConfigDiff(
+                    default_segment_number=2,
+                    memmap_threshold=20000,
+                ),
+                hnsw_config=models.HnswConfigDiff(
+                    m=16,
+                    ef_construct=100,
+                    full_scan_threshold=10000,
+                ),
+            )
+
+            logger.info("Created collection: %s", collection_config.name)
+
+        except ResponseHandlingException as e:
+            logger.error(
+                "Failed to create collection %s: %s", collection_config.name, e
+            )
+            raise
+        except Exception as e:
+            logger.error(
+                "Unexpected error creating collection %s: %s", collection_config.name, e
+            )
+            raise
+
+    def list_workspace_collections(self) -> list[str]:
+        """
+        List all collections that belong to the current workspace with display names.
+
+        Filters the complete list of Qdrant collections to return only those
+        that are part of the current workspace, returning display names that
+        remove prefixes for system and library collections.
+
+        Filtering Logic:
+            - Include: System collections (__prefix) - CLI-writable, LLM-readable
+            - Include: Library collections (_prefix) - CLI-managed, MCP-readonly
+            - Include: Project collections ({project}-{suffix}) - user-created
+            - Include: Global collections (predefined system-wide)
+            - Exclude: External daemon collections (e.g., memexd-*-code)
+            - Exclude: Collections from other workspace instances
+
+        Returns:
+            List[str]: Sorted list of workspace collection display names.
+                System/library collections have prefixes removed for cleaner UX.
+                Returns empty list if no collections found or on error.
+
+        Example:
+            ```python
+            collections = manager.list_workspace_collections()
+            # Example return: ['user_preferences', 'library_docs', 'project-documents']
+            # (display names: '__user_preferences' -> 'user_preferences')
+
+            for collection in collections:
+                logger.info("Workspace collection: {collection}")
+            ```
+        """
+        try:
+            all_collections = self.client.get_collections()
+            workspace_collections = []
+            all_collection_names = [c.name for c in all_collections.collections]
+
+            logger.debug("Filtering collections. Total collections: %d", len(all_collection_names))
+            logger.debug("All collections: %s", all_collection_names)
+
+            for collection in all_collections.collections:
+                collection_name = collection.name
+                
+                # Use new collection type system for classification and display names
+                collection_info = self.type_classifier.get_collection_info(collection_name)
+                
+                # Include all workspace collections (system, library, project, global)
+                # but exclude unknown/external collections
+                if collection_info.collection_type != CollectionType.UNKNOWN:
+                    display_name = self.type_classifier.get_display_name(collection_name)
+                    workspace_collections.append(display_name)
+
+            logger.info(
+                "Found %d workspace collections out of %d total collections", 
+                len(workspace_collections), len(all_collection_names)
+            )
+            logger.debug("Workspace collections: %s", workspace_collections)
+
+            return sorted(workspace_collections)
+
+        except Exception as e:
+            logger.error("Failed to list collections: %s", e)
+            return []
+
+    def get_collection_info(self) -> dict:
+        """
+        Get comprehensive information about all workspace collections.
+
+        Retrieves detailed statistics and configuration information for each
+        workspace collection including vector counts, indexing status, and
+        optimization parameters. Provides a complete health check of the workspace.
+
+        Returns:
+            Dict: Collection information containing:
+                - collections (dict): Per-collection statistics with keys:
+                    - vectors_count (int): Number of vectors stored
+                    - points_count (int): Total number of points/documents
+                    - status (str): Collection status (green/yellow/red)
+                    - optimizer_status (dict): Indexing and optimization status
+                    - config (dict): Vector configuration (distance, size)
+                    - error (str): Error message if collection inaccessible
+                - total_collections (int): Total number of workspace collections
+
+        Example:
+            ```python
+            info = await manager.get_collection_info()
+            logger.info("Total collections: {info['total_collections']}")
+
+            for name, details in info['collections'].items():
+                logger.info("{name}: {details['points_count']} documents")
+                if 'error' in details:
+                    logger.info("  Error: {details['error']}")
+            ```
+        """
+        try:
+            workspace_collections = self.list_workspace_collections()
+            collection_info = {}
+
+            for collection_name in workspace_collections:
+                try:
+                    info = self.client.get_collection(collection_name)
+                    
+                    # Handle the new Qdrant API structure where vectors is a dict
+                    vectors_config = info.config.params.vectors
+                    if isinstance(vectors_config, dict):
+                        # New API: vectors is a dict with keys like 'dense', 'sparse'
+                        # Use the first available vector config (usually 'dense')
+                        if 'dense' in vectors_config:
+                            vector_params = vectors_config['dense']
+                        else:
+                            # Fallback to the first available vector config
+                            vector_params = next(iter(vectors_config.values()))
+                        
+                        distance = vector_params.distance
+                        vector_size = vector_params.size
+                    else:
+                        # Legacy API: vectors is directly a VectorParams object
+                        distance = vectors_config.distance
+                        vector_size = vectors_config.size
+                    
+                    collection_info[collection_name] = {
+                        "vectors_count": info.vectors_count,
+                        "points_count": info.points_count,
+                        "status": info.status,
+                        "optimizer_status": info.optimizer_status,
+                        "config": {
+                            "distance": distance,
+                            "vector_size": vector_size,
+                        },
+                    }
+                except Exception as e:
+                    logger.warning(
+                        "Failed to get info for collection %s: %s", collection_name, e
+                    )
+                    collection_info[collection_name] = {"error": str(e)}
+
+            return {
+                "collections": collection_info,
+                "total_collections": len(workspace_collections),
+            }
+
+        except Exception as e:
+            logger.error("Failed to get collection info: %s", e)
+            return {"error": str(e)}
+
+    def _is_workspace_collection(self, collection_name: str) -> bool:
+        """
+        Determine if a collection belongs to the current workspace.
+
+        Uses CollectionNamingManager to classify collections and determine workspace membership.
+        This enables workspace isolation while sharing the database instance and properly
+        handles the new readonly collection prefix system.
+
+        Inclusion Criteria:
+            - Memory collections ('memory')
+            - Library collections ('_name' pattern - readonly from MCP)
+            - Project collections ('{project}-{suffix}' pattern)
+            - Legacy collections matching configuration or naming patterns
+
+        Exclusion Criteria:
+            - Collections ending in '-code' (memexd daemon collections)
+            - Collections from other workspace instances
+            - System or temporary collections
+
+        Args:
+            collection_name: Name of the collection to evaluate
+
+        Returns:
+            bool: True if the collection belongs to this workspace,
+                  False if it's external or system collection
+
+        Example:
+            ```python
+            # These would return True:
+            manager._is_workspace_collection("memory")                  # True (memory collection)
+            manager._is_workspace_collection("_library")               # True (library collection)
+            manager._is_workspace_collection("my-project-docs")        # True (project collection)
+            manager._is_workspace_collection("user-collection")        # True (if legacy configured)
+
+            # These would return False:
+            manager._is_workspace_collection("memexd-project-code")    # False (daemon)
+            manager._is_workspace_collection("other-system-temp")      # False (external)
+            ```
+        """
+        # Use CollectionNamingManager for classification
+        collection_info = self.naming_manager.get_collection_info(collection_name)
+        
+        # Include all workspace collection types (memory, library, project)
+        if collection_info.collection_type in [
+            CollectionType.MEMORY,
+            CollectionType.LIBRARY, 
+            CollectionType.PROJECT
+        ]:
+            return True
+        
+        # For legacy collections, apply the existing filtering logic
+        if collection_info.collection_type == CollectionType.LEGACY:
+            # Exclude memexd daemon collections (those ending with -code)
+            if collection_name.endswith("-code"):
+                return False
+
+            # Include global collections
+            if collection_name in self.config.workspace.global_collections:
+                return True
+
+            # Include project collections (ending with configured suffixes)
+            for suffix in self.config.workspace.effective_collection_suffixes:
+                if collection_name.endswith(f"-{suffix}"):
+                    return True
+
+            # When no specific configuration is provided, use the actual project name to identify collections
+            # This provides accurate workspace isolation based on the current project context
+            if not self.config.workspace.effective_collection_suffixes and not self.config.workspace.global_collections:
+                # Get project information from stored project info or fallback to detection
+                project_names = self._get_all_project_names()
+                
+                # Check if collection matches any project naming pattern: {project_name}-{suffix}
+                for project_name in project_names:
+                    if collection_name.startswith(f"{project_name}-"):
+                        logger.debug("Collection %s matches project %s pattern", collection_name, project_name)
+                        return True
+                    
+                    # Also include standalone collections that match any project name exactly
+                    if collection_name == project_name:
+                        logger.debug("Collection %s matches project %s exactly", collection_name, project_name)
+                        return True
+                
+                # Fallback to common standalone collections for workspace context
+                common_standalone_collections = ["reference", "docs", "standards", "notes", "scratchbook", "memory", "knowledge"]
+                if collection_name in common_standalone_collections:
+                    logger.debug("Collection %s matches common standalone pattern", collection_name)
+                    return True
+
+        return False
+
+    def resolve_collection_name(self, display_name: str) -> tuple[str, bool]:
+        """
+        Resolve a display name to the actual collection name and permission info.
+
+        This handles the mapping from user-facing display names to actual Qdrant
+        collection names, particularly for system and library collections that use prefixes.
+        Uses the new collection type system for better accuracy.
+
+        Args:
+            display_name: The collection name as shown to users
+
+        Returns:
+            Tuple of (actual_collection_name, is_readonly_from_mcp)
+
+        Example:
+            ```python
+            # System collection display name -> actual name
+            actual, readonly = manager.resolve_collection_name("user_preferences")
+            # Returns: ("__user_preferences", False)
+            
+            # Library collection display name -> actual name
+            actual, readonly = manager.resolve_collection_name("library_docs")
+            # Returns: ("_library_docs", True)
+
+            # Project collection (no change)
+            actual, readonly = manager.resolve_collection_name("my-project-docs")
+            # Returns: ("my-project-docs", False)
+            ```
+        """
+        try:
+            all_collections = self.client.get_collections()
+            all_collection_names = [col.name for col in all_collections.collections]
+            
+            if self.type_classifier and COLLECTION_TYPES_AVAILABLE:
+                # Use new collection type system for reverse mapping
+                
+                # Try system collection (__ prefix)
+                system_name = f"__{display_name}"
+                if system_name in all_collection_names:
+                    collection_info = self.type_classifier.get_collection_info(system_name)
+                    return system_name, collection_info.is_readonly
+                
+                # Try library collection (_ prefix)
+                library_name = f"_{display_name}"
+                if library_name in all_collection_names:
+                    collection_info = self.type_classifier.get_collection_info(library_name)
+                    return library_name, collection_info.is_readonly
+                
+                # Check if display name matches actual collection name directly
+                if display_name in all_collection_names:
+                    collection_info = self.type_classifier.get_collection_info(display_name)
+                    return display_name, collection_info.is_readonly
+                    
+                # Collection doesn't exist - return the display name as-is for error handling
+                return display_name, False
+                
+            else:
+                # Fallback to legacy behavior
+                # First, check if this display name corresponds to a library collection
+                potential_library_name = f"_{display_name}"
+
+                if potential_library_name in all_collection_names:
+                    # This is a library collection
+                    return potential_library_name, True
+                elif display_name in all_collection_names:
+                    # This is a regular collection, check if it's readonly
+                    info = self.naming_manager.get_collection_info(display_name)
+                    return display_name, info.is_readonly_from_mcp
+                else:
+                    # Collection doesn't exist - return the display name as-is for error handling
+                    return display_name, False
+
+        except Exception as e:
+            logger.error(f"Failed to resolve collection name '{display_name}': {e}")
+            return display_name, False
+
+    def validate_mcp_write_access(self, display_name: str) -> None:
+        """
+        Validate that the MCP server can write to a collection.
+
+        Args:
+            display_name: The collection display name
+
+        Raises:
+            CollectionPermissionError: If the collection is readonly from MCP
+        """
+        actual_name, is_readonly = self.resolve_collection_name(display_name)
+
+        if is_readonly:
+            info = self.naming_manager.get_collection_info(actual_name)
+            if info.collection_type == CollectionType.LIBRARY:
+                raise CollectionPermissionError(
+                    f"Library collection '{display_name}' is readonly from MCP server. "
+                    f"Use the CLI/Rust engine to modify library collections."
+                )
+            else:
+                raise CollectionPermissionError(
+                    f"Collection '{display_name}' is readonly from MCP server."
+                )
+
+    def get_naming_manager(self) -> CollectionNamingManager:
+        """
+        Get the collection naming manager for direct access.
+
+        Returns:
+            The CollectionNamingManager instance used by this manager
+        """
+        return self.naming_manager
+
+    def list_searchable_collections(self) -> list[str]:
+        """
+        List collections that should be included in global searches.
+        
+        This method returns display names for collections that are globally searchable,
+        excluding system collections (__ prefix) which are only accessible by explicit name.
+        
+        Returns:
+            List[str]: Display names of collections that are globally searchable
+        
+        Example:
+            ```python
+            searchable = manager.list_searchable_collections()
+            # Returns: ['library_docs', 'project-documents', 'algorithms']
+            # Excludes: '__user_preferences' (system collection)
+            ```
+        """
+        try:
+            all_collections = self.client.get_collections()
+            searchable_collections = []
+            
+            for collection in all_collections.collections:
+                collection_name = collection.name
+                
+                # Use new collection type system to determine searchability
+                collection_info = self.type_classifier.get_collection_info(collection_name)
+                
+                # Only include globally searchable collections (excludes system collections)
+                if collection_info.is_searchable:
+                    display_name = self.type_classifier.get_display_name(collection_name)
+                    searchable_collections.append(display_name)
+                        
+            return sorted(searchable_collections)
+            
+        except Exception as e:
+            logger.error(f"Failed to list searchable collections: {e}")
+            return []
+
+    def validate_collection_operation(self, display_name: str, operation: str) -> tuple[bool, str]:
+        """
+        Validate if an operation is allowed on a collection based on its type.
+        
+        Args:
+            display_name: The display name of the collection
+            operation: The operation to validate ('read', 'write', 'delete', 'create')
+            
+        Returns:
+            Tuple[bool, str]: (is_valid, reason) where reason explains why if invalid
+        """
+        try:
+            actual_name, is_readonly = self.resolve_collection_name(display_name)
+            
+            if self.type_classifier and COLLECTION_TYPES_AVAILABLE:
+                # Use new collection type validation
+                from ..core.collection_types import validate_collection_operation
+                return validate_collection_operation(actual_name, operation)
+            else:
+                # Fallback validation
+                valid_operations = {'read', 'write', 'delete', 'create'}
+                if operation not in valid_operations:
+                    return False, f"Invalid operation '{operation}'. Must be one of: {valid_operations}"
+                
+                if operation == 'read':
+                    return True, "Read operations are generally allowed"
+                    
+                if is_readonly and operation in ('write', 'delete'):
+                    return False, f"Collection '{display_name}' is read-only via MCP"
+                    
+                return True, f"Operation '{operation}' is allowed on collection '{display_name}'"
+                
+        except Exception as e:
+            return False, f"Validation error: {e}"
+
+    def _get_vector_size(self) -> int:
+        """
+        Get the vector dimension size for the currently configured embedding model.
+
+        Maps embedding model names to their corresponding vector dimensions.
+        This ensures that collections are created with the correct vector size
+        for the embedding model being used.
+
+        Supported Models:
+            - sentence-transformers/all-MiniLM-L6-v2: 384 dimensions (default, lightweight)
+            - BAAI/bge-base-en-v1.5: 768 dimensions (better quality)
+            - BAAI/bge-large-en-v1.5: 1024 dimensions (best quality, high resource)
+
+        Returns:
+            int: Vector dimension size for the configured model.
+                 Defaults to 384 if model is not recognized.
+
+        Example:
+            ```python
+            # With all-MiniLM-L6-v2 configured (default)
+            size = manager._get_vector_size()  # Returns 384
+
+            # With BAAI/bge-m3 configured
+            size = manager._get_vector_size()  # Returns 1024
+            ```
+        """
+        # This will be updated when FastEmbed is integrated
+        model_sizes = {
+            "sentence-transformers/all-MiniLM-L6-v2": 384,
+            "BAAI/bge-base-en-v1.5": 768,
+            "BAAI/bge-large-en-v1.5": 1024,
+            "BAAI/bge-m3": 1024,
+            "sentence-transformers/all-mpnet-base-v2": 768,
+            "jinaai/jina-embeddings-v2-base-en": 768,
+            "thenlper/gte-base": 768,
+            "nomic-ai/nomic-embed-text-v1.5": 768,
+        }
+
+        return model_sizes.get(self.config.embedding.model, 384)
+
+
+class MemoryCollectionManager:
+    """
+    Manages memory collections with proper access controls and auto-creation.
+    
+    This class handles both system memory collections (__memory_*) and project memory
+    collections ({project}-memory) with appropriate access control enforcement:
+    
+    - System memory collections: CLI-writable only, LLM read-only
+    - Project memory collections: MCP read-write access
+    - Memory collections cannot be deleted by LLM
+    - Auto-creation functionality for missing memory collections
+    
+    The manager integrates with the existing access control system and ensures
+    that memory collections appear in appropriate search scopes.
+    """
+    
+    def __init__(self, workspace_client: QdrantClient, config: Config) -> None:
+        """
+        Initialize the memory collection manager.
+        
+        Args:
+            workspace_client: Configured Qdrant client instance
+            config: Configuration object containing workspace and memory settings
+        """
+        self.workspace_client = workspace_client
+        self.config = config
+        self.naming_manager = CollectionNamingManager(
+            global_collections=config.workspace.global_collections,
+            valid_project_suffixes=config.workspace.effective_collection_suffixes
+        )
+        self.type_classifier = CollectionTypeClassifier()
+        
+        # Memory collection configuration
+        self.memory_collection = "memory"  # Default memory collection name from config
+        if hasattr(config, 'memory_collection'):
+            self.memory_collection = config.memory_collection
+    
+    async def ensure_memory_collections_exist(self, project: str) -> dict:
+        """
+        Ensure both system and project memory collections exist.
+        
+        Creates missing memory collections with proper access controls:
+        - System memory: __{memory_collection_name} (CLI-only writable)
+        - Project memory: {project}-{memory_collection_name} (MCP read-write)
+        
+        Args:
+            project: Project name for project-scoped memory collection
+            
+        Returns:
+            dict: Results of collection creation with keys:
+                - system_memory: Creation result for system memory collection (if created)
+                - project_memory: Creation result for project memory collection (if created)
+                - existing: List of collections that already existed
+        """
+        results = {
+            'existing': [],
+            'created': []
+        }
+        
+        # Build collection names
+        system_memory = build_system_memory_collection_name(self.memory_collection)
+        project_memory = build_project_collection_name(project, self.memory_collection)
+        
+        logger.info(f"Ensuring memory collections exist: system='{system_memory}', project='{project_memory}'")
+        
+        # Check and create system memory collection if missing
+        if not self.collection_exists(system_memory):
+            logger.info(f"Creating system memory collection: {system_memory}")
+            system_result = self.create_system_memory_collection(system_memory)
+            results['system_memory'] = system_result
+            results['created'].append(system_memory)
+        else:
+            results['existing'].append(system_memory)
+            logger.debug(f"System memory collection already exists: {system_memory}")
+        
+        # Check and create project memory collection if missing
+        if not self.collection_exists(project_memory):
+            logger.info(f"Creating project memory collection: {project_memory}")
+            project_result = self.create_project_memory_collection(project_memory)
+            results['project_memory'] = project_result
+            results['created'].append(project_memory)
+        else:
+            results['existing'].append(project_memory)
+            logger.debug(f"Project memory collection already exists: {project_memory}")
+        
+        return results
+    
+    def collection_exists(self, collection_name: str) -> bool:
+        """
+        Check if a collection exists in Qdrant.
+        
+        Args:
+            collection_name: Name of the collection to check
+            
+        Returns:
+            bool: True if collection exists, False otherwise
+        """
+        try:
+            collections = self.workspace_client.get_collections()
+            existing_names = {col.name for col in collections.collections}
+            return collection_name in existing_names
+        except Exception as e:
+            logger.error(f"Error checking collection existence for '{collection_name}': {e}")
+            return False
+    
+    def create_system_memory_collection(self, collection_name: str) -> dict:
+        """
+        Create a system memory collection with CLI-only write access.
+        
+        System memory collections use the __ prefix and are configured as:
+        - CLI-writable only (LLM cannot write)
+        - LLM-readable for context retrieval
+        - Not globally searchable (explicit access only)
+        
+        Args:
+            collection_name: Full collection name including __ prefix
+            
+        Returns:
+            dict: Creation result with collection info and access control settings
+            
+        Raises:
+            ValueError: If collection name doesn't follow system memory pattern
+            ResponseHandlingException: If Qdrant creation fails
+        """
+        # Validate system memory collection name pattern
+        if not collection_name.startswith("__"):
+            raise ValueError(f"System memory collection must start with '__': {collection_name}")
+        
+        # Validate against access control
+        try:
+            validate_llm_collection_access('create', collection_name, self.config)
+        except LLMAccessControlError as e:
+            # This is expected for system collections - CLI can create them
+            logger.debug(f"LLM access control validation failed as expected for system collection: {e}")
+        
+        try:
+            # Create collection with standard memory configuration
+            collection_config = CollectionConfig(
+                name=collection_name,
+                description=f"System memory collection: {collection_name[2:]}",  # Remove __ prefix for description
+                collection_type="system_memory",
+                project_name=None,
+                vector_size=self._get_vector_size(),
+                enable_sparse_vectors=self.config.embedding.enable_sparse_vectors,
+            )
+            
+            self._create_memory_collection(collection_config)
+            
+            result = {
+                'collection_name': collection_name,
+                'type': 'system_memory',
+                'access_control': {
+                    'cli_writable': True,
+                    'llm_writable': False,
+                    'llm_readable': True,
+                    'mcp_readable': True,
+                    'globally_searchable': False
+                },
+                'description': collection_config.description,
+                'status': 'created'
+            }
+            
+            logger.info(f"Successfully created system memory collection: {collection_name}")
+            return result
+            
+        except Exception as e:
+            logger.error(f"Failed to create system memory collection '{collection_name}': {e}")
+            raise
+    
+    def create_project_memory_collection(self, collection_name: str) -> dict:
+        """
+        Create a project memory collection with MCP read-write access.
+        
+        Project memory collections are configured as:
+        - MCP read-write access (LLM can read and write)
+        - Globally searchable for project context
+        - Standard project collection permissions
+        
+        Args:
+            collection_name: Full collection name in project-memory format
+            
+        Returns:
+            dict: Creation result with collection info and access control settings
+            
+        Raises:
+            ValueError: If collection name doesn't follow project memory pattern
+            ResponseHandlingException: If Qdrant creation fails
+        """
+        # Validate project memory collection name pattern
+        if not collection_name.endswith("-memory"):
+            raise ValueError(f"Project memory collection must end with '-memory': {collection_name}")
+        
+        # Extract project name
+        project_name = collection_name[:-7]  # Remove "-memory" suffix
+        
+        try:
+            # Create collection with standard memory configuration
+            collection_config = CollectionConfig(
+                name=collection_name,
+                description=f"Project memory collection for {project_name}",
+                collection_type="project_memory",
+                project_name=project_name,
+                vector_size=self._get_vector_size(),
+                enable_sparse_vectors=self.config.embedding.enable_sparse_vectors,
+            )
+            
+            self._create_memory_collection(collection_config)
+            
+            result = {
+                'collection_name': collection_name,
+                'type': 'project_memory',
+                'project_name': project_name,
+                'access_control': {
+                    'cli_writable': True,
+                    'llm_writable': True,
+                    'llm_readable': True,
+                    'mcp_readable': True,
+                    'mcp_writable': True,
+                    'globally_searchable': True
+                },
+                'description': collection_config.description,
+                'status': 'created'
+            }
+            
+            logger.info(f"Successfully created project memory collection: {collection_name}")
+            return result
+            
+        except Exception as e:
+            logger.error(f"Failed to create project memory collection '{collection_name}': {e}")
+            raise
+    
+    def _create_memory_collection(self, collection_config: CollectionConfig) -> None:
+        """
+        Create a memory collection with optimized settings.
+        
+        Memory collections are optimized for:
+        - Fast retrieval of contextual information
+        - Efficient storage of user preferences and settings
+        - Quick search across stored memory items
+        
+        Args:
+            collection_config: Complete configuration for the memory collection
+            
+        Raises:
+            ResponseHandlingException: If Qdrant API calls fail
+        """
+        try:
+            # Create collection with memory-optimized settings
+            if collection_config.enable_sparse_vectors:
+                # Memory collections with both dense and sparse vectors for hybrid search
+                self.workspace_client.create_collection(
+                    collection_name=collection_config.name,
+                    vectors_config={
+                        "dense": models.VectorParams(
+                            size=collection_config.vector_size,
+                            distance=getattr(
+                                models.Distance,
+                                collection_config.distance_metric.upper(),
+                            ),
+                        )
+                    },
+                    sparse_vectors_config={"sparse": models.SparseVectorParams()},
+                )
+            else:
+                # Dense vectors only
+                self.workspace_client.create_collection(
+                    collection_name=collection_config.name,
+                    vectors_config=models.VectorParams(
+                        size=collection_config.vector_size,
+                        distance=getattr(
+                            models.Distance, collection_config.distance_metric.upper()
+                        ),
+                    ),
+                )
+            
+            # Apply memory-optimized collection settings
+            self.workspace_client.update_collection(
+                collection_name=collection_config.name,
+                optimizer_config=models.OptimizersConfigDiff(
+                    default_segment_number=1,  # Smaller segments for memory collections
+                    memmap_threshold=10000,    # Lower threshold for faster access
+                ),
+                hnsw_config=models.HnswConfigDiff(
+                    m=24,  # Higher connectivity for better recall
+                    ef_construct=200,  # Better index quality for memory retrieval
+                    full_scan_threshold=5000,  # Lower threshold for small collections
+                ),
+            )
+            
+        except Exception as e:
+            logger.error(f"Failed to create memory collection '{collection_config.name}': {e}")
+            raise
+    
+    def get_memory_collections(self, project: str) -> dict:
+        """
+        Get information about memory collections for a project.
+        
+        Args:
+            project: Project name to get memory collections for
+            
+        Returns:
+            dict: Information about system and project memory collections
+        """
+        system_memory = build_system_memory_collection_name(self.memory_collection)
+        project_memory = build_project_collection_name(project, self.memory_collection)
+        
+        try:
+            collections = self.workspace_client.get_collections()
+            existing_names = {col.name for col in collections.collections}
+            
+            return {
+                'system_memory': {
+                    'name': system_memory,
+                    'display_name': system_memory[2:],  # Remove __ prefix for display
+                    'exists': system_memory in existing_names,
+                    'access_control': {
+                        'cli_writable': True,
+                        'llm_writable': False,
+                        'llm_readable': True,
+                        'mcp_readable': True,
+                        'globally_searchable': False
+                    }
+                },
+                'project_memory': {
+                    'name': project_memory,
+                    'display_name': project_memory,
+                    'exists': project_memory in existing_names,
+                    'project_name': project,
+                    'access_control': {
+                        'cli_writable': True,
+                        'llm_writable': True,
+                        'llm_readable': True,
+                        'mcp_readable': True,
+                        'mcp_writable': True,
+                        'globally_searchable': True
+                    }
+                }
+            }
+            
+        except Exception as e:
+            logger.error(f"Failed to get memory collection info for project '{project}': {e}")
+            return {
+                'system_memory': {'name': system_memory, 'exists': False, 'error': str(e)},
+                'project_memory': {'name': project_memory, 'exists': False, 'error': str(e)}
+            }
+    
+    def validate_memory_collection_access(self, collection_name: str, operation: str) -> tuple[bool, str]:
+        """
+        Validate access to memory collections based on their type.
+        
+        Args:
+            collection_name: Name of the memory collection
+            operation: Operation to validate ('read', 'write', 'delete')
+            
+        Returns:
+            tuple[bool, str]: (is_allowed, reason)
+        """
+        collection_info = self.type_classifier.get_collection_info(collection_name)
+        
+        # Memory collections cannot be deleted by LLM regardless of type
+        if operation == 'delete':
+            return False, f"Memory collection '{collection_name}' cannot be deleted by LLM"
+        
+        # System memory collections are read-only from LLM/MCP
+        if collection_info.type == CollectionType.SYSTEM:
+            if operation == 'write':
+                return False, f"System memory collection '{collection_name}' is CLI-writable only"
+            elif operation == 'read':
+                return True, f"Read access allowed for system memory collection"
+        
+        # Project memory collections allow read/write from MCP
+        elif collection_info.type == CollectionType.PROJECT:
+            if operation in ['read', 'write']:
+                return True, f"{operation.title()} access allowed for project memory collection"
+        
+        return False, f"Unknown memory collection type for '{collection_name}'"
+    
+    def _get_vector_size(self) -> int:
+        """
+        Get the vector dimension size for the currently configured embedding model.
+        
+        Returns:
+            int: Vector dimension size for the configured model
+        """
+        # This mirrors the implementation in WorkspaceCollectionManager
+        model_sizes = {
+            "sentence-transformers/all-MiniLM-L6-v2": 384,
+            "BAAI/bge-base-en-v1.5": 768,
+            "BAAI/bge-large-en-v1.5": 1024,
+            "BAAI/bge-m3": 1024,
+            "sentence-transformers/all-mpnet-base-v2": 768,
+            "jinaai/jina-embeddings-v2-base-en": 768,
+            "thenlper/gte-base": 768,
+            "nomic-ai/nomic-embed-text-v1.5": 768,
+        }
+        
+        return model_sizes.get(self.config.embedding.model, 384)

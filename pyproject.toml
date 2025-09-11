@@ -87,7 +87,7 @@ full = ["markdown>=3.4.0", "PyYAML>=6.0.0", "pypdf>=4.0.0"]
 
 [project.scripts]
 workspace-qdrant-mcp = "workspace_qdrant_mcp.server:main"
-wqm = "workspace_qdrant_mcp.cli_wrapper:main"
+wqm = "wqm_cli.cli_wrapper:main"
 
 [project.urls]
 Homepage = "https://github.com/ChrisGVE/workspace-qdrant-mcp"
@@ -96,10 +96,10 @@ Issues = "https://github.com/ChrisGVE/workspace-qdrant-mcp/issues"
 Changelog = "https://github.com/ChrisGVE/workspace-qdrant-mcp/blob/main/CHANGELOG.md"
 
 [tool.hatch.version]
-path = "src/workspace_qdrant_mcp/__init__.py"
+path = "src/python/workspace-qdrant-mcp/__init__.py"
 
 [tool.hatch.build.targets.wheel]
-packages = ["src/workspace_qdrant_mcp"]
+packages = ["src/python/workspace-qdrant-mcp", "src/python/wqm-cli", "src/python/common"]
 
 [tool.black]
 line-length = 88
@@ -152,14 +152,14 @@ add-ignore = [
     "D205",  # 1 blank line required between summary line and description - formatting
 ]
 # Only check critical violations that indicate missing or broken documentation
-match-dir = "src/workspace_qdrant_mcp"
+match-dir = "src/python"
 ignore-decorators = "property"
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
 testpaths = ["tests"]
 pythonpath = ["."]
-addopts = "-v --tb=short --cov=src/workspace_qdrant_mcp --cov-report=term-missing --cov-report=html --cov-report=xml --cov-fail-under=80 --cov-branch"
+addopts = "-v --tb=short --cov=src/python --cov-report=term-missing --cov-report=html --cov-report=xml --cov-fail-under=80 --cov-branch"
 markers = [
   "unit: Unit tests",
   "integration: Integration tests",
@@ -179,14 +179,14 @@ filterwarnings = [
 ]
 
 [tool.coverage.run]
-source = ["src"]
+source = ["src/python"]
 omit = [
   "*/tests/*",
   "*/__init__.py", 
   "*/conftest.py",
   "*/test_*.py",
-  "src/workspace_qdrant_mcp/cli/test_*.py",
-  "src/workspace_qdrant_mcp/tools/test_*.py"
+  "src/python/wqm-cli/cli/test_*.py",
+  "src/python/workspace-qdrant-mcp/tools/test_*.py"
 ]
 branch = true
 parallel = true
@@ -242,9 +242,9 @@ dev = [
 
 # Maturin configuration for Rust integration
 [tool.maturin]
-module-name = "workspace_qdrant_mcp._rust_engine"
-manifest-path = "rust-engine/python-bindings/Cargo.toml"
-python-source = "src"
+module-name = "common._rust_engine"
+manifest-path = "src/rust/daemon/python-bindings/Cargo.toml"
+python-source = "src/python"
 
 # Platform-specific optimizations
 [tool.maturin.target.x86_64-apple-darwin]

@@ -1,0 +1,10 @@
+[package]
+name = "workspace-qdrant-core"
+version = "0.2.1-debug"
+edition = "2021"
+
+[dependencies]
+serde = { version = "1.0", features = ["derive"] }
+thiserror = "2.0"
+uuid = { version = "1.6", features = ["v4"] }
+tokio = { version = "1.35", features = ["rt-multi-thread", "macros"] }

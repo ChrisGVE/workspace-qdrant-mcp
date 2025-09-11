@@ -1,0 +1,36 @@
+[package]
+name = "workspace-qdrant-python-bindings" 
+version = "0.2.1-debug"
+edition = "2021"
+authors = ["Christian C. Berclaz <christian.berclaz@mac.com>"]
+description = "Python bindings for workspace-qdrant-mcp ingestion engine"
+license = "MIT"
+repository = "https://github.com/ChrisGVE/workspace-qdrant-mcp"
+
+[lib]
+name = "workspace_qdrant_python_bindings"
+crate-type = ["cdylib"]
+
+[dependencies]
+# Core engine
+workspace-qdrant-core = { path = "../core" }
+workspace-qdrant-grpc = { path = "../grpc" }
+
+# Python bindings
+pyo3 = { version = "0.24", features = ["extension-module", "abi3"] }
+# Note: pyo3-asyncio removed as it's not used in current implementation
+
+# Async runtime
+tokio = { version = "1.35", features = ["rt-multi-thread", "macros"] }
+
+# Serialization  
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+
+# Error handling and logging
+thiserror = "1.0"
+anyhow = "1.0"
+tracing = "0.1"
+
+[build-dependencies]
+pyo3-build-config = "0.24"

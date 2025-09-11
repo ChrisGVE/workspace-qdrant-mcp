@@ -1,0 +1,81 @@
+[workspace]
+members = [
+    "core",
+    "grpc", 
+    "python-bindings",
+]
+resolver = "2"
+
+# Enable LTO for release builds
+[profile.release]
+lto = true
+codegen-units = 1
+panic = "abort"
+strip = true
+
+# Optimize for size in release
+[profile.release-small]
+inherits = "release"
+opt-level = "s"
+
+# Development profile with faster compilation
+[profile.dev]
+opt-level = 0
+debug = true
+split-debuginfo = "unpacked"
+
+# Cross-platform compilation targets
+[workspace.metadata.cross-compilation]
+targets = [
+    "x86_64-apple-darwin",     # macOS Intel
+    "aarch64-apple-darwin",    # macOS Apple Silicon
+    "x86_64-unknown-linux-gnu", # Linux x86_64
+    "aarch64-unknown-linux-gnu", # Linux ARM64
+    "x86_64-pc-windows-msvc",  # Windows x86_64
+    "aarch64-pc-windows-msvc", # Windows ARM64
+]
+
+# Platform-specific optimization flags
+[workspace.metadata.platform-flags]
+macos = ["-C", "target-cpu=native", "-C", "link-arg=-Wl,-dead_strip"]
+linux = ["-C", "target-cpu=native", "-C", "link-arg=-Wl,--gc-sections"]
+windows = ["-C", "target-cpu=native"]
+
+# Workspace-level dependencies that crates can inherit
+[workspace.dependencies]
+# Async runtime and utilities
+tokio = { version = "1.35", features = [
+    "rt-multi-thread", "macros", "time", "fs", "process", "signal",
+    "sync", "io-std", "io-util", "net", "parking_lot"
+]}
+tokio-util = { version = "0.7", features = ["codec", "time"] }
+tokio-stream = "0.1"
+
+# gRPC and networking
+tonic = { version = "0.12", features = ["tls", "tls-roots", "compression"] }
+prost = "0.13"
+prost-types = "0.13"
+
+# Serialization and configuration
+serde = { version = "1.0", features = ["derive", "rc"] }
+serde_json = "1.0"
+serde_yaml = "0.9"
+toml = "0.8"
+
+# Utilities and data structures
+uuid = { version = "1.6", features = ["v4", "serde"] }
+chrono = { version = "0.4", features = ["serde", "clock"] }
+thiserror = "1.0"
+anyhow = "1.0"
+tracing = { version = "0.1", features = ["log", "attributes", "std"] }
+
+# Python integration
+pyo3 = { version = "0.24", features = ["extension-module", "abi3"] }
+pyo3-asyncio = { version = "0.21", features = ["tokio-runtime"] }
+
+# Platform-specific file watching
+notify = { version = "6.1", features = ["serde"] }
+
+[workspace.metadata.docs.rs]
+all-features = true
+rustdoc-args = ["--cfg", "docsrs"]

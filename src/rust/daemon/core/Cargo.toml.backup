@@ -1,0 +1,154 @@
+[package]
+name = "workspace-qdrant-core"
+version = "0.2.1-debug"
+edition = "2021"
+authors = ["Christian C. Berclaz <christian.berclaz@mac.com>"]
+description = "Core processing engine for workspace-qdrant-mcp"
+license = "MIT"
+repository = "https://github.com/ChrisGVE/workspace-qdrant-mcp"
+
+[dependencies]
+# Async runtime
+tokio = { version = "1.35", features = [
+    "rt-multi-thread", "macros", "time", "fs", "process", "signal",
+    "sync", "io-std", "io-util", "net", "parking_lot"
+]}
+tokio-util = { version = "0.7", features = ["codec", "time"] }
+tokio-stream = "0.1"
+
+# Document processing
+pdf = "0.8"
+epub = "2.0"
+zip = "0.6"
+encoding_rs = "0.8"
+chardet = "0.2"
+mime_guess = "2.0"
+
+# Code parsing and analysis
+tree-sitter = "0.20"
+tree-sitter-rust = "0.20"
+tree-sitter-python = "0.20" 
+tree-sitter-javascript = "0.20"
+tree-sitter-json = "0.20"
+
+# File watching and system integration
+notify = { version = "6.1", features = ["serde"] }
+walkdir = "2.4"
+glob = "0.3"
+
+# Platform-specific file watching dependencies - temporarily commented out for compilation
+# [target.'cfg(target_os = "macos")'.dependencies]
+# fsevents-sys = "0.3"  
+# kqueue = "1.0"
+
+# [target.'cfg(target_os = "linux")'.dependencies]
+# inotify = "0.10"
+
+# [target.'cfg(target_os = "windows")'.dependencies] 
+# windows = { version = "0.52", features = ["Win32_Foundation", "Win32_System_IO"] }
+
+# Platform-specific process checking
+[target.'cfg(unix)'.dependencies]
+libc = "0.2"
+
+[target.'cfg(windows)'.dependencies]
+winapi = { version = "0.3", features = ["processthreadsapi", "winnt", "handleapi", "minwinbase"] }
+
+# Vector database client  
+qdrant-client = "1.15"
+# Note: gRPC and HTTP/2 dependencies (tonic, hyper) would be needed for advanced configuration
+# but are not currently used as the basic qdrant-client configuration is sufficient
+
+# Embedding generation
+ort = { version = "2.0.0-rc.10", features = ["download-binaries"] }
+tokenizers = "0.19"
+reqwest = { version = "0.11", features = ["stream", "json"] }
+md5 = "0.7"
+
+# Service discovery and networking
+broadcast = "0.1"
+
+# Serialization
+serde = { version = "1.0", features = ["derive", "rc"] }
+serde_json = "1.0"
+serde_yaml = "0.9"
+toml = "0.8"
+
+# Utilities
+uuid = { version = "1.6", features = ["v4", "serde"] }
+chrono = { version = "0.4", features = ["serde", "clock"] }
+futures = "0.3"
+url = { version = "2.5", features = ["serde"] }
+bytes = "1.5"
+dashmap = "5.5" 
+parking_lot = "0.12"
+crossbeam = "0.8"
+rayon = "1.8"
+once_cell = "1.19"
+regex = "1.10"
+ahash = "0.8"
+fastrand = "2.0"
+
+# Error handling and logging
+thiserror = "2.0"
+anyhow = "1.0"
+tracing = { version = "0.1", features = ["log", "attributes", "std", "async-await"] }
+tracing-subscriber = { version = "0.3", features = ["env-filter", "json", "registry", "fmt", "chrono"] }
+
+# Command-line interface
+clap = { version = "4.4", features = ["derive"] }
+scopeguard = "1.2"
+
+# SQLite for LSP state management
+sqlx = { version = "0.7", features = ["runtime-tokio-rustls", "sqlite", "chrono", "uuid"] }
+
+# JSON-RPC for LSP communication
+which = "6.0"
+tokio-process = "0.2"
+
+[[bin]]
+name = "memexd"
+path = "src/bin/memexd.rs"
+
+[[bin]]
+name = "daemon_with_discovery"
+path = "src/bin/daemon_with_discovery.rs"
+
+# Note: Platform-specific optimizations temporarily removed for compatibility
+
+# Feature flags for platform-specific optimizations and testing
+[features]
+default = []
+
+# Platform-specific file watching optimizations
+macos-optimizations = []
+linux-optimizations = []
+windows-optimizations = []
+
+# Integration test features
+macos-integration-tests = ["macos-optimizations"]
+linux-integration-tests = ["linux-optimizations"] 
+windows-integration-tests = ["windows-optimizations"]
+
+# Benchmarking features
+benchmarks = []
+
+[dev-dependencies]
+tempfile = "3.8"
+criterion = { version = "0.5", features = ["html_reports"] }
+
+# Benchmarks
+[[bench]]
+name = "processing_benchmarks"
+harness = false
+required-features = ["benchmarks"]
+
+[[bench]]
+name = "watching_benchmarks"
+harness = false
+required-features = ["benchmarks"]
+
+[[bench]]
+name = "platform_benchmarks"
+harness = false
+required-features = ["benchmarks"]
