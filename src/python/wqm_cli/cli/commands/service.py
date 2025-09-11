@@ -843,14 +843,44 @@ project_path = "{str(Path.cwd()).replace(chr(92), chr(92) + chr(92))}"
             # Step 2: Give resources time to fully clean up
             await asyncio.sleep(1)
 
-            # Step 3: Start the service
+            # Step 3: Check if service is loaded, if not load it first
+            plist_dir = Path.home() / "Library" / "LaunchAgents"
+            plist_path = plist_dir / f"{service_id}.plist"
+            
+            # Try to start first, if it fails because service is unloaded, load it
             cmd = ["launchctl", "start", service_id]
             result = await asyncio.create_subprocess_exec(
                 *cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE
             )
             stdout, stderr = await result.communicate()
+            
+            # If start failed and plist exists, try loading first then starting
+            if result.returncode != 0 and plist_path.exists():
+                error_msg = stderr.decode().strip()
+                if "Could not find specified service" in error_msg or "service not found" in error_msg.lower():
+                    # Service is unloaded, need to load it first
+                    logger.debug("Service unloaded, loading first...")
+                    load_cmd = ["launchctl", "load", str(plist_path)]
+                    load_result = await asyncio.create_subprocess_exec(
+                        *load_cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE
+                    )
+                    load_stdout, load_stderr = await load_result.communicate()
+                    
+                    if load_result.returncode == 0:
+                        # Loading succeeded, service should now be running due to KeepAlive
+                        # Give it a moment to start
+                        await asyncio.sleep(2)
+                    else:
+                        return {
+                            "success": False,
+                            "error": f"Failed to load service: {load_stderr.decode().strip()}",
+                            "service_id": service_id,
+                        }
+                else:
+                    # Different error, not related to unloaded service
+                    pass
 
-            if result.returncode != 0:
+            if result.returncode != 0 and not ("Could not find specified service" in stderr.decode() or "service not found" in stderr.decode().lower()):
                 error_msg = stderr.decode().strip()
                 # Enhanced error reporting with diagnostic information
                 logger.debug(f"launchctl start failed: {error_msg}")
@@ -1174,14 +1204,7 @@ project_path = "{str(Path.cwd()).replace(chr(92), chr(92) + chr(92))}"
                     *cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE
                 )
                 stdout, stderr = await result.communicate()
-                
-                # Step 2: Load service back as disabled (without starting)
-                # This maintains the service registration but keeps it stopped
-                cmd = ["launchctl", "load", "-w", str(plist_path)]
-                result = await asyncio.create_subprocess_exec(
-                    *cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE
-                )
-                stdout, stderr = await result.communicate()
+                logger.debug(f"Unload result - stdout: {stdout.decode()}, stderr: {stderr.decode()}")
             else:
                 logger.warning(f"Service plist not found at {plist_path}, attempting direct process cleanup")
             
