@@ -423,23 +423,32 @@ def get_configured_client(config=None) -> QdrantClient:
         # Import here to avoid circular imports
         from ..core.config import Config
         from ..core.ssl_config import get_ssl_manager
+        import warnings
         
         if config is None:
             config = Config()
             
         ssl_manager = get_ssl_manager()
         
-        # Create client with appropriate SSL context
+        # Create client with appropriate SSL context and warning suppression
         if ssl_manager.is_localhost_url(config.qdrant.url):
             with ssl_manager.for_localhost():
-                client = QdrantClient(**config.qdrant_client_config)
+                # Additional warning suppression for Qdrant-specific warnings
+                with warnings.catch_warnings():
+                    warnings.filterwarnings("ignore", message=".*Api key is used with an insecure connection.*", category=UserWarning)
+                    client = QdrantClient(**config.qdrant_client_config)
         else:
             client = QdrantClient(**config.qdrant_client_config)
             
         # Test connection to ensure client is working
         try:
-            # Simple health check - this will raise an exception if connection fails
-            client.get_collections()
+            if ssl_manager.is_localhost_url(config.qdrant.url):
+                with ssl_manager.for_localhost():
+                    with warnings.catch_warnings():
+                        warnings.filterwarnings("ignore", message=".*Api key is used with an insecure connection.*", category=UserWarning)
+                        client.get_collections()
+            else:
+                client.get_collections()
         except Exception as e:
             raise CLIError(
                 f"Failed to connect to Qdrant server at {config.qdrant.url}: {str(e)}"
