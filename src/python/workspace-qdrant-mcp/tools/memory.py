@@ -11,10 +11,10 @@ from typing import Any, Dict, List, Optional
 
 from mcp.server.fastmcp import FastMCP
 
-from ..core.client import create_qdrant_client
-from ..core.collection_naming import create_naming_manager
-from ..core.config import Config
-from ..core.memory import (
+from common.core.client import create_qdrant_client
+from common.core.collection_naming import create_naming_manager
+from common.config import Config
+from common.memory.manager import (
     AuthorityLevel,
     MemoryCategory,
     MemoryManager,
