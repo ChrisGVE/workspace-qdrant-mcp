@@ -268,7 +268,6 @@ class CrossPlatformServiceMockProvider:
 
 
 @pytest.mark.integration
-@pytest.mark.service_testing
 class TestCrossPlatformService:
     """Comprehensive cross-platform service management testing."""
     
@@ -299,6 +298,7 @@ class TestCrossPlatformService:
             return CrossPlatformServiceMockProvider.create_windows_mocks()
         return {}
     
+    @pytest.mark.asyncio
     async def test_service_installation_cross_platform(self, service_manager, service_helper, platform_mocks):
         """Test service installation across all platforms."""
         # Test successful installation
@@ -342,6 +342,7 @@ class TestCrossPlatformService:
                 assert "service_name" in result
                 assert result["service_name"] == service_helper.get_service_id()
     
+    @pytest.mark.asyncio
     async def test_service_uninstallation_cross_platform(self, service_manager, service_helper, platform_mocks):
         """Test service uninstallation across all platforms."""
         if service_helper.is_macos:
@@ -387,6 +388,7 @@ class TestCrossPlatformService:
                 assert result["success"]
                 assert "service_name" in result
     
+    @pytest.mark.asyncio
     async def test_service_start_cross_platform(self, service_manager, service_helper, platform_mocks):
         """Test service start across all platforms."""
         if service_helper.is_macos:
@@ -434,6 +436,7 @@ class TestCrossPlatformService:
                 assert result["success"]
                 assert "service_name" in result
     
+    @pytest.mark.asyncio
     async def test_service_stop_cross_platform(self, service_manager, service_helper, platform_mocks):
         """Test service stop across all platforms."""
         if service_helper.is_macos:
@@ -470,6 +473,7 @@ class TestCrossPlatformService:
                 assert result["success"]
                 assert "service_name" in result
     
+    @pytest.mark.asyncio
     async def test_service_status_cross_platform(self, service_manager, service_helper, platform_mocks):
         """Test service status checking across all platforms."""
         if service_helper.is_macos:
@@ -511,6 +515,7 @@ class TestCrossPlatformService:
                 assert "service_name" in result
                 assert "status" in result
     
+    @pytest.mark.asyncio
     async def test_service_configuration_validation(self, service_manager, service_helper):
         """Test service configuration validation across platforms."""
         # Test with custom config file
@@ -549,6 +554,7 @@ class TestCrossPlatformService:
                 # May succeed or fail depending on mocking, but should not crash
                 assert "success" in result
     
+    @pytest.mark.asyncio
     async def test_platform_specific_error_handling(self, service_manager, service_helper, platform_mocks):
         """Test platform-specific error handling scenarios."""
         error_scenarios = service_helper.get_expected_error_scenarios()
@@ -585,6 +591,7 @@ class TestCrossPlatformService:
                     assert not result["success"]
                     assert "error" in result
     
+    @pytest.mark.asyncio
     async def test_service_logs_cross_platform(self, service_manager, service_helper, platform_mocks):
         """Test service log retrieval across platforms."""
         # Create mock log files
@@ -624,6 +631,7 @@ class TestCrossPlatformService:
             assert result["success"]
             assert "logs" in result
     
+    @pytest.mark.asyncio
     async def test_cross_platform_service_lifecycle(self, service_manager, service_helper, platform_mocks):
         """Test complete service lifecycle across platforms."""
         lifecycle_operations = [
@@ -682,6 +690,7 @@ class TestCrossPlatformService:
                 if result.get("success"):
                     assert service_key in result or "error" in result
     
+    @pytest.mark.asyncio
     async def test_concurrent_service_operations(self, service_manager, service_helper, platform_mocks):
         """Test concurrent service operations for thread safety."""
         import asyncio
@@ -718,8 +727,6 @@ class TestCrossPlatformService:
 
 
 @pytest.mark.integration
-@pytest.mark.service_testing 
-@pytest.mark.docker
 class TestCrossPlatformServiceDocker:
     """Test cross-platform service functionality using Docker containers."""
     
@@ -740,6 +747,7 @@ class TestCrossPlatformServiceDocker:
         platform.system() != "Linux", 
         reason="Docker Linux testing only runs on Linux"
     )
+    @pytest.mark.asyncio
     async def test_linux_service_in_container(self, docker_available):
         """Test Linux service management in Docker container."""
         if not docker_available:
@@ -754,6 +762,7 @@ class TestCrossPlatformServiceDocker:
         platform.system() == "Windows",
         reason="Windows containers require special setup"
     )
+    @pytest.mark.asyncio
     async def test_containerized_cross_platform_validation(self, docker_available):
         """Validate cross-platform service behavior using containers."""
         if not docker_available:
