@@ -214,6 +214,11 @@ async def _list_memory_rules(
             # Display in Rich table format
             if not rules:
                 simple_info("No memory rules found.")
+                print("\nTo get started with memory rules:")
+                print("  • Add a preference: wqm memory add \"Always use uv for Python package management\"")
+                print("  • Add a behavior:   wqm memory add \"Prefer functional programming patterns\" --category=preference")
+                print("  • Interactive mode: wqm memory add --interactive")
+                print("  • Get help:         wqm memory add --help")
                 return
 
             # Create Rich table
