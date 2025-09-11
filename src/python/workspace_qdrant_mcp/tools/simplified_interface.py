@@ -211,9 +211,9 @@ def get_all_collections(client) -> List[str]:
 
 def get_memory_collections(client) -> List[str]:
     """Get both system and project memory collections using the new collection type system."""
-    from ..core.collections import MemoryCollectionManager
-    from ..core.config import Config
-    from ..core.collection_types import CollectionTypeClassifier
+    from common.core.collections import MemoryCollectionManager
+    from common.core.config import Config
+    from common.core.collection_types import CollectionTypeClassifier
     
     try:
         # Use the collection type classifier to identify memory collections

@@ -23,8 +23,8 @@ testable as a standalone function.
 import logging
 from typing import Any
 
-from ..core.client import QdrantWorkspaceClient
-from ..core.collection_naming import build_project_collection_name
+from common.core.client import QdrantWorkspaceClient
+from common.core.collection_naming import build_project_collection_name
 from .search import search_workspace
 
 logger = logging.getLogger(__name__)
