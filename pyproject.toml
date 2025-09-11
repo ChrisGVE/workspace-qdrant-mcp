@@ -98,6 +98,10 @@ Changelog = "https://github.com/ChrisGVE/workspace-qdrant-mcp/blob/main/CHANGELO
 [tool.hatch.version]
 path = "src/python/workspace_qdrant_mcp/__init__.py"
 
+[tool.setuptools.packages.find]
+where = ["src/python"]
+include = ["workspace_qdrant_mcp*", "wqm_cli*", "common*"]
+
 [tool.hatch.build.targets.wheel]
 packages = ["src/python/workspace_qdrant_mcp", "src/python/wqm_cli", "src/python/common"]
 
@@ -245,6 +249,9 @@ dev = [
 module-name = "common._rust_engine"
 manifest-path = "rust-engine/daemon/python-bindings/Cargo.toml"
 python-source = "src/python"
+
+[tool.setuptools]
+package-dir = {"": "src/python"}
 
 # Platform-specific optimizations
 [tool.maturin.target.x86_64-apple-darwin]
