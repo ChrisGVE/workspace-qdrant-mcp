@@ -10,7 +10,6 @@ import sys
 from typing import List, Optional
 
 import typer
-from qdrant_client import QdrantClient
 
 from ...core.collection_naming import create_naming_manager
 from ...core.config import Config

@@ -27,6 +27,7 @@ from ...observability import get_logger
 from ..utils import (
     create_command_app,
     error_message,
+    get_configured_client,
     handle_async,
     requires_service_restart,
     show_service_restart_notification,
@@ -289,18 +290,7 @@ def validate_config(
         # Test Qdrant connection
         print("Testing Qdrant connection...")
         try:
-            from qdrant_client import QdrantClient
-            
-            client_kwargs = {"url": config.qdrant.url, "timeout": 5}
-            if (
-                hasattr(config.qdrant, "api_key")
-                and config.qdrant.api_key
-                and config.qdrant.api_key.strip()
-                and config.qdrant.url.startswith("https")
-            ):
-                client_kwargs["api_key"] = config.qdrant.api_key
-            
-            client = QdrantClient(**client_kwargs)
+            client = get_configured_client(config)
             collections = client.get_collections()
             client.close()
             

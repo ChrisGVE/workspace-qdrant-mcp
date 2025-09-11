@@ -23,6 +23,7 @@ from ..utils import (
     create_command_app,
     error_message,
     force_option,
+    get_configured_client,
     handle_async,
     json_output_option,
     success_message,
@@ -181,19 +182,8 @@ async def _collect_status_data(config: Config) -> dict[str, Any]:
 
     # Test Qdrant connectivity
     try:
-        # Use raw Qdrant client for basic connectivity test
-        from qdrant_client import QdrantClient
-
-        # Only pass api_key if it's configured and we're using HTTPS
-        client_kwargs = {"url": config.qdrant.url, "timeout": 5}
-        if (
-            hasattr(config.qdrant, "api_key")
-            and config.qdrant.api_key
-            and config.qdrant.api_key.strip()
-            and config.qdrant.url.startswith("https")
-        ):
-            client_kwargs["api_key"] = config.qdrant.api_key
-        raw_client = QdrantClient(**client_kwargs)
+        # Use configured client for basic connectivity test
+        raw_client = get_configured_client(config)
 
         # Get collections directly from API
         collections_response = raw_client.get_collections()
@@ -377,19 +367,8 @@ async def _config_management(show: bool, validate: bool, path: str | None) -> No
 
             # Validate Qdrant connection
             try:
-                # Use raw Qdrant client for validation
-                from qdrant_client import QdrantClient
-
-                # Only pass api_key if it's configured and we're using HTTPS
-                client_kwargs = {"url": config.qdrant.url, "timeout": 5}
-                if (
-                    hasattr(config.qdrant, "api_key")
-                    and config.qdrant.api_key
-                    and config.qdrant.api_key.strip()
-                    and config.qdrant.url.startswith("https")
-                ):
-                    client_kwargs["api_key"] = config.qdrant.api_key
-                raw_client = QdrantClient(**client_kwargs)
+                # Use configured client for validation
+                raw_client = get_configured_client(config)
                 collections = raw_client.get_collections()
                 raw_client.close()
                 validation_results.append(("Qdrant Connection", "Valid"))
@@ -465,19 +444,8 @@ async def _list_collections(project: str | None, stats: bool, library: bool) -> 
     """List and manage collections."""
     try:
         config = Config()
-        # Use raw Qdrant client to get collections
-        from qdrant_client import QdrantClient
-
-        # Only pass api_key if it's configured and we're using HTTPS
-        client_kwargs = {"url": config.qdrant.url, "timeout": 10}
-        if (
-            hasattr(config.qdrant, "api_key")
-            and config.qdrant.api_key
-            and config.qdrant.api_key.strip()
-            and config.qdrant.url.startswith("https")
-        ):
-            client_kwargs["api_key"] = config.qdrant.api_key
-        raw_client = QdrantClient(**client_kwargs)
+        # Use configured client to get collections
+        raw_client = get_configured_client(config)
 
         collections_response = raw_client.get_collections()
         all_collections = [
@@ -557,19 +525,8 @@ async def _health_check(deep: bool, timeout: int) -> None:
     print("Testing Qdrant connectivity...")
     try:
         config = Config()
-        # Use raw Qdrant client for health check
-        from qdrant_client import QdrantClient
-
-        # Only pass api_key if it's configured and we're using HTTPS
-        client_kwargs = {"url": config.qdrant.url, "timeout": timeout}
-        if (
-            hasattr(config.qdrant, "api_key")
-            and config.qdrant.api_key
-            and config.qdrant.api_key.strip()
-            and config.qdrant.url.startswith("https")
-        ):
-            client_kwargs["api_key"] = config.qdrant.api_key
-        raw_client = QdrantClient(**client_kwargs)
+        # Use configured client for health check
+        raw_client = get_configured_client(config)
 
         # Test basic connectivity
         collections = raw_client.get_collections()
