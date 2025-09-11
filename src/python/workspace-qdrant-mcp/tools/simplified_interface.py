@@ -21,17 +21,17 @@ from enum import Enum
 from typing import Dict, List, Optional, Any, Union
 import logging
 
-from ..core.error_handling import (
+from common.core.error_handling import (
     ErrorRecoveryStrategy,
     with_error_handling,
     error_context,
 )
-from ..observability import (
+from common.observability import (
     monitor_async,
     get_logger,
     record_operation,
 )
-from ..core.collection_naming import (
+from common.core.collection_naming import (
     CollectionRulesEnforcer,
     ValidationSource,
     OperationType,

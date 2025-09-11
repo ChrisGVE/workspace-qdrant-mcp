@@ -61,16 +61,16 @@ from typing import Any, Optional
 
 from qdrant_client.http import models
 
-from ..core.client import QdrantWorkspaceClient
-from ..core.collection_naming import CollectionPermissionError
-from ..core.sparse_vectors import create_qdrant_sparse_vector
+from common.core.client import QdrantWorkspaceClient
+from common.core.collection_naming import CollectionPermissionError
+from common.core.sparse_vectors import create_qdrant_sparse_vector
 
 # Import LLM access control system
 try:
-    from ..core.llm_access_control import validate_llm_collection_access, LLMAccessControlError
+    from common.core.llm_access_control import validate_llm_collection_access, LLMAccessControlError
 except ImportError:
     # Fallback for direct imports when not used as a package
-    from core.llm_access_control import validate_llm_collection_access, LLMAccessControlError
+    from common.core.llm_access_control import validate_llm_collection_access, LLMAccessControlError
 
 logger = logging.getLogger(__name__)
 
