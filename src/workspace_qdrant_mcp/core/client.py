@@ -170,28 +170,47 @@ class QdrantWorkspaceClient:
                 api_key=api_key,
             )
 
-            # Use SSL context manager for localhost connections in development
-            if (
-                ssl_manager.is_localhost_url(self.config.qdrant.url)
-                and environment == "development"
-            ):
-                with ssl_manager.for_localhost():
+            # Create client with comprehensive SSL warning suppression
+            import warnings
+            import urllib3
+            
+            with warnings.catch_warnings():
+                warnings.filterwarnings("ignore", message=".*Api key is used with an insecure connection.*", category=UserWarning)
+                warnings.filterwarnings("ignore", message=".*insecure connection.*", category=urllib3.exceptions.InsecureRequestWarning)
+                warnings.filterwarnings("ignore", message=".*unverified HTTPS request.*", category=urllib3.exceptions.InsecureRequestWarning)
+                warnings.filterwarnings("ignore", message=".*SSL.*", category=UserWarning)
+                
+                if (
+                    ssl_manager.is_localhost_url(self.config.qdrant.url)
+                    and environment == "development"
+                ):
+                    with ssl_manager.for_localhost():
+                        self.client = QdrantClient(**secure_config)
+                else:
+                    urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
                     self.client = QdrantClient(**secure_config)
-            else:
-                self.client = QdrantClient(**secure_config)
 
-            # Test connection with appropriate SSL context
+            # Test connection with SSL warning suppression
+            def get_collections_with_suppression():
+                with warnings.catch_warnings():
+                    warnings.filterwarnings("ignore", message=".*Api key is used with an insecure connection.*", category=UserWarning)
+                    warnings.filterwarnings("ignore", message=".*insecure connection.*", category=urllib3.exceptions.InsecureRequestWarning)
+                    warnings.filterwarnings("ignore", message=".*unverified HTTPS request.*", category=urllib3.exceptions.InsecureRequestWarning)
+                    warnings.filterwarnings("ignore", message=".*SSL.*", category=UserWarning)
+                    urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
+                    return self.client.get_collections()
+            
             if (
                 ssl_manager.is_localhost_url(self.config.qdrant.url)
                 and environment == "development"
             ):
                 with ssl_manager.for_localhost():
                     await asyncio.get_event_loop().run_in_executor(
-                        None, self.client.get_collections
+                        None, get_collections_with_suppression
                     )
             else:
                 await asyncio.get_event_loop().run_in_executor(
-                    None, self.client.get_collections
+                    None, get_collections_with_suppression
                 )
 
             logger.info("Connected to Qdrant at %s", self.config.qdrant.url)
