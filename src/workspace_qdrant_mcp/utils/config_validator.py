@@ -172,9 +172,21 @@ class ConfigValidator:
             ```
         """
         try:
-            client = QdrantClient(**self.config.qdrant_client_config)
-            client.get_collections()
-            client.close()
+            import warnings
+            import urllib3
+            
+            # Create client and test connection with SSL warning suppression
+            with warnings.catch_warnings():
+                warnings.filterwarnings("ignore", message=".*Api key is used with an insecure connection.*", category=UserWarning)
+                warnings.filterwarnings("ignore", message=".*insecure connection.*", category=urllib3.exceptions.InsecureRequestWarning)
+                warnings.filterwarnings("ignore", message=".*unverified HTTPS request.*", category=urllib3.exceptions.InsecureRequestWarning)
+                warnings.filterwarnings("ignore", message=".*SSL.*", category=UserWarning)
+                urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
+                
+                client = QdrantClient(**self.config.qdrant_client_config)
+                client.get_collections()
+                client.close()
+            
             return True, "Qdrant successfully connected to server"
         except Exception as e:
             return False, str(e)
@@ -568,9 +580,21 @@ class ConfigValidator:
     def _test_qdrant_connection(self) -> bool:
         """Test connection to Qdrant instance."""
         try:
-            client = QdrantClient(**self.config.qdrant_client_config)
-            client.get_collections()
-            client.close()
+            import warnings
+            import urllib3
+            
+            # Test connection with SSL warning suppression
+            with warnings.catch_warnings():
+                warnings.filterwarnings("ignore", message=".*Api key is used with an insecure connection.*", category=UserWarning)
+                warnings.filterwarnings("ignore", message=".*insecure connection.*", category=urllib3.exceptions.InsecureRequestWarning)
+                warnings.filterwarnings("ignore", message=".*unverified HTTPS request.*", category=urllib3.exceptions.InsecureRequestWarning)
+                warnings.filterwarnings("ignore", message=".*SSL.*", category=UserWarning)
+                urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
+                
+                client = QdrantClient(**self.config.qdrant_client_config)
+                client.get_collections()
+                client.close()
+            
             return True
         except Exception as e:
             logger.debug("Qdrant connection test failed: %s", e)
