@@ -372,6 +372,8 @@ class SetupWizard:
         """Test Qdrant database connection."""
         try:
             from qdrant_client import QdrantClient
+            import warnings
+            import urllib3
 
             client_config = {
                 "url": config.url,
@@ -382,11 +384,28 @@ class SetupWizard:
             if config.api_key:
                 client_config["api_key"] = config.api_key
 
-            client = QdrantClient(**client_config)
+            # Create client with SSL warning suppression
+            with warnings.catch_warnings():
+                warnings.filterwarnings("ignore", message=".*Api key is used with an insecure connection.*", category=UserWarning)
+                warnings.filterwarnings("ignore", message=".*insecure connection.*", category=urllib3.exceptions.InsecureRequestWarning)
+                warnings.filterwarnings("ignore", message=".*unverified HTTPS request.*", category=urllib3.exceptions.InsecureRequestWarning)
+                warnings.filterwarnings("ignore", message=".*SSL.*", category=UserWarning)
+                urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
+                
+                client = QdrantClient(**client_config)
 
-            # Test connection with a simple operation
+            # Test connection with a simple operation and warning suppression
+            def get_collections_with_suppression():
+                with warnings.catch_warnings():
+                    warnings.filterwarnings("ignore", message=".*Api key is used with an insecure connection.*", category=UserWarning)
+                    warnings.filterwarnings("ignore", message=".*insecure connection.*", category=urllib3.exceptions.InsecureRequestWarning)
+                    warnings.filterwarnings("ignore", message=".*unverified HTTPS request.*", category=urllib3.exceptions.InsecureRequestWarning)
+                    warnings.filterwarnings("ignore", message=".*SSL.*", category=UserWarning)
+                    urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
+                    return client.get_collections()
+            
             collections = await asyncio.get_event_loop().run_in_executor(
-                None, client.get_collections
+                None, get_collections_with_suppression
             )
 
             client.close()
