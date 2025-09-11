@@ -10,12 +10,15 @@ use tracing::{error, info, warn};
 
 use workspace_qdrant_core::{
     service_discovery::{
-        DiscoveryManager, ServiceInfo, ServiceStatus, DiscoveryConfig,
-        service_names::{RUST_DAEMON, PYTHON_MCP}
+        DiscoveryManager, ServiceInfo, ServiceStatus, DiscoveryConfig
     },
     config::DaemonConfig,
     logging::initialize_logging,
 };
+
+// Service name constants
+const RUST_DAEMON: &str = "rust-daemon";
+const PYTHON_MCP: &str = "python-mcp";
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
