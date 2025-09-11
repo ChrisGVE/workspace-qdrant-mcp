@@ -251,7 +251,7 @@ manifest-path = "rust-engine/daemon/python-bindings/Cargo.toml"
 python-source = "src/python"
 
 [tool.setuptools]
-package-dir = {"": "src/python"}
+package-dir = {"" = "src/python"}
 
 # Platform-specific optimizations
 [tool.maturin.target.x86_64-apple-darwin]
