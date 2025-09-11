@@ -809,8 +809,10 @@ class AutoIngestionManager:
             from ..core.config import Config
             
             # Get client configuration
+            from .ssl_config import suppress_qdrant_ssl_warnings
             full_config = Config()
-            client = QdrantClient(**full_config.qdrant_client_config)
+            with suppress_qdrant_ssl_warnings():
+                client = QdrantClient(**full_config.qdrant_client_config)
             collection_manager = WorkspaceCollectionManager(client, full_config)
             
             # Use the collection manager's method to ensure proper creation

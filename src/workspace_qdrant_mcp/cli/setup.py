@@ -386,13 +386,9 @@ class SetupWizard:
 
             # Create client with SSL warning suppression
             with warnings.catch_warnings():
-                warnings.filterwarnings("ignore", message=".*Api key is used with an insecure connection.*", category=UserWarning)
-                warnings.filterwarnings("ignore", message=".*insecure connection.*", category=urllib3.exceptions.InsecureRequestWarning)
-                warnings.filterwarnings("ignore", message=".*unverified HTTPS request.*", category=urllib3.exceptions.InsecureRequestWarning)
-                warnings.filterwarnings("ignore", message=".*SSL.*", category=UserWarning)
-                urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
-                
-                client = QdrantClient(**client_config)
+                from ..core.ssl_config import suppress_qdrant_ssl_warnings
+                with suppress_qdrant_ssl_warnings():
+                    client = QdrantClient(**client_config)
 
             # Test connection with a simple operation and warning suppression
             def get_collections_with_suppression():

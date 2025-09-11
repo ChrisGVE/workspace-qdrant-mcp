@@ -180,14 +180,8 @@ class QdrantWorkspaceClient:
                 warnings.filterwarnings("ignore", message=".*unverified HTTPS request.*", category=urllib3.exceptions.InsecureRequestWarning)
                 warnings.filterwarnings("ignore", message=".*SSL.*", category=UserWarning)
                 
-                if (
-                    ssl_manager.is_localhost_url(self.config.qdrant.url)
-                    and environment == "development"
-                ):
-                    with ssl_manager.for_localhost():
-                        self.client = QdrantClient(**secure_config)
-                else:
-                    urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
+                from .ssl_config import suppress_qdrant_ssl_warnings
+                with suppress_qdrant_ssl_warnings():
                     self.client = QdrantClient(**secure_config)
 
             # Test connection with SSL warning suppression

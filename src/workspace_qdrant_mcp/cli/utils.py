@@ -439,12 +439,8 @@ def get_configured_client(config=None) -> QdrantClient:
             warnings.filterwarnings("ignore", message=".*unverified HTTPS request.*", category=urllib3.exceptions.InsecureRequestWarning)
             warnings.filterwarnings("ignore", message=".*SSL.*", category=UserWarning)
             
-            if ssl_manager.is_localhost_url(config.qdrant.url):
-                with ssl_manager.for_localhost():
-                    client = QdrantClient(**config.qdrant_client_config)
-            else:
-                # Apply additional suppression for non-localhost
-                urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
+            from ..core.ssl_config import suppress_qdrant_ssl_warnings
+            with suppress_qdrant_ssl_warnings():
                 client = QdrantClient(**config.qdrant_client_config)
             
         # Test connection to ensure client is working

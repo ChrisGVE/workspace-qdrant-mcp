@@ -19,7 +19,7 @@ Example:
     ssl_manager = SSLContextManager()
 
     # Configure for localhost connection
-    with ssl_manager.for_localhost():
+    with suppress_qdrant_ssl_warnings():
         client = QdrantClient("http://localhost:6333")
 
     # Configure for remote connection with SSL
@@ -155,7 +155,7 @@ class SSLContextManager:
         Example:
             ```python
             ssl_manager = SSLContextManager()
-            with ssl_manager.for_localhost():
+            with suppress_qdrant_ssl_warnings():
                 # SSL warnings suppressed for localhost connections
                 client = QdrantClient("http://localhost:6333")
                 collections = client.get_collections()
@@ -323,3 +323,30 @@ def create_secure_qdrant_config(
     )
 
     return ssl_manager.get_qdrant_client_config(base_config, ssl_config)
+
+
+@contextlib.contextmanager
+def suppress_qdrant_ssl_warnings():
+    """Context manager to suppress SSL warnings during QdrantClient creation.
+    
+    This suppresses the specific warning: "Api key is used with an insecure connection"
+    and other SSL-related warnings that appear during QdrantClient instantiation.
+    """
+    # Store original warning filters
+    original_filters = warnings.filters.copy()
+    
+    try:
+        # Suppress specific SSL warnings
+        warnings.filterwarnings("ignore", message=".*Api key is used with an insecure connection.*")
+        warnings.filterwarnings("ignore", message=".*insecure connection.*")
+        warnings.filterwarnings("ignore", message=".*unverified HTTPS request.*")
+        warnings.filterwarnings("ignore", category=urllib3.exceptions.InsecureRequestWarning)
+        
+        # Temporarily disable urllib3 warnings
+        urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
+        
+        yield
+        
+    finally:
+        # Restore original warning filters
+        warnings.filters[:] = original_filters

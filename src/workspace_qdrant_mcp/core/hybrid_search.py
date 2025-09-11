@@ -28,8 +28,10 @@ Example:
     ```python
     from workspace_qdrant_mcp.core.hybrid_search import HybridSearchEngine
     from qdrant_client import QdrantClient
+    from .ssl_config import suppress_qdrant_ssl_warnings
 
-    client = QdrantClient("http://localhost:6333")
+    with suppress_qdrant_ssl_warnings():
+        client = QdrantClient("http://localhost:6333")
     engine = HybridSearchEngine(client)
 
     # Hybrid search with RRF fusion
@@ -271,8 +273,10 @@ class HybridSearchEngine:
     Example:
         ```python
         from qdrant_client import QdrantClient
+        from .ssl_config import suppress_qdrant_ssl_warnings
 
-        client = QdrantClient("http://localhost:6333")
+        with suppress_qdrant_ssl_warnings():
+            client = QdrantClient("http://localhost:6333")
         engine = HybridSearchEngine(client)
 
         # Perform hybrid search
