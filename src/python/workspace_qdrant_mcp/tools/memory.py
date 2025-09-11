@@ -14,14 +14,29 @@ from mcp.server.fastmcp import FastMCP
 from common.core.client import create_qdrant_client
 from common.core.collection_naming import create_naming_manager
 from common.core.config import Config
-from common.memory.manager import (
+from common.memory import (
     AuthorityLevel,
     MemoryCategory,
     MemoryManager,
     MemoryRule,
-    create_memory_manager,
-    parse_conversational_memory_update,
 )
+
+
+def parse_conversational_memory_update(message: str) -> Optional[Dict[str, Any]]:
+    """
+    Placeholder for parsing conversational memory updates.
+    
+    This function was referenced but not implemented in the original codebase.
+    For now, it returns None to indicate no conversational update was detected.
+    
+    Args:
+        message: The message to parse
+        
+    Returns:
+        None (indicating no update detected)
+    """
+    return None
+
 
 logger = logging.getLogger(__name__)
 
@@ -44,7 +59,7 @@ def register_memory_tools(server: FastMCP):
             config = Config()
             client = create_qdrant_client(config.qdrant_client_config)
             naming_manager = create_naming_manager(config.workspace.global_collections)
-            memory_manager = create_memory_manager(client, naming_manager)
+            memory_manager = MemoryManager(qdrant_client=client)
 
             # Ensure memory collection exists
             await memory_manager.initialize_memory_collection()
@@ -145,7 +160,7 @@ def register_memory_tools(server: FastMCP):
             config = Config()
             client = create_qdrant_client(config.qdrant_client_config)
             naming_manager = create_naming_manager(config.workspace.global_collections)
-            memory_manager = create_memory_manager(client, naming_manager)
+            memory_manager = MemoryManager(qdrant_client=client)
 
             # Validate inputs
             try:
@@ -206,7 +221,7 @@ def register_memory_tools(server: FastMCP):
             config = Config()
             client = create_qdrant_client(config.qdrant_client_config)
             naming_manager = create_naming_manager(config.workspace.global_collections)
-            memory_manager = create_memory_manager(client, naming_manager)
+            memory_manager = MemoryManager(qdrant_client=client)
 
             # Ensure memory collection exists
             await memory_manager.initialize_memory_collection()
@@ -279,7 +294,7 @@ def register_memory_tools(server: FastMCP):
             config = Config()
             client = create_qdrant_client(config.qdrant_client_config)
             naming_manager = create_naming_manager(config.workspace.global_collections)
-            memory_manager = create_memory_manager(client, naming_manager)
+            memory_manager = MemoryManager(qdrant_client=client)
 
             # Validate optional parameters
             category_enum = None
@@ -352,7 +367,7 @@ def register_memory_tools(server: FastMCP):
             config = Config()
             client = create_qdrant_client(config.qdrant_client_config)
             naming_manager = create_naming_manager(config.workspace.global_collections)
-            memory_manager = create_memory_manager(client, naming_manager)
+            memory_manager = MemoryManager(qdrant_client=client)
 
             stats = await memory_manager.get_memory_stats()
 
@@ -393,7 +408,7 @@ def register_memory_tools(server: FastMCP):
             config = Config()
             client = create_qdrant_client(config.qdrant_client_config)
             naming_manager = create_naming_manager(config.workspace.global_collections)
-            memory_manager = create_memory_manager(client, naming_manager)
+            memory_manager = MemoryManager(qdrant_client=client)
 
             conflicts = await memory_manager.detect_conflicts()
 
@@ -446,7 +461,7 @@ def register_memory_tools(server: FastMCP):
             config = Config()
             client = create_qdrant_client(config.qdrant_client_config)
             naming_manager = create_naming_manager(config.workspace.global_collections)
-            memory_manager = create_memory_manager(client, naming_manager)
+            memory_manager = MemoryManager(qdrant_client=client)
 
             # Validate optional parameters
             category_enum = None
