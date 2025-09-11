@@ -81,7 +81,8 @@ from ..grpc.ingestion_pb2 import (
 from ..grpc.ingestion_pb2_grpc import IngestServiceStub
 from ..observability import get_logger
 from .yaml_config import WorkspaceConfig, load_config
-from .service_discovery import discover_daemon_endpoint, ServiceEndpoint
+# TEMP: Comment out service_discovery import to fix syntax errors
+# from .service_discovery import discover_daemon_endpoint, ServiceEndpoint
 
 # Import LLM access control system
 try:
