@@ -14,9 +14,9 @@ from unittest.mock import AsyncMock, Mock, patch, mock_open
 
 import pytest
 
-from src.workspace_qdrant_mcp.memory.claude_integration import ClaudeCodeIntegration
-from src.workspace_qdrant_mcp.memory.token_counter import TokenCounter, TokenUsage
-from src.workspace_qdrant_mcp.memory.types import (
+from common.memory.claude_integration import ClaudeCodeIntegration
+from common.memory.token_counter import TokenCounter, TokenUsage
+from common.memory.types import (
     AuthorityLevel,
     ClaudeCodeSession,
     ConversationalUpdate,

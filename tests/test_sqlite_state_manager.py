@@ -15,7 +15,7 @@ from pathlib import Path
 from typing import Dict, Any
 import pytest
 
-from src.workspace_qdrant_mcp.core.sqlite_state_manager import (
+from common.core.sqlite_state_manager import (
     SQLiteStateManager, FileProcessingStatus, ProcessingPriority,
     FileProcessingRecord, WatchFolderConfig, ProcessingQueueItem,
     DatabaseTransaction

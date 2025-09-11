@@ -31,11 +31,11 @@ import pytest
 import requests
 import yaml
 
-from src.workspace_qdrant_mcp.observability import (
+from common.observability import (
     health_checker_instance,
     metrics_instance,
 )
-from src.workspace_qdrant_mcp.observability.endpoints import (
+from common.observability.endpoints import (
     add_observability_routes,
     health_check_basic,
     health_check_detailed,
@@ -43,8 +43,8 @@ from src.workspace_qdrant_mcp.observability.endpoints import (
     metrics_json,
     system_diagnostics,
 )
-from src.workspace_qdrant_mcp.observability.health import HealthStatus
-from src.workspace_qdrant_mcp.observability.metrics import MetricsCollector
+from common.observability.health import HealthStatus
+from common.observability.metrics import MetricsCollector
 from tests.utils.deployment_helpers import MonitoringTestHelper
 
 
@@ -735,7 +735,7 @@ class TestLogAggregationIntegration:
     
     def test_structured_logging_format(self):
         """Test structured logging format compatibility."""
-        from src.workspace_qdrant_mcp.observability.logger import get_logger
+        from common.observability.logger import get_logger
         
         logger = get_logger("test_structured_logging")
         

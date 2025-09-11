@@ -17,7 +17,7 @@ import pytest
 import structlog
 import yaml
 
-from src.workspace_qdrant_mcp.core.smart_ingestion_router import (
+from common.core.smart_ingestion_router import (
     SmartIngestionRouter,
     FileClassifier,
     RouterConfiguration,
@@ -26,8 +26,8 @@ from src.workspace_qdrant_mcp.core.smart_ingestion_router import (
     ClassificationResult,
     RouterStatistics
 )
-from src.workspace_qdrant_mcp.core.language_filters import LanguageAwareFilter
-from src.workspace_qdrant_mcp.core.lsp_metadata_extractor import LspMetadataExtractor, FileMetadata
+from common.core.language_filters import LanguageAwareFilter
+from common.core.lsp_metadata_extractor import LspMetadataExtractor, FileMetadata
 
 logger = structlog.get_logger(__name__)
 

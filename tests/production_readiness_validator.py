@@ -28,12 +28,12 @@ import yaml
 
 # Import local modules
 try:
-    from src.workspace_qdrant_mcp.cli.commands.service import ServiceManager
-    from src.workspace_qdrant_mcp.observability import (
+    from common.cli.commands.service import ServiceManager
+    from common.observability import (
         health_checker_instance,
         metrics_instance,
     )
-    from src.workspace_qdrant_mcp.observability.endpoints import (
+    from common.observability.endpoints import (
         health_check_basic,
         health_check_detailed,
         metrics_prometheus,

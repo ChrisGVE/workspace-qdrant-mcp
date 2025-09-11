@@ -15,15 +15,15 @@ import pytest
 from unittest.mock import AsyncMock, MagicMock, patch
 from typing import Dict, List, Any
 
-from src.workspace_qdrant_mcp.tools.dependency_analyzer import (
+from common.tools.dependency_analyzer import (
     DependencyAnalyzer, CallGraph, ImportGraph, InheritanceGraph,
     ImpactAnalyzer, DependencyQueryEngine,
     DependencyNode, DependencyEdge, CircularDependency, RefactoringImpact,
     DependencyType, ImpactLevel, CircularDependencyType
 )
-from src.workspace_qdrant_mcp.core.lsp_metadata_extractor import SymbolKind
-from src.workspace_qdrant_mcp.tools.symbol_resolver import SymbolLocation
-from src.workspace_qdrant_mcp.core.error_handling import WorkspaceError
+from common.core.lsp_metadata_extractor import SymbolKind
+from common.tools.symbol_resolver import SymbolLocation
+from common.core.error_handling import WorkspaceError
 
 
 class TestDependencyNode:
@@ -819,7 +819,7 @@ class TestDependencyQueryEngine:
     
     async def test_analyze_circular_dependencies(self, query_engine, mock_dependency_analyzer):
         """Test analyzing circular dependencies"""
-        from src.workspace_qdrant_mcp.tools.dependency_analyzer import CircularDependency, CircularDependencyType
+        from common.tools.dependency_analyzer import CircularDependency, CircularDependencyType
         
         # Mock circular import dependencies
         location = SymbolLocation("", "", 0, 0, 0, 0, "test")

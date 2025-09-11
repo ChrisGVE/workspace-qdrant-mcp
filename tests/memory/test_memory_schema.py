@@ -12,8 +12,8 @@ from uuid import uuid4
 
 import pytest
 
-from src.workspace_qdrant_mcp.memory.schema import MemoryCollectionSchema
-from src.workspace_qdrant_mcp.memory.types import (
+from common.memory.schema import MemoryCollectionSchema
+from common.memory.types import (
     AuthorityLevel,
     MemoryCategory,
     MemoryRule,

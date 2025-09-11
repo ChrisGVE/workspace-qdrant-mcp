@@ -11,7 +11,7 @@ from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock, patch
 from typer.testing import CliRunner
 
-from src.workspace_qdrant_mcp.cli.ingest import app
+from common.cli.ingest import app
 
 
 class TestWebIngestionCLI:
@@ -163,7 +163,7 @@ class TestWebIngestionWorkflow:
         mock_add_document
     ):
         """Test successful single page web ingestion."""
-        from src.workspace_qdrant_mcp.cli.ingest import _run_web_ingestion
+        from common.cli.ingest import _run_web_ingestion
         
         # Setup mocks
         mock_config_class.return_value = mock_config
@@ -209,7 +209,7 @@ class TestWebIngestionWorkflow:
         mock_add_document
     ):
         """Test successful multi-page web ingestion."""
-        from src.workspace_qdrant_mcp.cli.ingest import _run_web_ingestion
+        from common.cli.ingest import _run_web_ingestion
         
         # Setup mocks
         mock_config_class.return_value = mock_config
@@ -257,7 +257,7 @@ class TestWebIngestionWorkflow:
         mock_web_interface
     ):
         """Test dry run workflow (no actual ingestion)."""
-        from src.workspace_qdrant_mcp.cli.ingest import _run_web_ingestion
+        from common.cli.ingest import _run_web_ingestion
         
         # Setup mocks
         mock_config_class.return_value = mock_config
@@ -301,7 +301,7 @@ class TestWebIngestionWorkflow:
         mock_add_document
     ):
         """Test that security warnings are properly displayed."""
-        from src.workspace_qdrant_mcp.cli.ingest import _run_web_ingestion
+        from common.cli.ingest import _run_web_ingestion
         
         # Setup mocks
         mock_config_class.return_value = mock_config
@@ -345,7 +345,7 @@ class TestWebIngestionWorkflow:
     @patch('src.workspace_qdrant_mcp.cli.ingest.typer.confirm')
     async def test_security_confirmation_prompts(self, mock_confirm):
         """Test that security-related confirmation prompts work."""
-        from src.workspace_qdrant_mcp.cli.ingest import _run_web_ingestion
+        from common.cli.ingest import _run_web_ingestion
         
         # Test with security disabled - should prompt for confirmation
         mock_confirm.return_value = False  # User cancels
@@ -381,7 +381,7 @@ class TestWebIngestionWorkflow:
         mock_config
     ):
         """Test error handling during ingestion."""
-        from src.workspace_qdrant_mcp.cli.ingest import _run_web_ingestion
+        from common.cli.ingest import _run_web_ingestion
         import sys
         
         # Setup mocks

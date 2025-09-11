@@ -12,7 +12,7 @@ from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock, patch
 from urllib.parse import urlparse
 
-from src.workspace_qdrant_mcp.cli.parsers import (
+from common.cli.parsers import (
     WebParser,
     WebIngestionInterface, 
     SecureWebCrawler,
@@ -20,7 +20,7 @@ from src.workspace_qdrant_mcp.cli.parsers import (
     CrawlResult,
     create_secure_web_parser
 )
-from src.workspace_qdrant_mcp.cli.parsers.exceptions import ParsingError
+from common.cli.parsers.exceptions import ParsingError
 
 
 class TestSecurityConfig:

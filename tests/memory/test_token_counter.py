@@ -10,13 +10,13 @@ from unittest.mock import Mock, patch
 
 import pytest
 
-from src.workspace_qdrant_mcp.memory.token_counter import (
+from common.memory.token_counter import (
     TokenCounter,
     TokenUsage,
     TokenizationMethod,
     RuleTokenInfo,
 )
-from src.workspace_qdrant_mcp.memory.types import (
+from common.memory.types import (
     AuthorityLevel,
     MemoryCategory,
     MemoryRule,

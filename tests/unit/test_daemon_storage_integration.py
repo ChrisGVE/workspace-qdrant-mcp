@@ -26,15 +26,15 @@ import pytest
 from qdrant_client import QdrantClient
 from qdrant_client.models import Distance, VectorParams, PointStruct, Filter
 
-from src.workspace_qdrant_mcp.core.daemon_manager import (
+from common.core.daemon_manager import (
     DaemonManager,
     DaemonInstance,
     DaemonConfig
 )
-from src.workspace_qdrant_mcp.core.client import QdrantWorkspaceClient
-from src.workspace_qdrant_mcp.core.sqlite_state_manager import SQLiteStateManager
-from src.workspace_qdrant_mcp.core.collections import WorkspaceCollectionManager
-from src.workspace_qdrant_mcp.core.embeddings import EmbeddingService
+from common.core.client import QdrantWorkspaceClient
+from common.core.sqlite_state_manager import SQLiteStateManager
+from common.core.collections import WorkspaceCollectionManager
+from common.core.embeddings import EmbeddingService
 
 from .conftest_daemon import (
     mock_daemon_config,

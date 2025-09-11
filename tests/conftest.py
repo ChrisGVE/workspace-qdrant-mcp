@@ -18,7 +18,7 @@ import pytest
 from qdrant_client import QdrantClient
 from qdrant_client.http import models
 
-from src.workspace_qdrant_mcp.core.config import Config
+from common.core.config import Config
 
 
 # Configure logging for tests
@@ -147,7 +147,7 @@ def mock_embedding_service():
 @pytest.fixture
 async def mock_workspace_client(mock_config, mock_qdrant_client, mock_embedding_service):
     """Mock workspace client for testing."""
-    from src.workspace_qdrant_mcp.core.client import QdrantWorkspaceClient
+    from common.core.client import QdrantWorkspaceClient
     
     client = Mock(spec=QdrantWorkspaceClient)
     client.initialized = True

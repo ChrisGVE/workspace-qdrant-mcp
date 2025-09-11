@@ -32,12 +32,12 @@ from unittest.mock import AsyncMock, MagicMock, mock_open, patch
 import pytest
 import psutil
 
-from src.workspace_qdrant_mcp.cli.commands.service import ServiceManager
-from src.workspace_qdrant_mcp.observability import (
+from common.cli.commands.service import ServiceManager
+from common.observability import (
     health_checker_instance,
     metrics_instance,
 )
-from src.workspace_qdrant_mcp.observability.endpoints import (
+from common.observability.endpoints import (
     add_observability_routes,
     health_check_basic,
     health_check_detailed,
@@ -45,8 +45,8 @@ from src.workspace_qdrant_mcp.observability.endpoints import (
     metrics_json,
     system_diagnostics,
 )
-from src.workspace_qdrant_mcp.observability.health import HealthStatus
-from src.workspace_qdrant_mcp.observability.logger import get_logger
+from common.observability.health import HealthStatus
+from common.observability.logger import get_logger
 
 logger = get_logger(__name__)
 

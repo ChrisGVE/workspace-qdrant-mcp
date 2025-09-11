@@ -18,7 +18,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 import psutil
 
-from src.workspace_qdrant_mcp.core.priority_queue_manager import (
+from common.core.priority_queue_manager import (
     PriorityQueueManager,
     MCPActivityLevel,
     ProcessingMode,
@@ -30,14 +30,14 @@ from src.workspace_qdrant_mcp.core.priority_queue_manager import (
     ResourceConfiguration,
     ProcessingContextManager,
 )
-from src.workspace_qdrant_mcp.core.sqlite_state_manager import (
+from common.core.sqlite_state_manager import (
     SQLiteStateManager,
     ProcessingPriority,
     FileProcessingStatus,
     FileProcessingRecord,
     ProcessingQueueItem,
 )
-from src.workspace_qdrant_mcp.core.incremental_processor import (
+from common.core.incremental_processor import (
     IncrementalProcessor,
     FileChangeInfo,
     ChangeType,

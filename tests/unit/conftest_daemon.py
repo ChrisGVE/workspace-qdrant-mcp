@@ -15,14 +15,14 @@ from typing import AsyncGenerator, Dict, List, Optional
 from unittest.mock import AsyncMock, Mock, patch, MagicMock
 import pytest
 
-from src.workspace_qdrant_mcp.core.daemon_manager import (
+from common.core.daemon_manager import (
     DaemonConfig, 
     DaemonStatus, 
     DaemonInstance, 
     DaemonManager,
     PortManager
 )
-from src.workspace_qdrant_mcp.core.priority_queue_manager import (
+from common.core.priority_queue_manager import (
     PriorityQueueManager,
     ResourceConfiguration,
     MCPActivityMetrics,
@@ -32,7 +32,7 @@ from src.workspace_qdrant_mcp.core.priority_queue_manager import (
     ProcessingJob,
     PriorityCalculationContext
 )
-from src.workspace_qdrant_mcp.core.sqlite_state_manager import (
+from common.core.sqlite_state_manager import (
     SQLiteStateManager,
     ProcessingPriority,
     FileProcessingStatus

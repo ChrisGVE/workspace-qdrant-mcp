@@ -10,10 +10,10 @@ import asyncio
 from unittest.mock import AsyncMock, MagicMock, patch
 from typing import Dict, List, Any, Optional
 
-from src.workspace_qdrant_mcp.core.client import QdrantWorkspaceClient
-from src.workspace_qdrant_mcp.core.hybrid_search import HybridSearchEngine
-from src.workspace_qdrant_mcp.core.lsp_metadata_extractor import SymbolKind, CodeSymbol
-from src.workspace_qdrant_mcp.tools.code_search import (
+from common.core.client import QdrantWorkspaceClient
+from common.core.hybrid_search import HybridSearchEngine
+from common.core.lsp_metadata_extractor import SymbolKind, CodeSymbol
+from common.tools.code_search import (
     CodeSearchEngine,
     CodeSearchMode,
     SymbolSearchType,

@@ -19,7 +19,7 @@ from pathlib import Path
 from unittest.mock import AsyncMock, Mock, patch, MagicMock, call
 import pytest
 
-from src.workspace_qdrant_mcp.core.file_watcher import (
+from common.core.file_watcher import (
     FileWatcher,
     WatchConfiguration,
     WatchEvent
