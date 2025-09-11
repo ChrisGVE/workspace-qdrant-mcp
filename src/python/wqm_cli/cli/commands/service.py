@@ -1339,43 +1339,49 @@ project_path = "{str(Path.cwd()).replace(chr(92), chr(92) + chr(92))}"
         service_id = f"com.workspace-qdrant-mcp.{self.service_name}"
 
         try:
-            # Step 1: Check if service is loaded in launchd
-            cmd = ["launchctl", "list"]
+            # Step 1: Check if service is loaded in launchd using detailed info
+            cmd = ["launchctl", "list", service_id]
             result = await asyncio.create_subprocess_exec(
                 *cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE
             )
             stdout, stderr = await result.communicate()
 
-            output = stdout.decode()
-            service_loaded = service_id in output
-
-            # Step 2: Get launchd service info if loaded
+            service_loaded = result.returncode == 0
             launchd_status = "unknown"
             launchd_pid = None
             launchd_running = False
+            launchd_last_exit_code = None
             
             if service_loaded:
-                # Extract PID and status from launchctl list output
+                # Parse launchctl list output for detailed info
+                output = stdout.decode()
                 for line in output.split("\n"):
-                    if service_id in line:
-                        parts = line.split()
-                        if len(parts) >= 3:
-                            try:
-                                pid_str = parts[0]
-                                if pid_str != "-":
-                                    launchd_pid = int(pid_str)
-                                    launchd_status = "running"
-                                    launchd_running = True
-                                else:
-                                    launchd_status = "stopped"
-                            except ValueError:
-                                launchd_status = "error"
-                        break
+                    line = line.strip()
+                    if '"PID" =' in line:
+                        try:
+                            pid_str = line.split('=')[1].strip().rstrip(';')
+                            if pid_str != "-" and pid_str.isdigit():
+                                launchd_pid = int(pid_str)
+                                launchd_status = "running"
+                                launchd_running = True
+                        except (ValueError, IndexError):
+                            pass
+                    elif '"LastExitStatus" =' in line:
+                        try:
+                            exit_code = line.split('=')[1].strip().rstrip(';')
+                            if exit_code.isdigit():
+                                launchd_last_exit_code = int(exit_code)
+                        except (ValueError, IndexError):
+                            pass
+                
+                # If no PID but service is loaded, it's stopped
+                if launchd_pid is None and service_loaded:
+                    launchd_status = "stopped"
             
-            # Step 3: Check for ANY memexd processes running on the system
+            # Step 2: Check for ANY memexd processes running on the system
             all_memexd_processes = await self._find_memexd_processes()
             
-            # Step 4: Determine actual status based on all available information
+            # Step 3: Determine actual status based on all available information
             actual_running_pids = []
             launchd_process_found = False
             
@@ -1385,33 +1391,40 @@ project_path = "{str(Path.cwd()).replace(chr(92), chr(92) + chr(92))}"
                     launchd_process_found = True
                 actual_running_pids.append(pid)
             
-            # Step 5: Clean up stale PID files if no corresponding processes
+            # Step 4: Clean up stale PID files if no corresponding processes
             await self._cleanup_stale_pid_files(actual_running_pids)
             
-            # Step 6: Determine final status
-            if actual_running_pids:
+            # Step 5: Determine final status with improved logic
+            if service_loaded:
                 if launchd_running and launchd_process_found:
                     final_status = "running"
                     primary_pid = launchd_pid
                     service_type = "launchd"
+                elif launchd_running and not launchd_process_found:
+                    # Launchd thinks it's running but we can't find the process
+                    final_status = "error"
+                    primary_pid = launchd_pid
+                    service_type = "launchd_stale"
                 elif actual_running_pids:
+                    # Service loaded but not via launchd, processes found
                     final_status = "running_manual"
-                    primary_pid = actual_running_pids[0]  # Use first found process
+                    primary_pid = actual_running_pids[0]
                     service_type = "manual"
                 else:
-                    final_status = "error"
+                    # Service loaded but no processes running
+                    final_status = "stopped"
                     primary_pid = None
-                    service_type = "unknown"
+                    service_type = "loaded"
             else:
-                final_status = "stopped"
-                primary_pid = None
-                service_type = "none"
-            
-            # If service is loaded but no processes, it's a stopped service
-            if service_loaded and not actual_running_pids:
-                final_status = "stopped"
-            elif not service_loaded and final_status == "unknown":
-                final_status = "not_loaded"
+                # Service not loaded
+                if actual_running_pids:
+                    final_status = "running_manual"
+                    primary_pid = actual_running_pids[0]
+                    service_type = "manual"
+                else:
+                    final_status = "not_installed"
+                    primary_pid = None
+                    service_type = "none"
 
             return {
                 "success": True,
@@ -1426,6 +1439,8 @@ project_path = "{str(Path.cwd()).replace(chr(92), chr(92) + chr(92))}"
                 "loaded": service_loaded,
                 "launchd_running": launchd_running,
                 "launchd_pid": launchd_pid,
+                "last_exit_code": launchd_last_exit_code,
+                "status_description": self._get_status_description(final_status, service_type, len(actual_running_pids)),
             }
             
         except Exception as e:
@@ -1435,6 +1450,17 @@ project_path = "{str(Path.cwd()).replace(chr(92), chr(92) + chr(92))}"
                 "error": f"Failed to get service status: {e}",
                 "service_id": service_id,
             }
+    
+    def _get_status_description(self, status: str, service_type: str, process_count: int) -> str:
+        """Get human-readable status description."""
+        status_descriptions = {
+            "running": f"Service is running normally via {service_type} (PID tracked)",
+            "running_manual": f"Service is running manually ({process_count} process{'es' if process_count != 1 else ''})",
+            "stopped": "Service is installed but not running",
+            "not_installed": "Service is not installed",
+            "error": "Service is in an inconsistent state (launchd thinks it's running but process not found)",
+        }
+        return status_descriptions.get(status, f"Unknown status: {status}")
 
     async def _get_linux_service_status(self) -> Dict[str, Any]:
         """Get Linux service status."""
@@ -1779,7 +1805,37 @@ project_path = "{str(Path.cwd()).replace(chr(92), chr(92) + chr(92))}"
         # Search locations in order of preference
         search_locations = []
         
-        # 1. Project-relative locations (highest priority)
+        # 1. First check system PATH using 'which' command (highest priority for global installs)
+        try:
+            which_cmd = "which" if self.system != "windows" else "where"
+            result = await asyncio.create_subprocess_exec(
+                which_cmd,
+                binary_name,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+            )
+            stdout, stderr = await result.communicate()
+
+            if result.returncode == 0:
+                binary_path = Path(stdout.decode().strip().split("\n")[0])
+                if binary_path.exists() and os.access(binary_path, os.X_OK):
+                    logger.debug(f"Found globally installed binary via {which_cmd}: {binary_path}")
+                    return binary_path
+        except Exception as e:
+            logger.debug(f"Error using {which_cmd}: {e}")
+        
+        # 2. Check UV tool installation locations (for globally installed wqm)
+        uv_tool_locations = [
+            Path.home() / ".local" / "share" / "uv" / "tools" / "wqm-cli" / "bin" / binary_name,
+            Path.home() / ".local" / "bin" / binary_name,
+        ]
+        
+        for uv_path in uv_tool_locations:
+            if uv_path.exists() and os.access(uv_path, os.X_OK):
+                logger.debug(f"Found UV tool binary at: {uv_path}")
+                return uv_path
+        
+        # 3. Project-relative locations
         project_root = Path.cwd()
         
         # Try to find actual project root by walking up
@@ -1807,14 +1863,14 @@ project_path = "{str(Path.cwd()).replace(chr(92), chr(92) + chr(92))}"
         for rust_dir in rust_locations:
             search_locations.append(rust_dir / binary_name)
         
-        # 2. System PATH locations
+        # 4. System PATH locations
         path_env = os.environ.get("PATH", "")
         if path_env:
             for path_dir in path_env.split(os.pathsep):
                 if path_dir.strip():
                     search_locations.append(Path(path_dir) / binary_name)
         
-        # 3. Common system locations
+        # 5. Common system locations
         common_locations = [
             Path("/usr/local/bin") / binary_name,
             Path("/usr/bin") / binary_name,
@@ -1829,7 +1885,7 @@ project_path = "{str(Path.cwd()).replace(chr(92), chr(92) + chr(92))}"
         
         search_locations.extend(common_locations)
         
-        # 4. Search all locations
+        # 6. Search all remaining locations
         for binary_path in search_locations:
             try:
                 if binary_path.exists() and binary_path.is_file():
@@ -1843,31 +1899,20 @@ project_path = "{str(Path.cwd()).replace(chr(92), chr(92) + chr(92))}"
                 logger.debug(f"Error checking path {binary_path}: {e}")
                 continue
         
-        # 5. Final attempt using system 'which' command
-        try:
-            which_cmd = "which" if self.system != "windows" else "where"
-            result = await asyncio.create_subprocess_exec(
-                which_cmd,
-                binary_name,
-                stdout=subprocess.PIPE,
-                stderr=subprocess.PIPE,
-            )
-            stdout, stderr = await result.communicate()
-
-            if result.returncode == 0:
-                binary_path = Path(stdout.decode().strip().split("\n")[0])
-                if binary_path.exists() and os.access(binary_path, os.X_OK):
-                    logger.debug(f"Found binary via {which_cmd}: {binary_path}")
-                    return binary_path
-        except Exception as e:
-            logger.debug(f"Error using {which_cmd}: {e}")
-        
-        # 6. Log all attempted locations for debugging
+        # 7. Log all attempted locations for debugging
         logger.error(f"Binary {binary_name} not found in any of these locations:")
-        for i, location in enumerate(search_locations[:10]):  # Show first 10
+        all_attempted = uv_tool_locations + search_locations
+        for i, location in enumerate(all_attempted[:15]):  # Show first 15
             logger.error(f"  {i+1}. {location}")
-        if len(search_locations) > 10:
-            logger.error(f"  ... and {len(search_locations) - 10} more locations")
+        if len(all_attempted) > 15:
+            logger.error(f"  ... and {len(all_attempted) - 15} more locations")
+        
+        # 8. Provide helpful guidance
+        logger.error("")
+        logger.error("Possible solutions:")
+        logger.error("  1. If using global installation: uv tool install wqm-cli")
+        logger.error("  2. If building from source: cd rust-engine && cargo build --release --bin memexd")
+        logger.error("  3. Check that memexd is in your PATH: which memexd")
         
         return None
 
@@ -1901,15 +1946,17 @@ project_path = "{str(Path.cwd()).replace(chr(92), chr(92) + chr(92))}"
     async def _verify_process_is_memexd(self, pid: int) -> bool:
         """Verify that a PID is actually a memexd process."""
         try:
-            ps_cmd = ["ps", "-p", str(pid), "-o", "comm="]
+            # Check both command name and full command line
+            ps_cmd = ["ps", "-p", str(pid), "-o", "comm=,args="]
             result = await asyncio.create_subprocess_exec(
                 *ps_cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE
             )
             stdout, stderr = await result.communicate()
             
             if result.returncode == 0:
-                comm = stdout.decode().strip()
-                return "memexd" in comm
+                output = stdout.decode().strip()
+                # Check if either the command name or arguments contain memexd
+                return "memexd" in output.lower()
             return False
             
         except Exception:
