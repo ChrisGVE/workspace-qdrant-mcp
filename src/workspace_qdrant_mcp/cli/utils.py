@@ -11,6 +11,7 @@ from typing import Any, Callable, Dict, List, Optional, Union
 
 import platform
 import typer
+import urllib3
 from qdrant_client import QdrantClient
 
 
@@ -430,25 +431,37 @@ def get_configured_client(config=None) -> QdrantClient:
             
         ssl_manager = get_ssl_manager()
         
-        # Create client with appropriate SSL context and warning suppression
-        if ssl_manager.is_localhost_url(config.qdrant.url):
-            with ssl_manager.for_localhost():
-                # Additional warning suppression for Qdrant-specific warnings
-                with warnings.catch_warnings():
-                    warnings.filterwarnings("ignore", message=".*Api key is used with an insecure connection.*", category=UserWarning)
+        # Create client with comprehensive SSL warning suppression for all URLs
+        with warnings.catch_warnings():
+            # Suppress all SSL-related warnings
+            warnings.filterwarnings("ignore", message=".*Api key is used with an insecure connection.*", category=UserWarning)
+            warnings.filterwarnings("ignore", message=".*insecure connection.*", category=urllib3.exceptions.InsecureRequestWarning)
+            warnings.filterwarnings("ignore", message=".*unverified HTTPS request.*", category=urllib3.exceptions.InsecureRequestWarning)
+            warnings.filterwarnings("ignore", message=".*SSL.*", category=UserWarning)
+            
+            if ssl_manager.is_localhost_url(config.qdrant.url):
+                with ssl_manager.for_localhost():
                     client = QdrantClient(**config.qdrant_client_config)
-        else:
-            client = QdrantClient(**config.qdrant_client_config)
+            else:
+                # Apply additional suppression for non-localhost
+                urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
+                client = QdrantClient(**config.qdrant_client_config)
             
         # Test connection to ensure client is working
         try:
-            if ssl_manager.is_localhost_url(config.qdrant.url):
-                with ssl_manager.for_localhost():
-                    with warnings.catch_warnings():
-                        warnings.filterwarnings("ignore", message=".*Api key is used with an insecure connection.*", category=UserWarning)
+            with warnings.catch_warnings():
+                # Apply same comprehensive warning suppression for connection test
+                warnings.filterwarnings("ignore", message=".*Api key is used with an insecure connection.*", category=UserWarning)
+                warnings.filterwarnings("ignore", message=".*insecure connection.*", category=urllib3.exceptions.InsecureRequestWarning)
+                warnings.filterwarnings("ignore", message=".*unverified HTTPS request.*", category=urllib3.exceptions.InsecureRequestWarning)
+                warnings.filterwarnings("ignore", message=".*SSL.*", category=UserWarning)
+                
+                if ssl_manager.is_localhost_url(config.qdrant.url):
+                    with ssl_manager.for_localhost():
                         client.get_collections()
-            else:
-                client.get_collections()
+                else:
+                    urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
+                    client.get_collections()
         except Exception as e:
             raise CLIError(
                 f"Failed to connect to Qdrant server at {config.qdrant.url}: {str(e)}"
