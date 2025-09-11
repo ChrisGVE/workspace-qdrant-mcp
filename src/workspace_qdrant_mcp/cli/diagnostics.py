@@ -458,13 +458,31 @@ class DiagnosticTool:
 
             try:
                 from qdrant_client import QdrantClient
+                import warnings
+                import urllib3
 
-                # Test basic connection
-                client = QdrantClient(**self.config.qdrant_client_config)
+                # Test basic connection with SSL warning suppression
+                with warnings.catch_warnings():
+                    warnings.filterwarnings("ignore", message=".*Api key is used with an insecure connection.*", category=UserWarning)
+                    warnings.filterwarnings("ignore", message=".*insecure connection.*", category=urllib3.exceptions.InsecureRequestWarning)
+                    warnings.filterwarnings("ignore", message=".*unverified HTTPS request.*", category=urllib3.exceptions.InsecureRequestWarning)
+                    warnings.filterwarnings("ignore", message=".*SSL.*", category=UserWarning)
+                    urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
+                    
+                    client = QdrantClient(**self.config.qdrant_client_config)
 
-                # Get collections and basic info
+                # Get collections and basic info with warning suppression
+                def get_collections_with_suppression():
+                    with warnings.catch_warnings():
+                        warnings.filterwarnings("ignore", message=".*Api key is used with an insecure connection.*", category=UserWarning)
+                        warnings.filterwarnings("ignore", message=".*insecure connection.*", category=urllib3.exceptions.InsecureRequestWarning)
+                        warnings.filterwarnings("ignore", message=".*unverified HTTPS request.*", category=urllib3.exceptions.InsecureRequestWarning)
+                        warnings.filterwarnings("ignore", message=".*SSL.*", category=UserWarning)
+                        urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
+                        return client.get_collections()
+                
                 collections = await asyncio.get_event_loop().run_in_executor(
-                    None, client.get_collections
+                    None, get_collections_with_suppression
                 )
 
                 # Test create/delete collection (if allowed)
