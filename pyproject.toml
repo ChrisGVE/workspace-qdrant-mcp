@@ -96,10 +96,10 @@ Issues = "https://github.com/ChrisGVE/workspace-qdrant-mcp/issues"
 Changelog = "https://github.com/ChrisGVE/workspace-qdrant-mcp/blob/main/CHANGELOG.md"
 
 [tool.hatch.version]
-path = "workspace_qdrant_mcp/__init__.py"
+path = "src/python/workspace_qdrant_mcp/__init__.py"
 
 [tool.hatch.build.targets.wheel]
-packages = ["workspace_qdrant_mcp", "wqm_cli", "common"]
+packages = ["src/python/workspace_qdrant_mcp", "src/python/wqm_cli", "src/python/common"]
 
 [tool.black]
 line-length = 88
@@ -152,14 +152,14 @@ add-ignore = [
     "D205",  # 1 blank line required between summary line and description - formatting
 ]
 # Only check critical violations that indicate missing or broken documentation
-match-dir = "."
+match-dir = "src/python"
 ignore-decorators = "property"
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
 testpaths = ["tests"]
 pythonpath = ["."]
-addopts = "-v --tb=short --cov=. --cov-report=term-missing --cov-report=html --cov-report=xml --cov-fail-under=80 --cov-branch"
+addopts = "-v --tb=short --cov=src/python --cov-report=term-missing --cov-report=html --cov-report=xml --cov-fail-under=80 --cov-branch"
 markers = [
   "unit: Unit tests",
   "integration: Integration tests",
@@ -179,14 +179,14 @@ filterwarnings = [
 ]
 
 [tool.coverage.run]
-source = ["."]
+source = ["src/python"]
 omit = [
   "*/tests/*",
   "*/__init__.py", 
   "*/conftest.py",
   "*/test_*.py",
-  "wqm_cli/cli/test_*.py",
-  "workspace_qdrant_mcp/tools/test_*.py"
+  "src/python/wqm_cli/cli/test_*.py",
+  "src/python/workspace_qdrant_mcp/tools/test_*.py"
 ]
 branch = true
 parallel = true
@@ -244,7 +244,7 @@ dev = [
 [tool.maturin]
 module-name = "common._rust_engine"
 manifest-path = "rust-engine/daemon/python-bindings/Cargo.toml"
-python-source = "."
+python-source = "src/python"
 
 # Platform-specific optimizations
 [tool.maturin.target.x86_64-apple-darwin]
