@@ -679,7 +679,7 @@ project_path = "{str(Path.cwd()).replace(chr(92), chr(92) + chr(92))}"
 
         # Unload service
         try:
-            cmd = ["launchctl", "unload", str(plist_path)]
+            cmd = ["launchctl", "unload", "-w", str(plist_path)]
             result = await asyncio.create_subprocess_exec(
                 *cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE
             )
@@ -1199,7 +1199,7 @@ project_path = "{str(Path.cwd()).replace(chr(92), chr(92) + chr(92))}"
         try:
             # Step 1: Unload the service to properly stop it (prevents KeepAlive restart)
             if plist_path.exists():
-                cmd = ["launchctl", "unload", str(plist_path)]
+                cmd = ["launchctl", "unload", "-w", str(plist_path)]
                 result = await asyncio.create_subprocess_exec(
                     *cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE
                 )
