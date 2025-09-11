@@ -1205,47 +1205,40 @@ project_path = "{str(Path.cwd()).replace(chr(92), chr(92) + chr(92))}"
                 )
                 stdout, stderr = await result.communicate()
                 logger.debug(f"Unload result - stdout: {stdout.decode()}, stderr: {stderr.decode()}")
+                
+                if result.returncode != 0:
+                    return {
+                        "success": False,
+                        "error": f"Failed to unload service: {stderr.decode().strip()}",
+                        "service_id": service_id,
+                    }
+                
+                # Step 2: Wait for processes to stop gracefully
+                await asyncio.sleep(3)
+                
+                # Step 3: Clean up PID files
+                await self._cleanup_pid_files()
+                
+                # Step 4: Final verification - processes should be gone
+                final_check = await self._find_memexd_processes()
+                if final_check:
+                    logger.warning(f"After unload, found {len(final_check)} memexd processes still running")
+                    # This shouldn't happen with proper unload, but log for debugging
+                    for pid in final_check:
+                        logger.warning(f"Unexpected remaining process: {pid}")
+                
+                return {
+                    "success": True,
+                    "service_id": service_id,
+                    "message": f"Service {service_id} unloaded successfully",
+                    "processes_found_after_unload": len(final_check)
+                }
             else:
-                logger.warning(f"Service plist not found at {plist_path}, attempting direct process cleanup")
-            
-            # Step 2: Wait for graceful shutdown
-            await asyncio.sleep(2)
-            
-            # Step 3: Check for any remaining memexd processes and terminate them
-            await self._cleanup_all_memexd_processes()
-            
-            # Step 4: Verify all processes are gone
-            remaining_processes = await self._find_memexd_processes()
-            if remaining_processes:
-                logger.warning(f"Found {len(remaining_processes)} remaining memexd processes after stop")
-                # Force kill remaining processes
-                for pid in remaining_processes:
-                    try:
-                        kill_cmd = ["kill", "-9", str(pid)]
-                        await asyncio.create_subprocess_exec(*kill_cmd)
-                        logger.debug(f"Force killed remaining process {pid}")
-                    except Exception as e:
-                        logger.debug(f"Failed to force kill process {pid}: {e}")
-            
-            # Step 5: Clean up PID files
-            await self._cleanup_pid_files()
-            
-            # Final verification
-            final_check = await self._find_memexd_processes()
-            if final_check:
                 return {
                     "success": False,
-                    "error": f"Failed to stop all processes. {len(final_check)} processes remain: {final_check}",
+                    "error": f"Service plist not found at {plist_path}",
                     "service_id": service_id,
-                    "warning": "Some processes may still be running"
                 }
-            
-            return {
-                "success": True,
-                "service_id": service_id,
-                "message": f"Service {service_id} stopped successfully and all processes terminated",
-                "processes_terminated": len(remaining_processes)
-            }
             
         except Exception as e:
             logger.error(f"Exception in _stop_macos_service: {e}")
