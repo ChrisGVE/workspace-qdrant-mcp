@@ -1161,16 +1161,29 @@ project_path = "{str(Path.cwd()).replace(chr(92), chr(92) + chr(92))}"
             return {"success": False, "error": f"Failed to stop service: {e}"}
 
     async def _stop_macos_service(self) -> Dict[str, Any]:
-        """Stop macOS service with comprehensive process cleanup."""
+        """Stop macOS service with proper launchd lifecycle management."""
         service_id = f"com.workspace-qdrant-mcp.{self.service_name}"
+        plist_dir = Path.home() / "Library" / "LaunchAgents"
+        plist_path = plist_dir / f"{service_id}.plist"
 
         try:
-            # Step 1: Stop the launchd service
-            cmd = ["launchctl", "stop", service_id]
-            result = await asyncio.create_subprocess_exec(
-                *cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE
-            )
-            stdout, stderr = await result.communicate()
+            # Step 1: Unload the service to properly stop it (prevents KeepAlive restart)
+            if plist_path.exists():
+                cmd = ["launchctl", "unload", str(plist_path)]
+                result = await asyncio.create_subprocess_exec(
+                    *cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE
+                )
+                stdout, stderr = await result.communicate()
+                
+                # Step 2: Load service back as disabled (without starting)
+                # This maintains the service registration but keeps it stopped
+                cmd = ["launchctl", "load", "-w", str(plist_path)]
+                result = await asyncio.create_subprocess_exec(
+                    *cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE
+                )
+                stdout, stderr = await result.communicate()
+            else:
+                logger.warning(f"Service plist not found at {plist_path}, attempting direct process cleanup")
             
             # Step 2: Wait for graceful shutdown
             await asyncio.sleep(2)
