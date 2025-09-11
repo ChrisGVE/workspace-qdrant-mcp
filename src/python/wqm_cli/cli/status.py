@@ -64,14 +64,14 @@ from rich.tree import Tree
 from common.core.client import QdrantWorkspaceClient
 from common.core.config import Config
 from common.observability import configure_logging, get_logger
-from common.tools.grpc_tools import (
+from workspace_qdrant_mcp.tools.grpc_tools import (
     get_grpc_engine_stats,
     stream_processing_status_grpc,
     stream_queue_status_grpc,
     stream_system_metrics_grpc,
     test_grpc_connection,
 )
-from common.tools.state_management import (
+from workspace_qdrant_mcp.tools.state_management import (
     get_database_stats,
     get_failed_files,
     get_processing_analytics,
@@ -79,7 +79,7 @@ from common.tools.state_management import (
     get_queue_stats,
     get_watch_folder_configs,
 )
-from common.tools.watch_management import WatchToolsManager
+from workspace_qdrant_mcp.tools.watch_management import WatchToolsManager
 
 logger = get_logger(__name__)
 

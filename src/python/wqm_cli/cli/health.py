@@ -405,7 +405,7 @@ class HealthMonitor:
             collections = self.client.list_collections()
             if collections:
                 try:
-                    from common.tools.search import semantic_search
+                    from workspace_qdrant_mcp.tools.search import semantic_search
 
                     start_time = time.time()
                     await semantic_search(
