@@ -57,11 +57,11 @@ from rich.progress import Progress, SpinnerColumn, TextColumn
 from rich.table import Table
 from rich.text import Text
 
-from ..core.client import QdrantWorkspaceClient
-from ..core.config import Config
-from ..core.embeddings import EmbeddingService
-from ..utils.config_validator import ConfigValidator
-from ..utils.project_detection import ProjectDetector
+from common.core.client import QdrantWorkspaceClient
+from common.config import Config
+from common.core.embeddings import EmbeddingService
+from common.utils.config_validator import ConfigValidator
+from common.utils.project_detection import ProjectDetector
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
