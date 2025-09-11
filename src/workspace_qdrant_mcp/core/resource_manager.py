@@ -3,7 +3,8 @@ Resource Coordination and Isolation System for Multi-Instance Daemons.
 
 This module provides resource management and coordination between multiple daemon
 instances including memory limits, CPU throttling, shared resource access, and
-monitoring with alerting when limits are approached.
+monitoring with alerting when limits are approached. Enhanced with performance
+monitoring integration for comprehensive resource optimization.
 """
 
 import asyncio
@@ -599,7 +600,7 @@ class ResourceManager:
             logger.warning(f"Failed to save resource registry: {e}")
     
     async def get_system_status(self) -> Dict[str, Any]:
-        """Get comprehensive system status."""
+        """Get comprehensive system status with performance monitoring integration."""
         all_usage = await self.get_all_usage()
         
         total_memory = sum(usage.memory_mb for usage in all_usage.values())
@@ -609,6 +610,15 @@ class ResourceManager:
             alert for alert in self.alert_history 
             if alert.timestamp > datetime.now() - timedelta(hours=1)
         ]
+        
+        # Get performance monitoring data
+        performance_data = {}
+        try:
+            from .performance_monitor import get_all_performance_summaries
+            performance_data = await get_all_performance_summaries()
+        except Exception as e:
+            logger.debug(f"Performance monitoring not available: {e}")
+            performance_data = {}
         
         return {
             "total_projects": len(self.monitors),
@@ -622,8 +632,29 @@ class ResourceManager:
             "project_usage": {
                 project_id: asdict(usage) for project_id, usage in all_usage.items()
             },
-            "recent_alerts": [asdict(alert) for alert in recent_alerts[-10:]]
+            "recent_alerts": [asdict(alert) for alert in recent_alerts[-10:]],
+            "performance_monitoring": performance_data
         }
+    
+    async def get_performance_recommendations(self) -> Dict[str, Any]:
+        """Get performance optimization recommendations for all projects."""
+        try:
+            from .performance_monitor import _performance_monitors
+            
+            recommendations = {}
+            for project_id, monitor in _performance_monitors.items():
+                try:
+                    project_recommendations = await monitor.get_optimization_recommendations()
+                    recommendations[project_id] = [
+                        rec.to_dict() for rec in project_recommendations
+                    ]
+                except Exception as e:
+                    logger.error(f"Failed to get recommendations for {project_id}: {e}")
+                    recommendations[project_id] = {"error": str(e)}
+            
+            return recommendations
+        except ImportError:
+            return {"error": "Performance monitoring not available"}
 
 
 # Global resource manager instance

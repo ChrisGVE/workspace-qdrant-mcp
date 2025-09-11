@@ -508,6 +508,23 @@ class DaemonInstance:
                             project=self.config.project_name,
                             project_id=self.config.project_id,
                         )
+                        
+                        # Start performance monitoring
+                        try:
+                            from .performance_monitor import get_performance_monitor
+                            performance_monitor = await get_performance_monitor(self.config.project_id)
+                            logger.info(
+                                "Performance monitoring started",
+                                project=self.config.project_name,
+                                project_id=self.config.project_id,
+                            )
+                        except Exception as e:
+                            logger.warning(
+                                "Failed to start performance monitoring",
+                                project=self.config.project_name,
+                                error=str(e),
+                            )
+                        
                     except Exception as e:
                         logger.warning(
                             "Failed to start resource monitoring",
@@ -598,6 +615,22 @@ class DaemonInstance:
                 except Exception as e:
                     logger.warning(
                         "Failed to stop resource monitoring",
+                        project=self.config.project_name,
+                        error=str(e),
+                    )
+                
+                # Stop performance monitoring
+                try:
+                    from .performance_monitor import stop_performance_monitor
+                    await stop_performance_monitor(self.config.project_id)
+                    logger.info(
+                        "Performance monitoring stopped",
+                        project=self.config.project_name,
+                        project_id=self.config.project_id,
+                    )
+                except Exception as e:
+                    logger.warning(
+                        "Failed to stop performance monitoring",
                         project=self.config.project_name,
                         error=str(e),
                     )
@@ -1277,6 +1310,14 @@ class DaemonManager:
             logger.info("Resource manager cleaned up")
         except Exception as e:
             logger.error("Error cleaning up resource manager", error=str(e))
+        
+        # Cleanup performance monitoring
+        try:
+            from .performance_monitor import cleanup_all_performance_monitors
+            await cleanup_all_performance_monitors()
+            logger.info("Performance monitoring cleaned up")
+        except Exception as e:
+            logger.error("Error cleaning up performance monitoring", error=str(e))
 
         self.daemons.clear()
         logger.info("All daemons shut down")
