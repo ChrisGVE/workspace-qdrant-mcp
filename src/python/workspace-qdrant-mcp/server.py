@@ -73,7 +73,7 @@ from common.core.watch_validation import (
     ValidationResult,
     WatchPathValidator,
 )
-from common.config import Config
+from common.core.config import Config
 
 # Import observability system
 from common.observability import (

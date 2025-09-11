@@ -62,7 +62,7 @@ from rich.text import Text
 from rich.tree import Tree
 
 from common.core.client import QdrantWorkspaceClient
-from common.config import Config
+from common.core.config import Config
 from common.observability import configure_logging, get_logger
 from common.tools.grpc_tools import (
     get_grpc_engine_stats,

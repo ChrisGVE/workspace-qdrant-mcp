@@ -59,7 +59,7 @@ from rich.table import Table
 from rich.text import Text
 
 from common.core.client import QdrantWorkspaceClient
-from common.config import Config
+from common.core.config import Config
 from common.utils.config_validator import ConfigValidator
 
 # Configure logging

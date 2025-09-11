@@ -35,7 +35,7 @@ from typing import Any, Dict, Optional
 import typer
 
 from common.core.client import QdrantWorkspaceClient
-from common.config import Config
+from common.core.config import Config
 from common.observability import (
     HealthStatus,
     configure_logging,
