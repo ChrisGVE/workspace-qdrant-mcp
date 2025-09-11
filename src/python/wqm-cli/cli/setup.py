@@ -45,11 +45,11 @@ from urllib.parse import urlparse
 
 import typer
 
-from ..core.daemon_client import get_daemon_client, with_daemon_client
-from ..core.config import Config, EmbeddingConfig, QdrantConfig, WorkspaceConfig
-from ..core.embeddings import EmbeddingService
-from ..utils.config_validator import ConfigValidator
-from ..utils.project_detection import ProjectDetector
+from common.core.daemon_client import get_daemon_client, with_daemon_client
+from common.config import Config, EmbeddingConfig, QdrantConfig, WorkspaceConfig
+from common.core.embeddings import EmbeddingService
+from common.utils.config_validator import ConfigValidator
+from common.utils.project_detection import ProjectDetector
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
