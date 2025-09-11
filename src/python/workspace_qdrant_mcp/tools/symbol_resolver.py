@@ -57,9 +57,9 @@ from typing import Any, Dict, List, Optional, Set, Tuple, Union
 
 import structlog
 
-from ..core.client import QdrantWorkspaceClient
-from ..core.error_handling import WorkspaceError, ErrorCategory, ErrorSeverity
-from ..core.lsp_metadata_extractor import (
+from common.core.client import QdrantWorkspaceClient
+from common.core.error_handling import WorkspaceError, ErrorCategory, ErrorSeverity
+from common.core.lsp_metadata_extractor import (
     CodeSymbol, SymbolKind, SymbolRelationship, RelationshipType, 
     Position, Range, TypeInformation, Documentation
 )

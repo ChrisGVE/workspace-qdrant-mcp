@@ -12,17 +12,17 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
-from ..core.client import QdrantWorkspaceClient
-from ..core.persistent_file_watcher import PersistentWatchManager
-from ..core.watch_config import (
+from common.core.client import QdrantWorkspaceClient
+from common.core.persistent_file_watcher import PersistentWatchManager
+from common.core.watch_config import (
     PersistentWatchConfigManager,
     WatchConfigurationPersistent,
 )
-from ..core.watch_sync import (
+from common.core.watch_sync import (
     ConfigChangeEvent,
     SynchronizedWatchConfigManager,
 )
-from ..core.watch_validation import (
+from common.core.watch_validation import (
     WatchErrorRecovery,
     WatchHealthMonitor,
     WatchPathValidator,

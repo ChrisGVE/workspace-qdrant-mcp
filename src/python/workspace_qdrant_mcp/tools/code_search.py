@@ -69,11 +69,11 @@ from typing import Any, Dict, List, Optional, Set, Tuple, Union
 import structlog
 from fuzzywuzzy import fuzz, process
 
-from ..core.client import QdrantWorkspaceClient
-from ..core.error_handling import WorkspaceError, ErrorCategory, ErrorSeverity
-from ..core.hybrid_search import HybridSearchEngine
-from ..core.lsp_metadata_extractor import SymbolKind, RelationshipType, CodeSymbol
-from ..core.sparse_vectors import create_named_sparse_vector
+from common.core.client import QdrantWorkspaceClient
+from common.core.error_handling import WorkspaceError, ErrorCategory, ErrorSeverity
+from common.core.hybrid_search import HybridSearchEngine
+from common.core.lsp_metadata_extractor import SymbolKind, RelationshipType, CodeSymbol
+from common.core.sparse_vectors import create_named_sparse_vector
 from .search import search_workspace, search_collection_by_metadata
 
 logger = structlog.get_logger(__name__)
