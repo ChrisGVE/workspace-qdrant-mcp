@@ -61,17 +61,17 @@ from rich.table import Table
 from rich.text import Text
 from rich.tree import Tree
 
-from ..core.client import QdrantWorkspaceClient
-from ..core.config import Config
-from ..observability import configure_logging, get_logger
-from ..tools.grpc_tools import (
+from common.core.client import QdrantWorkspaceClient
+from common.config import Config
+from common.observability import configure_logging, get_logger
+from common.tools.grpc_tools import (
     get_grpc_engine_stats,
     stream_processing_status_grpc,
     stream_queue_status_grpc,
     stream_system_metrics_grpc,
     test_grpc_connection,
 )
-from ..tools.state_management import (
+from common.tools.state_management import (
     get_database_stats,
     get_failed_files,
     get_processing_analytics,
