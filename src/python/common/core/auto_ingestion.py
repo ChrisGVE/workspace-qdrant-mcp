@@ -46,7 +46,7 @@ def normalize_collection_name_component(name: str) -> str:
     """Temporary implementation - normalize collection name component"""
     return name.replace('-', '_').replace(' ', '_')
 from ..core.config import AutoIngestionConfig
-from ..tools.watch_management import WatchToolsManager
+from workspace_qdrant_mcp.tools.watch_management import WatchToolsManager
 from ..utils.project_detection import ProjectDetector
 
 logger = logging.getLogger(__name__)
