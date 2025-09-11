@@ -46,7 +46,7 @@ from urllib.parse import urlparse
 import typer
 
 from common.core.daemon_client import get_daemon_client, with_daemon_client
-from common.config import Config, EmbeddingConfig, QdrantConfig, WorkspaceConfig
+from common.core.config import Config, EmbeddingConfig, QdrantConfig, WorkspaceConfig
 from common.core.embeddings import EmbeddingService
 from common.utils.config_validator import ConfigValidator
 from common.utils.project_detection import ProjectDetector

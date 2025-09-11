@@ -1,8 +1,0 @@
-blank_issues_enabled: false
-contact_links:
-  - name: Documentation
-    url: https://github.com/chriscarrollsmith/workspace-qdrant-mcp/wiki
-    about: Check the project documentation and wiki
-  - name: Discussions
-    url: https://github.com/chriscarrollsmith/workspace-qdrant-mcp/discussions
-    about: Ask questions and discuss ideas with the community

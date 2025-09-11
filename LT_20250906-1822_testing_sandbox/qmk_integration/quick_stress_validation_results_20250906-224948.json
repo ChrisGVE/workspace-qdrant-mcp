@@ -1,0 +1,91 @@
+{
+  "timestamp": "2025-09-06T22:49:27.798567",
+  "tests_completed": [
+    "qdrant_connectivity",
+    "basic_document_operations",
+    "memory_stress_basic",
+    "cpu_stress_basic"
+  ],
+  "system_info": {
+    "memory_total_gb": 64.0,
+    "memory_used_percent": 43.0,
+    "memory_available_gb": 36.51144027709961,
+    "cpu_percent": 13.8,
+    "cpu_count": 16
+  },
+  "breaking_points": {},
+  "recommendations": {
+    "memory_monitoring_threshold": 75,
+    "cpu_monitoring_threshold": 75,
+    "tests_successful": 4,
+    "breaking_points_found": 0,
+    "system_stable": true
+  },
+  "memory_stress_results": [
+    {
+      "doc_count": 20,
+      "size_kb": 100,
+      "total_mb": 1.953125,
+      "memory_before": 43.1,
+      "memory_after": 43.1,
+      "memory_delta": 0.0,
+      "upsert_success": true,
+      "status_code": 200
+    },
+    {
+      "doc_count": 10,
+      "size_kb": 500,
+      "total_mb": 4.8828125,
+      "memory_before": 43.1,
+      "memory_after": 43.1,
+      "memory_delta": 0.0,
+      "upsert_success": true,
+      "status_code": 200
+    },
+    {
+      "doc_count": 5,
+      "size_kb": 1000,
+      "total_mb": 4.8828125,
+      "memory_before": 43.1,
+      "memory_after": 43.1,
+      "memory_delta": 0.0,
+      "upsert_success": true,
+      "status_code": 200
+    }
+  ],
+  "cpu_stress_results": [
+    {
+      "query_count": 20,
+      "threads": 2,
+      "cpu_before": 27.0,
+      "cpu_after": 24.5,
+      "cpu_delta": -2.5,
+      "duration": 0.03796720504760742,
+      "successful_queries": 20,
+      "success_rate": 100.0,
+      "queries_per_second": 526.7704055360888
+    },
+    {
+      "query_count": 50,
+      "threads": 5,
+      "cpu_before": 23.6,
+      "cpu_after": 24.7,
+      "cpu_delta": 1.0999999999999979,
+      "duration": 0.07924413681030273,
+      "successful_queries": 50,
+      "success_rate": 100.0,
+      "queries_per_second": 630.9615072177728
+    },
+    {
+      "query_count": 100,
+      "threads": 10,
+      "cpu_before": 28.7,
+      "cpu_after": 24.1,
+      "cpu_delta": -4.599999999999998,
+      "duration": 0.14136886596679688,
+      "successful_queries": 100,
+      "success_rate": 100.0,
+      "queries_per_second": 707.3693299873175
+    }
+  ]
+}

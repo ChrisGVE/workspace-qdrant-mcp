@@ -1,0 +1,29 @@
+{
+  "memory_threshold_percent": 80,
+  "cpu_threshold_percent": 85,
+  "disk_threshold_percent": 90,
+  "check_interval_seconds": 30,
+  "emergency_stop_on_consecutive_violations": 3,
+  "reserved_memory_mb": 2048,
+  "reserved_cpu_percent": 20,
+  "max_test_duration_hours": 12,
+  "warning_thresholds": {
+    "memory_warning_percent": 70,
+    "cpu_warning_percent": 75,
+    "disk_warning_percent": 85
+  },
+  "process_limits": {
+    "max_concurrent_test_processes": 10,
+    "max_memory_per_process_mb": 1024,
+    "process_timeout_minutes": 30
+  },
+  "emergency_contacts": {
+    "log_level": "CRITICAL",
+    "enable_system_notifications": true
+  },
+  "recovery_settings": {
+    "auto_restart_after_violation": false,
+    "cooldown_period_minutes": 15,
+    "progressive_test_scaling": true
+  }
+}

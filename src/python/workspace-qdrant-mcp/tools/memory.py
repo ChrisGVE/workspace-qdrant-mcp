@@ -13,7 +13,7 @@ from mcp.server.fastmcp import FastMCP
 
 from common.core.client import create_qdrant_client
 from common.core.collection_naming import create_naming_manager
-from common.config import Config
+from common.core.config import Config
 from common.memory.manager import (
     AuthorityLevel,
     MemoryCategory,
