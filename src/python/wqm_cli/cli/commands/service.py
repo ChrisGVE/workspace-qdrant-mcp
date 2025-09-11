@@ -1161,21 +1161,63 @@ project_path = "{str(Path.cwd()).replace(chr(92), chr(92) + chr(92))}"
             return {"success": False, "error": f"Failed to stop service: {e}"}
 
     async def _stop_macos_service(self) -> Dict[str, Any]:
-        """Stop macOS service."""
+        """Stop macOS service with comprehensive process cleanup."""
         service_id = f"com.workspace-qdrant-mcp.{self.service_name}"
 
-        cmd = ["launchctl", "stop", service_id]
-        result = await asyncio.create_subprocess_exec(
-            *cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE
-        )
-        stdout, stderr = await result.communicate()
-
-        # launchctl stop may return non-zero even on success
-        return {
-            "success": True,
-            "service_id": service_id,
-            "message": f"Service {service_id} stop command sent",
-        }
+        try:
+            # Step 1: Stop the launchd service
+            cmd = ["launchctl", "stop", service_id]
+            result = await asyncio.create_subprocess_exec(
+                *cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE
+            )
+            stdout, stderr = await result.communicate()
+            
+            # Step 2: Wait for graceful shutdown
+            await asyncio.sleep(2)
+            
+            # Step 3: Check for any remaining memexd processes and terminate them
+            await self._cleanup_all_memexd_processes()
+            
+            # Step 4: Verify all processes are gone
+            remaining_processes = await self._find_memexd_processes()
+            if remaining_processes:
+                logger.warning(f"Found {len(remaining_processes)} remaining memexd processes after stop")
+                # Force kill remaining processes
+                for pid in remaining_processes:
+                    try:
+                        kill_cmd = ["kill", "-9", str(pid)]
+                        await asyncio.create_subprocess_exec(*kill_cmd)
+                        logger.debug(f"Force killed remaining process {pid}")
+                    except Exception as e:
+                        logger.debug(f"Failed to force kill process {pid}: {e}")
+            
+            # Step 5: Clean up PID files
+            await self._cleanup_pid_files()
+            
+            # Final verification
+            final_check = await self._find_memexd_processes()
+            if final_check:
+                return {
+                    "success": False,
+                    "error": f"Failed to stop all processes. {len(final_check)} processes remain: {final_check}",
+                    "service_id": service_id,
+                    "warning": "Some processes may still be running"
+                }
+            
+            return {
+                "success": True,
+                "service_id": service_id,
+                "message": f"Service {service_id} stopped successfully and all processes terminated",
+                "processes_terminated": len(remaining_processes)
+            }
+            
+        except Exception as e:
+            logger.error(f"Exception in _stop_macos_service: {e}")
+            return {
+                "success": False,
+                "error": f"Exception stopping service: {e}",
+                "service_id": service_id,
+            }
 
     async def _stop_linux_service(self) -> Dict[str, Any]:
         """Stop Linux service."""
@@ -1293,95 +1335,106 @@ project_path = "{str(Path.cwd()).replace(chr(92), chr(92) + chr(92))}"
             return {"success": False, "error": f"Failed to get service status: {e}"}
 
     async def _get_macos_service_status(self) -> Dict[str, Any]:
-        """Get macOS service status."""
+        """Get accurate macOS service status with comprehensive process detection."""
         service_id = f"com.workspace-qdrant-mcp.{self.service_name}"
 
-        # Check if service is loaded
-        cmd = ["launchctl", "list"]
-        result = await asyncio.create_subprocess_exec(
-            *cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE
-        )
-        stdout, stderr = await result.communicate()
+        try:
+            # Step 1: Check if service is loaded in launchd
+            cmd = ["launchctl", "list"]
+            result = await asyncio.create_subprocess_exec(
+                *cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE
+            )
+            stdout, stderr = await result.communicate()
 
-        output = stdout.decode()
-        service_loaded = service_id in output
+            output = stdout.decode()
+            service_loaded = service_id in output
 
-        # Get service info if loaded
-        status = "unknown"
-        pid = None
-        launchd_running = False
-        
-        if service_loaded:
-            # Extract PID and status from launchctl list output
-            for line in output.split("\n"):
-                if service_id in line:
-                    parts = line.split()
-                    if len(parts) >= 3:
-                        try:
-                            pid_str = parts[0]
-                            if pid_str != "-":
-                                pid = int(pid_str)
-                                status = "running"
-                                launchd_running = True
-                            else:
-                                status = "stopped"
-                        except ValueError:
-                            status = "error"
-                    break
-
-        # If not running via launchd, check ONLY for launchd-related processes
-        if not launchd_running:
-            try:
-                # Only check if there's a process using the launchd PID file specifically
-                launchd_pid_file = "/tmp/memexd-launchd.pid"
-                if Path(launchd_pid_file).exists():
-                    try:
-                        launchd_file_pid = int(Path(launchd_pid_file).read_text().strip())
-                        
-                        # Check if this PID is actually running and is memexd
-                        cmd = ["ps", "-p", str(launchd_file_pid), "-o", "comm="]
-                        result = await asyncio.create_subprocess_exec(
-                            *cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE
-                        )
-                        stdout, stderr = await result.communicate()
-                        
-                        if result.returncode == 0 and b"memexd" in stdout:
-                            # Found a running memexd process with the launchd PID
-                            pid = launchd_file_pid
-                            status = "running"
-                            launchd_running = True
-                            logger.debug(f"Found launchd memexd process via PID file: {pid}")
-                        else:
-                            # PID file exists but process is not running, clean it up
-                            Path(launchd_pid_file).unlink()
-                            logger.debug(f"Removed stale launchd PID file: {launchd_pid_file}")
-                            
-                    except (ValueError, FileNotFoundError, OSError):
-                        # Invalid or missing PID file, ignore
-                        if Path(launchd_pid_file).exists():
+            # Step 2: Get launchd service info if loaded
+            launchd_status = "unknown"
+            launchd_pid = None
+            launchd_running = False
+            
+            if service_loaded:
+                # Extract PID and status from launchctl list output
+                for line in output.split("\n"):
+                    if service_id in line:
+                        parts = line.split()
+                        if len(parts) >= 3:
                             try:
-                                Path(launchd_pid_file).unlink()
-                            except OSError:
-                                pass
-                        
-            except Exception:
-                # PID file check failed, continue with launchd status
-                pass
-                
-        # Set final status based on what we found
-        if not service_loaded and status == "unknown":
-            status = "not_loaded"
+                                pid_str = parts[0]
+                                if pid_str != "-":
+                                    launchd_pid = int(pid_str)
+                                    launchd_status = "running"
+                                    launchd_running = True
+                                else:
+                                    launchd_status = "stopped"
+                            except ValueError:
+                                launchd_status = "error"
+                        break
+            
+            # Step 3: Check for ANY memexd processes running on the system
+            all_memexd_processes = await self._find_memexd_processes()
+            
+            # Step 4: Determine actual status based on all available information
+            actual_running_pids = []
+            launchd_process_found = False
+            
+            for pid in all_memexd_processes:
+                # Check if this is the launchd-managed process
+                if launchd_pid and pid == launchd_pid:
+                    launchd_process_found = True
+                actual_running_pids.append(pid)
+            
+            # Step 5: Clean up stale PID files if no corresponding processes
+            await self._cleanup_stale_pid_files(actual_running_pids)
+            
+            # Step 6: Determine final status
+            if actual_running_pids:
+                if launchd_running and launchd_process_found:
+                    final_status = "running"
+                    primary_pid = launchd_pid
+                    service_type = "launchd"
+                elif actual_running_pids:
+                    final_status = "running_manual"
+                    primary_pid = actual_running_pids[0]  # Use first found process
+                    service_type = "manual"
+                else:
+                    final_status = "error"
+                    primary_pid = None
+                    service_type = "unknown"
+            else:
+                final_status = "stopped"
+                primary_pid = None
+                service_type = "none"
+            
+            # If service is loaded but no processes, it's a stopped service
+            if service_loaded and not actual_running_pids:
+                final_status = "stopped"
+            elif not service_loaded and final_status == "unknown":
+                final_status = "not_loaded"
 
-        return {
-            "success": True,
-            "service_id": service_id,
-            "status": status if service_loaded else "not_loaded",
-            "running": status in ["running", "running_manual"],
-            "pid": pid,
-            "platform": "macOS",
-            "loaded": service_loaded,
-            "launchd_running": launchd_running,
-        }
+            return {
+                "success": True,
+                "service_id": service_id,
+                "status": final_status,
+                "running": final_status in ["running", "running_manual"],
+                "pid": primary_pid,
+                "all_pids": actual_running_pids,
+                "process_count": len(actual_running_pids),
+                "service_type": service_type,
+                "platform": "macOS",
+                "loaded": service_loaded,
+                "launchd_running": launchd_running,
+                "launchd_pid": launchd_pid,
+            }
+            
+        except Exception as e:
+            logger.error(f"Exception in _get_macos_service_status: {e}")
+            return {
+                "success": False,
+                "error": f"Failed to get service status: {e}",
+                "service_id": service_id,
+            }
 
     async def _get_linux_service_status(self) -> Dict[str, Any]:
         """Get Linux service status."""
@@ -1716,30 +1769,85 @@ project_path = "{str(Path.cwd()).replace(chr(92), chr(92) + chr(92))}"
             }
 
     async def _find_daemon_binary(self) -> Optional[Path]:
-        """Find the memexd binary."""
-        # Look in common build locations
-        project_root = Path.cwd()
-        rust_engine_path = project_root / "rust-engine"
-
-        # Check for built binary in target directory
-        target_dirs = [
-            rust_engine_path / "target" / "release",
-            rust_engine_path / "target" / "debug",
-        ]
-
+        """Find the memexd binary with comprehensive path resolution."""
         binary_name = self.daemon_binary
         if self.system == "windows":
             binary_name += ".exe"
-
-        for target_dir in target_dirs:
-            binary_path = target_dir / binary_name
-            if binary_path.exists():
-                return binary_path
-
-        # Check if it's in PATH
+        
+        logger.debug(f"Looking for binary: {binary_name}")
+        
+        # Search locations in order of preference
+        search_locations = []
+        
+        # 1. Project-relative locations (highest priority)
+        project_root = Path.cwd()
+        
+        # Try to find actual project root by walking up
+        current_path = project_root
+        for _ in range(5):  # Don't go too far up
+            if (current_path / "Cargo.toml").exists() or (current_path / "rust-engine").exists():
+                project_root = current_path
+                break
+            parent = current_path.parent
+            if parent == current_path:  # Reached filesystem root
+                break
+            current_path = parent
+        
+        # Rust build locations
+        rust_locations = [
+            project_root / "rust-engine" / "target" / "release",
+            project_root / "rust-engine" / "target" / "debug",
+            project_root / "target" / "release",
+            project_root / "target" / "debug",
+            # Also check if we're inside rust-engine directory
+            project_root / "target" / "release",
+            project_root / "target" / "debug",
+        ]
+        
+        for rust_dir in rust_locations:
+            search_locations.append(rust_dir / binary_name)
+        
+        # 2. System PATH locations
+        path_env = os.environ.get("PATH", "")
+        if path_env:
+            for path_dir in path_env.split(os.pathsep):
+                if path_dir.strip():
+                    search_locations.append(Path(path_dir) / binary_name)
+        
+        # 3. Common system locations
+        common_locations = [
+            Path("/usr/local/bin") / binary_name,
+            Path("/usr/bin") / binary_name,
+            Path.home() / ".local" / "bin" / binary_name,
+        ]
+        
+        if self.system == "darwin":
+            common_locations.extend([
+                Path("/opt/homebrew/bin") / binary_name,
+                Path("/usr/local/homebrew/bin") / binary_name,
+            ])
+        
+        search_locations.extend(common_locations)
+        
+        # 4. Search all locations
+        for binary_path in search_locations:
+            try:
+                if binary_path.exists() and binary_path.is_file():
+                    # Verify it's executable
+                    if os.access(binary_path, os.X_OK):
+                        logger.debug(f"Found executable binary at: {binary_path}")
+                        return binary_path
+                    else:
+                        logger.debug(f"Found binary but not executable: {binary_path}")
+            except (OSError, PermissionError) as e:
+                logger.debug(f"Error checking path {binary_path}: {e}")
+                continue
+        
+        # 5. Final attempt using system 'which' command
         try:
+            which_cmd = "which" if self.system != "windows" else "where"
             result = await asyncio.create_subprocess_exec(
-                "which" if self.system != "windows" else "where",
+                which_cmd,
                 binary_name,
                 stdout=subprocess.PIPE,
                 stderr=subprocess.PIPE,
@@ -1748,12 +1856,160 @@ project_path = "{str(Path.cwd()).replace(chr(92), chr(92) + chr(92))}"
 
             if result.returncode == 0:
                 binary_path = Path(stdout.decode().strip().split("\n")[0])
-                if binary_path.exists():
+                if binary_path.exists() and os.access(binary_path, os.X_OK):
+                    logger.debug(f"Found binary via {which_cmd}: {binary_path}")
                     return binary_path
-        except Exception:
-            pass
-
+        except Exception as e:
+            logger.debug(f"Error using {which_cmd}: {e}")
+        
+        # 6. Log all attempted locations for debugging
+        logger.error(f"Binary {binary_name} not found in any of these locations:")
+        for i, location in enumerate(search_locations[:10]):  # Show first 10
+            logger.error(f"  {i+1}. {location}")
+        if len(search_locations) > 10:
+            logger.error(f"  ... and {len(search_locations) - 10} more locations")
+        
         return None
+
+    async def _find_memexd_processes(self) -> list[int]:
+        """Find all memexd processes running on the system."""
+        try:
+            # Use pgrep to find all memexd processes
+            pgrep_cmd = ["pgrep", "-f", "memexd"]
+            result = await asyncio.create_subprocess_exec(
+                *pgrep_cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE
+            )
+            stdout, stderr = await result.communicate()
+            
+            if result.returncode == 0:
+                pids = []
+                for line in stdout.decode().strip().split('\n'):
+                    if line.strip() and line.strip().isdigit():
+                        pid = int(line.strip())
+                        # Double-check this is actually a memexd process
+                        if await self._verify_process_is_memexd(pid):
+                            pids.append(pid)
+                return pids
+            else:
+                # pgrep found no processes
+                return []
+                
+        except Exception as e:
+            logger.debug(f"Error finding memexd processes: {e}")
+            return []
+    
+    async def _verify_process_is_memexd(self, pid: int) -> bool:
+        """Verify that a PID is actually a memexd process."""
+        try:
+            ps_cmd = ["ps", "-p", str(pid), "-o", "comm="]
+            result = await asyncio.create_subprocess_exec(
+                *ps_cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE
+            )
+            stdout, stderr = await result.communicate()
+            
+            if result.returncode == 0:
+                comm = stdout.decode().strip()
+                return "memexd" in comm
+            return False
+            
+        except Exception:
+            return False
+    
+    async def _cleanup_all_memexd_processes(self) -> None:
+        """Terminate all memexd processes gracefully, then forcefully if needed."""
+        try:
+            # Find all memexd processes
+            memexd_pids = await self._find_memexd_processes()
+            
+            if not memexd_pids:
+                logger.debug("No memexd processes found to clean up")
+                return
+            
+            logger.debug(f"Found {len(memexd_pids)} memexd processes to terminate: {memexd_pids}")
+            
+            # First, try graceful termination with SIGTERM
+            for pid in memexd_pids:
+                try:
+                    term_cmd = ["kill", "-TERM", str(pid)]
+                    await asyncio.create_subprocess_exec(*term_cmd)
+                    logger.debug(f"Sent SIGTERM to process {pid}")
+                except Exception as e:
+                    logger.debug(f"Failed to send SIGTERM to {pid}: {e}")
+            
+            # Wait for graceful shutdown
+            await asyncio.sleep(3)
+            
+            # Check which processes are still running
+            remaining_pids = await self._find_memexd_processes()
+            
+            # Force kill any remaining processes
+            for pid in remaining_pids:
+                try:
+                    kill_cmd = ["kill", "-9", str(pid)]
+                    await asyncio.create_subprocess_exec(*kill_cmd)
+                    logger.debug(f"Force killed process {pid}")
+                except Exception as e:
+                    logger.debug(f"Failed to force kill {pid}: {e}")
+            
+            # Final verification
+            final_check = await self._find_memexd_processes()
+            if final_check:
+                logger.warning(f"Failed to terminate all memexd processes: {final_check}")
+            else:
+                logger.debug(f"Successfully terminated all {len(memexd_pids)} memexd processes")
+                
+        except Exception as e:
+            logger.error(f"Error in cleanup_all_memexd_processes: {e}")
+    
+    async def _cleanup_pid_files(self) -> None:
+        """Clean up all memexd PID files."""
+        pid_files = [
+            "/tmp/memexd.pid",
+            "/tmp/memexd-launchd.pid", 
+            "/tmp/memexd-manual.pid",
+            "/tmp/memexd-service.pid",
+        ]
+        
+        for pid_file in pid_files:
+            try:
+                pid_path = Path(pid_file)
+                if pid_path.exists():
+                    pid_path.unlink()
+                    logger.debug(f"Removed PID file: {pid_file}")
+            except OSError as e:
+                logger.debug(f"Failed to remove PID file {pid_file}: {e}")
+    
+    async def _cleanup_stale_pid_files(self, active_pids: list[int]) -> None:
+        """Clean up PID files that don't correspond to running processes."""
+        pid_files = [
+            "/tmp/memexd.pid",
+            "/tmp/memexd-launchd.pid", 
+            "/tmp/memexd-manual.pid",
+            "/tmp/memexd-service.pid",
+        ]
+        
+        for pid_file in pid_files:
+            try:
+                pid_path = Path(pid_file)
+                if pid_path.exists():
+                    try:
+                        # Read PID from file
+                        stored_pid = int(pid_path.read_text().strip())
+                        
+                        # If this PID is not in our active list, remove the file
+                        if stored_pid not in active_pids:
+                            # Double-check the process isn't running
+                            if not await self._verify_process_is_memexd(stored_pid):
+                                pid_path.unlink()
+                                logger.debug(f"Removed stale PID file: {pid_file} (PID {stored_pid})")
+                            else:
+                                logger.debug(f"PID file {pid_file} has running process {stored_pid}, keeping")
+                    except (ValueError, FileNotFoundError):
+                        # Invalid PID file, remove it
+                        pid_path.unlink()
+                        logger.debug(f"Removed invalid PID file: {pid_file}")
+            except OSError as e:
+                logger.debug(f"Error checking PID file {pid_file}: {e}")
 
     def _get_log_path(self, filename: str) -> str:
         """Get appropriate log path for user service."""
