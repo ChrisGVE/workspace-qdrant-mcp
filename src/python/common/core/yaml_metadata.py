@@ -23,7 +23,7 @@ from typing import Any, Dict, List, Optional, Set, Union
 import yaml
 from qdrant_client.http import models
 
-from ..cli.parsers import (
+from wqm_cli.cli.parsers import (
     DocumentParser,
     MarkdownParser,
     ParsedDocument,
