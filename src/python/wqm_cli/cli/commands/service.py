@@ -1223,9 +1223,19 @@ project_path = "{str(Path.cwd()).replace(chr(92), chr(92) + chr(92))}"
                 final_check = await self._find_memexd_processes()
                 if final_check:
                     logger.warning(f"After unload, found {len(final_check)} memexd processes still running")
-                    # This shouldn't happen with proper unload, but log for debugging
+                    # This shouldn't happen with proper unload, but we need to clean them up
                     for pid in final_check:
-                        logger.warning(f"Unexpected remaining process: {pid}")
+                        logger.warning(f"Cleaning up remaining process: {pid}")
+                    
+                    # Step 5: Force cleanup of remaining processes
+                    await self._cleanup_all_memexd_processes()
+                    
+                    # Final verification after cleanup
+                    post_cleanup_check = await self._find_memexd_processes()
+                    if post_cleanup_check:
+                        logger.error(f"Failed to cleanup {len(post_cleanup_check)} processes: {post_cleanup_check}")
+                    else:
+                        logger.info("Successfully cleaned up all remaining processes")
                 
                 return {
                     "success": True,
