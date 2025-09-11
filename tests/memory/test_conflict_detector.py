@@ -11,8 +11,8 @@ from datetime import datetime
 
 import pytest
 
-from src.workspace_qdrant_mcp.memory.conflict_detector import ConflictDetector
-from src.workspace_qdrant_mcp.memory.types import (
+from common.memory.conflict_detector import ConflictDetector
+from common.memory.types import (
     AuthorityLevel,
     MemoryCategory,
     MemoryRule,

@@ -7,7 +7,7 @@ from uuid import uuid4
 
 import pytest
 
-from src.workspace_qdrant_mcp.memory.types import (
+from common.memory.types import (
     AgentCapability,
     AgentDefinition,
     AuthorityLevel,

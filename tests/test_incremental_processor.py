@@ -19,7 +19,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from src.workspace_qdrant_mcp.core.incremental_processor import (
+from common.core.incremental_processor import (
     ChangeDetector,
     ChangeType,
     ConflictResolution,
@@ -31,7 +31,7 @@ from src.workspace_qdrant_mcp.core.incremental_processor import (
     TransactionManager,
     create_incremental_processor,
 )
-from src.workspace_qdrant_mcp.core.sqlite_state_manager import (
+from common.core.sqlite_state_manager import (
     FileProcessingRecord,
     FileProcessingStatus,
     SQLiteStateManager,
@@ -359,7 +359,7 @@ class TestConflictResolver:
         state_manager = MagicMock()
         
         # Add stored record with metadata
-        from src.workspace_qdrant_mcp.core.sqlite_state_manager import FileProcessingRecord
+        from common.core.sqlite_state_manager import FileProcessingRecord
         conflicted_change.stored_record = FileProcessingRecord(
             file_path="/test/conflicted.txt",
             collection="test_collection",

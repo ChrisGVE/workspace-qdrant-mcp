@@ -26,12 +26,12 @@ import grpc
 from grpc import StatusCode
 from google.protobuf.empty_pb2 import Empty
 
-from src.workspace_qdrant_mcp.core.daemon_client import (
+from common.core.daemon_client import (
     DaemonClient,
     DaemonConnectionError
 )
-from src.workspace_qdrant_mcp.core.grpc_client import GrpcWorkspaceClient
-from src.workspace_qdrant_mcp.core.daemon_manager import (
+from common.core.grpc_client import GrpcWorkspaceClient
+from common.core.daemon_manager import (
     DaemonManager,
     DaemonInstance,
     DaemonConfig

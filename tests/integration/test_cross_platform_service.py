@@ -20,7 +20,7 @@ from unittest.mock import AsyncMock, MagicMock, Mock, patch
 
 import pytest
 
-from src.workspace_qdrant_mcp.cli.commands.service import ServiceManager
+from common.cli.commands.service import ServiceManager
 
 
 class ServiceTestHelper:

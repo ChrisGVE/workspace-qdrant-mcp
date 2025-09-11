@@ -26,13 +26,13 @@ from unittest.mock import AsyncMock, Mock, patch, MagicMock, call
 from unittest import mock
 import pytest
 
-from src.workspace_qdrant_mcp.core.daemon_manager import (
+from common.core.daemon_manager import (
     DaemonManager,
     DaemonInstance,
     DaemonConfig
 )
-from src.workspace_qdrant_mcp.core.grpc_client import GrpcWorkspaceClient
-from src.workspace_qdrant_mcp.core.client import QdrantWorkspaceClient
+from common.core.grpc_client import GrpcWorkspaceClient
+from common.core.client import QdrantWorkspaceClient
 
 from .conftest_daemon import (
     mock_daemon_config,

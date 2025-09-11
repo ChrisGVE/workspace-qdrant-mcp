@@ -25,16 +25,16 @@ import time
 from typing import Dict, List, Optional
 from unittest.mock import Mock, AsyncMock, patch
 
-from src.workspace_qdrant_mcp.tools.symbol_resolver import (
+from common.tools.symbol_resolver import (
     SymbolResolver, SymbolIndex, SymbolEntry, SymbolLocation,
     DisambiguationEngine, CrossReferenceTracker, SymbolResolutionResult,
     SymbolKind, SymbolScope, find_symbol_definition, resolve_function_overload,
     analyze_symbol_usage
 )
-from src.workspace_qdrant_mcp.core.lsp_metadata_extractor import (
+from common.core.lsp_metadata_extractor import (
     CodeSymbol, Range, Position, TypeInformation
 )
-from src.workspace_qdrant_mcp.core.client import QdrantWorkspaceClient
+from common.core.client import QdrantWorkspaceClient
 
 
 class TestSymbolIndex:

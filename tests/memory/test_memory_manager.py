@@ -11,10 +11,10 @@ from unittest.mock import AsyncMock, Mock, patch
 
 import pytest
 
-from src.workspace_qdrant_mcp.core.config import Config
-from src.workspace_qdrant_mcp.memory.manager import MemoryManager
-from src.workspace_qdrant_mcp.memory.token_counter import TokenUsage
-from src.workspace_qdrant_mcp.memory.types import (
+from common.core.config import Config
+from common.memory.manager import MemoryManager
+from common.memory.token_counter import TokenUsage
+from common.memory.types import (
     AuthorityLevel,
     ClaudeCodeSession,
     ConversationalUpdate,

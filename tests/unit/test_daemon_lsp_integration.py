@@ -21,21 +21,21 @@ from unittest.mock import AsyncMock, Mock, patch, MagicMock, call
 from unittest import mock
 import pytest
 
-from src.workspace_qdrant_mcp.core.daemon_manager import (
+from common.core.daemon_manager import (
     DaemonManager,
     DaemonInstance,
     DaemonConfig,
     DaemonStatus
 )
-from src.workspace_qdrant_mcp.core.lsp_client import (
+from common.core.lsp_client import (
     LspClient,
     ConnectionState,
     CommunicationMode,
     CircuitBreakerState
 )
-from src.workspace_qdrant_mcp.core.lsp_detector import LspDetector
-from src.workspace_qdrant_mcp.core.lsp_health_monitor import LspHealthMonitor
-from src.workspace_qdrant_mcp.core.lsp_metadata_extractor import LspMetadataExtractor
+from common.core.lsp_detector import LspDetector
+from common.core.lsp_health_monitor import LspHealthMonitor
+from common.core.lsp_metadata_extractor import LspMetadataExtractor
 
 from .conftest_daemon import (
     mock_daemon_config,
