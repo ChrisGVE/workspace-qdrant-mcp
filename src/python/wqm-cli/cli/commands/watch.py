@@ -704,7 +704,7 @@ async def _pause_watches(path: str | None, collection: str | None, all: bool):
                 paused_count = 0
                 for watch in watches:
                     try:
-                        from ...grpc.ingestion_pb2 import WatchStatus
+                        from common.grpc.ingestion_pb2 import WatchStatus
                         response = await client.configure_watch(
                             watch_id=watch.watch_id,
                             status=WatchStatus.WATCH_STATUS_PAUSED
@@ -721,7 +721,7 @@ async def _pause_watches(path: str | None, collection: str | None, all: bool):
                 paused_count = 0
                 for watch in matching_watches:
                     try:
-                        from ...grpc.ingestion_pb2 import WatchStatus
+                        from common.grpc.ingestion_pb2 import WatchStatus
                         response = await client.configure_watch(
                             watch_id=watch.watch_id,
                             status=WatchStatus.WATCH_STATUS_PAUSED
@@ -747,7 +747,7 @@ async def _pause_watches(path: str | None, collection: str | None, all: bool):
 
                 for watch in matches:
                     try:
-                        from ...grpc.ingestion_pb2 import WatchStatus
+                        from common.grpc.ingestion_pb2 import WatchStatus
                         response = await client.configure_watch(
                             watch_id=watch.watch_id,
                             status=WatchStatus.WATCH_STATUS_PAUSED
@@ -788,7 +788,7 @@ async def _resume_watches(path: str | None, collection: str | None, all: bool):
                 resumed_count = 0
                 for watch in watches:
                     try:
-                        from ...grpc.ingestion_pb2 import WatchStatus
+                        from common.grpc.ingestion_pb2 import WatchStatus
                         response = await client.configure_watch(
                             watch_id=watch.watch_id,
                             status=WatchStatus.WATCH_STATUS_ACTIVE
@@ -805,7 +805,7 @@ async def _resume_watches(path: str | None, collection: str | None, all: bool):
                 resumed_count = 0
                 for watch in matching_watches:
                     try:
-                        from ...grpc.ingestion_pb2 import WatchStatus
+                        from common.grpc.ingestion_pb2 import WatchStatus
                         response = await client.configure_watch(
                             watch_id=watch.watch_id,
                             status=WatchStatus.WATCH_STATUS_ACTIVE
@@ -831,7 +831,7 @@ async def _resume_watches(path: str | None, collection: str | None, all: bool):
 
                 for watch in matches:
                     try:
-                        from ...grpc.ingestion_pb2 import WatchStatus
+                        from common.grpc.ingestion_pb2 import WatchStatus
                         response = await client.configure_watch(
                             watch_id=watch.watch_id,
                             status=WatchStatus.WATCH_STATUS_ACTIVE

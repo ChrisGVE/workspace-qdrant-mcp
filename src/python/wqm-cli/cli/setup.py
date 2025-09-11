@@ -386,7 +386,7 @@ class SetupWizard:
 
             # Create client with SSL warning suppression
             with warnings.catch_warnings():
-                from ..core.ssl_config import suppress_qdrant_ssl_warnings
+                from common.core.ssl_config import suppress_qdrant_ssl_warnings
                 with suppress_qdrant_ssl_warnings():
                     client = QdrantClient(**client_config)
 

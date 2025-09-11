@@ -422,8 +422,8 @@ def get_configured_client(config=None) -> QdrantClient:
     """
     try:
         # Import here to avoid circular imports
-        from ..core.config import Config
-        from ..core.ssl_config import get_ssl_manager
+        from common.core.config import Config
+        from common.core.ssl_config import get_ssl_manager
         import warnings
         
         if config is None:
@@ -439,7 +439,7 @@ def get_configured_client(config=None) -> QdrantClient:
             warnings.filterwarnings("ignore", message=".*unverified HTTPS request.*", category=urllib3.exceptions.InsecureRequestWarning)
             warnings.filterwarnings("ignore", message=".*SSL.*", category=UserWarning)
             
-            from ..core.ssl_config import suppress_qdrant_ssl_warnings
+            from common.core.ssl_config import suppress_qdrant_ssl_warnings
             with suppress_qdrant_ssl_warnings():
                 client = QdrantClient(**config.qdrant_client_config)
             

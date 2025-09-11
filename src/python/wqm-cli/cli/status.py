@@ -79,7 +79,7 @@ from common.tools.state_management import (
     get_queue_stats,
     get_watch_folder_configs,
 )
-from ..tools.watch_management import WatchToolsManager
+from common.tools.watch_management import WatchToolsManager
 
 logger = get_logger(__name__)
 
