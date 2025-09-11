@@ -11,8 +11,8 @@ from typing import Any, Dict, List, Optional
 
 import typer
 
-from ...core.daemon_client import get_daemon_client, with_daemon_client
-from ...observability import get_logger
+from common.core.daemon_client import get_daemon_client, with_daemon_client
+from common.observability import get_logger
 from ..formatting import (
     create_data_table,
     display_operation_result,
@@ -245,7 +245,7 @@ async def _configure_watch(
             
             # Validate depth parameter if provided using comprehensive validation
             if depth is not None:
-                from ...core.depth_validation import validate_recursive_depth, format_depth_display
+                from common.core.depth_validation import validate_recursive_depth, format_depth_display
                 depth_result = validate_recursive_depth(depth)
                 
                 if not depth_result.is_valid:
@@ -358,7 +358,7 @@ async def _add_watch(
                 raise typer.Exit(1)
 
             # Validate depth parameter using comprehensive validation
-            from ...core.depth_validation import validate_recursive_depth, format_depth_display
+            from common.core.depth_validation import validate_recursive_depth, format_depth_display
             depth_result = validate_recursive_depth(depth)
             
             if not depth_result.is_valid:
@@ -417,7 +417,7 @@ async def _add_watch(
                     break
 
             # Show configuration
-            from ...core.depth_validation import format_depth_display
+            from common.core.depth_validation import format_depth_display
             config_text = f"Path: {watch_path}\n"
             config_text += f"Collection: {collection}\n"
             config_text += f"Watch ID: {watch_id}\n"
