@@ -405,7 +405,7 @@ class HealthMonitor:
             collections = self.client.list_collections()
             if collections:
                 try:
-                    from ..tools.search import semantic_search
+                    from common.tools.search import semantic_search
 
                     start_time = time.time()
                     await semantic_search(

@@ -13,7 +13,7 @@ import typer
 
 from common.core.daemon_client import get_daemon_client, with_daemon_client
 from common.core.yaml_config import load_config
-from ...grpc.ingestion_pb2 import SearchMode
+from common.grpc.ingestion_pb2 import SearchMode
 from common.observability import get_logger
 from common.utils.project_detection import ProjectDetector
 from ..utils import (

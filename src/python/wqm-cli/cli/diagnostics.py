@@ -462,7 +462,7 @@ class DiagnosticTool:
                 import urllib3
 
                 # Test basic connection with SSL warning suppression
-                from ..core.ssl_config import suppress_qdrant_ssl_warnings
+                from common.core.ssl_config import suppress_qdrant_ssl_warnings
                 with suppress_qdrant_ssl_warnings():
                     client = QdrantClient(**self.config.qdrant_client_config)
 
@@ -1138,7 +1138,7 @@ class DiagnosticTool:
                 # Test document addition using the MCP tools
                 test_content = "This is an integration test document for the workspace-qdrant-mcp system. It tests the complete workflow from document ingestion to search retrieval."
 
-                from ..tools.documents import add_document
+                from common.tools.documents import add_document
 
                 add_result = await add_document(
                     content=test_content,
@@ -1151,7 +1151,7 @@ class DiagnosticTool:
                 )
 
                 # Test search using MCP tools
-                from ..tools.search import semantic_search
+                from common.tools.search import semantic_search
 
                 search_result = await semantic_search(
                     query="integration test document",
@@ -1294,7 +1294,7 @@ class DiagnosticTool:
                 for query in test_queries:
                     start_time = time.time()
                     try:
-                        from ..tools.search import semantic_search
+                        from common.tools.search import semantic_search
 
                         await semantic_search(query, collections[0], limit=10)
                         search_time = time.time() - start_time
