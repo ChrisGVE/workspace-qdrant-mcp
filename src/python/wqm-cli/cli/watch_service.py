@@ -14,8 +14,8 @@ from rich.console import Console
 from rich.live import Live
 from rich.table import Table
 
-from ..core.client import QdrantWorkspaceClient
-from ..core.file_watcher import WatchEvent, WatchManager
+from common.core.client import QdrantWorkspaceClient
+from common.core.file_watcher import WatchEvent, WatchManager
 from .ingestion_engine import DocumentIngestionEngine
 
 logger = logging.getLogger(__name__)
