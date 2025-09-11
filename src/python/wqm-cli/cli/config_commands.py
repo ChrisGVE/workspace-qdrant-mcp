@@ -18,7 +18,7 @@ from rich.panel import Panel
 from rich.text import Text
 from rich.tree import Tree
 
-from ..core.unified_config import UnifiedConfigManager, ConfigFormat, ConfigValidationError, ConfigFormatError
+from common.core.unified_config import UnifiedConfigManager, ConfigFormat, ConfigValidationError, ConfigFormatError
 
 console = Console()
 logger = logging.getLogger(__name__)

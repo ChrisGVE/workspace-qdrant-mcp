@@ -19,9 +19,9 @@ from pathlib import Path
 from typing import Dict, List, Optional, Union, Any
 import fnmatch
 
-from ..core.client import QdrantWorkspaceClient
-from ..tools.simplified_interface import SimplifiedToolsRouter, get_simplified_router
-from ..observability import get_logger
+from common.core.client import QdrantWorkspaceClient
+from common.tools.simplified_interface import SimplifiedToolsRouter, get_simplified_router
+from common.observability import get_logger
 
 logger = get_logger(__name__)
 
