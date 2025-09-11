@@ -4,7 +4,7 @@ from typing import Optional
 
 from .auto_ingestion import AutoIngestionConfig, AutoIngestionManager
 from .client import QdrantWorkspaceClient
-from ..tools.watch_management import WatchToolsManager
+from workspace_qdrant_mcp.tools.watch_management import WatchToolsManager
 
 # Global state-aware ingestion manager instance
 _ingestion_manager: Optional[AutoIngestionManager] = None
