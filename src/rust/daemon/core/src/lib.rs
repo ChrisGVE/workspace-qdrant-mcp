@@ -703,12 +703,12 @@ impl ProcessingEngine {
                 .join(".local")
                 .join("share")
                 .join("workspace-qdrant")
-                .join("daemon_state.db")
+                .join("state.db")
         } else {
             // Fallback to temporary directory
             std::env::temp_dir()
                 .join("workspace-qdrant")
-                .join("daemon_state.db")
+                .join("state.db")
         };
         
         tracing::info!("Initializing daemon state manager with database: {}", db_path.display());
