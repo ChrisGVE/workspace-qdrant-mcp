@@ -62,7 +62,7 @@ mod tests;
 pub use detection::{LspServerDetector, DetectedServer, ServerCapabilities};
 pub use lifecycle::{LspServerManager, ServerInstance, ServerStatus};
 pub use communication::{JsonRpcClient, JsonRpcMessage, JsonRpcRequest, JsonRpcResponse};
-pub use state::{LspStateManager};
+pub use state::{StateManager};
 pub use config::{LspConfig, LanguageConfig, ServerConfig};
 
 /// Main errors that can occur in the LSP subsystem
@@ -230,7 +230,7 @@ pub struct LspManager {
     config: LspConfig,
     detector: LspServerDetector,
     manager: LspServerManager,
-    state: LspStateManager,
+    state: StateManager,
     servers: RwLock<HashMap<Language, ServerInstance>>,
     shutdown_signal: Mutex<Option<tokio::sync::oneshot::Sender<()>>>,
 }
@@ -242,7 +242,7 @@ impl LspManager {
         
         let detector = LspServerDetector::new();
         let manager = LspServerManager::new(config.clone()).await?;
-        let state = LspStateManager::new(&config.database_path).await?;
+        let state = StateManager::new(&config.database_path).await?;
         
         Ok(Self {
             config,
@@ -337,7 +337,7 @@ impl LspManager {
 
     /// Perform health checks on all active servers
     async fn perform_health_checks(
-        state: &LspStateManager,
+        state: &StateManager,
         manager: &LspServerManager,
     ) -> LspResult<()> {
         let servers = manager.get_all_instances().await;
