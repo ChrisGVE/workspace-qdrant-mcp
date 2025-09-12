@@ -289,7 +289,7 @@ mod tests {
         assert_eq!(config.default_timeout_ms, Some(30_000));
         assert!(config.enable_preemption);
         assert_eq!(config.chunk_size, 1000);
-        assert!(config.enable_lsp);
+        // LSP configuration is handled separately via LspConfig
     }
     
     #[test]
@@ -306,7 +306,7 @@ mod tests {
         assert_eq!(config.max_concurrent_tasks, Some(2));
         assert_eq!(config.default_timeout_ms, Some(5_000));
         assert_eq!(config.chunk_size, 500);
-        assert!(config.enable_lsp);
+        // LSP configuration is handled separately via LspConfig
     }
     
     #[test]
