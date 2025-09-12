@@ -528,9 +528,30 @@ WantedBy=default.target
             return {"success": False, "error": f"Stop failed: {e}"}
     
     async def _stop_macos_service(self) -> Dict[str, Any]:
-        """Stop macOS service."""
+        """Stop macOS service with proper service ID detection and KeepAlive handling."""
         try:
-            cmd = ["launchctl", "stop", self.service_id]
+            # Find the actual plist file - it might have a different service ID
+            plist_dir = Path.home() / "Library" / "LaunchAgents"
+            actual_plist = None
+            actual_service_id = None
+            
+            # Look for workspace-qdrant related plist files
+            for plist_file in plist_dir.glob("*workspace-qdrant*.plist"):
+                if plist_file.is_file():
+                    actual_plist = plist_file
+                    actual_service_id = plist_file.stem
+                    break
+            
+            if not actual_plist:
+                return {
+                    "success": False,
+                    "error": "No workspace-qdrant service found",
+                    "suggestion": "Service may not be installed"
+                }
+            
+            # For KeepAlive services, we need to unload the plist to truly stop them
+            # First try unloading the service
+            cmd = ["launchctl", "unload", str(actual_plist)]
             result = await asyncio.create_subprocess_exec(
                 *cmd,
                 stdout=subprocess.PIPE,
@@ -538,24 +559,65 @@ WantedBy=default.target
             )
             stdout, stderr = await result.communicate()
             
-            # Note: launchctl stop can return non-zero even on success
-            # so we verify by checking status instead
+            # Wait a moment for the service to stop
+            await asyncio.sleep(3)
             
-            await asyncio.sleep(2)
-            status = await self.get_service_status()
+            # Check if any memexd processes are still running
+            ps_cmd = ["pgrep", "memexd"]
+            ps_result = await asyncio.create_subprocess_exec(
+                *ps_cmd,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE
+            )
+            ps_stdout, ps_stderr = await ps_result.communicate()
             
-            if not status.get("running", True):  # If not running, stop succeeded
+            if ps_result.returncode != 0:  # No processes found (good)
                 return {
                     "success": True,
-                    "service_id": self.service_id,
-                    "message": "Service stopped successfully"
+                    "service_id": actual_service_id,
+                    "plist_path": str(actual_plist),
+                    "message": "Service stopped successfully",
+                    "method": "launchctl unload"
                 }
             else:
-                return {
-                    "success": False,
-                    "error": "Service stop command executed but service is still running",
-                    "debug_info": status
-                }
+                # Processes still running, try to kill them
+                pids = [pid.strip() for pid in ps_stdout.decode().strip().split('\n') if pid.strip()]
+                killed_pids = []
+                
+                for pid in pids:
+                    try:
+                        kill_cmd = ["kill", "-TERM", pid]
+                        kill_result = await asyncio.create_subprocess_exec(*kill_cmd)
+                        await kill_result.wait()
+                        killed_pids.append(pid)
+                    except Exception:
+                        pass
+                
+                # Wait and check again
+                await asyncio.sleep(2)
+                ps_result2 = await asyncio.create_subprocess_exec(
+                    *ps_cmd,
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.PIPE
+                )
+                await ps_result2.communicate()
+                
+                if ps_result2.returncode != 0:  # No processes found
+                    return {
+                        "success": True,
+                        "service_id": actual_service_id,
+                        "plist_path": str(actual_plist),
+                        "message": "Service stopped successfully (killed remaining processes)",
+                        "method": "launchctl unload + kill",
+                        "killed_pids": killed_pids
+                    }
+                else:
+                    return {
+                        "success": False,
+                        "error": "Service processes still running after stop attempts",
+                        "service_id": actual_service_id,
+                        "plist_path": str(actual_plist)
+                    }
                 
         except Exception as e:
             return {
@@ -607,10 +669,20 @@ WantedBy=default.target
             return {"success": False, "error": f"Status check failed: {e}"}
     
     async def _get_macos_service_status(self) -> Dict[str, Any]:
-        """Get macOS service status using launchctl."""
-        plist_path = Path.home() / "Library" / "LaunchAgents" / f"{self.service_id}.plist"
+        """Get macOS service status using launchctl with proper service ID detection."""
+        # Find the actual plist file - it might have a different service ID
+        plist_dir = Path.home() / "Library" / "LaunchAgents"
+        actual_plist = None
+        actual_service_id = None
         
-        if not plist_path.exists():
+        # Look for workspace-qdrant related plist files
+        for plist_file in plist_dir.glob("*workspace-qdrant*.plist"):
+            if plist_file.is_file():
+                actual_plist = plist_file
+                actual_service_id = plist_file.stem
+                break
+        
+        if not actual_plist:
             return {
                 "success": True,
                 "status": "not_installed",
@@ -620,7 +692,7 @@ WantedBy=default.target
         
         try:
             # Use launchctl list to check service status
-            cmd = ["launchctl", "list", self.service_id]
+            cmd = ["launchctl", "list", actual_service_id]
             result = await asyncio.create_subprocess_exec(
                 *cmd,
                 stdout=subprocess.PIPE,
@@ -646,29 +718,70 @@ WantedBy=default.target
                         except (ValueError, IndexError):
                             pass
                 
+                # Double-check by looking for actual memexd processes
+                if not pid:
+                    ps_cmd = ["pgrep", "-f", "memexd"]
+                    ps_result = await asyncio.create_subprocess_exec(
+                        *ps_cmd,
+                        stdout=subprocess.PIPE,
+                        stderr=subprocess.PIPE
+                    )
+                    ps_stdout, ps_stderr = await ps_result.communicate()
+                    
+                    if ps_result.returncode == 0 and ps_stdout.decode().strip():
+                        # Found memexd processes
+                        pids = [p.strip() for p in ps_stdout.decode().strip().split('\n') if p.strip()]
+                        if pids:
+                            pid = int(pids[0])  # Use first PID
+                            status = "running"
+                
                 return {
                     "success": True,
                     "status": status,
                     "running": pid is not None,
                     "pid": pid,
-                    "service_id": self.service_id,
+                    "service_id": actual_service_id,
+                    "plist_path": str(actual_plist),
                     "platform": "macOS"
                 }
             else:
-                # Service not loaded
-                return {
-                    "success": True,
-                    "status": "not_loaded",
-                    "running": False,
-                    "service_id": self.service_id,
-                    "platform": "macOS"
-                }
+                # Service not loaded, check if processes are running anyway
+                ps_cmd = ["pgrep", "-f", "memexd"]
+                ps_result = await asyncio.create_subprocess_exec(
+                    *ps_cmd,
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.PIPE
+                )
+                ps_stdout, ps_stderr = await ps_result.communicate()
+                
+                if ps_result.returncode == 0 and ps_stdout.decode().strip():
+                    # Found memexd processes even though service not loaded
+                    pids = [p.strip() for p in ps_stdout.decode().strip().split('\n') if p.strip()]
+                    return {
+                        "success": True,
+                        "status": "running_unmanaged",
+                        "running": True,
+                        "pid": int(pids[0]) if pids else None,
+                        "service_id": actual_service_id,
+                        "plist_path": str(actual_plist),
+                        "platform": "macOS",
+                        "message": "Process running but not managed by launchd"
+                    }
+                else:
+                    return {
+                        "success": True,
+                        "status": "not_loaded",
+                        "running": False,
+                        "service_id": actual_service_id,
+                        "plist_path": str(actual_plist),
+                        "platform": "macOS"
+                    }
                 
         except Exception as e:
             return {
                 "success": False,
                 "error": f"Exception checking service status: {e}",
-                "service_id": self.service_id
+                "service_id": actual_service_id or self.service_id
             }
     
     async def _get_linux_service_status(self) -> Dict[str, Any]:
