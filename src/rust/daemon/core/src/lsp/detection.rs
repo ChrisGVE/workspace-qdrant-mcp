@@ -10,7 +10,7 @@ use serde::{Deserialize, Serialize};
 use tracing::{debug, info, warn};
 use which::which;
 
-use crate::lsp::{Language, LspError, LspResult};
+use crate::lsp::{Language, LspResult};
 
 /// Information about a detected LSP server
 #[derive(Debug, Clone, Serialize, Deserialize)]
