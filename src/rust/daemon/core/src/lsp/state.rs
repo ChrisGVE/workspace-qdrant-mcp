@@ -1,7 +1,7 @@
-//! LSP State Management Module
+//! Unified State Management Module
 //!
-//! This module handles SQLite-based persistence for LSP server metadata,
-//! health metrics, and operational state.
+//! This module handles SQLite-based persistence for daemon state including LSP server metadata,
+//! health metrics, communication logs, configuration, and operational state.
 
 use std::collections::HashMap;
 use std::path::Path;
@@ -117,18 +117,18 @@ pub struct ConfigurationRecord {
     pub previous_value: Option<JsonValue>,
 }
 
-/// LSP state manager for SQLite persistence
-pub struct LspStateManager {
+/// Unified state manager for SQLite persistence
+pub struct StateManager {
     pool: SqlitePool,
     database_path: std::path::PathBuf,
 }
 
-impl LspStateManager {
+impl StateManager {
     /// Create a new state manager
     pub async fn new<P: AsRef<Path>>(database_path: P) -> LspResult<Self> {
         let database_path = database_path.as_ref().to_path_buf();
         
-        info!("Initializing LSP state manager with database: {}", 
+        info!("Initializing unified state manager with database: {}", 
               database_path.display());
 
         // Create parent directory if it doesn't exist
@@ -159,7 +159,7 @@ impl LspStateManager {
 
     /// Initialize the database schema
     pub async fn initialize(&self) -> LspResult<()> {
-        info!("Initializing LSP state database schema");
+        info!("Initializing unified state database schema");
 
         // Create servers table
         sqlx::query(r#"
@@ -257,7 +257,7 @@ impl LspStateManager {
         sqlx::query("CREATE INDEX IF NOT EXISTS idx_config_server_key ON lsp_configurations(server_id, key)")
             .execute(&self.pool).await?;
 
-        info!("LSP state database schema initialized successfully");
+        info!("Unified state database schema initialized successfully");
         Ok(())
     }
 
@@ -628,7 +628,7 @@ impl LspStateManager {
 
     /// Close the state manager
     pub async fn close(&self) -> LspResult<()> {
-        info!("Closing LSP state manager");
+        info!("Closing unified state manager");
         self.pool.close().await;
         Ok(())
     }
@@ -671,7 +671,7 @@ impl LspStateManager {
     }
 }
 
-impl Clone for LspStateManager {
+impl Clone for StateManager {
     fn clone(&self) -> Self {
         Self {
             pool: self.pool.clone(),
