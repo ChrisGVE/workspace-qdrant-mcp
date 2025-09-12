@@ -337,23 +337,33 @@ WantedBy=default.target
             return {"success": False, "error": f"Uninstall failed: {e}"}
     
     async def _uninstall_macos_service(self) -> Dict[str, Any]:
-        """Uninstall macOS service with proper cleanup."""
-        plist_path = Path.home() / "Library" / "LaunchAgents" / f"{self.service_id}.plist"
+        """Uninstall macOS service with proper cleanup and service ID detection."""
+        # Find the actual plist file - it might have a different service ID
+        plist_dir = Path.home() / "Library" / "LaunchAgents"
+        actual_plist = None
+        actual_service_id = None
         
-        if not plist_path.exists():
+        # Look for workspace-qdrant related plist files
+        for plist_file in plist_dir.glob("*workspace-qdrant*.plist"):
+            if plist_file.is_file():
+                actual_plist = plist_file
+                actual_service_id = plist_file.stem
+                break
+        
+        if not actual_plist:
             return {
                 "success": False, 
                 "error": "Service not installed",
-                "plist_path": str(plist_path)
+                "suggestion": "No workspace-qdrant service found"
             }
         
         try:
             # Stop and unload service
-            await self._unload_service(plist_path)
+            await self._unload_service(actual_plist)
             await asyncio.sleep(1)
             
             # Remove plist file
-            plist_path.unlink()
+            actual_plist.unlink()
             
             # Cleanup PID file
             pid_file = self.get_pid_path()
@@ -362,8 +372,9 @@ WantedBy=default.target
             
             return {
                 "success": True,
-                "service_id": self.service_id,
-                "message": f"Service {self.service_id} uninstalled successfully"
+                "service_id": actual_service_id,
+                "plist_path": str(actual_plist),
+                "message": f"Service {actual_service_id} uninstalled successfully"
             }
             
         except Exception as e:
