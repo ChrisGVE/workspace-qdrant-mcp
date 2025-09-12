@@ -14,7 +14,7 @@ use crate::lsp::Language;
 /// Main LSP configuration
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct LspConfig {
-    /// Path to SQLite database for state management
+    /// Path to SQLite database for unified daemon state management
     pub database_path: PathBuf,
     
     /// Global timeout settings
@@ -178,7 +178,7 @@ pub struct LspFeatures {
 impl Default for LspConfig {
     fn default() -> Self {
         Self {
-            database_path: PathBuf::from("lsp_state.db"),
+            database_path: PathBuf::from("state.db"),
             
             startup_timeout: Duration::from_secs(30),
             request_timeout: Duration::from_secs(30),

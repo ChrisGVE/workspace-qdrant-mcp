@@ -690,7 +690,7 @@ mod tests {
         let temp_dir = tempdir().unwrap();
         let db_path = temp_dir.path().join("test.db");
 
-        let manager = LspStateManager::new(&db_path).await.unwrap();
+        let manager = StateManager::new(&db_path).await.unwrap();
         manager.initialize().await.unwrap();
 
         let stats = manager.get_stats().await.unwrap();
@@ -702,7 +702,7 @@ mod tests {
         let temp_dir = tempdir().unwrap();
         let db_path = temp_dir.path().join("test.db");
 
-        let manager = LspStateManager::new(&db_path).await.unwrap();
+        let manager = StateManager::new(&db_path).await.unwrap();
         manager.initialize().await.unwrap();
 
         // Set a configuration value
@@ -723,7 +723,7 @@ mod tests {
         let temp_dir = tempdir().unwrap();
         let db_path = temp_dir.path().join("test.db");
 
-        let manager = LspStateManager::new(&db_path).await.unwrap();
+        let manager = StateManager::new(&db_path).await.unwrap();
         manager.initialize().await.unwrap();
 
         let server_id = Uuid::new_v4();
@@ -768,7 +768,7 @@ mod tests {
         let temp_dir = tempdir().unwrap();
         let db_path = temp_dir.path().join("test.db");
 
-        let manager = LspStateManager::new(&db_path).await.unwrap();
+        let manager = StateManager::new(&db_path).await.unwrap();
         manager.initialize().await.unwrap();
 
         let server_id = Uuid::new_v4();

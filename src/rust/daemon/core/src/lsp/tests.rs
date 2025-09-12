@@ -11,7 +11,7 @@ mod tests {
 
     use crate::lsp::{
         LspConfig, LspManager, Language, LspServerDetector,
-        LspStateManager, ServerStatus,
+        StateManager, ServerStatus,
         JsonRpcClient, JsonRpcMessage,
     };
     use crate::lsp::lifecycle::{ServerMetadata, RestartPolicy, HealthMetrics};
@@ -170,9 +170,9 @@ mod tests {
     #[tokio::test]
     async fn test_state_manager() {
         let temp_dir = tempdir().unwrap();
-        let db_path = temp_dir.path().join("lsp_test.db");
+        let db_path = temp_dir.path().join("state_test.db");
 
-        let manager = LspStateManager::new(&db_path).await.unwrap();
+        let manager = StateManager::new(&db_path).await.unwrap();
         manager.initialize().await.unwrap();
 
         // Test basic stats
@@ -198,9 +198,9 @@ mod tests {
     #[tokio::test]
     async fn test_server_metadata_storage() {
         let temp_dir = tempdir().unwrap();
-        let db_path = temp_dir.path().join("lsp_metadata_test.db");
+        let db_path = temp_dir.path().join("state_metadata_test.db");
 
-        let manager = LspStateManager::new(&db_path).await.unwrap();
+        let manager = StateManager::new(&db_path).await.unwrap();
         manager.initialize().await.unwrap();
 
         // Create test server metadata
@@ -257,9 +257,9 @@ mod tests {
     #[tokio::test]
     async fn test_communication_logging() {
         let temp_dir = tempdir().unwrap();
-        let db_path = temp_dir.path().join("lsp_comm_test.db");
+        let db_path = temp_dir.path().join("state_comm_test.db");
 
-        let manager = LspStateManager::new(&db_path).await.unwrap();
+        let manager = StateManager::new(&db_path).await.unwrap();
         manager.initialize().await.unwrap();
 
         // Create test server
@@ -398,7 +398,7 @@ mod tests {
     async fn test_lsp_manager_lifecycle() {
         let temp_dir = tempdir().unwrap();
         let config = LspConfig {
-            database_path: temp_dir.path().join("lsp_manager_test.db"),
+            database_path: temp_dir.path().join("state_manager_test.db"),
             startup_timeout: Duration::from_secs(10),
             request_timeout: Duration::from_secs(5),
             health_check_interval: Duration::from_secs(30),
@@ -430,9 +430,9 @@ mod tests {
     #[tokio::test]
     async fn test_cleanup_old_records() {
         let temp_dir = tempdir().unwrap();
-        let db_path = temp_dir.path().join("lsp_cleanup_test.db");
+        let db_path = temp_dir.path().join("state_cleanup_test.db");
 
-        let manager = LspStateManager::new(&db_path).await.unwrap();
+        let manager = StateManager::new(&db_path).await.unwrap();
         manager.initialize().await.unwrap();
 
         // Create some test data
