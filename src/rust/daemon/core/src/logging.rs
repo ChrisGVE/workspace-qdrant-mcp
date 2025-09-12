@@ -9,6 +9,7 @@ use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::SystemTime;
 use once_cell::sync::Lazy;
+use atty::Stream;
 
 use tracing::{error, info, warn, debug, instrument, Level};
 use tracing_subscriber::{
@@ -39,6 +40,8 @@ pub struct LoggingConfig {
     pub error_tracking: bool,
     /// Custom fields to include in all log entries
     pub global_fields: HashMap<String, String>,
+    /// Force disable ANSI colors (automatically detected if None)
+    pub force_disable_ansi: Option<bool>,
 }
 
 impl Default for LoggingConfig {
@@ -52,6 +55,7 @@ impl Default for LoggingConfig {
             performance_metrics: true,
             error_tracking: true,
             global_fields: HashMap::new(),
+            force_disable_ansi: None,
         }
     }
 }
@@ -121,6 +125,7 @@ impl LoggingConfig {
             log_file_path: Some(PathBuf::from("/var/log/workspace-qdrant-mcp.log")),
             performance_metrics: true,
             error_tracking: true,
+            force_disable_ansi: Some(true), // Force disable ANSI in production
             global_fields: {
                 let mut fields = HashMap::new();
                 fields.insert("service".to_string(), "workspace-qdrant-mcp".to_string());
@@ -140,6 +145,7 @@ impl LoggingConfig {
             log_file_path: None,
             performance_metrics: true,
             error_tracking: true,
+            force_disable_ansi: None, // Auto-detect ANSI in development
             global_fields: {
                 let mut fields = HashMap::new();
                 fields.insert("env".to_string(), "development".to_string());
@@ -225,6 +231,19 @@ pub fn initialize_logging(config: LoggingConfig) -> Result<(), WorkspaceError> {
     let env_filter = EnvFilter::try_from_default_env()
         .unwrap_or_else(|_| EnvFilter::new(config.level.to_string()));
 
+    // Determine if we should disable ANSI colors
+    let disable_ansi = config.force_disable_ansi.unwrap_or_else(|| {
+        // Disable ANSI if:
+        // 1. Not connected to a TTY
+        // 2. Running as a service (detected by common service environment variables)
+        // 3. Output is being redirected
+        !atty::is(Stream::Stdout) || 
+        env::var("WQM_SERVICE_MODE").map(|v| v == "true").unwrap_or(false) ||
+        env::var("_").map(|v| v.contains("launchd")).unwrap_or(false) ||
+        env::var("INVOCATION_ID").is_ok() || // systemd
+        env::var("UPSTART_JOB").is_ok()      // upstart
+    });
+
     // Build the subscriber with conditional layers
     let registry = Registry::default();
     
@@ -262,6 +281,7 @@ pub fn initialize_logging(config: LoggingConfig) -> Result<(), WorkspaceError> {
                     .with_target(true)
                     .with_thread_ids(true)
                     .with_thread_names(true)
+                    .with_ansi(!disable_ansi)
                     .boxed()
             } else {
                 fmt::layer()
@@ -269,6 +289,7 @@ pub fn initialize_logging(config: LoggingConfig) -> Result<(), WorkspaceError> {
                     .with_target(true)
                     .with_thread_ids(false)
                     .with_thread_names(false)
+                    .with_ansi(!disable_ansi)
                     .boxed()
             };
             
@@ -295,6 +316,7 @@ pub fn initialize_logging(config: LoggingConfig) -> Result<(), WorkspaceError> {
                 .with_target(true)
                 .with_thread_ids(true)
                 .with_thread_names(true)
+                .with_ansi(!disable_ansi)
                 .boxed()
         } else {
             fmt::layer()
@@ -302,6 +324,7 @@ pub fn initialize_logging(config: LoggingConfig) -> Result<(), WorkspaceError> {
                 .with_target(true)
                 .with_thread_ids(false)
                 .with_thread_names(false)
+                .with_ansi(!disable_ansi)
                 .boxed()
         };
         

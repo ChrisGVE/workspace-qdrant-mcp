@@ -612,6 +612,8 @@ pub struct ProcessingEngine {
     /// Document processor
     #[allow(dead_code)]
     document_processor: Arc<DocumentProcessor>,
+    /// LSP state manager for SQLite persistence
+    lsp_state_manager: Option<Arc<LspStateManager>>,
     /// Engine configuration
     config: Arc<Config>,
 }
@@ -631,6 +633,7 @@ impl ProcessingEngine {
             ipc_server: None,
             storage_client: Arc::new(StorageClient::new()),
             document_processor: Arc::new(DocumentProcessor::new()),
+            lsp_state_manager: None,
             config: Arc::new(Config::default()),
         }
     }
@@ -654,6 +657,7 @@ impl ProcessingEngine {
             ipc_server: None,
             storage_client,
             document_processor: Arc::new(DocumentProcessor::new()),
+            lsp_state_manager: None,
             config: Arc::new(config),
         }
     }
@@ -687,12 +691,51 @@ impl ProcessingEngine {
             ipc_server: None,
             storage_client: Arc::new(StorageClient::new()),
             document_processor: Arc::new(DocumentProcessor::new()),
+            lsp_state_manager: None,
             config: Arc::new(config),
         }
     }
     
+    /// Initialize LSP state manager with proper database location
+    async fn initialize_lsp_state_manager(&mut self) -> std::result::Result<(), ProcessingError> {
+        use std::env;
+        
+        // Determine database location based on platform and user environment
+        let db_path = if let Ok(home) = env::var("HOME") {
+            // Use user's home directory for database storage
+            std::path::PathBuf::from(home)
+                .join(".local")
+                .join("share")
+                .join("workspace-qdrant")
+                .join("lsp_state.db")
+        } else {
+            // Fallback to temporary directory
+            std::env::temp_dir()
+                .join("workspace-qdrant")
+                .join("lsp_state.db")
+        };
+        
+        tracing::info!("Initializing LSP state manager with database: {}", db_path.display());
+        
+        // Create the LSP state manager
+        let state_manager = LspStateManager::new(&db_path).await
+            .map_err(|e| ProcessingError::Processing(format!("Failed to create LSP state manager: {}", e)))?;
+        
+        // Initialize the database schema
+        state_manager.initialize().await
+            .map_err(|e| ProcessingError::Processing(format!("Failed to initialize LSP database schema: {}", e)))?;
+        
+        self.lsp_state_manager = Some(Arc::new(state_manager));
+        
+        tracing::info!("LSP state manager initialized successfully");
+        Ok(())
+    }
+    
     /// Start the processing engine with IPC support
     pub async fn start_with_ipc(&mut self) -> std::result::Result<IpcClient, ProcessingError> {
+        // Initialize LSP state manager first
+        self.initialize_lsp_state_manager().await?;
+        
         // Start the main pipeline
         {
             let mut pipeline_lock = self.pipeline.lock().await;
@@ -715,6 +758,9 @@ impl ProcessingEngine {
     
     /// Start the processing engine without IPC (standalone mode)
     pub async fn start(&mut self) -> std::result::Result<(), ProcessingError> {
+        // Initialize LSP state manager first
+        self.initialize_lsp_state_manager().await?;
+        
         let mut pipeline_lock = self.pipeline.lock().await;
         pipeline_lock.start().await
             .map_err(|e| ProcessingError::Processing(e.to_string()))?;
@@ -842,6 +888,11 @@ impl ProcessingEngine {
     /// Get task submitter for advanced usage
     pub fn task_submitter(&self) -> TaskSubmitter {
         self.task_submitter.clone()
+    }
+    
+    /// Get LSP state manager if initialized
+    pub fn lsp_state_manager(&self) -> Option<Arc<LspStateManager>> {
+        self.lsp_state_manager.clone()
     }
     
     /// Graceful shutdown
