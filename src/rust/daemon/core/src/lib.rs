@@ -15,7 +15,7 @@ pub mod embedding;
 pub mod error;
 pub mod ipc;
 pub mod logging;
-pub mod lsp;
+pub mod daemon_state;
 pub mod processing;
 pub mod service_discovery;
 pub mod storage;
@@ -40,12 +40,8 @@ pub use crate::logging::{
     LoggingConfig, PerformanceMetrics, initialize_logging,
     track_async_operation, log_error_with_context, LoggingErrorMonitor
 };
-pub use crate::lsp::{
-    LspManager, LspConfig, Language, LspError, LspResult,
-    LspServerDetector, DetectedServer, ServerCapabilities,
-    LspServerManager, ServerInstance, ServerStatus,
-    JsonRpcClient, JsonRpcMessage, JsonRpcRequest, JsonRpcResponse,
-    LspStateManager
+pub use crate::daemon_state::{
+    DaemonStateManager
 };
 pub use crate::service_discovery::{
     DiscoveryManager, ServiceRegistry, ServiceInfo, ServiceStatus,
@@ -612,8 +608,8 @@ pub struct ProcessingEngine {
     /// Document processor
     #[allow(dead_code)]
     document_processor: Arc<DocumentProcessor>,
-    /// LSP state manager for SQLite persistence
-    lsp_state_manager: Option<Arc<LspStateManager>>,
+    /// Daemon state manager for SQLite persistence
+    daemon_state_manager: Option<Arc<DaemonStateManager>>,
     /// Engine configuration
     config: Arc<Config>,
 }
@@ -633,7 +629,7 @@ impl ProcessingEngine {
             ipc_server: None,
             storage_client: Arc::new(StorageClient::new()),
             document_processor: Arc::new(DocumentProcessor::new()),
-            lsp_state_manager: None,
+            daemon_state_manager: None,
             config: Arc::new(Config::default()),
         }
     }
@@ -657,7 +653,7 @@ impl ProcessingEngine {
             ipc_server: None,
             storage_client,
             document_processor: Arc::new(DocumentProcessor::new()),
-            lsp_state_manager: None,
+            daemon_state_manager: None,
             config: Arc::new(config),
         }
     }
@@ -691,13 +687,13 @@ impl ProcessingEngine {
             ipc_server: None,
             storage_client: Arc::new(StorageClient::new()),
             document_processor: Arc::new(DocumentProcessor::new()),
-            lsp_state_manager: None,
+            daemon_state_manager: None,
             config: Arc::new(config),
         }
     }
     
-    /// Initialize LSP state manager with proper database location
-    async fn initialize_lsp_state_manager(&mut self) -> std::result::Result<(), ProcessingError> {
+    /// Initialize daemon state manager with proper database location
+    async fn initialize_daemon_state_manager(&mut self) -> std::result::Result<(), ProcessingError> {
         use std::env;
         
         // Determine database location based on platform and user environment
@@ -707,34 +703,34 @@ impl ProcessingEngine {
                 .join(".local")
                 .join("share")
                 .join("workspace-qdrant")
-                .join("lsp_state.db")
+                .join("daemon_state.db")
         } else {
             // Fallback to temporary directory
             std::env::temp_dir()
                 .join("workspace-qdrant")
-                .join("lsp_state.db")
+                .join("daemon_state.db")
         };
         
-        tracing::info!("Initializing LSP state manager with database: {}", db_path.display());
+        tracing::info!("Initializing daemon state manager with database: {}", db_path.display());
         
-        // Create the LSP state manager
-        let state_manager = LspStateManager::new(&db_path).await
-            .map_err(|e| ProcessingError::Processing(format!("Failed to create LSP state manager: {}", e)))?;
+        // Create the daemon state manager
+        let state_manager = DaemonStateManager::new(&db_path).await
+            .map_err(|e| ProcessingError::Processing(format!("Failed to create daemon state manager: {}", e)))?;
         
         // Initialize the database schema
         state_manager.initialize().await
-            .map_err(|e| ProcessingError::Processing(format!("Failed to initialize LSP database schema: {}", e)))?;
+            .map_err(|e| ProcessingError::Processing(format!("Failed to initialize daemon database schema: {}", e)))?;
         
-        self.lsp_state_manager = Some(Arc::new(state_manager));
+        self.daemon_state_manager = Some(Arc::new(state_manager));
         
-        tracing::info!("LSP state manager initialized successfully");
+        tracing::info!("Daemon state manager initialized successfully");
         Ok(())
     }
     
     /// Start the processing engine with IPC support
     pub async fn start_with_ipc(&mut self) -> std::result::Result<IpcClient, ProcessingError> {
-        // Initialize LSP state manager first
-        self.initialize_lsp_state_manager().await?;
+        // Initialize daemon state manager first
+        self.initialize_daemon_state_manager().await?;
         
         // Start the main pipeline
         {
@@ -758,8 +754,8 @@ impl ProcessingEngine {
     
     /// Start the processing engine without IPC (standalone mode)
     pub async fn start(&mut self) -> std::result::Result<(), ProcessingError> {
-        // Initialize LSP state manager first
-        self.initialize_lsp_state_manager().await?;
+        // Initialize daemon state manager first
+        self.initialize_daemon_state_manager().await?;
         
         let mut pipeline_lock = self.pipeline.lock().await;
         pipeline_lock.start().await
@@ -890,9 +886,9 @@ impl ProcessingEngine {
         self.task_submitter.clone()
     }
     
-    /// Get LSP state manager if initialized
-    pub fn lsp_state_manager(&self) -> Option<Arc<LspStateManager>> {
-        self.lsp_state_manager.clone()
+    /// Get daemon state manager if initialized
+    pub fn daemon_state_manager(&self) -> Option<Arc<DaemonStateManager>> {
+        self.daemon_state_manager.clone()
     }
     
     /// Graceful shutdown

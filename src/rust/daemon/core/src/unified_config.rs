@@ -212,10 +212,6 @@ impl UnifiedConfigManager {
                 .map_err(|e| UnifiedConfigError::ValidationError(format!("Invalid chunk_size: {}", e)))?;
         }
 
-        if let Ok(enable_lsp) = std::env::var(format!("{}ENABLE_LSP", ENV_PREFIX)) {
-            config.enable_lsp = enable_lsp.parse()
-                .map_err(|e| UnifiedConfigError::ValidationError(format!("Invalid enable_lsp: {}", e)))?;
-        }
 
         if let Ok(log_level) = std::env::var(format!("{}LOG_LEVEL", ENV_PREFIX)) {
             config.log_level = log_level;
@@ -511,7 +507,6 @@ mod tests {
         let config = DaemonConfig::default();
         assert_eq!(config.max_concurrent_tasks, Some(4));
         assert_eq!(config.chunk_size, 1000);
-        assert!(config.enable_lsp);
         assert_eq!(config.log_level, "info");
     }
 
