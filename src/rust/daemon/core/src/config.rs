@@ -5,7 +5,7 @@
 use serde::{Deserialize, Serialize};
 use std::time::Duration;
 use std::path::PathBuf;
-use crate::storage::{StorageConfig, Http2Config, TransportMode};
+use crate::storage::StorageConfig;
 
 /// Auto-ingestion configuration
 #[derive(Debug, Clone, Serialize, Deserialize)]

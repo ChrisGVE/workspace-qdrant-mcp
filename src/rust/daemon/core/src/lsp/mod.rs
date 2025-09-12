@@ -46,12 +46,9 @@
 //! ```
 
 use std::collections::HashMap;
-use std::path::PathBuf;
-use std::time::Duration;
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 use tokio::sync::{RwLock, Mutex};
-use uuid::Uuid;
 
 pub mod detection;
 pub mod lifecycle;
