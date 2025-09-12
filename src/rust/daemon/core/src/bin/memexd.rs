@@ -143,6 +143,9 @@ fn init_logging(log_level: &str, foreground: bool) -> Result<(), Box<dyn std::er
         config.json_format = false; // Keep readable format for launchd logs
         config.file_logging = false; // Let launchd handle file logging
         config.force_disable_ansi = Some(true); // Force disable ANSI colors in service mode
+        
+        // Also set environment variable for consistency
+        std::env::set_var("NO_COLOR", "1");
     }
     
     initialize_logging(config).map_err(|e| Box::new(e) as Box<dyn std::error::Error>)
