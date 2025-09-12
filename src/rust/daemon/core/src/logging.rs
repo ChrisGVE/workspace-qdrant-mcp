@@ -233,15 +233,25 @@ pub fn initialize_logging(config: LoggingConfig) -> Result<(), WorkspaceError> {
 
     // Determine if we should disable ANSI colors
     let disable_ansi = config.force_disable_ansi.unwrap_or_else(|| {
+        // Check for NO_COLOR environment variable (standard)
+        if env::var("NO_COLOR").is_ok() {
+            return true;
+        }
+        
         // Disable ANSI if:
         // 1. Not connected to a TTY
         // 2. Running as a service (detected by common service environment variables)
         // 3. Output is being redirected
-        !atty::is(Stream::Stdout) || 
-        env::var("WQM_SERVICE_MODE").map(|v| v == "true").unwrap_or(false) ||
-        env::var("_").map(|v| v.contains("launchd")).unwrap_or(false) ||
-        env::var("INVOCATION_ID").is_ok() || // systemd
-        env::var("UPSTART_JOB").is_ok()      // upstart
+        let tty_check = !atty::is(Stream::Stdout);
+        let service_check = env::var("WQM_SERVICE_MODE").map(|v| v == "true").unwrap_or(false) ||
+            env::var("XPC_SERVICE_NAME").is_ok() || // macOS LaunchAgent/LaunchDaemon
+            env::var("_").map(|v| v.contains("launchd")).unwrap_or(false) ||
+            env::var("INVOCATION_ID").is_ok() || // systemd
+            env::var("UPSTART_JOB").is_ok() ||   // upstart
+            env::var("SYSTEMD_EXEC_PID").is_ok() || // systemd service
+            env::var("XPC_FLAGS").map(|v| v == "1").unwrap_or(false); // macOS service mode
+            
+        tty_check || service_check
     });
 
     // Build the subscriber with conditional layers
