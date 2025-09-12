@@ -76,7 +76,15 @@ class MemexdServiceManager:
         """Get the default configuration path for memexd."""
         config_dir = Path.home() / ".config" / "workspace-qdrant"
         config_dir.mkdir(parents=True, exist_ok=True)
-        return config_dir / "config.toml"
+        
+        # Check for existing config file
+        workspace_config = config_dir / "workspace_qdrant_config.toml"
+        default_config = config_dir / "config.toml"
+        
+        if workspace_config.exists():
+            return workspace_config
+        else:
+            return default_config
     
     def get_log_path(self) -> Path:
         """Get the log file path for memexd."""
