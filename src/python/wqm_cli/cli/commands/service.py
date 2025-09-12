@@ -219,9 +219,9 @@ class MemexdServiceManager:
             await self._bootout_service()
             await asyncio.sleep(1)
             
-            # Bootstrap the service using modern user domain syntax
-            user_domain = f"user/{os.getuid()}"
-            cmd = ["launchctl", "bootstrap", user_domain, str(plist_path)]
+            # Bootstrap the service using modern gui domain syntax for LaunchAgents
+            gui_domain = f"gui/{os.getuid()}"
+            cmd = ["launchctl", "bootstrap", gui_domain, str(plist_path)]
             result = await asyncio.create_subprocess_exec(
                 *cmd, 
                 stdout=subprocess.PIPE, 
@@ -392,17 +392,17 @@ WantedBy=default.target
     async def _bootout_service(self, service_id: Optional[str] = None) -> None:
         """Bootout service using modern launchctl, ignoring errors if not loaded."""
         try:
-            user_domain = f"user/{os.getuid()}"
+            gui_domain = f"gui/{os.getuid()}"
             
             if service_id:
                 # Bootout specific service
-                cmd = ["launchctl", "bootout", user_domain, service_id]
+                cmd = ["launchctl", "bootout", gui_domain, service_id]
             else:
                 # Find and bootout any workspace-qdrant service
                 plist_dir = Path.home() / "Library" / "LaunchAgents"
                 for plist_file in plist_dir.glob("*workspace-qdrant*.plist"):
                     if plist_file.is_file():
-                        cmd = ["launchctl", "bootout", user_domain, str(plist_file)]
+                        cmd = ["launchctl", "bootout", gui_domain, str(plist_file)]
                         result = await asyncio.create_subprocess_exec(
                             *cmd,
                             stdout=subprocess.PIPE,
@@ -427,9 +427,9 @@ WantedBy=default.target
     async def _force_stop_service(self, service_id: str) -> None:
         """Force stop service, handling memexd shutdown bug with SIGKILL if necessary."""
         try:
-            # First try graceful stop
-            user_domain = f"user/{os.getuid()}"
-            cmd = ["launchctl", "kill", "TERM", user_domain + "/" + service_id]
+            # First try graceful stop - use gui domain for LaunchAgents
+            gui_domain = f"gui/{os.getuid()}"
+            cmd = ["launchctl", "kill", "TERM", gui_domain + "/" + service_id]
             result = await asyncio.create_subprocess_exec(
                 *cmd,
                 stdout=subprocess.PIPE,
@@ -535,7 +535,7 @@ WantedBy=default.target
             }
         
         try:
-            user_domain = f"user/{os.getuid()}"
+            gui_domain = f"gui/{os.getuid()}"
             
             # Check if service is bootstrapped, if not bootstrap it first
             list_cmd = ["launchctl", "list", actual_service_id]
@@ -548,7 +548,7 @@ WantedBy=default.target
             
             if list_result.returncode != 0:
                 # Service not bootstrapped, bootstrap it first
-                bootstrap_cmd = ["launchctl", "bootstrap", user_domain, str(actual_plist)]
+                bootstrap_cmd = ["launchctl", "bootstrap", gui_domain, str(actual_plist)]
                 bootstrap_result = await asyncio.create_subprocess_exec(
                     *bootstrap_cmd,
                     stdout=subprocess.PIPE,
@@ -566,7 +566,7 @@ WantedBy=default.target
                         }
             
             # Now use modern launchctl kickstart to start the service
-            cmd = ["launchctl", "kickstart", "-k", user_domain + "/" + actual_service_id]
+            cmd = ["launchctl", "kickstart", "-k", gui_domain + "/" + actual_service_id]
             result = await asyncio.create_subprocess_exec(
                 *cmd,
                 stdout=subprocess.PIPE,
@@ -676,10 +676,10 @@ WantedBy=default.target
                     "suggestion": "Service may not be installed"
                 }
             
-            user_domain = f"user/{os.getuid()}"
+            gui_domain = f"gui/{os.getuid()}"
             
             # First try graceful stop using modern launchctl kill with SIGTERM
-            cmd = ["launchctl", "kill", "TERM", user_domain + "/" + actual_service_id]
+            cmd = ["launchctl", "kill", "TERM", gui_domain + "/" + actual_service_id]
             result = await asyncio.create_subprocess_exec(
                 *cmd,
                 stdout=subprocess.PIPE,
@@ -701,7 +701,7 @@ WantedBy=default.target
             
             if ps_result.returncode == 0 and ps_stdout.decode().strip():
                 # memexd is stuck - force kill with SIGKILL due to shutdown bug
-                force_kill_cmd = ["launchctl", "kill", "KILL", user_domain + "/" + actual_service_id]
+                force_kill_cmd = ["launchctl", "kill", "KILL", gui_domain + "/" + actual_service_id]
                 force_result = await asyncio.create_subprocess_exec(
                     *force_kill_cmd,
                     stdout=subprocess.PIPE,
