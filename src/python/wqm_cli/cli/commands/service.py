@@ -431,10 +431,20 @@ WantedBy=default.target
             return {"success": False, "error": f"Start failed: {e}"}
     
     async def _start_macos_service(self) -> Dict[str, Any]:
-        """Start macOS service."""
-        plist_path = Path.home() / "Library" / "LaunchAgents" / f"{self.service_id}.plist"
+        """Start macOS service with proper service ID detection."""
+        # Find the actual plist file - it might have a different service ID
+        plist_dir = Path.home() / "Library" / "LaunchAgents"
+        actual_plist = None
+        actual_service_id = None
         
-        if not plist_path.exists():
+        # Look for workspace-qdrant related plist files
+        for plist_file in plist_dir.glob("*workspace-qdrant*.plist"):
+            if plist_file.is_file():
+                actual_plist = plist_file
+                actual_service_id = plist_file.stem
+                break
+        
+        if not actual_plist:
             return {
                 "success": False,
                 "error": "Service not installed",
@@ -442,7 +452,8 @@ WantedBy=default.target
             }
         
         try:
-            cmd = ["launchctl", "start", self.service_id]
+            # For services with KeepAlive, we use 'load' instead of 'start'
+            cmd = ["launchctl", "load", str(actual_plist)]
             result = await asyncio.create_subprocess_exec(
                 *cmd,
                 stdout=subprocess.PIPE,
@@ -465,7 +476,8 @@ WantedBy=default.target
             if status.get("success") and status.get("running"):
                 return {
                     "success": True,
-                    "service_id": self.service_id,
+                    "service_id": actual_service_id,
+                    "plist_path": str(actual_plist),
                     "message": "Service started successfully",
                     "status": status
                 }
@@ -473,6 +485,8 @@ WantedBy=default.target
                 return {
                     "success": False,
                     "error": "Service command succeeded but service is not running",
+                    "service_id": actual_service_id,
+                    "plist_path": str(actual_plist),
                     "debug_info": status
                 }
             
