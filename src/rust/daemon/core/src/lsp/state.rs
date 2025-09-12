@@ -136,8 +136,14 @@ impl LspStateManager {
             tokio::fs::create_dir_all(parent).await?;
         }
 
+        // Ensure the database file can be created by touching it
+        if !database_path.exists() {
+            tokio::fs::File::create(&database_path).await?;
+        }
+
         // Create connection pool
-        let database_url = format!("sqlite://{}", database_path.display());
+        let database_url = format!("sqlite:{}", database_path.display());
+        info!("Connecting to SQLite database: {}", database_url);
         let pool = SqlitePoolOptions::new()
             .max_connections(10)
             .connect(&database_url)

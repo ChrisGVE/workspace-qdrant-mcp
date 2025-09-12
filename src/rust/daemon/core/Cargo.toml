@@ -40,6 +40,7 @@ fastrand = "2.0"
 clap = { version = "4.4", features = ["derive", "string"] }
 scopeguard = "1.2"
 tempfile = "3.8"
+atty = "0.2"
 
 # ML/Embedding dependencies (optional - can be disabled)
 ort = { version = "2.0.0-rc.10", features = ["download-binaries"], optional = true }

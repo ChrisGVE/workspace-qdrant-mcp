@@ -114,6 +114,11 @@ fn parse_args() -> DaemonArgs {
 
 /// Initialize comprehensive logging based on the specified level
 fn init_logging(log_level: &str, foreground: bool) -> Result<(), Box<dyn std::error::Error>> {
+    // Set service mode environment variable if not running in foreground
+    if !foreground {
+        std::env::set_var("WQM_SERVICE_MODE", "true");
+    }
+    
     let mut config = if foreground {
         LoggingConfig::development()
     } else {
@@ -137,6 +142,7 @@ fn init_logging(log_level: &str, foreground: bool) -> Result<(), Box<dyn std::er
         // The plist already redirects stdout/stderr to user-writable log files
         config.json_format = false; // Keep readable format for launchd logs
         config.file_logging = false; // Let launchd handle file logging
+        config.force_disable_ansi = Some(true); // Force disable ANSI colors in service mode
     }
     
     initialize_logging(config).map_err(|e| Box::new(e) as Box<dyn std::error::Error>)
