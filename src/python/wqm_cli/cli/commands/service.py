@@ -3,8 +3,10 @@
 This provides robust service management using the actual memexd binary:
 1. Uses the real memexd binary at /usr/local/bin/memexd
 2. Robust error handling for all OS operations
-3. Proper service state management
+3. Proper service state management with standard OS conventions
 4. Cross-platform launchd/systemd support
+5. macOS: KeepAlive=false allows proper start/stop control
+6. Linux: Restart=on-failure provides crash recovery without interfering with manual stops
 
 Commands:
     wqm service install               # Install daemon as user service
@@ -115,7 +117,7 @@ class MemexdServiceManager:
             return {"success": False, "error": f"Installation failed: {e}"}
     
     async def _install_macos_service(self, auto_start: bool) -> Dict[str, Any]:
-        """Install macOS launchd service with robust error handling."""
+        """Install macOS launchd service with robust error handling using modern bootstrap."""
         
         # Ensure memexd binary exists
         try:
@@ -158,6 +160,8 @@ class MemexdServiceManager:
         pid_path = self.get_pid_path()
         
         # Create simple, robust plist for memexd
+        # KeepAlive=false allows proper start/stop control
+        # Use systemctl-style restart behavior (restart only on crash)
         plist_content = f'''<?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
@@ -180,7 +184,7 @@ class MemexdServiceManager:
     <{"true" if auto_start else "false"}/>
     
     <key>KeepAlive</key>
-    <true/>
+    <false/>
     
     <key>StandardOutPath</key>
     <string>{log_path}</string>
@@ -209,9 +213,15 @@ class MemexdServiceManager:
                 "plist_path": str(plist_path)
             }
         
-        # Load service with proper error handling
+        # Bootstrap service with proper error handling using modern launchctl
         try:
-            cmd = ["launchctl", "load", str(plist_path)]
+            # First remove any existing service to avoid conflicts
+            await self._bootout_service()
+            await asyncio.sleep(1)
+            
+            # Bootstrap the service using modern user domain syntax
+            user_domain = f"user/{os.getuid()}"
+            cmd = ["launchctl", "bootstrap", user_domain, str(plist_path)]
             result = await asyncio.create_subprocess_exec(
                 *cmd, 
                 stdout=subprocess.PIPE, 
@@ -223,29 +233,13 @@ class MemexdServiceManager:
                 # Try to provide better error messages
                 error_msg = stderr.decode().strip() or stdout.decode().strip()
                 
-                if "already loaded" in error_msg.lower():
-                    # Service already exists - unload first
-                    await self._unload_service(plist_path)
-                    await asyncio.sleep(1)
-                    
-                    # Try loading again
-                    result = await asyncio.create_subprocess_exec(
-                        *cmd, 
-                        stdout=subprocess.PIPE, 
-                        stderr=subprocess.PIPE
-                    )
-                    stdout, stderr = await result.communicate()
-                    
-                    if result.returncode != 0:
-                        return {
-                            "success": False,
-                            "error": f"Failed to load service after retry: {stderr.decode()}",
-                            "plist_path": str(plist_path)
-                        }
+                if "service already loaded" in error_msg.lower():
+                    # Service already exists - this is actually OK
+                    pass
                 else:
                     return {
                         "success": False,
-                        "error": f"Failed to load service: {error_msg}",
+                        "error": f"Failed to bootstrap service: {error_msg}",
                         "plist_path": str(plist_path),
                         "returncode": result.returncode
                     }
@@ -265,7 +259,7 @@ class MemexdServiceManager:
         except Exception as e:
             return {
                 "success": False,
-                "error": f"Exception loading service: {e}",
+                "error": f"Exception bootstrapping service: {e}",
                 "plist_path": str(plist_path)
             }
     
@@ -345,7 +339,7 @@ WantedBy=default.target
             return {"success": False, "error": f"Uninstall failed: {e}"}
     
     async def _uninstall_macos_service(self) -> Dict[str, Any]:
-        """Uninstall macOS service with proper cleanup and service ID detection."""
+        """Uninstall macOS service with proper cleanup using modern bootout."""
         # Find the actual plist file - it might have a different service ID
         plist_dir = Path.home() / "Library" / "LaunchAgents"
         actual_plist = None
@@ -366,8 +360,12 @@ WantedBy=default.target
             }
         
         try:
-            # Stop and unload service
-            await self._unload_service(actual_plist)
+            # Stop service first and handle memexd shutdown bug
+            await self._force_stop_service(actual_service_id)
+            await asyncio.sleep(1)
+            
+            # Bootout service using modern launchctl
+            await self._bootout_service(actual_service_id)
             await asyncio.sleep(1)
             
             # Remove plist file
@@ -391,19 +389,85 @@ WantedBy=default.target
                 "error": f"Failed to uninstall service: {e}"
             }
     
-    async def _unload_service(self, plist_path: Path) -> None:
-        """Unload service, ignoring errors if already unloaded."""
+    async def _bootout_service(self, service_id: Optional[str] = None) -> None:
+        """Bootout service using modern launchctl, ignoring errors if not loaded."""
         try:
-            cmd = ["launchctl", "unload", str(plist_path)]
+            user_domain = f"user/{os.getuid()}"
+            
+            if service_id:
+                # Bootout specific service
+                cmd = ["launchctl", "bootout", user_domain, service_id]
+            else:
+                # Find and bootout any workspace-qdrant service
+                plist_dir = Path.home() / "Library" / "LaunchAgents"
+                for plist_file in plist_dir.glob("*workspace-qdrant*.plist"):
+                    if plist_file.is_file():
+                        cmd = ["launchctl", "bootout", user_domain, str(plist_file)]
+                        result = await asyncio.create_subprocess_exec(
+                            *cmd,
+                            stdout=subprocess.PIPE,
+                            stderr=subprocess.PIPE
+                        )
+                        await result.communicate()
+                return
+                
+                # No service found to bootout
+                return
+            
             result = await asyncio.create_subprocess_exec(
                 *cmd,
                 stdout=subprocess.PIPE,
                 stderr=subprocess.PIPE
             )
             await result.communicate()
-            # Don't check return code - unload can fail if service not loaded
+            # Don't check return code - bootout can fail if service not loaded
         except:
-            pass  # Ignore unload errors
+            pass  # Ignore bootout errors
+            
+    async def _force_stop_service(self, service_id: str) -> None:
+        """Force stop service, handling memexd shutdown bug with SIGKILL if necessary."""
+        try:
+            # First try graceful stop
+            user_domain = f"user/{os.getuid()}"
+            cmd = ["launchctl", "kill", "TERM", user_domain + "/" + service_id]
+            result = await asyncio.create_subprocess_exec(
+                *cmd,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE
+            )
+            await result.communicate()
+            
+            # Wait for graceful shutdown
+            await asyncio.sleep(3)
+            
+            # Check if any memexd processes are still running
+            ps_cmd = ["pgrep", "-f", "memexd"]
+            ps_result = await asyncio.create_subprocess_exec(
+                *ps_cmd,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE
+            )
+            ps_stdout, ps_stderr = await ps_result.communicate()
+            
+            if ps_result.returncode == 0 and ps_stdout.decode().strip():
+                # memexd processes still running despite SIGTERM - force kill them
+                pids = [p.strip() for p in ps_stdout.decode().strip().split('\n') if p.strip().isdigit()]
+                
+                for pid in pids:
+                    try:
+                        # Force kill the stubborn memexd process
+                        kill_cmd = ["kill", "-KILL", pid]
+                        kill_result = await asyncio.create_subprocess_exec(
+                            *kill_cmd,
+                            stdout=subprocess.PIPE,
+                            stderr=subprocess.PIPE
+                        )
+                        await kill_result.communicate()
+                    except:
+                        pass  # Ignore kill errors
+                        
+        except:
+            pass  # Ignore force stop errors
     
     async def _uninstall_linux_service(self) -> Dict[str, Any]:
         """Uninstall Linux service."""
@@ -450,7 +514,7 @@ WantedBy=default.target
             return {"success": False, "error": f"Start failed: {e}"}
     
     async def _start_macos_service(self) -> Dict[str, Any]:
-        """Start macOS service with proper service ID detection."""
+        """Start macOS service with proper service ID detection using modern launchctl."""
         # Find the actual plist file - it might have a different service ID
         plist_dir = Path.home() / "Library" / "LaunchAgents"
         actual_plist = None
@@ -471,8 +535,38 @@ WantedBy=default.target
             }
         
         try:
-            # For services with KeepAlive, we use 'load' instead of 'start'
-            cmd = ["launchctl", "load", str(actual_plist)]
+            user_domain = f"user/{os.getuid()}"
+            
+            # Check if service is bootstrapped, if not bootstrap it first
+            list_cmd = ["launchctl", "list", actual_service_id]
+            list_result = await asyncio.create_subprocess_exec(
+                *list_cmd,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE
+            )
+            await list_result.communicate()
+            
+            if list_result.returncode != 0:
+                # Service not bootstrapped, bootstrap it first
+                bootstrap_cmd = ["launchctl", "bootstrap", user_domain, str(actual_plist)]
+                bootstrap_result = await asyncio.create_subprocess_exec(
+                    *bootstrap_cmd,
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.PIPE
+                )
+                bootstrap_stdout, bootstrap_stderr = await bootstrap_result.communicate()
+                
+                if bootstrap_result.returncode != 0:
+                    error_msg = bootstrap_stderr.decode().strip() or bootstrap_stdout.decode().strip()
+                    if "service already loaded" not in error_msg.lower():
+                        return {
+                            "success": False,
+                            "error": f"Failed to bootstrap service: {error_msg}",
+                            "returncode": bootstrap_result.returncode
+                        }
+            
+            # Now use modern launchctl kickstart to start the service
+            cmd = ["launchctl", "kickstart", "-k", user_domain + "/" + actual_service_id]
             result = await asyncio.create_subprocess_exec(
                 *cmd,
                 stdout=subprocess.PIPE,
@@ -561,7 +655,7 @@ WantedBy=default.target
             return {"success": False, "error": f"Stop failed: {e}"}
     
     async def _stop_macos_service(self) -> Dict[str, Any]:
-        """Stop macOS service with proper service ID detection and KeepAlive handling."""
+        """Stop macOS service using modern launchctl and handle memexd shutdown bug."""
         try:
             # Find the actual plist file - it might have a different service ID
             plist_dir = Path.home() / "Library" / "LaunchAgents"
@@ -582,9 +676,10 @@ WantedBy=default.target
                     "suggestion": "Service may not be installed"
                 }
             
-            # For KeepAlive services, we need to unload the plist to truly stop them
-            # First try unloading the service
-            cmd = ["launchctl", "unload", str(actual_plist)]
+            user_domain = f"user/{os.getuid()}"
+            
+            # First try graceful stop using modern launchctl kill with SIGTERM
+            cmd = ["launchctl", "kill", "TERM", user_domain + "/" + actual_service_id]
             result = await asyncio.create_subprocess_exec(
                 *cmd,
                 stdout=subprocess.PIPE,
@@ -592,11 +687,11 @@ WantedBy=default.target
             )
             stdout, stderr = await result.communicate()
             
-            # Wait a moment for the service to stop
+            # Wait for graceful shutdown
             await asyncio.sleep(3)
             
-            # Check if any memexd processes are still running
-            ps_cmd = ["pgrep", "memexd"]
+            # Check if any memexd processes are still running (memexd shutdown bug)
+            ps_cmd = ["pgrep", "-f", "memexd"]
             ps_result = await asyncio.create_subprocess_exec(
                 *ps_cmd,
                 stdout=subprocess.PIPE,
@@ -604,53 +699,105 @@ WantedBy=default.target
             )
             ps_stdout, ps_stderr = await ps_result.communicate()
             
-            if ps_result.returncode != 0:  # No processes found (good)
+            if ps_result.returncode == 0 and ps_stdout.decode().strip():
+                # memexd is stuck - force kill with SIGKILL due to shutdown bug
+                force_kill_cmd = ["launchctl", "kill", "KILL", user_domain + "/" + actual_service_id]
+                force_result = await asyncio.create_subprocess_exec(
+                    *force_kill_cmd,
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.PIPE
+                )
+                await force_result.communicate()
+                
+                # Wait a moment for force kill to take effect
+                await asyncio.sleep(2)
+                
+                # Check again if processes are gone
+                final_ps_result = await asyncio.create_subprocess_exec(
+                    *ps_cmd,
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.PIPE
+                )
+                final_ps_stdout, final_ps_stderr = await final_ps_result.communicate()
+                
+                if final_ps_result.returncode == 0 and final_ps_stdout.decode().strip():
+                    # Still running despite SIGKILL - manually kill remaining processes
+                    pids = [p.strip() for p in final_ps_stdout.decode().strip().split('\n') if p.strip().isdigit()]
+                    
+                    for pid in pids:
+                        try:
+                            manual_kill_cmd = ["kill", "-KILL", pid]
+                            manual_kill_result = await asyncio.create_subprocess_exec(
+                                *manual_kill_cmd,
+                                stdout=subprocess.PIPE,
+                                stderr=subprocess.PIPE
+                            )
+                            await manual_kill_result.communicate()
+                        except:
+                            pass  # Ignore manual kill errors
+                    
+                    return {
+                        "success": True,
+                        "service_id": actual_service_id,
+                        "plist_path": str(actual_plist),
+                        "message": "Service stopped successfully (forced due to memexd shutdown bug)",
+                        "method": "force_kill",
+                        "status": "force_stopped"
+                    }
+            
+            # Verify final stop status
+            status_cmd = ["launchctl", "list", actual_service_id]
+            status_result = await asyncio.create_subprocess_exec(
+                *status_cmd,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE
+            )
+            status_stdout, status_stderr = await status_result.communicate()
+            
+            if status_result.returncode == 0:
+                # Service is still loaded, check if it's actually stopped
+                output = status_stdout.decode().strip()
+                lines = output.split('\n')
+                
+                pid = None
+                for line in lines:
+                    if '"PID" =' in line:
+                        try:
+                            pid_str = line.split('=')[1].strip().rstrip(';')
+                            if pid_str != "-" and pid_str.isdigit():
+                                pid = int(pid_str)
+                        except (ValueError, IndexError):
+                            pass
+                
+                if pid is None:
+                    # Service is loaded but not running (stopped successfully)
+                    return {
+                        "success": True,
+                        "service_id": actual_service_id,
+                        "plist_path": str(actual_plist),
+                        "message": "Service stopped successfully",
+                        "method": "graceful_stop",
+                        "status": "loaded_but_stopped"
+                    }
+                else:
+                    # Service is still running after all attempts
+                    return {
+                        "success": False,
+                        "error": f"Service still running with PID {pid} after stop attempts",
+                        "service_id": actual_service_id,
+                        "plist_path": str(actual_plist),
+                        "suggestion": "Manual intervention may be required"
+                    }
+            else:
+                # Service not in launchctl list - successfully stopped
                 return {
                     "success": True,
                     "service_id": actual_service_id,
                     "plist_path": str(actual_plist),
                     "message": "Service stopped successfully",
-                    "method": "launchctl unload"
+                    "method": "graceful_stop",
+                    "status": "not_loaded"
                 }
-            else:
-                # Processes still running, try to kill them
-                pids = [pid.strip() for pid in ps_stdout.decode().strip().split('\n') if pid.strip()]
-                killed_pids = []
-                
-                for pid in pids:
-                    try:
-                        kill_cmd = ["kill", "-TERM", pid]
-                        kill_result = await asyncio.create_subprocess_exec(*kill_cmd)
-                        await kill_result.wait()
-                        killed_pids.append(pid)
-                    except Exception:
-                        pass
-                
-                # Wait and check again
-                await asyncio.sleep(2)
-                ps_result2 = await asyncio.create_subprocess_exec(
-                    *ps_cmd,
-                    stdout=subprocess.PIPE,
-                    stderr=subprocess.PIPE
-                )
-                await ps_result2.communicate()
-                
-                if ps_result2.returncode != 0:  # No processes found
-                    return {
-                        "success": True,
-                        "service_id": actual_service_id,
-                        "plist_path": str(actual_plist),
-                        "message": "Service stopped successfully (killed remaining processes)",
-                        "method": "launchctl unload + kill",
-                        "killed_pids": killed_pids
-                    }
-                else:
-                    return {
-                        "success": False,
-                        "error": "Service processes still running after stop attempts",
-                        "service_id": actual_service_id,
-                        "plist_path": str(actual_plist)
-                    }
                 
         except Exception as e:
             return {
