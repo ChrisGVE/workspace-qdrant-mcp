@@ -76,8 +76,6 @@ pub struct DaemonConfig {
     pub enable_preemption: bool,
     /// Document processing chunk size
     pub chunk_size: usize,
-    /// Enable LSP support
-    pub enable_lsp: bool,
     /// Log level configuration
     pub log_level: String,
     /// Enable metrics collection
@@ -102,7 +100,6 @@ impl Default for DaemonConfig {
             default_timeout_ms: Some(30_000),
             enable_preemption: true,
             chunk_size: 1000,
-            enable_lsp: true,
             log_level: "info".to_string(),
             enable_metrics: true,
             metrics_interval_secs: 60,
@@ -125,8 +122,6 @@ pub struct Config {
     pub enable_preemption: bool,
     /// Document processing chunk size
     pub chunk_size: usize,
-    /// Enable LSP support
-    pub enable_lsp: bool,
     /// Log level configuration
     pub log_level: String,
     /// Enable metrics collection
@@ -142,7 +137,6 @@ impl From<DaemonConfig> for Config {
             default_timeout_ms: daemon_config.default_timeout_ms,
             enable_preemption: daemon_config.enable_preemption,
             chunk_size: daemon_config.chunk_size,
-            enable_lsp: daemon_config.enable_lsp,
             log_level: daemon_config.log_level,
             enable_metrics: daemon_config.enable_metrics,
             metrics_interval_secs: daemon_config.metrics_interval_secs,
@@ -158,7 +152,6 @@ impl Config {
             default_timeout_ms: Some(30_000),
             enable_preemption: true,
             chunk_size: 1000,
-            enable_lsp: true,
             log_level: "info".to_string(),
             enable_metrics: true,
             metrics_interval_secs: 60,
@@ -172,7 +165,6 @@ impl Config {
             default_timeout_ms: Some(10_000),
             enable_preemption: true,
             chunk_size: 2000,
-            enable_lsp: false, // Disable LSP for better performance
             log_level: "warn".to_string(),
             enable_metrics: true,
             metrics_interval_secs: 30,
@@ -186,7 +178,6 @@ impl Config {
             default_timeout_ms: Some(5_000),
             enable_preemption: true,
             chunk_size: 500,
-            enable_lsp: true,
             log_level: "debug".to_string(),
             enable_metrics: true,
             metrics_interval_secs: 10,
@@ -200,7 +191,6 @@ impl Config {
             default_timeout_ms: Some(60_000),
             enable_preemption: false,
             chunk_size: 500,
-            enable_lsp: false,
             log_level: "error".to_string(),
             enable_metrics: false,
             metrics_interval_secs: 300,
@@ -262,14 +252,12 @@ impl Default for Config {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct EngineConfig {
     pub chunk_size: usize,
-    pub enable_lsp: bool,
 }
 
 impl EngineConfig {
     pub fn new() -> Self {
         Self {
             chunk_size: 1000,
-            enable_lsp: true,
         }
     }
 }
@@ -285,7 +273,6 @@ impl From<EngineConfig> for Config {
     fn from(legacy: EngineConfig) -> Self {
         Self {
             chunk_size: legacy.chunk_size,
-            enable_lsp: legacy.enable_lsp,
             ..Default::default()
         }
     }
@@ -311,7 +298,6 @@ mod tests {
         assert_eq!(config.max_concurrent_tasks, Some(8));
         assert_eq!(config.default_timeout_ms, Some(10_000));
         assert_eq!(config.chunk_size, 2000);
-        assert!(!config.enable_lsp); // Should be disabled for performance
     }
     
     #[test]
@@ -367,12 +353,10 @@ mod tests {
     fn test_legacy_config_conversion() {
         let legacy = EngineConfig {
             chunk_size: 2000,
-            enable_lsp: false,
         };
         
         let config: Config = legacy.into();
         assert_eq!(config.chunk_size, 2000);
-        assert!(!config.enable_lsp);
         // Other fields should be defaults
         assert_eq!(config.max_concurrent_tasks, Some(4));
     }
