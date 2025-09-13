@@ -8,7 +8,7 @@ configuration models for structured logging setup.
 import os
 from pathlib import Path
 from typing import Optional, Union
-from pydantic import BaseModel, Field, validator
+from pydantic import BaseModel, Field, field_validator
 
 
 class LoggingConfig(BaseModel):
@@ -47,14 +47,16 @@ class LoggingConfig(BaseModel):
         description="Force console output to stderr instead of stdout"
     )
 
-    @validator("level", pre=True)
+    @field_validator("level", mode="before")
+    @classmethod
     def validate_level(cls, v):
         """Convert string level to uppercase for consistency."""
         if isinstance(v, str):
             return v.upper()
         return v
 
-    @validator("log_file", pre=True)
+    @field_validator("log_file", mode="before")
+    @classmethod
     def validate_log_file(cls, v):
         """Convert string path to Path object."""
         if isinstance(v, str):
