@@ -81,12 +81,49 @@ _ORIGINAL_STDOUT = None
 _ORIGINAL_STDERR = None
 
 if _STDIO_MODE:
-    # Store originals and redirect to null
+    # Store originals and redirect only stderr to null
+    # Keep stdout available for MCP protocol but silence other output
     _ORIGINAL_STDOUT = sys.stdout
     _ORIGINAL_STDERR = sys.stderr
     _NULL_DEVICE = open(os.devnull, 'w')
-    sys.stdout = _NULL_DEVICE
+
+    # Only redirect stderr to null, stdout needs to remain for MCP protocol
     sys.stderr = _NULL_DEVICE
+
+    # Wrap stdout to filter out non-MCP output
+    class MCPStdoutWrapper:
+        """Wrapper that only allows valid JSON-RPC output to stdout."""
+        def __init__(self, original_stdout):
+            self.original = original_stdout
+            self.buffer = ""
+
+        def write(self, text):
+            # Allow JSON-RPC messages (start with { and contain jsonrpc)
+            # Buffer the input to check if it's valid JSON-RPC
+            self.buffer += text
+
+            # Check if we have a complete line
+            if '\n' in self.buffer:
+                lines = self.buffer.split('\n')
+                for line in lines[:-1]:  # Process all complete lines
+                    if line.strip():
+                        # Check if it looks like JSON-RPC
+                        if (line.strip().startswith('{') and
+                            ('"jsonrpc"' in line or '"id"' in line or '"method"' in line)):
+                            self.original.write(line + '\n')
+                            self.original.flush()
+                        # Silently drop everything else
+                self.buffer = lines[-1]  # Keep the incomplete line
+            return len(text)
+
+        def flush(self):
+            self.original.flush()
+
+        def __getattr__(self, name):
+            return getattr(self.original, name)
+
+    # Install the wrapper
+    sys.stdout = MCPStdoutWrapper(_ORIGINAL_STDOUT)
 
     # Set environment variables for downstream detection
     os.environ["WQM_STDIO_MODE"] = "true"
@@ -112,6 +149,20 @@ if _STDIO_MODE:
     root_logger.addHandler(_NullHandler())
     root_logger.setLevel(logging.CRITICAL + 1)
     root_logger.disabled = True
+
+    # Also silence third-party loggers that might output to stdout
+    third_party_loggers = [
+        'httpx', 'httpcore', 'urllib3', 'requests',
+        'qdrant_client', 'fastmcp', 'uvicorn', 'fastapi',
+        'pydantic', 'transformers', 'huggingface_hub',
+        'sentence_transformers', 'torch', 'tensorflow'
+    ]
+
+    for logger_name in third_party_loggers:
+        third_logger = logging.getLogger(logger_name)
+        third_logger.setLevel(logging.CRITICAL + 1)
+        third_logger.disabled = True
+        third_logger.propagate = False
 
 import typer
 from fastmcp import FastMCP
@@ -2749,11 +2800,10 @@ def run_server(
             log_file_enabled=log_file is not None if transport == "stdio" else None,
         )
     else:
-        # In stdio mode with early silence configured - restore stdout for MCP protocol
-        if transport == "stdio" and _STDIO_MODE and _ORIGINAL_STDOUT:
-            # Restore stdout for MCP JSON-RPC protocol communication
-            sys.stdout = _ORIGINAL_STDOUT
-            # Keep stderr redirected to prevent any error output
+        # In stdio mode with early silence configured
+        # Stdout is already available for MCP protocol
+        # Additional safety: suppress any remaining output sources
+        pass
 
     # Set up signal handlers for graceful shutdown
     setup_signal_handlers()
@@ -2765,6 +2815,9 @@ def run_server(
             """Clean up resources on exit."""
             if _NULL_DEVICE and not _NULL_DEVICE.closed:
                 _NULL_DEVICE.close()
+            # Restore original stdout if needed
+            if hasattr(sys.stdout, 'original'):
+                sys.stdout = sys.stdout.original
         atexit.register(cleanup)
 
     # Initialize workspace before running server
