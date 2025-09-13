@@ -226,6 +226,22 @@ impl PerformanceMetrics {
 static PERFORMANCE_METRICS: Lazy<std::sync::Mutex<PerformanceMetrics>> = 
     Lazy::new(|| std::sync::Mutex::new(PerformanceMetrics::default()));
 
+/// Suppress any potential TTY detection debug output
+/// This function should be called before any TTY detection to ensure complete silence
+pub fn suppress_tty_debug_output() {
+    // Set environment variables that might control debug output from TTY detection libraries
+    std::env::set_var("TTY_DETECTION_SILENT", "1");
+    std::env::set_var("ATTY_FORCE_DISABLE_DEBUG", "1");
+    std::env::set_var("WQM_TTY_DEBUG", "0");
+
+    // Ensure atty library doesn't produce any debug output
+    std::env::set_var("ATTY_SILENT", "1");
+
+    // Set NO_COLOR to prevent any color-related debug messages
+    std::env::set_var("NO_COLOR", "1");
+    std::env::set_var("TERM", "dumb");
+}
+
 /// Initialize comprehensive logging system with daemon mode silence support
 pub fn initialize_logging(config: LoggingConfig) -> Result<(), WorkspaceError> {
     // Detect daemon mode early for complete suppression
@@ -254,12 +270,18 @@ pub fn initialize_logging(config: LoggingConfig) -> Result<(), WorkspaceError> {
     };
 
     // Determine if we should disable ANSI colors
+    // Note: TTY detection performed silently to prevent log pollution
     let disable_ansi = config.force_disable_ansi.unwrap_or_else(|| {
         // Check for NO_COLOR environment variable (standard)
         if env::var("NO_COLOR").is_ok() {
             return true;
         }
-        
+
+        // Check for explicit TTY detection silence flag
+        if env::var("TTY_DETECTION_SILENT").is_ok() || env::var("WQM_TTY_DEBUG") == Ok("0".to_string()) {
+            return true; // Force disable ANSI when TTY debug is suppressed
+        }
+
         // Disable ANSI if:
         // 1. Not connected to a TTY
         // 2. Running as a service (detected by common service environment variables)
@@ -272,7 +294,7 @@ pub fn initialize_logging(config: LoggingConfig) -> Result<(), WorkspaceError> {
             env::var("UPSTART_JOB").is_ok() ||   // upstart
             env::var("SYSTEMD_EXEC_PID").is_ok() || // systemd service
             env::var("XPC_FLAGS").map(|v| v == "1").unwrap_or(false); // macOS service mode
-            
+
         tty_check || service_check
     });
 
