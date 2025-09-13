@@ -2261,7 +2261,7 @@ async def cleanup_workspace() -> None:
 
     # Clean up daemon manager and all running daemons
     try:
-        from .core.daemon_manager import shutdown_all_daemons
+        from common.core.daemon_manager import shutdown_all_daemons
 
         await shutdown_all_daemons()
         logger.info("All daemons shut down successfully")
