@@ -228,6 +228,7 @@ static PERFORMANCE_METRICS: Lazy<std::sync::Mutex<PerformanceMetrics>> =
 
 /// Suppress any potential TTY detection debug output
 /// This function should be called before any TTY detection to ensure complete silence
+/// Note: Critical TTY_DEBUG suppression is now done in main() before any initialization
 pub fn suppress_tty_debug_output() {
     // Set environment variables that might control debug output from TTY detection libraries
     std::env::set_var("TTY_DETECTION_SILENT", "1");
@@ -238,8 +239,10 @@ pub fn suppress_tty_debug_output() {
     // The Claude CLI uses TTY_DEBUG environment variable to control debug output
     std::env::set_var("TTY_DEBUG", "0");
 
-    // Ensure atty library doesn't produce any debug output
+    // Additional suppression variables for various TTY detection libraries
     std::env::set_var("ATTY_SILENT", "1");
+    std::env::set_var("CONSOLE_NO_DEBUG", "1");
+    std::env::set_var("TERMINAL_DEBUG", "0");
 
     // Set NO_COLOR to prevent any color-related debug messages
     std::env::set_var("NO_COLOR", "1");

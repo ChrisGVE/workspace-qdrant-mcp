@@ -11,11 +11,7 @@ use tokio::signal;
 use tracing::{error, info, warn};
 
 // Platform-specific imports for stderr suppression
-#[cfg(unix)]
-use std::os::unix::io::AsRawFd;
-
-#[cfg(windows)]
-use std::os::windows::io::AsRawHandle;
+// Note: AsRawFd is imported locally where used to avoid unused import warnings
 // Removed unused imports: EnvFilter, FmtSubscriber
 use workspace_qdrant_core::{
     ProcessingEngine, config::{Config, DaemonConfig}, 
@@ -476,6 +472,17 @@ fn detect_daemon_mode() -> bool {
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    // CRITICAL: Set TTY_DEBUG=0 IMMEDIATELY before ANY other operations
+    // This prevents Claude CLI dependency TTY detection debug messages
+    std::env::set_var("TTY_DEBUG", "0");
+    std::env::set_var("TTY_DETECTION_SILENT", "1");
+    std::env::set_var("ATTY_FORCE_DISABLE_DEBUG", "1");
+    std::env::set_var("NO_COLOR", "1");
+
+    // Log the suppression for verification (only in debug builds)
+    #[cfg(debug_assertions)]
+    eprintln!("TTY suppression environment variables set at main() start");
+
     // CRITICAL: Suppress third-party library output before ANY initialization
     // This must be the very first operation to prevent early output
     let is_daemon_mode = detect_daemon_mode();
