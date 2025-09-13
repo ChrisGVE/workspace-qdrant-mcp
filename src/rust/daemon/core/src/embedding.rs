@@ -21,6 +21,7 @@ use tokenizers::Tokenizer;
 use ahash::AHashMap;
 use std::hash::{Hash, Hasher};
 use ahash::AHasher;
+use tracing;
 
 /// Errors that can occur during embedding generation
 #[derive(Error, Debug)]
@@ -280,7 +281,7 @@ impl ModelManager {
         // Download model file
         let model_path = self.get_model_path(model_name);
         if !model_path.exists() {
-            println!("Downloading model: {} from {}", model_name, model_info.url);
+            tracing::info!("Downloading model: {} from {}", model_name, model_info.url);
             self.download_file(&model_info.url, &model_path).await?;
         }
         
@@ -288,7 +289,7 @@ impl ModelManager {
         if let Some(tokenizer_url) = &model_info.tokenizer_url {
             let tokenizer_path = self.get_tokenizer_path(model_name);
             if !tokenizer_path.exists() {
-                println!("Downloading tokenizer for: {}", model_name);
+                tracing::info!("Downloading tokenizer for: {}", model_name);
                 self.download_file(tokenizer_url, &tokenizer_path).await?;
             }
         }
