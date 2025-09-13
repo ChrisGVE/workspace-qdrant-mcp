@@ -9,12 +9,11 @@ use std::path::{Path, PathBuf};
 use std::process;
 use tokio::signal;
 use tracing::{error, info, warn};
-use tracing_subscriber::{EnvFilter, FmtSubscriber};
+// Removed unused imports: EnvFilter, FmtSubscriber
 use workspace_qdrant_core::{
     ProcessingEngine, config::{Config, DaemonConfig}, 
     LoggingConfig, initialize_logging,
-    ErrorRecovery, ErrorRecoveryStrategy,
-    track_async_operation, LoggingErrorMonitor,
+    // Removed unused imports: ErrorRecovery, ErrorRecoveryStrategy, track_async_operation, LoggingErrorMonitor
 };
 
 /// Command-line arguments for memexd daemon
@@ -47,12 +46,16 @@ impl Default for DaemonArgs {
     }
 }
 
-/// Parse command-line arguments
-fn parse_args() -> DaemonArgs {
+/// Parse command-line arguments with graceful error handling
+fn parse_args() -> Result<DaemonArgs, Box<dyn std::error::Error>> {
+    let is_daemon = detect_daemon_mode();
+
     let matches = Command::new("memexd")
         .version("0.2.0")
         .author("Christian C. Berclaz <christian.berclaz@mac.com>")
         .about("Memory eXchange Daemon - Document processing and embedding generation service")
+        .disable_help_flag(is_daemon) // Disable help in daemon mode to prevent output
+        .disable_version_flag(is_daemon) // Disable version in daemon mode
         .arg(
             Arg::new("config")
                 .short('c')
@@ -100,31 +103,79 @@ fn parse_args() -> DaemonArgs {
                 .help("Project identifier for multi-instance support")
                 .value_parser(clap::value_parser!(String)),
         )
-        .get_matches();
+        .try_get_matches();
 
-    DaemonArgs {
+    let matches = match matches {
+        Ok(m) => m,
+        Err(e) => {
+            // Handle argument parsing errors gracefully
+            if is_daemon {
+                // In daemon mode, exit silently without stderr output
+                process::exit(1);
+            } else {
+                // In interactive mode, show helpful error message
+                eprintln!("Error: {}", e);
+                process::exit(1);
+            }
+        }
+    };
+
+    // Extract arguments with proper error handling instead of unwrap()
+    let log_level = matches.get_one::<String>("log-level")
+        .ok_or("Missing log-level parameter (this should not happen with default value)")?;
+
+    let pid_file = matches.get_one::<PathBuf>("pid-file")
+        .ok_or("Missing pid-file parameter (this should not happen with default value)")?;
+
+    Ok(DaemonArgs {
         config_file: matches.get_one::<PathBuf>("config").cloned(),
         port: matches.get_one::<u16>("port").copied(),
-        log_level: matches.get_one::<String>("log-level").unwrap().clone(),
-        pid_file: matches.get_one::<PathBuf>("pid-file").unwrap().clone(),
+        log_level: log_level.clone(),
+        pid_file: pid_file.clone(),
         foreground: matches.get_flag("foreground"),
         project_id: matches.get_one::<String>("project-id").cloned(),
+    })
+}
+
+/// Suppress third-party library output in daemon mode
+fn suppress_third_party_output() {
+    // Set environment variables to suppress third-party library output
+    let suppression_vars = [
+        ("ORT_LOGGING_LEVEL", "4"),     // ONNX Runtime - only fatal errors
+        ("OMP_NUM_THREADS", "1"),       // Disable OpenMP threading messages
+        ("TOKENIZERS_PARALLELISM", "false"), // Disable tokenizers parallel output
+        ("HF_HUB_DISABLE_PROGRESS_BARS", "1"), // Disable HuggingFace progress bars
+        ("HF_HUB_DISABLE_TELEMETRY", "1"), // Disable HuggingFace telemetry
+        ("NO_COLOR", "1"),              // Disable all ANSI color output
+        ("TERM", "dumb"),               // Force dumb terminal mode
+        ("RUST_BACKTRACE", "0"),        // Disable Rust panic backtraces
+    ];
+
+    for (key, value) in &suppression_vars {
+        std::env::set_var(key, value);
     }
 }
 
-/// Initialize comprehensive logging based on the specified level
+/// Initialize comprehensive logging with daemon mode support
 fn init_logging(log_level: &str, foreground: bool) -> Result<(), Box<dyn std::error::Error>> {
     // Set service mode environment variable if not running in foreground
     if !foreground {
         std::env::set_var("WQM_SERVICE_MODE", "true");
+        // Suppress third-party output early in daemon mode
+        suppress_third_party_output();
     }
-    
+
     let mut config = if foreground {
         LoggingConfig::development()
     } else {
-        LoggingConfig::production()
+        // In daemon mode, configure for complete silence
+        let mut prod_config = LoggingConfig::production();
+        prod_config.console_output = false; // Disable console output completely
+        prod_config.file_logging = false;   // Let launchd handle file logging
+        prod_config.force_disable_ansi = Some(true);
+        prod_config
     };
-    
+
     // Parse log level
     use tracing::Level;
     config.level = match log_level.to_lowercase().as_str() {
@@ -135,19 +186,12 @@ fn init_logging(log_level: &str, foreground: bool) -> Result<(), Box<dyn std::er
         "trace" => Level::TRACE,
         _ => Level::INFO,
     };
-    
-    // Configure based on daemon mode
+
+    // In daemon mode, force level to OFF for complete silence
     if !foreground {
-        // For daemon mode, disable file logging since launchd handles redirection
-        // The plist already redirects stdout/stderr to user-writable log files
-        config.json_format = false; // Keep readable format for launchd logs
-        config.file_logging = false; // Let launchd handle file logging
-        config.force_disable_ansi = Some(true); // Force disable ANSI colors in service mode
-        
-        // Also set environment variable for consistency
-        std::env::set_var("NO_COLOR", "1");
+        config.level = Level::ERROR; // Minimal logging level
     }
-    
+
     initialize_logging(config).map_err(|e| Box::new(e) as Box<dyn std::error::Error>)
 }
 
@@ -337,7 +381,7 @@ async fn setup_signal_handlers() -> Result<(), Box<dyn std::error::Error>> {
 }
 
 /// Main daemon loop
-async fn run_daemon(config: Config, daemon_config: DaemonConfig, args: DaemonArgs) -> Result<(), Box<dyn std::error::Error>> {
+async fn run_daemon(_config: Config, daemon_config: DaemonConfig, args: DaemonArgs) -> Result<(), Box<dyn std::error::Error>> {
     let project_info = args.project_id.as_ref().map(|id| format!(" for project {}", id)).unwrap_or_default();
     info!("Starting memexd daemon (version 0.2.0){}", project_info);
     
@@ -450,9 +494,14 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     if is_daemon_mode {
         suppress_third_party_output();
+        // Initialize complete tracing silence immediately
+        if let Err(_) = workspace_qdrant_core::initialize_daemon_silence() {
+            // If that fails, fall back to setting environment variable
+            std::env::set_var("WQM_SERVICE_MODE", "true");
+        }
     }
 
-    let args = parse_args();
+    let args = parse_args()?;
     
     // Initialize comprehensive logging early
     init_logging(&args.log_level, args.foreground)?;
