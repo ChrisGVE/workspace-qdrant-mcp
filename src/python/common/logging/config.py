@@ -149,18 +149,24 @@ def should_suppress_console(config: LoggingConfig) -> bool:
     Returns:
         True if console output should be completely suppressed
     """
+    # If console output is explicitly disabled, suppress it
     if not config.console_output:
         return True
 
+    # If we're in stdio mode (MCP protocol), suppress console output by default
+    # to prevent interference with the JSON-RPC protocol
     if config.stdio_mode:
-        # In stdio mode, default to suppressing console output
-        # unless explicitly enabled
-        mcp_quiet_mode = os.getenv("MCP_QUIET_MODE", "true").lower() == "true"
-        disable_mcp_console = os.getenv("DISABLE_MCP_CONSOLE_LOGS", "false").lower() == "true"
-
-        # Suppress if either quiet mode is enabled OR explicit disable is set
-        # Default is to suppress in MCP mode (mcp_quiet_mode defaults to "true")
-        if mcp_quiet_mode or disable_mcp_console:
+        # Check if console output is explicitly enabled despite stdio mode
+        force_console = os.getenv("FORCE_CONSOLE_IN_STDIO", "false").lower() == "true"
+        if not force_console:
             return True
+
+    # Check explicit console disable flags
+    if os.getenv("DISABLE_MCP_CONSOLE_LOGS", "false").lower() == "true":
+        return True
+
+    # MCP_QUIET_MODE defaults to true for stdio mode
+    if os.getenv("MCP_QUIET_MODE", "false").lower() == "true":
+        return True
 
     return False

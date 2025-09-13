@@ -195,8 +195,12 @@ def configure_logging(
     # Determine if we should create console handler
     should_create_console_handler = console_output
 
-    # In stdio mode, disable console output if either quiet mode is enabled OR explicit disable is set
-    if stdio_mode and (mcp_quiet_mode or disable_mcp_console):
+    # In stdio mode, disable console output completely to prevent MCP protocol interference
+    if stdio_mode:
+        # Default to suppressing console output in MCP stdio mode
+        force_console = os.getenv("FORCE_CONSOLE_IN_STDIO", "false").lower() == "true"
+        should_create_console_handler = force_console
+    elif mcp_quiet_mode or disable_mcp_console:
         should_create_console_handler = False
 
     if should_create_console_handler:
@@ -206,6 +210,10 @@ def configure_logging(
         console_handler.setLevel(level)
         console_handler.setFormatter(formatter)
         root_logger.addHandler(console_handler)
+    elif stdio_mode:
+        # Add a null handler to prevent fallback to stderr in MCP mode
+        null_handler = logging.NullHandler()
+        root_logger.addHandler(null_handler)
 
     # File handler with rotation
     if log_file:

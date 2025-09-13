@@ -177,7 +177,7 @@ class WatchConfigurationPersistent:
         """Create from dictionary with validation."""
         # Validate using Pydantic schema
         validated_data = WatchConfigSchema(**data)
-        return cls(**validated_data.dict())
+        return cls(**validated_data.model_dump())
 
     def validate(self) -> list[str]:
         """Validate configuration and return list of issues."""
@@ -369,7 +369,7 @@ class PersistentWatchConfigManager:
 
             # Write to temporary file first (atomic operation)
             with open(self.temp_file, "w", encoding="utf-8") as f:
-                json.dump(config.dict(), f, indent=2, ensure_ascii=False)
+                json.dump(config.model_dump(), f, indent=2, ensure_ascii=False)
 
             # Atomically move temp file to main config
             self.temp_file.replace(self.config_file)
@@ -496,7 +496,7 @@ class PersistentWatchConfigManager:
             for config_data in config.watches:
                 try:
                     watch_config = WatchConfigurationPersistent.from_dict(
-                        config_data.dict()
+                        config_data.model_dump()
                     )
                     if active_only and watch_config.status != "active":
                         continue
