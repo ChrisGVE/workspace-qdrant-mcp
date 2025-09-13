@@ -2387,7 +2387,7 @@ async def initialize_workspace(config_file: Optional[str] = None) -> None:
 
     import os
 
-    from .utils.project_detection import ProjectDetector
+    from common.utils.project_detection import ProjectDetector
 
     # Detect project information for workspace context
     project_path = os.getcwd()
