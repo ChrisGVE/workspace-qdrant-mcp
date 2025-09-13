@@ -13,10 +13,11 @@ use atty::Stream;
 
 use tracing::{error, info, warn, debug, instrument, Level};
 use tracing_subscriber::{
-    fmt::{self, time::ChronoUtc},
+    fmt::{self, time::ChronoUtc, MakeWriter},
     layer::{SubscriberExt, Layer},
     util::SubscriberInitExt,
     EnvFilter, Registry,
+    filter::LevelFilter,
 };
 
 use crate::error::{WorkspaceError, ErrorSeverity, ErrorMonitor};
@@ -225,11 +226,32 @@ impl PerformanceMetrics {
 static PERFORMANCE_METRICS: Lazy<std::sync::Mutex<PerformanceMetrics>> = 
     Lazy::new(|| std::sync::Mutex::new(PerformanceMetrics::default()));
 
-/// Initialize comprehensive logging system
+/// Initialize comprehensive logging system with daemon mode silence support
 pub fn initialize_logging(config: LoggingConfig) -> Result<(), WorkspaceError> {
+    // Detect daemon mode early for complete suppression
+    let daemon_mode = is_daemon_mode();
+
+    // In daemon mode, configure for complete silence
+    if daemon_mode && !config.console_output {
+        // Create a completely silent subscriber that discards all output
+        let null_writer = || std::io::sink();
+        let subscriber = tracing_subscriber::fmt::Subscriber::builder()
+            .with_max_level(LevelFilter::OFF)
+            .with_writer(null_writer)
+            .with_ansi(false)
+            .finish();
+
+        subscriber.init();
+        return Ok(());
+    }
     // Create environment filter
-    let env_filter = EnvFilter::try_from_default_env()
-        .unwrap_or_else(|_| EnvFilter::new(config.level.to_string()));
+    let env_filter = if daemon_mode {
+        // In daemon mode, use OFF level to suppress all tracing output
+        EnvFilter::new("off")
+    } else {
+        EnvFilter::try_from_default_env()
+            .unwrap_or_else(|_| EnvFilter::new(config.level.to_string()))
+    };
 
     // Determine if we should disable ANSI colors
     let disable_ansi = config.force_disable_ansi.unwrap_or_else(|| {
@@ -243,7 +265,7 @@ pub fn initialize_logging(config: LoggingConfig) -> Result<(), WorkspaceError> {
         // 2. Running as a service (detected by common service environment variables)
         // 3. Output is being redirected
         let tty_check = !atty::is(Stream::Stdout);
-        let service_check = env::var("WQM_SERVICE_MODE").map(|v| v == "true").unwrap_or(false) ||
+        let service_check = daemon_mode ||
             env::var("XPC_SERVICE_NAME").is_ok() || // macOS LaunchAgent/LaunchDaemon
             env::var("_").map(|v| v.contains("launchd")).unwrap_or(false) ||
             env::var("INVOCATION_ID").is_ok() || // systemd
@@ -256,7 +278,17 @@ pub fn initialize_logging(config: LoggingConfig) -> Result<(), WorkspaceError> {
 
     // Build the subscriber with conditional layers
     let registry = Registry::default();
-    
+
+    // In daemon mode with console output disabled, use sink writer
+    if daemon_mode && !config.console_output {
+        let null_writer = || std::io::sink();
+        let null_layer = fmt::layer()
+            .with_writer(null_writer)
+            .with_ansi(false);
+        registry.with(env_filter).with(null_layer).init();
+        return Ok(());
+    }
+
     // Add layers based on configuration
     if config.console_output && config.file_logging {
         // Both console and file logging
@@ -380,8 +412,16 @@ pub fn initialize_logging(config: LoggingConfig) -> Result<(), WorkspaceError> {
             ));
         }
     } else {
-        // No logging layers enabled - just use registry with filter
-        registry.with(env_filter).init();
+        // No logging layers enabled - in daemon mode use null writer, otherwise just filter
+        if daemon_mode {
+            let null_writer = || std::io::sink();
+            let null_layer = fmt::layer()
+                .with_writer(null_writer)
+                .with_ansi(false);
+            registry.with(env_filter).with(null_layer).init();
+        } else {
+            registry.with(env_filter).init();
+        }
     }
 
     // Log initialization
@@ -394,6 +434,56 @@ pub fn initialize_logging(config: LoggingConfig) -> Result<(), WorkspaceError> {
     for (key, value) in &config.global_fields {
         tracing::Span::current().record(key.as_str(), value.as_str());
     }
+
+    // Log initialization only if not in daemon mode
+    if !daemon_mode {
+        info!(
+            config = ?config,
+            "Logging system initialized"
+        );
+
+        // Add global fields
+        for (key, value) in &config.global_fields {
+            tracing::Span::current().record(key.as_str(), value.as_str());
+        }
+    }
+
+    Ok(())
+}
+
+/// Detect if running in daemon mode based on multiple indicators
+fn is_daemon_mode() -> bool {
+    // Primary daemon mode indicator
+    if env::var("WQM_SERVICE_MODE").map(|v| v == "true").unwrap_or(false) {
+        return true;
+    }
+
+    // Detect common service/daemon environments
+    env::var("XPC_SERVICE_NAME").is_ok() || // macOS LaunchAgent/LaunchDaemon
+        env::var("_").map(|v| v.contains("launchd")).unwrap_or(false) ||
+        env::var("INVOCATION_ID").is_ok() || // systemd
+        env::var("UPSTART_JOB").is_ok() ||   // upstart
+        env::var("SYSTEMD_EXEC_PID").is_ok() || // systemd service
+        env::var("XPC_FLAGS").map(|v| v == "1").unwrap_or(false) || // macOS service mode
+        env::var("SYSLOG_IDENTIFIER").is_ok() || // systemd journal
+        env::var("LOGNAME").map(|v| v == "root").unwrap_or(false) // Running as system daemon
+}
+
+/// Initialize complete output suppression for daemon mode
+pub fn initialize_daemon_silence() -> Result<(), Box<dyn std::error::Error>> {
+    use std::io::{self};
+    use tracing_subscriber::fmt;
+
+    // Create a completely silent subscriber
+    let null_writer = || io::sink();
+    let subscriber = fmt::Subscriber::builder()
+        .with_max_level(LevelFilter::OFF)
+        .with_writer(null_writer)
+        .with_ansi(false)
+        .finish();
+
+    tracing::subscriber::set_global_default(subscriber)
+        .map_err(|e| Box::new(e) as Box<dyn std::error::Error>)?;
 
     Ok(())
 }
