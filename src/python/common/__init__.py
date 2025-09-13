@@ -14,4 +14,4 @@ Components:
     - observability: Monitoring and logging
 """
 
-__version__ = "0.2.1dev0"
+__version__ = "0.2.1dev1"

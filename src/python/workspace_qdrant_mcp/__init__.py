@@ -23,7 +23,7 @@ MCP Tools Available:
     - And more...
 """
 
-__version__ = "0.2.1dev0"
+__version__ = "0.2.1dev1"
 __author__ = "Chris"
 __email__ = "chris@example.com"
 __description__ = "Advanced project-scoped Qdrant MCP server with hybrid search"
