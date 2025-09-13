@@ -29,8 +29,15 @@ __email__ = "chris@example.com"
 __description__ = "Advanced project-scoped Qdrant MCP server with hybrid search"
 __url__ = "https://github.com/your-org/workspace-qdrant-mcp"
 
-try:
-    from .server import app
-    __all__ = ["app"]
-except ImportError:
+import os
+
+# Only import the main server if not in stdio mode to prevent import hangs
+if os.getenv("WQM_STDIO_MODE", "").lower() != "true":
+    try:
+        from .server import app
+        __all__ = ["app"]
+    except ImportError:
+        __all__ = []
+else:
+    # In stdio mode, don't import anything to avoid hangs
     __all__ = []

@@ -2864,23 +2864,30 @@ def run_server(
 
     # Run FastMCP server with appropriate transport
     if transport == "stdio":
-        # MCP protocol over stdin/stdout (default for Claude Desktop/Code)
-        # Only log if not in quiet mode
-        if os.getenv("MCP_QUIET_MODE", "true").lower() != "true":
-            logger.info("Starting MCP server with stdio transport")
-        
-        # Use optimized stdio transport if available and protocol compliant
-        if (OPTIMIZATIONS_AVAILABLE and
-            hasattr(app, 'run_stdio') and
-            os.getenv("DISABLE_STDIO_OPTIMIZATIONS", "false").lower() != "true" and
-            os.getenv("FORCE_STANDARD_FASTMCP", "false").lower() != "true"):
-
-            # Only log optimization info if not in quiet mode
-            if os.getenv("MCP_QUIET_MODE", "true").lower() != "true":
-                logger.info("Using optimized stdio transport with compression and batching")
-            asyncio.run(app.run_stdio())
+        # For stdio mode, use lightweight implementation to avoid import hangs
+        if _STDIO_MODE:
+            logger.info("Starting lightweight MCP server for stdio mode")
+            # Import and run the lightweight stdio server
+            from .stdio_server import run_lightweight_stdio_server
+            run_lightweight_stdio_server()
         else:
-            app.run(transport="stdio")
+            # MCP protocol over stdin/stdout (default for Claude Desktop/Code)
+            # Only log if not in quiet mode
+            if os.getenv("MCP_QUIET_MODE", "true").lower() != "true":
+                logger.info("Starting MCP server with stdio transport")
+
+            # Use optimized stdio transport if available and protocol compliant
+            if (OPTIMIZATIONS_AVAILABLE and
+                hasattr(app, 'run_stdio') and
+                os.getenv("DISABLE_STDIO_OPTIMIZATIONS", "false").lower() != "true" and
+                os.getenv("FORCE_STANDARD_FASTMCP", "false").lower() != "true"):
+
+                # Only log optimization info if not in quiet mode
+                if os.getenv("MCP_QUIET_MODE", "true").lower() != "true":
+                    logger.info("Using optimized stdio transport with compression and batching")
+                asyncio.run(app.run_stdio())
+            else:
+                app.run(transport="stdio")
     else:
         # HTTP-based transport for web clients
         logger.info("Starting MCP server with HTTP transport", host=host, port=port)
