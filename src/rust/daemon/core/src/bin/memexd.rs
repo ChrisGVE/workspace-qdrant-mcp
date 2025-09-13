@@ -14,8 +14,9 @@ use tracing::{error, info, warn};
 // Note: AsRawFd is imported locally where used to avoid unused import warnings
 // Removed unused imports: EnvFilter, FmtSubscriber
 use workspace_qdrant_core::{
-    ProcessingEngine, config::{Config, DaemonConfig}, 
+    ProcessingEngine, config::{Config, DaemonConfig},
     LoggingConfig, initialize_logging,
+    unified_config::{UnifiedConfigManager, UnifiedConfigError},
     // Removed unused imports: ErrorRecovery, ErrorRecoveryStrategy, track_async_operation, LoggingErrorMonitor
 };
 
@@ -328,48 +329,76 @@ fn check_existing_instance(pid_file: &Path, project_id: Option<&String>) -> Resu
 fn load_config(args: &DaemonArgs) -> Result<(Config, DaemonConfig), Box<dyn std::error::Error>> {
     let is_daemon_mode = detect_daemon_mode();
 
-    match &args.config_file {
+    // Initialize unified config manager
+    let config_manager = UnifiedConfigManager::new(None::<PathBuf>);
+
+    // Load configuration using unified config manager
+    let mut daemon_config = match &args.config_file {
         Some(config_path) => {
             info!("Loading configuration from {}", config_path.display());
-            let config_content = fs::read_to_string(config_path)?;
-            let mut daemon_config: DaemonConfig = toml::from_str(&config_content)?;
 
-            // Override with daemon-mode settings if in daemon mode for MCP compliance
-            if is_daemon_mode {
-                daemon_config.qdrant.check_compatibility = false;
+            // Use unified config manager to load the file
+            match config_manager.load_config(Some(config_path)) {
+                Ok(config) => {
+                    info!("Configuration loaded successfully from {} using unified config manager", config_path.display());
+                    config
+                },
+                Err(UnifiedConfigError::FileNotFound(path)) => {
+                    error!("Configuration file not found: {}", path.display());
+                    return Err(format!("Configuration file not found: {}", path.display()).into());
+                },
+                Err(UnifiedConfigError::YamlError(msg)) => {
+                    error!("YAML parsing error: {}", msg);
+                    return Err(format!("YAML parsing error: {}", msg).into());
+                },
+                Err(UnifiedConfigError::TomlError(e)) => {
+                    error!("TOML parsing error: {}", e);
+                    return Err(format!("TOML parsing error: {}", e).into());
+                },
+                Err(e) => {
+                    error!("Configuration loading error: {}", e);
+                    return Err(format!("Configuration loading error: {}", e).into());
+                }
             }
-
-            // Convert to engine config for backward compatibility
-            let engine_config = Config::from(daemon_config.clone());
-
-            // Note: Port configuration would be handled by IPC layer if needed
-            if args.port.is_some() {
-                info!("Port override specified: {}, but will be handled by IPC layer", args.port.unwrap());
-            }
-
-            info!("Configuration loaded successfully - Qdrant transport: {:?}", daemon_config.qdrant.transport);
-            Ok((engine_config, daemon_config))
         }
         None => {
-            info!("Using default configuration");
+            info!("Auto-discovering configuration files");
 
-            // Use daemon-mode configuration if running as daemon for MCP compliance
-            let daemon_config = if is_daemon_mode {
-                DaemonConfig::daemon_mode()
-            } else {
-                DaemonConfig::default()
-            };
+            // Auto-discover configuration with YAML preference
+            match config_manager.load_config(None) {
+                Ok(config) => {
+                    info!("Configuration auto-discovered and loaded using unified config manager");
+                    config
+                },
+                Err(e) => {
+                    info!("No configuration file found or error loading: {}, using defaults", e);
 
-            let engine_config = Config::from(daemon_config.clone());
-
-            // Note: Port configuration would be handled by IPC layer if needed
-            if args.port.is_some() {
-                info!("Port override specified: {}, but will be handled by IPC layer", args.port.unwrap());
+                    // Use daemon-mode configuration if running as daemon for MCP compliance
+                    if is_daemon_mode {
+                        DaemonConfig::daemon_mode()
+                    } else {
+                        DaemonConfig::default()
+                    }
+                }
             }
-
-            Ok((engine_config, daemon_config))
         }
+    };
+
+    // Override with daemon-mode settings if in daemon mode for MCP compliance
+    if is_daemon_mode {
+        daemon_config.qdrant.check_compatibility = false;
     }
+
+    // Convert to engine config for backward compatibility
+    let engine_config = Config::from(daemon_config.clone());
+
+    // Note: Port configuration would be handled by IPC layer if needed
+    if args.port.is_some() {
+        info!("Port override specified: {}, but will be handled by IPC layer", args.port.unwrap());
+    }
+
+    info!("Configuration loaded successfully - Qdrant transport: {:?}", daemon_config.qdrant.transport);
+    Ok((engine_config, daemon_config))
 }
 
 /// Set up signal handlers for graceful shutdown
