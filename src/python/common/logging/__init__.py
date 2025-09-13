@@ -43,12 +43,13 @@ Environment Variables:
 
 from .core import StructuredLogger
 from .config import LoggingConfig, detect_mcp_mode
-from .migration import get_logger, LogContext, PerformanceLogger
+from .migration import get_logger, LogContext, PerformanceLogger, configure_unified_logging
 
 
 # Re-export key classes and functions for backward compatibility
 __all__ = [
     "get_logger",
+    "configure_unified_logging",
     "StructuredLogger",
     "LoggingConfig",
     "detect_mcp_mode",
