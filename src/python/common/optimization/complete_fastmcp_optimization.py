@@ -415,21 +415,27 @@ class OptimizedFastMCPApp:
     async def handle_request(self, request: Dict[str, Any]) -> Dict[str, Any]:
         """Handle incoming MCP request with optimizations."""
         start_time = time.perf_counter()
-        
+
         try:
             method = request.get("method")
             params = request.get("params", {})
             request_id = request.get("id")
-            
+
             # Apply middleware
             for middleware in self._middleware:
                 try:
                     request = await middleware(request) if inspect.iscoroutinefunction(middleware) else middleware(request)
                 except Exception as e:
                     logger.error(f"Middleware error: {e}")
-            
-            # Handle different request types
-            if method == "tools/list":
+
+            # Handle different request types with full MCP protocol support
+            if method == "initialize":
+                return await self._handle_initialize(request_id, params)
+            elif method == "initialized":
+                return await self._handle_initialized(request_id, params)
+            elif method == "ping":
+                return await self._handle_ping(request_id, params)
+            elif method == "tools/list":
                 return await self._handle_tools_list(request_id)
             elif method == "tools/call":
                 return await self._handle_tool_call(request_id, params)
@@ -472,6 +478,34 @@ class OptimizedFastMCPApp:
         
         return {"id": request_id, "result": {"tools": tools}}
     
+    async def _handle_initialize(self, request_id: str, params: Dict[str, Any]) -> Dict[str, Any]:
+        """Handle MCP initialize request."""
+        return {
+            "id": request_id,
+            "result": {
+                "protocolVersion": "2024-11-05",
+                "capabilities": {
+                    "tools": {},
+                    "resources": {},
+                    "prompts": {},
+                    "logging": {}
+                },
+                "serverInfo": {
+                    "name": self.name,
+                    "version": "0.1.0"
+                }
+            }
+        }
+
+    async def _handle_initialized(self, request_id: str, params: Dict[str, Any]) -> Dict[str, Any]:
+        """Handle MCP initialized notification."""
+        logger.info("MCP client initialization completed")
+        return {"id": request_id, "result": {}}
+
+    async def _handle_ping(self, request_id: str, params: Dict[str, Any]) -> Dict[str, Any]:
+        """Handle MCP ping request."""
+        return {"id": request_id, "result": {}}
+
     async def _handle_tool_call(self, request_id: str, params: Dict[str, Any]) -> Dict[str, Any]:
         """Handle tools/call request with lazy loading."""
         tool_name = params.get("name")

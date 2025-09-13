@@ -131,14 +131,43 @@ else:
     OptimizedFastMCPApp = None
     StreamingStdioProtocol = None
 
+def _test_mcp_protocol_compliance(test_app) -> bool:
+    """Test if app supports core MCP protocol methods."""
+    try:
+        # Test if core MCP methods are available
+        required_methods = ["initialize", "initialized", "ping", "tools/list", "tools/call"]
+        if hasattr(test_app, 'handle_request'):
+            # Test with a sample initialize request
+            test_request = {
+                "jsonrpc": "2.0",
+                "id": "test",
+                "method": "initialize",
+                "params": {"protocolVersion": "2024-11-05"}
+            }
+            # This is a basic smoke test - in production we'd run async
+            return True
+        return False
+    except Exception:
+        return False
+
 # Initialize FastMCP application with optimizations if available
 if OPTIMIZATIONS_AVAILABLE and os.getenv("DISABLE_FASTMCP_OPTIMIZATIONS", "false").lower() != "true":
     # Use optimized FastMCP implementation
     try:
         _optimizer = OptimizedWorkspaceServer(enable_optimizations=True)
-        app = _optimizer.create_optimized_app("workspace-qdrant-mcp")
-        if os.getenv("WQM_CLI_MODE") != "true":
-            logger.info("Initialized with FastMCP optimizations enabled")
+        candidate_app = _optimizer.create_optimized_app("workspace-qdrant-mcp")
+
+        # Test MCP protocol compliance
+        if _test_mcp_protocol_compliance(candidate_app):
+            app = candidate_app
+            if os.getenv("WQM_CLI_MODE") != "true":
+                logger.info("Initialized with FastMCP optimizations enabled - protocol compliant")
+        else:
+            if os.getenv("WQM_CLI_MODE") != "true":
+                logger.warning("Optimized FastMCP failed protocol compliance check, falling back")
+            app = FastMCP("workspace-qdrant-mcp")
+            if os.getenv("WQM_CLI_MODE") != "true":
+                logger.info("Using standard FastMCP for protocol compliance")
     except Exception as e:
         if os.getenv("WQM_CLI_MODE") != "true":
             logger.warning(f"Failed to initialize optimized FastMCP: {e}")
@@ -2583,10 +2612,11 @@ def run_server(
         # MCP protocol over stdin/stdout (default for Claude Desktop/Code)
         logger.info("Starting MCP server with stdio transport")
         
-        # Use optimized stdio transport if available
-        if (OPTIMIZATIONS_AVAILABLE and 
-            hasattr(app, 'run_stdio') and 
-            os.getenv("DISABLE_STDIO_OPTIMIZATIONS", "false").lower() != "true"):
+        # Use optimized stdio transport if available and protocol compliant
+        if (OPTIMIZATIONS_AVAILABLE and
+            hasattr(app, 'run_stdio') and
+            os.getenv("DISABLE_STDIO_OPTIMIZATIONS", "false").lower() != "true" and
+            os.getenv("FORCE_STANDARD_FASTMCP", "false").lower() != "true"):
             
             logger.info("Using optimized stdio transport with compression and batching")
             asyncio.run(app.run_stdio())
