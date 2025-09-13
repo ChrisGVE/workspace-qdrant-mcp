@@ -156,6 +156,9 @@ fn suppress_third_party_output() {
         ("NO_COLOR", "1"),              // Disable all ANSI color output
         ("TERM", "dumb"),               // Force dumb terminal mode
         ("RUST_BACKTRACE", "0"),        // Disable Rust panic backtraces
+        ("TTY_DETECTION_SILENT", "1"),  // Suppress TTY detection debug messages
+        ("ATTY_FORCE_DISABLE_DEBUG", "1"), // Suppress atty crate debug output
+        ("WQM_TTY_DEBUG", "0"),         // Disable internal TTY debug output
     ];
 
     for (key, value) in &suppression_vars {
@@ -168,6 +171,8 @@ fn init_logging(log_level: &str, foreground: bool) -> Result<(), Box<dyn std::er
     // Set service mode environment variable if not running in foreground
     if !foreground {
         std::env::set_var("WQM_SERVICE_MODE", "true");
+        // Suppress TTY detection debug output first, before any TTY checks
+        workspace_qdrant_core::logging::suppress_tty_debug_output();
         // Suppress third-party output early in daemon mode
         suppress_third_party_output();
     }
@@ -475,6 +480,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let is_daemon_mode = detect_daemon_mode();
 
     if is_daemon_mode {
+        // Suppress TTY detection debug output first, before any TTY checks
+        workspace_qdrant_core::logging::suppress_tty_debug_output();
         suppress_third_party_output();
         // Set environment variable for daemon mode
         std::env::set_var("WQM_SERVICE_MODE", "true");
