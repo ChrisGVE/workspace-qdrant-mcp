@@ -13,7 +13,7 @@ use atty::Stream;
 
 use tracing::{error, info, warn, debug, instrument, Level};
 use tracing_subscriber::{
-    fmt::{self, time::ChronoUtc, MakeWriter},
+    fmt::{self, time::ChronoUtc},
     layer::{SubscriberExt, Layer},
     util::SubscriberInitExt,
     EnvFilter, Registry,
