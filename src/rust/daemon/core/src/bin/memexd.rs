@@ -155,7 +155,6 @@ fn suppress_third_party_output() {
         ("TTY_DETECTION_SILENT", "1"),  // Suppress TTY detection debug messages
         ("ATTY_FORCE_DISABLE_DEBUG", "1"), // Suppress atty crate debug output
         ("WQM_TTY_DEBUG", "0"),         // Disable internal TTY debug output
-        ("TTY_DEBUG", "0"),             // CRITICAL: Disable Claude CLI TTY debug messages
     ];
 
     for (key, value) in &suppression_vars {
@@ -472,9 +471,7 @@ fn detect_daemon_mode() -> bool {
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    // CRITICAL: Set TTY_DEBUG=0 IMMEDIATELY before ANY other operations
-    // This prevents Claude CLI dependency TTY detection debug messages
-    std::env::set_var("TTY_DEBUG", "0");
+    // Set essential environment variables early to suppress output
     std::env::set_var("TTY_DETECTION_SILENT", "1");
     std::env::set_var("ATTY_FORCE_DISABLE_DEBUG", "1");
     std::env::set_var("NO_COLOR", "1");
