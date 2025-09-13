@@ -16,24 +16,10 @@ from enum import Enum
 from functools import wraps
 from typing import Any, Callable, Dict, List, Optional, Type, Union
 
-import structlog
+# Use unified logging system to prevent console interference in MCP mode
+from common.logging import get_logger
 
-# Configure structured logging
-structlog.configure(
-    processors=[
-        structlog.contextvars.merge_contextvars,
-        structlog.processors.add_log_level,
-        structlog.processors.StackInfoRenderer(),
-        structlog.dev.set_exc_info,
-        structlog.processors.TimeStamper(fmt="ISO"),
-        structlog.dev.ConsoleRenderer(),
-    ],
-    wrapper_class=structlog.make_filtering_bound_logger(logging.INFO),
-    logger_factory=structlog.WriteLoggerFactory(),
-    cache_logger_on_first_use=True,
-)
-
-logger = structlog.get_logger(__name__)
+logger = get_logger(__name__)
 
 
 class ErrorSeverity(Enum):
