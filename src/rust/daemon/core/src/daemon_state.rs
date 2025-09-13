@@ -76,6 +76,45 @@ pub struct ProcessingMetrics {
     pub last_processed_at: Option<DateTime<Utc>>,
 }
 
+/// Watch configuration record for database storage
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct WatchConfigRecord {
+    /// Unique watch identifier
+    pub id: String,
+    /// Directory path to watch
+    pub path: String,
+    /// Target Qdrant collection
+    pub collection: String,
+    /// File patterns to include (JSON array)
+    pub patterns: Vec<String>,
+    /// File patterns to ignore (JSON array)
+    pub ignore_patterns: Vec<String>,
+    /// Enable LSP-based extension detection
+    pub lsp_based_extensions: bool,
+    /// LSP detection cache TTL in seconds
+    pub lsp_detection_cache_ttl: i32,
+    /// Enable automatic ingestion
+    pub auto_ingest: bool,
+    /// Watch subdirectories recursively
+    pub recursive: bool,
+    /// Maximum recursive depth (-1 for unlimited)
+    pub recursive_depth: i32,
+    /// Debounce delay in seconds
+    pub debounce_seconds: i32,
+    /// File system check frequency in milliseconds
+    pub update_frequency: i32,
+    /// Watch status (active, paused, error, disabled)
+    pub status: String,
+    /// Creation timestamp
+    pub created_at: DateTime<Utc>,
+    /// Last activity timestamp
+    pub last_activity: Option<DateTime<Utc>>,
+    /// Number of files processed
+    pub files_processed: i64,
+    /// Error count
+    pub errors_count: i64,
+}
+
 /// Daemon state record in the database
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct DaemonStateRecord {
@@ -163,6 +202,33 @@ impl DaemonStateManager {
         .execute(&self.pool)
         .await?;
 
+        // Create watch configurations table
+        sqlx::query(
+            r#"
+            CREATE TABLE IF NOT EXISTS watch_configurations (
+                id TEXT PRIMARY KEY,
+                path TEXT NOT NULL,
+                collection TEXT NOT NULL,
+                patterns TEXT NOT NULL,
+                ignore_patterns TEXT NOT NULL,
+                lsp_based_extensions BOOLEAN NOT NULL DEFAULT TRUE,
+                lsp_detection_cache_ttl INTEGER NOT NULL DEFAULT 300,
+                auto_ingest BOOLEAN NOT NULL DEFAULT TRUE,
+                recursive BOOLEAN NOT NULL DEFAULT TRUE,
+                recursive_depth INTEGER NOT NULL DEFAULT -1,
+                debounce_seconds INTEGER NOT NULL DEFAULT 5,
+                update_frequency INTEGER NOT NULL DEFAULT 1000,
+                status TEXT NOT NULL DEFAULT 'active',
+                created_at TIMESTAMP NOT NULL,
+                last_activity TIMESTAMP,
+                files_processed INTEGER NOT NULL DEFAULT 0,
+                errors_count INTEGER NOT NULL DEFAULT 0
+            )
+            "#,
+        )
+        .execute(&self.pool)
+        .await?;
+
         // Create indexes for better performance
         sqlx::query("CREATE INDEX IF NOT EXISTS idx_daemon_status ON daemon_state(status)")
             .execute(&self.pool)
@@ -173,6 +239,14 @@ impl DaemonStateManager {
             .await?;
 
         sqlx::query("CREATE INDEX IF NOT EXISTS idx_logs_daemon_timestamp ON processing_logs(daemon_id, timestamp)")
+            .execute(&self.pool)
+            .await?;
+
+        sqlx::query("CREATE INDEX IF NOT EXISTS idx_watch_status ON watch_configurations(status)")
+            .execute(&self.pool)
+            .await?;
+
+        sqlx::query("CREATE INDEX IF NOT EXISTS idx_watch_path ON watch_configurations(path)")
             .execute(&self.pool)
             .await?;
 
@@ -411,6 +485,190 @@ impl DaemonStateManager {
         Ok(())
     }
 
+    /// Store watch configuration record
+    pub async fn store_watch_config(&self, config: &WatchConfigRecord) -> DaemonStateResult<()> {
+        sqlx::query(
+            r#"
+            INSERT OR REPLACE INTO watch_configurations (
+                id, path, collection, patterns, ignore_patterns,
+                lsp_based_extensions, lsp_detection_cache_ttl, auto_ingest,
+                recursive, recursive_depth, debounce_seconds, update_frequency,
+                status, created_at, last_activity, files_processed, errors_count
+            ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17)
+            "#,
+        )
+        .bind(&config.id)
+        .bind(&config.path)
+        .bind(&config.collection)
+        .bind(serde_json::to_string(&config.patterns)?)
+        .bind(serde_json::to_string(&config.ignore_patterns)?)
+        .bind(config.lsp_based_extensions)
+        .bind(config.lsp_detection_cache_ttl)
+        .bind(config.auto_ingest)
+        .bind(config.recursive)
+        .bind(config.recursive_depth)
+        .bind(config.debounce_seconds)
+        .bind(config.update_frequency)
+        .bind(&config.status)
+        .bind(config.created_at)
+        .bind(config.last_activity)
+        .bind(config.files_processed)
+        .bind(config.errors_count)
+        .execute(&self.pool)
+        .await?;
+
+        Ok(())
+    }
+
+    /// Get watch configuration by ID
+    pub async fn get_watch_config(&self, id: &str) -> DaemonStateResult<Option<WatchConfigRecord>> {
+        let row = sqlx::query(
+            r#"
+            SELECT id, path, collection, patterns, ignore_patterns,
+                   lsp_based_extensions, lsp_detection_cache_ttl, auto_ingest,
+                   recursive, recursive_depth, debounce_seconds, update_frequency,
+                   status, created_at, last_activity, files_processed, errors_count
+            FROM watch_configurations WHERE id = ?1
+            "#,
+        )
+        .bind(id)
+        .fetch_optional(&self.pool)
+        .await?;
+
+        if let Some(row) = row {
+            let patterns_str: String = row.try_get("patterns")?;
+            let ignore_patterns_str: String = row.try_get("ignore_patterns")?;
+
+            let record = WatchConfigRecord {
+                id: row.try_get("id")?,
+                path: row.try_get("path")?,
+                collection: row.try_get("collection")?,
+                patterns: serde_json::from_str(&patterns_str)?,
+                ignore_patterns: serde_json::from_str(&ignore_patterns_str)?,
+                lsp_based_extensions: row.try_get("lsp_based_extensions")?,
+                lsp_detection_cache_ttl: row.try_get("lsp_detection_cache_ttl")?,
+                auto_ingest: row.try_get("auto_ingest")?,
+                recursive: row.try_get("recursive")?,
+                recursive_depth: row.try_get("recursive_depth")?,
+                debounce_seconds: row.try_get("debounce_seconds")?,
+                update_frequency: row.try_get("update_frequency")?,
+                status: row.try_get("status")?,
+                created_at: row.try_get("created_at")?,
+                last_activity: row.try_get("last_activity")?,
+                files_processed: row.try_get("files_processed")?,
+                errors_count: row.try_get("errors_count")?,
+            };
+
+            Ok(Some(record))
+        } else {
+            Ok(None)
+        }
+    }
+
+    /// List all watch configurations
+    pub async fn list_watch_configs(&self, active_only: bool) -> DaemonStateResult<Vec<WatchConfigRecord>> {
+        let query = if active_only {
+            r#"
+            SELECT id, path, collection, patterns, ignore_patterns,
+                   lsp_based_extensions, lsp_detection_cache_ttl, auto_ingest,
+                   recursive, recursive_depth, debounce_seconds, update_frequency,
+                   status, created_at, last_activity, files_processed, errors_count
+            FROM watch_configurations WHERE status = 'active'
+            ORDER BY created_at
+            "#
+        } else {
+            r#"
+            SELECT id, path, collection, patterns, ignore_patterns,
+                   lsp_based_extensions, lsp_detection_cache_ttl, auto_ingest,
+                   recursive, recursive_depth, debounce_seconds, update_frequency,
+                   status, created_at, last_activity, files_processed, errors_count
+            FROM watch_configurations
+            ORDER BY created_at
+            "#
+        };
+
+        let rows = sqlx::query(query)
+            .fetch_all(&self.pool)
+            .await?;
+
+        let mut records = Vec::new();
+        for row in rows {
+            let patterns_str: String = row.try_get("patterns")?;
+            let ignore_patterns_str: String = row.try_get("ignore_patterns")?;
+
+            let record = WatchConfigRecord {
+                id: row.try_get("id")?,
+                path: row.try_get("path")?,
+                collection: row.try_get("collection")?,
+                patterns: serde_json::from_str(&patterns_str)?,
+                ignore_patterns: serde_json::from_str(&ignore_patterns_str)?,
+                lsp_based_extensions: row.try_get("lsp_based_extensions")?,
+                lsp_detection_cache_ttl: row.try_get("lsp_detection_cache_ttl")?,
+                auto_ingest: row.try_get("auto_ingest")?,
+                recursive: row.try_get("recursive")?,
+                recursive_depth: row.try_get("recursive_depth")?,
+                debounce_seconds: row.try_get("debounce_seconds")?,
+                update_frequency: row.try_get("update_frequency")?,
+                status: row.try_get("status")?,
+                created_at: row.try_get("created_at")?,
+                last_activity: row.try_get("last_activity")?,
+                files_processed: row.try_get("files_processed")?,
+                errors_count: row.try_get("errors_count")?,
+            };
+
+            records.push(record);
+        }
+
+        Ok(records)
+    }
+
+    /// Update watch configuration status
+    pub async fn update_watch_config_status(&self, id: &str, status: &str) -> DaemonStateResult<()> {
+        sqlx::query(
+            r#"
+            UPDATE watch_configurations
+            SET status = ?1, last_activity = ?2
+            WHERE id = ?3
+            "#,
+        )
+        .bind(status)
+        .bind(Utc::now())
+        .bind(id)
+        .execute(&self.pool)
+        .await?;
+
+        Ok(())
+    }
+
+    /// Update watch configuration metrics
+    pub async fn update_watch_config_metrics(&self, id: &str, files_processed: i64, errors_count: i64) -> DaemonStateResult<()> {
+        sqlx::query(
+            r#"
+            UPDATE watch_configurations
+            SET files_processed = ?1, errors_count = ?2, last_activity = ?3
+            WHERE id = ?4
+            "#,
+        )
+        .bind(files_processed)
+        .bind(errors_count)
+        .bind(Utc::now())
+        .bind(id)
+        .execute(&self.pool)
+        .await?;
+
+        Ok(())
+    }
+
+    /// Remove watch configuration
+    pub async fn remove_watch_config(&self, id: &str) -> DaemonStateResult<bool> {
+        let result = sqlx::query("DELETE FROM watch_configurations WHERE id = ?1")
+            .bind(id)
+            .execute(&self.pool)
+            .await?;
+
+        Ok(result.rows_affected() > 0)
+    }
+
     /// Get database statistics
     pub async fn get_stats(&self) -> DaemonStateResult<HashMap<String, JsonValue>> {
         let mut stats = HashMap::new();
@@ -438,8 +696,21 @@ impl DaemonStateManager {
         let total_docs: Option<i64> = sqlx::query_scalar("SELECT SUM(documents_processed) FROM daemon_state")
             .fetch_one(&self.pool)
             .await?;
-        stats.insert("total_documents_processed".to_string(), 
+        stats.insert("total_documents_processed".to_string(),
                     JsonValue::Number(total_docs.unwrap_or(0).into()));
+
+        // Watch configuration counts
+        let watch_rows = sqlx::query("SELECT status, COUNT(*) as count FROM watch_configurations GROUP BY status")
+            .fetch_all(&self.pool)
+            .await?;
+
+        let mut watch_stats = HashMap::new();
+        for row in watch_rows {
+            let status: String = row.try_get("status")?;
+            let count: i64 = row.try_get("count")?;
+            watch_stats.insert(status, JsonValue::Number(count.into()));
+        }
+        stats.insert("watch_counts".to_string(), JsonValue::Object(watch_stats.into_iter().collect()));
 
         Ok(stats)
     }
