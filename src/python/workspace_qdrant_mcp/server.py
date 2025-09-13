@@ -177,7 +177,12 @@ from common.core.advanced_watch_config import (
     PerformanceConfig,
     RecursiveConfig,
 )
-from common.core.auto_ingestion import AutoIngestionManager
+# Conditional import - auto_ingestion can be problematic in stdio mode
+if not _STDIO_MODE:
+    from common.core.auto_ingestion import AutoIngestionManager
+else:
+    # Provide a dummy class for stdio mode
+    AutoIngestionManager = None
 from common.core.client import QdrantWorkspaceClient
 from common.core.error_handling import (
     ConfigurationError,
@@ -221,37 +226,71 @@ else:
         force_mcp_detection=True,
     )
 
-# Import observability system (excluding logging functions)
-from common.observability import (
-    health_checker_instance,
-    metrics_instance,
-    monitor_async,
-    record_operation,
-)
-from common.observability.endpoints import (
-    add_observability_routes,
-    setup_observability_middleware,
-)
-from .tools.documents import (
-    add_document,
-    get_document,
-)
-from .tools.grpc_tools import (
-    get_grpc_engine_stats,
-    process_document_via_grpc,
-    search_via_grpc,
-    test_grpc_connection,
-)
-from .tools.memory import register_memory_tools
-from .tools.research import research_workspace as research_workspace_impl
-from .tools.scratchbook import ScratchbookManager, update_scratchbook
-from .tools.search import search_collection_by_metadata, search_workspace
-from .tools.watch_management import WatchToolsManager
-from .tools.simplified_interface import (
-    SimplifiedToolsMode,
-    register_simplified_tools,
-)
-from common.utils.config_validator import ConfigValidator
+# Conditional imports - only load what's needed for stdio mode vs full mode
+if not _STDIO_MODE:
+    # Full mode - load all functionality
+    from common.observability import (
+        health_checker_instance,
+        metrics_instance,
+        monitor_async,
+        record_operation,
+    )
+    from common.observability.endpoints import (
+        add_observability_routes,
+        setup_observability_middleware,
+    )
+    from .tools.documents import (
+        add_document,
+        get_document,
+    )
+    from .tools.grpc_tools import (
+        get_grpc_engine_stats,
+        process_document_via_grpc,
+        search_via_grpc,
+        test_grpc_connection,
+    )
+    from .tools.memory import register_memory_tools
+    from .tools.research import research_workspace as research_workspace_impl
+    from .tools.scratchbook import ScratchbookManager, update_scratchbook
+    from .tools.search import search_collection_by_metadata, search_workspace
+    from .tools.watch_management import WatchToolsManager
+    from .tools.simplified_interface import (
+        SimplifiedToolsMode,
+        register_simplified_tools,
+    )
+    from common.utils.config_validator import ConfigValidator
+else:
+    # Stdio mode - minimal imports, provide dummy implementations
+    # Create dummy decorator for stdio mode
+    def monitor_async(name, critical=False, timeout_warning=None):
+        def decorator(func):
+            return func
+        return decorator
+
+    def with_error_handling(strategy, name):
+        def decorator(func):
+            return func
+        return decorator
+
+    # Dummy classes and functions
+    health_checker_instance = None
+    metrics_instance = None
+    record_operation = lambda *args, **kwargs: None
+    add_observability_routes = lambda *args: None
+    setup_observability_middleware = lambda *args: None
+    WatchToolsManager = None
+    AutoIngestionManager = None
+    ConfigValidator = None
+
+    # Import minimal required functions for MCP operation
+    # These should be safe to import
+    try:
+        from .tools.memory import register_memory_tools
+        from .tools.simplified_interface import SimplifiedToolsMode, register_simplified_tools
+    except ImportError:
+        register_memory_tools = None
+        SimplifiedToolsMode = None
+        register_simplified_tools = None
 
 # Initialize structured logging (will be silent in stdio mode)
 if _STDIO_MODE:
@@ -269,8 +308,8 @@ if _STDIO_MODE:
 else:
     logger = get_logger(__name__)
 
-# Only import optimizations if not in CLI mode to prevent logging during CLI startup
-if os.getenv("WQM_CLI_MODE") != "true":
+# Conditional optimizations import - skip in stdio mode to prevent hangs
+if not _STDIO_MODE and os.getenv("WQM_CLI_MODE") != "true":
     try:
         from common.optimization.complete_fastmcp_optimization import (
             OptimizedWorkspaceServer, OptimizedFastMCPApp, StreamingStdioProtocol
@@ -281,7 +320,7 @@ if os.getenv("WQM_CLI_MODE") != "true":
         OPTIMIZATIONS_AVAILABLE = False
         logger.info("FastMCP optimizations not available, using standard FastMCP")
 else:
-    # In CLI mode, skip optimization imports completely to prevent logging
+    # In stdio/CLI mode, skip optimization imports completely to prevent hangs
     OPTIMIZATIONS_AVAILABLE = False
     OptimizedWorkspaceServer = None
     OptimizedFastMCPApp = None
@@ -306,40 +345,40 @@ def _test_mcp_protocol_compliance(test_app) -> bool:
     except Exception:
         return False
 
-# Initialize FastMCP application with optimizations if available
-if OPTIMIZATIONS_AVAILABLE and os.getenv("DISABLE_FASTMCP_OPTIMIZATIONS", "false").lower() != "true":
-    # Use optimized FastMCP implementation
-    try:
-        _optimizer = OptimizedWorkspaceServer(enable_optimizations=True)
-        candidate_app = _optimizer.create_optimized_app("workspace-qdrant-mcp")
-
-        # Test MCP protocol compliance
-        if _test_mcp_protocol_compliance(candidate_app):
-            app = candidate_app
-            if os.getenv("WQM_CLI_MODE") != "true":
-                logger.info("Initialized with FastMCP optimizations enabled - protocol compliant")
-        else:
-            if os.getenv("WQM_CLI_MODE") != "true":
-                logger.warning("Optimized FastMCP failed protocol compliance check, falling back")
-            app = FastMCP("workspace-qdrant-mcp")
-            if os.getenv("WQM_CLI_MODE") != "true":
-                logger.info("Using standard FastMCP for protocol compliance")
-    except Exception as e:
-        if os.getenv("WQM_CLI_MODE") != "true":
-            logger.warning(f"Failed to initialize optimized FastMCP: {e}")
-        app = FastMCP("workspace-qdrant-mcp")
-        if os.getenv("WQM_CLI_MODE") != "true":
-            logger.info("Falling back to standard FastMCP")
-else:
-    # Use standard FastMCP
+# Create minimal FastMCP app immediately - stdio mode uses basic version
+if _STDIO_MODE:
+    # In stdio mode, create minimal app without optimizations
     app = FastMCP("workspace-qdrant-mcp")
-    if os.getenv("WQM_CLI_MODE") != "true":
+else:
+    # Full mode - use optimizations if available
+    if OPTIMIZATIONS_AVAILABLE and os.getenv("DISABLE_FASTMCP_OPTIMIZATIONS", "false").lower() != "true":
+        # Use optimized FastMCP implementation
+        try:
+            _optimizer = OptimizedWorkspaceServer(enable_optimizations=True)
+            candidate_app = _optimizer.create_optimized_app("workspace-qdrant-mcp")
+
+            # Test MCP protocol compliance
+            if _test_mcp_protocol_compliance(candidate_app):
+                app = candidate_app
+                logger.info("Initialized with FastMCP optimizations enabled - protocol compliant")
+            else:
+                logger.warning("Optimized FastMCP failed protocol compliance check, falling back")
+                app = FastMCP("workspace-qdrant-mcp")
+                logger.info("Using standard FastMCP for protocol compliance")
+        except Exception as e:
+            logger.warning(f"Failed to initialize optimized FastMCP: {e}")
+            app = FastMCP("workspace-qdrant-mcp")
+            logger.info("Falling back to standard FastMCP")
+    else:
+        # Use standard FastMCP
+        app = FastMCP("workspace-qdrant-mcp")
         logger.info("Initialized with standard FastMCP")
 
 # Global client instance
 workspace_client: QdrantWorkspaceClient | None = None
-watch_tools_manager: WatchToolsManager | None = None
-auto_ingestion_manager: AutoIngestionManager | None = None
+# These managers are only available in non-stdio mode
+watch_tools_manager = None  # WatchToolsManager | None
+auto_ingestion_manager = None  # AutoIngestionManager | None
 
 
 class ServerInfo(BaseModel):
