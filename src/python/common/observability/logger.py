@@ -188,10 +188,18 @@ def configure_logging(
 
     # Console handler
     # For MCP stdio mode, disable console output entirely unless explicitly overridden
+    # Check if console output should be disabled for MCP mode
     mcp_quiet_mode = os.getenv("MCP_QUIET_MODE", "true" if stdio_mode else "false").lower() == "true"
-    disable_mcp_console = os.getenv("DISABLE_MCP_CONSOLE_LOGS", "true" if stdio_mode else "false").lower() == "true"
+    disable_mcp_console = os.getenv("DISABLE_MCP_CONSOLE_LOGS", "false").lower() == "true"
 
-    if console_output and not (stdio_mode and (mcp_quiet_mode or disable_mcp_console)):
+    # Determine if we should create console handler
+    should_create_console_handler = console_output
+
+    # In stdio mode, disable console output if either quiet mode is enabled OR explicit disable is set
+    if stdio_mode and (mcp_quiet_mode or disable_mcp_console):
+        should_create_console_handler = False
+
+    if should_create_console_handler:
         # In stdio mode (MCP), use stderr to avoid interfering with JSON-RPC protocol on stdout
         stream = sys.stderr if stdio_mode else sys.stdout
         console_handler = logging.StreamHandler(stream)
