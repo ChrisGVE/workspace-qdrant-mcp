@@ -9,6 +9,13 @@ use std::path::{Path, PathBuf};
 use std::process;
 use tokio::signal;
 use tracing::{error, info, warn};
+
+// Platform-specific imports for stderr suppression
+#[cfg(unix)]
+use std::os::unix::io::AsRawFd;
+
+#[cfg(windows)]
+use std::os::windows::io::AsRawHandle;
 // Removed unused imports: EnvFilter, FmtSubscriber
 use workspace_qdrant_core::{
     ProcessingEngine, config::{Config, DaemonConfig}, 
@@ -318,33 +325,47 @@ fn check_existing_instance(pid_file: &Path, project_id: Option<&String>) -> Resu
 
 /// Load configuration from file or use defaults
 fn load_config(args: &DaemonArgs) -> Result<(Config, DaemonConfig), Box<dyn std::error::Error>> {
+    let is_daemon_mode = detect_daemon_mode();
+
     match &args.config_file {
         Some(config_path) => {
             info!("Loading configuration from {}", config_path.display());
             let config_content = fs::read_to_string(config_path)?;
-            let daemon_config: DaemonConfig = toml::from_str(&config_content)?;
-            
+            let mut daemon_config: DaemonConfig = toml::from_str(&config_content)?;
+
+            // Override with daemon-mode settings if in daemon mode for MCP compliance
+            if is_daemon_mode {
+                daemon_config.qdrant.check_compatibility = false;
+            }
+
             // Convert to engine config for backward compatibility
             let engine_config = Config::from(daemon_config.clone());
-            
+
             // Note: Port configuration would be handled by IPC layer if needed
             if args.port.is_some() {
                 info!("Port override specified: {}, but will be handled by IPC layer", args.port.unwrap());
             }
-            
+
             info!("Configuration loaded successfully - Qdrant transport: {:?}", daemon_config.qdrant.transport);
             Ok((engine_config, daemon_config))
         }
         None => {
             info!("Using default configuration");
-            let daemon_config = DaemonConfig::default();
+
+            // Use daemon-mode configuration if running as daemon for MCP compliance
+            let daemon_config = if is_daemon_mode {
+                DaemonConfig::daemon_mode()
+            } else {
+                DaemonConfig::default()
+            };
+
             let engine_config = Config::from(daemon_config.clone());
-            
+
             // Note: Port configuration would be handled by IPC layer if needed
             if args.port.is_some() {
                 info!("Port override specified: {}, but will be handled by IPC layer", args.port.unwrap());
             }
-            
+
             Ok((engine_config, daemon_config))
         }
     }
@@ -457,6 +478,37 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         suppress_third_party_output();
         // Set environment variable for daemon mode
         std::env::set_var("WQM_SERVICE_MODE", "true");
+
+        // CRITICAL: Redirect stderr to suppress Qdrant client compatibility warnings
+        // This must be done before any Qdrant client initialization
+        #[cfg(unix)]
+        {
+            use std::os::unix::io::AsRawFd;
+            use std::fs::OpenOptions;
+
+            // Redirect stderr to /dev/null to suppress third-party library output
+            if let Ok(null_file) = OpenOptions::new().write(true).open("/dev/null") {
+                unsafe {
+                    libc::dup2(null_file.as_raw_fd(), libc::STDERR_FILENO);
+                }
+            }
+        }
+
+        #[cfg(windows)]
+        {
+            // Windows stderr suppression - redirect to NUL
+            use std::fs::OpenOptions;
+            use std::os::windows::io::AsRawHandle;
+
+            if let Ok(null_file) = OpenOptions::new().write(true).open("NUL") {
+                unsafe {
+                    winapi::um::processenv::SetStdHandle(
+                        winapi::um::winbase::STD_ERROR_HANDLE,
+                        null_file.as_raw_handle() as *mut std::ffi::c_void
+                    );
+                }
+            }
+        }
     }
 
     let args = parse_args()?;
