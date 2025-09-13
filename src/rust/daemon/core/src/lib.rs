@@ -37,7 +37,7 @@ pub use crate::error::{
     CircuitBreaker, ErrorMonitor, ErrorRecovery, Result
 };
 pub use crate::logging::{
-    LoggingConfig, PerformanceMetrics, initialize_logging,
+    LoggingConfig, PerformanceMetrics, initialize_logging, initialize_daemon_silence,
     track_async_operation, log_error_with_context, LoggingErrorMonitor
 };
 pub use crate::daemon_state::{

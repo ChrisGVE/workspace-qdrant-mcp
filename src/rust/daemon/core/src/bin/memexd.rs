@@ -432,45 +432,6 @@ async fn run_daemon(_config: Config, daemon_config: DaemonConfig, args: DaemonAr
     Ok(())
 }
 
-/// Suppress third-party library output in daemon mode
-fn suppress_third_party_output() {
-    // ONNX Runtime suppression - prevent initialization messages
-    std::env::set_var("ORT_LOGGING_LEVEL", "4"); // Silent mode (0=verbose, 4=fatal only)
-    std::env::set_var("OMP_NUM_THREADS", "1"); // Reduce OpenMP threading messages
-    std::env::set_var("OPENBLAS_NUM_THREADS", "1"); // OpenBLAS threading control
-
-    // Tokenizers suppression - prevent HuggingFace tokenizer messages
-    std::env::set_var("TOKENIZERS_PARALLELISM", "false");
-    std::env::set_var("HF_HUB_DISABLE_PROGRESS_BARS", "1");
-    std::env::set_var("HF_HUB_DISABLE_TELEMETRY", "1");
-    std::env::set_var("HF_HUB_DISABLE_EXPERIMENTAL_WARNING", "1");
-
-    // Tracing/logging suppression for third-party crates
-    // Note: RUST_LOG is set by our logging system, but ensure no conflicts
-    if std::env::var("RUST_LOG").is_err() {
-        std::env::set_var("RUST_LOG", "off");
-    }
-
-    // Python integration suppression (if FastEmbed uses Python bindings)
-    std::env::set_var("PYTHONPATH", ""); // Clear Python integration
-    std::env::set_var("PYTHONIOENCODING", "utf-8"); // Prevent encoding warnings
-    std::env::set_var("PYTHONUNBUFFERED", "1"); // Immediate output (easier to suppress)
-
-    // CUDA/GPU library suppression
-    std::env::set_var("CUDA_VISIBLE_DEVICES", ""); // Disable CUDA if not needed
-    std::env::set_var("TF_CPP_MIN_LOG_LEVEL", "3"); // TensorFlow fatal only
-
-    // General ML library suppression
-    std::env::set_var("MPLCONFIGDIR", "/tmp"); // matplotlib config to temp
-    std::env::set_var("TRANSFORMERS_OFFLINE", "1"); // Prevent network calls
-    std::env::set_var("TRANSFORMERS_NO_ADVISORY_WARNINGS", "1"); // Disable warnings
-
-    // Disable terminal detection and TTY-related output
-    std::env::set_var("TERM", "dumb"); // Disable terminal features
-    std::env::set_var("NO_COLOR", "1"); // Force disable colors globally
-    std::env::set_var("FORCE_COLOR", "0"); // Explicitly disable color
-}
-
 /// Detect if we're running in daemon/service mode
 fn detect_daemon_mode() -> bool {
     // Check command-line arguments for daemon indicators
@@ -494,11 +455,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     if is_daemon_mode {
         suppress_third_party_output();
-        // Initialize complete tracing silence immediately
-        if let Err(_) = workspace_qdrant_core::initialize_daemon_silence() {
-            // If that fails, fall back to setting environment variable
-            std::env::set_var("WQM_SERVICE_MODE", "true");
-        }
+        // Set environment variable for daemon mode
+        std::env::set_var("WQM_SERVICE_MODE", "true");
     }
 
     let args = parse_args()?;
