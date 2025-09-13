@@ -187,7 +187,11 @@ def configure_logging(
         )
 
     # Console handler
-    if console_output:
+    # For MCP stdio mode, disable console output entirely unless explicitly overridden
+    mcp_quiet_mode = os.getenv("MCP_QUIET_MODE", "true" if stdio_mode else "false").lower() == "true"
+    disable_mcp_console = os.getenv("DISABLE_MCP_CONSOLE_LOGS", "true" if stdio_mode else "false").lower() == "true"
+
+    if console_output and not (stdio_mode and (mcp_quiet_mode or disable_mcp_console)):
         # In stdio mode (MCP), use stderr to avoid interfering with JSON-RPC protocol on stdout
         stream = sys.stderr if stdio_mode else sys.stdout
         console_handler = logging.StreamHandler(stream)
@@ -321,6 +325,8 @@ def setup_logging_from_env() -> None:
         LOG_CONSOLE: Enable console output (default: true)
         LOG_MAX_FILE_SIZE: Max file size in bytes (default: 10MB)
         LOG_BACKUP_COUNT: Number of backup files (default: 5)
+        MCP_QUIET_MODE: Disable console output in MCP stdio mode (default: true when in stdio)
+        DISABLE_MCP_CONSOLE_LOGS: Alternative env var to disable console output in MCP mode
     """
     # Get configuration from environment
     level = os.getenv("LOG_LEVEL", "INFO")
@@ -333,6 +339,9 @@ def setup_logging_from_env() -> None:
     # Convert log file path if provided
     log_file = Path(log_file_path) if log_file_path else None
 
+    # Detect if we're in stdio mode (used for MCP protocol)
+    stdio_mode = os.getenv("WQM_STDIO_MODE", "false").lower() == "true"
+
     # Configure logging
     configure_logging(
         level=level,
@@ -341,6 +350,7 @@ def setup_logging_from_env() -> None:
         max_file_size=max_file_size,
         backup_count=backup_count,
         console_output=console_output,
+        stdio_mode=stdio_mode,
     )
 
 

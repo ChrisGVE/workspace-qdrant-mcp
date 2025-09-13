@@ -2568,6 +2568,9 @@ def run_server(
         WORKSPACE_QDRANT_*: Prefixed environment variables for configuration
         QDRANT_URL: Qdrant database endpoint URL (legacy, use YAML config preferred)
         OPENAI_API_KEY: Required for embedding generation (if using OpenAI models)
+        MCP_QUIET_MODE: Disable console logging in stdio mode (default: true for stdio)
+        DISABLE_MCP_CONSOLE_LOGS: Alternative env var to disable console logging in MCP mode
+        LOG_LEVEL: Logging level (DEBUG, INFO, WARNING, ERROR, CRITICAL)
 
     Example:
         ```bash
@@ -2585,20 +2588,39 @@ def run_server(
     # Store configuration file path for later use
     config_file_path = config
 
-    # Configure logging early - use stderr for stdio mode to avoid interfering with MCP protocol
+    # Set environment variable to indicate stdio mode for other modules
+    if transport == "stdio":
+        os.environ["WQM_STDIO_MODE"] = "true"
+        # Enable MCP quiet mode by default for stdio transport
+        if "MCP_QUIET_MODE" not in os.environ:
+            os.environ["MCP_QUIET_MODE"] = "true"
+
+    # Configure logging early - disable console output for stdio mode to avoid interfering with MCP protocol
+    # Set up default log file for stdio mode to ensure logging is still available
+    log_file = None
+    if transport == "stdio" and "LOG_FILE" not in os.environ:
+        from pathlib import Path
+        log_dir = Path.home() / ".workspace-qdrant-mcp" / "logs"
+        log_dir.mkdir(parents=True, exist_ok=True)
+        log_file = log_dir / "server.log"
+
     configure_logging(
-        level=os.getenv("LOG_LEVEL", "INFO"), 
-        json_format=True, 
+        level=os.getenv("LOG_LEVEL", "INFO"),
+        json_format=True,
         console_output=True,
-        stdio_mode=(transport == "stdio")
+        stdio_mode=(transport == "stdio"),
+        log_file=log_file
     )
 
+    # Log startup information - will only appear if console logging is enabled
     logger.info(
         "Starting workspace-qdrant-mcp server",
         transport=transport,
         host=host if transport != "stdio" else None,
         port=port if transport != "stdio" else None,
         config_file=config,
+        mcp_quiet_mode=os.getenv("MCP_QUIET_MODE", "false"),
+        log_file_enabled=log_file is not None if transport == "stdio" else None,
     )
 
     # Set up signal handlers for graceful shutdown
@@ -2610,15 +2632,19 @@ def run_server(
     # Run FastMCP server with appropriate transport
     if transport == "stdio":
         # MCP protocol over stdin/stdout (default for Claude Desktop/Code)
-        logger.info("Starting MCP server with stdio transport")
+        # Only log if not in quiet mode
+        if os.getenv("MCP_QUIET_MODE", "true").lower() != "true":
+            logger.info("Starting MCP server with stdio transport")
         
         # Use optimized stdio transport if available and protocol compliant
         if (OPTIMIZATIONS_AVAILABLE and
             hasattr(app, 'run_stdio') and
             os.getenv("DISABLE_STDIO_OPTIMIZATIONS", "false").lower() != "true" and
             os.getenv("FORCE_STANDARD_FASTMCP", "false").lower() != "true"):
-            
-            logger.info("Using optimized stdio transport with compression and batching")
+
+            # Only log optimization info if not in quiet mode
+            if os.getenv("MCP_QUIET_MODE", "true").lower() != "true":
+                logger.info("Using optimized stdio transport with compression and batching")
             asyncio.run(app.run_stdio())
         else:
             app.run(transport="stdio")
