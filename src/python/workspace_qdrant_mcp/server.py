@@ -43,28 +43,79 @@ import signal
 from datetime import datetime, timezone
 from typing import List, Optional
 
+# CRITICAL: Complete stdio silence must be set up before ANY other imports
+# This prevents ALL console output in MCP stdio mode for protocol compliance
+import sys
+
+# Comprehensive stdio mode detection
+def _detect_stdio_mode() -> bool:
+    """Detect MCP stdio mode with comprehensive checks."""
+    # Explicit environment variables
+    if os.getenv("WQM_STDIO_MODE", "").lower() == "true":
+        return True
+    if os.getenv("MCP_QUIET_MODE", "").lower() == "true":
+        return True
+    if os.getenv("MCP_TRANSPORT") == "stdio":
+        return True
+
+    # Command line argument detection
+    if "--transport" in sys.argv:
+        try:
+            transport_idx = sys.argv.index("--transport")
+            if transport_idx + 1 < len(sys.argv) and sys.argv[transport_idx + 1] == "stdio":
+                return True
+        except (ValueError, IndexError):
+            pass
+
+    # Check if stdout is piped (MCP scenario)
+    if hasattr(sys.stdout, 'isatty') and not sys.stdout.isatty():
+        if os.getenv("TERM") is None:
+            return True
+
+    return False
+
+# Set up complete silence if stdio mode is detected
+_STDIO_MODE = _detect_stdio_mode()
+_NULL_DEVICE = None
+_ORIGINAL_STDOUT = None
+_ORIGINAL_STDERR = None
+
+if _STDIO_MODE:
+    # Store originals and redirect to null
+    _ORIGINAL_STDOUT = sys.stdout
+    _ORIGINAL_STDERR = sys.stderr
+    _NULL_DEVICE = open(os.devnull, 'w')
+    sys.stdout = _NULL_DEVICE
+    sys.stderr = _NULL_DEVICE
+
+    # Set environment variables for downstream detection
+    os.environ["WQM_STDIO_MODE"] = "true"
+    os.environ["MCP_QUIET_MODE"] = "true"
+    os.environ["TOKENIZERS_PARALLELISM"] = "false"
+
+    # Suppress ALL warnings globally
+    import warnings
+    warnings.filterwarnings("ignore")
+    warnings.simplefilter("ignore")
+
+    # Configure Python logging to be completely silent
+    root_logger = logging.getLogger()
+    # Remove all handlers
+    for handler in root_logger.handlers[:]:
+        root_logger.removeHandler(handler)
+    # Add null handler and set level above any normal logging
+    class _NullHandler(logging.Handler):
+        def emit(self, record): pass
+        def handle(self, record): return True
+        def createLock(self): self.lock = None
+
+    root_logger.addHandler(_NullHandler())
+    root_logger.setLevel(logging.CRITICAL + 1)
+    root_logger.disabled = True
+
 import typer
 from fastmcp import FastMCP
 from pydantic import BaseModel
-
-# Configure environment for MCP stdio mode early to prevent console interference
-import sys
-if os.getenv("WQM_STDIO_MODE") == "true" or ("--transport" in " ".join(sys.argv) and "stdio" in " ".join(sys.argv)):
-    # Set MCP stdio mode environment variables
-    os.environ["WQM_STDIO_MODE"] = "true"
-    os.environ["MCP_QUIET_MODE"] = "true"
-
-    # Suppress third-party library warnings early
-    if "TOKENIZERS_PARALLELISM" not in os.environ:
-        os.environ["TOKENIZERS_PARALLELISM"] = "false"
-
-    # Suppress warnings early
-    import warnings
-    warnings.filterwarnings("ignore", category=UserWarning, module="pydantic")
-    warnings.filterwarnings("ignore", message=".*deprecated.*")
-    warnings.filterwarnings("ignore", message=".*PydanticDeprecatedSince20.*")
-    warnings.filterwarnings("ignore", message=".*got forked.*parallelism.*")
-    warnings.filterwarnings("ignore", category=FutureWarning)
 
 
 from common.core.advanced_watch_config import (
@@ -102,12 +153,20 @@ from common.logging import (
     configure_unified_logging,
 )
 
-# Configure logging immediately after import to prevent interference
-if os.getenv("WQM_STDIO_MODE") == "true":
+# Configure logging only if not in stdio mode (stdio mode uses null output)
+if not _STDIO_MODE:
     configure_unified_logging(
         level="INFO",
         json_format=True,
-        console_output=False,  # Disable console output in stdio mode
+        console_output=True,
+        force_mcp_detection=False,
+    )
+else:
+    # In stdio mode, ensure the unified logging system also uses null output
+    configure_unified_logging(
+        level="CRITICAL",
+        json_format=True,
+        console_output=False,
         force_mcp_detection=True,
     )
 
@@ -143,8 +202,21 @@ from .tools.simplified_interface import (
 )
 from common.utils.config_validator import ConfigValidator
 
-# Initialize structured logging
-logger = get_logger(__name__)
+# Initialize structured logging (will be silent in stdio mode)
+if _STDIO_MODE:
+    # Create a null logger for stdio mode
+    class _NullLogger:
+        def debug(self, *args, **kwargs): pass
+        def info(self, *args, **kwargs): pass
+        def warning(self, *args, **kwargs): pass
+        def error(self, *args, **kwargs): pass
+        def critical(self, *args, **kwargs): pass
+        def exception(self, *args, **kwargs): pass
+        def log(self, *args, **kwargs): pass
+        def __getattr__(self, name): return lambda *args, **kwargs: None
+    logger = _NullLogger()
+else:
+    logger = get_logger(__name__)
 
 # Only import optimizations if not in CLI mode to prevent logging during CLI startup
 if os.getenv("WQM_CLI_MODE") != "true":
@@ -2647,36 +2719,53 @@ def run_server(
         warnings.filterwarnings("ignore", message=".*got forked.*parallelism.*")
         warnings.filterwarnings("ignore", category=FutureWarning)
 
-    # Configure logging early - disable console output for stdio mode to avoid interfering with MCP protocol
-    # Set up default log file for stdio mode to ensure logging is still available
-    log_file = None
-    if transport == "stdio" and "LOG_FILE" not in os.environ:
-        from pathlib import Path
-        log_dir = Path.home() / ".workspace-qdrant-mcp" / "logs"
-        log_dir.mkdir(parents=True, exist_ok=True)
-        log_file = log_dir / "server.log"
+    # Configure logging if not already configured
+    global _STDIO_MODE
+    if not _STDIO_MODE or transport != "stdio":
+        # Not in stdio mode, configure normal logging
+        log_file = None
+        if transport == "stdio" and "LOG_FILE" not in os.environ:
+            from pathlib import Path
+            log_dir = Path.home() / ".workspace-qdrant-mcp" / "logs"
+            log_dir.mkdir(parents=True, exist_ok=True)
+            log_file = log_dir / "server.log"
 
-    configure_unified_logging(
-        level=os.getenv("LOG_LEVEL", "INFO"),
-        json_format=True,
-        log_file=str(log_file) if log_file else None,
-        console_output=True,
-        force_mcp_detection=(transport == "stdio")
-    )
+        configure_unified_logging(
+            level=os.getenv("LOG_LEVEL", "INFO"),
+            json_format=True,
+            log_file=str(log_file) if log_file else None,
+            console_output=(transport != "stdio"),
+            force_mcp_detection=(transport == "stdio")
+        )
 
-    # Log startup information - will only appear if console logging is enabled
-    logger.info(
-        "Starting workspace-qdrant-mcp server",
-        transport=transport,
-        host=host if transport != "stdio" else None,
-        port=port if transport != "stdio" else None,
-        config_file=config,
-        mcp_quiet_mode=os.getenv("MCP_QUIET_MODE", "false"),
-        log_file_enabled=log_file is not None if transport == "stdio" else None,
-    )
+        # Log startup information only if console logging is enabled
+        logger.info(
+            "Starting workspace-qdrant-mcp server",
+            transport=transport,
+            host=host if transport != "stdio" else None,
+            port=port if transport != "stdio" else None,
+            config_file=config,
+            mcp_quiet_mode=os.getenv("MCP_QUIET_MODE", "false"),
+            log_file_enabled=log_file is not None if transport == "stdio" else None,
+        )
+    else:
+        # In stdio mode with early silence configured - restore stdout for MCP protocol
+        if transport == "stdio" and _STDIO_MODE and _ORIGINAL_STDOUT:
+            # Restore stdout for MCP JSON-RPC protocol communication
+            sys.stdout = _ORIGINAL_STDOUT
+            # Keep stderr redirected to prevent any error output
 
     # Set up signal handlers for graceful shutdown
     setup_signal_handlers()
+
+    # Additional cleanup setup for stdio mode
+    if transport == "stdio" and _STDIO_MODE:
+        import atexit
+        def cleanup():
+            """Clean up resources on exit."""
+            if _NULL_DEVICE and not _NULL_DEVICE.closed:
+                _NULL_DEVICE.close()
+        atexit.register(cleanup)
 
     # Initialize workspace before running server
     asyncio.run(initialize_workspace(config_file_path))
