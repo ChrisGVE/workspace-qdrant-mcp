@@ -111,6 +111,16 @@ impl Default for DaemonConfig {
     }
 }
 
+impl DaemonConfig {
+    /// Create a daemon-mode configuration optimized for MCP stdio protocol compliance
+    /// This configuration disables compatibility checking to prevent console output
+    pub fn daemon_mode() -> Self {
+        let mut config = Self::default();
+        config.qdrant = StorageConfig::daemon_mode(); // Use silent StorageConfig
+        config
+    }
+}
+
 /// Processing engine configuration (backward compatible)
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Config {

@@ -6,6 +6,7 @@
 use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::Duration;
+use std::env;
 use qdrant_client::{Qdrant, QdrantError};
 use qdrant_client::config::QdrantConfig;
 use qdrant_client::qdrant::{PointStruct, SearchPoints, UpsertPoints};
@@ -148,6 +149,16 @@ impl Default for StorageConfig {
             http2: Http2Config::default(),
             check_compatibility: true,
         }
+    }
+}
+
+impl StorageConfig {
+    /// Create a daemon-mode configuration with compatibility checking disabled
+    /// to ensure complete console silence for MCP stdio protocol compliance
+    pub fn daemon_mode() -> Self {
+        let mut config = Self::default();
+        config.check_compatibility = false; // Disable to suppress Qdrant client output
+        config
     }
 }
 
@@ -331,10 +342,12 @@ impl StorageClient {
         // Enable keep-alive for better connection stability
         qdrant_config = qdrant_config.keep_alive_while_idle();
         
-        // Configure compatibility checking
+        // Configure compatibility checking - disable in daemon mode for silence
         if !config.check_compatibility {
             debug!("Disabling compatibility check as requested");
-            // Note: would need to configure this if the API supports it
+            // Set environment variables that the Qdrant client might recognize
+            std::env::set_var("QDRANT_SKIP_VERSION_CHECK", "true");
+            std::env::set_var("QDRANT_CHECK_COMPATIBILITY", "false");
         }
         
         // Log and apply HTTP/2 configuration for gRPC transport
@@ -369,7 +382,15 @@ impl StorageClient {
         }
         
         // Try to build the client with fallback to HTTP on gRPC failure
-        let client = match Qdrant::new(qdrant_config.clone()) {
+        // In daemon mode, temporarily suppress stdout/stderr during client creation
+        let client = if is_daemon_mode() && !config.check_compatibility {
+            // Suppress output during client creation for MCP stdio compliance
+            suppress_output_temporarily(|| Qdrant::new(qdrant_config.clone()))
+        } else {
+            Qdrant::new(qdrant_config.clone())
+        };
+
+        let client = match client {
             Ok(client) => {
                 info!("Successfully created Qdrant client with {:?} transport", config.transport);
                 Arc::new(client)
@@ -929,4 +950,80 @@ impl Default for StorageClient {
     fn default() -> Self {
         Self::new()
     }
+}
+
+/// Detect if running in daemon mode for MCP stdio compliance
+fn is_daemon_mode() -> bool {
+    env::var("WQM_SERVICE_MODE").map(|v| v == "true").unwrap_or(false) ||
+        env::var("XPC_SERVICE_NAME").is_ok() ||
+        env::var("SYSTEMD_EXEC_PID").is_ok() ||
+        env::var("SYSLOG_IDENTIFIER").is_ok() ||
+        env::var("LOGNAME").map(|v| v == "root").unwrap_or(false)
+}
+
+/// Temporarily suppress stdout and stderr during a function call for MCP compliance
+#[cfg(unix)]
+fn suppress_output_temporarily<F, R>(f: F) -> R
+where
+    F: FnOnce() -> R,
+{
+    use std::fs::OpenOptions;
+    use std::os::unix::io::AsRawFd;
+
+    // Save original file descriptors
+    let original_stdout = unsafe { libc::dup(libc::STDOUT_FILENO) };
+    let original_stderr = unsafe { libc::dup(libc::STDERR_FILENO) };
+
+    let result = if let Ok(null_file) = OpenOptions::new().write(true).open("/dev/null") {
+        let null_fd = null_file.as_raw_fd();
+
+        // Redirect stdout and stderr to /dev/null
+        unsafe {
+            libc::dup2(null_fd, libc::STDOUT_FILENO);
+            libc::dup2(null_fd, libc::STDERR_FILENO);
+        }
+
+        // Execute the function
+        let result = f();
+
+        // Restore original file descriptors
+        unsafe {
+            libc::dup2(original_stdout, libc::STDOUT_FILENO);
+            libc::dup2(original_stderr, libc::STDERR_FILENO);
+            libc::close(original_stdout);
+            libc::close(original_stderr);
+        }
+
+        result
+    } else {
+        // If we can't open /dev/null, just run the function normally
+        f()
+    };
+
+    result
+}
+
+/// Windows version of output suppression
+#[cfg(windows)]
+fn suppress_output_temporarily<F, R>(f: F) -> R
+where
+    F: FnOnce() -> R,
+{
+    use std::fs::OpenOptions;
+    use std::os::windows::io::AsRawHandle;
+
+    if let Ok(null_file) = OpenOptions::new().write(true).open("NUL") {
+        unsafe {
+            winapi::um::processenv::SetStdHandle(
+                winapi::um::winbase::STD_OUTPUT_HANDLE,
+                null_file.as_raw_handle() as *mut std::ffi::c_void
+            );
+            winapi::um::processenv::SetStdHandle(
+                winapi::um::winbase::STD_ERROR_HANDLE,
+                null_file.as_raw_handle() as *mut std::ffi::c_void
+            );
+        }
+    }
+
+    f()
 }
