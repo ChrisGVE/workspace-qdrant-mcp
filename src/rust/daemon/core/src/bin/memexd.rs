@@ -479,9 +479,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     std::env::set_var("ATTY_FORCE_DISABLE_DEBUG", "1");
     std::env::set_var("NO_COLOR", "1");
 
-    // Log the suppression for verification (only in debug builds)
-    #[cfg(debug_assertions)]
-    eprintln!("TTY suppression environment variables set at main() start");
 
     // CRITICAL: Suppress third-party library output before ANY initialization
     // This must be the very first operation to prevent early output
