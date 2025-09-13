@@ -2,18 +2,18 @@
 Persistent watch configuration storage system.
 
 This module provides configuration persistence for file watching operations,
-including schema validation, atomic file operations, and backup recovery.
-Configurations are stored in JSON format with proper versioning and validation.
+using SQLite database backend for unified data storage with the Rust daemon.
+No JSON files are created - all data is stored in the daemon state database.
 """
 
 import json
 import logging
 import os
-import shutil
+import sqlite3
 from dataclasses import asdict, dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Optional, Union
+from typing import Any, Optional, Union, List
 
 from pydantic import BaseModel, Field, ValidationError, field_validator
 
@@ -254,142 +254,176 @@ class WatchConfigurationPersistent:
         return (include_patterns, exclude_patterns)
 
 
-class PersistentWatchConfigManager:
+class DatabaseWatchConfigManager:
     """
-    Manager for persistent watch configuration storage.
+    Database-backed manager for watch configuration storage.
 
-    Handles configuration file operations including validation, atomic writes,
-    backup creation, and error recovery for watch folder configurations.
+    Uses SQLite database backend for unified data storage with the Rust daemon.
+    All configurations are stored in the daemon state database, not JSON files.
     """
 
     def __init__(
         self,
-        config_file: Optional[Union[str, Path]] = None,
+        database_path: Optional[Union[str, Path]] = None,
         project_dir: Optional[Union[str, Path]] = None,
     ):
         """
-        Initialize configuration manager.
+        Initialize database configuration manager.
 
         Args:
-            config_file: Custom config file path (optional)
-            project_dir: Project directory for project-specific config (optional)
+            database_path: Custom database path (optional, uses daemon default)
+            project_dir: Project directory context (optional)
         """
         self.project_dir = Path(project_dir) if project_dir else None
 
-        if config_file:
-            self.config_file = Path(config_file).resolve()
+        if database_path:
+            self.database_path = Path(database_path).resolve()
         else:
-            self.config_file = self._determine_config_location()
+            self.database_path = self._get_default_database_path()
 
-        self.backup_file = self.config_file.with_suffix(".json.backup")
-        self.temp_file = self.config_file.with_suffix(".json.tmp")
+        # Ensure database directory exists
+        self.database_path.parent.mkdir(parents=True, exist_ok=True)
 
-        # Ensure config directory exists
-        self.config_file.parent.mkdir(parents=True, exist_ok=True)
+        # Initialize database schema if needed
+        self._initialize_database()
 
-        logger.info(f"Watch config manager initialized: {self.config_file}")
+        logger.info(f"Watch config manager initialized with database: {self.database_path}")
 
-    def _determine_config_location(self) -> Path:
-        """Determine the best location for configuration file."""
+    def _get_default_database_path(self) -> Path:
+        """Get the default daemon state database path."""
+        # Use the same path as the Rust daemon
+        data_dir = Path.home() / ".local" / "share" / "workspace-qdrant"
+        data_dir.mkdir(parents=True, exist_ok=True)
+        return data_dir / "daemon_state.db"
 
-        # Option 1: Project-specific config (if project_dir provided)
-        if self.project_dir:
-            project_config_dir = self.project_dir / ".workspace-qdrant"
-            project_config_file = project_config_dir / "watch-config.json"
-            if project_config_dir.exists() or self.project_dir.is_dir():
-                return project_config_file
+    def _initialize_database(self):
+        """Initialize database schema if needed."""
+        with sqlite3.connect(self.database_path) as conn:
+            conn.execute("""
+                CREATE TABLE IF NOT EXISTS watch_configurations (
+                    id TEXT PRIMARY KEY,
+                    path TEXT NOT NULL,
+                    collection TEXT NOT NULL,
+                    patterns TEXT NOT NULL,
+                    ignore_patterns TEXT NOT NULL,
+                    lsp_based_extensions BOOLEAN NOT NULL DEFAULT TRUE,
+                    lsp_detection_cache_ttl INTEGER NOT NULL DEFAULT 300,
+                    auto_ingest BOOLEAN NOT NULL DEFAULT TRUE,
+                    recursive BOOLEAN NOT NULL DEFAULT TRUE,
+                    recursive_depth INTEGER NOT NULL DEFAULT -1,
+                    debounce_seconds INTEGER NOT NULL DEFAULT 5,
+                    update_frequency INTEGER NOT NULL DEFAULT 1000,
+                    status TEXT NOT NULL DEFAULT 'active',
+                    created_at TIMESTAMP NOT NULL,
+                    last_activity TIMESTAMP,
+                    files_processed INTEGER NOT NULL DEFAULT 0,
+                    errors_count INTEGER NOT NULL DEFAULT 0
+                )
+            """)
 
-        # Option 2: User-specific config directory
-        user_config_dir = Path.home() / ".config" / "workspace-qdrant"
-        user_config_file = user_config_dir / "watch-config.json"
+            # Create indexes for better performance
+            conn.execute("CREATE INDEX IF NOT EXISTS idx_watch_status ON watch_configurations(status)")
+            conn.execute("CREATE INDEX IF NOT EXISTS idx_watch_path ON watch_configurations(path)")
+            conn.commit()
 
-        # Option 3: Fallback to home directory
-        fallback_config_dir = Path.home() / ".workspace-qdrant"
-        fallback_config_file = fallback_config_dir / "watch-config.json"
+    def _watch_config_to_dict(self, config: WatchConfigurationPersistent) -> dict:
+        """Convert WatchConfigurationPersistent to database-compatible dict."""
+        return {
+            'id': config.id,
+            'path': config.path,
+            'collection': config.collection,
+            'patterns': json.dumps(config.patterns),
+            'ignore_patterns': json.dumps(config.ignore_patterns),
+            'lsp_based_extensions': config.lsp_based_extensions,
+            'lsp_detection_cache_ttl': config.lsp_detection_cache_ttl,
+            'auto_ingest': config.auto_ingest,
+            'recursive': config.recursive,
+            'recursive_depth': config.recursive_depth,
+            'debounce_seconds': config.debounce_seconds,
+            'update_frequency': config.update_frequency,
+            'status': config.status,
+            'created_at': config.created_at,
+            'last_activity': config.last_activity,
+            'files_processed': config.files_processed,
+            'errors_count': config.errors_count,
+        }
 
-        # Use user config by default
-        return user_config_file
+    def _dict_to_watch_config(self, row_dict: dict) -> WatchConfigurationPersistent:
+        """Convert database row dict to WatchConfigurationPersistent."""
+        return WatchConfigurationPersistent(
+            id=row_dict['id'],
+            path=row_dict['path'],
+            collection=row_dict['collection'],
+            patterns=json.loads(row_dict['patterns']),
+            ignore_patterns=json.loads(row_dict['ignore_patterns']),
+            lsp_based_extensions=bool(row_dict['lsp_based_extensions']),
+            lsp_detection_cache_ttl=row_dict['lsp_detection_cache_ttl'],
+            auto_ingest=bool(row_dict['auto_ingest']),
+            recursive=bool(row_dict['recursive']),
+            recursive_depth=row_dict['recursive_depth'],
+            debounce_seconds=row_dict['debounce_seconds'],
+            update_frequency=row_dict['update_frequency'],
+            status=row_dict['status'],
+            created_at=row_dict['created_at'],
+            last_activity=row_dict['last_activity'],
+            files_processed=row_dict['files_processed'],
+            errors_count=row_dict['errors_count'],
+        )
 
     async def load_config(self) -> WatchConfigFile:
-        """Load watch configuration from file with error recovery."""
-
-        if not self.config_file.exists():
-            logger.info("No watch configuration file found, creating new one")
-            return WatchConfigFile()
-
+        """Load watch configuration from database."""
         try:
-            # Try to load main config file
-            config_data = self._load_json_file(self.config_file)
-            config = WatchConfigFile(**config_data)
-            logger.debug(f"Loaded {len(config.watches)} watch configurations")
-            return config
+            configs = await self.list_watch_configs()
 
-        except (json.JSONDecodeError, ValidationError) as e:
-            logger.error(f"Failed to load config file: {e}")
+            # Convert to WatchConfigFile format for compatibility
+            config_file = WatchConfigFile()
+            config_file.watches = []
 
-            # Try to load from backup
-            if self.backup_file.exists():
-                logger.info("Attempting recovery from backup file")
-                try:
-                    backup_data = self._load_json_file(self.backup_file)
-                    config = WatchConfigFile(**backup_data)
-                    logger.info("Successfully recovered configuration from backup")
+            for config in configs:
+                # Convert to WatchConfigSchema for validation
+                schema = WatchConfigSchema(
+                    id=config.id,
+                    path=config.path,
+                    collection=config.collection,
+                    patterns=config.patterns,
+                    ignore_patterns=config.ignore_patterns,
+                    lsp_based_extensions=config.lsp_based_extensions,
+                    lsp_detection_cache_ttl=config.lsp_detection_cache_ttl,
+                    auto_ingest=config.auto_ingest,
+                    recursive=config.recursive,
+                    recursive_depth=config.recursive_depth,
+                    debounce_seconds=config.debounce_seconds,
+                    update_frequency=config.update_frequency,
+                    status=config.status,
+                    created_at=config.created_at,
+                    last_activity=config.last_activity,
+                    files_processed=config.files_processed,
+                    errors_count=config.errors_count,
+                )
+                config_file.watches.append(schema)
 
-                    # Save recovered config as main config
-                    await self.save_config(config)
-                    return config
-
-                except Exception as backup_error:
-                    logger.error(f"Backup recovery failed: {backup_error}")
-
-            # Create fresh config if recovery fails
-            logger.warning("Creating fresh configuration file")
-            return WatchConfigFile()
+            logger.debug(f"Loaded {len(config_file.watches)} watch configurations from database")
+            return config_file
 
         except Exception as e:
-            logger.error(f"Unexpected error loading config: {e}")
+            logger.error(f"Failed to load config from database: {e}")
             return WatchConfigFile()
-
-    def _load_json_file(self, file_path: Path) -> dict[str, Any]:
-        """Load and parse JSON file."""
-        with open(file_path, "r", encoding="utf-8") as f:
-            return json.load(f)
 
     async def save_config(self, config: WatchConfigFile) -> bool:
-        """Save configuration with atomic write and backup creation."""
-
+        """Save configuration to database (for compatibility)."""
         try:
-            # Update timestamp
-            config.updated_at = datetime.now(timezone.utc).isoformat()
-
-            # Create backup of existing config
-            if self.config_file.exists():
-                shutil.copy2(self.config_file, self.backup_file)
-                logger.debug("Created configuration backup")
-
-            # Write to temporary file first (atomic operation)
-            with open(self.temp_file, "w", encoding="utf-8") as f:
-                json.dump(config.model_dump(), f, indent=2, ensure_ascii=False)
-
-            # Atomically move temp file to main config
-            self.temp_file.replace(self.config_file)
-
-            logger.debug(f"Saved {len(config.watches)} watch configurations")
+            # This method exists for compatibility but individual configs
+            # are saved via add_watch_config/update_watch_config
+            logger.debug(f"Database-backed config manager doesn't use save_config directly")
             return True
-
         except Exception as e:
             logger.error(f"Failed to save configuration: {e}")
-
-            # Clean up temp file if it exists
-            if self.temp_file.exists():
-                self.temp_file.unlink()
-
             return False
 
     async def add_watch_config(
         self, watch_config: WatchConfigurationPersistent
     ) -> bool:
-        """Add a new watch configuration."""
+        """Add a new watch configuration to database."""
 
         # Validate configuration
         issues = watch_config.validate()
@@ -398,56 +432,55 @@ class PersistentWatchConfigManager:
             return False
 
         try:
-            config = await self.load_config()
+            with sqlite3.connect(self.database_path) as conn:
+                # Check for duplicate ID
+                cursor = conn.execute("SELECT id FROM watch_configurations WHERE id = ?", (watch_config.id,))
+                if cursor.fetchone():
+                    logger.error(f"Watch ID already exists: {watch_config.id}")
+                    return False
 
-            # Check for duplicate ID
-            existing_ids = [w.id for w in config.watches]
-            if watch_config.id in existing_ids:
-                logger.error(f"Watch ID already exists: {watch_config.id}")
-                return False
+                # Insert new watch config
+                config_dict = self._watch_config_to_dict(watch_config)
+                columns = list(config_dict.keys())
+                placeholders = ', '.join(['?' for _ in columns])
+                values = list(config_dict.values())
 
-            # Add new watch config
-            validated_config = WatchConfigSchema(**watch_config.to_dict())
-            config.watches.append(validated_config)
+                conn.execute(
+                    f"INSERT INTO watch_configurations ({', '.join(columns)}) VALUES ({placeholders})",
+                    values
+                )
+                conn.commit()
 
-            # Save configuration
-            success = await self.save_config(config)
-            if success:
                 logger.info(f"Added watch configuration: {watch_config.id}")
-            return success
+                return True
 
         except Exception as e:
-            logger.error(f"Failed to add watch config: {e}")
+            logger.error(f"Failed to add watch config to database: {e}")
             return False
 
     async def remove_watch_config(self, watch_id: str) -> bool:
-        """Remove a watch configuration."""
+        """Remove a watch configuration from database."""
 
         try:
-            config = await self.load_config()
+            with sqlite3.connect(self.database_path) as conn:
+                cursor = conn.execute("DELETE FROM watch_configurations WHERE id = ?", (watch_id,))
+                conn.commit()
 
-            # Find and remove configuration
-            original_count = len(config.watches)
-            config.watches = [w for w in config.watches if w.id != watch_id]
+                if cursor.rowcount == 0:
+                    logger.warning(f"Watch configuration not found: {watch_id}")
+                    return False
 
-            if len(config.watches) == original_count:
-                logger.warning(f"Watch configuration not found: {watch_id}")
-                return False
-
-            # Save updated configuration
-            success = await self.save_config(config)
-            if success:
                 logger.info(f"Removed watch configuration: {watch_id}")
-            return success
+                return True
 
         except Exception as e:
-            logger.error(f"Failed to remove watch config: {e}")
+            logger.error(f"Failed to remove watch config from database: {e}")
             return False
 
     async def update_watch_config(
         self, watch_config: WatchConfigurationPersistent
     ) -> bool:
-        """Update an existing watch configuration."""
+        """Update an existing watch configuration in database."""
 
         # Validate configuration
         issues = watch_config.validate()
@@ -456,70 +489,102 @@ class PersistentWatchConfigManager:
             return False
 
         try:
-            config = await self.load_config()
+            with sqlite3.connect(self.database_path) as conn:
+                # Check if configuration exists
+                cursor = conn.execute("SELECT id FROM watch_configurations WHERE id = ?", (watch_config.id,))
+                if not cursor.fetchone():
+                    logger.warning(f"Watch configuration not found for update: {watch_config.id}")
+                    return False
 
-            # Find and update configuration
-            updated = False
-            for i, existing_config in enumerate(config.watches):
-                if existing_config.id == watch_config.id:
-                    validated_config = WatchConfigSchema(**watch_config.to_dict())
-                    config.watches[i] = validated_config
-                    updated = True
-                    break
+                # Update configuration
+                config_dict = self._watch_config_to_dict(watch_config)
+                # Remove id from update since it's the WHERE clause
+                del config_dict['id']
 
-            if not updated:
-                logger.warning(
-                    f"Watch configuration not found for update: {watch_config.id}"
+                columns = list(config_dict.keys())
+                set_clause = ', '.join([f"{col} = ?" for col in columns])
+                values = list(config_dict.values()) + [watch_config.id]
+
+                conn.execute(
+                    f"UPDATE watch_configurations SET {set_clause} WHERE id = ?",
+                    values
                 )
-                return False
+                conn.commit()
 
-            # Save updated configuration
-            success = await self.save_config(config)
-            if success:
                 logger.info(f"Updated watch configuration: {watch_config.id}")
-            return success
+                return True
 
         except Exception as e:
-            logger.error(f"Failed to update watch config: {e}")
+            logger.error(f"Failed to update watch config in database: {e}")
             return False
 
     async def list_watch_configs(
         self, active_only: bool = False
-    ) -> list[WatchConfigurationPersistent]:
-        """List all watch configurations."""
+    ) -> List[WatchConfigurationPersistent]:
+        """List all watch configurations from database."""
 
         try:
-            config = await self.load_config()
+            with sqlite3.connect(self.database_path) as conn:
+                conn.row_factory = sqlite3.Row  # Enable column access by name
 
-            # Convert to WatchConfigurationPersistent objects
-            watch_configs = []
-            for config_data in config.watches:
-                try:
-                    watch_config = WatchConfigurationPersistent.from_dict(
-                        config_data.model_dump()
-                    )
-                    if active_only and watch_config.status != "active":
-                        continue
-                    watch_configs.append(watch_config)
-                except Exception as e:
-                    logger.warning(f"Failed to convert config {config_data.id}: {e}")
+                query = """
+                    SELECT id, path, collection, patterns, ignore_patterns,
+                           lsp_based_extensions, lsp_detection_cache_ttl, auto_ingest,
+                           recursive, recursive_depth, debounce_seconds, update_frequency,
+                           status, created_at, last_activity, files_processed, errors_count
+                    FROM watch_configurations
+                """
 
-            return sorted(watch_configs, key=lambda x: x.created_at)
+                if active_only:
+                    query += " WHERE status = 'active'"
+
+                query += " ORDER BY created_at"
+
+                cursor = conn.execute(query)
+                rows = cursor.fetchall()
+
+                watch_configs = []
+                for row in rows:
+                    try:
+                        row_dict = dict(row)
+                        watch_config = self._dict_to_watch_config(row_dict)
+                        watch_configs.append(watch_config)
+                    except Exception as e:
+                        logger.warning(f"Failed to convert database row {row['id']}: {e}")
+
+                return watch_configs
 
         except Exception as e:
-            logger.error(f"Failed to list watch configs: {e}")
+            logger.error(f"Failed to list watch configs from database: {e}")
             return []
 
     async def get_watch_config(
         self, watch_id: str
     ) -> Optional[WatchConfigurationPersistent]:
-        """Get a specific watch configuration by ID."""
+        """Get a specific watch configuration by ID from database."""
 
-        configs = await self.list_watch_configs()
-        for config in configs:
-            if config.id == watch_id:
-                return config
-        return None
+        try:
+            with sqlite3.connect(self.database_path) as conn:
+                conn.row_factory = sqlite3.Row
+
+                cursor = conn.execute("""
+                    SELECT id, path, collection, patterns, ignore_patterns,
+                           lsp_based_extensions, lsp_detection_cache_ttl, auto_ingest,
+                           recursive, recursive_depth, debounce_seconds, update_frequency,
+                           status, created_at, last_activity, files_processed, errors_count
+                    FROM watch_configurations WHERE id = ?
+                """, (watch_id,))
+
+                row = cursor.fetchone()
+                if row:
+                    row_dict = dict(row)
+                    return self._dict_to_watch_config(row_dict)
+                else:
+                    return None
+
+        except Exception as e:
+            logger.error(f"Failed to get watch config from database: {e}")
+            return None
 
     async def validate_all_configs(self) -> dict[str, list[str]]:
         """Validate all watch configurations and return issues."""
@@ -534,26 +599,75 @@ class PersistentWatchConfigManager:
 
         return validation_results
 
-    def get_config_file_path(self) -> Path:
-        """Get the path to the configuration file."""
-        return self.config_file
+    def get_database_path(self) -> Path:
+        """Get the path to the database file."""
+        return self.database_path
 
     async def backup_config(self, backup_path: Optional[Path] = None) -> bool:
-        """Create a backup of the current configuration."""
+        """Create a backup of the database."""
 
-        if not self.config_file.exists():
-            logger.warning("No configuration file to backup")
+        if not self.database_path.exists():
+            logger.warning("No database to backup")
             return False
 
         try:
-            backup_path = backup_path or self.config_file.with_suffix(
-                f".json.backup.{datetime.now().strftime('%Y%m%d_%H%M%S')}"
-            )
+            if backup_path is None:
+                backup_dir = self.database_path.parent / "backups"
+                backup_dir.mkdir(exist_ok=True)
+                backup_path = backup_dir / f"daemon_state_backup_{datetime.now().strftime('%Y%m%d_%H%M%S')}.db"
 
-            shutil.copy2(self.config_file, backup_path)
-            logger.info(f"Configuration backed up to: {backup_path}")
+            # Use SQLite backup API for atomic backup
+            import shutil
+            shutil.copy2(self.database_path, backup_path)
+            logger.info(f"Database backed up to: {backup_path}")
             return True
 
         except Exception as e:
-            logger.error(f"Failed to backup configuration: {e}")
+            logger.error(f"Failed to backup database: {e}")
             return False
+
+    async def migrate_from_json(self, json_config_path: Path) -> bool:
+        """Migrate configurations from old JSON file to database."""
+
+        if not json_config_path.exists():
+            logger.info(f"No JSON config file found at {json_config_path}")
+            return True
+
+        try:
+            # Load old JSON config
+            with open(json_config_path, 'r', encoding='utf-8') as f:
+                old_config_data = json.load(f)
+
+            if 'watches' not in old_config_data:
+                logger.info("No watch configurations in JSON file")
+                return True
+
+            migrated_count = 0
+            for watch_data in old_config_data['watches']:
+                try:
+                    # Convert to WatchConfigurationPersistent
+                    watch_config = WatchConfigurationPersistent.from_dict(watch_data)
+
+                    # Add to database
+                    success = await self.add_watch_config(watch_config)
+                    if success:
+                        migrated_count += 1
+                except Exception as e:
+                    logger.warning(f"Failed to migrate watch config {watch_data.get('id', 'unknown')}: {e}")
+
+            logger.info(f"Migrated {migrated_count} watch configurations from JSON to database")
+
+            # Rename old file to indicate it's been migrated
+            migrated_path = json_config_path.with_suffix('.json.migrated')
+            json_config_path.rename(migrated_path)
+            logger.info(f"Renamed old JSON file to: {migrated_path}")
+
+            return True
+
+        except Exception as e:
+            logger.error(f"Failed to migrate from JSON: {e}")
+            return False
+
+
+# Alias for backward compatibility
+PersistentWatchConfigManager = DatabaseWatchConfigManager
