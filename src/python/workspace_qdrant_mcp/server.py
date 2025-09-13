@@ -47,6 +47,25 @@ import typer
 from fastmcp import FastMCP
 from pydantic import BaseModel
 
+# Configure environment for MCP stdio mode early to prevent console interference
+import sys
+if os.getenv("WQM_STDIO_MODE") == "true" or ("--transport" in " ".join(sys.argv) and "stdio" in " ".join(sys.argv)):
+    # Set MCP stdio mode environment variables
+    os.environ["WQM_STDIO_MODE"] = "true"
+    os.environ["MCP_QUIET_MODE"] = "true"
+
+    # Suppress third-party library warnings early
+    if "TOKENIZERS_PARALLELISM" not in os.environ:
+        os.environ["TOKENIZERS_PARALLELISM"] = "false"
+
+    # Suppress warnings early
+    import warnings
+    warnings.filterwarnings("ignore", category=UserWarning, module="pydantic")
+    warnings.filterwarnings("ignore", message=".*deprecated.*")
+    warnings.filterwarnings("ignore", message=".*PydanticDeprecatedSince20.*")
+    warnings.filterwarnings("ignore", message=".*got forked.*parallelism.*")
+    warnings.filterwarnings("ignore", category=FutureWarning)
+
 
 from common.core.advanced_watch_config import (
     AdvancedConfigValidator,
@@ -75,13 +94,22 @@ from common.core.watch_validation import (
 )
 from common.core.config import Config
 
-# Import unified logging system
+# Import unified logging system and configure early
 from common.logging import (
     get_logger,
     LogContext,
     PerformanceLogger,
     configure_unified_logging,
 )
+
+# Configure logging immediately after import to prevent interference
+if os.getenv("WQM_STDIO_MODE") == "true":
+    configure_unified_logging(
+        level="INFO",
+        json_format=True,
+        console_output=False,  # Disable console output in stdio mode
+        force_mcp_detection=True,
+    )
 
 # Import observability system (excluding logging functions)
 from common.observability import (
@@ -2349,12 +2377,17 @@ def setup_signal_handlers() -> None:
     signal.signal(signal.SIGINT, signal_handler)
     signal.signal(signal.SIGTERM, signal_handler)
 
-    # Register atexit cleanup as backup
-    atexit.register(
-        lambda: asyncio.run(safe_shutdown([cleanup_workspace], timeout_seconds=10.0))
-        if workspace_client
-        else None
-    )
+    # Register atexit cleanup as backup (skip in stdio mode to prevent interference)
+    if os.getenv("WQM_STDIO_MODE") != "true":
+        def atexit_cleanup():
+            try:
+                if workspace_client:
+                    asyncio.run(safe_shutdown([cleanup_workspace], timeout_seconds=10.0))
+            except Exception:
+                # Ignore exceptions during atexit cleanup to prevent stderr noise
+                pass
+
+        atexit.register(atexit_cleanup)
 
 
 @monitor_async("initialize_workspace", critical=True, timeout_warning=30.0)
@@ -2599,6 +2632,20 @@ def run_server(
         # Enable MCP quiet mode by default for stdio transport
         if "MCP_QUIET_MODE" not in os.environ:
             os.environ["MCP_QUIET_MODE"] = "true"
+
+        # Suppress third-party library warnings that interfere with MCP protocol
+        if "TOKENIZERS_PARALLELISM" not in os.environ:
+            os.environ["TOKENIZERS_PARALLELISM"] = "false"
+
+        # Suppress Pydantic deprecation warnings in stdio mode
+        import warnings
+        warnings.filterwarnings("ignore", category=UserWarning, module="pydantic")
+        warnings.filterwarnings("ignore", message=".*deprecated.*")
+        warnings.filterwarnings("ignore", message=".*PydanticDeprecatedSince20.*")
+
+        # Suppress other third-party warnings that could interfere
+        warnings.filterwarnings("ignore", message=".*got forked.*parallelism.*")
+        warnings.filterwarnings("ignore", category=FutureWarning)
 
     # Configure logging early - disable console output for stdio mode to avoid interfering with MCP protocol
     # Set up default log file for stdio mode to ensure logging is still available

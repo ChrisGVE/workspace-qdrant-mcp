@@ -74,17 +74,20 @@ class StructuredLogger:
         for handler in root_logger.handlers[:]:
             root_logger.removeHandler(handler)
 
-        # Create console handler only if not suppressed
-        if not should_suppress_console(self.config):
-            console_handler = create_console_handler(self.config)
-            if console_handler:
-                root_logger.addHandler(console_handler)
-        else:
+        # Determine if console should be suppressed
+        suppress_console = should_suppress_console(self.config)
+
+        if suppress_console:
             # If console output is suppressed, add a null handler to prevent
-            # Python's logging system from falling back to stderr
+            # Python's logging system from falling back to stderr/stdout
             from .handlers import create_null_handler
             null_handler = create_null_handler()
             root_logger.addHandler(null_handler)
+        else:
+            # Create console handler only if not suppressed
+            console_handler = create_console_handler(self.config)
+            if console_handler:
+                root_logger.addHandler(console_handler)
 
         # Create file handler if configured
         if self.config.log_file:
