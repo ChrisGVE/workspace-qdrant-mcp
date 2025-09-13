@@ -159,6 +159,7 @@ fn suppress_third_party_output() {
         ("TTY_DETECTION_SILENT", "1"),  // Suppress TTY detection debug messages
         ("ATTY_FORCE_DISABLE_DEBUG", "1"), // Suppress atty crate debug output
         ("WQM_TTY_DEBUG", "0"),         // Disable internal TTY debug output
+        ("TTY_DEBUG", "0"),             // CRITICAL: Disable Claude CLI TTY debug messages
     ];
 
     for (key, value) in &suppression_vars {

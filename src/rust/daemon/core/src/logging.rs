@@ -234,6 +234,10 @@ pub fn suppress_tty_debug_output() {
     std::env::set_var("ATTY_FORCE_DISABLE_DEBUG", "1");
     std::env::set_var("WQM_TTY_DEBUG", "0");
 
+    // CRITICAL: Suppress Claude CLI TTY debug messages
+    // The Claude CLI uses TTY_DEBUG environment variable to control debug output
+    std::env::set_var("TTY_DEBUG", "0");
+
     // Ensure atty library doesn't produce any debug output
     std::env::set_var("ATTY_SILENT", "1");
 
