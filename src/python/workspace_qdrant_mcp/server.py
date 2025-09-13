@@ -75,11 +75,16 @@ from common.core.watch_validation import (
 )
 from common.core.config import Config
 
-# Import observability system
-from common.observability import (
-    LogContext,
-    configure_logging,
+# Import unified logging system
+from common.logging import (
     get_logger,
+    LogContext,
+    PerformanceLogger,
+    configure_unified_logging,
+)
+
+# Import observability system (excluding logging functions)
+from common.observability import (
     health_checker_instance,
     metrics_instance,
     monitor_async,
@@ -2604,12 +2609,12 @@ def run_server(
         log_dir.mkdir(parents=True, exist_ok=True)
         log_file = log_dir / "server.log"
 
-    configure_logging(
+    configure_unified_logging(
         level=os.getenv("LOG_LEVEL", "INFO"),
         json_format=True,
+        log_file=str(log_file) if log_file else None,
         console_output=True,
-        stdio_mode=(transport == "stdio"),
-        log_file=log_file
+        force_mcp_detection=(transport == "stdio")
     )
 
     # Log startup information - will only appear if console logging is enabled
