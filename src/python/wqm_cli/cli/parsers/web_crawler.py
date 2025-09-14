@@ -1,6 +1,5 @@
-from common.observability import get_logger
+from common.logging.loguru_config import get_logger
 
-logger = get_logger(__name__)
 """
 Secure web content crawler with comprehensive security hardening.
 
@@ -47,7 +46,7 @@ except ImportError:
 from .exceptions import ParsingError
 from .html_parser import HtmlParser
 
-logger = logging.getLogger(__name__)
+logger = get_logger(__name__)
 
 
 class SecurityConfig:

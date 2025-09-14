@@ -21,7 +21,7 @@ import fnmatch
 
 from common.core.client import QdrantWorkspaceClient
 from workspace_qdrant_mcp.tools.simplified_interface import SimplifiedToolsRouter, get_simplified_router
-from common.observability import get_logger
+from common.logging.loguru_config import get_logger
 
 logger = get_logger(__name__)
 

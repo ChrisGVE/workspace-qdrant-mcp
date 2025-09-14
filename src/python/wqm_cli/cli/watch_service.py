@@ -9,6 +9,7 @@ import asyncio
 import logging
 from pathlib import Path
 from typing import Any, Dict, List, Optional
+from common.logging.loguru_config import get_logger
 
 from rich.console import Console
 from rich.live import Live
@@ -18,7 +19,7 @@ from common.core.client import QdrantWorkspaceClient
 from common.core.file_watcher import WatchEvent, WatchManager
 from .ingestion_engine import DocumentIngestionEngine
 
-logger = logging.getLogger(__name__)
+logger = get_logger(__name__)
 console = Console()
 
 

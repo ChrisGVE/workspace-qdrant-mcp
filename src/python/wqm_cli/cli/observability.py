@@ -36,7 +36,7 @@ import typer
 
 from common.core.client import QdrantWorkspaceClient
 from common.core.config import Config
-from common.observability import (
+from common.observability import (  # TODO: Migrate remaining observability imports
     HealthStatus,
     configure_logging,
     get_logger,

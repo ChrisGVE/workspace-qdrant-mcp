@@ -23,7 +23,7 @@ from rich.text import Text
 from common.core.config import Config
 from common.core.unified_config import UnifiedConfigManager, ConfigFormat, ConfigValidationError, ConfigFormatError
 from common.core.ingestion_config import IngestionConfigManager, IngestionConfig
-from common.observability import get_logger
+from common.logging.loguru_config import get_logger
 from ..utils import (
     create_command_app,
     error_message,

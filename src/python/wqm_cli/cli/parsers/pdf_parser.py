@@ -1,6 +1,3 @@
-from common.observability import get_logger
-
-logger = get_logger(__name__)
 """
 PDF document parser.
 
@@ -9,9 +6,10 @@ for metadata extraction, multi-page processing, and content analysis.
 Provides fallback handling for encrypted or corrupted PDFs.
 """
 
-import logging
 from pathlib import Path
 from typing import Any, Optional, Union
+
+from common.logging.loguru_config import get_logger
 
 try:
     import pypdf
@@ -30,7 +28,7 @@ except ImportError:
 
 from .base import DocumentParser, ParsedDocument
 
-logger = logging.getLogger(__name__)
+logger = get_logger(__name__)
 
 
 class PDFParser(DocumentParser):

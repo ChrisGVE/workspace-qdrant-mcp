@@ -1,6 +1,5 @@
-from common.observability import get_logger
+from common.logging.loguru_config import get_logger
 
-logger = get_logger(__name__)
 """
 Markdown document parser.
 
@@ -31,7 +30,7 @@ except ImportError:
 
 from .base import DocumentParser, ParsedDocument
 
-logger = logging.getLogger(__name__)
+logger = get_logger(__name__)
 
 
 class MarkdownParser(DocumentParser):

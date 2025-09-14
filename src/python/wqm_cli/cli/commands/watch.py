@@ -12,7 +12,7 @@ from typing import Any, Dict, List, Optional
 import typer
 
 from common.core.daemon_client import get_daemon_client, with_daemon_client
-from common.observability import get_logger
+from common.logging.loguru_config import get_logger
 from ..formatting import (
     create_data_table,
     display_operation_result,

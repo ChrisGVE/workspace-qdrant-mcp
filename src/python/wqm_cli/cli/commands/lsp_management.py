@@ -30,7 +30,7 @@ from common.core.lsp_health_monitor import (
     NotificationLevel,
     UserNotification
 )
-from common.observability import get_logger
+from common.logging.loguru_config import get_logger
 from ..utils import (
     create_command_app,
     debug_option,
