@@ -17,10 +17,10 @@ import os
 from typing import Dict, List, Optional, Any, Callable
 from functools import wraps
 
-from ..observability import get_logger
+from loguru import logger
 from .simplified_interface import SimplifiedToolsMode, get_simplified_router
 
-logger = get_logger(__name__)
+# logger imported from loguru
 
 
 class CompatibilityMapping:

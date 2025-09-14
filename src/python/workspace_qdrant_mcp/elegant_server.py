@@ -28,7 +28,7 @@ warnings.filterwarnings("ignore")
 import typer
 
 from loguru import logger
-from common.logging.loguru_config import configure_logging
+from common.logging.loguru_config import # TODO: Replace with setup_logging from common.logging.loguru_config
 
 
 def setup_quiet_environment():
@@ -143,7 +143,7 @@ def run_elegant_server(
         if verbose:
             print(f"❌ Server error: {e}", file=sys.stderr)
         # Always log errors to file for debugging with loguru
-        configure_logging(level="ERROR", console_output=False)
+        # TODO: Replace with setup_logging from common.logging.loguru_config(level="ERROR", console_output=False)
         logger.error(f"Server error in elegant server: {e}")
         sys.exit(1)
 

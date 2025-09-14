@@ -8,7 +8,7 @@ proper validation and error handling.
 
 import uuid
 
-from common.logging.loguru_config import get_logger
+from loguru import logger
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Optional
@@ -29,7 +29,7 @@ from common.core.watch_validation import (
     WatchPathValidator,
 )
 
-logger = get_logger(__name__)
+# logger imported from loguru
 
 
 class WatchToolsManager:

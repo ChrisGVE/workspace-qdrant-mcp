@@ -39,9 +39,9 @@ from urllib.parse import urlparse
 
 import urllib3
 
-from ..observability import get_logger
+from loguru import logger
 
-logger = get_logger(__name__)
+# logger imported from loguru
 
 
 class SSLConfiguration:

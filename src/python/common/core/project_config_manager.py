@@ -25,9 +25,9 @@ from watchdog.events import FileSystemEventHandler
 from .yaml_config import WorkspaceConfig, load_config
 from .resource_manager import ResourceLimits
 from ..utils.project_detection import ProjectDetector
-from ..observability import get_logger
+from loguru import logger
 
-logger = get_logger(__name__)
+# logger imported from loguru
 
 
 class ConfigScope(Enum):

@@ -22,12 +22,12 @@ Key features:
 
 import re
 
-from common.logging.loguru_config import get_logger
+from loguru import logger
 from dataclasses import dataclass
 from enum import Enum
 from typing import Dict, List, Optional, Set, Tuple, Any, Union
 
-logger = get_logger(__name__)
+# logger imported from loguru
 
 
 class CollectionType(Enum):

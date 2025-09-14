@@ -22,13 +22,13 @@ testable as a standalone function.
 
 from typing import Any
 
-from common.logging.loguru_config import get_logger
+from loguru import logger
 
 from common.core.client import QdrantWorkspaceClient
 from common.core.collection_naming import build_project_collection_name
 from .search import search_workspace
 
-logger = get_logger(__name__)
+# logger imported from loguru
 
 
 async def research_workspace(

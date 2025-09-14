@@ -31,9 +31,9 @@ import yaml
 from jsonschema import Draft7Validator, ValidationError
 from pydantic import BaseModel, Field, field_validator
 
-from ..observability import get_logger
+from loguru import logger
 
-logger = get_logger(__name__)
+# logger imported from loguru
 
 
 class ConfigurationError(Exception):

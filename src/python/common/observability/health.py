@@ -42,10 +42,10 @@ from typing import Any, Awaitable, Callable, Dict, List, Optional
 
 import psutil
 
-from common.logging.loguru_config import get_logger
+from loguru import logger
 from .metrics import metrics_instance
 
-logger = get_logger(__name__)
+# logger imported from loguru
 
 
 class HealthStatus(Enum):

@@ -1,6 +1,6 @@
-from common.logging.loguru_config import get_logger
+from loguru import logger
 
-logger = get_logger(__name__)
+# logger imported from loguru
 """
 Document parsers for batch ingestion.
 

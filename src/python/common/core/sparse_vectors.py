@@ -71,7 +71,7 @@ Example:
     ```
 """
 
-from common.logging.loguru_config import get_logger
+from loguru import logger
 import math
 from collections import Counter, defaultdict
 from typing import Optional
@@ -106,7 +106,7 @@ def word_tokenize(text: str) -> list[str]:
     return [token for token in tokens if len(token) > 2]
 
 
-logger = get_logger(__name__)
+# logger imported from loguru
 
 
 class BM25SparseEncoder:

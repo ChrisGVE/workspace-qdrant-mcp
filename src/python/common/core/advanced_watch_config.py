@@ -6,7 +6,7 @@ including advanced pattern matching, collection targeting, and performance tunin
 """
 
 import fnmatch
-from common.logging.loguru_config import get_logger
+from loguru import logger
 import re
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -21,7 +21,7 @@ except ImportError:
     # Fallback if LSP detector is not available
     get_default_detector = None
 
-logger = get_logger(__name__)
+# logger imported from loguru
 
 
 class FileFilterConfig(BaseModel):

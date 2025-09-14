@@ -6,7 +6,7 @@ performance monitoring, and integration with observability platforms.
 """
 
 import json
-from common.logging.loguru_config import get_logger
+from loguru import logger
 import logging.config
 import os
 import sys
@@ -22,7 +22,7 @@ class PerformanceLogger:
 
     def __init__(self):
         self.setup_structured_logging()
-        self.logger = get_logger(__name__)
+        # logger imported from loguru
 
     def setup_structured_logging(self):
         """Configure structured logging with JSON output."""

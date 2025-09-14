@@ -21,7 +21,7 @@ from common.core.memory import (
     create_memory_manager,
     parse_conversational_memory_update,
 )
-from common.logging.loguru_config import get_logger
+from loguru import logger
 from ..utils import get_configured_client
 from ..formatting import (
     create_data_table,
@@ -47,7 +47,7 @@ from ..utils import (
     verbose_option,
 )
 
-logger = get_logger(__name__)
+# logger imported from loguru
 
 # Create the memory app using shared utilities
 memory_app = create_command_app(

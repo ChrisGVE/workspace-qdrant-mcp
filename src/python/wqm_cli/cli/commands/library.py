@@ -13,7 +13,7 @@ import typer
 from common.core.collection_naming import CollectionNameError, validate_collection_name
 from common.core.daemon_client import get_daemon_client, with_daemon_client
 from common.core.yaml_config import load_config
-from common.logging.loguru_config import get_logger
+from loguru import logger
 from ..utils import (
     confirm,
     create_command_app,
@@ -26,7 +26,7 @@ from ..utils import (
     warning_message,
 )
 
-logger = get_logger(__name__)
+# logger imported from loguru
 
 
 # Create the library app using shared utilities

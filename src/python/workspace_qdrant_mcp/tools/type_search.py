@@ -66,10 +66,10 @@ from typing import Any, Dict, List, Optional, Set, Tuple, Union, Pattern
 from common.core.client import QdrantWorkspaceClient
 from common.core.error_handling import WorkspaceError, ErrorCategory, ErrorSeverity
 from common.core.lsp_metadata_extractor import SymbolKind, TypeInformation, CodeSymbol
-from common.logging.loguru_config import get_logger
+from loguru import logger
 from .code_search import CodeSearchEngine, CodeSearchResult, SignatureSearchQuery
 
-logger = get_logger(__name__)
+# logger imported from loguru
 
 
 class TypeMatchMode(Enum):

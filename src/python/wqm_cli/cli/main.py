@@ -74,7 +74,8 @@ if len(sys.argv) >= 2 and (sys.argv[1] == "--version" or sys.argv[1] == "-v"):
 # Import heavy modules only after version check passes
 import typer
 
-from common.logging.loguru_config import configure_logging, get_logger
+from common.logging.loguru_config import setup_logging
+from loguru import logger
 from .commands.admin import admin_app
 from .commands.config import config_app
 from .commands.ingest import ingest_app
@@ -100,7 +101,7 @@ app = typer.Typer(
     no_args_is_help=False,  # Handle this manually to allow version flag
     rich_markup_mode=None,  # Disable Rich formatting completely
 )
-logger = get_logger(__name__)
+# logger imported from loguru
 
 # Add subcommand groups
 app.add_typer(init_app, name="init", help="Initialize shell completion for wqm")
@@ -187,11 +188,9 @@ def main(
         logging.disable(logging.NOTSET)
         # Enable verbose logging and initialization messages in debug mode
         os.environ["WQM_LOG_INIT"] = "true"
-        configure_logging(
-            level="DEBUG",
-            json_format=True,
-            console_output=True,
-            force_stderr=True  # Use stderr to avoid interfering with CLI output
+        setup_logging(
+            log_file=None,
+            verbose=True  # Enable console output in debug mode
         )
         logger.debug("Debug mode enabled with loguru")
     else:
@@ -201,11 +200,9 @@ def main(
         log_dir = Path.home() / ".config" / "workspace-qdrant" / "logs"
         log_dir.mkdir(parents=True, exist_ok=True)
         log_file = log_dir / "wqm-cli.log"
-        configure_logging(
-            level="WARNING",
-            json_format=True,
-            console_output=False,  # Completely disable console output
-            log_file=str(log_file)
+        setup_logging(
+            log_file=str(log_file),
+            verbose=False  # No console output in normal CLI usage
         )
 
     if config_path:

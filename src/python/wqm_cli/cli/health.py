@@ -48,7 +48,7 @@ from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
 from typing import Any
-from common.logging.loguru_config import get_logger
+from loguru import logger
 
 import typer
 from rich.console import Console
@@ -65,7 +65,7 @@ from common.utils.config_validator import ConfigValidator
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
-logger = get_logger(__name__)
+# logger imported from loguru
 
 # Rich console for beautiful output
 console = Console()

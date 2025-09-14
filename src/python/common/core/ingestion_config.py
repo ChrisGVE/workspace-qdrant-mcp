@@ -38,9 +38,9 @@ from dataclasses import dataclass, field
 import yaml
 from pydantic import BaseModel, Field, field_validator, ValidationError
 
-from ..observability import get_logger
+from loguru import logger
 
-logger = get_logger(__name__)
+# logger imported from loguru
 
 
 class PatternType(Enum):

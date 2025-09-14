@@ -38,14 +38,14 @@ from common.core.client import QdrantWorkspaceClient
 from common.core.config import Config
 from common.observability import (  # TODO: Migrate remaining observability imports
     HealthStatus,
-    configure_logging,
+    # TODO: Replace with setup_logging from common.logging.loguru_config,
     get_logger,
     health_checker_instance,
     metrics_instance,
 )
 from .utils import create_command_app
 
-logger = get_logger(__name__)
+# logger imported from loguru
 
 # CLI app for observability commands
 observability_app = create_command_app(
@@ -163,7 +163,7 @@ def health(
     async def check_health():
         try:
             # Configure minimal logging for CLI
-            configure_logging(level="WARNING", json_format=False, console_output=False)
+            # TODO: Replace with setup_logging from common.logging.loguru_config(level="WARNING", json_format=False, console_output=False)
 
             with Progress(
                 SpinnerColumn(),
@@ -235,7 +235,7 @@ def metrics(
 
     try:
         # Configure minimal logging for CLI
-        configure_logging(level="WARNING", json_format=False, console_output=False)
+        # TODO: Replace with setup_logging from common.logging.loguru_config(level="WARNING", json_format=False, console_output=False)
 
         with Progress(
             SpinnerColumn(),
@@ -314,7 +314,7 @@ def diagnostics(
     async def run_diagnostics():
         try:
             # Configure minimal logging for CLI
-            configure_logging(level="WARNING", json_format=False, console_output=False)
+            # TODO: Replace with setup_logging from common.logging.loguru_config(level="WARNING", json_format=False, console_output=False)
 
             with Progress(
                 SpinnerColumn(),
@@ -438,7 +438,7 @@ def monitor(
     async def continuous_monitor():
         try:
             # Configure minimal logging for CLI
-            configure_logging(level="WARNING", json_format=False, console_output=False)
+            # TODO: Replace with setup_logging from common.logging.loguru_config(level="WARNING", json_format=False, console_output=False)
 
             start_time = time.time()
             iteration = 0

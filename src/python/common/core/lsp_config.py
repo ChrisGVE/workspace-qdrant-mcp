@@ -6,7 +6,7 @@ including settings persistence, cache management, and validation.
 """
 
 import json
-from common.logging.loguru_config import get_logger
+from loguru import logger
 import os
 import threading
 import time
@@ -17,7 +17,7 @@ from typing import Any, Dict, List, Optional, Set, Union
 
 from pydantic import BaseModel, Field, ValidationError, field_validator
 
-logger = get_logger(__name__)
+# logger imported from loguru
 
 
 class LSPConfigSchema(BaseModel):

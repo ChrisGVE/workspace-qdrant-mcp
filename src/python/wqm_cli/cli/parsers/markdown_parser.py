@@ -1,4 +1,4 @@
-from common.logging.loguru_config import get_logger
+from loguru import logger
 
 """
 Markdown document parser.
@@ -30,7 +30,7 @@ except ImportError:
 
 from .base import DocumentParser, ParsedDocument
 
-logger = get_logger(__name__)
+# logger imported from loguru
 
 
 class MarkdownParser(DocumentParser):

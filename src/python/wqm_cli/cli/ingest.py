@@ -13,7 +13,7 @@ import tempfile
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
-from common.logging.loguru_config import get_logger
+from loguru import logger
 
 import typer
 from rich.console import Console
@@ -34,7 +34,7 @@ from .ingestion_engine import DocumentIngestionEngine, IngestionResult, Ingestio
 from .parsers import SecurityConfig, WebIngestionInterface, create_secure_web_parser
 
 # Configure logging
-logger = get_logger(__name__)
+# logger imported from loguru
 
 # Rich console for beautiful output
 console = Console()

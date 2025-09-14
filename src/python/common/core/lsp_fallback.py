@@ -6,7 +6,7 @@ containerization files when no LSPs are detected, ensuring comprehensive
 file coverage even in environments without LSP servers.
 """
 
-from common.logging.loguru_config import get_logger
+from loguru import logger
 import os
 import shutil
 import subprocess
@@ -16,7 +16,7 @@ from pathlib import Path
 from typing import Dict, List, Optional, Set, Tuple, Any
 from enum import Enum
 
-logger = get_logger(__name__)
+# logger imported from loguru
 
 
 class BuildToolType(Enum):

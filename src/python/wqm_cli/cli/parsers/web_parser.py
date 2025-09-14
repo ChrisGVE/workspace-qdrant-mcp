@@ -1,4 +1,4 @@
-from common.logging.loguru_config import get_logger
+from loguru import logger
 
 """
 Web content parser that integrates secure crawling with document parsing.
@@ -17,7 +17,7 @@ from .base import DocumentParser, ParsedDocument
 from .exceptions import ParsingError
 from .web_crawler import CrawlResult, SecureWebCrawler, SecurityConfig
 
-logger = get_logger(__name__)
+# logger imported from loguru
 
 
 class WebParser(DocumentParser):

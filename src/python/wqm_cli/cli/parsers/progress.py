@@ -1,4 +1,4 @@
-from common.logging.loguru_config import get_logger
+from loguru import logger
 
 """
 Progress reporting infrastructure for document parsing operations.
@@ -18,7 +18,7 @@ from typing import Any, Callable, Dict, Optional, Union
 
 import psutil
 
-logger = get_logger(__name__)
+# logger imported from loguru
 
 
 class ProgressPhase(Enum):

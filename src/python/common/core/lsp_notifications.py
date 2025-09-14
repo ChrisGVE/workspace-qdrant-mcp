@@ -6,7 +6,7 @@ when unsupported files are detected, with installation guidance and throttling.
 """
 
 import json
-from common.logging.loguru_config import get_logger
+from loguru import logger
 import platform
 import time
 from dataclasses import dataclass, field
@@ -14,7 +14,7 @@ from pathlib import Path
 from typing import Callable, Dict, List, Optional, Set, Any
 from enum import Enum
 
-logger = get_logger(__name__)
+# logger imported from loguru
 
 
 class NotificationLevel(Enum):

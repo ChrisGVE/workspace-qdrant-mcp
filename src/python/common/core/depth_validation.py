@@ -5,10 +5,10 @@ This module provides comprehensive validation logic for recursive depth limits
 including performance warnings and reasonable bounds checking.
 """
 
-from common.logging.loguru_config import get_logger
+from loguru import logger
 from typing import Optional, Dict, Any
 
-logger = get_logger(__name__)
+# logger imported from loguru
 
 # Constants for depth validation
 MIN_DEPTH = -1  # -1 for unlimited

@@ -16,12 +16,12 @@ from dataclasses import dataclass, asdict
 from datetime import datetime, timezone
 from enum import Enum
 from typing import Dict, List, Optional, Union, Callable
-from common.logging.loguru_config import get_logger
+from loguru import logger
 
 from .exceptions import NetworkError
 from .registry import ServiceInfo
 
-logger = get_logger(__name__)
+# logger imported from loguru
 
 
 class DiscoveryMessageType(Enum):

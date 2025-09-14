@@ -73,9 +73,10 @@ from common.core.error_handling import WorkspaceError, ErrorCategory, ErrorSever
 from common.core.hybrid_search import HybridSearchEngine
 from common.core.lsp_metadata_extractor import SymbolKind, RelationshipType, CodeSymbol
 from common.core.sparse_vectors import create_named_sparse_vector
+from loguru import logger
 from .search import search_workspace, search_collection_by_metadata
 
-logger = get_logger(__name__)
+# logger imported from loguru
 
 
 class CodeSearchMode(Enum):

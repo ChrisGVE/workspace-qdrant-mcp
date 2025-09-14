@@ -42,7 +42,7 @@ import sys
 from pathlib import Path
 from typing import Optional
 from urllib.parse import urlparse
-from common.logging.loguru_config import get_logger
+from loguru import logger
 
 import typer
 
@@ -54,7 +54,7 @@ from common.utils.project_detection import ProjectDetector
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
-logger = get_logger(__name__)
+# logger imported from loguru
 
 
 # Console output helper functions

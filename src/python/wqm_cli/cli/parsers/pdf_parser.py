@@ -9,7 +9,7 @@ Provides fallback handling for encrypted or corrupted PDFs.
 from pathlib import Path
 from typing import Any, Optional, Union
 
-from common.logging.loguru_config import get_logger
+from loguru import logger
 
 try:
     import pypdf
@@ -28,7 +28,7 @@ except ImportError:
 
 from .base import DocumentParser, ParsedDocument
 
-logger = get_logger(__name__)
+# logger imported from loguru
 
 
 class PDFParser(DocumentParser):

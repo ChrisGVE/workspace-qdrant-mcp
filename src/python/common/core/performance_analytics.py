@@ -7,7 +7,7 @@ and performance trends.
 """
 
 import asyncio
-from common.logging.loguru_config import get_logger
+from loguru import logger
 import statistics
 from collections import defaultdict
 from dataclasses import dataclass, field
@@ -20,7 +20,7 @@ from .performance_metrics import (
     OperationTrace, PerformanceMetricsCollector
 )
 
-logger = get_logger(__name__)
+# logger imported from loguru
 
 
 class OptimizationType(Enum):

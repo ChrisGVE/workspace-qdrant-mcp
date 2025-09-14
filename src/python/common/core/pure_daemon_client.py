@@ -11,11 +11,11 @@ import os
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
 
-from ..observability import get_logger
+from loguru import logger
 from .client import QdrantWorkspaceClient
 from .daemon_client import DaemonClient, DaemonError
 
-logger = get_logger(__name__)
+# logger imported from loguru
 
 
 class PureDaemonWorkspaceClient:

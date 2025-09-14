@@ -1,4 +1,4 @@
-from common.logging.loguru_config import get_logger
+from loguru import logger
 
 """
 Source code file parser for extracting text content and metadata from programming files.
@@ -25,7 +25,7 @@ except ImportError:
 
 from .base import DocumentParser, ParsedDocument
 
-logger = get_logger(__name__)
+# logger imported from loguru
 
 
 class CodeParser(DocumentParser):

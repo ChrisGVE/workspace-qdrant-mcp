@@ -2,30 +2,46 @@
 Logging package for workspace-qdrant-mcp using loguru.
 
 This package provides the loguru-based logging system for the application.
-Import the get_logger function from loguru_config directly.
+Use loguru directly for all logging needs.
 
 Example:
-    from common.logging.loguru_config import get_logger
-    logger = get_logger(__name__)
+    from loguru import logger
+    logger.info("Message here")
 """
 
 # Re-export the main loguru config functions for convenience
-from .loguru_config import get_logger, configure_logging
+from .loguru_config import setup_logging
+from contextlib import asynccontextmanager
+from typing import Optional, Any, Dict
 
-# Import compatibility classes from parent module using absolute path
-import sys
-import importlib.util
-from pathlib import Path
 
-# Load the parent logging module directly to get compatibility classes
-parent_logging_path = Path(__file__).parent.parent / "logging.py"
-spec = importlib.util.spec_from_file_location("parent_logging", parent_logging_path)
-parent_logging = importlib.util.module_from_spec(spec)
-spec.loader.exec_module(parent_logging)
+class LogContext:
+    """Simple context manager for structured logging."""
+    def __init__(self, operation: str, **kwargs):
+        self.operation = operation
+        self.context = kwargs
 
-# Re-export compatibility classes
-LogContext = parent_logging.LogContext
-PerformanceLogger = parent_logging.PerformanceLogger
-safe_log_error = parent_logging.safe_log_error
+    def __enter__(self):
+        return self
 
-__all__ = ['get_logger', 'configure_logging', 'LogContext', 'PerformanceLogger', 'safe_log_error']
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        pass
+
+
+class PerformanceLogger:
+    """Simple performance logger using loguru."""
+    def __init__(self):
+        pass
+
+    @asynccontextmanager
+    async def operation(self, name: str, **kwargs):
+        yield
+
+
+def safe_log_error(message: str, **kwargs) -> None:
+    """Safely log an error using loguru."""
+    from loguru import logger
+    logger.error(message, **kwargs)
+
+
+__all__ = ['setup_logging', 'LogContext', 'PerformanceLogger', 'safe_log_error']

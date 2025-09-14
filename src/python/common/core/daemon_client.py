@@ -79,7 +79,7 @@ from ..grpc.ingestion_pb2 import (
     WatchStatus,
 )
 from ..grpc.ingestion_pb2_grpc import IngestServiceStub
-from ..observability import get_logger
+from loguru import logger
 from .yaml_config import WorkspaceConfig, load_config
 # TEMP: Comment out service_discovery import to fix syntax errors
 # from .service_discovery import discover_daemon_endpoint, ServiceEndpoint
@@ -91,7 +91,7 @@ except ImportError:
     # Fallback for direct imports when not used as a package
     from llm_access_control import validate_llm_collection_access, LLMAccessControlError
 
-logger = get_logger(__name__)
+# logger imported from loguru
 
 
 class DaemonConnectionError(Exception):

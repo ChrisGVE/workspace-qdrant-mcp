@@ -8,7 +8,7 @@ language-aware filtering.
 
 import asyncio
 import json
-from common.logging.loguru_config import get_logger
+from loguru import logger
 from collections.abc import Callable
 from dataclasses import asdict, dataclass, field
 from datetime import datetime, timezone
@@ -19,7 +19,7 @@ from watchfiles import Change, awatch
 
 from .language_filters import LanguageAwareFilter
 
-logger = get_logger(__name__)
+# logger imported from loguru
 
 
 @dataclass

@@ -20,9 +20,9 @@ from weakref import WeakSet
 
 
 from .error_handling import WorkspaceError, ErrorCategory, ErrorSeverity
-from ..logging.loguru_config import get_logger
+from loguru import logger
 
-logger = get_logger(__name__)
+# logger imported from loguru
 
 
 class ConnectionState(Enum):

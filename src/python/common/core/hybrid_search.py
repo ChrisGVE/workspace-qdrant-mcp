@@ -64,12 +64,12 @@ from qdrant_client import QdrantClient
 from qdrant_client.http import models
 
 # Task 222: Import loguru-based logging system
-from ..logging.loguru_config import get_logger
+from loguru import logger
 
 from .sparse_vectors import create_named_sparse_vector
 
 # Task 215: Use unified logging system instead of logging.getLogger(__name__)
-logger = get_logger(__name__)
+# logger imported from loguru
 
 
 class RRFFusionRanker:
