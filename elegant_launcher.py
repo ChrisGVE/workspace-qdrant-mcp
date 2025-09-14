@@ -153,11 +153,27 @@ def run_server(config):
         sys.path.insert(0, str(src_dir))
 
     try:
-        # For stdio mode, use the standalone server to avoid problematic imports
+        # For stdio mode, execute standalone server as subprocess to avoid import issues
         if config["transport"] == "stdio":
-            # Import and run standalone server directly
-            from workspace_qdrant_mcp.standalone_stdio_server import main as standalone_main
-            standalone_main()
+            # Execute standalone server directly as subprocess
+            import subprocess
+            script_path = src_dir / "workspace_qdrant_mcp" / "standalone_stdio_server.py"
+            if script_path.exists():
+                # Set up environment
+                env = os.environ.copy()
+                env.update({
+                    "WQM_STDIO_MODE": "true",
+                    "MCP_QUIET_MODE": "true",
+                    "TOKENIZERS_PARALLELISM": "false"
+                })
+
+                # Execute the standalone server directly, passing through stdin/stdout
+                result = subprocess.run([sys.executable, str(script_path)], env=env)
+                sys.exit(result.returncode)
+            else:
+                if config["verbose"]:
+                    print(f"❌ Standalone server not found at {script_path}", file=sys.stderr)
+                sys.exit(1)
         else:
             # For non-stdio modes, import the full server
             from workspace_qdrant_mcp.server import run_server as existing_run_server
