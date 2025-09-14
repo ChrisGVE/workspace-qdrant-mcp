@@ -16,16 +16,16 @@ import sys
 os.environ.setdefault("WQM_CLI_MODE", "true")
 os.environ.setdefault("WQM_LOG_INIT", "false")
 
-# Task 215: Replace direct logging with unified system
-# Disable all logging immediately using unified system approach
-from common.logging import configure_unified_logging
+# Task 221: Use loguru-based logging system for CLI
+# Configure loguru with CLI-appropriate settings
+from common.logging.loguru_config import configure_logging
 
-# Configure logging to be completely silent in CLI mode
-configure_unified_logging(
-    level="CRITICAL",
-    console_output=False,
-    json_format=False,  # CLI doesn't need JSON format
-    force_mcp_detection=True  # Treat CLI mode like MCP mode for silence
+# Configure loguru to be silent in CLI mode but allow file logging for debug
+configure_logging(
+    level="CRITICAL",  # Effectively disable console logging
+    console_output=False,  # No console output in CLI mode
+    json_format=True,
+    log_file=None,  # No file logging by default in CLI mode
 )
 
 def main():
