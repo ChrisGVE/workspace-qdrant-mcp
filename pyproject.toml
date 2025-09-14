@@ -88,8 +88,6 @@ full = ["markdown>=3.4.0", "PyYAML>=6.0.0", "pypdf>=4.0.0"]
 [project.scripts]
 workspace-qdrant-mcp = "elegant_launcher:main"
 wqm = "wqm_cli.cli_wrapper:main"
-# Legacy entry points for backwards compatibility
-workspace-qdrant-mcp-legacy = "wqm_stdio_launcher:main"
 
 [project.urls]
 Homepage = "https://github.com/ChrisGVE/workspace-qdrant-mcp"
@@ -257,7 +255,7 @@ python-source = "src/python"
 
 [tool.setuptools]
 package-dir = {"" = "src/python"}
-py-modules = ["wqm_stdio_launcher", "elegant_launcher"]
+py-modules = ["elegant_launcher"]
 
 # Platform-specific optimizations
 [tool.maturin.target.x86_64-apple-darwin]
