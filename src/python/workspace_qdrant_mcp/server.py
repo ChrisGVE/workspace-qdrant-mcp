@@ -37,7 +37,7 @@ Example:
 
 import asyncio
 import atexit
-import logging
+import logging  # Still needed for standard library logger silencing
 import os
 import signal
 from datetime import datetime, timezone
@@ -200,33 +200,34 @@ from common.core.watch_validation import (
 )
 from common.core.config import Config
 
-# Import unified logging system and configure early
-from common.logging import (
-    get_logger,
-    LogContext,
-    PerformanceLogger,
-    configure_unified_logging,
+# Import loguru logging system and configure early
+from loguru import logger
+from common.logging.loguru_config import (
+    configure_logging,
+    display_development_banner,
+    log_startup_event
 )
+from common.logging.core import LogContext, PerformanceLogger
 
 # Track if logging has been configured to prevent multiple reconfigurations
 _LOGGING_CONFIGURED = False
 
-# Configure logging only if not in stdio mode (stdio mode uses null output)
+# Configure loguru logging based on stdio mode detection
 if not _STDIO_MODE:
-    configure_unified_logging(
+    configure_logging(
         level="INFO",
         json_format=True,
         console_output=True,
-        force_mcp_detection=False,
+        log_file=os.getenv("LOG_FILE")
     )
     _LOGGING_CONFIGURED = True
 else:
-    # In stdio mode, ensure the unified logging system also uses null output
-    configure_unified_logging(
+    # In stdio mode, ensure complete console silence with loguru
+    configure_logging(
         level="CRITICAL",
         json_format=True,
         console_output=False,
-        force_mcp_detection=True,
+        log_file=os.getenv("LOG_FILE")
     )
     _LOGGING_CONFIGURED = True
 
@@ -296,21 +297,8 @@ else:
         SimplifiedToolsMode = None
         register_simplified_tools = None
 
-# Initialize structured logging (will be silent in stdio mode)
-if _STDIO_MODE:
-    # Create a null logger for stdio mode
-    class _NullLogger:
-        def debug(self, *args, **kwargs): pass
-        def info(self, *args, **kwargs): pass
-        def warning(self, *args, **kwargs): pass
-        def error(self, *args, **kwargs): pass
-        def critical(self, *args, **kwargs): pass
-        def exception(self, *args, **kwargs): pass
-        def log(self, *args, **kwargs): pass
-        def __getattr__(self, name): return lambda *args, **kwargs: None
-    logger = _NullLogger()
-else:
-    logger = get_logger(__name__)
+# Loguru logger is already configured above and respects stdio mode
+# No need for conditional logger setup - loguru handles stdio silence internally
 
 # Conditional optimizations import - skip in stdio mode to prevent hangs
 if not _STDIO_MODE and os.getenv("WQM_CLI_MODE") != "true":
@@ -2840,22 +2828,20 @@ def run_server(
             log_dir.mkdir(parents=True, exist_ok=True)
             log_file = log_dir / "server.log"
 
-        # For stdio mode, ensure complete console silence
+        # Configure loguru logging based on transport mode
         if transport == "stdio":
-            configure_unified_logging(
+            configure_logging(
                 level="CRITICAL",
                 json_format=True,
                 log_file=str(log_file) if log_file else None,
-                console_output=False,
-                force_mcp_detection=True
+                console_output=False
             )
         else:
-            configure_unified_logging(
+            configure_logging(
                 level=os.getenv("LOG_LEVEL", "INFO"),
                 json_format=True,
                 log_file=str(log_file) if log_file else None,
-                console_output=True,
-                force_mcp_detection=False
+                console_output=True
             )
 
         _LOGGING_CONFIGURED = True
