@@ -6,11 +6,13 @@ configuration files, nested settings, and backward compatibility. It uses Pydant
 for type-safe configuration management with validation and automatic conversion.
 
 Configuration Sources:
-    1. Environment variables (highest priority)
-    2. .env files in current directory
-    3. Default values (lowest priority)
+    1. YAML configuration files (highest priority)
+    2. Environment variables (medium priority)
+    3. .env files in current directory
+    4. Default values (lowest priority)
 
 Supported Formats:
+    - YAML configuration files: workspace_qdrant_config.yaml (shared with daemon)
     - Prefixed environment variables: WORKSPACE_QDRANT_*
     - Nested configuration: WORKSPACE_QDRANT_QDRANT__URL
     - Legacy variables: QDRANT_URL, FASTEMBED_MODEL (backward compatibility)
@@ -57,6 +59,39 @@ from typing import Any, Optional
 import yaml
 from pydantic import BaseModel, Field, ValidationError
 from pydantic_settings import BaseSettings, SettingsConfigDict
+
+# Early environment setup for MCP stdio mode
+def setup_stdio_environment():
+    """Set up early environment configuration for MCP stdio mode compatibility.
+
+    This function should be called as early as possible to configure environment
+    variables that affect third-party libraries before they are imported.
+    """
+    # Detect if we're in MCP stdio mode
+    if (os.getenv("WQM_STDIO_MODE", "").lower() == "true" or
+        os.getenv("MCP_TRANSPORT") == "stdio" or
+        ("--transport" in os.sys.argv if hasattr(os, 'sys') else False)):
+
+        # Set comprehensive environment variables for third-party library suppression
+        stdio_env_vars = {
+            "WQM_STDIO_MODE": "true",
+            "MCP_QUIET_MODE": "true",
+            "TOKENIZERS_PARALLELISM": "false",
+            "GRPC_VERBOSITY": "NONE",
+            "GRPC_TRACE": "",
+            "PYTHONWARNINGS": "ignore",
+            "TF_CPP_MIN_LOG_LEVEL": "3",  # TensorFlow
+            "TRANSFORMERS_VERBOSITY": "error",  # Transformers library
+            "HF_DATASETS_VERBOSITY": "error",  # HuggingFace datasets
+            "BITSANDBYTES_NOWELCOME": "1",  # BitsAndBytes welcome message
+        }
+
+        for key, value in stdio_env_vars.items():
+            if key not in os.environ:
+                os.environ[key] = value
+
+# Call early setup on module import
+setup_stdio_environment()
 
 
 class EmbeddingConfig(BaseModel):
@@ -394,42 +429,60 @@ class Config(BaseSettings):
         # Handle nested configuration sections
         for key, value in yaml_data.items():
             if key == "qdrant" and isinstance(value, dict):
-                processed["qdrant"] = QdrantConfig(**value)
+                # Filter qdrant config to only include server-compatible fields
+                filtered_qdrant = self._filter_qdrant_config(value)
+                processed["qdrant"] = QdrantConfig(**filtered_qdrant)
             elif key == "embedding" and isinstance(value, dict):
                 processed["embedding"] = EmbeddingConfig(**value)
             elif key == "workspace" and isinstance(value, dict):
                 processed["workspace"] = WorkspaceConfig(**value)
             elif key == "auto_ingestion" and isinstance(value, dict):
-                processed["auto_ingestion"] = AutoIngestionConfig(**value)
+                # Filter auto_ingestion to only include server-compatible fields
+                filtered_auto_ingestion = self._filter_auto_ingestion_config(value)
+                processed["auto_ingestion"] = AutoIngestionConfig(**filtered_auto_ingestion)
             elif key == "grpc" and isinstance(value, dict):
                 processed["grpc"] = GrpcConfig(**value)
             elif key in ["host", "port", "debug"]:  # Server-level config
                 processed[key] = value
             else:
-                # Allow other keys to pass through
-                processed[key] = value
+                # Allow other keys to pass through silently (daemon-specific config)
+                # These include: log_file, use_file_logging, max_concurrent_tasks,
+                # default_timeout_ms, enable_preemption, chunk_size, enable_lsp,
+                # log_level, enable_metrics, metrics_interval_secs, logging, etc.
+                pass
 
         return processed
 
     def _find_default_config_file(self) -> Optional[str]:
         """Find default configuration file in standard locations.
-        
+
         Search order:
-        1. workspace_qdrant_config.yaml (current directory)
-        2. workspace_qdrant_config.yml (current directory)
-        3. .workspace-qdrant.yaml (current directory)
-        4. .workspace-qdrant.yml (current directory)
-        
+        1. ~/.config/workspace-qdrant/workspace_qdrant_config.yaml (daemon config)
+        2. workspace_qdrant_config.yaml (current directory)
+        3. workspace_qdrant_config.yml (current directory)
+        4. .workspace-qdrant.yaml (current directory)
+        5. .workspace-qdrant.yml (current directory)
+
         Returns:
             Path to the first found config file, or None if no config file found
         """
+        # Check daemon config directory first (highest priority)
+        home_dir = Path.home()
+        daemon_config_path = home_dir / ".config" / "workspace-qdrant" / "workspace_qdrant_config.yaml"
+        if daemon_config_path.exists() and daemon_config_path.is_file():
+            import logging
+            logger = logging.getLogger(__name__)
+            logger.info(f"Auto-discovered daemon configuration file: {daemon_config_path}")
+            return str(daemon_config_path)
+
+        # Check current directory locations
         default_config_names = [
             "workspace_qdrant_config.yaml",
-            "workspace_qdrant_config.yml", 
+            "workspace_qdrant_config.yml",
             ".workspace-qdrant.yaml",
             ".workspace-qdrant.yml"
         ]
-        
+
         current_dir = Path.cwd()
         for config_name in default_config_names:
             config_path = current_dir / config_name
@@ -438,7 +491,7 @@ class Config(BaseSettings):
                 logger = logging.getLogger(__name__)
                 logger.info(f"Auto-discovered configuration file: {config_path}")
                 return str(config_path)
-        
+
         return None
 
     def _apply_yaml_overrides(self, yaml_config: dict[str, Any]) -> None:
@@ -451,14 +504,14 @@ class Config(BaseSettings):
             if hasattr(self, key):
                 # Check if we're trying to overwrite a typed config object with a raw dict
                 current_value = getattr(self, key)
-                
+
                 # If current value is already a properly typed config object (like AutoIngestionConfig)
                 # and the incoming value is a raw dict, skip the override to preserve type safety
-                if (isinstance(value, dict) and 
-                    hasattr(current_value, '__class__') and 
+                if (isinstance(value, dict) and
+                    hasattr(current_value, '__class__') and
                     current_value.__class__.__name__.endswith('Config')):
                     continue
-                    
+
                 setattr(self, key, value)
 
     @classmethod
@@ -748,7 +801,7 @@ class Config(BaseSettings):
             target_suffix = self.auto_ingestion.target_collection_suffix
             available_suffixes = self.workspace.effective_collection_suffixes
             auto_create = self.workspace.auto_create_collections
-            
+
             # Check if target_collection_suffix is specified and valid
             if target_suffix:
                 if available_suffixes and target_suffix not in available_suffixes:
@@ -780,10 +833,10 @@ class Config(BaseSettings):
 
     def get_auto_ingestion_diagnostics(self) -> dict[str, Any]:
         """Get diagnostic information about auto-ingestion configuration.
-        
+
         Returns detailed information about auto-ingestion configuration status,
         collection availability, and potential configuration issues.
-        
+
         Returns:
             Dict containing diagnostic information:
                 - enabled: Whether auto-ingestion is enabled
@@ -796,11 +849,11 @@ class Config(BaseSettings):
         target_suffix = self.auto_ingestion.target_collection_suffix
         available_suffixes = self.workspace.effective_collection_suffixes
         auto_create = self.workspace.auto_create_collections
-        
+
         # Determine configuration status
         status = "valid"
         recommendations = []
-        
+
         if self.auto_ingestion.enabled:
             if target_suffix:
                 if available_suffixes and target_suffix not in available_suffixes:
@@ -828,7 +881,7 @@ class Config(BaseSettings):
                 ])
         else:
             status = "disabled"
-            
+
         return {
             "enabled": self.auto_ingestion.enabled,
             "target_suffix": target_suffix,
@@ -838,7 +891,7 @@ class Config(BaseSettings):
             "recommendations": recommendations,
             "summary": self._get_auto_ingestion_summary(status, target_suffix, available_suffixes)
         }
-    
+
     def _get_auto_ingestion_summary(self, status: str, target_suffix: str, available_suffixes: list[str]) -> str:
         """Get a human-readable summary of auto-ingestion configuration status."""
         if status == "disabled":
@@ -858,20 +911,20 @@ class Config(BaseSettings):
             return "Auto-ingestion enabled but no collection configuration found"
         else:
             return f"Unknown configuration status: {status}"
-    
+
     def get_effective_auto_ingestion_behavior(self) -> str:
         """Get a user-friendly description of how auto-ingestion will behave.
-        
+
         Returns a human-readable description of what will happen when auto-ingestion
         runs, including fallback behavior and collection selection logic.
         """
         if not self.auto_ingestion.enabled:
             return "Auto-ingestion is disabled. No automatic file processing will occur."
-        
+
         target_suffix = self.auto_ingestion.target_collection_suffix
         available_suffixes = self.workspace.effective_collection_suffixes
         auto_create = self.workspace.auto_create_collections
-        
+
         if target_suffix and available_suffixes and target_suffix in available_suffixes:
             return f"Will use collection '{{{self._current_project_name()}}}-{target_suffix}' for auto-ingestion."
         elif target_suffix and auto_create:
@@ -879,14 +932,14 @@ class Config(BaseSettings):
         elif not target_suffix:
             behavior_parts = [
                 "Will use intelligent fallback selection:",
-                "1. Existing project collections (if any)", 
+                "1. Existing project collections (if any)",
                 "2. Common collections like 'scratchbook' (if they exist)",
                 "3. Create a default collection if no suitable collections exist"
             ]
             return " ".join(behavior_parts) if len(" ".join(behavior_parts)) < 100 else "\n  ".join(behavior_parts)
         else:
             return f"Configuration may need adjustment. Target suffix '{target_suffix}' specified but not in available suffixes."
-    
+
     def _current_project_name(self) -> str:
         """Get current project name for display purposes."""
         try:
@@ -897,3 +950,66 @@ class Config(BaseSettings):
             return project_info.get("main_project", "current-project")
         except Exception:
             return "current-project"
+
+    def _filter_qdrant_config(self, qdrant_config: dict[str, Any]) -> dict[str, Any]:
+        """Filter Qdrant config to only include server-compatible fields.
+
+        Args:
+            qdrant_config: Raw Qdrant configuration from YAML
+
+        Returns:
+            dict: Filtered Qdrant configuration with only server-compatible fields
+        """
+        # Map daemon config fields to server config fields
+        field_mapping = {
+            "url": "url",
+            "api_key": "api_key",
+            "timeout_ms": "timeout",  # Convert milliseconds to seconds
+            "prefer_grpc": "prefer_grpc"
+        }
+
+        filtered = {}
+        for daemon_field, server_field in field_mapping.items():
+            if daemon_field in qdrant_config:
+                value = qdrant_config[daemon_field]
+                if daemon_field == "timeout_ms":
+                    # Convert milliseconds to seconds for server config
+                    value = int(value / 1000)
+                filtered[server_field] = value
+
+        # Set prefer_grpc based on transport type if not explicitly set
+        if "prefer_grpc" not in filtered and "transport" in qdrant_config:
+            transport = qdrant_config["transport"].lower()
+            filtered["prefer_grpc"] = transport == "grpc"
+
+        return filtered
+
+    def _filter_auto_ingestion_config(self, auto_ingestion_config: dict[str, Any]) -> dict[str, Any]:
+        """Filter auto-ingestion config to only include server-compatible fields.
+
+        Args:
+            auto_ingestion_config: Raw auto-ingestion configuration from YAML
+
+        Returns:
+            dict: Filtered auto-ingestion configuration with only server-compatible fields
+        """
+        # These fields are compatible between daemon and server
+        compatible_fields = [
+            "enabled",
+            "auto_create_watches",
+            "include_common_files",
+            "include_source_files",
+            "target_collection_suffix",
+            "max_files_per_batch",
+            "batch_delay_seconds",
+            "max_file_size_mb",
+            "recursive_depth",
+            "debounce_seconds"
+        ]
+
+        filtered = {}
+        for field in compatible_fields:
+            if field in auto_ingestion_config:
+                filtered[field] = auto_ingestion_config[field]
+
+        return filtered
