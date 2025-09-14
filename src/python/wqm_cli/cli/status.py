@@ -64,24 +64,52 @@ from rich.tree import Tree
 from common.core.client import QdrantWorkspaceClient
 from common.core.config import Config
 from common.logging.loguru_config import get_logger
-from workspace_qdrant_mcp.tools.grpc_tools import (
-    get_grpc_engine_stats,
-    stream_processing_status_grpc,
-    stream_queue_status_grpc,
-    stream_system_metrics_grpc,
-    test_grpc_connection,
-)
-from workspace_qdrant_mcp.tools.state_management import (
-    get_database_stats,
-    get_failed_files,
-    get_processing_analytics,
-    get_processing_status,
-    get_queue_stats,
-    get_watch_folder_configs,
-)
-from workspace_qdrant_mcp.tools.watch_management import WatchToolsManager
+# TEMPORARY FIX: Comment out grpc_tools import that causes CLI to hang
+# This needs to be fixed properly by making grpc_tools imports lazy or conditional
+# from workspace_qdrant_mcp.tools.grpc_tools import (
+#     get_grpc_engine_stats,
+#     stream_processing_status_grpc,
+#     stream_queue_status_grpc,
+#     stream_system_metrics_grpc,
+#     test_grpc_connection,
+# )
+# TEMPORARY FIX: Comment out state_management import that causes hang
+# This needs to be fixed by resolving the state_aware_ingestion import issue
+# from workspace_qdrant_mcp.tools.state_management import (
+#     get_database_stats,
+#     get_failed_files,
+#     get_processing_analytics,
+#     get_processing_status,
+#     get_queue_stats,
+#     get_watch_folder_configs,
+# )
+# TEMPORARY FIX: Comment out watch_management import that also causes hang
+# from workspace_qdrant_mcp.tools.watch_management import WatchToolsManager
+
+# Temporary stub for WatchToolsManager
+class WatchToolsManager:
+    """Temporary stub for WatchToolsManager."""
+    def __init__(self, *args, **kwargs):
+        pass
 
 logger = get_logger(__name__)
+
+# TEMPORARY FIX: Stub functions for disabled state_management imports
+async def get_processing_status(workspace_client, watch_manager):
+    """Temporary stub for get_processing_status."""
+    return {"status": "disabled", "message": "State management temporarily disabled"}
+
+async def get_queue_stats(workspace_client, watch_manager):
+    """Temporary stub for get_queue_stats."""
+    return {"queue_size": 0, "status": "disabled", "message": "Queue stats temporarily disabled"}
+
+async def get_watch_folder_configs(workspace_client, watch_manager):
+    """Temporary stub for get_watch_folder_configs."""
+    return {"configs": [], "status": "disabled", "message": "Watch configs temporarily disabled"}
+
+async def get_database_stats(workspace_client, watch_manager):
+    """Temporary stub for get_database_stats."""
+    return {"database_size": "unknown", "status": "disabled", "message": "Database stats temporarily disabled"}
 
 # CLI app for status commands
 status_app = typer.Typer(
@@ -390,7 +418,9 @@ async def get_comprehensive_status() -> Dict[str, Any]:
         tasks.append(get_database_stats(workspace_client, watch_manager))
 
         # gRPC daemon stats
-        tasks.append(get_grpc_engine_stats())
+        # TEMPORARY FIX: Skip grpc stats due to import hang
+        # tasks.append(get_grpc_engine_stats())
+        pass
 
         # Execute all tasks
         results = await asyncio.gather(*tasks, return_exceptions=True)
@@ -992,7 +1022,9 @@ async def live_streaming_status_monitor(
 
     # Check if gRPC daemon is available
     console.print(f"[cyan]Testing gRPC connection to {grpc_host}:{grpc_port}...[/cyan]")
-    connection_result = await test_grpc_connection(grpc_host, grpc_port, timeout=5.0)
+    # TEMPORARY FIX: Skip grpc connection test due to import hang
+    # connection_result = await test_grpc_connection(grpc_host, grpc_port, timeout=5.0)
+    connection_result = {"connected": False, "error": "gRPC tools temporarily disabled"}
 
     if not connection_result.get("connected"):
         console.print(
@@ -1021,13 +1053,16 @@ async def live_streaming_status_monitor(
         """Background task to stream processing status updates."""
         nonlocal latest_processing
         try:
-            result = await stream_processing_status_grpc(
-                host=grpc_host,
-                port=grpc_port,
-                update_interval=interval,
-                include_history=True,
-                collection_filter=collection,
-            )
+            # TEMPORARY FIX: Skip grpc streaming due to import hang
+            # Original call was:
+            # result = await stream_processing_status_grpc(
+            #     host=grpc_host,
+            #     port=grpc_port,
+            #     update_interval=interval,
+            #     include_history=True,
+            #     collection_filter=collection,
+            # )
+            result = {"success": False, "error": "gRPC tools temporarily disabled"}
             if result.get("success") and result.get("status_updates"):
                 for update in result["status_updates"]:
                     latest_processing = update
@@ -1038,12 +1073,15 @@ async def live_streaming_status_monitor(
         """Background task to stream system metrics updates."""
         nonlocal latest_metrics
         try:
-            result = await stream_system_metrics_grpc(
-                host=grpc_host,
-                port=grpc_port,
-                update_interval=max(interval, 10),  # Metrics update less frequently
-                include_detailed_metrics=True,
-            )
+            # TEMPORARY FIX: Skip grpc streaming due to import hang
+            # Original call was:
+            # result = await stream_system_metrics_grpc(
+            #     host=grpc_host,
+            #     port=grpc_port,
+            #     update_interval=max(interval, 10),  # Metrics update less frequently
+            #     include_detailed_metrics=True,
+            # )
+            result = {"success": False, "error": "gRPC tools temporarily disabled"}
             if result.get("success") and result.get("metrics_updates"):
                 for update in result["metrics_updates"]:
                     latest_metrics = update
@@ -1054,12 +1092,15 @@ async def live_streaming_status_monitor(
         """Background task to stream queue status updates."""
         nonlocal latest_queue
         try:
-            result = await stream_queue_status_grpc(
-                host=grpc_host,
-                port=grpc_port,
-                update_interval=min(interval, 5),  # Queue updates more frequently
-                collection_filter=collection,
-            )
+            # TEMPORARY FIX: Skip grpc streaming due to import hang
+            # Original call was:
+            # result = await stream_queue_status_grpc(
+            #     host=grpc_host,
+            #     port=grpc_port,
+            #     update_interval=min(interval, 5),  # Queue updates more frequently
+            #     collection_filter=collection,
+            # )
+            result = {"success": False, "error": "gRPC tools temporarily disabled"}
             if result.get("success") and result.get("queue_updates"):
                 for update in result["queue_updates"]:
                     latest_queue = update

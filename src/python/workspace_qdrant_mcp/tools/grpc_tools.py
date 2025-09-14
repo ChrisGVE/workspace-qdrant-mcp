@@ -11,7 +11,7 @@ from typing import Any, Dict, Optional
 from common.core.grpc_client import GrpcWorkspaceClient
 from common.grpc.client import AsyncIngestClient
 from common.grpc.connection_manager import ConnectionConfig
-from common.observability import get_logger
+from common.logging.loguru_config import get_logger
 
 logger = get_logger(__name__)
 
