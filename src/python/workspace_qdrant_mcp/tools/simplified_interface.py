@@ -27,7 +27,7 @@ from common.core.error_handling import (
 )
 from common.observability import (
     monitor_async,
-    get_logger,
+    logger,
     record_operation,
 )
 from common.core.collection_naming import (
