@@ -16,6 +16,7 @@ pub mod error;
 pub mod ipc;
 pub mod logging;
 pub mod daemon_state;
+pub mod patterns;
 pub mod processing;
 pub mod service_discovery;
 pub mod storage;
@@ -48,6 +49,11 @@ pub use crate::service_discovery::{
     NetworkDiscovery, DiscoveryMessage, DiscoveryMessageType,
     HealthChecker, HealthStatus, HealthConfig,
     DiscoveryConfig, DiscoveryError, DiscoveryResult
+};
+pub use crate::patterns::{
+    PatternManager, PatternError, PatternResult, AllPatterns,
+    ProjectIndicators, ExcludePatterns, IncludePatterns, LanguageExtensions,
+    Ecosystem, ProjectIndicator, ConfidenceLevel, LanguageGroup, CommentSyntax
 };
 
 /// Core processing errors
