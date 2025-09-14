@@ -166,6 +166,7 @@ class WorkspaceConfig(BaseModel):
         collection_prefix: Optional prefix for all collection names
         max_collections: Maximum number of collections per workspace (safety limit)
         auto_create_collections: Whether to automatically create project collections on startup
+        memory_collection_name: Name for the system memory collection with '__' prefix support (default: '__memory')
         collections: Legacy field for backward compatibility (use collection_types instead)
         collection_suffixes: Legacy field for backward compatibility (use collection_types instead)
 
@@ -192,6 +193,7 @@ class WorkspaceConfig(BaseModel):
     collection_prefix: str = ""
     max_collections: int = 100
     auto_create_collections: bool = False
+    memory_collection_name: str = "__memory"
     # Legacy field for backward compatibility - will be deprecated
     collections: list[str] | None = None
 
@@ -644,6 +646,7 @@ class Config(BaseSettings):
                 "collection_prefix": self.workspace.collection_prefix,
                 "max_collections": self.workspace.max_collections,
                 "auto_create_collections": self.workspace.auto_create_collections,
+                "memory_collection_name": self.workspace.memory_collection_name,
             },
         }
 
@@ -714,6 +717,10 @@ class Config(BaseSettings):
             "WORKSPACE_QDRANT_WORKSPACE__AUTO_CREATE_COLLECTIONS"
         ):
             self.workspace.auto_create_collections = auto_create.lower() == "true"
+        if memory_collection_name := os.getenv(
+            "WORKSPACE_QDRANT_WORKSPACE__MEMORY_COLLECTION_NAME"
+        ):
+            self.workspace.memory_collection_name = memory_collection_name
 
         # Auto-ingestion nested config
         if enabled := os.getenv("WORKSPACE_QDRANT_AUTO_INGESTION__ENABLED"):
