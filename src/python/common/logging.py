@@ -1,121 +1,98 @@
 """
-Unified logging system bridge for workspace-qdrant-mcp.
+Legacy logging bridge for workspace-qdrant-mcp.
 
-This module provides a bridge to the actual unified logging system in
-common.observability.logger with additional MCP-specific functionality.
+This module provides backward compatibility for any remaining imports
+from common.logging after the loguru migration. All functionality now
+routes through loguru_config.
 
-This is the centralized entry point for all logging throughout the application,
-ensuring consistent MCP stdio mode compliance and structured logging.
+DEPRECATED: Direct imports from this module are deprecated.
+Use 'from common.logging.loguru_config import get_logger' instead.
 
-Task 215: This module replaces all direct logging.getLogger() calls
-with unified logging system for complete MCP stdio compliance.
-
-Example:
-    Replace this:
-        import logging
-        logger = logging.getLogger(__name__)
-
-    With this:
-        from common.logging.loguru_config import get_logger
-        logger = get_logger(__name__)
+Task 222: This is a compatibility bridge during final cleanup phase.
 """
 
 import os
+import warnings
 from typing import Optional, Union
 from pathlib import Path
 
-# Import the actual unified logging implementation
-from common.observability.logger import (
+# Import from the new loguru-based system
+from common.logging.loguru_config import (
     get_logger as _get_logger,
-    LogContext,
-    PerformanceLogger,
     configure_logging,
-    StructuredLogger,
 )
 
-# Re-export the main functions
-get_logger = _get_logger
+# Legacy compatibility - emit deprecation warning
+def get_logger(name: str):
+    """Legacy get_logger function with deprecation warning."""
+    warnings.warn(
+        "Importing get_logger from 'common.logging' is deprecated. "
+        "Use 'from common.logging.loguru_config import get_logger' instead.",
+        DeprecationWarning,
+        stacklevel=2
+    )
+    return _get_logger(name)
+
+# Stub classes for backward compatibility
+class LogContext:
+    """Deprecated LogContext stub for backward compatibility."""
+    def __init__(self, **kwargs):
+        warnings.warn(
+            "LogContext is deprecated with the loguru migration. "
+            "Use loguru's contextualization features instead.",
+            DeprecationWarning,
+            stacklevel=2
+        )
+
+class PerformanceLogger:
+    """Deprecated PerformanceLogger stub for backward compatibility."""
+    def __init__(self, **kwargs):
+        warnings.warn(
+            "PerformanceLogger is deprecated with the loguru migration. "
+            "Use loguru's timing features instead.",
+            DeprecationWarning,
+            stacklevel=2
+        )
+
+class StructuredLogger:
+    """Deprecated StructuredLogger stub for backward compatibility."""
+    def __init__(self, **kwargs):
+        warnings.warn(
+            "StructuredLogger is deprecated with the loguru migration. "
+            "Use loguru directly instead.",
+            DeprecationWarning,
+            stacklevel=2
+        )
+
+# Re-export for compatibility
 __all__ = [
     'get_logger',
     'LogContext',
     'PerformanceLogger',
     'configure_unified_logging',
     'StructuredLogger',
+    'safe_log_error',
 ]
 
-
-def configure_unified_logging(
-    level: Union[str, int] = "INFO",
-    json_format: bool = True,
-    log_file: Optional[Path] = None,
-    max_file_size: int = 10 * 1024 * 1024,  # 10MB
-    backup_count: int = 5,
-    console_output: bool = True,
-    force_mcp_detection: bool = False,
-) -> None:
-    """Configure unified logging with MCP-specific enhancements.
-
-    This is a wrapper around configure_logging that adds MCP-specific
-    detection and configuration for stdio mode compliance.
-
-    Args:
-        level: Logging level (DEBUG, INFO, WARNING, ERROR, CRITICAL)
-        json_format: Use JSON formatting for structured logs
-        log_file: Path to log file (optional, logs to console if None)
-        max_file_size: Maximum log file size before rotation
-        backup_count: Number of backup log files to keep
-        console_output: Whether to output logs to console
-        force_mcp_detection: Force MCP stdio mode detection regardless of environment
-
-    Task 215: This function ensures complete silence in MCP stdio mode
-    while maintaining full functionality in other modes.
-    """
-    # Enhanced MCP stdio mode detection
-    stdio_mode = (
-        force_mcp_detection or
-        os.getenv("WQM_STDIO_MODE", "").lower() == "true" or
-        os.getenv("MCP_QUIET_MODE", "").lower() == "true"
+def configure_unified_logging(**kwargs) -> None:
+    """Legacy configure_unified_logging with deprecation warning."""
+    warnings.warn(
+        "configure_unified_logging is deprecated. "
+        "Use 'from common.logging.loguru_config import configure_logging' instead.",
+        DeprecationWarning,
+        stacklevel=2
     )
-
-    # In stdio mode, override console output settings for protocol compliance
-    if stdio_mode:
-        console_output = False
-        level = "CRITICAL"  # Effectively disable all logging
-
-    # Call the actual configure_logging function with stdio detection
-    configure_logging(
-        level=level,
-        json_format=json_format,
-        log_file=log_file,
-        max_file_size=max_file_size,
-        backup_count=backup_count,
-        console_output=console_output,
-        stdio_mode=stdio_mode,
-    )
-
+    return configure_logging(**kwargs)
 
 def is_stdio_mode() -> bool:
-    """Check if we're running in MCP stdio mode.
-
-    Returns:
-        True if in MCP stdio mode (should suppress console output)
-    """
+    """Check if we're running in MCP stdio mode."""
     return (
         os.getenv("WQM_STDIO_MODE", "").lower() == "true" or
         os.getenv("MCP_QUIET_MODE", "").lower() == "true"
     )
 
-
 def safe_log_error(message: str, **kwargs) -> None:
-    """Safely log an error with stdio mode detection.
-
-    This function can be used to log critical errors even in stdio mode
-    by writing to a file instead of console.
-
-    Args:
-        message: Error message to log
-        **kwargs: Additional structured fields
-    """
+    """Safely log an error with stdio mode detection."""
     if is_stdio_mode():
         # In stdio mode, attempt to log to file only
         try:
@@ -144,5 +121,5 @@ def safe_log_error(message: str, **kwargs) -> None:
             pass
     else:
         # Normal mode - use regular logger
-        logger = get_logger("common.logging")
+        logger = _get_logger("common.logging")
         logger.error(message, **kwargs)
