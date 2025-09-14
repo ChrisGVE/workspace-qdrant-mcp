@@ -34,6 +34,7 @@ class CollectionType(Enum):
     """Types of collections in the naming system."""
 
     MEMORY = "memory"
+    SYSTEM_MEMORY = "system_memory"  # System memory collections with '__' prefix
     LIBRARY = "library"
     PROJECT = "project"
     LEGACY = "legacy"  # For existing collections that don't match patterns
@@ -52,6 +53,7 @@ class CollectionNameInfo:
         None  # For project collections (docs, scratchbook, etc.)
     )
     library_name: str | None = None  # For library collections (without underscore)
+    system_memory_name: str | None = None  # For system memory collections (without __ prefix)
 
 
 @dataclass
@@ -84,10 +86,13 @@ class CollectionNamingManager:
     # Reserved collection names that cannot be used for user collections (excluding 'memory')
     RESERVED_NAMES = {
         "_memory",  # Prevent confusion with memory
+        "__memory",  # Prevent confusion with system memory
         "system",  # Reserved for future system use
         "_system",  # Reserved for future system use
+        "__system",  # Reserved for future system use
         "admin",  # Reserved for future admin use
         "_admin",  # Reserved for future admin use
+        "__admin",  # Reserved for future admin use
     }
 
     # Default project collection suffixes - can be overridden by configuration
@@ -158,10 +163,21 @@ class CollectionNamingManager:
                     error_message="Only 'memory' is allowed as a memory collection name",
                 )
 
+        elif collection_info.collection_type == CollectionType.SYSTEM_MEMORY:
+            # System memory classification handles validation internally
+            if not collection_info.system_memory_name:  # Invalid system memory name
+                system_memory_name = name[2:]  # Remove __ prefix
+                return NamingValidationResult(
+                    is_valid=False,
+                    error_message=f"System memory name '{system_memory_name}' must start with a letter, "
+                    f"contain only lowercase letters, numbers, hyphens, and underscores, "
+                    f"and end with a letter or number (or be a single letter)",
+                )
+
         elif collection_info.collection_type == CollectionType.LIBRARY:
             # Library classification handles validation internally
             if not collection_info.library_name:  # Invalid library name
-                library_name = name[1:]  # Remove underscore prefix
+                library_name = name[1:]  # Remove single underscore prefix
                 return NamingValidationResult(
                     is_valid=False,
                     error_message=f"Library name '{library_name}' must start with a letter, "
@@ -193,9 +209,23 @@ class CollectionNamingManager:
 
         elif collection_info.collection_type == CollectionType.LEGACY:
             # For legacy collections, check if they look like invalid patterns
-            if name.startswith("_"):
-                # This is an invalid library name
-                library_name = name[1:]  # Remove underscore prefix
+            if name.startswith("__"):
+                # This is an invalid system memory name
+                system_memory_name = name[2:]  # Remove __ prefix
+                if not system_memory_name:  # Just double underscore
+                    return NamingValidationResult(
+                        is_valid=False,
+                        error_message="System memory name cannot be empty after '__' prefix",
+                    )
+                return NamingValidationResult(
+                    is_valid=False,
+                    error_message=f"System memory name '{system_memory_name}' must start with a letter, "
+                    f"contain only lowercase letters, numbers, hyphens, and underscores, "
+                    f"and end with a letter or number (or be a single letter)",
+                )
+            elif name.startswith("_"):
+                # This is an invalid library name (single underscore)
+                library_name = name[1:]  # Remove single underscore prefix
                 if not library_name:  # Just underscore
                     return NamingValidationResult(
                         is_valid=False,
@@ -352,6 +382,7 @@ class CollectionNamingManager:
         Get the actual collection name in Qdrant from a display name.
 
         For library collections, this adds the underscore prefix.
+        For system memory collections, this adds the double underscore prefix.
         For other collections, this returns the name unchanged.
 
         Args:
@@ -363,14 +394,16 @@ class CollectionNamingManager:
         """
         if collection_type == CollectionType.LIBRARY:
             return f"_{display_name}"
+        elif collection_type == CollectionType.SYSTEM_MEMORY:
+            return f"__{display_name}"
         return display_name
 
     def is_mcp_readonly(self, collection_name: str) -> bool:
         """
         Check if a collection is readonly from the MCP server perspective.
 
-        Library collections are readonly from MCP - they can only be modified
-        via the CLI/Rust engine.
+        Library collections and system memory collections are readonly from MCP -
+        they can only be modified via the CLI/Rust engine.
 
         Args:
             collection_name: The collection name to check
@@ -380,6 +413,19 @@ class CollectionNamingManager:
         """
         info = self._classify_collection_name(collection_name)
         return info.is_readonly_from_mcp
+
+    def is_system_memory_collection(self, collection_name: str) -> bool:
+        """
+        Check if a collection is a system memory collection (double underscore prefix).
+
+        Args:
+            collection_name: The collection name to check
+
+        Returns:
+            True if the collection is a system memory collection, False otherwise
+        """
+        info = self._classify_collection_name(collection_name)
+        return info.collection_type == CollectionType.SYSTEM_MEMORY
 
     def filter_workspace_collections(self, all_collections: list[str]) -> list[str]:
         """
@@ -406,6 +452,7 @@ class CollectionNamingManager:
             # Include all workspace collection types
             if info.collection_type in [
                 CollectionType.MEMORY,
+                CollectionType.SYSTEM_MEMORY,
                 CollectionType.LIBRARY,
                 CollectionType.PROJECT,
             ]:
@@ -451,8 +498,21 @@ class CollectionNamingManager:
                 is_readonly_from_mcp=False,
             )
 
-        # Library collections (underscore-prefixed)
-        if name.startswith("_") and len(name) > 1:
+        # System memory collections (double underscore prefix)
+        if name.startswith("__") and len(name) > 2:
+            system_memory_name = name[2:]  # Remove __ prefix
+            # Validate system memory name format (similar to library validation)
+            if self.LIBRARY_NAME_PATTERN.match(system_memory_name):
+                return CollectionNameInfo(
+                    name=name,
+                    display_name=system_memory_name,
+                    collection_type=CollectionType.SYSTEM_MEMORY,
+                    is_readonly_from_mcp=True,  # System memory is readonly from MCP
+                    system_memory_name=system_memory_name,
+                )
+
+        # Library collections (single underscore-prefixed, not double)
+        if name.startswith("_") and not name.startswith("__") and len(name) > 1:
             library_name = name[1:]
             # Validate library name format
             if self.LIBRARY_NAME_PATTERN.match(library_name):
