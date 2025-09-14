@@ -63,7 +63,7 @@ from rich.tree import Tree
 
 from common.core.client import QdrantWorkspaceClient
 from common.core.config import Config
-from common.observability import configure_logging  # TODO: Migrate remaining observability imports, get_logger
+from common.logging.loguru_config import get_logger
 from workspace_qdrant_mcp.tools.grpc_tools import (
     get_grpc_engine_stats,
     stream_processing_status_grpc,
