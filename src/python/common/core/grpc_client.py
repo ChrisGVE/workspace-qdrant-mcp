@@ -9,7 +9,7 @@ The client automatically falls back to direct mode if the gRPC server is unavail
 """
 
 import asyncio
-import logging
+from common.logging import get_logger
 from datetime import datetime
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Union
@@ -20,7 +20,7 @@ from .client import QdrantWorkspaceClient
 from .config import Config
 from .daemon_manager import ensure_daemon_running, get_daemon_for_project
 
-logger = logging.getLogger(__name__)
+logger = get_logger(__name__)
 
 
 class GrpcWorkspaceClient:

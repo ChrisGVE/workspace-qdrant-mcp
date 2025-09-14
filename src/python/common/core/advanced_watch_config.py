@@ -6,7 +6,7 @@ including advanced pattern matching, collection targeting, and performance tunin
 """
 
 import fnmatch
-import logging
+from common.logging import get_logger
 import re
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -21,7 +21,7 @@ except ImportError:
     # Fallback if LSP detector is not available
     get_default_detector = None
 
-logger = logging.getLogger(__name__)
+logger = get_logger(__name__)
 
 
 class FileFilterConfig(BaseModel):

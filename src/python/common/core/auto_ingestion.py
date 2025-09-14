@@ -24,7 +24,7 @@ Example:
 """
 
 import asyncio
-import logging
+from common.logging import get_logger
 import os
 from datetime import datetime, timezone
 from pathlib import Path
@@ -49,7 +49,7 @@ from ..core.config import AutoIngestionConfig
 from workspace_qdrant_mcp.tools.watch_management import WatchToolsManager
 from ..utils.project_detection import ProjectDetector
 
-logger = logging.getLogger(__name__)
+logger = get_logger(__name__)
 
 
 class ProjectPatterns:

@@ -7,7 +7,7 @@ a unified system for daemon performance management.
 """
 
 import asyncio
-import logging
+from common.logging import get_logger
 from datetime import datetime, timedelta
 from typing import Any, Dict, List, Optional, Set
 from dataclasses import dataclass
@@ -23,7 +23,7 @@ from .performance_analytics import (
 from .performance_storage import get_performance_storage, PerformanceStorage
 from .resource_manager import ResourceAlert, ResourceUsage
 
-logger = logging.getLogger(__name__)
+logger = get_logger(__name__)
 
 
 @dataclass

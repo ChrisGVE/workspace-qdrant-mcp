@@ -31,7 +31,7 @@ Example:
 
 import asyncio
 import json
-import logging
+from common.logging import get_logger
 import mimetypes
 import re
 import time

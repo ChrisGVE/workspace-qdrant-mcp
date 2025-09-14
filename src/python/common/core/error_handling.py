@@ -7,7 +7,6 @@ circuit breaker patterns, and comprehensive logging using structlog.
 
 import asyncio
 import inspect
-import logging
 import time
 import traceback
 from contextlib import asynccontextmanager

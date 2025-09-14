@@ -6,7 +6,7 @@ performance monitoring, and integration with observability platforms.
 """
 
 import json
-import logging
+from common.logging import get_logger
 import logging.config
 import os
 import sys

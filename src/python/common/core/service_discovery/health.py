@@ -19,12 +19,12 @@ from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from enum import Enum
 from typing import Dict, List, Optional, Union, Callable
-import logging
+from common.logging import get_logger
 
 from .exceptions import HealthError
 from .registry import ServiceInfo, ServiceStatus
 
-logger = logging.getLogger(__name__)
+logger = get_logger(__name__)
 
 
 class HealthStatus(Enum):

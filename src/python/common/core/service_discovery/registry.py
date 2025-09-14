@@ -17,11 +17,11 @@ from enum import Enum
 from pathlib import Path
 from typing import Dict, List, Optional, Union
 import fcntl
-import logging
+from common.logging import get_logger
 
 from .exceptions import RegistryError
 
-logger = logging.getLogger(__name__)
+logger = get_logger(__name__)
 
 
 class ServiceStatus(Enum):

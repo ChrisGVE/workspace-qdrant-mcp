@@ -7,7 +7,7 @@ fallback mechanisms into a unified discovery system.
 """
 
 import asyncio
-import logging
+from common.logging import get_logger
 from dataclasses import dataclass, field
 from enum import Enum
 from typing import Dict, List, Optional, Callable, Union
@@ -18,7 +18,7 @@ from .registry import ServiceRegistry, ServiceInfo, ServiceStatus
 from .network import NetworkDiscovery, DiscoveryEvent
 from .health import HealthChecker, HealthConfig, HealthStatus, HealthCheckResult
 
-logger = logging.getLogger(__name__)
+logger = get_logger(__name__)
 
 
 class DiscoveryStrategy(Enum):

@@ -5,10 +5,10 @@ This module provides comprehensive validation logic for recursive depth limits
 including performance warnings and reasonable bounds checking.
 """
 
-import logging
+from common.logging import get_logger
 from typing import Optional, Dict, Any
 
-logger = logging.getLogger(__name__)
+logger = get_logger(__name__)
 
 # Constants for depth validation
 MIN_DEPTH = -1  # -1 for unlimited

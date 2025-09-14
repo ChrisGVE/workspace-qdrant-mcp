@@ -38,7 +38,7 @@ Example:
 import asyncio
 import hashlib
 import json
-import logging
+from common.logging import get_logger
 import os
 import time
 from contextlib import asynccontextmanager
@@ -58,7 +58,7 @@ from .sqlite_state_manager import (
     SQLiteStateManager
 )
 
-logger = logging.getLogger(__name__)
+logger = get_logger(__name__)
 
 
 class ChangeType(Enum):

@@ -7,7 +7,7 @@ and performance trends.
 """
 
 import asyncio
-import logging
+from common.logging import get_logger
 import statistics
 from collections import defaultdict
 from dataclasses import dataclass, field
@@ -20,7 +20,7 @@ from .performance_metrics import (
     OperationTrace, PerformanceMetricsCollector
 )
 
-logger = logging.getLogger(__name__)
+logger = get_logger(__name__)
 
 
 class OptimizationType(Enum):

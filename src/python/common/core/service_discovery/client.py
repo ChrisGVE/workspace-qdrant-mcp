@@ -8,7 +8,7 @@ the correct daemon instance for each project context.
 
 import asyncio
 import json
-import logging
+from common.logging import get_logger
 import socket
 import struct
 import time
@@ -20,7 +20,7 @@ from contextlib import asynccontextmanager
 from common.utils.project_detection import ProjectDetector
 from common.core.yaml_config import WorkspaceConfig
 
-logger = logging.getLogger(__name__)
+logger = get_logger(__name__)
 
 
 @dataclass

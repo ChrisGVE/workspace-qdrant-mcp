@@ -9,7 +9,7 @@ to ensure consistency across concurrent access.
 import asyncio
 import fcntl
 import json
-import logging
+from common.logging import get_logger
 import os
 import time
 from contextlib import asynccontextmanager
@@ -19,7 +19,7 @@ from pathlib import Path
 from typing import Any, AsyncGenerator, Callable, Dict, List, Optional, Set
 from weakref import WeakSet
 
-logger = logging.getLogger(__name__)
+logger = get_logger(__name__)
 
 
 @dataclass

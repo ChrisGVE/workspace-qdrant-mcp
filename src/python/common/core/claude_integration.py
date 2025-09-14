@@ -6,7 +6,7 @@ injection and session initialization. It handles the workflow of loading
 memory rules, detecting conflicts, and formatting them for system context.
 """
 
-import logging
+from common.logging import get_logger
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional, Tuple
 
@@ -18,7 +18,7 @@ from .memory import (
     MemoryRule,
 )
 
-logger = logging.getLogger(__name__)
+logger = get_logger(__name__)
 
 
 class ClaudeIntegrationManager:

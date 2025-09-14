@@ -7,7 +7,7 @@ and automatic retry capabilities.
 """
 
 import asyncio
-import logging
+from common.logging import get_logger
 import os
 import stat
 import time
@@ -16,7 +16,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
-logger = logging.getLogger(__name__)
+logger = get_logger(__name__)
 
 
 @dataclass
