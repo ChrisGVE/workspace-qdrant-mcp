@@ -55,7 +55,6 @@ from enum import Enum
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Set, Tuple, Union
 
-import structlog
 
 from common.core.client import QdrantWorkspaceClient
 from common.core.error_handling import WorkspaceError, ErrorCategory, ErrorSeverity

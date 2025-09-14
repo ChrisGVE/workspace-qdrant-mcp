@@ -17,10 +17,21 @@ from typing import Optional, Union
 from pathlib import Path
 
 # Import from the new loguru-based system
-from common.logging.loguru_config import (
-    get_logger as _get_logger,
-    configure_logging,
+# Import directly from the loguru config module to avoid circular imports
+import importlib.util
+import sys
+from pathlib import Path
+
+# Load loguru_config module directly
+spec = importlib.util.spec_from_file_location(
+    "loguru_config",
+    Path(__file__).parent / "logging" / "loguru_config.py"
 )
+loguru_config_module = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(loguru_config_module)
+
+_get_logger = loguru_config_module.get_logger
+configure_logging = loguru_config_module.configure_logging
 
 # Legacy compatibility - emit deprecation warning
 def get_logger(name: str):

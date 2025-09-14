@@ -62,7 +62,6 @@ from dataclasses import dataclass, field
 from enum import Enum
 from typing import Any, Dict, List, Optional, Set, Tuple, Union, Pattern
 
-import structlog
 
 from common.core.client import QdrantWorkspaceClient
 from common.core.error_handling import WorkspaceError, ErrorCategory, ErrorSeverity

@@ -41,14 +41,13 @@ from enum import Enum
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Set, Tuple, Union
 
-import structlog
 import yaml
 
 from .error_handling import WorkspaceError, ErrorCategory, ErrorSeverity
 from .language_filters import LanguageAwareFilter, FilterStatistics
 from .lsp_metadata_extractor import LspMetadataExtractor, FileMetadata
 
-logger = structlog.get_logger(__name__)
+logger = get_logger(__name__)
 
 
 class ProcessingStrategy(Enum):

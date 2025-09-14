@@ -18,7 +18,6 @@ import time
 from typing import Any, Callable, Dict, List, Optional, Union
 from weakref import WeakSet
 
-import structlog
 
 from .error_handling import WorkspaceError, ErrorCategory, ErrorSeverity
 

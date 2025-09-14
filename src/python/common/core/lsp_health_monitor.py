@@ -32,7 +32,6 @@ from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional, Set, Tuple, Union
 from weakref import WeakSet
 
-import structlog
 
 from .error_handling import WorkspaceError, ErrorCategory, ErrorSeverity
 from .lsp_client import (
