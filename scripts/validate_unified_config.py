@@ -59,7 +59,7 @@ embedding:
   batch_size: 50
 
 workspace:
-  collection_suffixes: ["unified-test"]
+  collection_types: ["unified-test"]
   global_collections: []
   auto_create_collections: false
 
