@@ -33,6 +33,30 @@ from ..tools.watch_management import WatchToolsManager
 # logger imported from loguru
 
 
+async def _get_ingestion_manager_or_disabled_response(
+    workspace_client: QdrantWorkspaceClient,
+    watch_manager: WatchToolsManager
+) -> tuple[Optional[Any], Optional[Dict[str, Any]]]:
+    """
+    Get ingestion manager or return a disabled response if not available.
+
+    Returns:
+        Tuple of (ingestion_manager, disabled_response)
+        If ingestion_manager is None, disabled_response will contain the error response.
+    """
+    ingestion_manager = await get_ingestion_manager(workspace_client, watch_manager)
+
+    if ingestion_manager is None:
+        disabled_response = {
+            "success": False,
+            "error": "Auto-ingestion disabled in stdio mode",
+            "message": "State management operations are not available in stdio mode for MCP protocol compliance",
+        }
+        return None, disabled_response
+
+    return ingestion_manager, None
+
+
 async def get_processing_status(
     workspace_client: QdrantWorkspaceClient, watch_manager: WatchToolsManager
 ) -> Dict[str, Any]:
@@ -44,8 +68,20 @@ async def get_processing_status(
         and system state information.
     """
     try:
-        # Get ingestion manager
-        ingestion_manager = await get_ingestion_manager(workspace_client, watch_manager)
+        # Get ingestion manager or disabled response
+        ingestion_manager, disabled_response = await _get_ingestion_manager_or_disabled_response(
+            workspace_client, watch_manager
+        )
+
+        if disabled_response:
+            # Return modified response for status check (success=True but disabled)
+            disabled_response["success"] = True
+            disabled_response["status"] = {
+                "processing_disabled": True,
+                "reason": "Auto-ingestion disabled in stdio mode for MCP protocol compliance"
+            }
+            disabled_response["message"] = "Processing status not available - auto-ingestion disabled"
+            return disabled_response
 
         # Get comprehensive status
         status = await ingestion_manager.get_processing_status()

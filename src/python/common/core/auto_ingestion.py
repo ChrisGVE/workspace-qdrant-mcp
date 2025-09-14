@@ -46,8 +46,10 @@ def normalize_collection_name_component(name: str) -> str:
     """Temporary implementation - normalize collection name component"""
     return name.replace('-', '_').replace(' ', '_')
 from ..core.config import AutoIngestionConfig
-from workspace_qdrant_mcp.tools.watch_management import WatchToolsManager
 from ..utils.project_detection import ProjectDetector
+
+# Import WatchToolsManager only when needed to prevent circular imports
+# This will be imported in the constructor when actually used
 
 # logger imported from loguru
 
@@ -329,7 +331,7 @@ class AutoIngestionManager:
     def __init__(
         self,
         workspace_client: QdrantWorkspaceClient,
-        watch_manager: WatchToolsManager,
+        watch_manager: Any,  # WatchToolsManager - using Any to avoid circular import
         config: Optional[AutoIngestionConfig] = None,
     ):
         """
