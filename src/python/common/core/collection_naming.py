@@ -146,11 +146,14 @@ class CollectionNamingManager:
                 error_message="Collection name cannot exceed 100 characters",
             )
 
-        # Check for reserved names
+        # Check for reserved names (but allow system memory collections like '__memory')
         if name in self.RESERVED_NAMES:
-            return NamingValidationResult(
-                is_valid=False, error_message=f"'{name}' is a reserved collection name"
-            )
+            # Allow system memory collections even if they're in reserved names
+            # This covers cases like '__memory' which is both reserved and a valid system collection
+            if not (name.startswith("__") and len(name) > 2):
+                return NamingValidationResult(
+                    is_valid=False, error_message=f"'{name}' is a reserved collection name"
+                )
 
         # Classify the collection type
         collection_info = self._classify_collection_name(name)
