@@ -14,7 +14,6 @@ encouraging migration to the simplified interface.
 """
 
 import os
-import logging
 from typing import Dict, List, Optional, Any, Callable
 from functools import wraps
 
