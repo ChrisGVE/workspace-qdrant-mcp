@@ -357,6 +357,40 @@ class QdrantWorkspaceClient:
         """
         return self.project_info
 
+    def get_project_context(self, collection_type: str = "general") -> dict | None:
+        """Get project context for metadata filtering.
+
+        Args:
+            collection_type: Type of collection for context (notes, docs, etc.)
+
+        Returns:
+            Dict with project context metadata for filtering, or None if no project detected
+        """
+        if not self.project_info or not self.project_info.get("main_project"):
+            return None
+
+        project_name = self.project_info["main_project"]
+
+        return {
+            "project_name": project_name,
+            "project_id": self._generate_project_id(project_name),
+            "tenant_namespace": f"{project_name}.{collection_type}",
+            "collection_type": collection_type,
+            "workspace_scope": "project"
+        }
+
+    def _generate_project_id(self, project_name: str) -> str:
+        """Generate stable project ID from project name.
+
+        Args:
+            project_name: Project name to generate ID for
+
+        Returns:
+            Stable 12-character project ID
+        """
+        import hashlib
+        return hashlib.sha256(project_name.encode()).hexdigest()[:12]
+
     def refresh_project_detection(self) -> dict:
         """Refresh project detection from current working directory.
 
@@ -446,6 +480,122 @@ class QdrantWorkspaceClient:
             raise RuntimeError(
                 f"Failed to ensure collection '{collection_name}' exists: {e}"
             ) from e
+
+    async def search_with_project_context(
+        self,
+        collection_name: str,
+        query_embeddings: dict,
+        collection_type: str = "general",
+        limit: int = 10,
+        fusion_method: str = "rrf",
+        dense_weight: float = 1.0,
+        sparse_weight: float = 1.0,
+        additional_filters: Optional[dict] = None,
+        include_shared: bool = True,
+        **search_kwargs
+    ) -> dict:
+        """Perform hybrid search with automatic project context filtering.
+
+        This method automatically injects project metadata filters while maintaining
+        the full functionality of the hybrid search engine.
+
+        Args:
+            collection_name: Name of collection to search
+            query_embeddings: Dict with 'dense' and/or 'sparse' embeddings
+            collection_type: Type of collection for context filtering
+            limit: Maximum number of results to return
+            fusion_method: Fusion algorithm ("rrf", "weighted_sum", "max_score")
+            dense_weight: Weight for dense results in fusion
+            sparse_weight: Weight for sparse results in fusion
+            additional_filters: Additional metadata filters to apply
+            include_shared: Whether to include shared workspace resources
+            **search_kwargs: Additional search parameters passed to hybrid_search
+
+        Returns:
+            Dict: Search results with project context applied
+
+        Example:
+            ```python
+            # Search project docs with automatic context filtering
+            results = await client.search_with_project_context(
+                collection_name="docs",
+                query_embeddings=embeddings,
+                collection_type="docs",
+                limit=5
+            )
+            ```
+        """
+        if not self.initialized:
+            return {"error": "Workspace client not initialized"}
+
+        try:
+            # Import HybridSearchEngine here to avoid circular imports
+            from .hybrid_search import HybridSearchEngine
+
+            # Get project context for metadata filtering
+            project_context = self.get_project_context(collection_type)
+
+            # Adjust workspace scope based on include_shared parameter
+            if project_context and include_shared:
+                project_context["include_shared"] = True
+
+            # Create hybrid search engine
+            search_engine = HybridSearchEngine(self.client)
+
+            # Build additional filters from dict to Qdrant Filter if provided
+            base_filter = None
+            if additional_filters:
+                from qdrant_client.http import models
+                conditions = []
+                for key, value in additional_filters.items():
+                    if isinstance(value, str):
+                        conditions.append(
+                            models.FieldCondition(key=key, match=models.MatchValue(value=value))
+                        )
+                    elif isinstance(value, (int, float)):
+                        conditions.append(
+                            models.FieldCondition(key=key, match=models.MatchValue(value=value))
+                        )
+                    elif isinstance(value, list):
+                        conditions.append(
+                            models.FieldCondition(key=key, match=models.MatchAny(any=value))
+                        )
+
+                if conditions:
+                    base_filter = models.Filter(must=conditions)
+
+            # Perform search with project context
+            search_results = await search_engine.hybrid_search(
+                collection_name=collection_name,
+                query_embeddings=query_embeddings,
+                limit=limit,
+                fusion_method=fusion_method,
+                dense_weight=dense_weight,
+                sparse_weight=sparse_weight,
+                filter_conditions=base_filter,
+                project_context=project_context,
+                auto_inject_metadata=True,
+                **search_kwargs
+            )
+
+            # Enrich results with project context information
+            if "fused_results" in search_results:
+                search_results["project_context"] = project_context
+                search_results["collection_type"] = collection_type
+                search_results["include_shared"] = include_shared
+
+            logger.info(
+                "Project context search completed",
+                collection=collection_name,
+                project_name=project_context.get("project_name") if project_context else None,
+                results_count=len(search_results.get("fused_results", []))
+            )
+
+            return search_results
+
+        except Exception as e:
+            logger.error("Project context search failed: %s", e)
+            return {"error": f"Project context search failed: {e}"}
 
     async def close(self) -> None:
         """Clean up client connections and release resources.
