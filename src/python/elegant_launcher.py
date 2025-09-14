@@ -16,7 +16,7 @@ from pathlib import Path
 from typing import Optional
 
 from loguru import logger
-from common.logging.loguru_config import # TODO: Replace with setup_logging from common.logging.loguru_config
+from common.logging.loguru_config import setup_logging
 
 
 def show_elegant_banner(transport: str, config_file: Optional[str] = None):
