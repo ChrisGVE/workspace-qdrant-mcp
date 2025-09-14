@@ -153,16 +153,21 @@ def run_server(config):
         sys.path.insert(0, str(src_dir))
 
     try:
-        # Import the server after environment setup
-        from workspace_qdrant_mcp.server import run_server as existing_run_server
+        # Use entry point to avoid problematic imports in stdio mode
+        from workspace_qdrant_mcp.entry_point import detect_stdio_mode, run_stdio_mode, run_full_mode
 
-        # Call the existing server implementation
-        existing_run_server(
-            transport=config["transport"],
-            host=config["host"],
-            port=config["port"],
-            config=config["config_file"]
-        )
+        # Let entry point handle the routing based on transport
+        if config["transport"] == "stdio" and detect_stdio_mode():
+            run_stdio_mode()
+        else:
+            # For non-stdio modes, import the full server
+            from workspace_qdrant_mcp.server import run_server as existing_run_server
+            existing_run_server(
+                transport=config["transport"],
+                host=config["host"],
+                port=config["port"],
+                config=config["config_file"]
+            )
 
     except ImportError as e:
         if config["verbose"]:
