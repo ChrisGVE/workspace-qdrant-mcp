@@ -216,4 +216,11 @@ node_modules/
 
 # Task files
 # tasks.json
-# tasks/ 
+# tasks/
+
+# Console silence test artifacts
+benchmark_results.json
+console_silence_validation_report.json
+*_performance_report.json
+test_output_*
+*.test.log

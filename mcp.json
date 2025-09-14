@@ -1,0 +1,11 @@
+{
+  "workspace-qdrant": {
+    "command": "uv",
+    "args": ["run", "workspace-qdrant-mcp", "--transport", "stdio"],
+    "cwd": "/Users/chris/Dropbox/dev/ai/claude-code-cfg/mcp/workspace-qdrant-mcp",
+    "env": {
+      "WQM_STDIO_MODE": "true",
+      "QDRANT_URL": "http://localhost:6333"
+    }
+  }
+}

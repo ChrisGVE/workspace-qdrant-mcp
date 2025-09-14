@@ -25,35 +25,25 @@ pub enum UnifiedConfigError {
     #[error("IO error: {0}")]
     IoError(#[from] std::io::Error),
     
-    #[error("TOML parsing error: {0}")]
-    TomlError(#[from] toml::de::Error),
-    
     #[error("YAML parsing error: {0}")]
     YamlError(String),
-    
-    #[error("JSON parsing error: {0}")]
-    JsonError(#[from] serde_json::Error),
     
     #[error("Configuration validation error: {0}")]
     ValidationError(String),
 }
 
-/// Supported configuration formats
+/// Supported configuration formats (YAML only)
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ConfigFormat {
-    Toml,
     Yaml,
-    Json,
 }
 
 impl ConfigFormat {
-    /// Detect format from file extension
+    /// Detect format from file extension (YAML only)
     pub fn from_path<P: AsRef<Path>>(path: P) -> Self {
         match path.as_ref().extension().and_then(|s| s.to_str()) {
-            Some("toml") => ConfigFormat::Toml,
             Some("yaml") | Some("yml") => ConfigFormat::Yaml,
-            Some("json") => ConfigFormat::Json,
-            _ => ConfigFormat::Toml, // Default to TOML for Rust daemon
+            _ => ConfigFormat::Yaml, // Default to YAML
         }
     }
 }
@@ -72,11 +62,7 @@ impl UnifiedConfigManager {
         });
 
         let config_file_patterns = vec![
-            // TOML files (preferred by Rust daemon)
-            "workspace_qdrant_config.toml".to_string(),
-            ".workspace-qdrant.toml".to_string(),
-            "config.toml".to_string(),
-            // YAML files (for compatibility with Python MCP server)
+            // YAML files only
             "workspace_qdrant_config.yaml".to_string(),
             "workspace_qdrant_config.yml".to_string(),
             ".workspace-qdrant.yaml".to_string(),
@@ -140,7 +126,7 @@ impl UnifiedConfigManager {
             (file.to_path_buf(), ConfigFormat::from_path(file))
         } else {
             // Auto-discover configuration
-            match self.get_preferred_config_source(Some(ConfigFormat::Toml)) {
+            match self.get_preferred_config_source(Some(ConfigFormat::Yaml)) {
                 Some((path, fmt)) => {
                     info!("Loading configuration from: {}", path.display());
                     (path, fmt)
@@ -170,15 +156,9 @@ impl UnifiedConfigManager {
         let content = fs::read_to_string(file_path)?;
 
         match format {
-            ConfigFormat::Toml => {
-                toml::from_str(&content).map_err(UnifiedConfigError::TomlError)
-            }
             ConfigFormat::Yaml => {
                 serde_yaml::from_str(&content)
                     .map_err(|e| UnifiedConfigError::YamlError(e.to_string()))
-            }
-            ConfigFormat::Json => {
-                serde_json::from_str(&content).map_err(UnifiedConfigError::JsonError)
             }
         }
     }
@@ -369,16 +349,9 @@ impl UnifiedConfigManager {
         }
 
         let content = match format {
-            ConfigFormat::Toml => {
-                toml::to_string_pretty(config)
-                    .map_err(|e| UnifiedConfigError::ParseError(e.to_string()))?
-            }
             ConfigFormat::Yaml => {
                 serde_yaml::to_string(config)
                     .map_err(|e| UnifiedConfigError::YamlError(e.to_string()))?
-            }
-            ConfigFormat::Json => {
-                serde_json::to_string_pretty(config)?
             }
         };
 
@@ -445,7 +418,7 @@ impl UnifiedConfigManager {
 
         info.insert("sources".to_string(), serde_json::Value::Array(sources_json));
 
-        if let Some((preferred_path, _)) = self.get_preferred_config_source(Some(ConfigFormat::Toml)) {
+        if let Some((preferred_path, _)) = self.get_preferred_config_source(Some(ConfigFormat::Yaml)) {
             info.insert("preferred_source".to_string(), 
                        serde_json::Value::String(preferred_path.display().to_string()));
         }
@@ -468,11 +441,11 @@ mod tests {
 
     #[test]
     fn test_config_format_detection() {
-        assert_eq!(ConfigFormat::from_path("config.toml"), ConfigFormat::Toml);
         assert_eq!(ConfigFormat::from_path("config.yaml"), ConfigFormat::Yaml);
         assert_eq!(ConfigFormat::from_path("config.yml"), ConfigFormat::Yaml);
-        assert_eq!(ConfigFormat::from_path("config.json"), ConfigFormat::Json);
-        assert_eq!(ConfigFormat::from_path("config"), ConfigFormat::Toml);
+        assert_eq!(ConfigFormat::from_path("config"), ConfigFormat::Yaml);
+        assert_eq!(ConfigFormat::from_path("config.toml"), ConfigFormat::Yaml); // Should default to YAML
+        assert_eq!(ConfigFormat::from_path("config.json"), ConfigFormat::Yaml); // Should default to YAML
     }
 
     #[test]
@@ -481,11 +454,11 @@ mod tests {
         let config_manager = UnifiedConfigManager::new(Some(temp_dir.path()));
 
         // Create test config files
-        let toml_path = temp_dir.path().join("workspace_qdrant_config.toml");
         let yaml_path = temp_dir.path().join("workspace_qdrant_config.yaml");
+        let yml_path = temp_dir.path().join("config.yml");
 
-        fs::write(&toml_path, "# TOML config").unwrap();
         fs::write(&yaml_path, "# YAML config").unwrap();
+        fs::write(&yml_path, "# YML config").unwrap();
 
         let sources = config_manager.discover_config_sources();
         let existing_sources: Vec<_> = sources.into_iter()
@@ -493,13 +466,13 @@ mod tests {
             .collect();
 
         assert_eq!(existing_sources.len(), 2);
-        
-        // Should prefer TOML for Rust daemon
-        let preferred = config_manager.get_preferred_config_source(Some(ConfigFormat::Toml));
+
+        // Should prefer YAML
+        let preferred = config_manager.get_preferred_config_source(Some(ConfigFormat::Yaml));
         assert!(preferred.is_some());
         let (path, format) = preferred.unwrap();
-        assert_eq!(format, ConfigFormat::Toml);
-        assert!(path.ends_with("workspace_qdrant_config.toml"));
+        assert_eq!(format, ConfigFormat::Yaml);
+        assert!(path.ends_with("workspace_qdrant_config.yaml"));
     }
 
     #[test]

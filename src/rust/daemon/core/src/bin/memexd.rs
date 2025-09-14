@@ -351,10 +351,6 @@ fn load_config(args: &DaemonArgs) -> Result<(Config, DaemonConfig), Box<dyn std:
                     error!("YAML parsing error: {}", msg);
                     return Err(format!("YAML parsing error: {}", msg).into());
                 },
-                Err(UnifiedConfigError::TomlError(e)) => {
-                    error!("TOML parsing error: {}", e);
-                    return Err(format!("TOML parsing error: {}", e).into());
-                },
                 Err(e) => {
                     error!("Configuration loading error: {}", e);
                     return Err(format!("Configuration loading error: {}", e).into());

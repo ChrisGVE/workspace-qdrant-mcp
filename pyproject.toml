@@ -86,7 +86,7 @@ dev = [
 full = ["markdown>=3.4.0", "PyYAML>=6.0.0", "pypdf>=4.0.0"]
 
 [project.scripts]
-workspace-qdrant-mcp = "wqm_stdio:main"
+workspace-qdrant-mcp = "wqm_stdio_launcher:main"
 wqm = "wqm_cli.cli_wrapper:main"
 
 [project.urls]
@@ -255,6 +255,7 @@ python-source = "src/python"
 
 [tool.setuptools]
 package-dir = {"" = "src/python"}
+py-modules = ["wqm_stdio_launcher"]
 
 # Platform-specific optimizations
 [tool.maturin.target.x86_64-apple-darwin]
