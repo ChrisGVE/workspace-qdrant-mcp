@@ -13,6 +13,12 @@ import sys
 
 def _detect_stdio_at_import() -> bool:
     """Detect stdio mode at module import time."""
+    # Check environment variables first
+    if os.getenv("WQM_STDIO_MODE", "").lower() == "true":
+        return True
+    if os.getenv("MCP_TRANSPORT") == "stdio":
+        return True
+
     # Check command line arguments
     if "--transport" in sys.argv:
         try:
@@ -22,23 +28,21 @@ def _detect_stdio_at_import() -> bool:
         except (ValueError, IndexError):
             pass
 
-    # Check environment variables
-    if os.getenv("WQM_STDIO_MODE", "").lower() == "true":
-        return True
-    if os.getenv("MCP_TRANSPORT") == "stdio":
-        return True
-
-    # Default to stdio if no transport specified (common for MCP clients)
-    if "--transport" not in sys.argv and len(sys.argv) == 1:
-        return True
-
-    # Check if stdin is piped (typical MCP scenario)
+    # Check if stdin is piped (typical MCP scenario) - this is the most reliable indicator
     if hasattr(sys.stdin, 'isatty') and not sys.stdin.isatty():
         return True
 
     # Check if stdout is piped (typical MCP scenario)
     if hasattr(sys.stdout, 'isatty') and not sys.stdout.isatty():
         return True
+
+    # Default to stdio if no transport specified AND minimal args (entry point scenario)
+    # This handles the case where entry point calls with just the script name
+    if "--transport" not in sys.argv and len(sys.argv) <= 2:
+        # Only if we also have other stdio indicators or no special args
+        has_help = any(arg in sys.argv for arg in ['--help', '-h', '--version', '-V'])
+        if not has_help:
+            return True
 
     return False
 
@@ -119,20 +123,9 @@ def main():
     is_stdio = detect_stdio_mode()
 
     if is_stdio:
-        # CRITICAL: Use dedicated stdio launcher that bypasses all imports
+        # CRITICAL: Use inline stdio server that bypasses all imports
         # This completely avoids the package import chain that triggers server loading
-        import subprocess
-        import sys
-
-        # Execute the dedicated stdio launcher directly
-        stdio_launcher_path = __file__.replace('launcher.py', 'stdio_launcher.py')
-
-        # Execute as subprocess to completely isolate from current import context
-        result = subprocess.run([sys.executable, stdio_launcher_path],
-                               stdin=sys.stdin,
-                               stdout=sys.stdout,
-                               stderr=sys.stderr)
-        sys.exit(result.returncode)
+        _run_isolated_stdio_server()
     else:
         # Use full server implementation for non-stdio modes
         from .server import main as server_main

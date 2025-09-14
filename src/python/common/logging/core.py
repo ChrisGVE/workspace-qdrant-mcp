@@ -14,6 +14,19 @@ from .handlers import create_console_handler, create_file_handler
 from .formatters import get_formatter
 
 
+# Comprehensive list of third-party loggers to suppress in stdio mode
+THIRD_PARTY_LOGGERS = [
+    'httpx', 'httpcore', 'qdrant_client', 'urllib3', 'asyncio',
+    'fastembed', 'grpc', 'structlog', 'typer', 'pydantic', 'rich',
+    'uvicorn', 'fastapi', 'watchdog', 'watchfiles', 'aiohttp',
+    'aiofiles', 'requests', 'chardet', 'pypdf', 'python_docx',
+    'python_pptx', 'ebooklib', 'beautifulsoup4', 'lxml',
+    'markdown', 'pygments', 'psutil', 'tqdm', 'multipart',
+    'tokenizers', 'transformers', 'sentence_transformers',
+    'bitsandbytes', 'safetensors', 'huggingface_hub'
+]
+
+
 class StructuredLogger:
     """Enhanced logger with structured logging capabilities and MCP stdio awareness.
 
@@ -95,12 +108,44 @@ class StructuredLogger:
             if file_handler:
                 root_logger.addHandler(file_handler)
 
-        # Configure specific loggers to avoid excessive verbosity
-        logging.getLogger("httpx").setLevel(logging.WARNING)
-        logging.getLogger("httpcore").setLevel(logging.WARNING)
-        logging.getLogger("qdrant_client").setLevel(logging.INFO)
-        logging.getLogger("urllib3").setLevel(logging.WARNING)
-        logging.getLogger("asyncio").setLevel(logging.WARNING)
+        # Configure third-party loggers
+        self._configure_third_party_loggers(suppress_console)
+
+    def _configure_third_party_loggers(self, suppress_console: bool):
+        """Configure third-party library loggers for MCP stdio mode compatibility.
+
+        Args:
+            suppress_console: Whether console output should be completely suppressed
+        """
+        import os
+        stdio_mode = os.getenv("WQM_STDIO_MODE", "false").lower() == "true"
+
+        for logger_name in THIRD_PARTY_LOGGERS:
+            third_party_logger = logging.getLogger(logger_name)
+
+            if stdio_mode or suppress_console:
+                # In stdio mode, completely silence third-party loggers
+                from .handlers import create_null_handler
+                third_party_logger.handlers.clear()
+                third_party_logger.addHandler(create_null_handler())
+                third_party_logger.setLevel(logging.CRITICAL + 1)
+                third_party_logger.disabled = True
+                third_party_logger.propagate = False
+            else:
+                # In normal mode, just reduce verbosity
+                if logger_name in ['httpx', 'httpcore', 'urllib3', 'requests']:
+                    third_party_logger.setLevel(logging.WARNING)
+                elif logger_name in ['qdrant_client', 'fastembed']:
+                    third_party_logger.setLevel(logging.INFO)
+                elif logger_name in ['asyncio', 'uvicorn', 'fastapi']:
+                    third_party_logger.setLevel(logging.WARNING)
+                elif logger_name in ['tokenizers', 'transformers', 'sentence_transformers']:
+                    third_party_logger.setLevel(logging.ERROR)
+                elif logger_name in ['grpc', 'structlog', 'typer', 'rich']:
+                    third_party_logger.setLevel(logging.WARNING)
+                else:
+                    # Default to WARNING for other libraries
+                    third_party_logger.setLevel(logging.WARNING)
 
     def _log_with_extra(self, level: int, msg: str, *args, **kwargs):
         """Log message with extra structured fields."""

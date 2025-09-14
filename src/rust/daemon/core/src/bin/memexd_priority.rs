@@ -373,7 +373,8 @@ fn load_config(args: &DaemonArgs) -> Result<Config, Box<dyn std::error::Error>> 
         Some(config_path) => {
             info!("Loading configuration from {}", config_path.display());
             let config_content = fs::read_to_string(config_path)?;
-            let config: Config = toml::from_str(&config_content)?;
+            let config: Config = serde_yaml::from_str(&config_content)
+                .map_err(|e| Box::new(e) as Box<dyn std::error::Error>)?;
             
             if args.port.is_some() {
                 info!("Port override specified: {}, but will be handled by IPC layer", args.port.unwrap());
