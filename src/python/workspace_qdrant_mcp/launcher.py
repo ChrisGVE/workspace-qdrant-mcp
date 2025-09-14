@@ -69,9 +69,18 @@ def main():
         # Set up stdio suppression BEFORE importing any server modules
         _setup_stdio_suppression()
 
-        # Use lightweight stdio server to avoid console output
-        from .stdio_server import main as stdio_server_main
-        stdio_server_main()
+        # CRITICAL: Import stdio_server with additional suppression measures
+        import warnings
+        warnings.filterwarnings("ignore")
+
+        # Extra suppression for any remaining loggers
+        import logging
+        logging.getLogger().disabled = True
+        logging.getLogger().handlers.clear()
+
+        # Use completely isolated stdio server to avoid console output
+        from .isolated_stdio_server import main as isolated_stdio_server_main
+        isolated_stdio_server_main()
     else:
         # Use full server implementation for non-stdio modes
         from .server import main as server_main
