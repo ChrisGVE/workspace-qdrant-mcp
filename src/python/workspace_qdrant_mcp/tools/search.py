@@ -67,6 +67,9 @@ async def search_workspace(
     mode: str = "hybrid",
     limit: int = 10,
     score_threshold: float = 0.7,
+    project_context: Optional[dict] = None,
+    auto_inject_project_metadata: bool = True,
+    include_shared: bool = True,
 ) -> dict:
     """
     Search across multiple workspace collections with advanced hybrid search.
@@ -88,6 +91,9 @@ async def search_workspace(
         limit: Maximum number of results to return across all collections
         score_threshold: Minimum relevance score (0.0-1.0). Higher values
                         increase precision but may reduce recall
+        project_context: Optional project context for metadata filtering
+        auto_inject_project_metadata: Whether to automatically inject project metadata filters
+        include_shared: Whether to include shared workspace resources in search
 
     Returns:
         Dict: Comprehensive search results containing:
@@ -205,17 +211,57 @@ async def search_workspace(
         # Search each collection
         all_results = []
 
+        # Log search configuration
+        logger.info(
+            "Starting workspace search",
+            query=query[:50] + "..." if len(query) > 50 else query,
+            mode=mode,
+            collections_count=len(collections),
+            auto_inject_metadata=auto_inject_project_metadata,
+            include_shared=include_shared
+        )
+
         for i, display_name in enumerate(collections):
             actual_name = actual_collections[i]
             try:
-                collection_results = await _search_collection(
-                    client.client,
-                    actual_name,  # Use actual name for Qdrant operations
-                    embeddings,
-                    mode,
-                    limit,
-                    score_threshold,
-                )
+                # Use new project-aware search if enabled
+                if auto_inject_project_metadata:
+                    # Use the client's search_with_project_context for automatic metadata filtering
+                    search_result = await client.search_with_project_context(
+                        collection_name=actual_name,
+                        query_embeddings=embeddings,
+                        collection_type=actual_name,  # Use collection name as type
+                        limit=limit,
+                        fusion_method=mode if mode == "hybrid" else "rrf",
+                        include_shared=include_shared,
+                        with_payload=True,
+                        score_threshold=score_threshold,
+                    )
+
+                    # Extract results from search_result
+                    if "fused_results" in search_result:
+                        collection_results = [
+                            {
+                                "id": result.id,
+                                "score": getattr(result, "score", 0.0),
+                                "payload": getattr(result, "payload", {}),
+                                "search_type": mode
+                            }
+                            for result in search_result["fused_results"]
+                            if getattr(result, "score", 0) >= score_threshold
+                        ]
+                    else:
+                        collection_results = []
+                else:
+                    # Fallback to legacy search without metadata filtering
+                    collection_results = await _search_collection(
+                        client.client,
+                        actual_name,  # Use actual name for Qdrant operations
+                        embeddings,
+                        mode,
+                        limit,
+                        score_threshold,
+                    )
 
                 # Add display name to results for user-facing response
                 for result in collection_results:
@@ -236,7 +282,8 @@ async def search_workspace(
         all_results.sort(key=lambda x: x.get("score", 0), reverse=True)
         final_results = all_results[:limit]
 
-        return {
+        # Enrich response with project context information
+        response_data = {
             "query": query,
             "mode": mode,
             "collections_searched": collections,
@@ -246,7 +293,27 @@ async def search_workspace(
                 "mode": mode,
                 "limit": limit,
                 "score_threshold": score_threshold,
+                "auto_inject_project_metadata": auto_inject_project_metadata,
+                "include_shared": include_shared,
             },
+        }
+
+        # Add project context information if enabled
+        if auto_inject_project_metadata:
+            detected_context = project_context or client.get_project_context()
+            if detected_context:
+                response_data["project_context"] = {
+                    "project_name": detected_context.get("project_name"),
+                    "workspace_scope": detected_context.get("workspace_scope"),
+                    "metadata_filtering_enabled": True
+                }
+            else:
+                response_data["project_context"] = {
+                    "metadata_filtering_enabled": False,
+                    "reason": "No project context detected"
+                }
+
+        return response_data
         }
 
     except Exception as e:
@@ -510,3 +577,124 @@ def _build_metadata_filter(metadata_filter: dict) -> models.Filter:
             )
 
     return models.Filter(must=conditions) if conditions else None
+
+
+async def search_workspace_with_project_isolation(
+    client: QdrantWorkspaceClient,
+    query: str,
+    project_name: Optional[str] = None,
+    collection_types: Optional[list[str]] = None,
+    mode: str = "hybrid",
+    limit: int = 10,
+    score_threshold: float = 0.7,
+    include_shared: bool = True,
+) -> dict:
+    """
+    Search workspace with automatic multi-tenant project isolation.
+
+    This is a convenience function that combines the best of the enhanced search
+    capabilities with automatic project context detection and metadata filtering.
+
+    Args:
+        client: Initialized workspace client with embedding service
+        query: Natural language query or exact text to search for
+        project_name: Specific project to search within (auto-detected if None)
+        collection_types: Specific collection types to search (notes, docs, etc.)
+        mode: Search strategy (hybrid, dense, sparse)
+        limit: Maximum number of results to return
+        score_threshold: Minimum relevance score (0.0-1.0)
+        include_shared: Whether to include shared workspace resources
+
+    Returns:
+        Dict: Enhanced search results with project isolation applied
+
+    Example:
+        ```python
+        # Search within current project context
+        results = await search_workspace_with_project_isolation(
+            client=workspace_client,
+            query="authentication patterns",
+            collection_types=["docs", "notes"],
+            include_shared=True
+        )
+
+        # Search specific project
+        results = await search_workspace_with_project_isolation(
+            client=workspace_client,
+            query="database schema",
+            project_name="user-service",
+            collection_types=["docs"]
+        )
+        ```
+    """
+    try:
+        # Build project context if not provided
+        if project_name:
+            # Use provided project name
+            project_context = {
+                "project_name": project_name,
+                "project_id": client._generate_project_id(project_name),
+                "workspace_scope": "project"
+            }
+        else:
+            # Auto-detect project context
+            project_context = client.get_project_context()
+
+        if not project_context:
+            logger.warning("No project context available for isolated search")
+            # Fall back to regular search without project filtering
+            return await search_workspace(
+                client=client,
+                query=query,
+                mode=mode,
+                limit=limit,
+                score_threshold=score_threshold,
+                auto_inject_project_metadata=False
+            )
+
+        # Determine collections to search based on collection types
+        target_collections = None
+        if collection_types:
+            # Build collection names based on the new multi-tenant architecture
+            # Collections are now shared (e.g., "docs", "notes") with metadata isolation
+            target_collections = collection_types
+        else:
+            # Search all available collections with project filtering
+            target_collections = None  # Will use all searchable collections
+
+        # Perform search with project context
+        results = await search_workspace(
+            client=client,
+            query=query,
+            collections=target_collections,
+            mode=mode,
+            limit=limit,
+            score_threshold=score_threshold,
+            project_context=project_context,
+            auto_inject_project_metadata=True,
+            include_shared=include_shared
+        )
+
+        # Enhance results with isolation information
+        if "project_context" not in results:
+            results["project_context"] = project_context
+
+        results["isolation_info"] = {
+            "project_name": project_context.get("project_name"),
+            "collection_types": collection_types,
+            "isolation_enabled": True,
+            "shared_resources_included": include_shared
+        }
+
+        logger.info(
+            "Project-isolated search completed",
+            project_name=project_context.get("project_name"),
+            collection_types=collection_types,
+            results_count=results.get("total", 0)
+        )
+
+        return results
+
+    except Exception as e:
+        logger.error("Project-isolated search failed: %s", e)
+        return {"error": f"Project-isolated search failed: {e}"}
