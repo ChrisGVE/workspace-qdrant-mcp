@@ -94,16 +94,21 @@ if _STDIO_MODE:
         """Wrapper that only allows valid JSON-RPC output to stdout."""
         def __init__(self, original_stdout):
             self.original = original_stdout
-            self.buffer = ""
+            self._text_buffer = ""
+
+        @property
+        def buffer(self):
+            """Return the original buffer to maintain compatibility with MCP library."""
+            return self.original.buffer
 
         def write(self, text):
             # Allow JSON-RPC messages (start with { and contain jsonrpc)
             # Buffer the input to check if it's valid JSON-RPC
-            self.buffer += text
+            self._text_buffer += text
 
             # Check if we have a complete line
-            if '\n' in self.buffer:
-                lines = self.buffer.split('\n')
+            if '\n' in self._text_buffer:
+                lines = self._text_buffer.split('\n')
                 for line in lines[:-1]:  # Process all complete lines
                     if line.strip():
                         # Check if it looks like JSON-RPC
@@ -112,7 +117,7 @@ if _STDIO_MODE:
                             self.original.write(line + '\n')
                             self.original.flush()
                         # Silently drop everything else
-                self.buffer = lines[-1]  # Keep the incomplete line
+                self._text_buffer = lines[-1]  # Keep the incomplete line
             return len(text)
 
         def flush(self):

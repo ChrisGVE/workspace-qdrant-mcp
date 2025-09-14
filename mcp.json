@@ -1,7 +1,7 @@
 {
   "workspace-qdrant": {
     "command": "python",
-    "args": ["-m", "workspace_qdrant_mcp.stdio_server"],
+    "args": ["-m", "workspace_qdrant_mcp.standalone_stdio_server"],
     "cwd": "/Users/chris/Dropbox/dev/ai/claude-code-cfg/mcp/workspace-qdrant-mcp/src/python",
     "env": {
       "WQM_STDIO_MODE": "true",
