@@ -1,12 +1,13 @@
 {
   "workspace-qdrant": {
     "command": "python",
-    "args": ["-c", "import sys; sys.path.insert(0, 'src/python'); from workspace_qdrant_mcp.entry_point import run_stdio_mode; run_stdio_mode()"],
-    "cwd": "/Users/chris/Dropbox/dev/ai/claude-code-cfg/mcp/workspace-qdrant-mcp",
+    "args": ["-m", "workspace_qdrant_mcp.stdio_server"],
+    "cwd": "/Users/chris/Dropbox/dev/ai/claude-code-cfg/mcp/workspace-qdrant-mcp/src/python",
     "env": {
       "WQM_STDIO_MODE": "true",
       "MCP_QUIET_MODE": "true",
-      "QDRANT_URL": "http://localhost:6333"
+      "QDRANT_URL": "http://localhost:6333",
+      "PYTHONPATH": "/Users/chris/Dropbox/dev/ai/claude-code-cfg/mcp/workspace-qdrant-mcp/src/python"
     }
   }
 }
