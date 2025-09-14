@@ -7,7 +7,7 @@ and automatic retry capabilities.
 """
 
 import asyncio
-from common.logging.loguru_config import get_logger
+from loguru import logger
 import os
 import stat
 import time
@@ -16,7 +16,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
-logger = get_logger(__name__)
+# logger imported from loguru
 
 
 @dataclass

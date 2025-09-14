@@ -5,7 +5,7 @@ This is a simplified version that avoids threading issues while providing
 environment-based configuration loading, validation, and YAML support.
 """
 
-from common.logging.loguru_config import get_logger
+from loguru import logger
 import os
 import re
 from pathlib import Path
@@ -21,7 +21,7 @@ except ImportError:
 from pydantic import BaseModel, Field, validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
-logger = get_logger(__name__)
+# logger imported from loguru
 
 
 class SecurityConfig(BaseModel):
@@ -160,7 +160,7 @@ class WorkspaceConfig(BaseModel):
         """Get effective collection suffixes, handling backward compatibility."""
         if self.collections is not None:
             import logging
-            logger = get_logger(__name__)
+            # logger imported from loguru
             logger.warning(
                 "The 'collections' field is deprecated. Please use 'collection_suffixes' instead. "
                 "This will be removed in a future version."

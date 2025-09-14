@@ -42,7 +42,7 @@ Example:
 import asyncio
 import os
 
-from common.logging.loguru_config import get_logger
+from loguru import logger
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Optional
@@ -76,7 +76,7 @@ except ImportError:
     # Fallback for direct imports when not used as a package
     from llm_access_control import validate_llm_collection_access, LLMAccessControlError
 
-logger = get_logger(__name__)
+# logger imported from loguru
 
 
 @dataclass

@@ -15,7 +15,7 @@ Example:
     ```python
     from workspace_qdrant_mcp.observability import get_logger, MetricsCollector
 
-    logger = get_logger(__name__)
+    # logger imported from loguru
     metrics = MetricsCollector()
 
     logger.info("Operation started", operation="search", query="example")
@@ -29,7 +29,7 @@ from .health import HealthChecker, HealthStatus, health_checker_instance
 from .metrics import MetricsCollector, metrics_instance, record_operation
 
 # Import logging functions from the new loguru-based system
-from common.logging.loguru_config import get_logger, configure_logging
+from loguru import logger
 from common.logging import LogContext, PerformanceLogger
 from .monitoring import (
     BatchOperationMonitor,
@@ -42,8 +42,7 @@ from .monitoring import (
 )
 
 __all__ = [
-    "get_logger",
-    "configure_logging",
+    "logger",
     "LogContext",
     "PerformanceLogger",
     "MetricsCollector",

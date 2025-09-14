@@ -42,11 +42,11 @@ from contextlib import asynccontextmanager, contextmanager
 from dataclasses import dataclass
 from typing import Any, Awaitable, Callable, Dict, Optional, TypeVar, Union
 
-from common.logging.loguru_config import get_logger
+from loguru import logger
 from common.logging import LogContext
 from .metrics import metrics_instance, record_operation
 
-logger = get_logger(__name__)
+# logger imported from loguru
 
 # Type variables for decorators
 F = TypeVar("F", bound=Callable[..., Any])

@@ -18,7 +18,7 @@ import asyncio
 import atexit
 import hashlib
 import json
-from common.logging.loguru_config import get_logger
+from loguru import logger
 import os
 import platform
 import shutil
@@ -41,7 +41,7 @@ from .project_config_manager import (
     get_project_config_manager
 )
 
-logger = get_logger(__name__)
+# logger imported from loguru
 
 
 @dataclass

@@ -23,14 +23,14 @@ Available Tools:
 
 from typing import Any, Dict, List, Optional
 
-from common.logging.loguru_config import get_logger
+from loguru import logger
 
 from common.core.client import QdrantWorkspaceClient
 from common.core.sqlite_state_manager import FileProcessingStatus, ProcessingPriority
 from common.core.state_aware_ingestion import get_ingestion_manager
 from ..tools.watch_management import WatchToolsManager
 
-logger = get_logger(__name__)
+# logger imported from loguru
 
 
 async def get_processing_status(

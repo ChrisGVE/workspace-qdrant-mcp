@@ -62,7 +62,7 @@ from common.core.lsp_metadata_extractor import (
     CodeSymbol, SymbolKind, SymbolRelationship, RelationshipType,
     Position, Range, TypeInformation, Documentation
 )
-from common.logging.loguru_config import get_logger
+from loguru import logger
 # Import code search components with fallback for missing dependencies
 try:
     from .code_search import CodeSearchEngine, CodeSearchResult, SymbolSearchType
@@ -73,7 +73,7 @@ except ImportError:
     SymbolSearchType = None
 from .search import search_workspace, search_collection_by_metadata
 
-logger = get_logger(__name__)
+# logger imported from loguru
 
 
 class SymbolScope(Enum):

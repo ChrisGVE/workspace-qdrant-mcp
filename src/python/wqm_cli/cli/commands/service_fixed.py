@@ -31,7 +31,7 @@ from rich.panel import Panel
 from rich.table import Table
 from rich.text import Text
 
-from common.logging.loguru_config import get_logger
+from loguru import logger
 from ..utils import create_command_app, handle_async_command
 
 # Initialize app and logger
@@ -41,7 +41,7 @@ service_app = create_command_app(
     no_args_is_help=True,
 )
 console = Console()
-logger = get_logger(__name__)
+# logger imported from loguru
 
 
 class FixedServiceManager:

@@ -37,7 +37,7 @@ Example:
 import asyncio
 import json
 # Use unified logging system to prevent console interference in MCP mode
-from common.logging.loguru_config import get_logger
+from loguru import logger
 import sqlite3
 import threading
 import time
@@ -48,7 +48,7 @@ from enum import Enum
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional, Set, Tuple
 
-logger = get_logger(__name__)
+# logger imported from loguru
 
 
 class FileProcessingStatus(Enum):

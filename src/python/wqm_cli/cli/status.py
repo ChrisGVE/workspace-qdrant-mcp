@@ -63,7 +63,7 @@ from rich.tree import Tree
 
 from common.core.client import QdrantWorkspaceClient
 from common.core.config import Config
-from common.logging.loguru_config import get_logger
+from loguru import logger
 # TEMPORARY FIX: Comment out grpc_tools import that causes CLI to hang
 # This needs to be fixed properly by making grpc_tools imports lazy or conditional
 # from workspace_qdrant_mcp.tools.grpc_tools import (
@@ -92,7 +92,7 @@ class WatchToolsManager:
     def __init__(self, *args, **kwargs):
         pass
 
-logger = get_logger(__name__)
+# logger imported from loguru
 
 # TEMPORARY FIX: Stub functions for disabled state_management imports
 async def get_processing_status(workspace_client, watch_manager):

@@ -39,7 +39,7 @@ from typing import Optional
 
 from qdrant_client import QdrantClient
 
-from ..observability import get_logger
+from loguru import logger
 from ..utils.project_detection import ProjectDetector
 from .collections import WorkspaceCollectionManager, MemoryCollectionManager
 from .config import Config
@@ -53,7 +53,7 @@ except ImportError:
     # Fallback for direct imports when not used as a package
     from llm_access_control import validate_llm_collection_access, LLMAccessControlError
 
-logger = get_logger(__name__)
+# logger imported from loguru
 
 
 class QdrantWorkspaceClient:

@@ -35,10 +35,10 @@ from fastapi import FastAPI, HTTPException, Request, Response
 from fastapi.responses import JSONResponse, PlainTextResponse
 
 from .health import HealthStatus, health_checker_instance
-from common.logging.loguru_config import get_logger
+from loguru import logger
 from .metrics import metrics_instance
 
-logger = get_logger(__name__)
+# logger imported from loguru
 
 
 async def health_check_basic() -> Dict[str, Any]:

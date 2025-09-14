@@ -23,7 +23,7 @@ from rich.text import Text
 from common.core.config import Config
 from common.core.unified_config import UnifiedConfigManager, ConfigFormat, ConfigValidationError, ConfigFormatError
 from common.core.ingestion_config import IngestionConfigManager, IngestionConfig
-from common.logging.loguru_config import get_logger
+from loguru import logger
 from ..utils import (
     create_command_app,
     error_message,
@@ -35,7 +35,7 @@ from ..utils import (
     warning_message,
 )
 
-logger = get_logger(__name__)
+# logger imported from loguru
 console = Console()
 
 

@@ -17,11 +17,11 @@ from enum import Enum
 from pathlib import Path
 from typing import Dict, List, Optional, Union
 import fcntl
-from common.logging.loguru_config import get_logger
+from loguru import logger
 
 from .exceptions import RegistryError
 
-logger = get_logger(__name__)
+# logger imported from loguru
 
 
 class ServiceStatus(Enum):

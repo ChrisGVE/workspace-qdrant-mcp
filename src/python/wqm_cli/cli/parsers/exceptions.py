@@ -1,4 +1,4 @@
-from common.logging.loguru_config import get_logger
+from loguru import logger
 
 """
 Unified error handling system for document parsers.
@@ -13,7 +13,7 @@ from enum import Enum
 from pathlib import Path
 from typing import Any, Dict, Optional, Union
 
-logger = get_logger(__name__)
+# logger imported from loguru
 
 
 class ErrorSeverity(Enum):

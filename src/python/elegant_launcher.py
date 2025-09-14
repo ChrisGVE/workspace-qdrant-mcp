@@ -16,7 +16,7 @@ from pathlib import Path
 from typing import Optional
 
 from loguru import logger
-from common.logging.loguru_config import configure_logging
+from common.logging.loguru_config import # TODO: Replace with setup_logging from common.logging.loguru_config
 
 
 def show_elegant_banner(transport: str, config_file: Optional[str] = None):
@@ -176,7 +176,7 @@ def run_server(config):
         if config["verbose"]:
             print(f"❌ Server error: {e}", file=sys.stderr)
         # Always log errors to file with loguru
-        configure_logging(level="ERROR", console_output=False)
+        # TODO: Replace with setup_logging from common.logging.loguru_config(level="ERROR", console_output=False)
         logger.error(f"Server error in elegant launcher: {e}")
         sys.exit(1)
 

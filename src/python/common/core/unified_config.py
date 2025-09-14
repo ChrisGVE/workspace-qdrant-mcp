@@ -31,7 +31,7 @@ Example:
 """
 
 import os
-from common.logging.loguru_config import get_logger
+from loguru import logger
 import yaml
 import toml
 from pathlib import Path
@@ -54,7 +54,7 @@ from .config import (
     AutoIngestionConfig
 )
 
-logger = get_logger(__name__)
+# logger imported from loguru
 
 
 class ConfigFormat(Enum):

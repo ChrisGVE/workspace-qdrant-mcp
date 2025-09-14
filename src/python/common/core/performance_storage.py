@@ -8,7 +8,7 @@ management, trend analysis, and long-term performance tracking capabilities.
 import asyncio
 import gzip
 import json
-from common.logging.loguru_config import get_logger
+from loguru import logger
 import sqlite3
 from collections import defaultdict
 from contextlib import asynccontextmanager
@@ -24,7 +24,7 @@ from .performance_metrics import (
 )
 from .performance_analytics import PerformanceReport, OptimizationRecommendation
 
-logger = get_logger(__name__)
+# logger imported from loguru
 
 
 class PerformanceStorage:

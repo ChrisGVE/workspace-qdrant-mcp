@@ -44,7 +44,7 @@ import asyncio
 import hashlib
 import re
 
-from common.logging.loguru_config import get_logger
+from loguru import logger
 from typing import Optional, Union
 
 from fastembed import TextEmbedding
@@ -53,7 +53,7 @@ from fastembed.sparse import SparseTextEmbedding
 from .config import Config
 from .sparse_vectors import BM25SparseEncoder
 
-logger = get_logger(__name__)
+# logger imported from loguru
 
 
 class EmbeddingService:

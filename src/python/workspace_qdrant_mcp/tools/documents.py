@@ -56,7 +56,7 @@ Example:
 import asyncio
 import uuid
 
-from common.logging.loguru_config import get_logger
+from loguru import logger
 from datetime import datetime, timezone
 from typing import Any, Optional
 
@@ -73,7 +73,7 @@ except ImportError:
     # Fallback for direct imports when not used as a package
     from common.core.llm_access_control import validate_llm_collection_access, LLMAccessControlError
 
-logger = get_logger(__name__)
+# logger imported from loguru
 
 
 async def add_document(

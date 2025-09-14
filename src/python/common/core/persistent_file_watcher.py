@@ -7,7 +7,7 @@ comprehensive lifecycle management.
 """
 
 import asyncio
-from common.logging.loguru_config import get_logger
+from loguru import logger
 from collections.abc import Callable
 from datetime import datetime, timezone
 from pathlib import Path
@@ -21,7 +21,7 @@ from .watch_config import (
     WatchConfigurationPersistent,
 )
 
-logger = get_logger(__name__)
+# logger imported from loguru
 
 
 class PersistentFileWatcher(FileWatcher):

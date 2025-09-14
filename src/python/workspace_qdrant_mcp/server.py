@@ -202,31 +202,23 @@ from common.core.config import Config
 
 # Import loguru logging system and configure early
 from loguru import logger
-from common.logging.loguru_config import (
-    configure_logging,
-    display_development_banner,
-    log_startup_event
-)
+from common.logging.loguru_config import setup_logging
 
 # Track if logging has been configured to prevent multiple reconfigurations
 _LOGGING_CONFIGURED = False
 
 # Configure loguru logging based on stdio mode detection
 if not _STDIO_MODE:
-    configure_logging(
-        level="INFO",
-        json_format=True,
-        console_output=True,
-        log_file=os.getenv("LOG_FILE")
+    setup_logging(
+        log_file=os.getenv("LOG_FILE"),
+        verbose=True
     )
     _LOGGING_CONFIGURED = True
 else:
     # In stdio mode, ensure complete console silence with loguru
-    configure_logging(
-        level="CRITICAL",
-        json_format=True,
-        console_output=False,
-        log_file=os.getenv("LOG_FILE")
+    setup_logging(
+        log_file=os.getenv("LOG_FILE"),
+        verbose=False
     )
     _LOGGING_CONFIGURED = True
 
@@ -2829,18 +2821,14 @@ def run_server(
 
         # Configure loguru logging based on transport mode
         if transport == "stdio":
-            configure_logging(
-                level="CRITICAL",
-                json_format=True,
+            setup_logging(
                 log_file=str(log_file) if log_file else None,
-                console_output=False
+                verbose=False
             )
         else:
-            configure_logging(
-                level=os.getenv("LOG_LEVEL", "INFO"),
-                json_format=True,
+            setup_logging(
                 log_file=str(log_file) if log_file else None,
-                console_output=True
+                verbose=True
             )
 
         _LOGGING_CONFIGURED = True

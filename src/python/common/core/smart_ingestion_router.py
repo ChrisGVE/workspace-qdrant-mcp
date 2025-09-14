@@ -31,7 +31,7 @@ Example:
 
 import asyncio
 import json
-from common.logging.loguru_config import get_logger
+from loguru import logger
 import mimetypes
 import re
 import time
@@ -47,7 +47,7 @@ from .error_handling import WorkspaceError, ErrorCategory, ErrorSeverity
 from .language_filters import LanguageAwareFilter, FilterStatistics
 from .lsp_metadata_extractor import LspMetadataExtractor, FileMetadata
 
-logger = get_logger(__name__)
+# logger imported from loguru
 
 
 class ProcessingStrategy(Enum):

@@ -1,4 +1,4 @@
-from common.logging.loguru_config import get_logger
+from loguru import logger
 
 """
 File type detection and validation system.
@@ -24,7 +24,7 @@ try:
 except ImportError:
     HAS_MAGIC = False
 
-logger = get_logger(__name__)
+# logger imported from loguru
 
 # Magic number signatures for binary formats
 MAGIC_NUMBERS = {

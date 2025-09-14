@@ -14,7 +14,7 @@ from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
-from common.logging.loguru_config import get_logger
+from loguru import logger
 
 from common.core.daemon_client import get_daemon_client, with_daemon_client
 from .parsers import (
@@ -31,7 +31,7 @@ from .parsers import (
     WebParser,
 )
 
-logger = get_logger(__name__)
+# logger imported from loguru
 
 
 @dataclass

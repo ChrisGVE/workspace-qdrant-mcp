@@ -14,7 +14,7 @@ Features:
 """
 
 import asyncio
-from common.logging.loguru_config import get_logger
+from loguru import logger
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
@@ -33,7 +33,7 @@ from wqm_cli.cli.parsers import (
 )
 from ..core.client import QdrantWorkspaceClient
 
-logger = get_logger(__name__)
+# logger imported from loguru
 
 
 @dataclass

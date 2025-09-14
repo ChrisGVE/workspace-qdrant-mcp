@@ -47,7 +47,7 @@ from . import (
     grpc_tools,
 )
 
-logger = get_logger(__name__)
+# logger imported from loguru
 
 
 # Search Scope System Integration

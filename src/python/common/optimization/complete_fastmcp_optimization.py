@@ -29,8 +29,8 @@ from pathlib import Path
 import inspect
 
 # Task 215: Use unified logging system for MCP stdio compliance
-from common.logging.loguru_config import get_logger
-logger = get_logger(__name__)
+from loguru import logger
+# logger imported from loguru
 
 
 # ============================================================================

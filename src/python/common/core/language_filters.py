@@ -32,7 +32,7 @@ Example:
 
 import asyncio
 import fnmatch
-from common.logging.loguru_config import get_logger
+from loguru import logger
 import re
 import time
 from dataclasses import dataclass, field
@@ -41,7 +41,7 @@ from typing import Any, Dict, List, Optional, Pattern, Set, Tuple, Union
 
 import yaml
 
-logger = get_logger(__name__)
+# logger imported from loguru
 
 # Try to import python-magic for MIME type detection
 try:

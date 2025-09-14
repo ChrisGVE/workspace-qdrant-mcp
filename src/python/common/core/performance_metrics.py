@@ -8,7 +8,7 @@ system resource utilization with trend analysis capabilities.
 
 import asyncio
 import json
-from common.logging.loguru_config import get_logger
+from loguru import logger
 import statistics
 import time
 from collections import defaultdict, deque
@@ -21,7 +21,7 @@ from weakref import WeakSet
 
 import psutil
 
-logger = get_logger(__name__)
+# logger imported from loguru
 
 
 class MetricType(Enum):

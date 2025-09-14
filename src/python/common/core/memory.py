@@ -26,7 +26,7 @@ import asyncio
 import json
 import re
 
-from common.logging.loguru_config import get_logger
+from loguru import logger
 import time
 from dataclasses import asdict, dataclass
 from datetime import datetime, timezone
@@ -48,7 +48,7 @@ from qdrant_client.models import (
 from .collection_naming import CollectionNamingManager, CollectionType
 from .sparse_vectors import BM25SparseEncoder
 
-logger = get_logger(__name__)
+# logger imported from loguru
 
 
 class MemoryCategory(Enum):

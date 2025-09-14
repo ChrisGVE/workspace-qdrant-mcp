@@ -1,4 +1,4 @@
-from common.logging.loguru_config import get_logger
+from loguru import logger
 
 """
 Plain text document parser.
@@ -18,7 +18,7 @@ from .base import DocumentParser, ParsedDocument
 from .exceptions import EncodingError, handle_parsing_error
 from .progress import ProgressPhase, ProgressTracker, ProgressUnit
 
-logger = get_logger(__name__)
+# logger imported from loguru
 
 
 class TextParser(DocumentParser):

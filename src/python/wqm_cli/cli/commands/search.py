@@ -14,7 +14,7 @@ import typer
 from common.core.daemon_client import get_daemon_client, with_daemon_client
 from common.core.yaml_config import load_config
 from common.grpc.ingestion_pb2 import SearchMode
-from common.logging.loguru_config import get_logger
+from loguru import logger
 from common.utils.project_detection import ProjectDetector
 from ..utils import (
     create_command_app,
@@ -26,7 +26,7 @@ from ..utils import (
     warning_message,
 )
 
-logger = get_logger(__name__)
+# logger imported from loguru
 
 # Create the search app using shared utilities
 search_app = create_command_app(

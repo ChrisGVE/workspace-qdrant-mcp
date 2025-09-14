@@ -18,14 +18,13 @@ os.environ.setdefault("WQM_LOG_INIT", "false")
 
 # Task 221: Use loguru-based logging system for CLI
 # Configure loguru with CLI-appropriate settings
-from common.logging.loguru_config import configure_logging
+from common.logging.loguru_config import setup_logging
+from loguru import logger
 
 # Configure loguru to be silent in CLI mode but allow file logging for debug
-configure_logging(
-    level="CRITICAL",  # Effectively disable console logging
-    console_output=False,  # No console output in CLI mode
-    json_format=True,
+setup_logging(
     log_file=None,  # No file logging by default in CLI mode
+    verbose=False,  # No console output in CLI mode
 )
 
 def main():

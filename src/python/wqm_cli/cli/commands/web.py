@@ -31,11 +31,11 @@ from typing import Optional
 import typer
 from rich.console import Console
 
-from common.logging.loguru_config import get_logger
+from loguru import logger
 from ..utils import create_command_app
 
 console = Console()
-logger = get_logger(__name__)
+# logger imported from loguru
 
 # Create the web app
 web_app = create_command_app(

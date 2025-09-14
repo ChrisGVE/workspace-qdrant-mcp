@@ -9,7 +9,7 @@ to ensure consistency across concurrent access.
 import asyncio
 import fcntl
 import json
-from common.logging.loguru_config import get_logger
+from loguru import logger
 import os
 import time
 from contextlib import asynccontextmanager
@@ -19,7 +19,7 @@ from pathlib import Path
 from typing import Any, AsyncGenerator, Callable, Dict, List, Optional, Set
 from weakref import WeakSet
 
-logger = get_logger(__name__)
+# logger imported from loguru
 
 
 @dataclass

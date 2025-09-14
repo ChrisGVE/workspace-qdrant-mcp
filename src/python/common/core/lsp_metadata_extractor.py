@@ -47,9 +47,9 @@ from urllib.parse import urlparse
 from .error_handling import WorkspaceError, ErrorCategory, ErrorSeverity
 from .language_filters import LanguageAwareFilter
 from .lsp_client import AsyncioLspClient, LspError, ConnectionState
-from ..logging.loguru_config import get_logger
+from loguru import logger
 
-logger = get_logger(__name__)
+# logger imported from loguru
 
 
 class SymbolKind(Enum):

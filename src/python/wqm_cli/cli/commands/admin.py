@@ -16,7 +16,7 @@ import typer
 
 from common.core.client import QdrantWorkspaceClient, create_qdrant_client
 from common.core.config import Config
-from common.logging.loguru_config import get_logger
+from loguru import logger
 from common.utils.project_detection import ProjectDetector
 from ..utils import (
     config_path_option,
@@ -31,7 +31,7 @@ from ..utils import (
     warning_message,
 )
 
-logger = get_logger(__name__)
+# logger imported from loguru
 
 # Create the admin app using shared utilities
 admin_app = create_command_app(

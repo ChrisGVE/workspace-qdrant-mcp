@@ -30,7 +30,7 @@ from common.core.lsp_health_monitor import (
     NotificationLevel,
     UserNotification
 )
-from common.logging.loguru_config import get_logger
+from loguru import logger
 from ..utils import (
     create_command_app,
     debug_option,
@@ -46,7 +46,7 @@ from ..utils import (
     prompt_input,
 )
 
-logger = get_logger(__name__)
+# logger imported from loguru
 
 # Create the LSP management app
 lsp_app = create_command_app(

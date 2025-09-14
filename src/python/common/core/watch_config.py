@@ -7,7 +7,7 @@ No JSON files are created - all data is stored in the daemon state database.
 """
 
 import json
-from common.logging.loguru_config import get_logger
+from loguru import logger
 import os
 import sqlite3
 from dataclasses import asdict, dataclass, field
@@ -24,7 +24,7 @@ except ImportError:
     # Fallback if LSP detector is not available
     get_default_detector = None
 
-logger = get_logger(__name__)
+# logger imported from loguru
 
 
 class WatchConfigSchema(BaseModel):

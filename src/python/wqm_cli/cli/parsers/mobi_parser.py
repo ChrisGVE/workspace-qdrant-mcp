@@ -1,4 +1,4 @@
-from common.logging.loguru_config import get_logger
+from loguru import logger
 
 """
 MOBI document parser for extracting text content and metadata.
@@ -18,7 +18,7 @@ from typing import Any
 
 from .base import DocumentParser, ParsedDocument
 
-logger = get_logger(__name__)
+# logger imported from loguru
 
 
 class MobiParser(DocumentParser):
