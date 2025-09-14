@@ -177,7 +177,7 @@ class WorkspaceCollectionManager:
         self.type_classifier = CollectionTypeClassifier()
         self.naming_manager = CollectionNamingManager(
             global_collections=config.workspace.global_collections,
-            valid_project_suffixes=config.workspace.effective_collection_suffixes
+            valid_project_suffixes=config.workspace.effective_collection_types
         )
 
     def _get_current_project_name(self) -> Optional[str]:
@@ -293,7 +293,7 @@ class WorkspaceCollectionManager:
                 'project_info': self._project_info,
                 'project_names': project_names,
                 'config_info': {
-                    'effective_collection_suffixes': self.config.workspace.effective_collection_suffixes,
+                    'effective_collection_types': self.config.workspace.effective_collection_types,
                     'global_collections': self.config.workspace.global_collections,
                     'auto_create_collections': self.config.workspace.auto_create_collections
                 },
@@ -328,12 +328,12 @@ class WorkspaceCollectionManager:
         if collection_name in self.config.workspace.global_collections:
             return "Included: global collection"
             
-        for suffix in self.config.workspace.effective_collection_suffixes:
+        for suffix in self.config.workspace.effective_collection_types:
             if collection_name.endswith(f"-{suffix}"):
                 return f"Included: ends with configured suffix '{suffix}'"
         
         # Check project-based inclusion
-        if not self.config.workspace.effective_collection_suffixes and not self.config.workspace.global_collections:
+        if not self.config.workspace.effective_collection_types and not self.config.workspace.global_collections:
             project_names = self._get_all_project_names()
             
             for project_name in project_names:
@@ -405,7 +405,7 @@ class WorkspaceCollectionManager:
             # Full collection creation when auto_create_collections=True
 
             # Main project collections
-            for suffix in self.config.workspace.effective_collection_suffixes:
+            for suffix in self.config.workspace.effective_collection_types:
                 collection_name = build_project_collection_name(project_name, suffix)
                 collections_to_create.append(
                     CollectionConfig(
@@ -421,7 +421,7 @@ class WorkspaceCollectionManager:
             # Subproject collections
             if subprojects:
                 for subproject in subprojects:
-                    for suffix in self.config.workspace.effective_collection_suffixes:
+                    for suffix in self.config.workspace.effective_collection_types:
                         collection_name = build_project_collection_name(subproject, suffix)
                         collections_to_create.append(
                             CollectionConfig(
@@ -765,13 +765,13 @@ class WorkspaceCollectionManager:
                 return True
 
             # Include project collections (ending with configured suffixes)
-            for suffix in self.config.workspace.effective_collection_suffixes:
+            for suffix in self.config.workspace.effective_collection_types:
                 if collection_name.endswith(f"-{suffix}"):
                     return True
 
             # When no specific configuration is provided, use the actual project name to identify collections
             # This provides accurate workspace isolation based on the current project context
-            if not self.config.workspace.effective_collection_suffixes and not self.config.workspace.global_collections:
+            if not self.config.workspace.effective_collection_types and not self.config.workspace.global_collections:
                 # Get project information from stored project info or fallback to detection
                 project_names = self._get_all_project_names()
                 
@@ -1045,7 +1045,7 @@ class MemoryCollectionManager:
         self.config = config
         self.naming_manager = CollectionNamingManager(
             global_collections=config.workspace.global_collections,
-            valid_project_suffixes=config.workspace.effective_collection_suffixes
+            valid_project_suffixes=config.workspace.effective_collection_types
         )
         self.type_classifier = CollectionTypeClassifier()
         

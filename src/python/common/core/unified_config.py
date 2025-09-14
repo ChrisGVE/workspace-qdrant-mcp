@@ -412,7 +412,8 @@ class UnifiedConfigManager:
             "EMBEDDING__CHUNK_SIZE": ("embedding", "chunk_size"),
             "EMBEDDING__CHUNK_OVERLAP": ("embedding", "chunk_overlap"),
             "EMBEDDING__BATCH_SIZE": ("embedding", "batch_size"),
-            "WORKSPACE__COLLECTION_SUFFIXES": ("workspace", "collection_suffixes"),
+            "WORKSPACE__COLLECTION_TYPES": ("workspace", "collection_types"),
+            "WORKSPACE__COLLECTION_SUFFIXES": ("workspace", "collection_suffixes"),  # Legacy
             "WORKSPACE__GLOBAL_COLLECTIONS": ("workspace", "global_collections"),
             "WORKSPACE__GITHUB_USER": ("workspace", "github_user"),
             "WORKSPACE__COLLECTION_PREFIX": ("workspace", "collection_prefix"),
@@ -440,7 +441,7 @@ class UnifiedConfigManager:
                 elif field in ["prefer_grpc", "enable_sparse_vectors", "auto_create_collections",
                               "enabled", "auto_create_watches"]:
                     result[section][field] = env_value.lower() == "true"
-                elif field in ["collection_suffixes", "global_collections"]:
+                elif field in ["collection_types", "collection_suffixes", "global_collections"]:
                     result[section][field] = [c.strip() for c in env_value.split(",") if c.strip()]
                 else:
                     result[section][field] = env_value
@@ -521,7 +522,7 @@ class UnifiedConfigManager:
                 "batch_size": config.embedding.batch_size,
             },
             "workspace": {
-                "collection_suffixes": config.workspace.collection_suffixes,
+                "collection_types": config.workspace.collection_types,
                 "global_collections": config.workspace.global_collections,
                 "github_user": config.workspace.github_user,
                 "collection_prefix": config.workspace.collection_prefix,

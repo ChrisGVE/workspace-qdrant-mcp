@@ -145,34 +145,57 @@ class QdrantConfig(BaseModel):
 class WorkspaceConfig(BaseModel):
     """Enhanced configuration for workspace and project management."""
 
-    collection_suffixes: List[str] = []
+    collection_types: List[str] = []
     global_collections: List[str] = []
     github_user: Optional[str] = None
     collection_prefix: str = ""
     max_collections: int = 100
     auto_create_collections: bool = True
     cleanup_on_exit: bool = False
-    # Legacy field for backward compatibility
+    # Legacy fields for backward compatibility
+    collection_suffixes: Optional[List[str]] = None
     collections: Optional[List[str]] = None
 
     @property
-    def effective_collection_suffixes(self) -> List[str]:
-        """Get effective collection suffixes, handling backward compatibility."""
-        if self.collections is not None:
-            import logging
+    def effective_collection_types(self) -> List[str]:
+        """Get effective collection types, handling backward compatibility."""
+        # Priority order: collection_types (new) > collection_suffixes (legacy) > collections (oldest legacy)
+        if self.collection_types:
+            return self.collection_types
+        elif self.collection_suffixes is not None:
             # logger imported from loguru
             logger.warning(
-                "The 'collections' field is deprecated. Please use 'collection_suffixes' instead. "
+                "The 'collection_suffixes' field is deprecated. Please use 'collection_types' instead. "
+                "This will be removed in a future version."
+            )
+            return self.collection_suffixes
+        elif self.collections is not None:
+            # logger imported from loguru
+            logger.warning(
+                "The 'collections' field is deprecated. Please use 'collection_types' instead. "
                 "This will be removed in a future version."
             )
             return self.collections
-        return self.collection_suffixes
+        return self.collection_types
 
-    @validator("collection_suffixes", "global_collections")
+    @property
+    def effective_collection_suffixes(self) -> List[str]:
+        """Get effective collection suffixes, handling backward compatibility.
+
+        This property is deprecated. Use effective_collection_types instead.
+        """
+        # logger imported from loguru
+        logger.warning(
+            "The 'effective_collection_suffixes' property is deprecated. Please use 'effective_collection_types' instead. "
+            "This will be removed in a future version."
+        )
+        return self.effective_collection_types
+
+    @validator("collection_types", "collection_suffixes", "global_collections")
     def validate_collections(cls, v):
-        """Ensure collection suffixes list has reasonable size."""
-        if len(v) > 50:
-            raise ValueError("Too many collection suffixes configured (max 50)")
+        """Ensure collection lists have reasonable size."""
+        if v and len(v) > 50:
+            raise ValueError("Too many collection types configured (max 50)")
         return v
 
 
@@ -395,12 +418,17 @@ class EnhancedConfig(BaseSettings):
                     logger.warning(f"Invalid value for {env_var}: {value} - {e}")
 
         # Handle list environment variables
-        if collection_suffixes := os.getenv("WORKSPACE_QDRANT_WORKSPACE__COLLECTION_SUFFIXES"):
+        if collection_types := os.getenv("WORKSPACE_QDRANT_WORKSPACE__COLLECTION_TYPES"):
+            self.workspace.collection_types = [
+                c.strip() for c in collection_types.split(",") if c.strip()
+            ]
+        elif collection_suffixes := os.getenv("WORKSPACE_QDRANT_WORKSPACE__COLLECTION_SUFFIXES"):
+            # Legacy support
             self.workspace.collection_suffixes = [
                 c.strip() for c in collection_suffixes.split(",") if c.strip()
             ]
         elif collections := os.getenv("WORKSPACE_QDRANT_WORKSPACE__COLLECTIONS"):
-            # Legacy support
+            # Oldest legacy support
             self.workspace.collections = [
                 c.strip() for c in collections.split(",") if c.strip()
             ]
@@ -444,15 +472,18 @@ class EnhancedConfig(BaseSettings):
                 except (ValueError, TypeError) as e:
                     logger.warning(f"Invalid legacy value for {env_var}: {value} - {e}")
 
-        # Handle legacy list variables
-        if collections := os.getenv("COLLECTIONS"):
-            self.workspace.collections = [
-                c.strip() for c in collections.split(",") if c.strip()
+        # Handle legacy list variables - priority order: COLLECTION_TYPES > COLLECTION_SUFFIXES > COLLECTIONS
+        if collection_types := os.getenv("COLLECTION_TYPES"):
+            self.workspace.collection_types = [
+                c.strip() for c in collection_types.split(",") if c.strip()
             ]
-        # New environment variable takes precedence if both are set
-        if collection_suffixes := os.getenv("COLLECTION_SUFFIXES"):
+        elif collection_suffixes := os.getenv("COLLECTION_SUFFIXES"):
             self.workspace.collection_suffixes = [
                 c.strip() for c in collection_suffixes.split(",") if c.strip()
+            ]
+        elif collections := os.getenv("COLLECTIONS"):
+            self.workspace.collections = [
+                c.strip() for c in collections.split(",") if c.strip()
             ]
 
         if global_collections := os.getenv("GLOBAL_COLLECTIONS"):
@@ -560,7 +591,7 @@ class EnhancedConfig(BaseSettings):
             if self.security.mask_sensitive_logs
             else self.qdrant.url,
             "embedding_model": self.embedding.model,
-            "workspace_collection_suffixes": self.workspace.collection_suffixes,
+            "workspace_collection_types": self.workspace.collection_types,
             "hot_reload_enabled": self.development.hot_reload,
         }
 
