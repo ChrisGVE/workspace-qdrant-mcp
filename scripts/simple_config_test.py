@@ -53,7 +53,7 @@ embedding:
   batch_size: 50
 
 workspace:
-  collection_suffixes: ["test"]
+  collection_types: ["test"]
   auto_create_collections: false
 
 auto_ingestion:
