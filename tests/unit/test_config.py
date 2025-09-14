@@ -100,24 +100,23 @@ class TestWorkspaceConfig:
         """Test default workspace configuration."""
         config = WorkspaceConfig()
 
-        assert config.global_collections == ["docs", "references", "standards"]
+        assert config.global_collections == []
         assert config.github_user is None
-        assert config.collection_prefix == ""
-        assert config.max_collections == 100
+        assert config.auto_create_collections is False
+        # Note: collection_prefix and max_collections removed as part of multi-tenant migration
 
     def test_custom_values(self):
         """Test custom workspace configuration."""
         config = WorkspaceConfig(
             global_collections=["custom", "collections"],
             github_user="testuser",
-            collection_prefix="test_",
-            max_collections=50,
+            auto_create_collections=True,
         )
 
         assert config.global_collections == ["custom", "collections"]
         assert config.github_user == "testuser"
-        assert config.collection_prefix == "test_"
-        assert config.max_collections == 50
+        assert config.auto_create_collections is True
+        # Note: collection_prefix and max_collections removed as part of multi-tenant migration
 
 
 class TestConfig:
@@ -284,15 +283,15 @@ class TestConfig:
         assert len(issues) > 0
         assert any("Batch size must be positive" in issue for issue in issues)
 
-    def test_validate_config_empty_collections(self):
-        """Test configuration validation with empty global collections."""
+    def test_validate_config_collection_types(self):
+        """Test configuration validation with collection types."""
         config = Config()
-        config.workspace.global_collections = []
+        config.workspace.collection_types = ["docs", "notes"]
 
         issues = config.validate_config()
 
-        assert len(issues) > 0
-        assert any("At least one global collection" in issue for issue in issues)
+        # Should validate successfully with proper collection types
+        assert len(issues) == 0
 
     def test_env_file_loading(self):
         """Test loading configuration from .env file."""

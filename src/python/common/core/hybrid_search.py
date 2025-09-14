@@ -403,8 +403,10 @@ class HybridSearchEngine:
         search_params: Optional[models.SearchParams] = None,
         with_payload: bool = True,
         with_vectors: bool = False,
+        project_context: Optional[dict] = None,
+        auto_inject_metadata: bool = True,
     ) -> dict:
-        """Execute hybrid search with specified fusion method.
+        """Execute hybrid search with specified fusion method and metadata filtering.
 
         Args:
             collection_name: Name of collection to search
@@ -417,6 +419,8 @@ class HybridSearchEngine:
             search_params: Optional search parameters
             with_payload: Whether to return payloads
             with_vectors: Whether to return vectors
+            project_context: Optional project context for metadata filtering
+            auto_inject_metadata: Whether to automatically inject project metadata filters
 
         Returns:
             Dictionary with fused results and search metadata
@@ -428,6 +432,15 @@ class HybridSearchEngine:
             fusion_method=fusion_method,
             dense_weight=dense_weight,
             sparse_weight=sparse_weight,
+            project_context=project_context,
+            auto_inject_metadata=auto_inject_metadata,
+        )
+
+        # Enhance filter conditions with project metadata if requested
+        enhanced_filter = self._build_enhanced_filter(
+            base_filter=filter_conditions,
+            project_context=project_context,
+            auto_inject=auto_inject_metadata
         )
 
         search_results = {"dense_results": [], "sparse_results": [], "fused_results": []}
@@ -440,7 +453,7 @@ class HybridSearchEngine:
                     collection_name=collection_name,
                     query_vector=query_embeddings["dense"],
                     limit=limit * 2,  # Get more results for better fusion
-                    query_filter=filter_conditions,
+                    query_filter=enhanced_filter,
                     search_params=search_params,
                     with_payload=with_payload,
                     with_vectors=with_vectors,
@@ -461,7 +474,7 @@ class HybridSearchEngine:
                     collection_name=collection_name,
                     query_vector=sparse_vector,
                     limit=limit * 2,  # Get more results for better fusion
-                    query_filter=filter_conditions,
+                    query_filter=enhanced_filter,
                     search_params=search_params,
                     with_payload=with_payload,
                     with_vectors=with_vectors,
@@ -542,3 +555,122 @@ class HybridSearchEngine:
 
         logger.debug("Max score fusion completed", final_count=len(sorted_results))
         return sorted_results
+
+    def _build_enhanced_filter(
+        self,
+        base_filter: Optional[models.Filter],
+        project_context: Optional[dict],
+        auto_inject: bool = True
+    ) -> Optional[models.Filter]:
+        """Build enhanced filter with project metadata constraints.
+
+        Args:
+            base_filter: Optional base filter conditions
+            project_context: Project context for metadata injection
+            auto_inject: Whether to automatically inject project metadata
+
+        Returns:
+            Enhanced filter with project metadata constraints
+        """
+        if not auto_inject or not project_context:
+            return base_filter
+
+        logger.debug("Building enhanced filter with project context", context=project_context)
+
+        # Extract project metadata for filtering
+        project_name = project_context.get("project_name")
+        tenant_namespace = project_context.get("tenant_namespace")
+        collection_type = project_context.get("collection_type")
+        workspace_scope = project_context.get("workspace_scope", "project")
+
+        # Build project-specific conditions
+        project_conditions = []
+
+        if project_name:
+            project_conditions.append(
+                models.FieldCondition(
+                    key="project_name",
+                    match=models.MatchValue(value=project_name)
+                )
+            )
+
+        if tenant_namespace:
+            project_conditions.append(
+                models.FieldCondition(
+                    key="tenant_namespace",
+                    match=models.MatchValue(value=tenant_namespace)
+                )
+            )
+
+        if collection_type:
+            project_conditions.append(
+                models.FieldCondition(
+                    key="collection_type",
+                    match=models.MatchValue(value=collection_type)
+                )
+            )
+
+        # Include workspace scope filtering (project, shared, global)
+        if workspace_scope:
+            scope_conditions = [
+                models.FieldCondition(
+                    key="workspace_scope",
+                    match=models.MatchValue(value=workspace_scope)
+                )
+            ]
+
+            # For project scope, also include shared resources
+            if workspace_scope == "project":
+                scope_conditions.append(
+                    models.FieldCondition(
+                        key="workspace_scope",
+                        match=models.MatchValue(value="shared")
+                    )
+                )
+
+            if len(scope_conditions) > 1:
+                project_conditions.append(
+                    models.Filter(should=scope_conditions)
+                )
+            else:
+                project_conditions.extend(scope_conditions)
+
+        # Combine with existing filter if present
+        if base_filter and project_conditions:
+            # Extract existing conditions
+            existing_conditions = []
+            if base_filter.must:
+                existing_conditions.extend(base_filter.must)
+
+            # Combine all conditions
+            all_conditions = existing_conditions + project_conditions
+
+            enhanced_filter = models.Filter(
+                must=all_conditions,
+                should=base_filter.should,
+                must_not=base_filter.must_not
+            )
+
+            logger.debug(
+                "Enhanced filter built",
+                base_conditions=len(existing_conditions),
+                project_conditions=len(project_conditions),
+                total_conditions=len(all_conditions)
+            )
+
+            return enhanced_filter
+
+        elif project_conditions:
+            # Create new filter with project conditions only
+            enhanced_filter = models.Filter(must=project_conditions)
+
+            logger.debug(
+                "Project filter built",
+                project_conditions=len(project_conditions)
+            )
+
+            return enhanced_filter
+
+        else:
+            # No enhancement needed
+            return base_filter
