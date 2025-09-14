@@ -74,7 +74,7 @@ if len(sys.argv) >= 2 and (sys.argv[1] == "--version" or sys.argv[1] == "-v"):
 # Import heavy modules only after version check passes
 import typer
 
-from common.observability import configure_logging, get_logger
+from common.logging.loguru_config import configure_logging, get_logger
 from .commands.admin import admin_app
 from .commands.config import config_app
 from .commands.ingest import ingest_app
@@ -183,24 +183,29 @@ def main(
     import os
 
     if debug:
-        # Re-enable logging for debug mode only
+        # Re-enable logging for debug mode with loguru
         logging.disable(logging.NOTSET)
         # Enable verbose logging and initialization messages in debug mode
         os.environ["WQM_LOG_INIT"] = "true"
-        configure_logging(level="DEBUG", json_format=True, console_output=True)
-        logger.debug("Debug mode enabled")
+        configure_logging(
+            level="DEBUG",
+            json_format=True,
+            console_output=True,
+            force_stderr=True  # Use stderr to avoid interfering with CLI output
+        )
+        logger.debug("Debug mode enabled with loguru")
     else:
-        # Keep logging disabled for normal CLI usage
-        # Configure file-only logging but don't enable console logging
+        # Keep console logging disabled for normal CLI usage
+        # Configure file-only logging for troubleshooting
         from pathlib import Path
         log_dir = Path.home() / ".config" / "workspace-qdrant" / "logs"
         log_dir.mkdir(parents=True, exist_ok=True)
         log_file = log_dir / "wqm-cli.log"
         configure_logging(
-            level="WARNING", 
-            json_format=True, 
+            level="WARNING",
+            json_format=True,
             console_output=False,  # Completely disable console output
-            log_file=log_file
+            log_file=str(log_file)
         )
 
     if config_path:
