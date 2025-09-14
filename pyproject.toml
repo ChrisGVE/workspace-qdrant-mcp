@@ -87,7 +87,6 @@ full = ["markdown>=3.4.0", "PyYAML>=6.0.0", "pypdf>=4.0.0"]
 
 [project.scripts]
 workspace-qdrant-mcp = "workspace_qdrant_mcp.launcher:main"
-workspace-qdrant-mcp-stdio = "workspace_qdrant_mcp.stdio_server:main"
 wqm = "wqm_cli.cli_wrapper:main"
 
 [project.urls]
@@ -102,6 +101,9 @@ path = "src/python/workspace_qdrant_mcp/__init__.py"
 [tool.setuptools.packages.find]
 where = ["src/python"]
 include = ["workspace_qdrant_mcp*", "wqm_cli*", "common*"]
+
+[tool.setuptools.package-data]
+"common.core" = ["config_schema.json"]
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/python/workspace_qdrant_mcp", "src/python/wqm_cli", "src/python/common"]
