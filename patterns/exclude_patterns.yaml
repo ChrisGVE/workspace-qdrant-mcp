@@ -411,21 +411,19 @@ test_artifacts:
     description: "Test coverage report directories"
     ecosystems: ["general"]
 
-# Language-Specific Lock Files (Debatable - some may want these indexed)
-# Note: These are generated files but may be important for understanding dependencies
-lock_files:
-  - pattern: "package-lock.json"
-    description: "npm lock file - very large, generated from package.json"
-    note: "Contains exact dependency versions but usually not needed for code search"
-    ecosystems: ["javascript", "node"]
-
-  - pattern: "yarn.lock"
-    description: "Yarn lock file - large, generated dependency tree"
-    ecosystems: ["javascript", "node"]
-
-  - pattern: "pnpm-lock.yaml"
-    description: "pnpm lock file - generated dependency information"
-    ecosystems: ["javascript", "node"]
+# Language-Specific Lock Files - MOVED TO INCLUDE PATTERNS
+# Note: For workspace-qdrant-mcp, lock files provide valuable dependency context
+# and have been moved to include_patterns.yaml instead of being excluded.
+#
+# Rationale: Lock files help understand:
+# - Exact dependency versions used in the project
+# - Dependency resolution and potential conflicts
+# - Project reproducibility requirements
+#
+# Previously excluded patterns now in include_patterns.yaml:
+# - package-lock.json (npm dependencies)
+# - yarn.lock (Yarn dependencies)
+# - pnpm-lock.yaml (pnpm dependencies)
 
 # Note: Some patterns intentionally NOT included:
 # - .vscode/ and .idea/ directories (teams often commit these for shared settings)
