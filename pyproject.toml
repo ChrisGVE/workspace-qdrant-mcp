@@ -44,6 +44,7 @@ dependencies = [
   "markdown>=3.5.0", # Enhanced markdown support
   "pygments>=2.16.0", # Code syntax highlighting
   "structlog>=23.0.0", # Structured logging support
+  "loguru>=0.7.0", # Simplified logging with better defaults
   # Web crawling and security
   "aiohttp>=3.9.0", # Async HTTP client for web crawling
   "aiofiles>=23.0.0", # Async file operations
