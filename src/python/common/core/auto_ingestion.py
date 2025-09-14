@@ -24,7 +24,7 @@ Example:
 """
 
 import asyncio
-from common.logging import get_logger
+from common.logging.loguru_config import get_logger
 import os
 from datetime import datetime, timezone
 from pathlib import Path

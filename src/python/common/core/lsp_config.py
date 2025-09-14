@@ -6,7 +6,7 @@ including settings persistence, cache management, and validation.
 """
 
 import json
-from common.logging import get_logger
+from common.logging.loguru_config import get_logger
 import os
 import threading
 import time

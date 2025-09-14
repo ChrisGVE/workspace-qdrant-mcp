@@ -58,7 +58,7 @@ Example:
 
 import uuid
 
-from common.logging import get_logger
+from common.logging.loguru_config import get_logger
 from datetime import datetime, timezone
 from typing import Optional
 

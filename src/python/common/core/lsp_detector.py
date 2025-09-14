@@ -6,7 +6,7 @@ including PATH scanning, extension mapping, and caching mechanisms.
 """
 
 import asyncio
-from common.logging import get_logger
+from common.logging.loguru_config import get_logger
 import os
 import platform
 import shutil

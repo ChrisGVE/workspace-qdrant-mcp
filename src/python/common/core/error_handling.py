@@ -16,7 +16,7 @@ from functools import wraps
 from typing import Any, Callable, Dict, List, Optional, Type, Union
 
 # Use unified logging system to prevent console interference in MCP mode
-from common.logging import get_logger
+from common.logging.loguru_config import get_logger
 
 logger = get_logger(__name__)
 

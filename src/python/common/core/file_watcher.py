@@ -8,7 +8,7 @@ language-aware filtering.
 
 import asyncio
 import json
-from common.logging import get_logger
+from common.logging.loguru_config import get_logger
 from collections.abc import Callable
 from dataclasses import asdict, dataclass, field
 from datetime import datetime, timezone

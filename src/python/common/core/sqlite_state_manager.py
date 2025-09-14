@@ -37,7 +37,7 @@ Example:
 import asyncio
 import json
 # Use unified logging system to prevent console interference in MCP mode
-from common.logging import get_logger
+from common.logging.loguru_config import get_logger
 import sqlite3
 import threading
 import time

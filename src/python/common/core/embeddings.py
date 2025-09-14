@@ -44,7 +44,7 @@ import asyncio
 import hashlib
 import re
 
-from common.logging import get_logger
+from common.logging.loguru_config import get_logger
 from typing import Optional, Union
 
 from fastembed import TextEmbedding

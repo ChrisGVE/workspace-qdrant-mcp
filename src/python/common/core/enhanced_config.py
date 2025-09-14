@@ -5,7 +5,7 @@ This is a simplified version that avoids threading issues while providing
 environment-based configuration loading, validation, and YAML support.
 """
 
-from common.logging import get_logger
+from common.logging.loguru_config import get_logger
 import os
 import re
 from pathlib import Path

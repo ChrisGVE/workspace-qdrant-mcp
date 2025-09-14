@@ -20,11 +20,11 @@ Usage:
     logger = logging.getLogger(__name__)
 
     # NEW:
-    from common.logging import get_logger
+    from common.logging.loguru_config import get_logger
     logger = get_logger(__name__)
 
     # Advanced usage:
-    from common.logging import get_logger, LogContext, PerformanceLogger
+    from common.logging.loguru_config import get_logger, LogContext, PerformanceLogger
 
     logger = get_logger(__name__)
     perf_logger = PerformanceLogger(logger)

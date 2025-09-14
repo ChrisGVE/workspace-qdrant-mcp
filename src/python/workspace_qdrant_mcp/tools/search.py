@@ -47,7 +47,7 @@ Example:
 
 from typing import Optional
 
-from common.logging import get_logger
+from common.logging.loguru_config import get_logger
 
 from qdrant_client import QdrantClient
 from qdrant_client.http import models

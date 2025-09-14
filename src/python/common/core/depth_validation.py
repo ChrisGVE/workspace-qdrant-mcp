@@ -5,7 +5,7 @@ This module provides comprehensive validation logic for recursive depth limits
 including performance warnings and reasonable bounds checking.
 """
 
-from common.logging import get_logger
+from common.logging.loguru_config import get_logger
 from typing import Optional, Dict, Any
 
 logger = get_logger(__name__)

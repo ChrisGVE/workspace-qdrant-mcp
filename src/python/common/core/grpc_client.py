@@ -9,7 +9,7 @@ The client automatically falls back to direct mode if the gRPC server is unavail
 """
 
 import asyncio
-from common.logging import get_logger
+from common.logging.loguru_config import get_logger
 from datetime import datetime
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Union

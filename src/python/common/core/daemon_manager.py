@@ -18,7 +18,7 @@ import asyncio
 import atexit
 import hashlib
 import json
-from common.logging import get_logger
+from common.logging.loguru_config import get_logger
 import os
 import platform
 import shutil

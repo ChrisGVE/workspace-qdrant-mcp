@@ -7,7 +7,7 @@ a unified system for daemon performance management.
 """
 
 import asyncio
-from common.logging import get_logger
+from common.logging.loguru_config import get_logger
 from datetime import datetime, timedelta
 from typing import Any, Dict, List, Optional, Set
 from dataclasses import dataclass

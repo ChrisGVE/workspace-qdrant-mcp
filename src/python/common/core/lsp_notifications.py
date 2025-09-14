@@ -6,7 +6,7 @@ when unsupported files are detected, with installation guidance and throttling.
 """
 
 import json
-from common.logging import get_logger
+from common.logging.loguru_config import get_logger
 import platform
 import time
 from dataclasses import dataclass, field

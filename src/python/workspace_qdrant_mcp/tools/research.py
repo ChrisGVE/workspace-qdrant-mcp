@@ -22,7 +22,7 @@ testable as a standalone function.
 
 from typing import Any
 
-from common.logging import get_logger
+from common.logging.loguru_config import get_logger
 
 from common.core.client import QdrantWorkspaceClient
 from common.core.collection_naming import build_project_collection_name

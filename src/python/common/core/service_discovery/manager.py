@@ -7,7 +7,7 @@ fallback mechanisms into a unified discovery system.
 """
 
 import asyncio
-from common.logging import get_logger
+from common.logging.loguru_config import get_logger
 from dataclasses import dataclass, field
 from enum import Enum
 from typing import Dict, List, Optional, Callable, Union

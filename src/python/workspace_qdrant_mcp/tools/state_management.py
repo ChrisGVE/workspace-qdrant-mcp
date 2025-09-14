@@ -23,7 +23,7 @@ Available Tools:
 
 from typing import Any, Dict, List, Optional
 
-from common.logging import get_logger
+from common.logging.loguru_config import get_logger
 
 from common.core.client import QdrantWorkspaceClient
 from common.core.sqlite_state_manager import FileProcessingStatus, ProcessingPriority
