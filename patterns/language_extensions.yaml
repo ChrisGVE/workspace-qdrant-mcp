@@ -1,0 +1,700 @@
+# Language Extensions Mapping
+# Comprehensive mapping of file extensions to Language Server Protocol (LSP) language identifiers
+#
+# Sources:
+# - LSP Specification 3.17: https://microsoft.github.io/language-server-protocol/specifications/lsp/3.17/specification/
+# - VS Code Language Identifiers: https://code.visualstudio.com/docs/languages/identifiers
+# - GitHub Linguist: https://github.com/github-linguist/linguist/blob/main/lib/linguist/languages.yml
+#
+# Format: File extensions map to official LSP language identifiers
+# Categories: Programming, Web, Markup, Configuration, Shell/Script, Data, Specialized
+
+# =============================================================================
+# PROGRAMMING LANGUAGES
+# =============================================================================
+
+programming_languages:
+  # C/C++ Family
+  c:
+    extensions: [".c"]
+    lsp_id: "c"
+    category: "systems"
+
+  cpp:
+    extensions: [".cpp", ".cc", ".cxx", ".c++", ".hpp", ".hh", ".hxx", ".h++", ".h"]
+    lsp_id: "cpp"
+    category: "systems"
+
+  cuda-cpp:
+    extensions: [".cu", ".cuh"]
+    lsp_id: "cuda-cpp"
+    category: "systems"
+
+  # .NET Family
+  csharp:
+    extensions: [".cs", ".csx"]
+    lsp_id: "csharp"
+    category: "managed"
+
+  fsharp:
+    extensions: [".fs", ".fsi", ".fsx"]
+    lsp_id: "fsharp"
+    category: "managed"
+
+  # JVM Languages
+  java:
+    extensions: [".java", ".jav"]
+    lsp_id: "java"
+    category: "jvm"
+
+  kotlin:
+    extensions: [".kt", ".kts"]
+    lsp_id: "kotlin"
+    category: "jvm"
+
+  scala:
+    extensions: [".scala", ".sc", ".sbt"]
+    lsp_id: "scala"
+    category: "jvm"
+
+  groovy:
+    extensions: [".groovy", ".gvy", ".gy", ".gsh"]
+    lsp_id: "groovy"
+    category: "jvm"
+
+  # Dynamic Languages
+  python:
+    extensions: [".py", ".pyi", ".pyw", ".pyx", ".pyz", ".pyzw"]
+    lsp_id: "python"
+    category: "dynamic"
+
+  javascript:
+    extensions: [".js", ".mjs", ".cjs"]
+    lsp_id: "javascript"
+    category: "dynamic"
+
+  javascriptreact:
+    extensions: [".jsx"]
+    lsp_id: "javascriptreact"
+    category: "dynamic"
+
+  typescript:
+    extensions: [".ts", ".mts", ".cts"]
+    lsp_id: "typescript"
+    category: "dynamic"
+
+  typescriptreact:
+    extensions: [".tsx"]
+    lsp_id: "typescriptreact"
+    category: "dynamic"
+
+  ruby:
+    extensions: [".rb", ".rbw", ".rake", ".gemspec"]
+    lsp_id: "ruby"
+    category: "dynamic"
+
+  php:
+    extensions: [".php", ".php3", ".php4", ".php5", ".phtml"]
+    lsp_id: "php"
+    category: "dynamic"
+
+  perl:
+    extensions: [".pl", ".pm", ".pod", ".t", ".psgi"]
+    lsp_id: "perl"
+    category: "dynamic"
+
+  lua:
+    extensions: [".lua"]
+    lsp_id: "lua"
+    category: "dynamic"
+
+  # Modern Systems Languages
+  rust:
+    extensions: [".rs"]
+    lsp_id: "rust"
+    category: "systems"
+
+  go:
+    extensions: [".go"]
+    lsp_id: "go"
+    category: "systems"
+
+  dart:
+    extensions: [".dart"]
+    lsp_id: "dart"
+    category: "mobile"
+
+  swift:
+    extensions: [".swift"]
+    lsp_id: "swift"
+    category: "mobile"
+
+  # Functional Languages
+  haskell:
+    extensions: [".hs", ".lhs"]
+    lsp_id: "haskell"
+    category: "functional"
+
+  ocaml:
+    extensions: [".ml", ".mli", ".mly", ".mll"]
+    lsp_id: "ocaml"
+    category: "functional"
+
+  clojure:
+    extensions: [".clj", ".cljs", ".cljc", ".edn"]
+    lsp_id: "clojure"
+    category: "functional"
+
+  erlang:
+    extensions: [".erl", ".hrl", ".escript"]
+    lsp_id: "erlang"
+    category: "functional"
+
+  elixir:
+    extensions: [".ex", ".exs"]
+    lsp_id: "elixir"
+    category: "functional"
+
+  # Other Languages
+  julia:
+    extensions: [".jl"]
+    lsp_id: "julia"
+    category: "scientific"
+
+  r:
+    extensions: [".r", ".R", ".Rmd", ".Rnw"]
+    lsp_id: "r"
+    category: "scientific"
+
+  matlab:
+    extensions: [".m"]
+    lsp_id: "matlab"
+    category: "scientific"
+
+  pascal:
+    extensions: [".pas", ".pp", ".lpr"]
+    lsp_id: "pascal"
+    category: "legacy"
+
+  fortran:
+    extensions: [".f", ".for", ".f90", ".f95", ".f03", ".f08"]
+    lsp_id: "fortran"
+    category: "scientific"
+
+  cobol:
+    extensions: [".cbl", ".cob", ".cpy"]
+    lsp_id: "cobol"
+    category: "legacy"
+
+# =============================================================================
+# WEB TECHNOLOGIES
+# =============================================================================
+
+web_technologies:
+  html:
+    extensions: [".html", ".htm", ".xhtml", ".shtml"]
+    lsp_id: "html"
+    category: "markup"
+
+  css:
+    extensions: [".css"]
+    lsp_id: "css"
+    category: "style"
+
+  scss:
+    extensions: [".scss"]
+    lsp_id: "scss"
+    category: "style"
+
+  sass:
+    extensions: [".sass"]
+    lsp_id: "sass"
+    category: "style"
+
+  less:
+    extensions: [".less"]
+    lsp_id: "less"
+    category: "style"
+
+  # Template Engines
+  handlebars:
+    extensions: [".hbs", ".handlebars"]
+    lsp_id: "handlebars"
+    category: "template"
+
+  mustache:
+    extensions: [".mustache"]
+    lsp_id: "mustache"
+    category: "template"
+
+  # Vue/Angular
+  vue:
+    extensions: [".vue"]
+    lsp_id: "vue"
+    category: "framework"
+
+# =============================================================================
+# MARKUP & DOCUMENTATION
+# =============================================================================
+
+markup_languages:
+  markdown:
+    extensions: [".md", ".markdown", ".mdown", ".mkd", ".mkdn"]
+    lsp_id: "markdown"
+    category: "documentation"
+
+  rst:
+    extensions: [".rst", ".rest"]
+    lsp_id: "restructuredtext"
+    category: "documentation"
+
+  asciidoc:
+    extensions: [".adoc", ".asciidoc"]
+    lsp_id: "asciidoc"
+    category: "documentation"
+
+  org:
+    extensions: [".org"]
+    lsp_id: "org"
+    category: "documentation"
+
+  tex:
+    extensions: [".tex", ".latex", ".ltx", ".sty", ".cls"]
+    lsp_id: "latex"
+    category: "documentation"
+
+  bibtex:
+    extensions: [".bib", ".bibtex"]
+    lsp_id: "bibtex"
+    category: "documentation"
+
+  xml:
+    extensions: [".xml", ".xsd", ".xsl", ".xslt", ".wsdl"]
+    lsp_id: "xml"
+    category: "data"
+
+# =============================================================================
+# CONFIGURATION FILES
+# =============================================================================
+
+configuration_files:
+  json:
+    extensions: [".json"]
+    lsp_id: "json"
+    category: "data"
+
+  jsonc:
+    extensions: [".jsonc"]
+    lsp_id: "jsonc"
+    category: "data"
+
+  yaml:
+    extensions: [".yaml", ".yml"]
+    lsp_id: "yaml"
+    category: "data"
+
+  toml:
+    extensions: [".toml"]
+    lsp_id: "toml"
+    category: "data"
+
+  ini:
+    extensions: [".ini", ".cfg", ".conf", ".config"]
+    lsp_id: "ini"
+    category: "data"
+
+  properties:
+    extensions: [".properties"]
+    lsp_id: "properties"
+    category: "data"
+
+  # Docker
+  dockerfile:
+    extensions: [".dockerfile"]
+    filenames: ["Dockerfile", "Dockerfile.*", "*.dockerfile"]
+    lsp_id: "dockerfile"
+    category: "container"
+
+  dockercompose:
+    filenames: ["docker-compose.yml", "docker-compose.yaml", "compose.yml", "compose.yaml"]
+    lsp_id: "dockercompose"
+    category: "container"
+
+# =============================================================================
+# SHELL & SCRIPTING
+# =============================================================================
+
+shell_scripting:
+  shellscript:
+    extensions: [".sh", ".bash", ".zsh", ".fish", ".ksh", ".csh", ".tcsh"]
+    lsp_id: "shellscript"
+    category: "script"
+
+  powershell:
+    extensions: [".ps1", ".psm1", ".psd1"]
+    lsp_id: "powershell"
+    category: "script"
+
+  batch:
+    extensions: [".bat", ".cmd"]
+    lsp_id: "bat"
+    category: "script"
+
+  makefile:
+    filenames: ["Makefile", "makefile", "GNUmakefile"]
+    extensions: [".mk", ".mak"]
+    lsp_id: "makefile"
+    category: "build"
+
+# =============================================================================
+# DATA FORMATS
+# =============================================================================
+
+data_formats:
+  csv:
+    extensions: [".csv"]
+    lsp_id: "csv"
+    category: "data"
+
+  tsv:
+    extensions: [".tsv", ".tab"]
+    lsp_id: "tsv"
+    category: "data"
+
+  log:
+    extensions: [".log"]
+    lsp_id: "log"
+    category: "data"
+
+# =============================================================================
+# SPECIALIZED FORMATS
+# =============================================================================
+
+specialized_formats:
+  # SQL
+  sql:
+    extensions: [".sql", ".ddl", ".dml"]
+    lsp_id: "sql"
+    category: "database"
+
+  plsql:
+    extensions: [".plsql", ".pls", ".pck", ".pkb", ".pks"]
+    lsp_id: "plsql"
+    category: "database"
+
+  # Git
+  git-commit:
+    filenames: ["COMMIT_EDITMSG"]
+    lsp_id: "git-commit"
+    category: "vcs"
+
+  git-rebase:
+    filenames: ["git-rebase-todo"]
+    lsp_id: "git-rebase"
+    category: "vcs"
+
+  gitignore:
+    filenames: [".gitignore", ".gitattributes"]
+    lsp_id: "ignore"
+    category: "vcs"
+
+  # Other
+  diff:
+    extensions: [".diff", ".patch"]
+    lsp_id: "diff"
+    category: "vcs"
+
+  ignore:
+    filenames: [".ignore", ".npmignore", ".dockerignore"]
+    lsp_id: "ignore"
+    category: "config"
+
+  # Archives & Binaries (identified but not typically processed)
+  archive:
+    extensions: [".zip", ".tar", ".gz", ".bz2", ".xz", ".7z", ".rar"]
+    lsp_id: "binary"
+    category: "binary"
+
+  image:
+    extensions: [".png", ".jpg", ".jpeg", ".gif", ".svg", ".bmp", ".tiff", ".ico", ".webp"]
+    lsp_id: "binary"
+    category: "binary"
+
+  video:
+    extensions: [".mp4", ".avi", ".mkv", ".mov", ".wmv", ".flv", ".webm"]
+    lsp_id: "binary"
+    category: "binary"
+
+# =============================================================================
+# EXTENSION-TO-LANGUAGE LOOKUP TABLE
+# =============================================================================
+
+extensions_to_languages:
+  # Programming Languages - C Family
+  ".c": "c"
+  ".cpp": "cpp"
+  ".cc": "cpp"
+  ".cxx": "cpp"
+  ".c++": "cpp"
+  ".hpp": "cpp"
+  ".hh": "cpp"
+  ".hxx": "cpp"
+  ".h++": "cpp"
+  ".h": "cpp"
+  ".cu": "cuda-cpp"
+  ".cuh": "cuda-cpp"
+
+  # Programming Languages - .NET
+  ".cs": "csharp"
+  ".csx": "csharp"
+  ".fs": "fsharp"
+  ".fsi": "fsharp"
+  ".fsx": "fsharp"
+
+  # Programming Languages - JVM
+  ".java": "java"
+  ".jav": "java"
+  ".kt": "kotlin"
+  ".kts": "kotlin"
+  ".scala": "scala"
+  ".sc": "scala"
+  ".sbt": "scala"
+  ".groovy": "groovy"
+  ".gvy": "groovy"
+  ".gy": "groovy"
+  ".gsh": "groovy"
+
+  # Programming Languages - Dynamic
+  ".py": "python"
+  ".pyi": "python"
+  ".pyw": "python"
+  ".pyx": "python"
+  ".pyz": "python"
+  ".pyzw": "python"
+  ".js": "javascript"
+  ".mjs": "javascript"
+  ".cjs": "javascript"
+  ".jsx": "javascriptreact"
+  ".ts": "typescript"
+  ".mts": "typescript"
+  ".cts": "typescript"
+  ".tsx": "typescriptreact"
+  ".rb": "ruby"
+  ".rbw": "ruby"
+  ".rake": "ruby"
+  ".gemspec": "ruby"
+  ".php": "php"
+  ".php3": "php"
+  ".php4": "php"
+  ".php5": "php"
+  ".phtml": "php"
+  ".pl": "perl"
+  ".pm": "perl"
+  ".pod": "perl"
+  ".t": "perl"
+  ".psgi": "perl"
+  ".lua": "lua"
+
+  # Programming Languages - Modern Systems
+  ".rs": "rust"
+  ".go": "go"
+  ".dart": "dart"
+  ".swift": "swift"
+
+  # Programming Languages - Functional
+  ".hs": "haskell"
+  ".lhs": "haskell"
+  ".ml": "ocaml"
+  ".mli": "ocaml"
+  ".mly": "ocaml"
+  ".mll": "ocaml"
+  ".clj": "clojure"
+  ".cljs": "clojure"
+  ".cljc": "clojure"
+  ".edn": "clojure"
+  ".erl": "erlang"
+  ".hrl": "erlang"
+  ".escript": "erlang"
+  ".ex": "elixir"
+  ".exs": "elixir"
+
+  # Programming Languages - Scientific
+  ".jl": "julia"
+  ".r": "r"
+  ".R": "r"
+  ".Rmd": "r"
+  ".Rnw": "r"
+  ".m": "matlab"
+  ".f": "fortran"
+  ".for": "fortran"
+  ".f90": "fortran"
+  ".f95": "fortran"
+  ".f03": "fortran"
+  ".f08": "fortran"
+
+  # Programming Languages - Legacy
+  ".pas": "pascal"
+  ".pp": "pascal"
+  ".lpr": "pascal"
+  ".cbl": "cobol"
+  ".cob": "cobol"
+  ".cpy": "cobol"
+
+  # Web Technologies
+  ".html": "html"
+  ".htm": "html"
+  ".xhtml": "html"
+  ".shtml": "html"
+  ".css": "css"
+  ".scss": "scss"
+  ".sass": "sass"
+  ".less": "less"
+  ".hbs": "handlebars"
+  ".handlebars": "handlebars"
+  ".mustache": "mustache"
+  ".vue": "vue"
+
+  # Markup & Documentation
+  ".md": "markdown"
+  ".markdown": "markdown"
+  ".mdown": "markdown"
+  ".mkd": "markdown"
+  ".mkdn": "markdown"
+  ".rst": "restructuredtext"
+  ".rest": "restructuredtext"
+  ".adoc": "asciidoc"
+  ".asciidoc": "asciidoc"
+  ".org": "org"
+  ".tex": "latex"
+  ".latex": "latex"
+  ".ltx": "latex"
+  ".sty": "latex"
+  ".cls": "latex"
+  ".bib": "bibtex"
+  ".bibtex": "bibtex"
+  ".xml": "xml"
+  ".xsd": "xml"
+  ".xsl": "xml"
+  ".xslt": "xml"
+  ".wsdl": "xml"
+
+  # Configuration Files
+  ".json": "json"
+  ".jsonc": "jsonc"
+  ".yaml": "yaml"
+  ".yml": "yaml"
+  ".toml": "toml"
+  ".ini": "ini"
+  ".cfg": "ini"
+  ".conf": "ini"
+  ".config": "ini"
+  ".properties": "properties"
+  ".dockerfile": "dockerfile"
+
+  # Shell & Scripting
+  ".sh": "shellscript"
+  ".bash": "shellscript"
+  ".zsh": "shellscript"
+  ".fish": "shellscript"
+  ".ksh": "shellscript"
+  ".csh": "shellscript"
+  ".tcsh": "shellscript"
+  ".ps1": "powershell"
+  ".psm1": "powershell"
+  ".psd1": "powershell"
+  ".bat": "bat"
+  ".cmd": "bat"
+  ".mk": "makefile"
+  ".mak": "makefile"
+
+  # Data Formats
+  ".csv": "csv"
+  ".tsv": "tsv"
+  ".tab": "tsv"
+  ".log": "log"
+
+  # Specialized Formats
+  ".sql": "sql"
+  ".ddl": "sql"
+  ".dml": "sql"
+  ".plsql": "plsql"
+  ".pls": "plsql"
+  ".pck": "plsql"
+  ".pkb": "plsql"
+  ".pks": "plsql"
+  ".diff": "diff"
+  ".patch": "diff"
+
+  # Binary/Archive formats (marked for identification)
+  ".zip": "binary"
+  ".tar": "binary"
+  ".gz": "binary"
+  ".bz2": "binary"
+  ".xz": "binary"
+  ".7z": "binary"
+  ".rar": "binary"
+  ".png": "binary"
+  ".jpg": "binary"
+  ".jpeg": "binary"
+  ".gif": "binary"
+  ".svg": "xml"  # SVG is XML-based
+  ".bmp": "binary"
+  ".tiff": "binary"
+  ".ico": "binary"
+  ".webp": "binary"
+  ".mp4": "binary"
+  ".avi": "binary"
+  ".mkv": "binary"
+  ".mov": "binary"
+  ".wmv": "binary"
+  ".flv": "binary"
+  ".webm": "binary"
+
+# =============================================================================
+# FILENAME-TO-LANGUAGE LOOKUP TABLE (for files without extensions)
+# =============================================================================
+
+filenames_to_languages:
+  # Build & Config Files
+  "Makefile": "makefile"
+  "makefile": "makefile"
+  "GNUmakefile": "makefile"
+  "Dockerfile": "dockerfile"
+  "docker-compose.yml": "dockercompose"
+  "docker-compose.yaml": "dockercompose"
+  "compose.yml": "dockercompose"
+  "compose.yaml": "dockercompose"
+
+  # Git Files
+  "COMMIT_EDITMSG": "git-commit"
+  "git-rebase-todo": "git-rebase"
+  ".gitignore": "ignore"
+  ".gitattributes": "ignore"
+
+  # Other Ignore Files
+  ".ignore": "ignore"
+  ".npmignore": "ignore"
+  ".dockerignore": "ignore"
+
+# =============================================================================
+# METADATA
+# =============================================================================
+
+metadata:
+  version: "1.0.0"
+  created: "2025-01-14"
+  sources:
+    - "LSP Specification 3.17"
+    - "VS Code Language Identifiers"
+    - "GitHub Linguist languages.yml"
+  total_languages: 80
+  total_extensions: 200
+  categories:
+    - "programming"
+    - "web"
+    - "markup"
+    - "configuration"
+    - "shell"
+    - "data"
+    - "specialized"
+    - "binary"

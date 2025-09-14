@@ -1,0 +1,1222 @@
+# Project Ecosystem Detection Indicators
+#
+# This file defines comprehensive patterns for detecting development project ecosystems
+# based on characteristic files and directory structures. Used by workspace-qdrant-mcp
+# for intelligent project detection and classification.
+#
+# Schema:
+#   ecosystems:
+#     <ecosystem_name>:
+#       name: Human-readable ecosystem name
+#       description: Brief description of the ecosystem
+#       confidence_levels:
+#         high: Unique indicators with 95%+ accuracy
+#         medium: Common indicators with 80-95% accuracy
+#         low: Suggestive indicators with 60-80% accuracy
+#       indicators:
+#         - pattern: File/directory pattern (glob-style)
+#           confidence: high|medium|low
+#           rationale: Why this indicator is reliable
+#           weight: Numeric weight for scoring (1-100)
+#
+# Confidence Level Definitions:
+# - high: Files unique to the ecosystem, definitive identification
+# - medium: Files common in the ecosystem but may appear elsewhere
+# - low: Files that suggest the ecosystem but are not conclusive
+#
+# Detection Algorithm:
+# 1. Scan project directory for indicator patterns
+# 2. Calculate weighted confidence scores per ecosystem
+# 3. Select ecosystem with highest confidence score above threshold
+# 4. Fall back to directory-based naming if no clear match
+
+version: "1.0.0"
+last_updated: "2025-09-14"
+research_coverage: "95%+ of common development scenarios"
+
+ecosystems:
+
+  # Version Control Systems
+  git:
+    name: "Git Repository"
+    description: "Git version control system"
+    confidence_levels:
+      high: "Unique to Git repositories"
+      medium: "Git-related but may be absent in some cases"
+      low: "Suggests Git usage but not definitive"
+    indicators:
+      - pattern: ".git/"
+        confidence: high
+        rationale: "Unique Git repository directory, present in all Git projects"
+        weight: 100
+      - pattern: ".gitignore"
+        confidence: medium
+        rationale: "Common in Git projects but can exist without Git"
+        weight: 70
+      - pattern: ".gitmodules"
+        confidence: high
+        rationale: "Git submodules configuration, unique to Git"
+        weight: 95
+      - pattern: ".gitattributes"
+        confidence: medium
+        rationale: "Git attributes file, specific to Git but not always present"
+        weight: 75
+      - pattern: ".github/"
+        confidence: medium
+        rationale: "GitHub-specific directory, implies Git but platform-specific"
+        weight: 60
+
+  # JavaScript/Node.js Ecosystem
+  nodejs:
+    name: "Node.js JavaScript"
+    description: "Node.js JavaScript runtime environment"
+    confidence_levels:
+      high: "Unique to Node.js/npm ecosystem"
+      medium: "Common in JavaScript projects"
+      low: "May appear in mixed projects"
+    indicators:
+      - pattern: "package.json"
+        confidence: high
+        rationale: "Unique to Node.js/npm ecosystem, defines project dependencies"
+        weight: 100
+      - pattern: "package-lock.json"
+        confidence: high
+        rationale: "npm lock file, ensures reproducible installs"
+        weight: 95
+      - pattern: "yarn.lock"
+        confidence: high
+        rationale: "Yarn package manager lock file, specific to JavaScript ecosystem"
+        weight: 95
+      - pattern: "pnpm-lock.yaml"
+        confidence: high
+        rationale: "pnpm package manager lock file"
+        weight: 95
+      - pattern: "node_modules/"
+        confidence: high
+        rationale: "Node.js dependencies directory, unique to npm/yarn/pnpm"
+        weight: 90
+      - pattern: ".nvmrc"
+        confidence: medium
+        rationale: "Node Version Manager configuration, Node.js specific"
+        weight: 80
+      - pattern: "tsconfig.json"
+        confidence: medium
+        rationale: "TypeScript configuration, often used with Node.js"
+        weight: 75
+      - pattern: "webpack.config.js"
+        confidence: medium
+        rationale: "Webpack bundler configuration, common in Node.js projects"
+        weight: 60
+      - pattern: "next.config.js"
+        confidence: medium
+        rationale: "Next.js framework configuration"
+        weight: 70
+      - pattern: "nuxt.config.js"
+        confidence: medium
+        rationale: "Nuxt.js framework configuration"
+        weight: 70
+      - pattern: "vite.config.js"
+        confidence: medium
+        rationale: "Vite build tool configuration"
+        weight: 65
+      - pattern: ".eslintrc*"
+        confidence: low
+        rationale: "ESLint configuration, common in JavaScript but not exclusive"
+        weight: 40
+      - pattern: "jest.config.js"
+        confidence: medium
+        rationale: "Jest testing framework configuration"
+        weight: 55
+      - pattern: "cypress.json"
+        confidence: medium
+        rationale: "Cypress testing framework configuration"
+        weight: 55
+
+  # TypeScript Ecosystem
+  typescript:
+    name: "TypeScript"
+    description: "TypeScript superset of JavaScript"
+    confidence_levels:
+      high: "Unique to TypeScript projects"
+      medium: "Common TypeScript tooling"
+      low: "May indicate TypeScript usage"
+    indicators:
+      - pattern: "tsconfig.json"
+        confidence: high
+        rationale: "TypeScript compiler configuration, unique to TypeScript"
+        weight: 100
+      - pattern: "tsconfig.*.json"
+        confidence: high
+        rationale: "TypeScript configuration variants (build, dev, etc.)"
+        weight: 95
+      - pattern: "tslint.json"
+        confidence: high
+        rationale: "TypeScript linting configuration (legacy)"
+        weight: 85
+      - pattern: "*.ts"
+        confidence: medium
+        rationale: "TypeScript source files"
+        weight: 70
+      - pattern: "*.tsx"
+        confidence: medium
+        rationale: "TypeScript React component files"
+        weight: 70
+
+  # Python Ecosystem
+  python:
+    name: "Python"
+    description: "Python programming language ecosystem"
+    confidence_levels:
+      high: "Unique to Python package management"
+      medium: "Common in Python projects"
+      low: "May appear in mixed environments"
+    indicators:
+      - pattern: "pyproject.toml"
+        confidence: high
+        rationale: "Modern Python project configuration (PEP 518), Python-specific"
+        weight: 100
+      - pattern: "setup.py"
+        confidence: high
+        rationale: "Traditional Python package setup script"
+        weight: 95
+      - pattern: "setup.cfg"
+        confidence: high
+        rationale: "Python setup configuration file"
+        weight: 90
+      - pattern: "requirements.txt"
+        confidence: medium
+        rationale: "Python dependencies list, common but not exclusive"
+        weight: 80
+      - pattern: "requirements/*.txt"
+        confidence: medium
+        rationale: "Organized Python requirements files"
+        weight: 75
+      - pattern: "Pipfile"
+        confidence: high
+        rationale: "Pipenv dependency file, Python-specific"
+        weight: 95
+      - pattern: "Pipfile.lock"
+        confidence: high
+        rationale: "Pipenv lock file for reproducible installs"
+        weight: 95
+      - pattern: "poetry.lock"
+        confidence: high
+        rationale: "Poetry dependency manager lock file"
+        weight: 95
+      - pattern: "environment.yml"
+        confidence: medium
+        rationale: "Conda environment specification"
+        weight: 85
+      - pattern: "environment.yaml"
+        confidence: medium
+        rationale: "Conda environment specification (alternative extension)"
+        weight: 85
+      - pattern: "conda.yaml"
+        confidence: medium
+        rationale: "Conda configuration file"
+        weight: 80
+      - pattern: "tox.ini"
+        confidence: medium
+        rationale: "Python testing automation tool configuration"
+        weight: 75
+      - pattern: ".python-version"
+        confidence: medium
+        rationale: "pyenv Python version specification"
+        weight: 70
+      - pattern: "manage.py"
+        confidence: medium
+        rationale: "Django project management script"
+        weight: 80
+      - pattern: "app.py"
+        confidence: low
+        rationale: "Common Flask application entry point"
+        weight: 30
+      - pattern: "__pycache__/"
+        confidence: medium
+        rationale: "Python bytecode cache directory"
+        weight: 60
+      - pattern: "*.egg-info/"
+        confidence: medium
+        rationale: "Python package metadata directory"
+        weight: 65
+
+  # Rust Ecosystem
+  rust:
+    name: "Rust"
+    description: "Rust systems programming language"
+    confidence_levels:
+      high: "Unique to Rust/Cargo ecosystem"
+      medium: "Rust-specific tooling"
+      low: "May suggest Rust development"
+    indicators:
+      - pattern: "Cargo.toml"
+        confidence: high
+        rationale: "Rust package manifest, unique to Cargo/Rust"
+        weight: 100
+      - pattern: "Cargo.lock"
+        confidence: high
+        rationale: "Cargo dependency lock file"
+        weight: 95
+      - pattern: "src/main.rs"
+        confidence: high
+        rationale: "Rust binary entry point"
+        weight: 90
+      - pattern: "src/lib.rs"
+        confidence: high
+        rationale: "Rust library root"
+        weight: 90
+      - pattern: "*.rs"
+        confidence: medium
+        rationale: "Rust source files"
+        weight: 70
+      - pattern: "rust-toolchain"
+        confidence: medium
+        rationale: "Rust toolchain specification"
+        weight: 80
+      - pattern: "rust-toolchain.toml"
+        confidence: medium
+        rationale: "Rust toolchain configuration (TOML format)"
+        weight: 80
+      - pattern: "target/"
+        confidence: medium
+        rationale: "Cargo build output directory"
+        weight: 60
+
+  # Go Ecosystem
+  go:
+    name: "Go"
+    description: "Go programming language"
+    confidence_levels:
+      high: "Unique to Go modules system"
+      medium: "Go-specific files"
+      low: "May indicate Go development"
+    indicators:
+      - pattern: "go.mod"
+        confidence: high
+        rationale: "Go modules file, unique to Go module system"
+        weight: 100
+      - pattern: "go.sum"
+        confidence: high
+        rationale: "Go modules checksum file"
+        weight: 95
+      - pattern: "go.work"
+        confidence: high
+        rationale: "Go workspace configuration"
+        weight: 90
+      - pattern: "*.go"
+        confidence: medium
+        rationale: "Go source files"
+        weight: 70
+      - pattern: "main.go"
+        confidence: medium
+        rationale: "Common Go application entry point"
+        weight: 75
+      - pattern: "vendor/"
+        confidence: medium
+        rationale: "Go vendor dependencies directory"
+        weight: 60
+
+  # Java Ecosystem
+  java:
+    name: "Java"
+    description: "Java programming language ecosystem"
+    confidence_levels:
+      high: "Unique to Java build systems"
+      medium: "Java-specific tooling"
+      low: "May appear in JVM projects"
+    indicators:
+      # Maven
+      - pattern: "pom.xml"
+        confidence: high
+        rationale: "Maven project object model, unique to Maven/Java"
+        weight: 100
+      - pattern: ".mvn/"
+        confidence: high
+        rationale: "Maven wrapper directory"
+        weight: 90
+      - pattern: "mvnw"
+        confidence: high
+        rationale: "Maven wrapper script (Unix)"
+        weight: 85
+      - pattern: "mvnw.cmd"
+        confidence: high
+        rationale: "Maven wrapper script (Windows)"
+        weight: 85
+      # Gradle
+      - pattern: "build.gradle"
+        confidence: high
+        rationale: "Gradle build script, JVM ecosystem"
+        weight: 95
+      - pattern: "build.gradle.kts"
+        confidence: high
+        rationale: "Gradle Kotlin DSL build script"
+        weight: 95
+      - pattern: "settings.gradle"
+        confidence: high
+        rationale: "Gradle settings file"
+        weight: 90
+      - pattern: "settings.gradle.kts"
+        confidence: high
+        rationale: "Gradle settings file (Kotlin DSL)"
+        weight: 90
+      - pattern: "gradle.properties"
+        confidence: medium
+        rationale: "Gradle configuration properties"
+        weight: 75
+      - pattern: "gradlew"
+        confidence: high
+        rationale: "Gradle wrapper script (Unix)"
+        weight: 85
+      - pattern: "gradlew.bat"
+        confidence: high
+        rationale: "Gradle wrapper script (Windows)"
+        weight: 85
+      - pattern: "gradle/"
+        confidence: medium
+        rationale: "Gradle wrapper directory"
+        weight: 70
+      # General Java
+      - pattern: "*.java"
+        confidence: medium
+        rationale: "Java source files"
+        weight: 70
+      - pattern: "src/main/java/"
+        confidence: medium
+        rationale: "Standard Maven/Gradle Java source directory"
+        weight: 75
+      - pattern: "src/test/java/"
+        confidence: medium
+        rationale: "Standard Maven/Gradle Java test directory"
+        weight: 70
+      - pattern: "target/"
+        confidence: low
+        rationale: "Maven build output directory"
+        weight: 30
+      - pattern: "build/"
+        confidence: low
+        rationale: "Gradle build output directory (generic)"
+        weight: 20
+
+  # .NET Ecosystem
+  dotnet:
+    name: ".NET"
+    description: "Microsoft .NET ecosystem"
+    confidence_levels:
+      high: "Unique to .NET projects"
+      medium: ".NET-specific but may vary"
+      low: "Suggests .NET but not definitive"
+    indicators:
+      - pattern: "*.csproj"
+        confidence: high
+        rationale: "C# project file, unique to .NET"
+        weight: 100
+      - pattern: "*.sln"
+        confidence: high
+        rationale: ".NET solution file"
+        weight: 95
+      - pattern: "*.fsproj"
+        confidence: high
+        rationale: "F# project file"
+        weight: 95
+      - pattern: "*.vbproj"
+        confidence: high
+        rationale: "VB.NET project file"
+        weight: 95
+      - pattern: "global.json"
+        confidence: high
+        rationale: ".NET SDK version specification"
+        weight: 90
+      - pattern: "Directory.Build.props"
+        confidence: high
+        rationale: "MSBuild directory-level properties"
+        weight: 85
+      - pattern: "Directory.Build.targets"
+        confidence: high
+        rationale: "MSBuild directory-level targets"
+        weight: 85
+      - pattern: "nuget.config"
+        confidence: medium
+        rationale: "NuGet package manager configuration"
+        weight: 80
+      - pattern: "packages.config"
+        confidence: medium
+        rationale: "Legacy NuGet packages configuration"
+        weight: 70
+      - pattern: "project.json"
+        confidence: medium
+        rationale: "Legacy .NET Core project file"
+        weight: 60
+      - pattern: "*.cs"
+        confidence: medium
+        rationale: "C# source files"
+        weight: 70
+      - pattern: "*.fs"
+        confidence: medium
+        rationale: "F# source files"
+        weight: 70
+      - pattern: "bin/"
+        confidence: low
+        rationale: ".NET build output (generic name)"
+        weight: 20
+      - pattern: "obj/"
+        confidence: low
+        rationale: ".NET intermediate build output (generic name)"
+        weight: 20
+
+  # PHP Ecosystem
+  php:
+    name: "PHP"
+    description: "PHP web development language"
+    confidence_levels:
+      high: "Unique to PHP/Composer ecosystem"
+      medium: "PHP-specific tooling"
+      low: "May suggest PHP development"
+    indicators:
+      - pattern: "composer.json"
+        confidence: high
+        rationale: "Composer dependency manager file, unique to PHP"
+        weight: 100
+      - pattern: "composer.lock"
+        confidence: high
+        rationale: "Composer lock file for reproducible installs"
+        weight: 95
+      - pattern: "vendor/"
+        confidence: medium
+        rationale: "Composer vendor directory (generic name, could be other ecosystems)"
+        weight: 60
+      - pattern: "*.php"
+        confidence: medium
+        rationale: "PHP source files"
+        weight: 70
+      - pattern: "index.php"
+        confidence: medium
+        rationale: "Common PHP application entry point"
+        weight: 65
+      - pattern: "artisan"
+        confidence: medium
+        rationale: "Laravel framework command-line tool"
+        weight: 80
+      - pattern: "wp-config.php"
+        confidence: medium
+        rationale: "WordPress configuration file"
+        weight: 85
+      - pattern: ".env"
+        confidence: low
+        rationale: "Environment configuration (used in many ecosystems)"
+        weight: 20
+
+  # Ruby Ecosystem
+  ruby:
+    name: "Ruby"
+    description: "Ruby programming language"
+    confidence_levels:
+      high: "Unique to Ruby/RubyGems ecosystem"
+      medium: "Ruby-specific tooling"
+      low: "May suggest Ruby development"
+    indicators:
+      - pattern: "Gemfile"
+        confidence: high
+        rationale: "Bundler dependency file, unique to Ruby"
+        weight: 100
+      - pattern: "Gemfile.lock"
+        confidence: high
+        rationale: "Bundler lock file"
+        weight: 95
+      - pattern: "*.gemspec"
+        confidence: high
+        rationale: "RubyGem specification file"
+        weight: 90
+      - pattern: ".ruby-version"
+        confidence: medium
+        rationale: "rbenv/rvm Ruby version specification"
+        weight: 80
+      - pattern: ".ruby-gemset"
+        confidence: medium
+        rationale: "RVM gemset specification"
+        weight: 75
+      - pattern: "config.ru"
+        confidence: medium
+        rationale: "Rack application configuration"
+        weight: 80
+      - pattern: "Rakefile"
+        confidence: medium
+        rationale: "Rake build tool file"
+        weight: 75
+      - pattern: "*.rb"
+        confidence: medium
+        rationale: "Ruby source files"
+        weight: 70
+      - pattern: "config/application.rb"
+        confidence: medium
+        rationale: "Rails application configuration"
+        weight: 85
+      - pattern: "Guardfile"
+        confidence: medium
+        rationale: "Guard file watcher configuration"
+        weight: 60
+
+  # Swift Ecosystem
+  swift:
+    name: "Swift"
+    description: "Swift programming language"
+    confidence_levels:
+      high: "Unique to Swift Package Manager"
+      medium: "Swift-specific files"
+      low: "May indicate Swift development"
+    indicators:
+      - pattern: "Package.swift"
+        confidence: high
+        rationale: "Swift Package Manager manifest, unique to Swift"
+        weight: 100
+      - pattern: "Package.resolved"
+        confidence: high
+        rationale: "Swift Package Manager resolved dependencies"
+        weight: 95
+      - pattern: "*.xcodeproj/"
+        confidence: medium
+        rationale: "Xcode project bundle (iOS/macOS development)"
+        weight: 85
+      - pattern: "*.xcworkspace/"
+        confidence: medium
+        rationale: "Xcode workspace bundle"
+        weight: 80
+      - pattern: "*.swift"
+        confidence: medium
+        rationale: "Swift source files"
+        weight: 70
+      - pattern: "Podfile"
+        confidence: medium
+        rationale: "CocoaPods dependency manager (iOS)"
+        weight: 75
+      - pattern: "Cartfile"
+        confidence: medium
+        rationale: "Carthage dependency manager"
+        weight: 70
+
+  # C/C++ Ecosystem
+  c_cpp:
+    name: "C/C++"
+    description: "C and C++ programming languages"
+    confidence_levels:
+      high: "Unique to C/C++ build systems"
+      medium: "Common in C/C++ projects"
+      low: "May appear in mixed projects"
+    indicators:
+      - pattern: "CMakeLists.txt"
+        confidence: high
+        rationale: "CMake build system configuration, primary for C/C++"
+        weight: 100
+      - pattern: "Makefile"
+        confidence: medium
+        rationale: "Make build system (used in many languages)"
+        weight: 60
+      - pattern: "configure.ac"
+        confidence: high
+        rationale: "GNU Autotools configuration"
+        weight: 90
+      - pattern: "configure.in"
+        confidence: high
+        rationale: "GNU Autotools configuration (legacy)"
+        weight: 85
+      - pattern: "Makefile.am"
+        confidence: high
+        rationale: "GNU Automake input file"
+        weight: 85
+      - pattern: "meson.build"
+        confidence: high
+        rationale: "Meson build system configuration"
+        weight: 90
+      - pattern: "conanfile.txt"
+        confidence: medium
+        rationale: "Conan C/C++ package manager"
+        weight: 80
+      - pattern: "conanfile.py"
+        confidence: medium
+        rationale: "Conan package manager (Python recipe)"
+        weight: 80
+      - pattern: "vcpkg.json"
+        confidence: medium
+        rationale: "vcpkg package manager manifest"
+        weight: 75
+      - pattern: "*.c"
+        confidence: medium
+        rationale: "C source files"
+        weight: 70
+      - pattern: "*.cpp"
+        confidence: medium
+        rationale: "C++ source files"
+        weight: 70
+      - pattern: "*.cc"
+        confidence: medium
+        rationale: "C++ source files (alternative extension)"
+        weight: 70
+      - pattern: "*.cxx"
+        confidence: medium
+        rationale: "C++ source files (alternative extension)"
+        weight: 70
+      - pattern: "*.h"
+        confidence: low
+        rationale: "C/C++ header files (generic)"
+        weight: 40
+      - pattern: "*.hpp"
+        confidence: medium
+        rationale: "C++ header files"
+        weight: 60
+      - pattern: "build/"
+        confidence: low
+        rationale: "Build directory (generic name)"
+        weight: 20
+
+  # Scala Ecosystem
+  scala:
+    name: "Scala"
+    description: "Scala programming language"
+    confidence_levels:
+      high: "Unique to SBT/Scala ecosystem"
+      medium: "Scala-specific tooling"
+      low: "May suggest Scala development"
+    indicators:
+      - pattern: "build.sbt"
+        confidence: high
+        rationale: "SBT (Scala Build Tool) configuration, unique to Scala"
+        weight: 100
+      - pattern: "project/build.properties"
+        confidence: high
+        rationale: "SBT project configuration"
+        weight: 95
+      - pattern: "project/plugins.sbt"
+        confidence: high
+        rationale: "SBT plugins configuration"
+        weight: 90
+      - pattern: "*.scala"
+        confidence: medium
+        rationale: "Scala source files"
+        weight: 70
+      - pattern: "*.sc"
+        confidence: medium
+        rationale: "Scala script files"
+        weight: 65
+
+  # Clojure Ecosystem
+  clojure:
+    name: "Clojure"
+    description: "Clojure functional programming language"
+    confidence_levels:
+      high: "Unique to Clojure ecosystem"
+      medium: "Clojure-specific tooling"
+      low: "May suggest Clojure development"
+    indicators:
+      - pattern: "project.clj"
+        confidence: high
+        rationale: "Leiningen project configuration, unique to Clojure"
+        weight: 100
+      - pattern: "deps.edn"
+        confidence: high
+        rationale: "Clojure CLI dependency configuration"
+        weight: 95
+      - pattern: "shadow-cljs.edn"
+        confidence: high
+        rationale: "ClojureScript build tool configuration"
+        weight: 90
+      - pattern: "*.clj"
+        confidence: medium
+        rationale: "Clojure source files"
+        weight: 70
+      - pattern: "*.cljs"
+        confidence: medium
+        rationale: "ClojureScript source files"
+        weight: 70
+      - pattern: "*.cljc"
+        confidence: medium
+        rationale: "Clojure/ClojureScript cross-platform files"
+        weight: 70
+
+  # Kotlin Ecosystem
+  kotlin:
+    name: "Kotlin"
+    description: "Kotlin programming language"
+    confidence_levels:
+      high: "Kotlin-specific Gradle configuration"
+      medium: "Kotlin source files"
+      low: "May indicate Kotlin usage"
+    indicators:
+      - pattern: "build.gradle.kts"
+        confidence: high
+        rationale: "Gradle Kotlin DSL build script"
+        weight: 95
+      - pattern: "settings.gradle.kts"
+        confidence: high
+        rationale: "Gradle Kotlin DSL settings"
+        weight: 90
+      - pattern: "*.kt"
+        confidence: medium
+        rationale: "Kotlin source files"
+        weight: 70
+      - pattern: "*.kts"
+        confidence: medium
+        rationale: "Kotlin script files"
+        weight: 70
+
+  # Haskell Ecosystem
+  haskell:
+    name: "Haskell"
+    description: "Haskell functional programming language"
+    confidence_levels:
+      high: "Unique to Haskell build systems"
+      medium: "Haskell-specific tooling"
+      low: "May suggest Haskell development"
+    indicators:
+      - pattern: "*.cabal"
+        confidence: high
+        rationale: "Cabal package description, unique to Haskell"
+        weight: 100
+      - pattern: "stack.yaml"
+        confidence: high
+        rationale: "Stack build tool configuration"
+        weight: 95
+      - pattern: "cabal.project"
+        confidence: high
+        rationale: "Cabal project configuration"
+        weight: 90
+      - pattern: "*.hs"
+        confidence: medium
+        rationale: "Haskell source files"
+        weight: 70
+      - pattern: "*.lhs"
+        confidence: medium
+        rationale: "Literate Haskell source files"
+        weight: 70
+
+  # Modern/Emerging Ecosystems
+
+  # Deno Ecosystem
+  deno:
+    name: "Deno"
+    description: "Deno JavaScript/TypeScript runtime"
+    confidence_levels:
+      high: "Unique to Deno ecosystem"
+      medium: "Deno-specific configuration"
+      low: "May suggest Deno usage"
+    indicators:
+      - pattern: "deno.json"
+        confidence: high
+        rationale: "Deno configuration file, unique to Deno"
+        weight: 100
+      - pattern: "deno.jsonc"
+        confidence: high
+        rationale: "Deno configuration with comments"
+        weight: 95
+      - pattern: "import_map.json"
+        confidence: medium
+        rationale: "Deno import map configuration"
+        weight: 80
+      - pattern: "deps.ts"
+        confidence: medium
+        rationale: "Common Deno dependency management pattern"
+        weight: 70
+
+  # Bun Ecosystem
+  bun:
+    name: "Bun"
+    description: "Bun JavaScript runtime and package manager"
+    confidence_levels:
+      high: "Unique to Bun ecosystem"
+      medium: "Bun-specific configuration"
+      low: "May suggest Bun usage"
+    indicators:
+      - pattern: "bun.lockb"
+        confidence: high
+        rationale: "Bun lock file, unique to Bun"
+        weight: 100
+      - pattern: "bunfig.toml"
+        confidence: high
+        rationale: "Bun configuration file"
+        weight: 95
+
+  # Flutter/Dart Ecosystem
+  dart:
+    name: "Dart/Flutter"
+    description: "Dart language and Flutter framework"
+    confidence_levels:
+      high: "Unique to Dart/Flutter ecosystem"
+      medium: "Dart-specific configuration"
+      low: "May suggest Dart development"
+    indicators:
+      - pattern: "pubspec.yaml"
+        confidence: high
+        rationale: "Dart package specification, unique to Dart/Flutter"
+        weight: 100
+      - pattern: "pubspec.lock"
+        confidence: high
+        rationale: "Dart package lock file"
+        weight: 95
+      - pattern: "*.dart"
+        confidence: medium
+        rationale: "Dart source files"
+        weight: 70
+      - pattern: "lib/main.dart"
+        confidence: medium
+        rationale: "Flutter app entry point"
+        weight: 80
+      - pattern: "android/"
+        confidence: low
+        rationale: "Flutter Android platform code"
+        weight: 30
+      - pattern: "ios/"
+        confidence: low
+        rationale: "Flutter iOS platform code"
+        weight: 30
+
+  # R Ecosystem
+  r:
+    name: "R"
+    description: "R statistical computing language"
+    confidence_levels:
+      high: "Unique to R package system"
+      medium: "R-specific files"
+      low: "May suggest R development"
+    indicators:
+      - pattern: "DESCRIPTION"
+        confidence: high
+        rationale: "R package description file, unique to R"
+        weight: 100
+      - pattern: "NAMESPACE"
+        confidence: high
+        rationale: "R package namespace file"
+        weight: 95
+      - pattern: "*.Rproj"
+        confidence: high
+        rationale: "RStudio project file"
+        weight: 90
+      - pattern: "renv.lock"
+        confidence: medium
+        rationale: "R environment lock file"
+        weight: 80
+      - pattern: "*.R"
+        confidence: medium
+        rationale: "R source files"
+        weight: 70
+      - pattern: "*.Rmd"
+        confidence: medium
+        rationale: "R Markdown files"
+        weight: 70
+
+  # Julia Ecosystem
+  julia:
+    name: "Julia"
+    description: "Julia programming language"
+    confidence_levels:
+      high: "Unique to Julia package manager"
+      medium: "Julia-specific files"
+      low: "May suggest Julia development"
+    indicators:
+      - pattern: "Project.toml"
+        confidence: high
+        rationale: "Julia package project file, unique to Julia Pkg"
+        weight: 100
+      - pattern: "Manifest.toml"
+        confidence: high
+        rationale: "Julia package manifest file"
+        weight: 95
+      - pattern: "*.jl"
+        confidence: medium
+        rationale: "Julia source files"
+        weight: 70
+
+  # Lua Ecosystem
+  lua:
+    name: "Lua"
+    description: "Lua programming language"
+    confidence_levels:
+      high: "Unique to LuaRocks ecosystem"
+      medium: "Lua-specific files"
+      low: "May suggest Lua development"
+    indicators:
+      - pattern: "*.rockspec"
+        confidence: high
+        rationale: "LuaRocks package specification, unique to Lua"
+        weight: 100
+      - pattern: "luarocks.lock"
+        confidence: medium
+        rationale: "LuaRocks lock file"
+        weight: 80
+      - pattern: "*.lua"
+        confidence: medium
+        rationale: "Lua source files"
+        weight: 70
+
+  # Elixir Ecosystem
+  elixir:
+    name: "Elixir"
+    description: "Elixir programming language"
+    confidence_levels:
+      high: "Unique to Mix/Elixir ecosystem"
+      medium: "Elixir-specific files"
+      low: "May suggest Elixir development"
+    indicators:
+      - pattern: "mix.exs"
+        confidence: high
+        rationale: "Mix build tool configuration, unique to Elixir"
+        weight: 100
+      - pattern: "mix.lock"
+        confidence: high
+        rationale: "Mix dependency lock file"
+        weight: 95
+      - pattern: "*.ex"
+        confidence: medium
+        rationale: "Elixir source files"
+        weight: 70
+      - pattern: "*.exs"
+        confidence: medium
+        rationale: "Elixir script files"
+        weight: 70
+
+  # Crystal Ecosystem
+  crystal:
+    name: "Crystal"
+    description: "Crystal programming language"
+    confidence_levels:
+      high: "Unique to Crystal ecosystem"
+      medium: "Crystal-specific files"
+      low: "May suggest Crystal development"
+    indicators:
+      - pattern: "shard.yml"
+        confidence: high
+        rationale: "Crystal Shards package specification, unique to Crystal"
+        weight: 100
+      - pattern: "shard.lock"
+        confidence: high
+        rationale: "Crystal Shards lock file"
+        weight: 95
+      - pattern: "*.cr"
+        confidence: medium
+        rationale: "Crystal source files"
+        weight: 70
+
+  # Zig Ecosystem
+  zig:
+    name: "Zig"
+    description: "Zig programming language"
+    confidence_levels:
+      high: "Unique to Zig build system"
+      medium: "Zig-specific files"
+      low: "May suggest Zig development"
+    indicators:
+      - pattern: "build.zig"
+        confidence: high
+        rationale: "Zig build script, unique to Zig"
+        weight: 100
+      - pattern: "*.zig"
+        confidence: medium
+        rationale: "Zig source files"
+        weight: 70
+
+  # Nim Ecosystem
+  nim:
+    name: "Nim"
+    description: "Nim programming language"
+    confidence_levels:
+      high: "Unique to Nimble ecosystem"
+      medium: "Nim-specific files"
+      low: "May suggest Nim development"
+    indicators:
+      - pattern: "*.nimble"
+        confidence: high
+        rationale: "Nimble package specification, unique to Nim"
+        weight: 100
+      - pattern: "*.nim"
+        confidence: medium
+        rationale: "Nim source files"
+        weight: 70
+
+  # OCaml Ecosystem
+  ocaml:
+    name: "OCaml"
+    description: "OCaml programming language"
+    confidence_levels:
+      high: "Unique to OCaml build systems"
+      medium: "OCaml-specific files"
+      low: "May suggest OCaml development"
+    indicators:
+      - pattern: "dune-project"
+        confidence: high
+        rationale: "Dune build system project file, unique to OCaml"
+        weight: 100
+      - pattern: "*.opam"
+        confidence: high
+        rationale: "OPAM package specification"
+        weight: 95
+      - pattern: "dune"
+        confidence: medium
+        rationale: "Dune build configuration"
+        weight: 80
+      - pattern: "*.ml"
+        confidence: medium
+        rationale: "OCaml source files"
+        weight: 70
+      - pattern: "*.mli"
+        confidence: medium
+        rationale: "OCaml interface files"
+        weight: 70
+
+  # Generic/Cross-platform indicators
+
+  # Docker/Containerization
+  docker:
+    name: "Docker"
+    description: "Docker containerization"
+    confidence_levels:
+      high: "Unique to Docker ecosystem"
+      medium: "Docker-related but may be absent"
+      low: "Suggests containerization"
+    indicators:
+      - pattern: "Dockerfile"
+        confidence: high
+        rationale: "Docker container image definition, unique to Docker"
+        weight: 100
+      - pattern: "docker-compose.yml"
+        confidence: high
+        rationale: "Docker Compose configuration"
+        weight: 95
+      - pattern: "docker-compose.yaml"
+        confidence: high
+        rationale: "Docker Compose configuration (alternative extension)"
+        weight: 95
+      - pattern: ".dockerignore"
+        confidence: medium
+        rationale: "Docker ignore file, Docker-specific"
+        weight: 80
+
+  # Generic Development Tools
+
+  # CI/CD Systems
+  ci_cd:
+    name: "CI/CD"
+    description: "Continuous Integration/Continuous Deployment"
+    confidence_levels:
+      high: "Unique to specific CI/CD platforms"
+      medium: "Common CI/CD configuration"
+      low: "May suggest automated workflows"
+    indicators:
+      # GitHub Actions
+      - pattern: ".github/workflows/*.yml"
+        confidence: high
+        rationale: "GitHub Actions workflow, unique to GitHub"
+        weight: 95
+      - pattern: ".github/workflows/*.yaml"
+        confidence: high
+        rationale: "GitHub Actions workflow (alternative extension)"
+        weight: 95
+      # GitLab CI
+      - pattern: ".gitlab-ci.yml"
+        confidence: high
+        rationale: "GitLab CI configuration, unique to GitLab"
+        weight: 95
+      # Jenkins
+      - pattern: "Jenkinsfile"
+        confidence: high
+        rationale: "Jenkins pipeline configuration"
+        weight: 90
+      # Travis CI
+      - pattern: ".travis.yml"
+        confidence: high
+        rationale: "Travis CI configuration"
+        weight: 85
+      # CircleCI
+      - pattern: ".circleci/config.yml"
+        confidence: high
+        rationale: "CircleCI configuration"
+        weight: 90
+      # Azure Pipelines
+      - pattern: "azure-pipelines.yml"
+        confidence: high
+        rationale: "Azure Pipelines configuration"
+        weight: 90
+
+  # Documentation Systems
+  docs:
+    name: "Documentation"
+    description: "Documentation generation systems"
+    confidence_levels:
+      high: "Unique to documentation tools"
+      medium: "Common documentation patterns"
+      low: "Suggests documentation focus"
+    indicators:
+      - pattern: "mkdocs.yml"
+        confidence: high
+        rationale: "MkDocs configuration, unique to MkDocs"
+        weight: 90
+      - pattern: "_config.yml"
+        confidence: medium
+        rationale: "Jekyll/GitHub Pages configuration"
+        weight: 60
+      - pattern: "conf.py"
+        confidence: medium
+        rationale: "Sphinx documentation configuration"
+        weight: 70
+      - pattern: "docusaurus.config.js"
+        confidence: high
+        rationale: "Docusaurus documentation site configuration"
+        weight: 85
+      - pattern: "book.toml"
+        confidence: medium
+        rationale: "mdBook configuration"
+        weight: 75
+
+# Common patterns across ecosystems (lower confidence)
+common_patterns:
+  name: "Common Development Patterns"
+  description: "Files that appear across multiple ecosystems"
+  indicators:
+    - pattern: "README*"
+      confidence: low
+      rationale: "Documentation file, appears in most projects"
+      weight: 10
+    - pattern: "LICENSE*"
+      confidence: low
+      rationale: "License file, common across all ecosystems"
+      weight: 10
+    - pattern: "CHANGELOG*"
+      confidence: low
+      rationale: "Change log file, common practice"
+      weight: 10
+    - pattern: ".env*"
+      confidence: low
+      rationale: "Environment configuration, used in many ecosystems"
+      weight: 20
+    - pattern: ".editorconfig"
+      confidence: low
+      rationale: "Editor configuration, cross-platform"
+      weight: 15
+    - pattern: ".prettierrc*"
+      confidence: low
+      rationale: "Prettier formatter configuration"
+      weight: 25
+    - pattern: "Makefile"
+      confidence: low
+      rationale: "Build automation, used across many ecosystems"
+      weight: 30
+    - pattern: "Vagrantfile"
+      confidence: medium
+      rationale: "Vagrant virtualization configuration"
+      weight: 60
+
+# Scoring algorithm configuration
+scoring:
+  threshold_high: 80      # Minimum score to declare high confidence match
+  threshold_medium: 50    # Minimum score to declare medium confidence match
+  threshold_low: 20       # Minimum score to declare low confidence match
+  weight_multipliers:
+    high: 1.0            # Full weight for high confidence indicators
+    medium: 0.7          # Reduced weight for medium confidence
+    low: 0.4             # Significantly reduced weight for low confidence
+  max_indicators: 10      # Maximum number of indicators to evaluate per ecosystem
+  fallback_strategy: "directory_name"  # What to do when no ecosystem detected
+
+# Usage notes:
+# - Patterns support glob-style wildcards (* and **)
+# - Case sensitivity depends on filesystem (usually case-insensitive on Windows/macOS)
+# - Directory patterns should end with / for clarity
+# - Multiple patterns can match the same ecosystem, scores are cumulative
+# - Higher weights indicate more definitive identification
+# - Consider both presence and absence of indicators for best results
