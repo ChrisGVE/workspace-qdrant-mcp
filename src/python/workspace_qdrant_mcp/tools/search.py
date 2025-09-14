@@ -314,7 +314,6 @@ async def search_workspace(
                 }
 
         return response_data
-        }
 
     except Exception as e:
         logger.error("Search failed: %s", e)
