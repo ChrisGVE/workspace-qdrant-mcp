@@ -148,8 +148,6 @@ class WorkspaceConfig(BaseModel):
     collection_types: List[str] = []
     global_collections: List[str] = []
     github_user: Optional[str] = None
-    collection_prefix: str = ""
-    max_collections: int = 100
     auto_create_collections: bool = True
     cleanup_on_exit: bool = False
     # Legacy fields for backward compatibility
@@ -399,14 +397,8 @@ class EnhancedConfig(BaseSettings):
                 "WORKSPACE_QDRANT_WORKSPACE__GITHUB_USER",
                 lambda v: setattr(self.workspace, "github_user", v),
             ),
-            (
-                "WORKSPACE_QDRANT_WORKSPACE__COLLECTION_PREFIX",
-                lambda v: setattr(self.workspace, "collection_prefix", v),
-            ),
-            (
-                "WORKSPACE_QDRANT_WORKSPACE__MAX_COLLECTIONS",
-                lambda v: setattr(self.workspace, "max_collections", int(v)),
-            ),
+            # Note: collection_prefix and max_collections environment variables removed
+            # as part of multi-tenant architecture migration
         ]
 
         for env_var, setter in env_mappings:

@@ -113,10 +113,9 @@ class WorkspaceQdrantAdmin:
         else:
             self.current_project = self.project_scope
 
-        # Configure collection prefix for safety
-        self.collection_prefix = (
-            f"{self.config.workspace.collection_prefix}{self.current_project}_"
-        )
+        # Configure collection prefix for safety - using project-based naming
+        # Note: collection_prefix field removed as part of multi-tenant architecture
+        self.collection_prefix = f"{self.current_project}_"
 
         # Log initialization for audit trail
         logger.info(
@@ -358,7 +357,7 @@ class WorkspaceQdrantAdmin:
                     "config": {
                         "qdrant_url": self.config.qdrant.url,
                         "debug_mode": self.config.debug,
-                        "collection_prefix": self.collection_prefix,
+                        "project_prefix": self.collection_prefix,  # Renamed for clarity
                     },
                 }
 
@@ -567,7 +566,7 @@ Examples:
             print("\nConfiguration:")
             print(f"  Qdrant URL: {health['config']['qdrant_url']}")
             print(f"  Debug Mode: {health['config']['debug_mode']}")
-            print(f"  Collection Prefix: {health['config']['collection_prefix']}")
+            print(f"  Project Prefix: {health['config'].get('project_prefix', 'N/A')}")
 
     except KeyboardInterrupt:
         print("\n\nOperation cancelled by user")
