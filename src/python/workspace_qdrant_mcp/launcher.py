@@ -119,22 +119,164 @@ def main():
     is_stdio = detect_stdio_mode()
 
     if is_stdio:
-        # Set up additional stdio suppression measures
-        import warnings
-        warnings.filterwarnings("ignore")
+        # CRITICAL: Use dedicated stdio launcher that bypasses all imports
+        # This completely avoids the package import chain that triggers server loading
+        import subprocess
+        import sys
 
-        # Extra suppression for any remaining loggers
-        import logging
-        logging.getLogger().disabled = True
-        logging.getLogger().handlers.clear()
+        # Execute the dedicated stdio launcher directly
+        stdio_launcher_path = __file__.replace('launcher.py', 'stdio_launcher.py')
 
-        # Use completely isolated stdio server to avoid console output
-        from .isolated_stdio_server import main as isolated_stdio_server_main
-        isolated_stdio_server_main()
+        # Execute as subprocess to completely isolate from current import context
+        result = subprocess.run([sys.executable, stdio_launcher_path],
+                               stdin=sys.stdin,
+                               stdout=sys.stdout,
+                               stderr=sys.stderr)
+        sys.exit(result.returncode)
     else:
         # Use full server implementation for non-stdio modes
         from .server import main as server_main
         server_main()
+
+
+def _run_isolated_stdio_server():
+    """Run the isolated stdio server directly without imports."""
+    import os
+    import sys
+    import json
+    from typing import Dict, Any
+
+    # Set up complete stdio suppression immediately
+    os.environ["WQM_STDIO_MODE"] = "true"
+    os.environ["MCP_QUIET_MODE"] = "true"
+    os.environ["TOKENIZERS_PARALLELISM"] = "false"
+
+    # Suppress all warnings
+    import warnings
+    warnings.filterwarnings("ignore")
+    warnings.simplefilter("ignore")
+
+    # Disable all logging
+    import logging
+    logging.getLogger().disabled = True
+    logging.getLogger().handlers.clear()
+
+    # Redirect stderr to null
+    try:
+        sys.stderr = open(os.devnull, 'w')
+    except:
+        pass
+
+    # Inline minimal MCP server implementation to avoid any imports
+    class InlineMCPServer:
+        def __init__(self, name: str):
+            self.name = name
+            self.tools = {
+                "workspace_status": lambda: {
+                    "status": "active",
+                    "mode": "stdio-isolated-inline",
+                    "workspace": os.getcwd(),
+                    "message": "Inline MCP server running in stdio mode"
+                },
+                "echo_test": lambda message="test": f"Echo: {message}",
+                "server_info": lambda: {
+                    "name": "workspace-qdrant-mcp-stdio",
+                    "version": "1.0.0-inline",
+                    "mode": "stdio_isolated_inline",
+                    "description": "Inline MCP server for complete stdio isolation",
+                    "capabilities": ["workspace_status", "echo_test", "server_info"]
+                }
+            }
+
+        def handle_request(self, request: Dict[str, Any]) -> Dict[str, Any]:
+            if request.get("method") == "initialize":
+                return {
+                    "jsonrpc": "2.0",
+                    "id": request.get("id"),
+                    "result": {
+                        "protocolVersion": "2024-11-05",
+                        "capabilities": {
+                            "tools": {"listChanged": True},
+                            "experimental": {},
+                            "prompts": {"listChanged": False},
+                            "resources": {"subscribe": False, "listChanged": False}
+                        },
+                        "serverInfo": {
+                            "name": self.name,
+                            "version": "1.0.0-inline"
+                        }
+                    }
+                }
+            elif request.get("method") == "tools/list":
+                tools_list = []
+                for tool_name in self.tools.keys():
+                    tools_list.append({
+                        "name": tool_name,
+                        "description": f"{tool_name} tool"
+                    })
+                return {
+                    "jsonrpc": "2.0",
+                    "id": request.get("id"),
+                    "result": {"tools": tools_list}
+                }
+            elif request.get("method") == "tools/call":
+                tool_name = request.get("params", {}).get("name")
+                arguments = request.get("params", {}).get("arguments", {})
+                if tool_name in self.tools:
+                    try:
+                        result = self.tools[tool_name](**arguments)
+                        return {
+                            "jsonrpc": "2.0",
+                            "id": request.get("id"),
+                            "result": {"content": [{"type": "text", "text": str(result)}]}
+                        }
+                    except Exception as e:
+                        return {
+                            "jsonrpc": "2.0",
+                            "id": request.get("id"),
+                            "error": {"code": -32603, "message": f"Tool execution error: {str(e)}"}
+                        }
+                else:
+                    return {
+                        "jsonrpc": "2.0",
+                        "id": request.get("id"),
+                        "error": {"code": -32601, "message": f"Unknown tool: {tool_name}"}
+                    }
+            else:
+                return {
+                    "jsonrpc": "2.0",
+                    "id": request.get("id"),
+                    "error": {"code": -32601, "message": "Method not found"}
+                }
+
+        def run_stdio(self):
+            # Read from stdin and handle MCP requests
+            for line in sys.stdin:
+                line = line.strip()
+                if not line:
+                    continue
+                try:
+                    request = json.loads(line)
+                    response = self.handle_request(request)
+                    print(json.dumps(response), flush=True)
+                except json.JSONDecodeError:
+                    error_response = {
+                        "jsonrpc": "2.0",
+                        "id": None,
+                        "error": {"code": -32700, "message": "Parse error"}
+                    }
+                    print(json.dumps(error_response), flush=True)
+                except Exception:
+                    error_response = {
+                        "jsonrpc": "2.0",
+                        "id": request.get("id") if 'request' in locals() else None,
+                        "error": {"code": -32603, "message": "Internal error"}
+                    }
+                    print(json.dumps(error_response), flush=True)
+
+    # Create and run the inline server
+    app = InlineMCPServer("workspace-qdrant-mcp-stdio")
+    app.run_stdio()
 
 
 if __name__ == "__main__":
