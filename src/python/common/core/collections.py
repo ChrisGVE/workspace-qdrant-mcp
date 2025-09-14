@@ -40,8 +40,9 @@ Example:
 """
 
 import asyncio
-import logging
 import os
+
+from common.logging import get_logger
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Optional
@@ -75,7 +76,7 @@ except ImportError:
     # Fallback for direct imports when not used as a package
     from llm_access_control import validate_llm_collection_access, LLMAccessControlError
 
-logger = logging.getLogger(__name__)
+logger = get_logger(__name__)
 
 
 @dataclass

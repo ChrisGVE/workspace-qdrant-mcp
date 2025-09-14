@@ -42,8 +42,9 @@ Example:
 
 import asyncio
 import hashlib
-import logging
 import re
+
+from common.logging import get_logger
 from typing import Optional, Union
 
 from fastembed import TextEmbedding
@@ -52,7 +53,7 @@ from fastembed.sparse import SparseTextEmbedding
 from .config import Config
 from .sparse_vectors import BM25SparseEncoder
 
-logger = logging.getLogger(__name__)
+logger = get_logger(__name__)
 
 
 class EmbeddingService:

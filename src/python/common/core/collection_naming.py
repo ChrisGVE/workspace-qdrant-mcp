@@ -20,13 +20,14 @@ Key features:
 - Comprehensive validation with detailed error messages
 """
 
-import logging
 import re
+
+from common.logging import get_logger
 from dataclasses import dataclass
 from enum import Enum
 from typing import Dict, List, Optional, Set, Tuple, Any, Union
 
-logger = logging.getLogger(__name__)
+logger = get_logger(__name__)
 
 
 class CollectionType(Enum):
