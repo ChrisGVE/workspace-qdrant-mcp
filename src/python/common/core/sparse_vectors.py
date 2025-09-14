@@ -71,7 +71,7 @@ Example:
     ```
 """
 
-from common.logging import get_logger
+from common.logging.loguru_config import get_logger
 import math
 from collections import Counter, defaultdict
 from typing import Optional

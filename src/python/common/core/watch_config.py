@@ -7,7 +7,7 @@ No JSON files are created - all data is stored in the daemon state database.
 """
 
 import json
-from common.logging import get_logger
+from common.logging.loguru_config import get_logger
 import os
 import sqlite3
 from dataclasses import asdict, dataclass, field

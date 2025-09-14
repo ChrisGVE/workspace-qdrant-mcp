@@ -6,7 +6,7 @@ including advanced pattern matching, collection targeting, and performance tunin
 """
 
 import fnmatch
-from common.logging import get_logger
+from common.logging.loguru_config import get_logger
 import re
 from dataclasses import dataclass, field
 from pathlib import Path

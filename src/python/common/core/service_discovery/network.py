@@ -16,7 +16,7 @@ from dataclasses import dataclass, asdict
 from datetime import datetime, timezone
 from enum import Enum
 from typing import Dict, List, Optional, Union, Callable
-from common.logging import get_logger
+from common.logging.loguru_config import get_logger
 
 from .exceptions import NetworkError
 from .registry import ServiceInfo

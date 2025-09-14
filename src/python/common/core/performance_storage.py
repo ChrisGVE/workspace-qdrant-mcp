@@ -8,7 +8,7 @@ management, trend analysis, and long-term performance tracking capabilities.
 import asyncio
 import gzip
 import json
-from common.logging import get_logger
+from common.logging.loguru_config import get_logger
 import sqlite3
 from collections import defaultdict
 from contextlib import asynccontextmanager

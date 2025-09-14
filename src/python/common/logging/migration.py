@@ -38,7 +38,7 @@ def get_logger(name: str) -> StructuredLogger:
         logger = logging.getLogger(__name__)
 
         # NEW:
-        from common.logging import get_logger
+        from common.logging.loguru_config import get_logger
         logger = get_logger(__name__)
     """
     global _global_config

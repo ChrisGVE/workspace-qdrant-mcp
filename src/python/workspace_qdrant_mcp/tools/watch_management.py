@@ -8,7 +8,7 @@ proper validation and error handling.
 
 import uuid
 
-from common.logging import get_logger
+from common.logging.loguru_config import get_logger
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Optional

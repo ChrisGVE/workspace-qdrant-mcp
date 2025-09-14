@@ -7,7 +7,7 @@ and automatic retry capabilities.
 """
 
 import asyncio
-from common.logging import get_logger
+from common.logging.loguru_config import get_logger
 import os
 import stat
 import time

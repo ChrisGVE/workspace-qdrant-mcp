@@ -8,7 +8,7 @@ including session initialization, conversational updates, and memory queries.
 import asyncio
 from typing import Any, Dict, List, Optional
 
-from common.logging import get_logger
+from common.logging.loguru_config import get_logger
 
 from mcp.server.fastmcp import FastMCP
 

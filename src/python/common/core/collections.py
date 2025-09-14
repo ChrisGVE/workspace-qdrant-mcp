@@ -42,7 +42,7 @@ Example:
 import asyncio
 import os
 
-from common.logging import get_logger
+from common.logging.loguru_config import get_logger
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Optional

@@ -48,7 +48,7 @@ import asyncio
 import logging
 
 # Import unified logging system after stdio setup
-from common.logging import get_logger, safe_log_error
+from common.logging.loguru_config import get_logger, safe_log_error
 
 # Set up unified logging with stdio mode detection
 logger = get_logger(__name__)

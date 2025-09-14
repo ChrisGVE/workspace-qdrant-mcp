@@ -38,7 +38,7 @@ Example:
 import asyncio
 import hashlib
 import json
-from common.logging import get_logger
+from common.logging.loguru_config import get_logger
 import os
 import time
 from contextlib import asynccontextmanager

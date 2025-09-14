@@ -6,7 +6,7 @@ injection and session initialization. It handles the workflow of loading
 memory rules, detecting conflicts, and formatting them for system context.
 """
 
-from common.logging import get_logger
+from common.logging.loguru_config import get_logger
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional, Tuple
 

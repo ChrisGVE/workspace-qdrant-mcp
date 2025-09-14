@@ -26,7 +26,7 @@ import asyncio
 import json
 import re
 
-from common.logging import get_logger
+from common.logging.loguru_config import get_logger
 import time
 from dataclasses import asdict, dataclass
 from datetime import datetime, timezone

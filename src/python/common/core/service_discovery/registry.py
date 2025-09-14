@@ -17,7 +17,7 @@ from enum import Enum
 from pathlib import Path
 from typing import Dict, List, Optional, Union
 import fcntl
-from common.logging import get_logger
+from common.logging.loguru_config import get_logger
 
 from .exceptions import RegistryError
 

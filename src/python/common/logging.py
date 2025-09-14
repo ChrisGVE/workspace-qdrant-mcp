@@ -16,7 +16,7 @@ Example:
         logger = logging.getLogger(__name__)
 
     With this:
-        from common.logging import get_logger
+        from common.logging.loguru_config import get_logger
         logger = get_logger(__name__)
 """
 

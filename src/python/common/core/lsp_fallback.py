@@ -6,7 +6,7 @@ containerization files when no LSPs are detected, ensuring comprehensive
 file coverage even in environments without LSP servers.
 """
 
-from common.logging import get_logger
+from common.logging.loguru_config import get_logger
 import os
 import shutil
 import subprocess

@@ -7,7 +7,7 @@ and performance trends.
 """
 
 import asyncio
-from common.logging import get_logger
+from common.logging.loguru_config import get_logger
 import statistics
 from collections import defaultdict
 from dataclasses import dataclass, field
