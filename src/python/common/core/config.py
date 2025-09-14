@@ -163,8 +163,6 @@ class WorkspaceConfig(BaseModel):
         collection_types: Collection types for multi-tenant architecture (e.g., 'docs', 'notes', 'scratchbook')
         global_collections: Collections available across all projects (user-defined)
         github_user: GitHub username for project ownership detection
-        collection_prefix: Optional prefix for all collection names
-        max_collections: Maximum number of collections per workspace (safety limit)
         auto_create_collections: Whether to automatically create project collections on startup
         memory_collection_name: Name for the system memory collection with '__' prefix support (default: '__memory')
         collections: Legacy field for backward compatibility (use collection_types instead)
@@ -174,8 +172,6 @@ class WorkspaceConfig(BaseModel):
         - collection_types define workspace collection types with multi-tenant metadata filtering
         - global_collections enable cross-project knowledge sharing (user choice)
         - github_user enables intelligent project name detection
-        - collection_prefix helps organize collections in shared Qdrant instances
-        - max_collections prevents runaway collection creation
         - auto_create_collections controls whether collections are created automatically
         - when auto_create_collections=false, no collections are created automatically
 
@@ -190,8 +186,6 @@ class WorkspaceConfig(BaseModel):
     collection_suffixes: list[str] | None = None
     global_collections: list[str] = []
     github_user: str | None = None
-    collection_prefix: str = ""
-    max_collections: int = 100
     auto_create_collections: bool = False
     memory_collection_name: str = "__memory"
     # Legacy field for backward compatibility - will be deprecated
@@ -643,8 +637,6 @@ class Config(BaseSettings):
                 "collection_types": self.workspace.collection_types,
                 "global_collections": self.workspace.global_collections,
                 "github_user": self.workspace.github_user,
-                "collection_prefix": self.workspace.collection_prefix,
-                "max_collections": self.workspace.max_collections,
                 "auto_create_collections": self.workspace.auto_create_collections,
                 "memory_collection_name": self.workspace.memory_collection_name,
             },
@@ -707,12 +699,6 @@ class Config(BaseSettings):
             ]
         if github_user := os.getenv("WORKSPACE_QDRANT_WORKSPACE__GITHUB_USER"):
             self.workspace.github_user = github_user
-        if collection_prefix := os.getenv(
-            "WORKSPACE_QDRANT_WORKSPACE__COLLECTION_PREFIX"
-        ):
-            self.workspace.collection_prefix = collection_prefix
-        if max_collections := os.getenv("WORKSPACE_QDRANT_WORKSPACE__MAX_COLLECTIONS"):
-            self.workspace.max_collections = int(max_collections)
         if auto_create := os.getenv(
             "WORKSPACE_QDRANT_WORKSPACE__AUTO_CREATE_COLLECTIONS"
         ):
@@ -886,10 +872,7 @@ class Config(BaseSettings):
         if len(self.workspace.global_collections) > 50:
             issues.append("Too many global collections configured (max 50 recommended)")
 
-        if self.workspace.max_collections <= 0:
-            issues.append("Max collections must be positive")
-        elif self.workspace.max_collections > 10000:
-            issues.append("Max collections limit is too high (max 10000 recommended)")
+        # Note: max_collections validation removed as part of multi-tenant architecture
 
         # Validate auto-ingestion configuration with graceful fallback behavior
         if self.auto_ingestion.enabled:
