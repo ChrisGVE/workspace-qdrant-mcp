@@ -12,6 +12,9 @@ from pathlib import Path
 from typing import Optional, Union, Any, Dict
 
 from loguru import logger
+from datetime import datetime, timezone
+import platform
+import time
 
 
 def detect_mcp_mode() -> bool:
@@ -235,6 +238,161 @@ def get_logger(name: str) -> Any:
         Configured loguru logger instance
     """
     return logger.bind(logger_name=name)
+
+
+def display_development_banner(
+    project_name: str = "workspace-qdrant-mcp",
+    version: str = "0.2.1dev1",
+    server_mode: str = "MCP",
+    transport: str = "stdio",
+    config_summary: Optional[str] = None,
+    startup_time: Optional[float] = None,
+    force_display: bool = False
+) -> None:
+    """Display an elegant development banner using loguru with rich formatting.
+
+    This function creates a FastMCP-style elegant development banner that provides
+    useful information about the server startup while respecting MCP stdio mode
+    silence requirements.
+
+    Args:
+        project_name: Name of the project/server
+        version: Version string
+        server_mode: Operating mode (MCP, CLI, HTTP, etc.)
+        transport: Transport protocol (stdio, http, sse)
+        config_summary: Brief configuration description
+        startup_time: Time taken to start up in seconds
+        force_display: Force display even in stdio mode (for testing)
+
+    Note:
+        Banner is automatically suppressed in MCP stdio mode unless force_display=True.
+        Output goes to stderr to avoid interfering with MCP JSON-RPC protocol.
+    """
+    # Detect MCP mode and respect silence requirements
+    mcp_mode = detect_mcp_mode()
+
+    if mcp_mode and not force_display:
+        # In MCP stdio mode, respect protocol silence
+        return
+
+    # Get startup timestamp
+    now = datetime.now(timezone.utc)
+    timestamp = now.strftime("%Y-%m-%d %H:%M:%S UTC")
+
+    # Format startup time if provided
+    startup_display = f"{startup_time:.2f}s" if startup_time else "--"
+
+    # Detect platform info
+    platform_info = f"{platform.system()} {platform.machine()}"
+
+    # Create banner components with rich formatting
+    banner_width = 60
+    border_char = "─"
+
+    # Banner header
+    header = f"╭{border_char * (banner_width - 2)}╮"
+    footer = f"╰{border_char * (banner_width - 2)}╯"
+
+    # Format project info line
+    project_line = f"│ 🚀 {project_name:<{banner_width - 6}} │"
+
+    # Format version and mode
+    version_mode = f"v{version} • {server_mode} mode"
+    version_line = f"│ 📦 {version_mode:<{banner_width - 6}} │"
+
+    # Format transport
+    transport_display = f"Transport: {transport.upper()}"
+    transport_line = f"│ 🔗 {transport_display:<{banner_width - 6}} │"
+
+    # Format platform
+    platform_display = f"Platform: {platform_info}"
+    platform_line = f"│ 💻 {platform_display:<{banner_width - 6}} │"
+
+    # Format startup time
+    startup_display_full = f"Started in: {startup_display}"
+    startup_line = f"│ ⚡ {startup_display_full:<{banner_width - 6}} │"
+
+    # Format timestamp
+    time_display = f"Time: {timestamp}"
+    time_line = f"│ 🕒 {time_display:<{banner_width - 6}} │"
+
+    # Optional config line
+    config_line = None
+    if config_summary:
+        config_display = config_summary
+        if len(config_display) > banner_width - 10:
+            config_display = f"{config_display[:banner_width - 13]}..."
+        config_line = f"│ ⚙️  {config_display:<{banner_width - 6}} │"
+
+    # Status line
+    status_display = "Ready for connections"
+    status_line = f"│ ✅ {status_display:<{banner_width - 6}} │"
+
+    # Build complete banner
+    banner_lines = [
+        header,
+        project_line,
+        version_line,
+        f"│{' ' * (banner_width - 2)}│",  # Spacer
+        transport_line,
+        platform_line,
+        startup_line,
+        time_line,
+    ]
+
+    if config_line:
+        banner_lines.extend([
+            f"│{' ' * (banner_width - 2)}│",  # Spacer
+            config_line,
+        ])
+
+    banner_lines.extend([
+        f"│{' ' * (banner_width - 2)}│",  # Spacer
+        status_line,
+        footer
+    ])
+
+    # Use loguru to display with rich formatting
+    # Create a temporary logger that outputs to stderr with colors
+    temp_logger = logger.bind(component="banner")
+
+    # Display banner with loguru's rich formatting
+    for line in banner_lines:
+        # Use loguru's info level with rich markup
+        temp_logger.info(f"<green>{line}</green>")
+
+    # Add separator line
+    temp_logger.info("")
+
+
+def log_startup_event(
+    event: str,
+    component: str,
+    details: Optional[dict] = None,
+    level: str = "INFO"
+) -> None:
+    """Log startup events with structured formatting.
+
+    Args:
+        event: Event description (e.g., "Server starting", "Database connected")
+        component: Component name (e.g., "server", "database", "config")
+        details: Additional structured details
+        level: Log level (DEBUG, INFO, WARNING, ERROR)
+    """
+    startup_logger = get_logger(f"startup.{component}")
+
+    log_data = {
+        "event": event,
+        "component": component,
+        "timestamp": datetime.now(timezone.utc).isoformat(),
+    }
+
+    if details:
+        log_data.update(details)
+
+    # Log with appropriate level
+    log_method = getattr(startup_logger, level.lower(), startup_logger.info)
+    log_method(f"🔧 {event}", **log_data)
 
 
 # Configuration from environment variables
