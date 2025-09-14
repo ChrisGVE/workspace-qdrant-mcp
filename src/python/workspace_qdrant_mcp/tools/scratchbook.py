@@ -56,8 +56,9 @@ Example:
     ```
 """
 
-import logging
 import uuid
+
+from common.logging import get_logger
 from datetime import datetime, timezone
 from typing import Optional
 
@@ -78,7 +79,7 @@ except ImportError:
     # Fallback for direct imports when not used as a package
     from common.core.llm_access_control import validate_llm_collection_access, LLMAccessControlError
 
-logger = logging.getLogger(__name__)
+logger = get_logger(__name__)
 
 
 class ScratchbookManager:
