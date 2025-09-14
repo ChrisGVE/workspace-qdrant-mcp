@@ -258,7 +258,15 @@ if not _STDIO_MODE:
 else:
     # Stdio mode - minimal imports, provide dummy implementations
     # Create dummy decorator for stdio mode
-    def monitor_async(name, critical=False, timeout_warning=None):
+    def monitor_async(
+        operation_name=None,
+        critical=False,
+        timeout_warning=None,
+        slow_threshold=None,
+        include_args=False,
+        include_result=False,
+        **default_context,
+    ):
         def decorator(func):
             return func
         return decorator
