@@ -153,12 +153,11 @@ def run_server(config):
         sys.path.insert(0, str(src_dir))
 
     try:
-        # Use entry point to avoid problematic imports in stdio mode
-        from workspace_qdrant_mcp.entry_point import detect_stdio_mode, run_stdio_mode, run_full_mode
-
-        # Let entry point handle the routing based on transport
-        if config["transport"] == "stdio" and detect_stdio_mode():
-            run_stdio_mode()
+        # For stdio mode, use the standalone server to avoid problematic imports
+        if config["transport"] == "stdio":
+            # Import and run standalone server directly
+            from workspace_qdrant_mcp.standalone_stdio_server import main as standalone_main
+            standalone_main()
         else:
             # For non-stdio modes, import the full server
             from workspace_qdrant_mcp.server import run_server as existing_run_server
