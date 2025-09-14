@@ -15,6 +15,9 @@ import sys
 from pathlib import Path
 from typing import Optional
 
+from loguru import logger
+from common.logging.loguru_config import configure_logging
+
 
 def show_elegant_banner(transport: str, config_file: Optional[str] = None):
     """Display elegant startup banner to stderr (FastMCP style)."""
@@ -172,11 +175,9 @@ def run_server(config):
     except Exception as e:
         if config["verbose"]:
             print(f"❌ Server error: {e}", file=sys.stderr)
-        # Always log errors to file
-        import logging
-        logging.basicConfig(level=logging.ERROR)
-        logger = logging.getLogger(__name__)
-        logger.error(f"Server error: {e}")
+        # Always log errors to file with loguru
+        configure_logging(level="ERROR", console_output=False)
+        logger.error(f"Server error in elegant launcher: {e}")
         sys.exit(1)
 
 
