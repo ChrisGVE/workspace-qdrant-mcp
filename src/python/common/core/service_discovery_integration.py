@@ -7,7 +7,7 @@ Rust daemon.
 """
 
 import asyncio
-import logging
+from common.logging import get_logger
 import os
 import signal
 from typing import Optional
@@ -17,7 +17,7 @@ from .service_discovery import (
     ServiceDiscoveryEvent, ServiceNames
 )
 
-logger = logging.getLogger(__name__)
+logger = get_logger(__name__)
 
 
 class MCPServerWithDiscovery:

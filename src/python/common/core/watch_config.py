@@ -7,7 +7,7 @@ No JSON files are created - all data is stored in the daemon state database.
 """
 
 import json
-import logging
+from common.logging import get_logger
 import os
 import sqlite3
 from dataclasses import asdict, dataclass, field
@@ -24,7 +24,7 @@ except ImportError:
     # Fallback if LSP detector is not available
     get_default_detector = None
 
-logger = logging.getLogger(__name__)
+logger = get_logger(__name__)
 
 
 class WatchConfigSchema(BaseModel):

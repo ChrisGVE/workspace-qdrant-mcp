@@ -6,7 +6,7 @@ including PATH scanning, extension mapping, and caching mechanisms.
 """
 
 import asyncio
-import logging
+from common.logging import get_logger
 import os
 import platform
 import shutil
@@ -25,7 +25,7 @@ except ImportError:
     get_default_cache = None
     LSPCacheEntry = None
 
-logger = logging.getLogger(__name__)
+logger = get_logger(__name__)
 
 
 @dataclass

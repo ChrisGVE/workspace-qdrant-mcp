@@ -6,7 +6,7 @@ when unsupported files are detected, with installation guidance and throttling.
 """
 
 import json
-import logging
+from common.logging import get_logger
 import platform
 import time
 from dataclasses import dataclass, field
@@ -14,7 +14,7 @@ from pathlib import Path
 from typing import Callable, Dict, List, Optional, Set, Any
 from enum import Enum
 
-logger = logging.getLogger(__name__)
+logger = get_logger(__name__)
 
 
 class NotificationLevel(Enum):

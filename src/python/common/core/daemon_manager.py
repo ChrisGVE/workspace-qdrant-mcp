@@ -18,7 +18,7 @@ import asyncio
 import atexit
 import hashlib
 import json
-import logging
+from common.logging import get_logger
 import os
 import platform
 import shutil
@@ -41,7 +41,7 @@ from .project_config_manager import (
     get_project_config_manager
 )
 
-logger = logging.getLogger(__name__)
+logger = get_logger(__name__)
 
 
 @dataclass

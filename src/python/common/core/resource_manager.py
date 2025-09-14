@@ -9,7 +9,7 @@ monitoring integration for comprehensive resource optimization.
 
 import asyncio
 import json
-import logging
+from common.logging import get_logger
 import os
 import psutil
 import resource
@@ -23,7 +23,7 @@ from pathlib import Path
 from typing import Dict, List, Optional, Set, Any, Callable
 from datetime import datetime, timedelta
 
-logger = logging.getLogger(__name__)
+logger = get_logger(__name__)
 
 
 @dataclass

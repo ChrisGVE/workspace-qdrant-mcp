@@ -8,7 +8,7 @@ management, trend analysis, and long-term performance tracking capabilities.
 import asyncio
 import gzip
 import json
-import logging
+from common.logging import get_logger
 import sqlite3
 from collections import defaultdict
 from contextlib import asynccontextmanager
@@ -24,7 +24,7 @@ from .performance_metrics import (
 )
 from .performance_analytics import PerformanceReport, OptimizationRecommendation
 
-logger = logging.getLogger(__name__)
+logger = get_logger(__name__)
 
 
 class PerformanceStorage:

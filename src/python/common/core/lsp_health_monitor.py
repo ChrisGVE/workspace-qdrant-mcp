@@ -21,7 +21,7 @@ Features:
 
 import asyncio
 import json
-import logging
+from common.logging import get_logger
 import os
 import time
 from contextlib import asynccontextmanager

@@ -6,7 +6,7 @@ including settings persistence, cache management, and validation.
 """
 
 import json
-import logging
+from common.logging import get_logger
 import os
 import threading
 import time
@@ -17,7 +17,7 @@ from typing import Any, Dict, List, Optional, Set, Union
 
 from pydantic import BaseModel, Field, ValidationError, field_validator
 
-logger = logging.getLogger(__name__)
+logger = get_logger(__name__)
 
 
 class LSPConfigSchema(BaseModel):

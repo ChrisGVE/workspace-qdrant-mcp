@@ -42,7 +42,7 @@ Example:
 
 import asyncio
 import json
-import logging
+from common.logging import get_logger
 import os
 import psutil
 import time
@@ -66,7 +66,7 @@ from .incremental_processor import (
     ChangeType
 )
 
-logger = logging.getLogger(__name__)
+logger = get_logger(__name__)
 
 
 class MCPActivityLevel(Enum):
