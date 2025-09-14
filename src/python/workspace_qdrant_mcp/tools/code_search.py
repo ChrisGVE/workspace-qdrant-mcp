@@ -66,7 +66,6 @@ from enum import Enum
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Set, Tuple, Union
 
-import structlog
 from fuzzywuzzy import fuzz, process
 
 from common.core.client import QdrantWorkspaceClient

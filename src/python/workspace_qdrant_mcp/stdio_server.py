@@ -103,19 +103,7 @@ if _STDIO_MODE:
         # Rich not available, skip
         pass
 
-# Configure Structlog to use null handler in stdio mode
-if _STDIO_MODE:
-    try:
-        import structlog
-        structlog.configure(
-            processors=[],
-            wrapper_class=structlog.make_filtering_bound_logger(logging.CRITICAL),
-            logger_factory=lambda: logging.getLogger().addHandler(_NullHandler()) or logging.getLogger(),
-            cache_logger_on_first_use=True,
-        )
-    except ImportError:
-        # Structlog not available, skip
-        pass
+# Structlog configuration removed - now using loguru via common.logging.loguru_config
 
 # Configure Typer to redirect stderr in stdio mode
 if _STDIO_MODE:

@@ -15,7 +15,6 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, Optional
 
-import structlog
 
 
 class PerformanceLogger:
@@ -23,28 +22,13 @@ class PerformanceLogger:
 
     def __init__(self):
         self.setup_structured_logging()
-        self.logger = structlog.get_logger(__name__)
+        self.logger = get_logger(__name__)
 
     def setup_structured_logging(self):
         """Configure structured logging with JSON output."""
 
-        # Configure structlog for JSON output
-        structlog.configure(
-            processors=[
-                structlog.stdlib.filter_by_level,
-                structlog.stdlib.add_logger_name,
-                structlog.stdlib.add_log_level,
-                structlog.stdlib.PositionalArgumentsFormatter(),
-                structlog.processors.StackInfoRenderer(),
-                structlog.processors.format_exc_info,
-                structlog.processors.UnicodeDecoder(),
-                structlog.processors.JSONRenderer(),
-            ],
-            context_class=dict,
-            logger_factory=structlog.stdlib.LoggerFactory(),
-            wrapper_class=structlog.stdlib.BoundLogger,
-            cache_logger_on_first_use=True,
-        )
+        # Structured logging now handled by loguru_config.py
+        pass
 
         # Set up Python logging
         logging.basicConfig(

@@ -43,7 +43,6 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional, Set, Tuple, Union
 from urllib.parse import urlparse
 
-import structlog
 
 from .error_handling import WorkspaceError, ErrorCategory, ErrorSeverity
 from .language_filters import LanguageAwareFilter
