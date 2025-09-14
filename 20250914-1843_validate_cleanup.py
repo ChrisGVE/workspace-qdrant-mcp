@@ -4,6 +4,7 @@ Script to validate the loguru migration cleanup was successful.
 Tests import paths, server startup, and CLI functionality.
 """
 
+import os
 import sys
 import subprocess
 import importlib
@@ -12,6 +13,9 @@ from pathlib import Path
 def test_imports():
     """Test that all imports work correctly after cleanup."""
     print("Testing imports...")
+
+    # Add src/python to path for testing
+    sys.path.insert(0, "src/python")
 
     test_modules = [
         "common.logging.loguru_config",
@@ -27,6 +31,8 @@ def test_imports():
 
     for module in test_modules:
         try:
+            # Set environment to prevent actual server operations
+            os.environ["WQM_STDIO_MODE"] = "true"
             importlib.import_module(module)
             print(f"  ✓ {module}")
         except Exception as e:
@@ -131,7 +137,6 @@ def verify_files_removed():
         "src/python/common/logging/formatters.py",
         "src/python/common/logging/handlers.py",
         "src/python/common/logging/core.py",
-        "src/python/common/logging/__init__.py",
         "src/python/common/logging/migration.py",
         "src/python/common/observability/logger.py",
     ]

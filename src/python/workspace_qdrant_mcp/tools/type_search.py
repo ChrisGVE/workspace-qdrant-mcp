@@ -68,7 +68,7 @@ from common.core.error_handling import WorkspaceError, ErrorCategory, ErrorSever
 from common.core.lsp_metadata_extractor import SymbolKind, TypeInformation, CodeSymbol
 from .code_search import CodeSearchEngine, CodeSearchResult, SignatureSearchQuery
 
-logger = structlog.get_logger(__name__)
+logger = get_logger(__name__)
 
 
 class TypeMatchMode(Enum):

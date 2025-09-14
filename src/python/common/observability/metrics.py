@@ -44,7 +44,7 @@ from typing import Any, Dict, List, Optional, Set
 
 import psutil
 
-from .logger import get_logger
+from common.logging.loguru_config import get_logger
 
 logger = get_logger(__name__)
 

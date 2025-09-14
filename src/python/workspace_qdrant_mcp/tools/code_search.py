@@ -75,7 +75,7 @@ from common.core.lsp_metadata_extractor import SymbolKind, RelationshipType, Cod
 from common.core.sparse_vectors import create_named_sparse_vector
 from .search import search_workspace, search_collection_by_metadata
 
-logger = structlog.get_logger(__name__)
+logger = get_logger(__name__)
 
 
 class CodeSearchMode(Enum):

@@ -47,8 +47,9 @@ from urllib.parse import urlparse
 from .error_handling import WorkspaceError, ErrorCategory, ErrorSeverity
 from .language_filters import LanguageAwareFilter
 from .lsp_client import AsyncioLspClient, LspError, ConnectionState
+from ..logging.loguru_config import get_logger
 
-logger = structlog.get_logger(__name__)
+logger = get_logger(__name__)
 
 
 class SymbolKind(Enum):
