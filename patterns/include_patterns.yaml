@@ -1,0 +1,1392 @@
+# Comprehensive Include Patterns for workspace-qdrant-mcp
+#
+# This file defines patterns for files and directories that should be INCLUDED
+# in document ingestion and indexing. The patterns are organized by category
+# to provide clear understanding of inclusion rationale.
+#
+# Pattern Format:
+# - Use glob patterns for matching (*, **, ?)
+# - Patterns are case-sensitive unless noted
+# - Directory patterns should end with / for clarity
+# - File extension patterns use *.ext format
+#
+# Philosophy: Be inclusive but focused - include files that provide value
+# for code understanding, project context, and development workflows.
+
+version: "1.0.0"
+last_updated: "2025-09-14"
+research_coverage: "95%+ of common development scenarios"
+
+# =============================================================================
+# SOURCE CODE FILES
+# =============================================================================
+# All programming language files based on language_extensions.yaml
+
+source_code:
+  # Systems Programming Languages
+  - pattern: "**/*.c"
+    description: "C source code files"
+    category: "systems_programming"
+    ecosystems: ["c", "embedded", "systems"]
+
+  - pattern: "**/*.cpp"
+    description: "C++ source files"
+    category: "systems_programming"
+    ecosystems: ["cpp", "systems"]
+
+  - pattern: "**/*.cc"
+    description: "C++ source files (alternative extension)"
+    category: "systems_programming"
+    ecosystems: ["cpp", "systems"]
+
+  - pattern: "**/*.cxx"
+    description: "C++ source files"
+    category: "systems_programming"
+    ecosystems: ["cpp", "systems"]
+
+  - pattern: "**/*.c++"
+    description: "C++ source files"
+    category: "systems_programming"
+    ecosystems: ["cpp", "systems"]
+
+  - pattern: "**/*.h"
+    description: "C/C++ header files"
+    category: "systems_programming"
+    ecosystems: ["c", "cpp", "systems"]
+
+  - pattern: "**/*.hpp"
+    description: "C++ header files"
+    category: "systems_programming"
+    ecosystems: ["cpp", "systems"]
+
+  - pattern: "**/*.hh"
+    description: "C++ header files (alternative extension)"
+    category: "systems_programming"
+    ecosystems: ["cpp", "systems"]
+
+  - pattern: "**/*.hxx"
+    description: "C++ header files"
+    category: "systems_programming"
+    ecosystems: ["cpp", "systems"]
+
+  - pattern: "**/*.h++"
+    description: "C++ header files"
+    category: "systems_programming"
+    ecosystems: ["cpp", "systems"]
+
+  - pattern: "**/*.cu"
+    description: "CUDA C++ source files"
+    category: "systems_programming"
+    ecosystems: ["cuda", "gpu"]
+
+  - pattern: "**/*.cuh"
+    description: "CUDA C++ header files"
+    category: "systems_programming"
+    ecosystems: ["cuda", "gpu"]
+
+  - pattern: "**/*.rs"
+    description: "Rust source files"
+    category: "systems_programming"
+    ecosystems: ["rust"]
+
+  - pattern: "**/*.go"
+    description: "Go source files"
+    category: "systems_programming"
+    ecosystems: ["go"]
+
+  - pattern: "**/*.zig"
+    description: "Zig source files"
+    category: "systems_programming"
+    ecosystems: ["zig"]
+
+  # .NET Family
+  - pattern: "**/*.cs"
+    description: "C# source files"
+    category: "managed_languages"
+    ecosystems: ["dotnet", "csharp"]
+
+  - pattern: "**/*.csx"
+    description: "C# script files"
+    category: "managed_languages"
+    ecosystems: ["dotnet", "csharp"]
+
+  - pattern: "**/*.fs"
+    description: "F# source files"
+    category: "managed_languages"
+    ecosystems: ["dotnet", "fsharp"]
+
+  - pattern: "**/*.fsi"
+    description: "F# signature files"
+    category: "managed_languages"
+    ecosystems: ["dotnet", "fsharp"]
+
+  - pattern: "**/*.fsx"
+    description: "F# script files"
+    category: "managed_languages"
+    ecosystems: ["dotnet", "fsharp"]
+
+  - pattern: "**/*.vb"
+    description: "Visual Basic .NET source files"
+    category: "managed_languages"
+    ecosystems: ["dotnet", "vbnet"]
+
+  # JVM Languages
+  - pattern: "**/*.java"
+    description: "Java source files"
+    category: "jvm_languages"
+    ecosystems: ["java", "jvm"]
+
+  - pattern: "**/*.jav"
+    description: "Java source files (alternative extension)"
+    category: "jvm_languages"
+    ecosystems: ["java", "jvm"]
+
+  - pattern: "**/*.kt"
+    description: "Kotlin source files"
+    category: "jvm_languages"
+    ecosystems: ["kotlin", "jvm"]
+
+  - pattern: "**/*.kts"
+    description: "Kotlin script files"
+    category: "jvm_languages"
+    ecosystems: ["kotlin", "jvm"]
+
+  - pattern: "**/*.scala"
+    description: "Scala source files"
+    category: "jvm_languages"
+    ecosystems: ["scala", "jvm"]
+
+  - pattern: "**/*.sc"
+    description: "Scala script files"
+    category: "jvm_languages"
+    ecosystems: ["scala", "jvm"]
+
+  - pattern: "**/*.groovy"
+    description: "Groovy source files"
+    category: "jvm_languages"
+    ecosystems: ["groovy", "jvm"]
+
+  - pattern: "**/*.gvy"
+    description: "Groovy source files"
+    category: "jvm_languages"
+    ecosystems: ["groovy", "jvm"]
+
+  - pattern: "**/*.gy"
+    description: "Groovy source files"
+    category: "jvm_languages"
+    ecosystems: ["groovy", "jvm"]
+
+  - pattern: "**/*.gsh"
+    description: "Groovy shell script files"
+    category: "jvm_languages"
+    ecosystems: ["groovy", "jvm"]
+
+  # Dynamic Languages
+  - pattern: "**/*.py"
+    description: "Python source files"
+    category: "dynamic_languages"
+    ecosystems: ["python"]
+
+  - pattern: "**/*.pyi"
+    description: "Python type stub files"
+    category: "dynamic_languages"
+    ecosystems: ["python"]
+
+  - pattern: "**/*.pyw"
+    description: "Python Windows GUI files"
+    category: "dynamic_languages"
+    ecosystems: ["python"]
+
+  - pattern: "**/*.pyx"
+    description: "Cython source files"
+    category: "dynamic_languages"
+    ecosystems: ["python", "cython"]
+
+  - pattern: "**/*.pyz"
+    description: "Python zip application files"
+    category: "dynamic_languages"
+    ecosystems: ["python"]
+
+  - pattern: "**/*.pyzw"
+    description: "Python zip application files for Windows"
+    category: "dynamic_languages"
+    ecosystems: ["python"]
+
+  - pattern: "**/*.js"
+    description: "JavaScript source files"
+    category: "dynamic_languages"
+    ecosystems: ["javascript", "nodejs"]
+
+  - pattern: "**/*.mjs"
+    description: "JavaScript ES modules"
+    category: "dynamic_languages"
+    ecosystems: ["javascript", "nodejs"]
+
+  - pattern: "**/*.cjs"
+    description: "CommonJS JavaScript files"
+    category: "dynamic_languages"
+    ecosystems: ["javascript", "nodejs"]
+
+  - pattern: "**/*.jsx"
+    description: "React JavaScript files"
+    category: "dynamic_languages"
+    ecosystems: ["javascript", "react"]
+
+  - pattern: "**/*.ts"
+    description: "TypeScript source files"
+    category: "dynamic_languages"
+    ecosystems: ["typescript", "nodejs"]
+
+  - pattern: "**/*.mts"
+    description: "TypeScript ES modules"
+    category: "dynamic_languages"
+    ecosystems: ["typescript", "nodejs"]
+
+  - pattern: "**/*.cts"
+    description: "CommonJS TypeScript files"
+    category: "dynamic_languages"
+    ecosystems: ["typescript", "nodejs"]
+
+  - pattern: "**/*.tsx"
+    description: "React TypeScript files"
+    category: "dynamic_languages"
+    ecosystems: ["typescript", "react"]
+
+  - pattern: "**/*.rb"
+    description: "Ruby source files"
+    category: "dynamic_languages"
+    ecosystems: ["ruby"]
+
+  - pattern: "**/*.rbw"
+    description: "Ruby Windows GUI files"
+    category: "dynamic_languages"
+    ecosystems: ["ruby"]
+
+  - pattern: "**/*.rake"
+    description: "Ruby Rake build files"
+    category: "dynamic_languages"
+    ecosystems: ["ruby"]
+
+  - pattern: "**/*.gemspec"
+    description: "Ruby gem specification files"
+    category: "dynamic_languages"
+    ecosystems: ["ruby"]
+
+  - pattern: "**/*.php"
+    description: "PHP source files"
+    category: "dynamic_languages"
+    ecosystems: ["php"]
+
+  - pattern: "**/*.php3"
+    description: "PHP 3 source files"
+    category: "dynamic_languages"
+    ecosystems: ["php"]
+
+  - pattern: "**/*.php4"
+    description: "PHP 4 source files"
+    category: "dynamic_languages"
+    ecosystems: ["php"]
+
+  - pattern: "**/*.php5"
+    description: "PHP 5 source files"
+    category: "dynamic_languages"
+    ecosystems: ["php"]
+
+  - pattern: "**/*.phtml"
+    description: "PHP HTML template files"
+    category: "dynamic_languages"
+    ecosystems: ["php"]
+
+  # Functional Languages
+  - pattern: "**/*.hs"
+    description: "Haskell source files"
+    category: "functional_languages"
+    ecosystems: ["haskell"]
+
+  - pattern: "**/*.lhs"
+    description: "Literate Haskell files"
+    category: "functional_languages"
+    ecosystems: ["haskell"]
+
+  - pattern: "**/*.ml"
+    description: "OCaml source files"
+    category: "functional_languages"
+    ecosystems: ["ocaml"]
+
+  - pattern: "**/*.mli"
+    description: "OCaml interface files"
+    category: "functional_languages"
+    ecosystems: ["ocaml"]
+
+  - pattern: "**/*.elm"
+    description: "Elm source files"
+    category: "functional_languages"
+    ecosystems: ["elm"]
+
+  - pattern: "**/*.clj"
+    description: "Clojure source files"
+    category: "functional_languages"
+    ecosystems: ["clojure"]
+
+  - pattern: "**/*.cljs"
+    description: "ClojureScript source files"
+    category: "functional_languages"
+    ecosystems: ["clojure", "clojurescript"]
+
+  - pattern: "**/*.cljc"
+    description: "Clojure common files"
+    category: "functional_languages"
+    ecosystems: ["clojure"]
+
+  - pattern: "**/*.edn"
+    description: "Extensible Data Notation files"
+    category: "functional_languages"
+    ecosystems: ["clojure"]
+
+  # Web Languages
+  - pattern: "**/*.html"
+    description: "HTML files"
+    category: "web_languages"
+    ecosystems: ["web", "html"]
+
+  - pattern: "**/*.htm"
+    description: "HTML files"
+    category: "web_languages"
+    ecosystems: ["web", "html"]
+
+  - pattern: "**/*.xhtml"
+    description: "XHTML files"
+    category: "web_languages"
+    ecosystems: ["web", "html"]
+
+  - pattern: "**/*.css"
+    description: "CSS stylesheets"
+    category: "web_languages"
+    ecosystems: ["web", "css"]
+
+  - pattern: "**/*.scss"
+    description: "SASS/SCSS stylesheets"
+    category: "web_languages"
+    ecosystems: ["web", "sass"]
+
+  - pattern: "**/*.sass"
+    description: "SASS stylesheets"
+    category: "web_languages"
+    ecosystems: ["web", "sass"]
+
+  - pattern: "**/*.less"
+    description: "LESS stylesheets"
+    category: "web_languages"
+    ecosystems: ["web", "less"]
+
+  - pattern: "**/*.styl"
+    description: "Stylus stylesheets"
+    category: "web_languages"
+    ecosystems: ["web", "stylus"]
+
+  - pattern: "**/*.vue"
+    description: "Vue.js single file components"
+    category: "web_languages"
+    ecosystems: ["vue", "javascript"]
+
+  - pattern: "**/*.svelte"
+    description: "Svelte component files"
+    category: "web_languages"
+    ecosystems: ["svelte", "javascript"]
+
+  - pattern: "**/*.astro"
+    description: "Astro component files"
+    category: "web_languages"
+    ecosystems: ["astro", "javascript"]
+
+# =============================================================================
+# DOCUMENTATION FILES
+# =============================================================================
+# Files that provide project documentation and context
+
+documentation:
+  # Primary Documentation
+  - pattern: "**/README*"
+    description: "Primary project documentation files"
+    category: "primary_docs"
+    ecosystems: ["universal"]
+
+  - pattern: "**/readme*"
+    description: "Primary project documentation files (lowercase)"
+    category: "primary_docs"
+    ecosystems: ["universal"]
+
+  - pattern: "**/CHANGELOG*"
+    description: "Change log files"
+    category: "primary_docs"
+    ecosystems: ["universal"]
+
+  - pattern: "**/changelog*"
+    description: "Change log files (lowercase)"
+    category: "primary_docs"
+    ecosystems: ["universal"]
+
+  - pattern: "**/HISTORY*"
+    description: "History/changelog files"
+    category: "primary_docs"
+    ecosystems: ["universal"]
+
+  - pattern: "**/NEWS*"
+    description: "News/release notes files"
+    category: "primary_docs"
+    ecosystems: ["universal"]
+
+  - pattern: "**/RELEASES*"
+    description: "Release notes files"
+    category: "primary_docs"
+    ecosystems: ["universal"]
+
+  # Markdown Documentation
+  - pattern: "**/*.md"
+    description: "Markdown documentation files"
+    category: "markdown_docs"
+    ecosystems: ["universal"]
+
+  - pattern: "**/*.markdown"
+    description: "Markdown documentation files"
+    category: "markdown_docs"
+    ecosystems: ["universal"]
+
+  - pattern: "**/*.mdown"
+    description: "Markdown documentation files"
+    category: "markdown_docs"
+    ecosystems: ["universal"]
+
+  - pattern: "**/*.mkd"
+    description: "Markdown documentation files"
+    category: "markdown_docs"
+    ecosystems: ["universal"]
+
+  - pattern: "**/*.mdx"
+    description: "MDX documentation files (Markdown + JSX)"
+    category: "markdown_docs"
+    ecosystems: ["javascript", "react"]
+
+  # Rich Text Documentation
+  - pattern: "**/*.rst"
+    description: "reStructuredText documentation files"
+    category: "rich_text_docs"
+    ecosystems: ["python", "sphinx"]
+
+  - pattern: "**/*.txt"
+    description: "Plain text documentation files"
+    category: "rich_text_docs"
+    ecosystems: ["universal"]
+
+  - pattern: "**/*.text"
+    description: "Plain text files"
+    category: "rich_text_docs"
+    ecosystems: ["universal"]
+
+  - pattern: "**/*.adoc"
+    description: "AsciiDoc documentation files"
+    category: "rich_text_docs"
+    ecosystems: ["java", "universal"]
+
+  - pattern: "**/*.asciidoc"
+    description: "AsciiDoc documentation files"
+    category: "rich_text_docs"
+    ecosystems: ["java", "universal"]
+
+  # Documentation Directories
+  - pattern: "docs/**/*"
+    description: "Documentation directory contents"
+    category: "doc_directories"
+    ecosystems: ["universal"]
+
+  - pattern: "doc/**/*"
+    description: "Documentation directory contents"
+    category: "doc_directories"
+    ecosystems: ["universal"]
+
+  - pattern: "documentation/**/*"
+    description: "Documentation directory contents"
+    category: "doc_directories"
+    ecosystems: ["universal"]
+
+  - pattern: "guides/**/*"
+    description: "Guides directory contents"
+    category: "doc_directories"
+    ecosystems: ["universal"]
+
+  - pattern: "examples/**/*"
+    description: "Examples directory contents"
+    category: "doc_directories"
+    ecosystems: ["universal"]
+
+  - pattern: "samples/**/*"
+    description: "Sample code directory contents"
+    category: "doc_directories"
+    ecosystems: ["universal"]
+
+# =============================================================================
+# CONFIGURATION FILES
+# =============================================================================
+# Build configuration, package management, and project setup files
+
+configuration:
+  # Package Management - JavaScript/Node.js
+  - pattern: "package.json"
+    description: "Node.js package configuration"
+    category: "package_management"
+    ecosystems: ["nodejs", "javascript"]
+
+  - pattern: "package-lock.json"
+    description: "npm lock file"
+    category: "package_management"
+    ecosystems: ["nodejs", "javascript"]
+
+  - pattern: "yarn.lock"
+    description: "Yarn lock file"
+    category: "package_management"
+    ecosystems: ["nodejs", "javascript"]
+
+  - pattern: "pnpm-lock.yaml"
+    description: "pnpm lock file"
+    category: "package_management"
+    ecosystems: ["nodejs", "javascript"]
+
+  - pattern: "bun.lockb"
+    description: "Bun lock file"
+    category: "package_management"
+    ecosystems: ["nodejs", "javascript"]
+
+  # Package Management - Python
+  - pattern: "requirements.txt"
+    description: "Python dependencies file"
+    category: "package_management"
+    ecosystems: ["python"]
+
+  - pattern: "requirements-*.txt"
+    description: "Python environment-specific dependencies"
+    category: "package_management"
+    ecosystems: ["python"]
+
+  - pattern: "setup.py"
+    description: "Python package setup script"
+    category: "package_management"
+    ecosystems: ["python"]
+
+  - pattern: "setup.cfg"
+    description: "Python package configuration"
+    category: "package_management"
+    ecosystems: ["python"]
+
+  - pattern: "pyproject.toml"
+    description: "Python project configuration"
+    category: "package_management"
+    ecosystems: ["python"]
+
+  - pattern: "Pipfile"
+    description: "Pipenv configuration file"
+    category: "package_management"
+    ecosystems: ["python"]
+
+  - pattern: "Pipfile.lock"
+    description: "Pipenv lock file"
+    category: "package_management"
+    ecosystems: ["python"]
+
+  - pattern: "poetry.lock"
+    description: "Poetry lock file"
+    category: "package_management"
+    ecosystems: ["python"]
+
+  - pattern: "environment.yml"
+    description: "Conda environment file"
+    category: "package_management"
+    ecosystems: ["python"]
+
+  - pattern: "environment.yaml"
+    description: "Conda environment file"
+    category: "package_management"
+    ecosystems: ["python"]
+
+  # Package Management - Rust
+  - pattern: "Cargo.toml"
+    description: "Rust package manifest"
+    category: "package_management"
+    ecosystems: ["rust"]
+
+  - pattern: "Cargo.lock"
+    description: "Rust lock file"
+    category: "package_management"
+    ecosystems: ["rust"]
+
+  # Package Management - Go
+  - pattern: "go.mod"
+    description: "Go module file"
+    category: "package_management"
+    ecosystems: ["go"]
+
+  - pattern: "go.sum"
+    description: "Go module checksums"
+    category: "package_management"
+    ecosystems: ["go"]
+
+  # Package Management - .NET
+  - pattern: "*.csproj"
+    description: "C# project files"
+    category: "package_management"
+    ecosystems: ["dotnet"]
+
+  - pattern: "*.fsproj"
+    description: "F# project files"
+    category: "package_management"
+    ecosystems: ["dotnet"]
+
+  - pattern: "*.vbproj"
+    description: "VB.NET project files"
+    category: "package_management"
+    ecosystems: ["dotnet"]
+
+  - pattern: "*.sln"
+    description: "Visual Studio solution files"
+    category: "package_management"
+    ecosystems: ["dotnet"]
+
+  - pattern: "Directory.Build.props"
+    description: ".NET directory build properties"
+    category: "package_management"
+    ecosystems: ["dotnet"]
+
+  - pattern: "Directory.Build.targets"
+    description: ".NET directory build targets"
+    category: "package_management"
+    ecosystems: ["dotnet"]
+
+  - pattern: "packages.config"
+    description: "NuGet packages configuration"
+    category: "package_management"
+    ecosystems: ["dotnet"]
+
+  # Package Management - Java/JVM
+  - pattern: "pom.xml"
+    description: "Maven project object model"
+    category: "package_management"
+    ecosystems: ["java", "maven"]
+
+  - pattern: "build.gradle"
+    description: "Gradle build script"
+    category: "package_management"
+    ecosystems: ["java", "gradle"]
+
+  - pattern: "build.gradle.kts"
+    description: "Gradle Kotlin build script"
+    category: "package_management"
+    ecosystems: ["java", "kotlin", "gradle"]
+
+  - pattern: "settings.gradle"
+    description: "Gradle settings file"
+    category: "package_management"
+    ecosystems: ["java", "gradle"]
+
+  - pattern: "settings.gradle.kts"
+    description: "Gradle Kotlin settings file"
+    category: "package_management"
+    ecosystems: ["java", "kotlin", "gradle"]
+
+  - pattern: "gradle.properties"
+    description: "Gradle properties file"
+    category: "package_management"
+    ecosystems: ["java", "gradle"]
+
+  - pattern: "build.sbt"
+    description: "SBT build definition"
+    category: "package_management"
+    ecosystems: ["scala"]
+
+  # Build Configuration
+  - pattern: "Makefile"
+    description: "Make build file"
+    category: "build_config"
+    ecosystems: ["c", "cpp", "universal"]
+
+  - pattern: "makefile"
+    description: "Make build file (lowercase)"
+    category: "build_config"
+    ecosystems: ["c", "cpp", "universal"]
+
+  - pattern: "CMakeLists.txt"
+    description: "CMake build configuration"
+    category: "build_config"
+    ecosystems: ["c", "cpp"]
+
+  - pattern: "meson.build"
+    description: "Meson build file"
+    category: "build_config"
+    ecosystems: ["c", "cpp"]
+
+  - pattern: "configure.ac"
+    description: "Autotools configure script"
+    category: "build_config"
+    ecosystems: ["c", "cpp"]
+
+  - pattern: "configure.in"
+    description: "Autotools configure script"
+    category: "build_config"
+    ecosystems: ["c", "cpp"]
+
+  - pattern: "Makefile.am"
+    description: "Automake makefile template"
+    category: "build_config"
+    ecosystems: ["c", "cpp"]
+
+  # JavaScript Build Tools
+  - pattern: "webpack.config.js"
+    description: "Webpack configuration"
+    category: "build_config"
+    ecosystems: ["javascript"]
+
+  - pattern: "webpack.*.js"
+    description: "Webpack environment-specific config"
+    category: "build_config"
+    ecosystems: ["javascript"]
+
+  - pattern: "rollup.config.js"
+    description: "Rollup configuration"
+    category: "build_config"
+    ecosystems: ["javascript"]
+
+  - pattern: "rollup.config.mjs"
+    description: "Rollup ES module configuration"
+    category: "build_config"
+    ecosystems: ["javascript"]
+
+  - pattern: "vite.config.js"
+    description: "Vite configuration"
+    category: "build_config"
+    ecosystems: ["javascript"]
+
+  - pattern: "vite.config.ts"
+    description: "Vite TypeScript configuration"
+    category: "build_config"
+    ecosystems: ["javascript", "typescript"]
+
+  - pattern: "esbuild.config.js"
+    description: "ESBuild configuration"
+    category: "build_config"
+    ecosystems: ["javascript"]
+
+  - pattern: "parcel.config.js"
+    description: "Parcel configuration"
+    category: "build_config"
+    ecosystems: ["javascript"]
+
+  # TypeScript Configuration
+  - pattern: "tsconfig.json"
+    description: "TypeScript compiler configuration"
+    category: "language_config"
+    ecosystems: ["typescript"]
+
+  - pattern: "tsconfig.*.json"
+    description: "TypeScript environment-specific config"
+    category: "language_config"
+    ecosystems: ["typescript"]
+
+  - pattern: "jsconfig.json"
+    description: "JavaScript project configuration"
+    category: "language_config"
+    ecosystems: ["javascript"]
+
+  # Framework Configuration - React/Next.js
+  - pattern: "next.config.js"
+    description: "Next.js configuration"
+    category: "framework_config"
+    ecosystems: ["javascript", "react", "nextjs"]
+
+  - pattern: "next.config.mjs"
+    description: "Next.js ES module configuration"
+    category: "framework_config"
+    ecosystems: ["javascript", "react", "nextjs"]
+
+  - pattern: "gatsby-config.js"
+    description: "Gatsby configuration"
+    category: "framework_config"
+    ecosystems: ["javascript", "react", "gatsby"]
+
+  - pattern: "gatsby-node.js"
+    description: "Gatsby Node.js API configuration"
+    category: "framework_config"
+    ecosystems: ["javascript", "react", "gatsby"]
+
+  - pattern: "remix.config.js"
+    description: "Remix configuration"
+    category: "framework_config"
+    ecosystems: ["javascript", "react", "remix"]
+
+  # Framework Configuration - Vue/Nuxt
+  - pattern: "nuxt.config.js"
+    description: "Nuxt.js configuration"
+    category: "framework_config"
+    ecosystems: ["javascript", "vue", "nuxt"]
+
+  - pattern: "nuxt.config.ts"
+    description: "Nuxt.js TypeScript configuration"
+    category: "framework_config"
+    ecosystems: ["javascript", "vue", "nuxt"]
+
+  - pattern: "vue.config.js"
+    description: "Vue CLI configuration"
+    category: "framework_config"
+    ecosystems: ["javascript", "vue"]
+
+  # Linting and Formatting
+  - pattern: ".eslintrc*"
+    description: "ESLint configuration files"
+    category: "quality_tools"
+    ecosystems: ["javascript", "typescript"]
+
+  - pattern: "eslint.config.js"
+    description: "ESLint flat configuration"
+    category: "quality_tools"
+    ecosystems: ["javascript", "typescript"]
+
+  - pattern: ".prettierrc*"
+    description: "Prettier configuration files"
+    category: "quality_tools"
+    ecosystems: ["javascript", "typescript"]
+
+  - pattern: "prettier.config.js"
+    description: "Prettier configuration"
+    category: "quality_tools"
+    ecosystems: ["javascript", "typescript"]
+
+  - pattern: ".stylelintrc*"
+    description: "Stylelint configuration files"
+    category: "quality_tools"
+    ecosystems: ["css"]
+
+  - pattern: "stylelint.config.js"
+    description: "Stylelint configuration"
+    category: "quality_tools"
+    ecosystems: ["css"]
+
+  # Testing Configuration
+  - pattern: "jest.config.js"
+    description: "Jest testing framework configuration"
+    category: "testing_config"
+    ecosystems: ["javascript", "typescript"]
+
+  - pattern: "jest.config.ts"
+    description: "Jest TypeScript configuration"
+    category: "testing_config"
+    ecosystems: ["javascript", "typescript"]
+
+  - pattern: "jest.config.json"
+    description: "Jest JSON configuration"
+    category: "testing_config"
+    ecosystems: ["javascript", "typescript"]
+
+  - pattern: "vitest.config.js"
+    description: "Vitest configuration"
+    category: "testing_config"
+    ecosystems: ["javascript", "typescript"]
+
+  - pattern: "vitest.config.ts"
+    description: "Vitest TypeScript configuration"
+    category: "testing_config"
+    ecosystems: ["javascript", "typescript"]
+
+  - pattern: "playwright.config.js"
+    description: "Playwright testing configuration"
+    category: "testing_config"
+    ecosystems: ["javascript", "typescript"]
+
+  - pattern: "playwright.config.ts"
+    description: "Playwright TypeScript configuration"
+    category: "testing_config"
+    ecosystems: ["javascript", "typescript"]
+
+  - pattern: "cypress.config.js"
+    description: "Cypress testing configuration"
+    category: "testing_config"
+    ecosystems: ["javascript", "typescript"]
+
+  - pattern: "cypress.config.ts"
+    description: "Cypress TypeScript configuration"
+    category: "testing_config"
+    ecosystems: ["javascript", "typescript"]
+
+  - pattern: "pytest.ini"
+    description: "Pytest configuration"
+    category: "testing_config"
+    ecosystems: ["python"]
+
+  - pattern: "tox.ini"
+    description: "Tox testing configuration"
+    category: "testing_config"
+    ecosystems: ["python"]
+
+  # CI/CD Configuration
+  - pattern: ".github/workflows/*.yml"
+    description: "GitHub Actions workflow files"
+    category: "cicd_config"
+    ecosystems: ["universal"]
+
+  - pattern: ".github/workflows/*.yaml"
+    description: "GitHub Actions workflow files"
+    category: "cicd_config"
+    ecosystems: ["universal"]
+
+  - pattern: ".gitlab-ci.yml"
+    description: "GitLab CI configuration"
+    category: "cicd_config"
+    ecosystems: ["universal"]
+
+  - pattern: ".travis.yml"
+    description: "Travis CI configuration"
+    category: "cicd_config"
+    ecosystems: ["universal"]
+
+  - pattern: "appveyor.yml"
+    description: "AppVeyor CI configuration"
+    category: "cicd_config"
+    ecosystems: ["universal"]
+
+  - pattern: "azure-pipelines.yml"
+    description: "Azure Pipelines configuration"
+    category: "cicd_config"
+    ecosystems: ["universal"]
+
+  - pattern: "bitbucket-pipelines.yml"
+    description: "Bitbucket Pipelines configuration"
+    category: "cicd_config"
+    ecosystems: ["universal"]
+
+  - pattern: "Jenkinsfile"
+    description: "Jenkins pipeline configuration"
+    category: "cicd_config"
+    ecosystems: ["universal"]
+
+  # Container Configuration
+  - pattern: "Dockerfile"
+    description: "Docker container definition"
+    category: "container_config"
+    ecosystems: ["universal"]
+
+  - pattern: "Dockerfile.*"
+    description: "Environment-specific Docker files"
+    category: "container_config"
+    ecosystems: ["universal"]
+
+  - pattern: "docker-compose.yml"
+    description: "Docker Compose configuration"
+    category: "container_config"
+    ecosystems: ["universal"]
+
+  - pattern: "docker-compose.yaml"
+    description: "Docker Compose configuration"
+    category: "container_config"
+    ecosystems: ["universal"]
+
+  - pattern: "docker-compose.*.yml"
+    description: "Environment-specific Docker Compose files"
+    category: "container_config"
+    ecosystems: ["universal"]
+
+  - pattern: ".dockerignore"
+    description: "Docker ignore file"
+    category: "container_config"
+    ecosystems: ["universal"]
+
+# =============================================================================
+# SCHEMA AND DATA FILES
+# =============================================================================
+# API schemas, database schemas, and structured data files
+
+schema_and_data:
+  # API Schemas
+  - pattern: "**/*.json"
+    description: "JSON data and configuration files"
+    category: "data_formats"
+    ecosystems: ["universal"]
+
+  - pattern: "**/*.jsonc"
+    description: "JSON with comments"
+    category: "data_formats"
+    ecosystems: ["universal"]
+
+  - pattern: "**/*.json5"
+    description: "JSON5 data files"
+    category: "data_formats"
+    ecosystems: ["universal"]
+
+  - pattern: "**/*.yaml"
+    description: "YAML configuration and data files"
+    category: "data_formats"
+    ecosystems: ["universal"]
+
+  - pattern: "**/*.yml"
+    description: "YAML configuration and data files"
+    category: "data_formats"
+    ecosystems: ["universal"]
+
+  - pattern: "**/*.toml"
+    description: "TOML configuration files"
+    category: "data_formats"
+    ecosystems: ["universal"]
+
+  - pattern: "**/*.xml"
+    description: "XML data and configuration files"
+    category: "data_formats"
+    ecosystems: ["universal"]
+
+  - pattern: "**/*.graphql"
+    description: "GraphQL schema files"
+    category: "api_schemas"
+    ecosystems: ["javascript", "graphql"]
+
+  - pattern: "**/*.gql"
+    description: "GraphQL query files"
+    category: "api_schemas"
+    ecosystems: ["javascript", "graphql"]
+
+  - pattern: "**/*.proto"
+    description: "Protocol Buffer schema files"
+    category: "api_schemas"
+    ecosystems: ["universal"]
+
+  - pattern: "**/*.avsc"
+    description: "Avro schema files"
+    category: "api_schemas"
+    ecosystems: ["universal"]
+
+  - pattern: "**/*.openapi.yml"
+    description: "OpenAPI specification files"
+    category: "api_schemas"
+    ecosystems: ["universal"]
+
+  - pattern: "**/*.openapi.yaml"
+    description: "OpenAPI specification files"
+    category: "api_schemas"
+    ecosystems: ["universal"]
+
+  - pattern: "**/*.swagger.yml"
+    description: "Swagger API specification files"
+    category: "api_schemas"
+    ecosystems: ["universal"]
+
+  - pattern: "**/*.swagger.yaml"
+    description: "Swagger API specification files"
+    category: "api_schemas"
+    ecosystems: ["universal"]
+
+  # Database Schemas
+  - pattern: "**/*.sql"
+    description: "SQL database schema and query files"
+    category: "database_schemas"
+    ecosystems: ["universal"]
+
+  - pattern: "**/*.prisma"
+    description: "Prisma database schema files"
+    category: "database_schemas"
+    ecosystems: ["javascript", "typescript", "prisma"]
+
+  - pattern: "**/schema.rb"
+    description: "Ruby on Rails database schema"
+    category: "database_schemas"
+    ecosystems: ["ruby", "rails"]
+
+  - pattern: "**/migrations/**/*.sql"
+    description: "Database migration files"
+    category: "database_schemas"
+    ecosystems: ["universal"]
+
+# =============================================================================
+# TEMPLATE AND RESOURCE FILES
+# =============================================================================
+# Templates, localization files, and other resources that provide project context
+
+templates_and_resources:
+  # Template Files
+  - pattern: "**/*.template"
+    description: "Template files"
+    category: "templates"
+    ecosystems: ["universal"]
+
+  - pattern: "**/*.tmpl"
+    description: "Template files"
+    category: "templates"
+    ecosystems: ["universal"]
+
+  - pattern: "**/*.tpl"
+    description: "Template files"
+    category: "templates"
+    ecosystems: ["universal"]
+
+  - pattern: "templates/**/*"
+    description: "Template directory contents"
+    category: "templates"
+    ecosystems: ["universal"]
+
+  - pattern: "template/**/*"
+    description: "Template directory contents"
+    category: "templates"
+    ecosystems: ["universal"]
+
+  # Localization Files
+  - pattern: "**/*.properties"
+    description: "Java properties files (often for i18n)"
+    category: "localization"
+    ecosystems: ["java", "universal"]
+
+  - pattern: "**/locales/**/*.json"
+    description: "Localization JSON files"
+    category: "localization"
+    ecosystems: ["universal"]
+
+  - pattern: "**/i18n/**/*"
+    description: "Internationalization directory contents"
+    category: "localization"
+    ecosystems: ["universal"]
+
+  - pattern: "**/lang/**/*"
+    description: "Language files directory"
+    category: "localization"
+    ecosystems: ["universal"]
+
+  - pattern: "**/*.po"
+    description: "Gettext portable object files"
+    category: "localization"
+    ecosystems: ["universal"]
+
+  - pattern: "**/*.pot"
+    description: "Gettext portable object template files"
+    category: "localization"
+    ecosystems: ["universal"]
+
+  - pattern: "**/*.mo"
+    description: "Gettext machine object files"
+    category: "localization"
+    ecosystems: ["universal"]
+
+  # Environment and Configuration Templates
+  - pattern: ".env.example"
+    description: "Environment variables example file"
+    category: "config_templates"
+    ecosystems: ["universal"]
+
+  - pattern: ".env.template"
+    description: "Environment variables template file"
+    category: "config_templates"
+    ecosystems: ["universal"]
+
+  - pattern: "config/**/*.example"
+    description: "Configuration example files"
+    category: "config_templates"
+    ecosystems: ["universal"]
+
+  - pattern: "config/**/*.template"
+    description: "Configuration template files"
+    category: "config_templates"
+    ecosystems: ["universal"]
+
+# =============================================================================
+# PROJECT MANAGEMENT FILES
+# =============================================================================
+# License, contributing guides, and project governance files
+
+project_management:
+  # Legal and Licensing
+  - pattern: "LICENSE*"
+    description: "Software license files"
+    category: "legal"
+    ecosystems: ["universal"]
+
+  - pattern: "LICENCE*"
+    description: "Software licence files (British spelling)"
+    category: "legal"
+    ecosystems: ["universal"]
+
+  - pattern: "COPYRIGHT*"
+    description: "Copyright notice files"
+    category: "legal"
+    ecosystems: ["universal"]
+
+  - pattern: "NOTICE*"
+    description: "Legal notice files"
+    category: "legal"
+    ecosystems: ["universal"]
+
+  - pattern: "AUTHORS*"
+    description: "Authors and contributors files"
+    category: "legal"
+    ecosystems: ["universal"]
+
+  - pattern: "CONTRIBUTORS*"
+    description: "Contributors list files"
+    category: "legal"
+    ecosystems: ["universal"]
+
+  # Project Governance
+  - pattern: "CONTRIBUTING*"
+    description: "Contribution guidelines"
+    category: "governance"
+    ecosystems: ["universal"]
+
+  - pattern: "CODE_OF_CONDUCT*"
+    description: "Code of conduct files"
+    category: "governance"
+    ecosystems: ["universal"]
+
+  - pattern: "GOVERNANCE*"
+    description: "Project governance documents"
+    category: "governance"
+    ecosystems: ["universal"]
+
+  - pattern: "SECURITY*"
+    description: "Security policy files"
+    category: "governance"
+    ecosystems: ["universal"]
+
+  - pattern: "SUPPORT*"
+    description: "Support information files"
+    category: "governance"
+    ecosystems: ["universal"]
+
+  - pattern: "FUNDING*"
+    description: "Project funding information"
+    category: "governance"
+    ecosystems: ["universal"]
+
+  # Issue Templates
+  - pattern: ".github/ISSUE_TEMPLATE/**/*"
+    description: "GitHub issue templates"
+    category: "project_templates"
+    ecosystems: ["universal"]
+
+  - pattern: ".github/PULL_REQUEST_TEMPLATE*"
+    description: "GitHub pull request templates"
+    category: "project_templates"
+    ecosystems: ["universal"]
+
+  - pattern: ".github/DISCUSSION_TEMPLATE/**/*"
+    description: "GitHub discussion templates"
+    category: "project_templates"
+    ecosystems: ["universal"]
+
+# =============================================================================
+# SPECIAL PATTERNS
+# =============================================================================
+# Special handling for specific file patterns and edge cases
+
+special_patterns:
+  # Files without extensions but with specific names
+  - pattern: "Rakefile"
+    description: "Ruby Rake build file"
+    category: "build_files"
+    ecosystems: ["ruby"]
+
+  - pattern: "Gemfile"
+    description: "Ruby gem dependencies file"
+    category: "package_management"
+    ecosystems: ["ruby"]
+
+  - pattern: "Gemfile.lock"
+    description: "Ruby gem lock file"
+    category: "package_management"
+    ecosystems: ["ruby"]
+
+  - pattern: "Podfile"
+    description: "CocoaPods dependency file"
+    category: "package_management"
+    ecosystems: ["ios", "swift"]
+
+  - pattern: "Podfile.lock"
+    description: "CocoaPods lock file"
+    category: "package_management"
+    ecosystems: ["ios", "swift"]
+
+  - pattern: "Cartfile"
+    description: "Carthage dependency file"
+    category: "package_management"
+    ecosystems: ["ios", "swift"]
+
+  - pattern: "Cartfile.resolved"
+    description: "Carthage resolved dependencies"
+    category: "package_management"
+    ecosystems: ["ios", "swift"]
+
+  # Version control ignore files (for context)
+  - pattern: ".gitignore"
+    description: "Git ignore file"
+    category: "vcs_config"
+    ecosystems: ["universal"]
+
+  - pattern: ".gitattributes"
+    description: "Git attributes file"
+    category: "vcs_config"
+    ecosystems: ["universal"]
+
+  - pattern: ".gitmodules"
+    description: "Git submodules configuration"
+    category: "vcs_config"
+    ecosystems: ["universal"]
+
+  # Editor and IDE configuration (valuable for understanding project setup)
+  - pattern: ".editorconfig"
+    description: "Editor configuration file"
+    category: "editor_config"
+    ecosystems: ["universal"]
+
+  - pattern: ".vscode/settings.json"
+    description: "VS Code workspace settings"
+    category: "editor_config"
+    ecosystems: ["universal"]
+
+  - pattern: ".vscode/extensions.json"
+    description: "VS Code recommended extensions"
+    category: "editor_config"
+    ecosystems: ["universal"]
+
+  - pattern: ".vscode/tasks.json"
+    description: "VS Code tasks configuration"
+    category: "editor_config"
+    ecosystems: ["universal"]
+
+  - pattern: ".vscode/launch.json"
+    description: "VS Code debug configuration"
+    category: "editor_config"
+    ecosystems: ["universal"]
+
+  # Shell scripts and automation
+  - pattern: "**/*.sh"
+    description: "Shell script files"
+    category: "scripts"
+    ecosystems: ["unix", "linux"]
+
+  - pattern: "**/*.bash"
+    description: "Bash script files"
+    category: "scripts"
+    ecosystems: ["unix", "linux"]
+
+  - pattern: "**/*.zsh"
+    description: "Zsh script files"
+    category: "scripts"
+    ecosystems: ["unix", "linux"]
+
+  - pattern: "**/*.fish"
+    description: "Fish shell script files"
+    category: "scripts"
+    ecosystems: ["unix", "linux"]
+
+  - pattern: "**/*.ps1"
+    description: "PowerShell script files"
+    category: "scripts"
+    ecosystems: ["windows", "powershell"]
+
+  - pattern: "**/*.bat"
+    description: "Windows batch files"
+    category: "scripts"
+    ecosystems: ["windows"]
+
+  - pattern: "**/*.cmd"
+    description: "Windows command files"
+    category: "scripts"
+    ecosystems: ["windows"]
