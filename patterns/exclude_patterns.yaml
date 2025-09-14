@@ -1,0 +1,436 @@
+# Comprehensive Exclude Patterns for workspace-qdrant-mcp
+#
+# This file defines patterns for files and directories that should be excluded
+# from document ingestion and indexing. The patterns are organized by ecosystem
+# and category to provide clear understanding of exclusion rationale.
+#
+# Pattern Format:
+# - Use glob patterns for matching (*, **, ?)
+# - Patterns are case-sensitive unless noted
+# - Directory patterns should end with / for clarity
+# - File extension patterns use *.ext format
+#
+# Philosophy: Be conservative - only exclude clearly problematic files
+# that provide no value for code understanding or would create noise.
+
+# Build Artifacts and Dependencies
+build_artifacts:
+  # Node.js ecosystem
+  - pattern: "node_modules/"
+    description: "Node.js dependency directory - can be massive, regenerated from package.json"
+    ecosystems: ["javascript", "typescript", "node"]
+
+  - pattern: "dist/"
+    description: "Distribution/build output directory - compiled/bundled code"
+    ecosystems: ["javascript", "typescript", "web"]
+
+  - pattern: "build/"
+    description: "Generic build output directory - compiled artifacts"
+    ecosystems: ["javascript", "typescript", "java", "cpp", "general"]
+
+  - pattern: "out/"
+    description: "Output directory for compiled code"
+    ecosystems: ["javascript", "typescript", "general"]
+
+  - pattern: ".next/"
+    description: "Next.js build output directory"
+    ecosystems: ["javascript", "react", "nextjs"]
+
+  - pattern: ".nuxt/"
+    description: "Nuxt.js build output directory"
+    ecosystems: ["javascript", "vue", "nuxtjs"]
+
+  - pattern: ".parcel-cache/"
+    description: "Parcel bundler cache directory"
+    ecosystems: ["javascript", "web"]
+
+  # Python ecosystem
+  - pattern: "dist/"
+    description: "Python packaging distribution directory"
+    ecosystems: ["python"]
+
+  - pattern: "*.egg-info/"
+    description: "Python setuptools metadata directories"
+    ecosystems: ["python"]
+
+  - pattern: ".tox/"
+    description: "Tox testing automation directories"
+    ecosystems: ["python"]
+
+  # Rust ecosystem
+  - pattern: "target/"
+    description: "Rust build output directory - can be very large"
+    ecosystems: ["rust"]
+
+  # Go ecosystem
+  - pattern: "vendor/"
+    description: "Go vendored dependencies directory"
+    ecosystems: ["go"]
+
+  # Java ecosystem
+  - pattern: "target/"
+    description: "Maven build output directory"
+    ecosystems: ["java", "maven"]
+
+  - pattern: ".gradle/"
+    description: "Gradle cache and build directories"
+    ecosystems: ["java", "gradle"]
+
+  # .NET ecosystem
+  - pattern: "bin/"
+    description: ".NET compiled binaries directory"
+    ecosystems: ["csharp", "dotnet"]
+
+  - pattern: "obj/"
+    description: ".NET intermediate build objects"
+    ecosystems: ["csharp", "dotnet"]
+
+  - pattern: "packages/"
+    description: "NuGet packages directory"
+    ecosystems: ["csharp", "dotnet"]
+
+# Compiled Code and Bytecode
+compiled_code:
+  # Python
+  - pattern: "**/__pycache__/"
+    description: "Python bytecode cache directories"
+    ecosystems: ["python"]
+
+  - pattern: "*.pyc"
+    description: "Python compiled bytecode files"
+    ecosystems: ["python"]
+
+  - pattern: "*.pyo"
+    description: "Python optimized bytecode files"
+    ecosystems: ["python"]
+
+  - pattern: "*.pyd"
+    description: "Python extension modules (Windows)"
+    ecosystems: ["python"]
+
+  # Java
+  - pattern: "*.class"
+    description: "Java compiled bytecode files"
+    ecosystems: ["java"]
+
+  # .NET
+  - pattern: "*.dll"
+    description: ".NET compiled assemblies (in build directories)"
+    ecosystems: ["csharp", "dotnet"]
+
+  - pattern: "*.exe"
+    description: "Compiled executables (in build directories)"
+    ecosystems: ["csharp", "dotnet", "cpp"]
+
+  # TypeScript
+  - pattern: "*.tsbuildinfo"
+    description: "TypeScript incremental build information"
+    ecosystems: ["typescript"]
+
+# Virtual Environments and Package Managers
+environments:
+  # Python virtual environments
+  - pattern: ".venv/"
+    description: "Python virtual environment directory"
+    ecosystems: ["python"]
+
+  - pattern: "venv/"
+    description: "Python virtual environment directory"
+    ecosystems: ["python"]
+
+  - pattern: "env/"
+    description: "Python virtual environment directory"
+    ecosystems: ["python"]
+
+  - pattern: ".env/"
+    description: "Python virtual environment directory (not .env files)"
+    ecosystems: ["python"]
+
+  # Package manager caches
+  - pattern: ".npm/"
+    description: "npm cache directory"
+    ecosystems: ["javascript", "node"]
+
+# Cache Directories
+caches:
+  - pattern: "**/.cache/"
+    description: "Generic cache directories"
+    ecosystems: ["general"]
+
+  - pattern: ".pytest_cache/"
+    description: "pytest test execution cache"
+    ecosystems: ["python"]
+
+  - pattern: ".mypy_cache/"
+    description: "MyPy type checker cache"
+    ecosystems: ["python"]
+
+  - pattern: ".ruff_cache/"
+    description: "Ruff linter cache"
+    ecosystems: ["python"]
+
+  - pattern: ".coverage"
+    description: "Python coverage data files"
+    ecosystems: ["python"]
+
+  - pattern: "htmlcov/"
+    description: "Python coverage HTML reports"
+    ecosystems: ["python"]
+
+  - pattern: "coverage/"
+    description: "Test coverage report directories"
+    ecosystems: ["javascript", "general"]
+
+  - pattern: ".nyc_output/"
+    description: "NYC coverage tool output"
+    ecosystems: ["javascript"]
+
+# Version Control Metadata
+version_control:
+  - pattern: ".git/"
+    description: "Git repository metadata - internal Git data structures"
+    ecosystems: ["git"]
+
+  - pattern: ".svn/"
+    description: "Subversion metadata directories"
+    ecosystems: ["svn"]
+
+  - pattern: ".hg/"
+    description: "Mercurial metadata directories"
+    ecosystems: ["mercurial"]
+
+  - pattern: ".bzr/"
+    description: "Bazaar metadata directories"
+    ecosystems: ["bazaar"]
+
+# Editor and IDE Files (Conservative - only clearly problematic files)
+editor_files:
+  # Vim
+  - pattern: "*.swp"
+    description: "Vim swap files - temporary editing files"
+    ecosystems: ["vim"]
+
+  - pattern: "*.swo"
+    description: "Vim swap files - temporary editing files"
+    ecosystems: ["vim"]
+
+  - pattern: ".*.swp"
+    description: "Vim hidden swap files"
+    ecosystems: ["vim"]
+
+  # Emacs
+  - pattern: "*~"
+    description: "Emacs backup files"
+    ecosystems: ["emacs"]
+
+  - pattern: ".#*"
+    description: "Emacs lock files"
+    ecosystems: ["emacs"]
+
+  # General backup files
+  - pattern: "*.bak"
+    description: "Generic backup files"
+    ecosystems: ["general"]
+
+  - pattern: "*.orig"
+    description: "Original files from merge conflicts"
+    ecosystems: ["general"]
+
+# System Files
+system_files:
+  # macOS
+  - pattern: ".DS_Store"
+    description: "macOS Finder metadata files"
+    ecosystems: ["macos"]
+
+  - pattern: "._*"
+    description: "macOS resource fork files"
+    ecosystems: ["macos"]
+
+  # Windows
+  - pattern: "Thumbs.db"
+    description: "Windows thumbnail cache files"
+    ecosystems: ["windows"]
+
+  - pattern: "desktop.ini"
+    description: "Windows folder customization files"
+    ecosystems: ["windows"]
+
+  - pattern: "*.lnk"
+    description: "Windows shortcut files"
+    ecosystems: ["windows"]
+
+# Logs and Temporary Files
+logs_and_temp:
+  - pattern: "*.log"
+    description: "Log files - runtime logs, build logs"
+    ecosystems: ["general"]
+
+  - pattern: "logs/"
+    description: "Log directories"
+    ecosystems: ["general"]
+
+  - pattern: "tmp/"
+    description: "Temporary files directory"
+    ecosystems: ["general"]
+
+  - pattern: "temp/"
+    description: "Temporary files directory"
+    ecosystems: ["general"]
+
+  - pattern: "*.tmp"
+    description: "Temporary files"
+    ecosystems: ["general"]
+
+  - pattern: ".ipynb_checkpoints/"
+    description: "Jupyter notebook checkpoint directories"
+    ecosystems: ["python", "jupyter"]
+
+# Media and Binary Assets (files that don't benefit from text indexing)
+media_files:
+  # Images
+  - pattern: "*.png"
+    description: "PNG image files - binary, no text content to index"
+    ecosystems: ["general"]
+
+  - pattern: "*.jpg"
+    description: "JPEG image files - binary, no text content to index"
+    ecosystems: ["general"]
+
+  - pattern: "*.jpeg"
+    description: "JPEG image files - binary, no text content to index"
+    ecosystems: ["general"]
+
+  - pattern: "*.gif"
+    description: "GIF image files - binary, no text content to index"
+    ecosystems: ["general"]
+
+  - pattern: "*.bmp"
+    description: "Bitmap image files - binary, no text content to index"
+    ecosystems: ["general"]
+
+  - pattern: "*.ico"
+    description: "Icon files - binary, no text content to index"
+    ecosystems: ["general"]
+
+  # Videos
+  - pattern: "*.mp4"
+    description: "Video files - binary, no text content to index"
+    ecosystems: ["general"]
+
+  - pattern: "*.avi"
+    description: "Video files - binary, no text content to index"
+    ecosystems: ["general"]
+
+  - pattern: "*.mov"
+    description: "Video files - binary, no text content to index"
+    ecosystems: ["general"]
+
+  - pattern: "*.wmv"
+    description: "Video files - binary, no text content to index"
+    ecosystems: ["general"]
+
+  # Audio
+  - pattern: "*.mp3"
+    description: "Audio files - binary, no text content to index"
+    ecosystems: ["general"]
+
+  - pattern: "*.wav"
+    description: "Audio files - binary, no text content to index"
+    ecosystems: ["general"]
+
+  - pattern: "*.flac"
+    description: "Audio files - binary, no text content to index"
+    ecosystems: ["general"]
+
+  # Archives
+  - pattern: "*.zip"
+    description: "Archive files - compressed binaries"
+    ecosystems: ["general"]
+
+  - pattern: "*.tar.gz"
+    description: "Compressed archive files"
+    ecosystems: ["general"]
+
+  - pattern: "*.7z"
+    description: "7-Zip archive files"
+    ecosystems: ["general"]
+
+  - pattern: "*.rar"
+    description: "RAR archive files"
+    ecosystems: ["general"]
+
+# Large Binary Files
+large_binaries:
+  - pattern: "*.pdf"
+    description: "PDF files - may contain text but often large binaries"
+    note: "Consider if PDFs contain important documentation that should be indexed"
+    ecosystems: ["general"]
+
+  - pattern: "*.dmg"
+    description: "macOS disk image files"
+    ecosystems: ["macos"]
+
+  - pattern: "*.iso"
+    description: "ISO disk image files"
+    ecosystems: ["general"]
+
+# Security and Secrets (Conservative - obvious secret patterns)
+security:
+  - pattern: "*.key"
+    description: "Private key files - security sensitive"
+    ecosystems: ["security"]
+
+  - pattern: "*.pem"
+    description: "PEM certificate/key files - security sensitive"
+    ecosystems: ["security"]
+
+  - pattern: "*.p12"
+    description: "PKCS#12 certificate files - security sensitive"
+    ecosystems: ["security"]
+
+  - pattern: ".env.local"
+    description: "Local environment files - may contain secrets"
+    ecosystems: ["general"]
+
+  - pattern: ".env.*.local"
+    description: "Environment-specific local files - may contain secrets"
+    ecosystems: ["general"]
+
+# Testing and Documentation Build Artifacts
+test_artifacts:
+  - pattern: "**/.pytest_cache/"
+    description: "pytest cache directories"
+    ecosystems: ["python"]
+
+  - pattern: "**/test-results/"
+    description: "Test result directories"
+    ecosystems: ["general"]
+
+  - pattern: "**/coverage-reports/"
+    description: "Test coverage report directories"
+    ecosystems: ["general"]
+
+# Language-Specific Lock Files (Debatable - some may want these indexed)
+# Note: These are generated files but may be important for understanding dependencies
+lock_files:
+  - pattern: "package-lock.json"
+    description: "npm lock file - very large, generated from package.json"
+    note: "Contains exact dependency versions but usually not needed for code search"
+    ecosystems: ["javascript", "node"]
+
+  - pattern: "yarn.lock"
+    description: "Yarn lock file - large, generated dependency tree"
+    ecosystems: ["javascript", "node"]
+
+  - pattern: "pnpm-lock.yaml"
+    description: "pnpm lock file - generated dependency information"
+    ecosystems: ["javascript", "node"]
+
+# Note: Some patterns intentionally NOT included:
+# - .vscode/ and .idea/ directories (teams often commit these for shared settings)
+# - Cargo.lock (important for Rust reproducible builds)
+# - go.sum (important for Go module integrity)
+# - Most configuration files (important for understanding project setup)
+# - Documentation files like *.md (important content)
+# - SVG files (often contain searchable text and are used as code)
