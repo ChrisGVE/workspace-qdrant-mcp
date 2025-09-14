@@ -445,6 +445,19 @@ class WorkspaceCollectionManager:
                         enable_sparse_vectors=self.config.embedding.enable_sparse_vectors,
                     )
                 )
+
+            # Create read-only _codebase collection for code content
+            # This collection is read-only from MCP and designed for code search
+            collections_to_create.append(
+                CollectionConfig(
+                    name="_codebase",
+                    description="Read-only code collection with optimized indexing for code search",
+                    collection_type="library",
+                    vector_size=self._get_vector_size(),
+                    enable_sparse_vectors=True,  # Force sparse vectors for better code search
+                )
+            )
+
         # If auto_create_collections=False, no collections are created
         # All collections must be explicitly configured by the user
 
