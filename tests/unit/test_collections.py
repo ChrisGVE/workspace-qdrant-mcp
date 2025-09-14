@@ -772,3 +772,46 @@ class TestWorkspaceCollectionManager:
         assert len(created_names) == 6
         for expected in expected_collections:
             assert expected in created_names
+
+    @pytest.mark.asyncio
+    async def test_codebase_collection_creation(self, collection_manager):
+        """Test that _codebase library collection is automatically created with proper configuration."""
+        # Mock empty collections list
+        collection_manager.client.get_collections.return_value = (
+            models.CollectionsResponse(collections=[])
+        )
+        collection_manager.client.create_collection = MagicMock()
+
+        # Initialize workspace collections
+        await collection_manager.initialize_workspace_collections("test-project")
+
+        # Extract all created collection configurations
+        created_calls = collection_manager.client.create_collection.call_args_list
+        created_names = [call[1]["collection_name"] for call in created_calls]
+
+        # Verify _codebase collection is created
+        assert "_codebase" in created_names
+
+        # Find the _codebase collection call
+        codebase_call = None
+        for call in created_calls:
+            if call[1]["collection_name"] == "_codebase":
+                codebase_call = call
+                break
+
+        assert codebase_call is not None
+
+        # Verify _codebase collection configuration
+        call_args = codebase_call[1]
+        assert call_args["collection_name"] == "_codebase"
+
+        # Verify sparse vectors are enabled for optimal code search
+        vectors_config = call_args["vectors_config"]
+        sparse_vectors_config = call_args["sparse_vectors_config"]
+
+        # Should have both dense and sparse vectors for hybrid code search
+        assert "dense" in vectors_config
+        assert "sparse" in sparse_vectors_config
+
+        # Verify vector size is set correctly
+        assert vectors_config["dense"].size == 384  # all-MiniLM-L6-v2 size
