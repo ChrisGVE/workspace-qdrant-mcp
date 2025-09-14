@@ -628,6 +628,45 @@ class TestCollectionWriteAccess:
         assert violation.violation_type == AccessViolationType.FORBIDDEN_LIBRARY_WRITE
         assert "library collections are read-only" in violation.message.lower()
 
+    def test_validate_llm_write_to_codebase_collection_raises_exception(self, controller, mock_classifier):
+        """Test that _codebase library collection write raises proper exception."""
+        mock_classifier.get_collection_info.return_value = CollectionInfo(
+            name="_codebase",
+            type=CollectionType.LIBRARY,
+            display_name="codebase",
+            is_searchable=True,
+            is_readonly=True,
+            is_memory_collection=False
+        )
+
+        with pytest.raises(LLMAccessControlError) as exc_info:
+            controller.validate_llm_collection_access("write", "_codebase")
+
+        violation = exc_info.value.violation
+        assert violation.violation_type == AccessViolationType.FORBIDDEN_LIBRARY_WRITE
+        assert violation.collection_name == "_codebase"
+        assert "library collections are read-only" in violation.message.lower()
+
+    def test_validate_llm_create_codebase_collection_raises_exception(self, controller, mock_classifier):
+        """Test that _codebase library collection creation raises proper exception."""
+        mock_classifier.get_collection_info.return_value = CollectionInfo(
+            name="_codebase",
+            type=CollectionType.LIBRARY,
+            display_name="codebase",
+            is_searchable=True,
+            is_readonly=True,
+            is_memory_collection=False
+        )
+
+        with pytest.raises(LLMAccessControlError) as exc_info:
+            controller.validate_llm_collection_access("create", "_codebase")
+
+        violation = exc_info.value.violation
+        assert violation.violation_type == AccessViolationType.FORBIDDEN_LIBRARY_CREATION
+        assert violation.collection_name == "_codebase"
+        assert "library collection" in violation.message.lower()
+        assert "cli only" in violation.message.lower()
+
     # Global Collection Write Tests
     def test_can_llm_write_to_global_collection_true(self, controller, mock_classifier):
         """Test that LLM can write to global collections."""
