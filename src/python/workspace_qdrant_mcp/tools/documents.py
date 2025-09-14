@@ -83,6 +83,7 @@ async def add_document(
     metadata: dict[str, Any] | None = None,
     document_id: str | None = None,
     chunk_text: bool = True,
+    auto_inject_project_metadata: bool = True,
 ) -> dict:
     """
     Add a document to the specified workspace collection with intelligent processing.
@@ -111,6 +112,7 @@ async def add_document(
                     Should be unique within the collection
         chunk_text: Whether to intelligently split large documents into overlapping
                    chunks. Recommended for documents > 1000 characters
+        auto_inject_project_metadata: Whether to automatically inject project context metadata
 
     Returns:
         Dict: Operation result containing:
@@ -190,6 +192,31 @@ async def add_document(
 
         # Prepare metadata
         doc_metadata = metadata or {}
+
+        # Auto-inject project metadata if requested
+        if auto_inject_project_metadata:
+            project_context = client.get_project_context(collection)
+            if project_context:
+                # Inject project metadata for multi-tenant isolation
+                doc_metadata.update({
+                    "project_name": project_context["project_name"],
+                    "project_id": project_context["project_id"],
+                    "tenant_namespace": project_context["tenant_namespace"],
+                    "collection_type": project_context["collection_type"],
+                    "workspace_scope": project_context["workspace_scope"]
+                })
+                logger.debug(
+                    "Injected project metadata",
+                    project_name=project_context["project_name"],
+                    collection_type=project_context["collection_type"]
+                )
+            else:
+                logger.warning(
+                    "No project context available for metadata injection",
+                    collection=collection
+                )
+
+        # Add standard document metadata
         doc_metadata.update(
             {
                 "document_id": original_document_id or point_id,  # Use original or UUID
