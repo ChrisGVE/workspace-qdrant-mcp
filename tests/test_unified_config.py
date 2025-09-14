@@ -14,13 +14,13 @@ import os
 from pathlib import Path
 from unittest.mock import patch, MagicMock
 
-from workspace_qdrant_mcp.core.unified_config import (
+from common.core.unified_config import (
     UnifiedConfigManager,
     ConfigFormat,
     ConfigValidationError,
     ConfigFormatError,
 )
-from workspace_qdrant_mcp.core.config import Config
+from common.core.config import Config
 
 
 class TestUnifiedConfigManager:
@@ -424,6 +424,32 @@ embedding:
         assert config.workspace.collection_suffixes == ['prod', 'staging', 'dev']
         assert config.auto_ingestion.enabled is False
 
+    @patch('os.getenv')
+    def test_collection_types_env_overrides(self, mock_getenv, temp_dir, sample_yaml_config):
+        """Test new collection_types environment variable overrides."""
+        config_manager = UnifiedConfigManager(config_dir=temp_dir)
+        yaml_file = temp_dir / "workspace_qdrant_config.yaml"
+        yaml_file.write_text(sample_yaml_config)
+
+        # Mock environment variables with new collection_types field
+        env_vars = {
+            'WORKSPACE_QDRANT_QDRANT__URL': 'http://prod:6333',
+            'WORKSPACE_QDRANT_WORKSPACE__COLLECTION_TYPES': 'docs,notes,scratchbook',
+            'WORKSPACE_QDRANT_AUTO_INGESTION__ENABLED': 'false',
+        }
+
+        def mock_getenv_side_effect(key, default=None):
+            return env_vars.get(key, default)
+
+        mock_getenv.side_effect = mock_getenv_side_effect
+
+        config = config_manager.load_config(config_file=yaml_file)
+
+        assert config.qdrant.url == 'http://prod:6333'
+        assert config.workspace.collection_types == ['docs', 'notes', 'scratchbook']
+        assert config.workspace.effective_collection_types == ['docs', 'notes', 'scratchbook']
+        assert config.auto_ingestion.enabled is False
+
 
 @pytest.mark.integration
 class TestUnifiedConfigIntegration:
@@ -496,7 +522,7 @@ embedding:
   batch_size: 32
 
 workspace:
-  collection_suffixes: ["docs", "code", "notes"]
+  collection_types: ["docs", "code", "notes"]
   global_collections: ["shared", "reference"]
   github_user: "testuser"
   collection_prefix: "proj_"
@@ -548,7 +574,7 @@ embedding:
   batch_size: 64
 
 workspace:
-  collection_suffixes: ["test1", "test2"]
+  collection_types: ["test1", "test2"]
   max_collections: 25
 """
         
