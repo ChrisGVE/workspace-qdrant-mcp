@@ -20,8 +20,9 @@ from weakref import WeakSet
 
 
 from .error_handling import WorkspaceError, ErrorCategory, ErrorSeverity
+from ..logging.loguru_config import get_logger
 
-logger = structlog.get_logger(__name__)
+logger = get_logger(__name__)
 
 
 class ConnectionState(Enum):

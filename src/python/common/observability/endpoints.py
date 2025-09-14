@@ -35,7 +35,7 @@ from fastapi import FastAPI, HTTPException, Request, Response
 from fastapi.responses import JSONResponse, PlainTextResponse
 
 from .health import HealthStatus, health_checker_instance
-from .logger import get_logger
+from common.logging.loguru_config import get_logger
 from .metrics import metrics_instance
 
 logger = get_logger(__name__)

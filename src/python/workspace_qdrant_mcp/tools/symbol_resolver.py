@@ -72,7 +72,7 @@ except ImportError:
     SymbolSearchType = None
 from .search import search_workspace, search_collection_by_metadata
 
-logger = structlog.get_logger(__name__)
+logger = get_logger(__name__)
 
 
 class SymbolScope(Enum):

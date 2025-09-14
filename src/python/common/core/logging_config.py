@@ -125,6 +125,6 @@ class ContextTimer:
             )
 
 
-def get_logger(name: str) -> Any:
+def get_structured_logger(name: str) -> Any:
     """Get a structured logger instance."""
-    return structlog.get_logger(name)
+    return get_logger(name)

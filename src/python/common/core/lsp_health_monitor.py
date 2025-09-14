@@ -44,7 +44,7 @@ from .lsp_client import (
 )
 from .priority_queue_manager import PriorityQueueManager, MCPActivityLevel
 
-logger = structlog.get_logger(__name__)
+logger = get_logger(__name__)
 
 
 class HealthStatus(Enum):

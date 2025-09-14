@@ -63,8 +63,8 @@ from typing import Optional
 from qdrant_client import QdrantClient
 from qdrant_client.http import models
 
-# Task 215: Import unified logging system
-from ..observability.logger import get_logger
+# Task 222: Import loguru-based logging system
+from ..logging.loguru_config import get_logger
 
 from .sparse_vectors import create_named_sparse_vector
 

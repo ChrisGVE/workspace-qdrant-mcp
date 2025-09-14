@@ -82,7 +82,7 @@ except ImportError:
 from .search import search_workspace, search_collection_by_metadata
 from .symbol_resolver import SymbolResolver, SymbolLocation
 
-logger = structlog.get_logger(__name__)
+logger = get_logger(__name__)
 
 
 class DependencyType(Enum):

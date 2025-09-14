@@ -42,7 +42,7 @@ from typing import Any, Awaitable, Callable, Dict, List, Optional
 
 import psutil
 
-from .logger import get_logger
+from common.logging.loguru_config import get_logger
 from .metrics import metrics_instance
 
 logger = get_logger(__name__)

@@ -26,8 +26,11 @@ Example:
 """
 
 from .health import HealthChecker, HealthStatus, health_checker_instance
-from .logger import LogContext, PerformanceLogger, configure_logging, get_logger
 from .metrics import MetricsCollector, metrics_instance, record_operation
+
+# Import logging functions from the new loguru-based system
+from common.logging.loguru_config import get_logger, configure_logging
+from common.logging import LogContext, PerformanceLogger
 from .monitoring import (
     BatchOperationMonitor,
     OperationMonitor,
