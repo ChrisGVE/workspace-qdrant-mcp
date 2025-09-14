@@ -160,16 +160,17 @@ class WorkspaceConfig(BaseModel):
     for project detection, and collection organization preferences.
 
     Attributes:
-        collection_suffixes: Project collection suffixes (creates {project-name}-{suffix})
+        collection_types: Collection types for multi-tenant architecture (e.g., 'docs', 'notes', 'scratchbook')
         global_collections: Collections available across all projects (user-defined)
         github_user: GitHub username for project ownership detection
         collection_prefix: Optional prefix for all collection names
         max_collections: Maximum number of collections per workspace (safety limit)
         auto_create_collections: Whether to automatically create project collections on startup
-        collections: Legacy field for backward compatibility (use collection_suffixes instead)
+        collections: Legacy field for backward compatibility (use collection_types instead)
+        collection_suffixes: Legacy field for backward compatibility (use collection_types instead)
 
     Usage Patterns:
-        - collection_suffixes define project-specific collection types (appended to project names)
+        - collection_types define workspace collection types with multi-tenant metadata filtering
         - global_collections enable cross-project knowledge sharing (user choice)
         - github_user enables intelligent project name detection
         - collection_prefix helps organize collections in shared Qdrant instances
@@ -178,12 +179,14 @@ class WorkspaceConfig(BaseModel):
         - when auto_create_collections=false, no collections are created automatically
 
     Examples:
-        - collection_suffixes=["project"] → creates {project-name}-project (if auto_create_collections=true)
-        - collection_suffixes=["docs", "tests"] → creates {project-name}-docs, {project-name}-tests (if auto_create_collections=true)
+        - collection_types=["docs", "notes"] → creates multi-tenant collections 'docs', 'notes' (if auto_create_collections=true)
+        - Project isolation is achieved via metadata filtering rather than separate collections
         - collections are only created when explicitly configured by user
     """
 
-    collection_suffixes: list[str] = []
+    collection_types: list[str] = []
+    # Legacy field for backward compatibility - will be deprecated
+    collection_suffixes: list[str] | None = None
     global_collections: list[str] = []
     github_user: str | None = None
     collection_prefix: str = ""
@@ -193,17 +196,39 @@ class WorkspaceConfig(BaseModel):
     collections: list[str] | None = None
 
     @property
-    def effective_collection_suffixes(self) -> list[str]:
-        """Get effective collection suffixes, handling backward compatibility."""
-        # If legacy collections field is provided, use it instead
-        if self.collections is not None:
+    def effective_collection_types(self) -> list[str]:
+        """Get effective collection types, handling backward compatibility."""
+        # Priority order: collection_types (new) > collection_suffixes (legacy) > collections (oldest legacy)
+        if self.collection_types:
+            return self.collection_types
+        elif self.collection_suffixes is not None:
             # logger imported from loguru
             logger.warning(
-                "The 'collections' field is deprecated. Please use 'collection_suffixes' instead. "
+                "The 'collection_suffixes' field is deprecated. Please use 'collection_types' instead. "
+                "This will be removed in a future version."
+            )
+            return self.collection_suffixes
+        elif self.collections is not None:
+            # logger imported from loguru
+            logger.warning(
+                "The 'collections' field is deprecated. Please use 'collection_types' instead. "
                 "This will be removed in a future version."
             )
             return self.collections
-        return self.collection_suffixes
+        return self.collection_types
+
+    @property
+    def effective_collection_suffixes(self) -> list[str]:
+        """Get effective collection suffixes, handling backward compatibility.
+
+        This property is deprecated. Use effective_collection_types instead.
+        """
+        # logger imported from loguru
+        logger.warning(
+            "The 'effective_collection_suffixes' property is deprecated. Please use 'effective_collection_types' instead. "
+            "This will be removed in a future version."
+        )
+        return self.effective_collection_types
 
 
 class GrpcConfig(BaseModel):
@@ -613,7 +638,7 @@ class Config(BaseSettings):
                 "batch_size": self.embedding.batch_size,
             },
             "workspace": {
-                "collection_suffixes": self.workspace.collection_suffixes,
+                "collection_types": self.workspace.collection_types,
                 "global_collections": self.workspace.global_collections,
                 "github_user": self.workspace.github_user,
                 "collection_prefix": self.workspace.collection_prefix,
@@ -655,13 +680,18 @@ class Config(BaseSettings):
             self.embedding.batch_size = int(batch_size)
 
         # Workspace nested config
-        if collection_suffixes := os.getenv("WORKSPACE_QDRANT_WORKSPACE__COLLECTION_SUFFIXES"):
+        if collection_types := os.getenv("WORKSPACE_QDRANT_WORKSPACE__COLLECTION_TYPES"):
             # Parse comma-separated list
+            self.workspace.collection_types = [
+                c.strip() for c in collection_types.split(",") if c.strip()
+            ]
+        elif collection_suffixes := os.getenv("WORKSPACE_QDRANT_WORKSPACE__COLLECTION_SUFFIXES"):
+            # Legacy environment variable support
             self.workspace.collection_suffixes = [
                 c.strip() for c in collection_suffixes.split(",") if c.strip()
             ]
         elif collections := os.getenv("WORKSPACE_QDRANT_WORKSPACE__COLLECTIONS"):
-            # Legacy environment variable support
+            # Oldest legacy environment variable support
             self.workspace.collections = [
                 c.strip() for c in collections.split(",") if c.strip()
             ]
@@ -734,8 +764,12 @@ class Config(BaseSettings):
             self.workspace.collections = [
                 c.strip() for c in collections.split(",") if c.strip()
             ]
-        # New environment variable takes precedence if both are set
-        if collection_suffixes := os.getenv("COLLECTION_SUFFIXES"):
+        # New environment variables - priority order: collection_types > collection_suffixes
+        if collection_types := os.getenv("COLLECTION_TYPES"):
+            self.workspace.collection_types = [
+                c.strip() for c in collection_types.split(",") if c.strip()
+            ]
+        elif collection_suffixes := os.getenv("COLLECTION_SUFFIXES"):
             self.workspace.collection_suffixes = [
                 c.strip() for c in collection_suffixes.split(",") if c.strip()
             ]
@@ -836,10 +870,10 @@ class Config(BaseSettings):
             issues.append("Chunk overlap must be less than chunk size")
 
         # Validate workspace settings
-        effective_suffixes = self.workspace.effective_collection_suffixes
-        if len(effective_suffixes) > 20:
+        effective_types = self.workspace.effective_collection_types
+        if len(effective_types) > 20:
             issues.append(
-                "Too many project collection suffixes configured (max 20 recommended)"
+                "Too many collection types configured (max 20 recommended)"
             )
 
         if len(self.workspace.global_collections) > 50:
@@ -853,26 +887,26 @@ class Config(BaseSettings):
         # Validate auto-ingestion configuration with graceful fallback behavior
         if self.auto_ingestion.enabled:
             target_suffix = self.auto_ingestion.target_collection_suffix
-            available_suffixes = self.workspace.effective_collection_suffixes
+            available_types = self.workspace.effective_collection_types
             auto_create = self.workspace.auto_create_collections
 
             # Check if target_collection_suffix is specified and valid
             if target_suffix:
-                if available_suffixes and target_suffix not in available_suffixes:
+                if available_types and target_suffix not in available_types:
                     # Only warn if auto_create is disabled, otherwise it will create the collection
                     if not auto_create:
                         issues.append(
                             f"auto_ingestion.target_collection_suffix '{target_suffix}' "
-                            f"is not in workspace.collection_suffixes {available_suffixes}. "
-                            f"Consider adding '{target_suffix}' to collection_suffixes or enabling auto_create_collections."
+                            f"is not in workspace.collection_types {available_types}. "
+                            f"Consider adding '{target_suffix}' to collection_types or enabling auto_create_collections."
                         )
-            elif not target_suffix and available_suffixes:
-                # This is a clear misconfiguration - user has suffixes but didn't specify which to use
+            elif not target_suffix and available_types:
+                # This is a clear misconfiguration - user has types but didn't specify which to use
                 issues.append(
-                    "auto_ingestion.target_collection_suffix is empty but workspace.collection_suffixes "
-                    f"contains {available_suffixes}. Please specify which suffix to use for auto-ingestion."
+                    "auto_ingestion.target_collection_suffix is empty but workspace.collection_types "
+                    f"contains {available_types}. Please specify which type to use for auto-ingestion."
                 )
-            elif not target_suffix and not available_suffixes and not auto_create:
+            elif not target_suffix and not available_types and not auto_create:
                 # This case now gets graceful fallback - we'll use a default collection name
                 # No longer an error, but log a warning-level message for the user to be aware
                 # logger imported from loguru
@@ -894,13 +928,13 @@ class Config(BaseSettings):
             Dict containing diagnostic information:
                 - enabled: Whether auto-ingestion is enabled
                 - target_suffix: Configured target collection suffix
-                - available_suffixes: Available collection suffixes
+                - available_types: Available collection types
                 - auto_create: Whether auto collection creation is enabled
                 - configuration_status: Overall configuration status
                 - recommendations: List of recommendations to fix issues
         """
         target_suffix = self.auto_ingestion.target_collection_suffix
-        available_suffixes = self.workspace.effective_collection_suffixes
+        available_types = self.workspace.effective_collection_types
         auto_create = self.workspace.auto_create_collections
 
         # Determine configuration status
@@ -909,27 +943,27 @@ class Config(BaseSettings):
 
         if self.auto_ingestion.enabled:
             if target_suffix:
-                if available_suffixes and target_suffix not in available_suffixes:
+                if available_types and target_suffix not in available_types:
                     status = "invalid_target_suffix"
                     recommendations.append(
-                        f"Add '{target_suffix}' to workspace.collection_suffixes: {available_suffixes}"
+                        f"Add '{target_suffix}' to workspace.collection_types: {available_types}"
                     )
-                elif not available_suffixes and not auto_create:
+                elif not available_types and not auto_create:
                     status = "missing_collection_config"
                     recommendations.extend([
-                        f"Add '{target_suffix}' to workspace.collection_suffixes",
+                        f"Add '{target_suffix}' to workspace.collection_types",
                         "OR enable workspace.auto_create_collections"
                     ])
-            elif not target_suffix and available_suffixes:
+            elif not target_suffix and available_types:
                 status = "missing_target_suffix"
                 recommendations.append(
-                    f"Set auto_ingestion.target_collection_suffix to one of: {available_suffixes}"
+                    f"Set auto_ingestion.target_collection_suffix to one of: {available_types}"
                 )
-            elif not target_suffix and not available_suffixes and not auto_create:
+            elif not target_suffix and not available_types and not auto_create:
                 status = "no_collection_config"
                 recommendations.extend([
                     "Set auto_ingestion.target_collection_suffix (e.g., 'scratchbook')",
-                    "Add the suffix to workspace.collection_suffixes",
+                    "Add the suffix to workspace.collection_types",
                     "OR enable workspace.auto_create_collections"
                 ])
         else:
@@ -938,14 +972,14 @@ class Config(BaseSettings):
         return {
             "enabled": self.auto_ingestion.enabled,
             "target_suffix": target_suffix,
-            "available_suffixes": available_suffixes,
+            "available_types": available_types,
             "auto_create": auto_create,
             "configuration_status": status,
             "recommendations": recommendations,
-            "summary": self._get_auto_ingestion_summary(status, target_suffix, available_suffixes)
+            "summary": self._get_auto_ingestion_summary(status, target_suffix, available_types)
         }
 
-    def _get_auto_ingestion_summary(self, status: str, target_suffix: str, available_suffixes: list[str]) -> str:
+    def _get_auto_ingestion_summary(self, status: str, target_suffix: str, available_types: list[str]) -> str:
         """Get a human-readable summary of auto-ingestion configuration status."""
         if status == "disabled":
             return "Auto-ingestion is disabled"
@@ -955,11 +989,11 @@ class Config(BaseSettings):
             else:
                 return "Auto-ingestion enabled with fallback collection selection"
         elif status == "invalid_target_suffix":
-            return f"Target suffix '{target_suffix}' not found in configured suffixes {available_suffixes}"
+            return f"Target suffix '{target_suffix}' not found in configured types {available_types}"
         elif status == "missing_collection_config":
             return f"Target suffix '{target_suffix}' specified but no collections configured to create it"
         elif status == "missing_target_suffix":
-            return f"No target suffix specified but suffixes available: {available_suffixes}"
+            return f"No target suffix specified but types available: {available_types}"
         elif status == "no_collection_config":
             return "Auto-ingestion enabled but no collection configuration found"
         else:
@@ -975,10 +1009,10 @@ class Config(BaseSettings):
             return "Auto-ingestion is disabled. No automatic file processing will occur."
 
         target_suffix = self.auto_ingestion.target_collection_suffix
-        available_suffixes = self.workspace.effective_collection_suffixes
+        available_types = self.workspace.effective_collection_types
         auto_create = self.workspace.auto_create_collections
 
-        if target_suffix and available_suffixes and target_suffix in available_suffixes:
+        if target_suffix and available_types and target_suffix in available_types:
             return f"Will use collection '{{{self._current_project_name()}}}-{target_suffix}' for auto-ingestion."
         elif target_suffix and auto_create:
             return f"Will create and use collection '{{{self._current_project_name()}}}-{target_suffix}' for auto-ingestion."
@@ -991,7 +1025,7 @@ class Config(BaseSettings):
             ]
             return " ".join(behavior_parts) if len(" ".join(behavior_parts)) < 100 else "\n  ".join(behavior_parts)
         else:
-            return f"Configuration may need adjustment. Target suffix '{target_suffix}' specified but not in available suffixes."
+            return f"Configuration may need adjustment. Target suffix '{target_suffix}' specified but not in available types."
 
     def _current_project_name(self) -> str:
         """Get current project name for display purposes."""
