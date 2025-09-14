@@ -454,45 +454,98 @@ class Config(BaseSettings):
         return processed
 
     def _find_default_config_file(self) -> Optional[str]:
-        """Find default configuration file in standard locations.
+        """Find default configuration file using XDG Base Directory Specification.
 
         Search order:
-        1. ~/.config/workspace-qdrant/workspace_qdrant_config.yaml (daemon config)
-        2. workspace_qdrant_config.yaml (current directory)
-        3. workspace_qdrant_config.yml (current directory)
-        4. .workspace-qdrant.yaml (current directory)
-        5. .workspace-qdrant.yml (current directory)
+        1. XDG-compliant directories + /config.yaml
+        2. XDG-compliant directories + /workspace_qdrant_config.yaml (backward compatibility)
+        3. Project-specific configs in current directory
+        4. Legacy fallback locations
+
+        XDG Base Directory Specification:
+        - Use $XDG_CONFIG_HOME/workspace-qdrant/ if XDG_CONFIG_HOME is set
+        - Otherwise use OS-specific config directories:
+          * macOS: ~/Library/Application Support/workspace-qdrant/
+          * Linux/Unix: ~/.config/workspace-qdrant/
+          * Windows: %APPDATA%/workspace-qdrant/
 
         Returns:
             Path to the first found config file, or None if no config file found
         """
-        # Check daemon config directory first (highest priority)
-        home_dir = Path.home()
-        daemon_config_path = home_dir / ".config" / "workspace-qdrant" / "workspace_qdrant_config.yaml"
-        if daemon_config_path.exists() and daemon_config_path.is_file():
-            import logging
-            logger = logging.getLogger(__name__)
-            logger.info(f"Auto-discovered daemon configuration file: {daemon_config_path}")
-            return str(daemon_config_path)
+        import logging
+        logger = logging.getLogger(__name__)
 
-        # Check current directory locations
-        default_config_names = [
+        # Get XDG-compliant config directories
+        xdg_config_dirs = self._get_xdg_config_dirs()
+
+        # 1. Check XDG-compliant directories with standard config.yaml
+        for config_dir in xdg_config_dirs:
+            config_path = config_dir / "config.yaml"
+            if config_path.exists() and config_path.is_file():
+                logger.info(f"Auto-discovered XDG configuration file: {config_path}")
+                return str(config_path)
+
+        # 2. Check XDG-compliant directories with legacy name (backward compatibility)
+        for config_dir in xdg_config_dirs:
+            config_path = config_dir / "workspace_qdrant_config.yaml"
+            if config_path.exists() and config_path.is_file():
+                logger.info(f"Auto-discovered XDG legacy configuration file: {config_path}")
+                return str(config_path)
+
+        # 3. Check current directory for project-specific configs
+        current_dir = Path.cwd()
+        project_config_names = [
             "workspace_qdrant_config.yaml",
             "workspace_qdrant_config.yml",
             ".workspace-qdrant.yaml",
             ".workspace-qdrant.yml"
         ]
 
-        current_dir = Path.cwd()
-        for config_name in default_config_names:
+        for config_name in project_config_names:
             config_path = current_dir / config_name
             if config_path.exists() and config_path.is_file():
-                import logging
-                logger = logging.getLogger(__name__)
-                logger.info(f"Auto-discovered configuration file: {config_path}")
+                logger.info(f"Auto-discovered project configuration file: {config_path}")
                 return str(config_path)
 
         return None
+
+    def _get_xdg_config_dirs(self) -> list[Path]:
+        """Get XDG-compliant configuration directories for workspace-qdrant.
+
+        Follows XDG Base Directory Specification:
+        - Checks XDG_CONFIG_HOME environment variable first
+        - Falls back to OS-specific default directories if not set
+
+        Returns:
+            List of Path objects for config directories to search
+        """
+        import platform
+
+        config_dirs = []
+
+        # Check XDG_CONFIG_HOME first
+        xdg_config_home = os.environ.get('XDG_CONFIG_HOME')
+        if xdg_config_home:
+            config_dirs.append(Path(xdg_config_home) / 'workspace-qdrant')
+        else:
+            # Fall back to OS-specific defaults
+            home_dir = Path.home()
+            system = platform.system().lower()
+
+            if system == 'darwin':  # macOS
+                config_dirs.append(home_dir / 'Library' / 'Application Support' / 'workspace-qdrant')
+            elif system == 'windows':
+                # Use APPDATA on Windows
+                appdata = os.environ.get('APPDATA')
+                if appdata:
+                    config_dirs.append(Path(appdata) / 'workspace-qdrant')
+                else:
+                    # Fallback if APPDATA is not set
+                    config_dirs.append(home_dir / 'AppData' / 'Roaming' / 'workspace-qdrant')
+            else:  # Linux/Unix and other Unix-like systems
+                config_dirs.append(home_dir / '.config' / 'workspace-qdrant')
+
+        return config_dirs
 
     def _apply_yaml_overrides(self, yaml_config: dict[str, Any]) -> None:
         """Apply YAML configuration overrides after environment variables are loaded.
