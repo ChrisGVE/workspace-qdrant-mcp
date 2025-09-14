@@ -24,8 +24,9 @@ Key Features:
 
 import asyncio
 import json
-import logging
 import re
+
+from common.logging import get_logger
 import time
 from dataclasses import asdict, dataclass
 from datetime import datetime, timezone
@@ -47,7 +48,7 @@ from qdrant_client.models import (
 from .collection_naming import CollectionNamingManager, CollectionType
 from .sparse_vectors import BM25SparseEncoder
 
-logger = logging.getLogger(__name__)
+logger = get_logger(__name__)
 
 
 class MemoryCategory(Enum):
