@@ -355,21 +355,27 @@ class WorkspaceCollectionManager:
         Initialize collections for the current workspace based on configuration and project structure.
 
         Behavior depends on the auto_create_collections setting:
-        - When auto_create_collections=True: Creates project collections, subproject collections, and global collections
+        - When auto_create_collections=True: Creates shared workspace collections with metadata-based isolation
         - When auto_create_collections=False: No collections are created automatically
 
         Collection Creation Patterns:
-            With auto_create_collections=True:
-                Main project: [project-name]-{suffix} for each workspace.collections suffix
-                Subprojects: [subproject-name]-{suffix} for each workspace.collections suffix
+            With auto_create_collections=True (Multi-tenant mode):
+                Shared collections: {suffix} for each workspace.collections suffix
                 Global: All collections from workspace.global_collections
+                Project isolation: Through metadata filtering (project_name, tenant_namespace)
 
             With auto_create_collections=False:
                 Only: No collections are created (user must explicitly configure collections)
 
+        Multi-tenant Architecture:
+            - Single shared collection per type (notes, docs, scratchbook, etc.)
+            - Project isolation through metadata filtering
+            - Efficient resource utilization and centralized management
+            - Maintains workspace boundaries through tenant_namespace metadata
+
         Args:
-            project_name: Main project identifier (used as collection name prefix)
-            subprojects: Optional list of subproject names for additional collections
+            project_name: Main project identifier (used for metadata context)
+            subprojects: Optional list of subproject names for additional contexts
 
         Raises:
             ConnectionError: If Qdrant database is unreachable
@@ -378,10 +384,10 @@ class WorkspaceCollectionManager:
 
         Example:
             ```python
-            # Initialize for simple project (respects auto_create_collections setting)
+            # Initialize for simple project (creates shared collections with metadata isolation)
             await manager.initialize_workspace_collections("my-app")
 
-            # Initialize with subprojects (respects auto_create_collections setting)
+            # Initialize with subprojects (same shared collections, different metadata contexts)
             await manager.initialize_workspace_collections(
                 project_name="enterprise-system",
                 subprojects=["web-frontend", "mobile-app", "api-gateway"]
@@ -402,39 +408,30 @@ class WorkspaceCollectionManager:
         collections_to_create = []
 
         if self.config.workspace.auto_create_collections:
-            # Full collection creation when auto_create_collections=True
+            # Multi-tenant collection creation when auto_create_collections=True
+            # Creates shared collections with metadata-based project isolation
 
-            # Main project collections
+            # Shared workspace collections (one per type, multi-tenant)
             for suffix in self.config.workspace.effective_collection_types:
-                collection_name = build_project_collection_name(project_name, suffix)
+                collection_name = suffix  # Direct collection name, no project prefix
                 collections_to_create.append(
                     CollectionConfig(
                         name=collection_name,
-                        description=f"{suffix.title()} collection for {project_name}",
+                        description=f"Multi-tenant {suffix.title()} collection with metadata-based project isolation",
                         collection_type=suffix,
-                        project_name=project_name,
+                        project_name=None,  # Multi-tenant, no single project owner
                         vector_size=self._get_vector_size(),
                         enable_sparse_vectors=self.config.embedding.enable_sparse_vectors,
                     )
                 )
+                logger.info(
+                    "Configured multi-tenant collection",
+                    collection=collection_name,
+                    type=suffix,
+                    projects=[project_name] + (subprojects or [])
+                )
 
-            # Subproject collections
-            if subprojects:
-                for subproject in subprojects:
-                    for suffix in self.config.workspace.effective_collection_types:
-                        collection_name = build_project_collection_name(subproject, suffix)
-                        collections_to_create.append(
-                            CollectionConfig(
-                                name=collection_name,
-                                description=f"{suffix.title()} collection for {subproject}",
-                                collection_type=suffix,
-                                project_name=subproject,
-                                vector_size=self._get_vector_size(),
-                                enable_sparse_vectors=self.config.embedding.enable_sparse_vectors,
-                            )
-                        )
-
-            # Global collections
+            # Global collections (unchanged)
             for global_collection in self.config.workspace.global_collections:
                 collections_to_create.append(
                     CollectionConfig(
@@ -458,6 +455,13 @@ class WorkspaceCollectionManager:
                 )
             )
 
+            logger.info(
+                "Multi-tenant workspace initialization",
+                main_project=project_name,
+                subprojects=subprojects or [],
+                shared_collections=[c.name for c in collections_to_create if c.collection_type != "global"]
+            )
+
         # If auto_create_collections=False, no collections are created
         # All collections must be explicitly configured by the user
 
@@ -465,6 +469,16 @@ class WorkspaceCollectionManager:
         if collections_to_create:
             for config in collections_to_create:
                 self._ensure_collection_exists(config)
+
+            # Add metadata indexing for multi-tenant performance
+            await self._optimize_metadata_indexing(collections_to_create)
+
+        logger.info(
+            "Workspace collections initialized",
+            project_name=project_name,
+            collections_created=len(collections_to_create),
+            multi_tenant_mode=True
+        )
 
     def _ensure_collection_exists(
         self, collection_config: CollectionConfig
@@ -1028,6 +1042,72 @@ class WorkspaceCollectionManager:
         }
 
         return model_sizes.get(self.config.embedding.model, 384)
+
+    async def _optimize_metadata_indexing(
+        self, collections: list[CollectionConfig]
+    ) -> None:
+        """
+        Optimize metadata indexing for multi-tenant collections.
+
+        Creates payload indexes for metadata fields used in multi-tenant filtering
+        to ensure efficient queries across project boundaries.
+
+        Args:
+            collections: List of collection configurations to optimize
+        """
+        metadata_fields_to_index = [
+            "project_name",
+            "project_id",
+            "tenant_namespace",
+            "collection_type",
+            "workspace_scope",
+            "access_level",
+            "created_by"
+        ]
+
+        for collection_config in collections:
+            # Skip library collections as they have different indexing needs
+            if collection_config.collection_type == "library":
+                continue
+
+            try:
+                # Create payload indexes for efficient metadata filtering
+                for field_name in metadata_fields_to_index:
+                    try:
+                        await asyncio.get_event_loop().run_in_executor(
+                            None,
+                            lambda field=field_name: self.client.create_payload_index(
+                                collection_name=collection_config.name,
+                                field_name=field,
+                                field_schema=models.PayloadSchemaType.KEYWORD
+                            )
+                        )
+                        logger.debug(
+                            "Created payload index",
+                            collection=collection_config.name,
+                            field=field_name
+                        )
+                    except Exception as index_error:
+                        # Index might already exist, log but continue
+                        logger.debug(
+                            "Payload index creation skipped (may already exist)",
+                            collection=collection_config.name,
+                            field=field_name,
+                            error=str(index_error)
+                        )
+
+                logger.info(
+                    "Metadata indexing optimized",
+                    collection=collection_config.name,
+                    indexed_fields=metadata_fields_to_index
+                )
+
+            except Exception as e:
+                logger.warning(
+                    "Failed to optimize metadata indexing",
+                    collection=collection_config.name,
+                    error=str(e)
+                )
 
 
 class MemoryCollectionManager:
