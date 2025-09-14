@@ -6,8 +6,9 @@ including session initialization, conversational updates, and memory queries.
 """
 
 import asyncio
-import logging
 from typing import Any, Dict, List, Optional
+
+from common.logging import get_logger
 
 from mcp.server.fastmcp import FastMCP
 
@@ -38,7 +39,7 @@ def parse_conversational_memory_update(message: str) -> Optional[Dict[str, Any]]
     return None
 
 
-logger = logging.getLogger(__name__)
+logger = get_logger(__name__)
 
 
 def register_memory_tools(server: FastMCP):

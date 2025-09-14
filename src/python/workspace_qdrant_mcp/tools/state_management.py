@@ -21,15 +21,16 @@ Available Tools:
     - process_pending_files: Manually trigger processing of pending files
 """
 
-import logging
 from typing import Any, Dict, List, Optional
+
+from common.logging import get_logger
 
 from common.core.client import QdrantWorkspaceClient
 from common.core.sqlite_state_manager import FileProcessingStatus, ProcessingPriority
 from common.core.state_aware_ingestion import get_ingestion_manager
 from ..tools.watch_management import WatchToolsManager
 
-logger = logging.getLogger(__name__)
+logger = get_logger(__name__)
 
 
 async def get_processing_status(

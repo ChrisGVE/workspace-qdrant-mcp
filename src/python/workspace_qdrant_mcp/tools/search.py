@@ -45,8 +45,9 @@ Example:
     ```
 """
 
-import logging
 from typing import Optional
+
+from common.logging import get_logger
 
 from qdrant_client import QdrantClient
 from qdrant_client.http import models
@@ -56,7 +57,7 @@ from common.core.client import QdrantWorkspaceClient
 from common.core.hybrid_search import HybridSearchEngine
 from common.core.sparse_vectors import create_named_sparse_vector
 
-logger = logging.getLogger(__name__)
+logger = get_logger(__name__)
 
 
 async def search_workspace(
