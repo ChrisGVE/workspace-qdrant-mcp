@@ -267,7 +267,15 @@ class SynchronizedWatchConfigManager:
 
         # Initialize base config manager
         self.base_manager = PersistentWatchConfigManager(config_file, project_dir)
-        self.config_file = self.base_manager.config_file
+
+        # Handle different config manager types - DatabaseWatchConfigManager vs file-based
+        if hasattr(self.base_manager, 'config_file'):
+            # File-based config manager
+            self.config_file = self.base_manager.config_file
+        else:
+            # Database-based config manager (DatabaseWatchConfigManager)
+            # Use the database path as the "config file" for locking purposes
+            self.config_file = self.base_manager.database_path
 
         # Initialize synchronization components
         self.lock_manager = FileLockManager(self.config_file)
@@ -481,7 +489,14 @@ class SynchronizedWatchConfigManager:
 
     def get_config_file_path(self) -> Path:
         """Get configuration file path."""
-        return self.base_manager.get_config_file_path()
+        # Handle different config manager types
+        if hasattr(self.base_manager, 'get_config_file_path'):
+            # File-based config manager
+            return self.base_manager.get_config_file_path()
+        else:
+            # Database-based config manager (DatabaseWatchConfigManager)
+            # Return the database path as the "config file" path
+            return self.base_manager.database_path
 
     async def backup_config(self, backup_path: Optional[Path] = None) -> bool:
         """Create configuration backup."""
