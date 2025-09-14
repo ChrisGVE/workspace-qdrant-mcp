@@ -78,11 +78,11 @@ class MemexdServiceManager:
         """Get the default configuration path for memexd."""
         config_dir = Path.home() / ".config" / "workspace-qdrant"
         config_dir.mkdir(parents=True, exist_ok=True)
-        
-        # Check for existing config file
-        workspace_config = config_dir / "workspace_qdrant_config.toml"
-        default_config = config_dir / "config.toml"
-        
+
+        # Check for existing config file - use YAML format
+        workspace_config = config_dir / "workspace_qdrant_config.yaml"
+        default_config = config_dir / "config.yaml"
+
         if workspace_config.exists():
             return workspace_config
         else:

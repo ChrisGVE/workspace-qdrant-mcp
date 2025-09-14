@@ -382,8 +382,8 @@ def requires_service_restart(config_key: str) -> bool:
         "embedding.chunk_size",
         "embedding.chunk_overlap",
         "embedding.batch_size",
-        "workspace.collection_prefix",
-        "workspace.max_collections",
+        # Note: workspace.collection_prefix and workspace.max_collections removed
+        # as part of multi-tenant architecture migration
         "auto_ingestion.enabled",
         "auto_ingestion.auto_create_watches",
         "auto_ingestion.include_common_files",

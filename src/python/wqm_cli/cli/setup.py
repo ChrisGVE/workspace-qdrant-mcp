@@ -594,28 +594,15 @@ class SetupWizard:
                 c.strip() for c in global_collections_str.split(",") if c.strip()
             ]
 
-            collection_prefix = (
-                get_input(
-                    "Collection prefix (optional)",
-                    default="",
-                )
-                or ""
-            )
-
-            max_collections = get_int_input(
-                "Maximum collections limit",
-                default=100,
-            )
+            # Note: collection_prefix and max_collections removed as part of
+            # multi-tenant collection architecture migration
         else:
-            collection_prefix = ""
-            max_collections = 100
+            pass  # Non-interactive mode
 
         return WorkspaceConfig(
             collections=collections,
             global_collections=global_collections,
             github_user=github_user,
-            collection_prefix=collection_prefix,
-            max_collections=max_collections,
         )
 
     async def _test_configuration(self) -> bool:
@@ -744,15 +731,8 @@ class SetupWizard:
                 f"WORKSPACE_QDRANT_WORKSPACE__GITHUB_USER={self.config.workspace.github_user}"
             )
 
-        if self.config.workspace.collection_prefix:
-            lines.append(
-                f"WORKSPACE_QDRANT_WORKSPACE__COLLECTION_PREFIX={self.config.workspace.collection_prefix}"
-            )
-
-        if self.config.workspace.max_collections != 100:
-            lines.append(
-                f"WORKSPACE_QDRANT_WORKSPACE__MAX_COLLECTIONS={self.config.workspace.max_collections}"
-            )
+        # Note: Environment variables for collection_prefix and max_collections removed
+        # as part of multi-tenant collection architecture migration
 
         return "\n".join(lines) + "\n"
 

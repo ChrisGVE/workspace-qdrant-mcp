@@ -522,11 +522,8 @@ class ConfigValidator:
                 "Consider setting GITHUB_USER for better project detection"
             )
 
-        # Validate limits
-        if config.max_collections <= 0:
-            self.issues.append("Max collections must be positive")
-        elif config.max_collections > 1000:
-            self.warnings.append("High max collections limit may impact performance")
+        # Note: max_collections validation removed as part of multi-tenant architecture
+        # Collection limits now handled through metadata-based tenant isolation
 
     def _validate_server_config(self) -> None:
         """Validate server configuration."""

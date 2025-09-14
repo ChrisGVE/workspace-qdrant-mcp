@@ -416,8 +416,6 @@ class UnifiedConfigManager:
             "WORKSPACE__COLLECTION_SUFFIXES": ("workspace", "collection_suffixes"),  # Legacy
             "WORKSPACE__GLOBAL_COLLECTIONS": ("workspace", "global_collections"),
             "WORKSPACE__GITHUB_USER": ("workspace", "github_user"),
-            "WORKSPACE__COLLECTION_PREFIX": ("workspace", "collection_prefix"),
-            "WORKSPACE__MAX_COLLECTIONS": ("workspace", "max_collections"),
             "WORKSPACE__AUTO_CREATE_COLLECTIONS": ("workspace", "auto_create_collections"),
             "AUTO_INGESTION__ENABLED": ("auto_ingestion", "enabled"),
             "AUTO_INGESTION__AUTO_CREATE_WATCHES": ("auto_ingestion", "auto_create_watches"),
@@ -435,8 +433,8 @@ class UnifiedConfigManager:
                     result[section] = {}
                 
                 # Type conversion based on field
-                if field in ["timeout", "chunk_size", "chunk_overlap", "batch_size", 
-                            "max_collections", "port"]:
+                if field in ["timeout", "chunk_size", "chunk_overlap", "batch_size",
+                            "port"]:
                     result[section][field] = int(env_value)
                 elif field in ["prefer_grpc", "enable_sparse_vectors", "auto_create_collections",
                               "enabled", "auto_create_watches"]:
@@ -525,8 +523,6 @@ class UnifiedConfigManager:
                 "collection_types": config.workspace.collection_types,
                 "global_collections": config.workspace.global_collections,
                 "github_user": config.workspace.github_user,
-                "collection_prefix": config.workspace.collection_prefix,
-                "max_collections": config.workspace.max_collections,
                 "auto_create_collections": config.workspace.auto_create_collections,
             },
             "grpc": {

@@ -357,7 +357,7 @@ async def _config_management(show: bool, validate: bool, path: str | None) -> No
             if hasattr(config, "embedding"):
                 print(f"Embedding Model:    {config.embedding.model}")
             if hasattr(config, "workspace"):
-                print(f"Collection Prefix:  {config.workspace.collection_prefix}")
+                # Note: Collection prefix field removed as part of multi-tenant architecture
 
         if validate:
             print("\nConfiguration Validation")
@@ -458,11 +458,8 @@ async def _list_collections(project: str | None, stats: bool, library: bool) -> 
                 col for col in all_collections if col.get("name", "").startswith("_")
             ]
         elif project:
-            prefix = (
-                f"{config.workspace.collection_prefix}{project}_"
-                if hasattr(config, "workspace")
-                else f"{project}_"
-            )
+            # Note: Using project-based naming without explicit prefix field
+            prefix = f"{project}_"
             collections = [
                 col for col in all_collections if col.get("name", "").startswith(prefix)
             ]
