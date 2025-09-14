@@ -1,6 +1,5 @@
-from common.observability import get_logger
+from common.logging.loguru_config import get_logger
 
-logger = get_logger(__name__)
 """
 Unified error handling system for document parsers.
 
@@ -14,7 +13,7 @@ from enum import Enum
 from pathlib import Path
 from typing import Any, Dict, Optional, Union
 
-logger = logging.getLogger(__name__)
+logger = get_logger(__name__)
 
 
 class ErrorSeverity(Enum):

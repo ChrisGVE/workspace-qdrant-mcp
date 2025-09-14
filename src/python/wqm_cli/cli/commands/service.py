@@ -33,7 +33,7 @@ from rich.panel import Panel
 from rich.table import Table
 from rich.text import Text
 
-from common.observability import get_logger
+from common.logging.loguru_config import get_logger
 from ..utils import create_command_app, handle_async_command
 
 # Initialize app and logger

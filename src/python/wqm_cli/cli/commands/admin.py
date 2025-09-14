@@ -16,7 +16,7 @@ import typer
 
 from common.core.client import QdrantWorkspaceClient, create_qdrant_client
 from common.core.config import Config
-from common.observability import get_logger
+from common.logging.loguru_config import get_logger
 from common.utils.project_detection import ProjectDetector
 from ..utils import (
     config_path_option,

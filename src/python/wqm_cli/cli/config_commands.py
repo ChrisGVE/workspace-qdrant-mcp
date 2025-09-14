@@ -10,6 +10,7 @@ import json
 import logging
 from pathlib import Path
 from typing import Optional
+from common.logging.loguru_config import get_logger
 
 import click
 from rich.console import Console
@@ -21,7 +22,7 @@ from rich.tree import Tree
 from common.core.unified_config import UnifiedConfigManager, ConfigFormat, ConfigValidationError, ConfigFormatError
 
 console = Console()
-logger = logging.getLogger(__name__)
+logger = get_logger(__name__)
 
 
 @click.group(name='config')

@@ -1,6 +1,5 @@
-from common.observability import get_logger
+from common.logging.loguru_config import get_logger
 
-logger = get_logger(__name__)
 """
 Web content parser that integrates secure crawling with document parsing.
 
@@ -18,7 +17,7 @@ from .base import DocumentParser, ParsedDocument
 from .exceptions import ParsingError
 from .web_crawler import CrawlResult, SecureWebCrawler, SecurityConfig
 
-logger = logging.getLogger(__name__)
+logger = get_logger(__name__)
 
 
 class WebParser(DocumentParser):

@@ -1,6 +1,5 @@
-from common.observability import get_logger
+from common.logging.loguru_config import get_logger
 
-logger = get_logger(__name__)
 """
 File type detection and validation system.
 
@@ -25,7 +24,7 @@ try:
 except ImportError:
     HAS_MAGIC = False
 
-logger = logging.getLogger(__name__)
+logger = get_logger(__name__)
 
 # Magic number signatures for binary formats
 MAGIC_NUMBERS = {

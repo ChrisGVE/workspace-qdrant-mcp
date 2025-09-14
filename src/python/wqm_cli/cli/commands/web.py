@@ -31,7 +31,7 @@ from typing import Optional
 import typer
 from rich.console import Console
 
-from common.observability import get_logger
+from common.logging.loguru_config import get_logger
 from ..utils import create_command_app
 
 console = Console()

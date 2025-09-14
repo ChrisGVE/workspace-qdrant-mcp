@@ -1,6 +1,5 @@
-from common.observability import get_logger
+from common.logging.loguru_config import get_logger
 
-logger = get_logger(__name__)
 """
 Plain text document parser.
 
@@ -19,7 +18,7 @@ from .base import DocumentParser, ParsedDocument
 from .exceptions import EncodingError, handle_parsing_error
 from .progress import ProgressPhase, ProgressTracker, ProgressUnit
 
-logger = logging.getLogger(__name__)
+logger = get_logger(__name__)
 
 
 class TextParser(DocumentParser):

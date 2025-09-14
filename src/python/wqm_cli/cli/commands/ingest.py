@@ -14,7 +14,7 @@ from ..ingestion_engine import IngestionResult
 from common.core.daemon_client import get_daemon_client, with_daemon_client
 from common.core.yaml_config import load_config
 from common.core.yaml_metadata import YamlMetadataWorkflow
-from common.observability import get_logger
+from common.logging.loguru_config import get_logger
 from ..utils import (
     create_command_app,
     dry_run_option,
