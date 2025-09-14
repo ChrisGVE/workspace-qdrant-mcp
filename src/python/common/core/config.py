@@ -57,6 +57,9 @@ from pathlib import Path
 from typing import Any, Optional
 
 import yaml
+
+# Task 215: Use unified logging system for MCP stdio compliance
+from common.logging import get_logger
 from pydantic import BaseModel, Field, ValidationError
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
@@ -194,8 +197,7 @@ class WorkspaceConfig(BaseModel):
         """Get effective collection suffixes, handling backward compatibility."""
         # If legacy collections field is provided, use it instead
         if self.collections is not None:
-            import logging
-            logger = logging.getLogger(__name__)
+            logger = get_logger(__name__)
             logger.warning(
                 "The 'collections' field is deprecated. Please use 'collection_suffixes' instead. "
                 "This will be removed in a future version."
@@ -472,8 +474,7 @@ class Config(BaseSettings):
         Returns:
             Path to the first found config file, or None if no config file found
         """
-        import logging
-        logger = logging.getLogger(__name__)
+        logger = get_logger(__name__)
 
         # Get XDG-compliant config directories
         xdg_config_dirs = self._get_xdg_config_dirs()
@@ -874,8 +875,7 @@ class Config(BaseSettings):
             elif not target_suffix and not available_suffixes and not auto_create:
                 # This case now gets graceful fallback - we'll use a default collection name
                 # No longer an error, but log a warning-level message for the user to be aware
-                import logging
-                logger = logging.getLogger(__name__)
+                logger = get_logger(__name__)
                 logger.warning(
                     "Auto-ingestion enabled without explicit collection configuration. "
                     "Will use default project-based collection naming. "

@@ -203,15 +203,19 @@ def configure_logging(
     elif mcp_quiet_mode or disable_mcp_console:
         should_create_console_handler = False
 
-    if should_create_console_handler:
-        # In stdio mode (MCP), use stderr to avoid interfering with JSON-RPC protocol on stdout
-        stream = sys.stderr if stdio_mode else sys.stdout
-        console_handler = logging.StreamHandler(stream)
+    # In MCP stdio mode, NEVER create console handlers - complete silence required
+    if stdio_mode:
+        # For MCP stdio mode, no console output should be generated at all
+        null_handler = logging.NullHandler()
+        root_logger.addHandler(null_handler)
+    elif should_create_console_handler:
+        # Normal mode - create console handler only if not in stdio mode
+        console_handler = logging.StreamHandler(sys.stdout)
         console_handler.setLevel(level)
         console_handler.setFormatter(formatter)
         root_logger.addHandler(console_handler)
-    elif stdio_mode:
-        # Add a null handler to prevent fallback to stderr in MCP mode
+    else:
+        # Add a null handler to prevent any console fallback
         null_handler = logging.NullHandler()
         root_logger.addHandler(null_handler)
 

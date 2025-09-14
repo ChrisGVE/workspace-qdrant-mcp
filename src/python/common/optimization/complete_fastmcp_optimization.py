@@ -19,7 +19,6 @@ import json
 import sys
 import time
 import gzip
-import logging
 import os
 import weakref
 from typing import Dict, Any, List, Optional, Callable, Union, Set, AsyncGenerator
@@ -29,7 +28,9 @@ from enum import Enum
 from pathlib import Path
 import inspect
 
-logger = logging.getLogger(__name__)
+# Task 215: Use unified logging system for MCP stdio compliance
+from common.logging import get_logger
+logger = get_logger(__name__)
 
 
 # ============================================================================

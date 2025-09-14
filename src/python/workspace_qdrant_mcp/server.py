@@ -69,8 +69,7 @@ def _detect_stdio_mode() -> bool:
 
     # Check if stdout is piped (MCP scenario)
     if hasattr(sys.stdout, 'isatty') and not sys.stdout.isatty():
-        if os.getenv("TERM") is None:
-            return True
+        return True
 
     return False
 
@@ -209,6 +208,9 @@ from common.logging import (
     configure_unified_logging,
 )
 
+# Track if logging has been configured to prevent multiple reconfigurations
+_LOGGING_CONFIGURED = False
+
 # Configure logging only if not in stdio mode (stdio mode uses null output)
 if not _STDIO_MODE:
     configure_unified_logging(
@@ -217,6 +219,7 @@ if not _STDIO_MODE:
         console_output=True,
         force_mcp_detection=False,
     )
+    _LOGGING_CONFIGURED = True
 else:
     # In stdio mode, ensure the unified logging system also uses null output
     configure_unified_logging(
@@ -225,6 +228,7 @@ else:
         console_output=False,
         force_mcp_detection=True,
     )
+    _LOGGING_CONFIGURED = True
 
 # Conditional imports - only load what's needed for stdio mode vs full mode
 if not _STDIO_MODE:
@@ -2810,9 +2814,25 @@ def run_server(
         warnings.filterwarnings("ignore", category=FutureWarning)
 
     # Configure logging if not already configured
-    global _STDIO_MODE
-    if not _STDIO_MODE or transport != "stdio":
-        # Not in stdio mode, configure normal logging
+    global _STDIO_MODE, _LOGGING_CONFIGURED
+
+    # Determine if we should reconfigure logging
+    should_configure = False
+
+    # Reconfigure only if:
+    # 1. Not already configured, OR
+    # 2. We're switching from stdio to non-stdio mode, OR
+    # 3. We need to add file logging for stdio mode
+    if not _LOGGING_CONFIGURED:
+        should_configure = True
+    elif not _STDIO_MODE and transport != "stdio":
+        # Non-stdio mode - can reconfigure
+        should_configure = True
+    elif _STDIO_MODE and transport == "stdio" and "LOG_FILE" not in os.environ:
+        # Stdio mode but need to add file logging
+        should_configure = True
+
+    if should_configure:
         log_file = None
         if transport == "stdio" and "LOG_FILE" not in os.environ:
             from pathlib import Path
@@ -2820,13 +2840,25 @@ def run_server(
             log_dir.mkdir(parents=True, exist_ok=True)
             log_file = log_dir / "server.log"
 
-        configure_unified_logging(
-            level=os.getenv("LOG_LEVEL", "INFO"),
-            json_format=True,
-            log_file=str(log_file) if log_file else None,
-            console_output=(transport != "stdio"),
-            force_mcp_detection=(transport == "stdio")
-        )
+        # For stdio mode, ensure complete console silence
+        if transport == "stdio":
+            configure_unified_logging(
+                level="CRITICAL",
+                json_format=True,
+                log_file=str(log_file) if log_file else None,
+                console_output=False,
+                force_mcp_detection=True
+            )
+        else:
+            configure_unified_logging(
+                level=os.getenv("LOG_LEVEL", "INFO"),
+                json_format=True,
+                log_file=str(log_file) if log_file else None,
+                console_output=True,
+                force_mcp_detection=False
+            )
+
+        _LOGGING_CONFIGURED = True
 
         # Log startup information only if console logging is enabled
         logger.info(
@@ -2859,18 +2891,18 @@ def run_server(
                 sys.stdout = sys.stdout.original
         atexit.register(cleanup)
 
-    # Initialize workspace before running server
-    asyncio.run(initialize_workspace(config_file_path))
-
     # Run FastMCP server with appropriate transport
     if transport == "stdio":
         # For stdio mode, use lightweight implementation to avoid import hangs
         if _STDIO_MODE:
-            logger.info("Starting lightweight MCP server for stdio mode")
+            # In stdio mode, skip workspace initialization and use lightweight server
             # Import and run the lightweight stdio server
             from .stdio_server import run_lightweight_stdio_server
             run_lightweight_stdio_server()
         else:
+            # Initialize workspace for non-stdio mode
+            asyncio.run(initialize_workspace(config_file_path))
+
             # MCP protocol over stdin/stdout (default for Claude Desktop/Code)
             # Only log if not in quiet mode
             if os.getenv("MCP_QUIET_MODE", "true").lower() != "true":
@@ -2889,6 +2921,9 @@ def run_server(
             else:
                 app.run(transport="stdio")
     else:
+        # Initialize workspace for HTTP transport
+        asyncio.run(initialize_workspace(config_file_path))
+
         # HTTP-based transport for web clients
         logger.info("Starting MCP server with HTTP transport", host=host, port=port)
 
