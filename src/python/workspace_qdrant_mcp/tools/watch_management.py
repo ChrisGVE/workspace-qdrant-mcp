@@ -6,8 +6,9 @@ including adding, removing, listing, and configuring watch settings with
 proper validation and error handling.
 """
 
-import logging
 import uuid
+
+from common.logging import get_logger
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Optional
@@ -28,7 +29,7 @@ from common.core.watch_validation import (
     WatchPathValidator,
 )
 
-logger = logging.getLogger(__name__)
+logger = get_logger(__name__)
 
 
 class WatchToolsManager:

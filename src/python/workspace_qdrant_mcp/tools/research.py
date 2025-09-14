@@ -20,14 +20,15 @@ This implementation is designed to be called by MCP tools while remaining
 testable as a standalone function.
 """
 
-import logging
 from typing import Any
+
+from common.logging import get_logger
 
 from common.core.client import QdrantWorkspaceClient
 from common.core.collection_naming import build_project_collection_name
 from .search import search_workspace
 
-logger = logging.getLogger(__name__)
+logger = get_logger(__name__)
 
 
 async def research_workspace(
