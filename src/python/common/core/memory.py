@@ -188,9 +188,11 @@ class MemoryManager:
     - Token counting and optimization
     - Session initialization support
     - Conversational memory updates
+    - Configurable memory collection names with '__' prefix support
     """
 
-    MEMORY_COLLECTION = "memory"
+    # Default memory collection - can be overridden via configuration
+    DEFAULT_MEMORY_COLLECTION = "memory"
 
     def __init__(
         self,
@@ -198,6 +200,7 @@ class MemoryManager:
         naming_manager: CollectionNamingManager,
         embedding_dim: int = 384,
         sparse_vector_generator: BM25SparseEncoder | None = None,
+        memory_collection_name: str | None = None,
     ):
         """
         Initialize the memory manager.
@@ -207,14 +210,29 @@ class MemoryManager:
             naming_manager: Collection naming manager
             embedding_dim: Dimension of dense embeddings (default: all-MiniLM-L6-v2)
             sparse_vector_generator: Generator for sparse vectors (optional)
+            memory_collection_name: Custom memory collection name (defaults to 'memory')
+                                  Supports '__' prefix for system memory collections
         """
         self.client = qdrant_client
         self.naming_manager = naming_manager
         self.embedding_dim = embedding_dim
         self.sparse_generator = sparse_vector_generator
 
+        # Set memory collection name - support configurable names including '__' prefix
+        self.memory_collection_name = memory_collection_name or self.DEFAULT_MEMORY_COLLECTION
+
+        # Validate the memory collection name using the naming manager
+        if self.memory_collection_name != self.DEFAULT_MEMORY_COLLECTION:
+            validation_result = naming_manager.validate_collection_name(self.memory_collection_name)
+            if not validation_result.is_valid:
+                logger.warning(f"Invalid memory collection name '{self.memory_collection_name}': {validation_result.error_message}")
+                logger.warning(f"Falling back to default memory collection: {self.DEFAULT_MEMORY_COLLECTION}")
+                self.memory_collection_name = self.DEFAULT_MEMORY_COLLECTION
+
         # Rule ID tracking
         self._rule_id_counter = 0
+
+        logger.info(f"MemoryManager initialized with collection: {self.memory_collection_name}")
 
     async def initialize_memory_collection(self) -> bool:
         """
@@ -228,9 +246,9 @@ class MemoryManager:
             collections = self.client.get_collections()
             collection_names = {col.name for col in collections.collections}
 
-            if self.MEMORY_COLLECTION in collection_names:
+            if self.memory_collection_name in collection_names:
                 logger.info(
-                    f"Memory collection '{self.MEMORY_COLLECTION}' already exists"
+                    f"Memory collection '{self.memory_collection_name}' already exists"
                 )
                 return True
 
@@ -246,10 +264,10 @@ class MemoryManager:
                 )
 
             self.client.create_collection(
-                collection_name=self.MEMORY_COLLECTION, vectors_config=vector_config
+                collection_name=self.memory_collection_name, vectors_config=vector_config
             )
 
-            logger.info(f"Created memory collection '{self.MEMORY_COLLECTION}'")
+            logger.info(f"Created memory collection '{self.memory_collection_name}'")
             return True
 
         except Exception as e:
@@ -294,10 +312,10 @@ class MemoryManager:
         collections = self.client.get_collections()
         collection_names = {col.name for col in collections.collections}
 
-        if self.MEMORY_COLLECTION not in collection_names:
+        if self.memory_collection_name not in collection_names:
             # Collection doesn't exist, need to initialize first
             raise RuntimeError(
-                f"Memory collection '{self.MEMORY_COLLECTION}' doesn't exist. "
+                f"Memory collection '{self.memory_collection_name}' doesn't exist. "
                 "Call initialize_memory_collection() first."
             )
 
@@ -350,7 +368,7 @@ class MemoryManager:
         )
 
         # Upsert to collection
-        self.client.upsert(collection_name=self.MEMORY_COLLECTION, points=[point])
+        self.client.upsert(collection_name=self.memory_collection_name, points=[point])
 
         # Handle rule replacement if specified
         if replaces:
@@ -374,15 +392,15 @@ class MemoryManager:
             collections = self.client.get_collections()
             collection_names = {col.name for col in collections.collections}
 
-            if self.MEMORY_COLLECTION not in collection_names:
+            if self.memory_collection_name not in collection_names:
                 # Collection doesn't exist yet, rule cannot be found
                 logger.debug(
-                    f"Memory collection '{self.MEMORY_COLLECTION}' doesn't exist yet"
+                    f"Memory collection '{self.memory_collection_name}' doesn't exist yet"
                 )
                 return None
 
             points = self.client.retrieve(
-                collection_name=self.MEMORY_COLLECTION, ids=[rule_id], with_payload=True
+                collection_name=self.memory_collection_name, ids=[rule_id], with_payload=True
             )
 
             if not points:
@@ -417,10 +435,10 @@ class MemoryManager:
             collections = self.client.get_collections()
             collection_names = {col.name for col in collections.collections}
 
-            if self.MEMORY_COLLECTION not in collection_names:
+            if self.memory_collection_name not in collection_names:
                 # Collection doesn't exist yet, return empty list
                 logger.debug(
-                    f"Memory collection '{self.MEMORY_COLLECTION}' doesn't exist yet"
+                    f"Memory collection '{self.memory_collection_name}' doesn't exist yet"
                 )
                 return []
 
@@ -451,7 +469,7 @@ class MemoryManager:
 
             # Scroll through all points
             points, _ = self.client.scroll(
-                collection_name=self.MEMORY_COLLECTION,
+                collection_name=self.memory_collection_name,
                 scroll_filter=search_filter,
                 limit=1000,  # Adjust based on expected memory rule count
                 with_payload=True,
@@ -538,7 +556,7 @@ class MemoryManager:
             )
 
             # Update in collection
-            self.client.upsert(collection_name=self.MEMORY_COLLECTION, points=[point])
+            self.client.upsert(collection_name=self.memory_collection_name, points=[point])
 
             logger.info(f"Updated memory rule {rule_id}")
             return True
@@ -570,7 +588,7 @@ class MemoryManager:
                 return False
 
             self.client.delete(
-                collection_name=self.MEMORY_COLLECTION, points_selector=[rule_id]
+                collection_name=self.memory_collection_name, points_selector=[rule_id]
             )
 
             logger.info(f"Deleted memory rule {rule_id}")
@@ -604,10 +622,10 @@ class MemoryManager:
             collections = self.client.get_collections()
             collection_names = {col.name for col in collections.collections}
 
-            if self.MEMORY_COLLECTION not in collection_names:
+            if self.memory_collection_name not in collection_names:
                 # Collection doesn't exist yet, return empty list
                 logger.debug(
-                    f"Memory collection '{self.MEMORY_COLLECTION}' doesn't exist yet"
+                    f"Memory collection '{self.memory_collection_name}' doesn't exist yet"
                 )
                 return []
 
@@ -635,7 +653,7 @@ class MemoryManager:
 
             # Search using dense vectors
             search_result = self.client.search(
-                collection_name=self.MEMORY_COLLECTION,
+                collection_name=self.memory_collection_name,
                 query_vector=("dense", query_vector),
                 query_filter=search_filter,
                 limit=limit,
@@ -845,6 +863,7 @@ def create_memory_manager(
     naming_manager: CollectionNamingManager,
     embedding_dim: int = 384,
     sparse_vector_generator: BM25SparseEncoder | None = None,
+    memory_collection_name: str | None = None,
 ) -> MemoryManager:
     """
     Create a memory manager instance.
@@ -854,6 +873,7 @@ def create_memory_manager(
         naming_manager: Collection naming manager
         embedding_dim: Embedding dimension
         sparse_vector_generator: Optional sparse vector generator
+        memory_collection_name: Custom memory collection name (supports '__' prefix)
 
     Returns:
         Configured MemoryManager instance
@@ -863,6 +883,7 @@ def create_memory_manager(
         naming_manager=naming_manager,
         embedding_dim=embedding_dim,
         sparse_vector_generator=sparse_vector_generator,
+        memory_collection_name=memory_collection_name,
     )
 
 
