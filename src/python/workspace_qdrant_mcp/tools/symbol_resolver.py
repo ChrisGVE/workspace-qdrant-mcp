@@ -59,9 +59,10 @@ from typing import Any, Dict, List, Optional, Set, Tuple, Union
 from common.core.client import QdrantWorkspaceClient
 from common.core.error_handling import WorkspaceError, ErrorCategory, ErrorSeverity
 from common.core.lsp_metadata_extractor import (
-    CodeSymbol, SymbolKind, SymbolRelationship, RelationshipType, 
+    CodeSymbol, SymbolKind, SymbolRelationship, RelationshipType,
     Position, Range, TypeInformation, Documentation
 )
+from common.logging.loguru_config import get_logger
 # Import code search components with fallback for missing dependencies
 try:
     from .code_search import CodeSearchEngine, CodeSearchResult, SymbolSearchType
