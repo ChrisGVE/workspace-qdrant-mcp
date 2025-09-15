@@ -1,0 +1,64 @@
+{
+  "backups": [
+    {
+      "id": "backup_20250915_120912_vv1legacy",
+      "timestamp": "2025-09-15T12:09:12.698066",
+      "version": "v1_legacy",
+      "checksum": "sha256:6eefee5e41ea8f71dccfdb73888b8a6d557a95acf5200e6f020e2f558175bb12",
+      "file_path": "/Users/chris/Dropbox/dev/ai/claude-code-cfg/mcp/workspace-qdrant-mcp/.workspace-qdrant/backups/backup_20250915_120912_vv1legacy.json",
+      "file_size": 255,
+      "description": "Pre-migration backup",
+      "config_path": null
+    },
+    {
+      "id": "backup_20250915_120912_vv1legacy",
+      "timestamp": "2025-09-15T12:09:12.775476",
+      "version": "v1_legacy",
+      "checksum": "sha256:6eefee5e41ea8f71dccfdb73888b8a6d557a95acf5200e6f020e2f558175bb12",
+      "file_path": "/Users/chris/Dropbox/dev/ai/claude-code-cfg/mcp/workspace-qdrant-mcp/.workspace-qdrant/backups/backup_20250915_120912_vv1legacy.json",
+      "file_size": 255,
+      "description": "Pre-migration backup",
+      "config_path": null
+    },
+    {
+      "id": "backup_20250915_120922_vv1legacy",
+      "timestamp": "2025-09-15T12:09:22.921469",
+      "version": "v1_legacy",
+      "checksum": "sha256:6eefee5e41ea8f71dccfdb73888b8a6d557a95acf5200e6f020e2f558175bb12",
+      "file_path": "/Users/chris/Dropbox/dev/ai/claude-code-cfg/mcp/workspace-qdrant-mcp/.workspace-qdrant/backups/backup_20250915_120922_vv1legacy.json",
+      "file_size": 255,
+      "description": "Pre-migration backup",
+      "config_path": null
+    },
+    {
+      "id": "backup_20250915_120923_vv1legacy",
+      "timestamp": "2025-09-15T12:09:23.000938",
+      "version": "v1_legacy",
+      "checksum": "sha256:6eefee5e41ea8f71dccfdb73888b8a6d557a95acf5200e6f020e2f558175bb12",
+      "file_path": "/Users/chris/Dropbox/dev/ai/claude-code-cfg/mcp/workspace-qdrant-mcp/.workspace-qdrant/backups/backup_20250915_120923_vv1legacy.json",
+      "file_size": 255,
+      "description": "Pre-migration backup",
+      "config_path": null
+    },
+    {
+      "id": "backup_20250915_120933_vv1legacy",
+      "timestamp": "2025-09-15T12:09:33.424977",
+      "version": "v1_legacy",
+      "checksum": "sha256:6eefee5e41ea8f71dccfdb73888b8a6d557a95acf5200e6f020e2f558175bb12",
+      "file_path": "/Users/chris/Dropbox/dev/ai/claude-code-cfg/mcp/workspace-qdrant-mcp/.workspace-qdrant/backups/backup_20250915_120933_vv1legacy.json",
+      "file_size": 255,
+      "description": "Pre-migration backup",
+      "config_path": null
+    },
+    {
+      "id": "backup_20250915_120933_vv1legacy",
+      "timestamp": "2025-09-15T12:09:33.647079",
+      "version": "v1_legacy",
+      "checksum": "sha256:6eefee5e41ea8f71dccfdb73888b8a6d557a95acf5200e6f020e2f558175bb12",
+      "file_path": "/Users/chris/Dropbox/dev/ai/claude-code-cfg/mcp/workspace-qdrant-mcp/.workspace-qdrant/backups/backup_20250915_120933_vv1legacy.json",
+      "file_size": 255,
+      "description": "Pre-migration backup",
+      "config_path": null
+    }
+  ]
+}
