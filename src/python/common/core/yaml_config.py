@@ -54,6 +54,7 @@ class QdrantConfig(BaseModel):
     retry_count: int = 3
     use_https: bool = False
     verify_ssl: bool = True
+    prefer_grpc: bool = True
 
 
 class DaemonConfig(BaseModel):
