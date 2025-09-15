@@ -652,6 +652,9 @@ class Config(BaseSettings):
                 "github_user": self.workspace.github_user,
                 "auto_create_collections": self.workspace.auto_create_collections,
                 "memory_collection_name": self.workspace.memory_collection_name,
+                "custom_include_patterns": self.workspace.custom_include_patterns,
+                "custom_exclude_patterns": self.workspace.custom_exclude_patterns,
+                "custom_project_indicators": self.workspace.custom_project_indicators,
             },
         }
 
@@ -720,6 +723,19 @@ class Config(BaseSettings):
             "WORKSPACE_QDRANT_WORKSPACE__MEMORY_COLLECTION_NAME"
         ):
             self.workspace.memory_collection_name = memory_collection_name
+
+        # Custom pattern extension fields
+        if custom_include := os.getenv("WORKSPACE_QDRANT_WORKSPACE__CUSTOM_INCLUDE_PATTERNS"):
+            # Parse comma-separated list
+            self.workspace.custom_include_patterns = [
+                p.strip() for p in custom_include.split(",") if p.strip()
+            ]
+        if custom_exclude := os.getenv("WORKSPACE_QDRANT_WORKSPACE__CUSTOM_EXCLUDE_PATTERNS"):
+            # Parse comma-separated list
+            self.workspace.custom_exclude_patterns = [
+                p.strip() for p in custom_exclude.split(",") if p.strip()
+            ]
+        # Note: custom_project_indicators is complex (dict) - better set via YAML config
 
         # Auto-ingestion nested config
         if enabled := os.getenv("WORKSPACE_QDRANT_AUTO_INGESTION__ENABLED"):
@@ -884,6 +900,32 @@ class Config(BaseSettings):
 
         if len(self.workspace.global_collections) > 50:
             issues.append("Too many global collections configured (max 50 recommended)")
+
+        # Validate custom pattern extensions
+        if len(self.workspace.custom_include_patterns) > 100:
+            issues.append("Too many custom include patterns configured (max 100 recommended)")
+
+        if len(self.workspace.custom_exclude_patterns) > 100:
+            issues.append("Too many custom exclude patterns configured (max 100 recommended)")
+
+        if len(self.workspace.custom_project_indicators) > 20:
+            issues.append("Too many custom project indicators configured (max 20 recommended)")
+
+        # Validate custom project indicator structure
+        for indicator_name, indicator_config in self.workspace.custom_project_indicators.items():
+            if not isinstance(indicator_config, dict):
+                issues.append(f"Custom project indicator '{indicator_name}' must be a dictionary")
+                continue
+
+            # Check for required fields in project indicator
+            if "pattern" not in indicator_config:
+                issues.append(f"Custom project indicator '{indicator_name}' missing required 'pattern' field")
+
+            # Validate confidence if present
+            if "confidence" in indicator_config:
+                confidence = indicator_config["confidence"]
+                if not isinstance(confidence, (int, float)) or not (0.0 <= confidence <= 1.0):
+                    issues.append(f"Custom project indicator '{indicator_name}' confidence must be a number between 0.0 and 1.0")
 
         # Note: max_collections validation removed as part of multi-tenant architecture
 
