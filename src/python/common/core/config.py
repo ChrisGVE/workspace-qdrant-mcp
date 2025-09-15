@@ -166,11 +166,10 @@ class WorkspaceConfig(BaseModel):
         github_user: GitHub username for project ownership detection
         auto_create_collections: Whether to automatically create project collections on startup
         memory_collection_name: Name for the system memory collection with '__' prefix support (default: '__memory')
+        code_collection_name: Name for the system code collection with '__' prefix support (default: '__code')
         custom_include_patterns: Optional custom file patterns to include beyond hardcoded patterns
         custom_exclude_patterns: Optional custom file patterns to exclude beyond hardcoded patterns
         custom_project_indicators: Optional custom project indicators to extend hardcoded detection
-        collections: Legacy field for backward compatibility (use collection_types instead)
-        collection_suffixes: Legacy field for backward compatibility (use collection_types instead)
 
     Usage Patterns:
         - collection_types define workspace collection types with multi-tenant metadata filtering
@@ -189,55 +188,22 @@ class WorkspaceConfig(BaseModel):
     """
 
     collection_types: list[str] = []
-    # Legacy field for backward compatibility - will be deprecated
-    collection_suffixes: list[str] | None = None
     global_collections: list[str] = []
     github_user: str | None = None
     auto_create_collections: bool = False
     memory_collection_name: str = "__memory"
+    code_collection_name: str = "__code"
 
     # Custom pattern extensions for PatternManager
     custom_include_patterns: list[str] = []
     custom_exclude_patterns: list[str] = []
     custom_project_indicators: dict[str, Any] = {}
 
-    # Legacy field for backward compatibility - will be deprecated
-    collections: list[str] | None = None
-
     @property
     def effective_collection_types(self) -> list[str]:
-        """Get effective collection types, handling backward compatibility."""
-        # Priority order: collection_types (new) > collection_suffixes (legacy) > collections (oldest legacy)
-        if self.collection_types:
-            return self.collection_types
-        elif self.collection_suffixes is not None:
-            # logger imported from loguru
-            logger.warning(
-                "The 'collection_suffixes' field is deprecated. Please use 'collection_types' instead. "
-                "This will be removed in a future version."
-            )
-            return self.collection_suffixes
-        elif self.collections is not None:
-            # logger imported from loguru
-            logger.warning(
-                "The 'collections' field is deprecated. Please use 'collection_types' instead. "
-                "This will be removed in a future version."
-            )
-            return self.collections
+        """Get effective collection types."""
         return self.collection_types
 
-    @property
-    def effective_collection_suffixes(self) -> list[str]:
-        """Get effective collection suffixes, handling backward compatibility.
-
-        This property is deprecated. Use effective_collection_types instead.
-        """
-        # logger imported from loguru
-        logger.warning(
-            "The 'effective_collection_suffixes' property is deprecated. Please use 'effective_collection_types' instead. "
-            "This will be removed in a future version."
-        )
-        return self.effective_collection_types
 
     def create_pattern_manager(self):
         """Create a PatternManager instance with custom patterns from this config.
@@ -310,7 +276,7 @@ class AutoIngestionConfig(BaseModel):
         auto_create_watches: Automatically create project file watches (default: True)
         include_common_files: Include common document types like *.md, *.txt (default: True)
         include_source_files: Include source code files like *.py, *.js (default: False)
-        target_collection_suffix: Which collection suffix to use for auto-ingestion (must be one of collection_suffixes)
+        target_collection_suffix: Which collection suffix to use for auto-ingestion (must be one of collection_types)
         max_files_per_batch: Maximum files to process simultaneously (default: 5)
         batch_delay_seconds: Delay between processing batches to prevent overload (default: 2.0)
         max_file_size_mb: Maximum file size to process in MB (default: 50)
@@ -667,6 +633,7 @@ class Config(BaseSettings):
                 "github_user": self.workspace.github_user,
                 "auto_create_collections": self.workspace.auto_create_collections,
                 "memory_collection_name": self.workspace.memory_collection_name,
+                "code_collection_name": self.workspace.code_collection_name,
                 "custom_include_patterns": self.workspace.custom_include_patterns,
                 "custom_exclude_patterns": self.workspace.custom_exclude_patterns,
                 "custom_project_indicators": self.workspace.custom_project_indicators,
@@ -711,16 +678,6 @@ class Config(BaseSettings):
             self.workspace.collection_types = [
                 c.strip() for c in collection_types.split(",") if c.strip()
             ]
-        elif collection_suffixes := os.getenv("WORKSPACE_QDRANT_WORKSPACE__COLLECTION_SUFFIXES"):
-            # Legacy environment variable support
-            self.workspace.collection_suffixes = [
-                c.strip() for c in collection_suffixes.split(",") if c.strip()
-            ]
-        elif collections := os.getenv("WORKSPACE_QDRANT_WORKSPACE__COLLECTIONS"):
-            # Oldest legacy environment variable support
-            self.workspace.collections = [
-                c.strip() for c in collections.split(",") if c.strip()
-            ]
         if global_collections := os.getenv(
             "WORKSPACE_QDRANT_WORKSPACE__GLOBAL_COLLECTIONS"
         ):
@@ -738,6 +695,10 @@ class Config(BaseSettings):
             "WORKSPACE_QDRANT_WORKSPACE__MEMORY_COLLECTION_NAME"
         ):
             self.workspace.memory_collection_name = memory_collection_name
+        if code_collection_name := os.getenv(
+            "WORKSPACE_QDRANT_WORKSPACE__CODE_COLLECTION_NAME"
+        ):
+            self.workspace.code_collection_name = code_collection_name
 
         # Custom pattern extension fields
         if custom_include := os.getenv("WORKSPACE_QDRANT_WORKSPACE__CUSTOM_INCLUDE_PATTERNS"):
@@ -796,19 +757,9 @@ class Config(BaseSettings):
             self.embedding.batch_size = int(batch_size)
 
         # Legacy workspace config
-        if collections := os.getenv("COLLECTIONS"):
-            # Support legacy COLLECTIONS env var
-            self.workspace.collections = [
-                c.strip() for c in collections.split(",") if c.strip()
-            ]
-        # New environment variables - priority order: collection_types > collection_suffixes
         if collection_types := os.getenv("COLLECTION_TYPES"):
             self.workspace.collection_types = [
                 c.strip() for c in collection_types.split(",") if c.strip()
-            ]
-        elif collection_suffixes := os.getenv("COLLECTION_SUFFIXES"):
-            self.workspace.collection_suffixes = [
-                c.strip() for c in collection_suffixes.split(",") if c.strip()
             ]
         if global_collections := os.getenv("GLOBAL_COLLECTIONS"):
             self.workspace.global_collections = [

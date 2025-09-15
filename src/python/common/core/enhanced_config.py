@@ -150,46 +150,15 @@ class WorkspaceConfig(BaseModel):
     github_user: Optional[str] = None
     auto_create_collections: bool = True
     cleanup_on_exit: bool = False
-    # Legacy fields for backward compatibility
-    collection_suffixes: Optional[List[str]] = None
-    collections: Optional[List[str]] = None
+    memory_collection_name: str = "__memory"
+    code_collection_name: str = "__code"
 
     @property
     def effective_collection_types(self) -> List[str]:
-        """Get effective collection types, handling backward compatibility."""
-        # Priority order: collection_types (new) > collection_suffixes (legacy) > collections (oldest legacy)
-        if self.collection_types:
-            return self.collection_types
-        elif self.collection_suffixes is not None:
-            # logger imported from loguru
-            logger.warning(
-                "The 'collection_suffixes' field is deprecated. Please use 'collection_types' instead. "
-                "This will be removed in a future version."
-            )
-            return self.collection_suffixes
-        elif self.collections is not None:
-            # logger imported from loguru
-            logger.warning(
-                "The 'collections' field is deprecated. Please use 'collection_types' instead. "
-                "This will be removed in a future version."
-            )
-            return self.collections
+        """Get effective collection types."""
         return self.collection_types
 
-    @property
-    def effective_collection_suffixes(self) -> List[str]:
-        """Get effective collection suffixes, handling backward compatibility.
-
-        This property is deprecated. Use effective_collection_types instead.
-        """
-        # logger imported from loguru
-        logger.warning(
-            "The 'effective_collection_suffixes' property is deprecated. Please use 'effective_collection_types' instead. "
-            "This will be removed in a future version."
-        )
-        return self.effective_collection_types
-
-    @validator("collection_types", "collection_suffixes", "global_collections")
+    @validator("collection_types", "global_collections")
     def validate_collections(cls, v):
         """Ensure collection lists have reasonable size."""
         if v and len(v) > 50:
@@ -397,8 +366,18 @@ class EnhancedConfig(BaseSettings):
                 "WORKSPACE_QDRANT_WORKSPACE__GITHUB_USER",
                 lambda v: setattr(self.workspace, "github_user", v),
             ),
-            # Note: collection_prefix and max_collections environment variables removed
-            # as part of multi-tenant architecture migration
+            (
+                "WORKSPACE_QDRANT_WORKSPACE__AUTO_CREATE_COLLECTIONS",
+                lambda v: setattr(self.workspace, "auto_create_collections", v.lower() == "true"),
+            ),
+            (
+                "WORKSPACE_QDRANT_WORKSPACE__MEMORY_COLLECTION_NAME",
+                lambda v: setattr(self.workspace, "memory_collection_name", v),
+            ),
+            (
+                "WORKSPACE_QDRANT_WORKSPACE__CODE_COLLECTION_NAME",
+                lambda v: setattr(self.workspace, "code_collection_name", v),
+            ),
         ]
 
         for env_var, setter in env_mappings:
@@ -413,16 +392,6 @@ class EnhancedConfig(BaseSettings):
         if collection_types := os.getenv("WORKSPACE_QDRANT_WORKSPACE__COLLECTION_TYPES"):
             self.workspace.collection_types = [
                 c.strip() for c in collection_types.split(",") if c.strip()
-            ]
-        elif collection_suffixes := os.getenv("WORKSPACE_QDRANT_WORKSPACE__COLLECTION_SUFFIXES"):
-            # Legacy support
-            self.workspace.collection_suffixes = [
-                c.strip() for c in collection_suffixes.split(",") if c.strip()
-            ]
-        elif collections := os.getenv("WORKSPACE_QDRANT_WORKSPACE__COLLECTIONS"):
-            # Oldest legacy support
-            self.workspace.collections = [
-                c.strip() for c in collections.split(",") if c.strip()
             ]
 
         if global_collections := os.getenv(
@@ -464,18 +433,10 @@ class EnhancedConfig(BaseSettings):
                 except (ValueError, TypeError) as e:
                     logger.warning(f"Invalid legacy value for {env_var}: {value} - {e}")
 
-        # Handle legacy list variables - priority order: COLLECTION_TYPES > COLLECTION_SUFFIXES > COLLECTIONS
+        # Handle legacy list variables
         if collection_types := os.getenv("COLLECTION_TYPES"):
             self.workspace.collection_types = [
                 c.strip() for c in collection_types.split(",") if c.strip()
-            ]
-        elif collection_suffixes := os.getenv("COLLECTION_SUFFIXES"):
-            self.workspace.collection_suffixes = [
-                c.strip() for c in collection_suffixes.split(",") if c.strip()
-            ]
-        elif collections := os.getenv("COLLECTIONS"):
-            self.workspace.collections = [
-                c.strip() for c in collections.split(",") if c.strip()
             ]
 
         if global_collections := os.getenv("GLOBAL_COLLECTIONS"):

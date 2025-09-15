@@ -413,10 +413,11 @@ class UnifiedConfigManager:
             "EMBEDDING__CHUNK_OVERLAP": ("embedding", "chunk_overlap"),
             "EMBEDDING__BATCH_SIZE": ("embedding", "batch_size"),
             "WORKSPACE__COLLECTION_TYPES": ("workspace", "collection_types"),
-            "WORKSPACE__COLLECTION_SUFFIXES": ("workspace", "collection_suffixes"),  # Legacy
             "WORKSPACE__GLOBAL_COLLECTIONS": ("workspace", "global_collections"),
             "WORKSPACE__GITHUB_USER": ("workspace", "github_user"),
             "WORKSPACE__AUTO_CREATE_COLLECTIONS": ("workspace", "auto_create_collections"),
+            "WORKSPACE__MEMORY_COLLECTION_NAME": ("workspace", "memory_collection_name"),
+            "WORKSPACE__CODE_COLLECTION_NAME": ("workspace", "code_collection_name"),
             "AUTO_INGESTION__ENABLED": ("auto_ingestion", "enabled"),
             "AUTO_INGESTION__AUTO_CREATE_WATCHES": ("auto_ingestion", "auto_create_watches"),
             "AUTO_INGESTION__TARGET_COLLECTION_SUFFIX": ("auto_ingestion", "target_collection_suffix"),
@@ -439,7 +440,7 @@ class UnifiedConfigManager:
                 elif field in ["prefer_grpc", "enable_sparse_vectors", "auto_create_collections",
                               "enabled", "auto_create_watches"]:
                     result[section][field] = env_value.lower() == "true"
-                elif field in ["collection_types", "collection_suffixes", "global_collections"]:
+                elif field in ["collection_types", "global_collections"]:
                     result[section][field] = [c.strip() for c in env_value.split(",") if c.strip()]
                 else:
                     result[section][field] = env_value
