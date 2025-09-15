@@ -495,3 +495,347 @@ class TestPatternConfigMigration:
         assert framework["required_files"] == ["config.yml"]
         assert framework["optional_files"] == ["docs.md"]
         assert framework["min_optional_files"] == 1
+
+
+class TestDeprecatedFieldRemoval:
+    """Test deprecated field removal functionality."""
+
+    @pytest.fixture
+    def migrator(self):
+        """Create a ConfigMigrator instance for testing."""
+        return ConfigMigrator()
+
+    def test_remove_collection_deprecated_fields(self, migrator):
+        """Test removal of collection-related deprecated fields."""
+        config_data = {
+            "workspace": {
+                "collection_prefix": "proj_",
+                "max_collections": 100,
+                "github_user": "testuser"
+            },
+            "qdrant": {
+                "url": "http://localhost:6333"
+            },
+            "collections": {
+                "project_suffixes": ["docs", "notes"]
+            }
+        }
+
+        cleaned = migrator.remove_deprecated_fields(config_data)
+
+        # Verify removal
+        workspace = cleaned.get("workspace", {})
+        assert "collection_prefix" not in workspace, "collection_prefix should be removed"
+        assert "max_collections" not in workspace, "max_collections should be removed"
+        assert workspace.get("github_user") == "testuser", "Non-deprecated fields should be preserved"
+
+        # Other sections should be preserved
+        assert "qdrant" in cleaned, "qdrant section should be preserved"
+        assert "collections" in cleaned, "collections section should be preserved"
+
+    def test_remove_ingestion_deprecated_fields(self, migrator):
+        """Test removal of ingestion-related deprecated fields."""
+        config_data = {
+            "workspace": {
+                "recursive_depth": 5,
+                "github_user": "testuser"
+            },
+            "qdrant": {
+                "url": "http://localhost:6333"
+            }
+        }
+
+        cleaned = migrator.remove_deprecated_fields(config_data)
+
+        # Verify removal and fallback
+        workspace = cleaned.get("workspace", {})
+        assert "recursive_depth" not in workspace, "recursive_depth should be removed"
+
+        # Should apply fallback
+        ingestion = cleaned.get("ingestion", {})
+        assert ingestion.get("max_depth") == 10, "Should apply fallback max_depth"
+
+    def test_remove_pattern_deprecated_fields(self, migrator):
+        """Test removal of pattern-related deprecated fields."""
+        config_data = {
+            "patterns": {
+                "include_patterns": ["*.py", "*.js"],
+                "exclude_patterns": ["*.tmp"],
+                "file_types": [".md", ".txt"],
+                "custom_ecosystems": {"test": {"files": ["test.yml"]}},
+                "pattern_priorities": {"include": {"*.py": 10}}
+            },
+            "workspace": {
+                "file_patterns": ["*.doc"],
+                "ignore_patterns": ["*.log"],
+                "supported_extensions": [".cpp", ".h"]
+            }
+        }
+
+        cleaned = migrator.remove_deprecated_fields(config_data)
+
+        # Verify removal from patterns section
+        patterns = cleaned.get("patterns", {})
+        deprecated_pattern_fields = [
+            "include_patterns", "exclude_patterns", "file_types",
+            "custom_ecosystems", "pattern_priorities"
+        ]
+        for field in deprecated_pattern_fields:
+            assert field not in patterns, f"{field} should be removed from patterns"
+
+        # Verify removal from workspace section
+        workspace = cleaned.get("workspace", {})
+        deprecated_workspace_fields = ["file_patterns", "ignore_patterns", "supported_extensions"]
+        for field in deprecated_workspace_fields:
+            assert field not in workspace, f"{field} should be removed from workspace"
+
+    def test_remove_legacy_mode_field(self, migrator):
+        """Test removal of enable_legacy_mode field."""
+        config_data = {
+            "workspace": {
+                "enable_legacy_mode": True,
+                "github_user": "testuser"
+            }
+        }
+
+        cleaned = migrator.remove_deprecated_fields(config_data)
+
+        # Verify removal
+        workspace = cleaned.get("workspace", {})
+        assert "enable_legacy_mode" not in workspace, "enable_legacy_mode should be removed"
+        assert workspace.get("github_user") == "testuser", "Other fields should be preserved"
+
+    def test_nested_deprecated_field_removal(self, migrator):
+        """Test removal of deprecated fields in nested structures."""
+        config_data = {
+            "workspace": {
+                "settings": {
+                    "collection_prefix": "nested_",
+                    "valid_field": "keep_this"
+                },
+                "github_user": "testuser"
+            },
+            "patterns": {
+                "advanced": {
+                    "include_patterns": ["*.py"],
+                    "valid_pattern": "keep_this"
+                }
+            }
+        }
+
+        cleaned = migrator.remove_deprecated_fields(config_data)
+
+        # Verify nested removal
+        settings = cleaned.get("workspace", {}).get("settings", {})
+        assert "collection_prefix" not in settings, "Nested collection_prefix should be removed"
+        assert settings.get("valid_field") == "keep_this", "Valid nested field should be preserved"
+
+        advanced_patterns = cleaned.get("patterns", {}).get("advanced", {})
+        assert "include_patterns" not in advanced_patterns, "Nested include_patterns should be removed"
+        assert advanced_patterns.get("valid_pattern") == "keep_this", "Valid nested pattern should be preserved"
+
+    def test_fallback_handling_for_recursive_depth(self, migrator):
+        """Test fallback handling when recursive_depth is removed without replacement."""
+        config_data = {
+            "workspace": {
+                "recursive_depth": 8,
+                "github_user": "testuser"
+            },
+            "qdrant": {
+                "url": "http://localhost:6333"
+            }
+            # No ingestion section
+        }
+
+        cleaned = migrator.remove_deprecated_fields(config_data)
+
+        # Verify fallback was applied
+        assert "ingestion" in cleaned, "ingestion section should be created"
+        assert cleaned["ingestion"]["max_depth"] == 10, "Should apply fallback max_depth"
+
+    def test_fallback_handling_for_collection_settings(self, migrator):
+        """Test fallback handling when collection settings are removed without replacement."""
+        config_data = {
+            "workspace": {
+                "collection_prefix": "test_",
+                "max_collections": 50,
+                "github_user": "testuser"
+            },
+            "qdrant": {
+                "url": "http://localhost:6333"
+            }
+            # No collections section
+        }
+
+        cleaned = migrator.remove_deprecated_fields(config_data)
+
+        # Verify fallback was applied
+        assert "collections" in cleaned, "collections section should be created"
+        assert cleaned["collections"]["project_suffixes"] == ["scratchbook"], "Should apply fallback project_suffixes"
+
+    def test_no_fallback_when_replacement_exists(self, migrator):
+        """Test that fallback is not applied when replacement already exists."""
+        config_data = {
+            "workspace": {
+                "recursive_depth": 8,
+                "github_user": "testuser"
+            },
+            "ingestion": {
+                "max_depth": 15  # Existing replacement
+            }
+        }
+
+        cleaned = migrator.remove_deprecated_fields(config_data)
+
+        # Verify no fallback was applied
+        assert cleaned["ingestion"]["max_depth"] == 15, "Existing max_depth should be preserved"
+
+    def test_validation_error_for_broken_config(self, migrator):
+        """Test validation error when removing fields would break functionality."""
+        # Create a config that would become invalid after field removal
+        config_data = {
+            "workspace": {
+                "recursive_depth": 5
+            }
+            # No essential sections like qdrant, embeddings
+        }
+
+        with pytest.raises(ValueError, match="Removing deprecated fields would break functionality"):
+            migrator.remove_deprecated_fields(config_data)
+
+    def test_no_changes_for_clean_config(self, migrator):
+        """Test that clean configuration without deprecated fields is unchanged."""
+        config_data = {
+            "qdrant": {
+                "url": "http://localhost:6333"
+            },
+            "embeddings": {
+                "model": "all-MiniLM-L6-v2"
+            },
+            "collections": {
+                "project_suffixes": ["docs", "notes"]
+            },
+            "patterns": {
+                "custom_include_patterns": ["*.py", "*.js"]
+            }
+        }
+
+        cleaned = migrator.remove_deprecated_fields(config_data)
+
+        # Should be unchanged
+        assert cleaned == config_data, "Clean config should be unchanged"
+
+    def test_generate_field_specific_warning(self, migrator):
+        """Test generation of field-specific warning messages."""
+        # Test collection_prefix warning
+        warning = migrator._generate_field_specific_warning("collection_prefix", "test_", "workspace.collection_prefix")
+        assert "collection_prefix" in warning
+        assert "CollectionType system" in warning
+        assert "collections.project_suffixes" in warning
+
+        # Test recursive_depth warning
+        warning = migrator._generate_field_specific_warning("recursive_depth", 5, "workspace.recursive_depth")
+        assert "recursive_depth" in warning
+        assert "ingestion.max_depth" in warning
+        assert "5" in warning  # Should include the original value
+
+        # Test unknown field warning
+        warning = migrator._generate_field_specific_warning("unknown_field", "value", "section.unknown_field")
+        assert "unknown_field" in warning
+        assert "documentation" in warning
+
+    def test_validate_functionality_preservation(self, migrator):
+        """Test functionality preservation validation."""
+        original_config = {
+            "workspace": {
+                "collection_prefix": "test_",
+                "recursive_depth": 5
+            }
+        }
+
+        cleaned_config = {
+            "qdrant": {"url": "http://localhost:6333"}
+        }
+
+        removed_fields = ["workspace.collection_prefix", "workspace.recursive_depth"]
+
+        result = migrator._validate_functionality_preservation(original_config, cleaned_config, removed_fields)
+
+        assert result["is_valid"] is True
+        assert len(result["warnings"]) > 0, "Should have warnings about missing replacements"
+        assert len(result["recommendations"]) > 0, "Should have recommendations"
+
+    def test_validate_cleaned_config(self, migrator):
+        """Test validation of cleaned configuration."""
+        # Test valid config
+        valid_config = {
+            "qdrant": {"url": "http://localhost:6333"},
+            "embeddings": {"model": "test"}
+        }
+        result = migrator._validate_cleaned_config(valid_config)
+        assert result["is_valid"] is True
+        assert result["error"] is None
+
+        # Test empty config
+        result = migrator._validate_cleaned_config({})
+        assert result["is_valid"] is False
+        assert "empty" in result["error"]
+
+        # Test non-dict config
+        result = migrator._validate_cleaned_config("invalid")
+        assert result["is_valid"] is False
+        assert "dictionary" in result["error"]
+
+        # Test config missing essential sections
+        incomplete_config = {"other": "value"}
+        result = migrator._validate_cleaned_config(incomplete_config)
+        assert result["is_valid"] is False
+        assert "essential sections" in result["error"]
+
+    def test_has_replacement_config_methods(self, migrator):
+        """Test helper methods for checking replacement configurations."""
+        # Test collection replacement detection
+        config_with_collections = {
+            "collections": {"project_suffixes": ["docs"]}
+        }
+        assert migrator._has_collection_config_replacement(config_with_collections)
+
+        config_with_workspace = {
+            "workspace": {"collection_types": ["notes"]}
+        }
+        assert migrator._has_collection_config_replacement(config_with_workspace)
+
+        config_without_collections = {"other": "value"}
+        assert not migrator._has_collection_config_replacement(config_without_collections)
+
+        # Test ingestion depth replacement detection
+        config_with_depth = {
+            "ingestion": {"max_depth": 10}
+        }
+        assert migrator._has_ingestion_depth_config(config_with_depth)
+
+        config_without_depth = {"ingestion": {"other": "value"}}
+        assert not migrator._has_ingestion_depth_config(config_without_depth)
+
+        # Test pattern replacement detection
+        config_with_patterns = {
+            "patterns": {"custom_include_patterns": ["*.py"]}
+        }
+        assert migrator._has_pattern_config_replacement(config_with_patterns)
+
+        config_without_patterns = {"patterns": {"other": "value"}}
+        assert not migrator._has_pattern_config_replacement(config_without_patterns)
+
+    def test_invalid_config_data_handling(self, migrator):
+        """Test handling of invalid configuration data types."""
+        # Test non-dict input
+        result = migrator.remove_deprecated_fields("invalid")
+        assert result == "invalid", "Should return unchanged for invalid input"
+
+        # Test None input
+        result = migrator.remove_deprecated_fields(None)
+        assert result is None, "Should return unchanged for None input"
+
+        # Test list input
+        result = migrator.remove_deprecated_fields([])
+        assert result == [], "Should return unchanged for list input"
