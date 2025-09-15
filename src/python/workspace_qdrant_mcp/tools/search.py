@@ -70,6 +70,9 @@ async def search_workspace(
     project_context: Optional[dict] = None,
     auto_inject_project_metadata: bool = True,
     include_shared: bool = True,
+    enable_multi_tenant_aggregation: bool = True,
+    enable_deduplication: bool = True,
+    score_aggregation_method: str = "max_score",
 ) -> dict:
     """
     Search across multiple workspace collections with advanced hybrid search.
@@ -94,6 +97,9 @@ async def search_workspace(
         project_context: Optional project context for metadata filtering
         auto_inject_project_metadata: Whether to automatically inject project metadata filters
         include_shared: Whether to include shared workspace resources in search
+        enable_multi_tenant_aggregation: Whether to use advanced multi-tenant result aggregation
+        enable_deduplication: Whether to deduplicate results across collections
+        score_aggregation_method: Method for aggregating duplicate scores ("max_score", "avg_score", "sum_score")
 
     Returns:
         Dict: Comprehensive search results containing:
@@ -249,18 +255,98 @@ async def search_workspace(
         if mode == "sparse" and "sparse" not in embeddings:
             return {"error": "Sparse embeddings not available for sparse search mode"}
 
-        # Search each collection
-        all_results = []
-
         # Log search configuration
         logger.info(
-            "Starting workspace search",
+            "Starting workspace search with multi-tenant aggregation",
             query=query[:50] + "..." if len(query) > 50 else query,
             mode=mode,
             collections_count=len(collections),
             auto_inject_metadata=auto_inject_project_metadata,
-            include_shared=include_shared
+            include_shared=include_shared,
+            multi_tenant_aggregation=enable_multi_tenant_aggregation,
+            deduplication_enabled=enable_deduplication,
+            aggregation_method=score_aggregation_method
         )
+
+        # Check if we should use advanced multi-tenant aggregation
+        if enable_multi_tenant_aggregation and len(collections) > 1 and mode == "hybrid":
+            try:
+                # Use advanced multi-collection hybrid search with result aggregation
+                hybrid_engine = HybridSearchEngine(
+                    client.client,
+                    enable_optimizations=True,
+                    enable_multi_tenant_aggregation=True
+                )
+
+                # Build project contexts for collections
+                project_contexts = {}
+                detected_context = project_context or client.get_project_context()
+                if detected_context:
+                    for collection_name in collections:
+                        project_contexts[collection_name] = detected_context
+
+                # Perform multi-collection search with aggregation
+                aggregated_result = await hybrid_engine.multi_collection_hybrid_search(
+                    collection_names=actual_collections,
+                    query_embeddings=embeddings,
+                    project_contexts=project_contexts,
+                    limit=limit,
+                    fusion_method="rrf" if mode == "hybrid" else mode,
+                    score_threshold=score_threshold,
+                    enable_deduplication=enable_deduplication,
+                    aggregation_method=score_aggregation_method,
+                    with_payload=True
+                )
+
+                # Convert to standard search response format
+                enhanced_response = {
+                    "query": query,
+                    "mode": mode,
+                    "collections_searched": collections,
+                    "total": aggregated_result["total_results"],
+                    "results": aggregated_result["results"],
+                    "search_params": {
+                        "mode": mode,
+                        "limit": limit,
+                        "score_threshold": score_threshold,
+                        "auto_inject_project_metadata": auto_inject_project_metadata,
+                        "include_shared": include_shared,
+                        "multi_tenant_aggregation_enabled": True,
+                        "deduplication_enabled": enable_deduplication,
+                        "aggregation_method": score_aggregation_method
+                    },
+                    "aggregation_metadata": aggregated_result.get("aggregation_metadata", {}),
+                    "performance": aggregated_result.get("performance", {})
+                }
+
+                # Add project context information
+                if auto_inject_project_metadata and detected_context:
+                    enhanced_response["project_context"] = {
+                        "project_name": detected_context.get("project_name"),
+                        "workspace_scope": detected_context.get("workspace_scope"),
+                        "metadata_filtering_enabled": True
+                    }
+
+                logger.info(
+                    "Multi-tenant aggregation search completed",
+                    collections_searched=len(collections),
+                    raw_results=enhanced_response["aggregation_metadata"].get("raw_result_count", 0),
+                    deduplicated_results=enhanced_response["aggregation_metadata"].get("post_deduplication_count", 0),
+                    final_results=enhanced_response["total"],
+                    response_time_ms=enhanced_response.get("performance", {}).get("response_time_ms")
+                )
+
+                return enhanced_response
+
+            except Exception as e:
+                logger.warning(
+                    "Multi-tenant aggregation failed, falling back to standard search",
+                    error=str(e)
+                )
+                # Fall through to standard search logic
+
+        # Search each collection using standard approach
+        all_results = []
 
         for i, display_name in enumerate(collections):
             actual_name = actual_collections[i]
@@ -738,3 +824,108 @@ async def search_workspace_with_project_isolation(
     except Exception as e:
         logger.error("Project-isolated search failed: %s", e)
         return {"error": f"Project-isolated search failed: {e}"}
+
+
+async def search_workspace_with_advanced_aggregation(
+    client: QdrantWorkspaceClient,
+    query: str,
+    collections: list[str] | None = None,
+    mode: str = "hybrid",
+    limit: int = 10,
+    score_threshold: float = 0.7,
+    project_context: Optional[dict] = None,
+    aggregation_settings: Optional[dict] = None
+) -> dict:
+    """
+    Search workspace with advanced multi-tenant result aggregation.
+
+    This is a convenience function that provides easy access to the advanced
+    multi-tenant result aggregation capabilities with customizable settings.
+
+    Args:
+        client: Initialized workspace client with embedding service
+        query: Natural language query or exact text to search for
+        collections: Specific collections to search. If None, searches all workspace collections
+        mode: Search strategy (hybrid, dense, sparse)
+        limit: Maximum number of results to return across all collections
+        score_threshold: Minimum relevance score (0.0-1.0)
+        project_context: Optional project context for metadata filtering
+        aggregation_settings: Optional dict with aggregation configuration:
+            - enable_multi_tenant_aggregation: bool (default: True)
+            - enable_deduplication: bool (default: True)
+            - score_aggregation_method: str (default: "max_score")
+            - preserve_tenant_isolation: bool (default: True)
+            - enable_score_normalization: bool (default: True)
+
+    Returns:
+        Dict: Enhanced search results with advanced aggregation metadata
+
+    Example:
+        ```python
+        # Search with custom aggregation settings
+        results = await search_workspace_with_advanced_aggregation(
+            client=workspace_client,
+            query="authentication patterns",
+            mode="hybrid",
+            limit=20,
+            aggregation_settings={
+                "enable_deduplication": True,
+                "score_aggregation_method": "avg_score",
+                "preserve_tenant_isolation": True,
+                "enable_score_normalization": True
+            }
+        )
+
+        # Access aggregation metadata
+        metadata = results.get("aggregation_metadata", {})
+        print(f"Deduplicated {metadata.get('duplicates_found', 0)} results")
+        print(f"Score normalization: {metadata.get('score_normalization_enabled', False)}")
+        ```
+
+    Task 233.5: Added for advanced multi-tenant result aggregation with full configuration control.
+    """
+    # Set default aggregation settings
+    default_settings = {
+        "enable_multi_tenant_aggregation": True,
+        "enable_deduplication": True,
+        "score_aggregation_method": "max_score",
+        "preserve_tenant_isolation": True,
+        "enable_score_normalization": True
+    }
+
+    # Merge with user settings
+    if aggregation_settings:
+        default_settings.update(aggregation_settings)
+
+    try:
+        # Use the enhanced search_workspace with aggregation settings
+        result = await search_workspace(
+            client=client,
+            query=query,
+            collections=collections,
+            mode=mode,
+            limit=limit,
+            score_threshold=score_threshold,
+            project_context=project_context,
+            auto_inject_project_metadata=True,
+            include_shared=True,
+            enable_multi_tenant_aggregation=default_settings["enable_multi_tenant_aggregation"],
+            enable_deduplication=default_settings["enable_deduplication"],
+            score_aggregation_method=default_settings["score_aggregation_method"]
+        )
+
+        # Add aggregation settings to the response for transparency
+        result["aggregation_settings_used"] = default_settings
+
+        logger.info(
+            "Advanced aggregation search completed",
+            query=query[:50] + "..." if len(query) > 50 else query,
+            total_results=result.get("total", 0),
+            aggregation_settings=default_settings
+        )
+
+        return result
+
+    except Exception as e:
+        logger.error("Advanced aggregation search failed: %s", e)
+        return {"error": f"Advanced aggregation search failed: {e}"}
