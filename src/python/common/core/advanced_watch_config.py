@@ -21,6 +21,50 @@ except ImportError:
     # Fallback if LSP detector is not available
     get_default_detector = None
 
+# Import PatternManager for default patterns
+try:
+    from .pattern_manager import PatternManager
+
+    def _get_advanced_default_patterns() -> List[str]:
+        """Get default include patterns for advanced watch config."""
+        try:
+            pattern_manager = PatternManager()
+            # TODO: Get from PatternManager YAML in future
+            return ["*.pdf", "*.epub", "*.txt", "*.md", "*.docx", "*.rtf"]
+        except Exception as e:
+            logger.debug(f"Failed to load PatternManager, using fallback patterns: {e}")
+            return ["*.pdf", "*.epub", "*.txt", "*.md", "*.docx", "*.rtf"]
+
+    def _get_advanced_default_exclude_patterns() -> List[str]:
+        """Get default exclude patterns for advanced watch config."""
+        try:
+            pattern_manager = PatternManager()
+            # TODO: Get from PatternManager YAML in future
+            return [
+                ".git/*", "node_modules/*", "__pycache__/*", ".DS_Store",
+                "*.tmp", "*.temp", "*.log", "*.swp", "*.swo"
+            ]
+        except Exception as e:
+            logger.debug(f"Failed to load PatternManager, using fallback exclude patterns: {e}")
+            return [
+                ".git/*", "node_modules/*", "__pycache__/*", ".DS_Store",
+                "*.tmp", "*.temp", "*.log", "*.swp", "*.swo"
+            ]
+
+except ImportError:
+    logger.debug("PatternManager not available - using hardcoded advanced patterns")
+
+    def _get_advanced_default_patterns() -> List[str]:
+        """Fallback default include patterns for advanced watch config."""
+        return ["*.pdf", "*.epub", "*.txt", "*.md", "*.docx", "*.rtf"]
+
+    def _get_advanced_default_exclude_patterns() -> List[str]:
+        """Fallback default exclude patterns for advanced watch config."""
+        return [
+            ".git/*", "node_modules/*", "__pycache__/*", ".DS_Store",
+            "*.tmp", "*.temp", "*.log", "*.swp", "*.swo"
+        ]
+
 # logger imported from loguru
 
 
@@ -28,17 +72,11 @@ class FileFilterConfig(BaseModel):
     """Advanced file filtering configuration."""
 
     include_patterns: list[str] = Field(
-        default_factory=lambda: ["*.pdf", "*.epub", "*.txt", "*.md", "*.docx", "*.rtf"],
+        default_factory=_get_advanced_default_patterns,
         description="File patterns to include (glob patterns)",
     )
     exclude_patterns: list[str] = Field(
-        default_factory=lambda: [
-            ".git/*",
-            "node_modules/*",
-            "__pycache__/*",
-            ".DS_Store",
-            "*.tmp",
-        ],
+        default_factory=_get_advanced_default_exclude_patterns,
         description="File patterns to exclude (glob patterns)",
     )
     mime_types: list[str] = Field(
