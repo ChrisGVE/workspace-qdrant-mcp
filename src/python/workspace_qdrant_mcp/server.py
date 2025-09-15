@@ -730,22 +730,51 @@ async def get_document_tool(
 
 @app.tool()
 async def search_by_metadata_tool(
-    collection: str, metadata_filter: dict, limit: int = 10
+    collection: str,
+    metadata_filter: dict,
+    limit: int = 10,
+    project_name: Optional[str] = None,
+    include_shared: bool = True,
+    enhance_with_project_context: bool = False
 ) -> dict:
-    """Search collection by metadata filter."""
+    """Search collection by metadata filter with optional project context enhancement.
+
+    Args:
+        collection: Target collection name to search
+        metadata_filter: Metadata filter conditions to apply
+        limit: Maximum number of results to return
+        project_name: Project name for enhanced filtering (when enhance_with_project_context=True)
+        include_shared: Include shared workspace resources in enhanced mode
+        enhance_with_project_context: Use enhanced multi-tenant search with project context
+
+    Returns:
+        dict: Search results with metadata filtering applied
+    """
     if not workspace_client:
         return {"error": "Workspace client not initialized"}
 
     try:
         # Convert string parameters to appropriate numeric types if needed
         limit = int(limit) if isinstance(limit, str) else limit
-        
+
         # Validate numeric parameter ranges
         if limit <= 0:
             return {"error": "limit must be greater than 0"}
     except (ValueError, TypeError) as e:
         return {"error": f"Invalid parameter type: limit must be an integer. Error: {e}"}
 
+    # Use enhanced multi-tenant search if requested
+    if enhance_with_project_context:
+        return await search_workspace_by_metadata_with_project_context(
+            client=workspace_client,
+            metadata_filter=metadata_filter,
+            project_name=project_name,
+            collections=[collection],
+            limit=limit,
+            include_shared=include_shared
+        )
+
+    # Use original metadata search for backward compatibility
     return await search_collection_by_metadata(
         workspace_client, collection, metadata_filter, limit
     )
