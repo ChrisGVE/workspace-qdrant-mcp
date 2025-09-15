@@ -27,24 +27,47 @@ from typing import Any, Dict, List, Optional
 from loguru import logger
 from mcp.server.fastmcp import FastMCP
 
-from common.core.client import QdrantWorkspaceClient
-from common.core.multitenant import (
-    MultiTenantWorkspaceCollectionManager,
-    WorkspaceCollectionRegistry,
-)
-from common.observability import monitor_async, record_operation
-from common.core.error_handling import (
-    ErrorRecoveryStrategy,
-    with_error_handling,
-    error_context,
-)
+# Lazy imports to avoid circular dependencies
+def _get_document_functions():
+    """Lazily import document functions to avoid circular dependencies."""
+    try:
+        from .documents import add_document, get_document, update_document, delete_document
+        return add_document, get_document, update_document, delete_document
+    except ImportError as e:
+        logger.error(f"Failed to import document functions: {e}")
+        return None, None, None, None
 
-# Import document operations from existing tools
-from .documents import add_document, get_document, update_document, delete_document
-from .multitenant_tools import add_document_with_project_context
+def _get_multitenant_function():
+    """Lazily import multitenant function to avoid circular dependencies."""
+    try:
+        from .multitenant_tools import add_document_with_project_context
+        return add_document_with_project_context
+    except ImportError:
+        return None
+
+# Conditional decorator imports
+try:
+    from common.observability import monitor_async
+except ImportError:
+    def monitor_async(*args, **kwargs):
+        def decorator(func):
+            return func
+        return decorator
+
+try:
+    from common.core.error_handling import ErrorRecoveryStrategy, with_error_handling
+except ImportError:
+    class ErrorRecoveryStrategy:
+        @staticmethod
+        def database_strategy():
+            return None
+    def with_error_handling(*args, **kwargs):
+        def decorator(func):
+            return func
+        return decorator
 
 
-def register_document_memory_tools(app: FastMCP, workspace_client: QdrantWorkspaceClient):
+def register_document_memory_tools(app: FastMCP, workspace_client):
     """Register multi-tenant document memory tools with the FastMCP app."""
 
     @app.tool()
@@ -109,16 +132,38 @@ def register_document_memory_tools(app: FastMCP, workspace_client: QdrantWorkspa
             base_metadata["source"] = "memory_tool"
             base_metadata["created_at"] = datetime.now(timezone.utc).isoformat()
 
-            # Use existing multi-tenant document addition
-            result = await add_document_with_project_context(
-                content=content,
-                collection=collection,
-                project_name=project_name,
-                metadata=base_metadata,
-                document_id=document_id,
-                chunk_text=chunk_text,
-                creator="memory_tool"
-            )
+            # Get document functions lazily
+            add_document, _, _, _ = _get_document_functions()
+            add_document_with_project_context = _get_multitenant_function()
+
+            if not add_document:
+                return {"error": "Document functions not available", "success": False}
+
+            # Use existing multi-tenant document addition if available
+            if add_document_with_project_context:
+                result = await add_document_with_project_context(
+                    content=content,
+                    collection=collection,
+                    project_name=project_name,
+                    metadata=base_metadata,
+                    document_id=document_id,
+                    chunk_text=chunk_text,
+                    creator="memory_tool"
+                )
+            else:
+                # Fallback to basic document addition with manual project metadata
+                if project_name:
+                    base_metadata["project_name"] = project_name
+                    base_metadata["project_context"] = project_name
+
+                result = await add_document(
+                    client=workspace_client,
+                    content=content,
+                    collection=collection,
+                    metadata=base_metadata,
+                    document_id=document_id,
+                    chunk_text=chunk_text
+                )
 
             if result.get("success"):
                 logger.info(
@@ -184,6 +229,12 @@ def register_document_memory_tools(app: FastMCP, workspace_client: QdrantWorkspa
                 project_info = getattr(workspace_client, 'project_info', None)
                 if project_info:
                     project_name = project_info.get("main_project")
+
+            # Get document functions lazily
+            _, get_document, _, _ = _get_document_functions()
+
+            if not get_document:
+                return {"error": "Document functions not available", "success": False}
 
             # Get document using existing function
             result = await get_document(
@@ -283,6 +334,12 @@ def register_document_memory_tools(app: FastMCP, workspace_client: QdrantWorkspa
                 project_info = getattr(workspace_client, 'project_info', None)
                 if project_info:
                     project_name = project_info.get("main_project")
+
+            # Get document functions lazily
+            _, get_document, update_document, _ = _get_document_functions()
+
+            if not get_document or not update_document:
+                return {"error": "Document functions not available", "success": False}
 
             # First, get the existing document to validate project access
             if validate_project_access:
@@ -410,6 +467,12 @@ def register_document_memory_tools(app: FastMCP, workspace_client: QdrantWorkspa
                 project_info = getattr(workspace_client, 'project_info', None)
                 if project_info:
                     project_name = project_info.get("main_project")
+
+            # Get document functions lazily
+            _, get_document, _, delete_document = _get_document_functions()
+
+            if not get_document or not delete_document:
+                return {"error": "Document functions not available", "success": False}
 
             # Validate project access before deletion
             if validate_project_access:
