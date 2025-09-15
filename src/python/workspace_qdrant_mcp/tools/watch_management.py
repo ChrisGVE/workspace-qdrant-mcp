@@ -29,6 +29,50 @@ from common.core.watch_validation import (
     WatchPathValidator,
 )
 
+# Import PatternManager for default patterns
+try:
+    from common.core.pattern_manager import PatternManager
+
+    def _get_default_watch_patterns() -> List[str]:
+        """Get default file patterns for watching."""
+        try:
+            pattern_manager = PatternManager()
+            # TODO: Get these from PatternManager YAML patterns in future
+            return ["*.pdf", "*.epub", "*.txt", "*.md", "*.docx", "*.rtf"]
+        except Exception as e:
+            logger.debug(f"Failed to load PatternManager, using fallback patterns: {e}")
+            return ["*.pdf", "*.epub", "*.txt", "*.md", "*.docx", "*.rtf"]
+
+    def _get_default_ignore_patterns() -> List[str]:
+        """Get default ignore patterns for watching."""
+        try:
+            pattern_manager = PatternManager()
+            # TODO: Get these from PatternManager YAML patterns in future
+            return [
+                ".git/*", ".svn/*", ".hg/*", "node_modules/*", "__pycache__/*",
+                ".pyc", ".DS_Store", "Thumbs.db", "*.tmp", "*.temp", "*.log",
+            ]
+        except Exception as e:
+            logger.debug(f"Failed to load PatternManager, using fallback ignore patterns: {e}")
+            return [
+                ".git/*", ".svn/*", ".hg/*", "node_modules/*", "__pycache__/*",
+                ".pyc", ".DS_Store", "Thumbs.db", "*.tmp", "*.temp", "*.log",
+            ]
+
+except ImportError:
+    logger.debug("PatternManager not available - using hardcoded watch patterns")
+
+    def _get_default_watch_patterns() -> List[str]:
+        """Fallback default file patterns for watching."""
+        return ["*.pdf", "*.epub", "*.txt", "*.md", "*.docx", "*.rtf"]
+
+    def _get_default_ignore_patterns() -> List[str]:
+        """Fallback default ignore patterns for watching."""
+        return [
+            ".git/*", ".svn/*", ".hg/*", "node_modules/*", "__pycache__/*",
+            ".pyc", ".DS_Store", "Thumbs.db", "*.tmp", "*.temp", "*.log",
+        ]
+
 # logger imported from loguru
 
 
@@ -196,22 +240,10 @@ class WatchToolsManager:
 
             # Use defaults if not provided
             if patterns is None:
-                patterns = ["*.pdf", "*.epub", "*.txt", "*.md", "*.docx", "*.rtf"]
+                patterns = _get_default_watch_patterns()
 
             if ignore_patterns is None:
-                ignore_patterns = [
-                    ".git/*",
-                    ".svn/*",
-                    ".hg/*",
-                    "node_modules/*",
-                    "__pycache__/*",
-                    ".pyc",
-                    ".DS_Store",
-                    "Thumbs.db",
-                    "*.tmp",
-                    "*.temp",
-                    "*.log",
-                ]
+                ignore_patterns = _get_default_ignore_patterns()
 
             # Create watch configuration
             watch_config = WatchConfigurationPersistent(
