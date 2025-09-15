@@ -1,0 +1,17 @@
+{
+  "collection_prefix": "legacy",
+  "embeddings": {
+    "model": "test-model"
+  },
+  "exclude_patterns": [
+    "*.tmp"
+  ],
+  "include_patterns": [
+    "*.py",
+    "*.js"
+  ],
+  "max_collections": 5,
+  "qdrant": {
+    "url": "http://localhost:6333"
+  }
+}
