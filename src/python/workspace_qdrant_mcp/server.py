@@ -447,32 +447,544 @@ async def workspace_status() -> dict:
 
 
 @app.tool()
-async def list_workspace_collections() -> list[str]:
-    """List all available workspace collections for the current project.
+async def list_workspace_collections(
+    include_system_collections: bool = True,
+    include_multi_tenant_collections: bool = True,
+    project_name: Optional[str] = None
+) -> dict:
+    """List all available workspace collections with multi-tenant support.
 
-    Returns collections that are automatically created based on project detection,
-    including the main project collection, subproject collections, and global
-    collections like 'scratchbook' that span across projects.
+    Returns collections that are part of the current workspace, including system collections
+    (memory, code), multi-tenant collections (docs, notes, scratchbook), and project-specific
+    collections. Now supports the new collection naming system and project-based filtering.
+
+    Args:
+        include_system_collections: Include system collections (__memory, __code)
+        include_multi_tenant_collections: Include multi-tenant collections (docs, notes, etc.)
+        project_name: Optional project name for filtering (auto-detected if None)
 
     Returns:
-        List[str]: Collection names available for the current workspace.
-            Typically includes:
-            - Main project collection (e.g., 'my-project')
-            - Subproject collections (e.g., 'my-project.submodule')
-            - Global collections ('scratchbook', 'shared-notes')
+        Dict: Collection information containing:
+            - collections: List[str] - Collection names available in workspace
+            - system_collections: Dict - System collections with their configured names
+            - multi_tenant_collections: List[str] - Multi-tenant collection types
+            - project_context: Optional[str] - Current or specified project name
+            - total_count: int - Total number of collections
 
     Example:
         ```python
-        collections = list_workspace_collections()
-        logger.info("Available collections retrieved",
-                   collections=collections,
-                   count=len(collections))
+        result = await list_workspace_collections()
+        logger.info("Available collections",
+                   total=result["total_count"],
+                   project=result["project_context"])
         ```
     """
     if not workspace_client:
-        return []
+        return {
+            "collections": [],
+            "system_collections": {},
+            "multi_tenant_collections": [],
+            "project_context": None,
+            "total_count": 0,
+            "error": "Workspace client not initialized"
+        }
 
-    return workspace_client.list_collections()
+    try:
+        # Get all workspace collections
+        all_collections = workspace_client.list_collections()
+        filtered_collections = []
+        system_collections = {}
+        multi_tenant_collections = []
+
+        # Auto-detect project if not provided
+        if not project_name:
+            project_info = getattr(workspace_client, 'project_info', None)
+            if project_info:
+                project_name = project_info.get("main_project")
+
+        # Get system collection names from config
+        config = workspace_client.config
+        memory_collection = config.workspace.memory_collection_name
+        code_collection = config.workspace.code_collection_name
+
+        # Filter collections based on parameters
+        for collection_name in all_collections:
+            # Check for system collections
+            if include_system_collections:
+                if collection_name == memory_collection:
+                    system_collections["memory"] = collection_name
+                    filtered_collections.append(collection_name)
+                    continue
+                elif collection_name == code_collection:
+                    system_collections["code"] = collection_name
+                    filtered_collections.append(collection_name)
+                    continue
+
+            # Check for multi-tenant collections
+            if include_multi_tenant_collections:
+                # Check against configured collection types
+                for collection_type in config.workspace.collection_types:
+                    if collection_name == collection_type:
+                        multi_tenant_collections.append(collection_type)
+                        filtered_collections.append(collection_name)
+                        break
+
+                # Check global collections
+                for global_collection in config.workspace.global_collections:
+                    if collection_name == global_collection:
+                        filtered_collections.append(collection_name)
+                        break
+
+        logger.info(
+            "Workspace collections listed",
+            total_collections=len(filtered_collections),
+            system_count=len(system_collections),
+            multi_tenant_count=len(multi_tenant_collections),
+            project_name=project_name
+        )
+
+        return {
+            "collections": filtered_collections,
+            "system_collections": system_collections,
+            "multi_tenant_collections": multi_tenant_collections,
+            "project_context": project_name,
+            "total_count": len(filtered_collections)
+        }
+
+    except Exception as e:
+        logger.error(f"Failed to list workspace collections: {e}")
+        return {
+            "collections": [],
+            "system_collections": {},
+            "multi_tenant_collections": [],
+            "project_context": None,
+            "total_count": 0,
+            "error": str(e)
+        }
+
+
+@app.tool()
+async def create_collection(
+    collection_name: str,
+    collection_type: str = "multi_tenant",
+    project_name: Optional[str] = None,
+    enable_metadata_indexing: bool = True,
+    description: Optional[str] = None
+) -> dict:
+    """Create a new workspace collection with multi-tenant support.
+
+    Creates collections based on the new naming system and architecture, supporting
+    both system collections (memory, code) and multi-tenant collections (docs, notes, etc.)
+    with proper project context and metadata indexing.
+
+    Args:
+        collection_name: Name for the collection (will be validated and normalized)
+        collection_type: Type of collection - 'system', 'multi_tenant', or 'global'
+        project_name: Project context (auto-detected for multi-tenant collections if None)
+        enable_metadata_indexing: Whether to create metadata indexes for efficient filtering
+        description: Optional description of the collection purpose
+
+    Returns:
+        Dict: Creation result containing:
+            - success: bool - Whether creation succeeded
+            - collection_name: str - Actual created collection name
+            - collection_type: str - Type of collection created
+            - project_context: Optional[str] - Project name if applicable
+            - message: str - Success or error message
+            - metadata_indexed: bool - Whether metadata indexing was enabled
+
+    Example:
+        ```python
+        # Create a multi-tenant docs collection
+        result = await create_collection(
+            collection_name="docs",
+            collection_type="multi_tenant",
+            description="Project documentation collection"
+        )
+
+        # Create a system memory collection
+        result = await create_collection(
+            collection_name="memory",
+            collection_type="system"
+        )
+        ```
+    """
+    if not workspace_client:
+        return {
+            "success": False,
+            "error": "Workspace client not initialized",
+            "collection_name": collection_name,
+            "collection_type": collection_type
+        }
+
+    try:
+        config = workspace_client.config
+
+        # Auto-detect project for multi-tenant collections
+        if collection_type == "multi_tenant" and not project_name:
+            project_info = getattr(workspace_client, 'project_info', None)
+            if project_info:
+                project_name = project_info.get("main_project")
+
+        # Handle different collection types
+        if collection_type == "system":
+            # System collections use configured names
+            if collection_name.lower() == "memory":
+                actual_name = config.workspace.memory_collection_name
+            elif collection_name.lower() == "code":
+                actual_name = config.workspace.code_collection_name
+            else:
+                return {
+                    "success": False,
+                    "error": f"Unknown system collection type: {collection_name}. Valid: memory, code",
+                    "collection_name": collection_name,
+                    "collection_type": collection_type
+                }
+
+            # Check if collection manager has system collection creation methods
+            if hasattr(workspace_client.collection_manager, 'create_system_memory_collection'):
+                if collection_name.lower() == "memory":
+                    result = workspace_client.collection_manager.create_system_memory_collection(actual_name)
+                elif collection_name.lower() == "code":
+                    # For code collections, use project memory collection method
+                    result = workspace_client.collection_manager.create_project_memory_collection(actual_name)
+
+                if result.get("success", False):
+                    logger.info(f"Created system collection: {actual_name}")
+                    return {
+                        "success": True,
+                        "collection_name": actual_name,
+                        "collection_type": collection_type,
+                        "project_context": None,
+                        "message": f"System collection '{actual_name}' created successfully",
+                        "metadata_indexed": enable_metadata_indexing
+                    }
+                else:
+                    return {
+                        "success": False,
+                        "error": result.get("error", "Failed to create system collection"),
+                        "collection_name": actual_name,
+                        "collection_type": collection_type
+                    }
+
+        elif collection_type == "multi_tenant":
+            # Multi-tenant collections use the collection name directly
+            actual_name = collection_name
+
+            # Validate against configured collection types
+            if actual_name not in config.workspace.collection_types and config.workspace.collection_types:
+                return {
+                    "success": False,
+                    "error": f"Collection type '{actual_name}' not in configured types: {config.workspace.collection_types}",
+                    "collection_name": actual_name,
+                    "collection_type": collection_type
+                }
+
+            # Use multitenant collection manager if available
+            try:
+                from common.core.multitenant_collections import MultiTenantWorkspaceCollectionManager
+
+                mt_manager = MultiTenantWorkspaceCollectionManager(
+                    workspace_client.client, workspace_client.config
+                )
+
+                result = await mt_manager.create_workspace_collection(
+                    project_name=project_name or "shared",
+                    collection_type=actual_name,
+                    enable_metadata_indexing=enable_metadata_indexing
+                )
+
+                if result.get("success", False):
+                    logger.info(
+                        f"Created multi-tenant collection: {actual_name}",
+                        project_name=project_name,
+                        metadata_indexed=enable_metadata_indexing
+                    )
+                    return {
+                        "success": True,
+                        "collection_name": actual_name,
+                        "collection_type": collection_type,
+                        "project_context": project_name,
+                        "message": f"Multi-tenant collection '{actual_name}' created successfully",
+                        "metadata_indexed": enable_metadata_indexing
+                    }
+                else:
+                    return {
+                        "success": False,
+                        "error": result.get("error", "Failed to create multi-tenant collection"),
+                        "collection_name": actual_name,
+                        "collection_type": collection_type
+                    }
+
+            except ImportError:
+                return {
+                    "success": False,
+                    "error": "Multi-tenant collection manager not available",
+                    "collection_name": actual_name,
+                    "collection_type": collection_type
+                }
+
+        elif collection_type == "global":
+            # Global collections use the name directly
+            actual_name = collection_name
+
+            # Create using standard collection creation method
+            # This would use the underlying Qdrant client to create the collection
+            if hasattr(workspace_client.collection_manager, '_create_collection'):
+                # Create collection configuration
+                collection_config = {
+                    "name": actual_name,
+                    "description": description or f"Global collection: {actual_name}",
+                    "collection_type": "global",
+                    "vector_size": config.embedding.get_vector_size(),
+                    "distance_metric": "Cosine",
+                    "enable_sparse_vectors": config.embedding.enable_sparse_vectors
+                }
+
+                try:
+                    await workspace_client.collection_manager._create_collection(collection_config)
+                    logger.info(f"Created global collection: {actual_name}")
+
+                    return {
+                        "success": True,
+                        "collection_name": actual_name,
+                        "collection_type": collection_type,
+                        "project_context": None,
+                        "message": f"Global collection '{actual_name}' created successfully",
+                        "metadata_indexed": enable_metadata_indexing
+                    }
+                except Exception as create_error:
+                    return {
+                        "success": False,
+                        "error": f"Failed to create global collection: {create_error}",
+                        "collection_name": actual_name,
+                        "collection_type": collection_type
+                    }
+
+        else:
+            return {
+                "success": False,
+                "error": f"Unknown collection type: {collection_type}. Valid: system, multi_tenant, global",
+                "collection_name": collection_name,
+                "collection_type": collection_type
+            }
+
+    except Exception as e:
+        logger.error(f"Failed to create collection '{collection_name}': {e}")
+        return {
+            "success": False,
+            "error": str(e),
+            "collection_name": collection_name,
+            "collection_type": collection_type
+        }
+
+
+@app.tool()
+async def delete_collection(
+    collection_name: str,
+    confirm_deletion: bool = False,
+    project_name: Optional[str] = None,
+    collection_type: Optional[str] = None
+) -> dict:
+    """Delete a workspace collection with safety checks and multi-tenant support.
+
+    Safely deletes collections from the workspace with proper validation and safety
+    checks. Supports system collections, multi-tenant collections, and global collections
+    while preventing accidental deletions of critical system resources.
+
+    Args:
+        collection_name: Name of the collection to delete
+        confirm_deletion: Required confirmation flag to prevent accidental deletions
+        project_name: Project context for multi-tenant collection validation (auto-detected if None)
+        collection_type: Type hint for validation ('system', 'multi_tenant', 'global')
+
+    Returns:
+        Dict: Deletion result containing:
+            - success: bool - Whether deletion succeeded
+            - collection_name: str - Name of the collection that was deleted
+            - collection_type: str - Type of collection deleted
+            - project_context: Optional[str] - Project name if applicable
+            - message: str - Success or error message
+            - points_deleted: Optional[int] - Number of data points that were removed
+
+    Example:
+        ```python
+        # Delete a multi-tenant collection (requires confirmation)
+        result = await delete_collection(
+            collection_name="docs",
+            confirm_deletion=True,
+            collection_type="multi_tenant"
+        )
+
+        # Delete a global collection
+        result = await delete_collection(
+            collection_name="temporary-data",
+            confirm_deletion=True,
+            collection_type="global"
+        )
+        ```
+    """
+    if not workspace_client:
+        return {
+            "success": False,
+            "error": "Workspace client not initialized",
+            "collection_name": collection_name
+        }
+
+    if not confirm_deletion:
+        return {
+            "success": False,
+            "error": "Deletion not confirmed. Set confirm_deletion=True to proceed with deletion",
+            "collection_name": collection_name,
+            "message": "Safety check: confirm_deletion parameter is required"
+        }
+
+    try:
+        config = workspace_client.config
+
+        # Auto-detect project context if not provided
+        if not project_name:
+            project_info = getattr(workspace_client, 'project_info', None)
+            if project_info:
+                project_name = project_info.get("main_project")
+
+        # Check if collection exists
+        existing_collections = workspace_client.list_collections()
+        if collection_name not in existing_collections:
+            return {
+                "success": False,
+                "error": f"Collection '{collection_name}' does not exist",
+                "collection_name": collection_name,
+                "available_collections": existing_collections
+            }
+
+        # Auto-detect collection type if not provided
+        detected_collection_type = None
+        if not collection_type:
+            # Check if it's a system collection
+            if collection_name == config.workspace.memory_collection_name:
+                detected_collection_type = "system"
+            elif collection_name == config.workspace.code_collection_name:
+                detected_collection_type = "system"
+            # Check if it's a multi-tenant collection
+            elif collection_name in config.workspace.collection_types:
+                detected_collection_type = "multi_tenant"
+            # Check if it's a global collection
+            elif collection_name in config.workspace.global_collections:
+                detected_collection_type = "global"
+            else:
+                detected_collection_type = "unknown"
+
+            collection_type = detected_collection_type
+
+        # Get collection info before deletion
+        collection_info = {}
+        try:
+            collection_details = workspace_client.client.get_collection(collection_name)
+            collection_info = {
+                "points_count": collection_details.points_count,
+                "vectors_count": collection_details.vectors_count,
+                "indexed_vectors_count": collection_details.indexed_vectors_count
+            }
+        except Exception:
+            collection_info = {"points_count": "unknown"}
+
+        # Perform deletion with safety checks
+        if collection_type == "system":
+            # Extra safety for system collections
+            logger.warning(
+                f"Attempting to delete system collection: {collection_name}",
+                collection_type=collection_type,
+                points_count=collection_info.get("points_count")
+            )
+
+            # Use Qdrant client to delete
+            workspace_client.client.delete_collection(collection_name)
+
+            logger.info(f"Deleted system collection: {collection_name}")
+            return {
+                "success": True,
+                "collection_name": collection_name,
+                "collection_type": collection_type,
+                "project_context": None,
+                "message": f"System collection '{collection_name}' deleted successfully",
+                "points_deleted": collection_info.get("points_count"),
+                "warning": "System collection deleted - may impact system functionality"
+            }
+
+        elif collection_type == "multi_tenant":
+            # For multi-tenant collections, validate project context
+            if not project_name:
+                return {
+                    "success": False,
+                    "error": "Project context required for multi-tenant collection deletion",
+                    "collection_name": collection_name,
+                    "collection_type": collection_type
+                }
+
+            # Use Qdrant client to delete
+            workspace_client.client.delete_collection(collection_name)
+
+            logger.info(
+                f"Deleted multi-tenant collection: {collection_name}",
+                project_name=project_name,
+                points_count=collection_info.get("points_count")
+            )
+
+            return {
+                "success": True,
+                "collection_name": collection_name,
+                "collection_type": collection_type,
+                "project_context": project_name,
+                "message": f"Multi-tenant collection '{collection_name}' deleted successfully",
+                "points_deleted": collection_info.get("points_count")
+            }
+
+        elif collection_type == "global":
+            # Global collections can be deleted without project context
+            workspace_client.client.delete_collection(collection_name)
+
+            logger.info(
+                f"Deleted global collection: {collection_name}",
+                points_count=collection_info.get("points_count")
+            )
+
+            return {
+                "success": True,
+                "collection_name": collection_name,
+                "collection_type": collection_type,
+                "project_context": None,
+                "message": f"Global collection '{collection_name}' deleted successfully",
+                "points_deleted": collection_info.get("points_count")
+            }
+
+        else:
+            # Unknown collection type - proceed with caution
+            logger.warning(
+                f"Deleting collection of unknown type: {collection_name}",
+                detected_type=detected_collection_type
+            )
+
+            workspace_client.client.delete_collection(collection_name)
+
+            return {
+                "success": True,
+                "collection_name": collection_name,
+                "collection_type": f"unknown ({detected_collection_type})",
+                "project_context": project_name,
+                "message": f"Collection '{collection_name}' deleted successfully",
+                "points_deleted": collection_info.get("points_count"),
+                "warning": "Collection type was unknown - deletion may have unexpected effects"
+            }
+
+    except Exception as e:
+        logger.error(f"Failed to delete collection '{collection_name}': {e}")
+        return {
+            "success": False,
+            "error": str(e),
+            "collection_name": collection_name,
+            "collection_type": collection_type or "unknown"
+        }
 
 
 @app.tool()
