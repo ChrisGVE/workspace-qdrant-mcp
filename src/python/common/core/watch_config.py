@@ -24,6 +24,56 @@ except ImportError:
     # Fallback if LSP detector is not available
     get_default_detector = None
 
+# Import PatternManager for default patterns
+try:
+    from .pattern_manager import PatternManager
+
+    def _get_default_patterns() -> List[str]:
+        """Get default include patterns from PatternManager."""
+        try:
+            pattern_manager = PatternManager()
+            # Use common document patterns as default - these should come from PatternManager in future
+            return ["*.pdf", "*.epub", "*.txt", "*.md", "*.docx", "*.rtf"]
+        except Exception as e:
+            logger.debug(f"Failed to load PatternManager, using fallback patterns: {e}")
+            return ["*.pdf", "*.epub", "*.txt", "*.md"]
+
+    def _get_default_ignore_patterns() -> List[str]:
+        """Get default exclude patterns from PatternManager."""
+        try:
+            pattern_manager = PatternManager()
+            # Use common ignore patterns as default - these should come from PatternManager in future
+            return [
+                ".git/*",
+                "node_modules/*",
+                "__pycache__/*",
+                ".DS_Store",
+            ]
+        except Exception as e:
+            logger.debug(f"Failed to load PatternManager, using fallback ignore patterns: {e}")
+            return [
+                ".git/*",
+                "node_modules/*",
+                "__pycache__/*",
+                ".DS_Store",
+            ]
+
+except ImportError:
+    logger.debug("PatternManager not available - using hardcoded default patterns")
+
+    def _get_default_patterns() -> List[str]:
+        """Fallback default include patterns."""
+        return ["*.pdf", "*.epub", "*.txt", "*.md"]
+
+    def _get_default_ignore_patterns() -> List[str]:
+        """Fallback default exclude patterns."""
+        return [
+            ".git/*",
+            "node_modules/*",
+            "__pycache__/*",
+            ".DS_Store",
+        ]
+
 # logger imported from loguru
 
 
@@ -34,16 +84,11 @@ class WatchConfigSchema(BaseModel):
     path: str = Field(..., min_length=1, description="Directory path to watch")
     collection: str = Field(..., min_length=1, description="Target Qdrant collection")
     patterns: list[str] = Field(
-        default_factory=lambda: ["*.pdf", "*.epub", "*.txt", "*.md"],
+        default_factory=_get_default_patterns,
         description="File patterns to include",
     )
     ignore_patterns: list[str] = Field(
-        default_factory=lambda: [
-            ".git/*",
-            "node_modules/*",
-            "__pycache__/*",
-            ".DS_Store",
-        ],
+        default_factory=_get_default_ignore_patterns,
         description="File patterns to ignore",
     )
     lsp_based_extensions: bool = Field(
@@ -141,15 +186,10 @@ class WatchConfigurationPersistent:
     path: str
     collection: str
     patterns: list[str] = field(
-        default_factory=lambda: ["*.pdf", "*.epub", "*.txt", "*.md"]
+        default_factory=_get_default_patterns
     )
     ignore_patterns: list[str] = field(
-        default_factory=lambda: [
-            ".git/*",
-            "node_modules/*",
-            "__pycache__/*",
-            ".DS_Store",
-        ]
+        default_factory=_get_default_ignore_patterns
     )
     lsp_based_extensions: bool = True
     lsp_detection_cache_ttl: int = 300
