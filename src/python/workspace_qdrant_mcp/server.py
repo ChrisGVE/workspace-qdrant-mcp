@@ -950,7 +950,7 @@ async def add_watch_folder(
     Args:
         path: Directory path to watch (must exist and be readable)
         collection: Target Qdrant collection for ingested files
-        patterns: File patterns to include (default: ["*.pdf", "*.epub", "*.txt", "*.md", "*.docx", "*.rtf"])
+        patterns: File patterns to include (default patterns from PatternManager)
         ignore_patterns: File patterns to ignore (default: common system files)
         auto_ingest: Enable automatic ingestion of matched files
         recursive: Watch subdirectories recursively
@@ -968,7 +968,7 @@ async def add_watch_folder(
         result = await add_watch_folder(
             path="/home/user/Documents",
             collection="my-project",
-            patterns=["*.pdf", "*.docx"],
+            patterns=["*.pdf", "*.docx"],  # Or use defaults
             recursive=True,
             debounce_seconds=10
         )
