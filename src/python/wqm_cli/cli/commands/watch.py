@@ -13,6 +13,41 @@ import typer
 
 from common.core.daemon_client import get_daemon_client, with_daemon_client
 from loguru import logger
+
+# Import PatternManager for default patterns
+try:
+    from common.core.pattern_manager import PatternManager
+
+    def _get_cli_default_patterns() -> List[str]:
+        """Get default patterns for CLI watch commands."""
+        try:
+            pattern_manager = PatternManager()
+            # TODO: Get from PatternManager in future, for now use compatible defaults
+            return ["*.pdf", "*.epub", "*.txt", "*.md"]
+        except Exception as e:
+            logger.debug(f"Failed to load PatternManager, using fallback patterns: {e}")
+            return ["*.pdf", "*.epub", "*.txt", "*.md"]
+
+    def _get_cli_default_ignore_patterns() -> List[str]:
+        """Get default ignore patterns for CLI watch commands."""
+        try:
+            pattern_manager = PatternManager()
+            # TODO: Get from PatternManager in future, for now use compatible defaults
+            return [".git/*", "node_modules/*", "__pycache__/*", ".DS_Store"]
+        except Exception as e:
+            logger.debug(f"Failed to load PatternManager, using fallback ignore patterns: {e}")
+            return [".git/*", "node_modules/*", "__pycache__/*", ".DS_Store"]
+
+except ImportError:
+    logger.debug("PatternManager not available - using hardcoded CLI patterns")
+
+    def _get_cli_default_patterns() -> List[str]:
+        """Fallback default patterns for CLI watch commands."""
+        return ["*.pdf", "*.epub", "*.txt", "*.md"]
+
+    def _get_cli_default_ignore_patterns() -> List[str]:
+        """Fallback default ignore patterns for CLI watch commands."""
+        return [".git/*", "node_modules/*", "__pycache__/*", ".DS_Store"]
 from ..formatting import (
     create_data_table,
     display_operation_result,
@@ -383,9 +418,9 @@ async def _add_watch(
 
             # Set defaults if not provided
             if patterns is None:
-                patterns = ["*.pdf", "*.epub", "*.txt", "*.md"]
+                patterns = _get_cli_default_patterns()
             if ignore is None:
-                ignore = [".git/*", "node_modules/*", "__pycache__/*", ".DS_Store"]
+                ignore = _get_cli_default_ignore_patterns()
 
             # Validate collection exists
             collections_response = await client.list_collections()
