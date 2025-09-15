@@ -37,7 +37,11 @@ from qdrant_client import QdrantClient
 from qdrant_client.http import models
 
 from .metadata_optimization import PerformanceTracker, FilterOptimizer, QueryOptimizer
-from .hybrid_search import HybridSearchEngine
+
+# Use TYPE_CHECKING to avoid circular imports
+from typing import TYPE_CHECKING
+if TYPE_CHECKING:
+    from .hybrid_search import HybridSearchEngine
 
 
 @dataclass
@@ -360,7 +364,7 @@ class PerformanceBenchmarkSuite:
 
     def __init__(
         self,
-        search_engine: HybridSearchEngine,
+        search_engine: "HybridSearchEngine",
         baseline: PerformanceBaseline,
         test_data_path: Optional[str] = None
     ):
@@ -730,7 +734,7 @@ class PerformanceMonitoringDashboard:
 
     def __init__(
         self,
-        search_engine: HybridSearchEngine,
+        search_engine: "HybridSearchEngine",
         accuracy_tracker: SearchAccuracyTracker,
         benchmark_suite: PerformanceBenchmarkSuite,
         baseline: PerformanceBaseline
@@ -924,7 +928,7 @@ class MetadataFilteringPerformanceMonitor:
 
     def __init__(
         self,
-        search_engine: HybridSearchEngine,
+        search_engine: "HybridSearchEngine",
         baseline_config: Optional[Dict] = None
     ):
         """Initialize integrated performance monitor."""
