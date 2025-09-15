@@ -15,9 +15,27 @@ workspace-qdrant-mcp --config=project-config.yaml
 The configuration system follows this precedence order (highest to lowest):
 
 1. **Command line arguments** (e.g., `--host`, `--port`)
-2. **YAML configuration file** (when `--config` is specified)
-3. **Environment variables** (`WORKSPACE_QDRANT_*` or legacy variables)
-4. **Default values**
+2. **Explicit YAML configuration file** (when `--config` is specified)
+3. **Auto-discovered configuration files** (searched in this order):
+   - Project-specific: `.workspace-qdrant.yaml` or `.workspace-qdrant.yml` in current directory
+   - Project-specific: `workspace_qdrant_config.yaml` or `workspace_qdrant_config.yml` in current directory
+   - User XDG config: `~/.config/workspace-qdrant/config.yaml` (or `$XDG_CONFIG_HOME/workspace-qdrant/config.yaml`)
+   - User legacy config: `~/.config/workspace-qdrant/workspace_qdrant_config.yaml` (backward compatibility)
+   - System config: `/etc/workspace-qdrant/config.yaml` (Unix-like systems)
+4. **Environment variables** (`WORKSPACE_QDRANT_*` or legacy variables)
+5. **Default values**
+
+### Configuration File Discovery
+
+The system automatically searches for configuration files using the XDG Base Directory Specification:
+
+- **XDG_CONFIG_HOME**: Uses `$XDG_CONFIG_HOME/workspace-qdrant/` if set
+- **Default locations**:
+  - macOS: `~/Library/Application Support/workspace-qdrant/`
+  - Linux/Unix: `~/.config/workspace-qdrant/`
+  - Windows: `%APPDATA%/workspace-qdrant/`
+
+**Supported file extensions**: `.yaml`, `.yml`
 
 ## YAML Configuration Structure
 
