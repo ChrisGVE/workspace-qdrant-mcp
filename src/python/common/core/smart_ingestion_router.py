@@ -46,6 +46,7 @@ import yaml
 from .error_handling import WorkspaceError, ErrorCategory, ErrorSeverity
 from .language_filters import LanguageAwareFilter, FilterStatistics
 from .lsp_metadata_extractor import LspMetadataExtractor, FileMetadata
+from .pattern_manager import PatternManager
 
 # logger imported from loguru
 
@@ -267,11 +268,13 @@ class FileClassifier:
     to accurately classify files and determine optimal processing strategy.
     """
     
-    def __init__(self, config: RouterConfiguration):
+    def __init__(self, config: RouterConfiguration, pattern_manager: Optional[PatternManager] = None):
         self.config = config
         self.mime_types = mimetypes.MimeTypes()
-        
+        self.pattern_manager = pattern_manager or PatternManager()
+
         # Initialize known extensions for different categories
+        # These are kept as fallbacks, but PatternManager takes precedence
         self.code_extensions = {
             '.py', '.pyi', '.rs', '.js', '.jsx', '.ts', '.tsx', '.java',
             '.go', '.c', '.h', '.cpp', '.cxx', '.hpp', '.hxx', '.cc', '.hh',
@@ -279,19 +282,19 @@ class FileClassifier:
             '.ml', '.fs', '.vb', '.pas', '.pl', '.r', '.m', '.sh', '.ps1',
             '.lua', '.dart', '.jl', '.nim', '.crystal', '.zig'
         }
-        
+
         self.documentation_extensions = {
             '.md', '.rst', '.txt', '.adoc', '.tex', '.org'
         }
-        
+
         self.data_extensions = {
             '.json', '.yaml', '.yml', '.xml', '.csv', '.tsv', '.toml', '.ini'
         }
-        
+
         self.config_extensions = {
             '.conf', '.cfg', '.config', '.properties', '.env'
         }
-        
+
         self.binary_extensions = {
             '.exe', '.dll', '.so', '.dylib', '.a', '.lib', '.bin', '.out',
             '.jpg', '.jpeg', '.png', '.gif', '.bmp', '.svg', '.ico',
@@ -549,14 +552,19 @@ class FileClassifier:
             return FileClassification.UNKNOWN, 0.1
     
     def _detect_language(self, file_path: Path) -> Optional[str]:
-        """Detect programming language from file path and extension"""
+        """Detect programming language from file path and extension using PatternManager"""
         extension = file_path.suffix.lower()
-        
+
         # Check custom mappings first
         if extension in self.config.custom_language_map:
             return self.config.custom_language_map[extension]
-        
-        # Standard language mappings
+
+        # Use PatternManager for language detection
+        language_info = self.pattern_manager.get_language_info(file_path)
+        if language_info:
+            return language_info['language']
+
+        # Fallback to hardcoded mappings for compatibility
         language_map = {
             '.py': 'python', '.pyi': 'python',
             '.rs': 'rust',
@@ -588,7 +596,7 @@ class FileClassifier:
             '.dart': 'dart',
             '.jl': 'julia'
         }
-        
+
         return language_map.get(extension)
     
     def _determine_strategy(self, classification: FileClassification, file_path: Path) -> ProcessingStrategy:
@@ -626,22 +634,25 @@ class SmartIngestionRouter:
         self,
         config: Optional[RouterConfiguration] = None,
         file_filter: Optional[LanguageAwareFilter] = None,
-        lsp_extractor: Optional[LspMetadataExtractor] = None
+        lsp_extractor: Optional[LspMetadataExtractor] = None,
+        pattern_manager: Optional[PatternManager] = None
     ):
         """
         Initialize the smart ingestion router.
-        
+
         Args:
             config: Router configuration (uses defaults if None)
             file_filter: File filtering system (created if None)
             lsp_extractor: LSP metadata extractor (created if None)
+            pattern_manager: Pattern management system (created if None)
         """
         self.config = config or RouterConfiguration()
-        self.file_filter = file_filter or LanguageAwareFilter()
+        self.pattern_manager = pattern_manager or PatternManager()
+        self.file_filter = file_filter or LanguageAwareFilter(pattern_manager=self.pattern_manager)
         self.lsp_extractor = lsp_extractor
-        
+
         # Initialize components
-        self.classifier = FileClassifier(self.config)
+        self.classifier = FileClassifier(self.config, self.pattern_manager)
         self.statistics = RouterStatistics()
         
         # Caching system
