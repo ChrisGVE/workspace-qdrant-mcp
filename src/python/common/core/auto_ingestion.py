@@ -633,7 +633,7 @@ class AutoIngestionManager:
             ignore_patterns=ProjectPatterns.IGNORE_PATTERNS,
             auto_ingest=True,
             recursive=True,
-            recursive_depth=self.config.recursive_depth,
+            recursive_depth=-1,  # Allow unlimited recursive depth for comprehensive ingestion
             debounce_seconds=self.config.debounce_seconds,
             watch_id=watch_id,
         )
@@ -675,7 +675,7 @@ class AutoIngestionManager:
             ignore_patterns=ProjectPatterns.IGNORE_PATTERNS,
             auto_ingest=True,
             recursive=True,
-            recursive_depth=self.config.recursive_depth,
+            recursive_depth=-1,  # Allow unlimited recursive depth for comprehensive ingestion
             debounce_seconds=self.config.debounce_seconds,
             watch_id=watch_id,
         )
