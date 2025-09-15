@@ -1,11 +1,18 @@
 """Configuration migration utilities for workspace-qdrant-mcp.
 
 This module provides the ConfigMigrator class for detecting configuration versions,
-identifying deprecated fields, and determining migration paths between different
-configuration schema versions.
+identifying deprecated fields, determining migration paths, and managing configuration
+backups for safe migrations with rollback capability.
 """
 
+import hashlib
+import json
 import logging
+import os
+import shutil
+import time
+from datetime import datetime
+from pathlib import Path
 from typing import Dict, List, Optional, Any, Set
 from enum import Enum
 
@@ -69,13 +76,16 @@ class ConfigMigrator:
         "search"
     }
 
-    def __init__(self, logger: Optional[logging.Logger] = None):
+    def __init__(self, logger: Optional[logging.Logger] = None, config_path: Optional[str] = None):
         """Initialize ConfigMigrator.
 
         Args:
             logger: Optional logger instance. If None, creates a default logger.
+            config_path: Optional path to the configuration file for backup operations.
         """
         self.logger = logger or logging.getLogger(__name__)
+        self.config_path = config_path
+        self._backup_dir = None
 
     def detect_config_version(self, config_data: Dict[str, Any]) -> ConfigVersion:
         """Detect configuration version based on structure and field presence.
@@ -807,6 +817,22 @@ class ConfigMigrator:
                     "applied": "ingestion.max_depth = 10"
                 })
 
+        # Also apply fallbacks for fields that don't have direct replacements but are needed
+        for field_path in removed_fields:
+            field_name = field_path.split('.')[-1]
+
+            # Always add ingestion section if it doesn't exist and we removed a field that would need it
+            if field_name in ["recursive_depth", "max_collections"] and not self._has_ingestion_depth_config(config):
+                if "ingestion" not in config:
+                    config["ingestion"] = {}
+                if "max_depth" not in config["ingestion"]:
+                    config["ingestion"]["max_depth"] = 10
+                    self.logger.info("Applied fallback: Set 'ingestion.max_depth: 10' for removed deprecated field")
+                    fallback_results.append({
+                        "is_valid": True,
+                        "applied": "ingestion.max_depth = 10"
+                    })
+
             elif field_name in ["collection_prefix", "max_collections"] and not self._has_collection_config_replacement(config):
                 # Set basic collection configuration
                 if "collections" not in config:
@@ -1185,3 +1211,445 @@ class ConfigMigrator:
         except Exception:
             # Fallback to simple string matching
             return pattern == priority_pattern
+
+    # Backup and Rollback System
+
+    @property
+    def backup_dir(self) -> Path:
+        """Get the backup directory path, creating it if necessary."""
+        if self._backup_dir is None:
+            if self.config_path:
+                config_dir = Path(self.config_path).parent
+            else:
+                config_dir = Path.cwd() / ".workspace-qdrant"
+
+            self._backup_dir = config_dir / "backups"
+
+        self._ensure_backup_directory()
+        return self._backup_dir
+
+    def set_backup_dir(self, backup_dir: Path) -> None:
+        """Set a custom backup directory (useful for testing).
+
+        Args:
+            backup_dir: Path to the backup directory
+        """
+        self._backup_dir = backup_dir
+        self._ensure_backup_directory()
+
+    def backup_config(self, config_data: Dict[str, Any],
+                     description: str = "Pre-migration backup") -> str:
+        """Create a versioned backup of the configuration with timestamp and checksum.
+
+        Args:
+            config_data: Configuration data to backup
+            description: Description of this backup
+
+        Returns:
+            Backup ID (timestamp-based identifier)
+
+        Raises:
+            OSError: If backup creation fails
+            ValueError: If config_data is invalid
+        """
+        if not isinstance(config_data, dict):
+            raise ValueError("Config data must be a dictionary")
+
+        # Generate backup metadata with microseconds to avoid collisions
+        timestamp = datetime.now()
+        version = self.detect_config_version(config_data).value
+        backup_id = f"backup_{timestamp.strftime('%Y%m%d_%H%M%S_%f')}_v{version.replace('_', '')}"
+
+        try:
+            # Create backup file
+            backup_file = self.backup_dir / f"{backup_id}.json"
+
+            # Calculate checksum before writing
+            config_json = json.dumps(config_data, indent=2, sort_keys=True)
+            checksum = hashlib.sha256(config_json.encode()).hexdigest()
+
+            # Write backup file
+            with backup_file.open('w', encoding='utf-8') as f:
+                f.write(config_json)
+
+            # Create backup metadata - use relative path for portability
+            metadata = {
+                "id": backup_id,
+                "timestamp": timestamp.isoformat(),
+                "version": version,
+                "checksum": f"sha256:{checksum}",
+                "file_path": str(backup_file.resolve()),  # Use resolved absolute path
+                "file_size": backup_file.stat().st_size,
+                "description": description,
+                "config_path": self.config_path
+            }
+
+            # Update metadata file
+            self._update_backup_metadata(metadata)
+
+            self.logger.info(f"Created backup {backup_id} with checksum {checksum[:8]}...")
+            return backup_id
+
+        except Exception as e:
+            self.logger.error(f"Failed to create backup: {e}")
+            raise OSError(f"Backup creation failed: {e}") from e
+
+    def rollback_config(self, backup_id: str) -> Dict[str, Any]:
+        """Restore configuration from a specific backup after validation.
+
+        Args:
+            backup_id: ID of the backup to restore
+
+        Returns:
+            Restored configuration data
+
+        Raises:
+            ValueError: If backup_id is invalid or backup is corrupted
+            OSError: If backup file cannot be read
+        """
+        # Get backup metadata
+        backup_info = self.get_backup_info(backup_id)
+        if not backup_info:
+            raise ValueError(f"Backup {backup_id} not found")
+
+        # Validate backup integrity
+        if not self.validate_backup(backup_id):
+            raise ValueError(f"Backup {backup_id} is corrupted and cannot be restored")
+
+        try:
+            # Create safety backup of current config before rollback
+            if self.config_path and Path(self.config_path).exists():
+                current_config = self._load_current_config()
+                safety_backup_id = self.backup_config(
+                    current_config,
+                    f"Safety backup before rollback to {backup_id}"
+                )
+                self.logger.info(f"Created safety backup {safety_backup_id}")
+
+            # Load backup configuration
+            backup_file = Path(backup_info["file_path"])
+            with backup_file.open('r', encoding='utf-8') as f:
+                restored_config = json.load(f)
+
+            # Write restored config to original location if config_path is set
+            if self.config_path:
+                self._write_config_file(restored_config)
+
+            self.logger.info(f"Successfully restored configuration from backup {backup_id}")
+            return restored_config
+
+        except Exception as e:
+            self.logger.error(f"Failed to rollback to {backup_id}: {e}")
+            raise OSError(f"Rollback failed: {e}") from e
+
+    def list_backups(self) -> List[Dict[str, Any]]:
+        """List all available backups with their metadata.
+
+        Returns:
+            List of backup information dictionaries
+        """
+        metadata_file = self.backup_dir / "metadata.json"
+
+        if not metadata_file.exists():
+            return []
+
+        try:
+            with metadata_file.open('r', encoding='utf-8') as f:
+                metadata = json.load(f)
+
+            backups = metadata.get("backups", [])
+
+            # Sort by timestamp (most recent first)
+            backups.sort(key=lambda x: x.get("timestamp", ""), reverse=True)
+
+            # Verify backup files still exist
+            valid_backups = []
+            for backup in backups:
+                backup_file = Path(backup.get("file_path", ""))
+                if backup_file.exists():
+                    valid_backups.append(backup)
+                else:
+                    self.logger.warning(f"Backup file missing: {backup_file}")
+
+            # Log for debugging
+            self.logger.debug(f"Found {len(backups)} backups in metadata, {len(valid_backups)} with existing files")
+
+            return valid_backups
+
+        except Exception as e:
+            self.logger.error(f"Failed to list backups: {e}")
+            return []
+
+    def validate_backup(self, backup_id: str) -> bool:
+        """Validate backup integrity using checksum verification.
+
+        Args:
+            backup_id: ID of the backup to validate
+
+        Returns:
+            True if backup is valid, False otherwise
+        """
+        backup_info = self.get_backup_info(backup_id)
+        if not backup_info:
+            self.logger.error(f"Backup {backup_id} not found")
+            return False
+
+        try:
+            backup_file = Path(backup_info["file_path"])
+            if not backup_file.exists():
+                self.logger.error(f"Backup file missing: {backup_file}")
+                return False
+
+            # Read backup file and calculate checksum
+            with backup_file.open('r', encoding='utf-8') as f:
+                content = f.read()
+
+            actual_checksum = hashlib.sha256(content.encode()).hexdigest()
+            expected_checksum = backup_info["checksum"].replace("sha256:", "")
+
+            if actual_checksum != expected_checksum:
+                self.logger.error(f"Checksum mismatch for backup {backup_id}")
+                self.logger.error(f"Expected: {expected_checksum}")
+                self.logger.error(f"Actual: {actual_checksum}")
+                return False
+
+            # Try to parse JSON to ensure it's valid
+            try:
+                json.loads(content)
+            except json.JSONDecodeError as e:
+                self.logger.error(f"Invalid JSON in backup {backup_id}: {e}")
+                return False
+
+            return True
+
+        except Exception as e:
+            self.logger.error(f"Failed to validate backup {backup_id}: {e}")
+            return False
+
+    def get_backup_info(self, backup_id: str) -> Optional[Dict[str, Any]]:
+        """Get detailed information about a specific backup.
+
+        Args:
+            backup_id: ID of the backup
+
+        Returns:
+            Backup information dictionary or None if not found
+        """
+        backups = self.list_backups()
+        for backup in backups:
+            if backup.get("id") == backup_id:
+                return backup
+        return None
+
+    def cleanup_old_backups(self, keep_count: int = 10) -> int:
+        """Remove old backups, keeping only the most recent ones.
+
+        Args:
+            keep_count: Number of recent backups to keep
+
+        Returns:
+            Number of backups removed
+        """
+        if keep_count <= 0:
+            raise ValueError("keep_count must be positive")
+
+        backups = self.list_backups()
+        if len(backups) <= keep_count:
+            return 0
+
+        # Get backups to remove (oldest first)
+        backups_to_remove = backups[keep_count:]
+        removed_count = 0
+
+        for backup in backups_to_remove:
+            try:
+                backup_file = Path(backup["file_path"])
+                if backup_file.exists():
+                    backup_file.unlink()
+                    self.logger.info(f"Removed old backup: {backup['id']}")
+                    removed_count += 1
+                else:
+                    self.logger.warning(f"Backup file already missing: {backup['id']}")
+                    removed_count += 1
+            except Exception as e:
+                self.logger.error(f"Failed to remove backup {backup['id']}: {e}")
+
+        # Update metadata file to remove deleted backups
+        if removed_count > 0:
+            self._remove_backups_from_metadata([b["id"] for b in backups_to_remove])
+
+            # Verify cleanup worked
+            updated_backups = self.list_backups()
+            self.logger.info(f"After cleanup: {len(updated_backups)} backups remaining")
+
+        return removed_count
+
+    def migrate_with_backup(self, config_data: Dict[str, Any],
+                          backup_description: str = "Pre-migration backup") -> Dict[str, Any]:
+        """Perform migration with automatic backup creation.
+
+        Args:
+            config_data: Configuration data to migrate
+            backup_description: Description for the backup
+
+        Returns:
+            Migrated configuration data
+
+        Raises:
+            ValueError: If migration fails
+            OSError: If backup creation fails
+        """
+        # Create backup before migration
+        backup_id = self.backup_config(config_data, backup_description)
+        self.logger.info(f"Created backup {backup_id} before migration")
+
+        try:
+            # Perform migration steps
+            migrated_config = config_data.copy()
+
+            # Apply all migration steps
+            migrated_config = self.migrate_collection_config(migrated_config)
+            migrated_config = self.migrate_pattern_config(migrated_config)
+            migrated_config = self.remove_deprecated_fields(migrated_config)
+
+            # Validate the migrated configuration
+            final_validation = self._validate_cleaned_config(migrated_config)
+            if not final_validation["is_valid"]:
+                raise ValueError(f"Migration validation failed: {final_validation['error']}")
+
+            self.logger.info("Migration completed successfully")
+            return migrated_config
+
+        except Exception as e:
+            self.logger.error(f"Migration failed: {e}")
+            self.logger.info(f"Configuration can be restored from backup: {backup_id}")
+            raise
+
+    def _ensure_backup_directory(self) -> None:
+        """Ensure backup directory exists."""
+        if self._backup_dir is None:
+            return
+
+        try:
+            self._backup_dir.mkdir(parents=True, exist_ok=True)
+        except Exception as e:
+            self.logger.error(f"Failed to create backup directory {self._backup_dir}: {e}")
+            raise
+
+    def _update_backup_metadata(self, backup_metadata: Dict[str, Any]) -> None:
+        """Update the backup metadata file with new backup information.
+
+        Args:
+            backup_metadata: Metadata for the new backup
+        """
+        metadata_file = self.backup_dir / "metadata.json"
+
+        # Load existing metadata
+        if metadata_file.exists():
+            try:
+                with metadata_file.open('r', encoding='utf-8') as f:
+                    metadata = json.load(f)
+            except Exception as e:
+                self.logger.warning(f"Failed to read metadata file, creating new: {e}")
+                metadata = {"backups": []}
+        else:
+            metadata = {"backups": []}
+
+        # Add new backup
+        metadata["backups"].append(backup_metadata)
+
+        # Write updated metadata
+        try:
+            with metadata_file.open('w', encoding='utf-8') as f:
+                json.dump(metadata, f, indent=2)
+        except Exception as e:
+            self.logger.error(f"Failed to update metadata file: {e}")
+            raise
+
+    def _remove_backups_from_metadata(self, backup_ids: List[str]) -> None:
+        """Remove backup entries from metadata file.
+
+        Args:
+            backup_ids: List of backup IDs to remove
+        """
+        metadata_file = self.backup_dir / "metadata.json"
+
+        if not metadata_file.exists():
+            self.logger.warning(f"Metadata file does not exist: {metadata_file}")
+            return
+
+        try:
+            # Read current metadata
+            with metadata_file.open('r', encoding='utf-8') as f:
+                metadata = json.load(f)
+
+            original_count = len(metadata.get("backups", []))
+            self.logger.debug(f"Removing {len(backup_ids)} backups from {original_count} total")
+
+            # Filter out removed backups
+            metadata["backups"] = [
+                backup for backup in metadata.get("backups", [])
+                if backup.get("id") not in backup_ids
+            ]
+
+            final_count = len(metadata["backups"])
+            self.logger.debug(f"After removal: {final_count} backups remain")
+
+            # Write updated metadata
+            with metadata_file.open('w', encoding='utf-8') as f:
+                json.dump(metadata, f, indent=2)
+
+            self.logger.debug(f"Successfully updated metadata file with {final_count} backups")
+
+        except Exception as e:
+            self.logger.error(f"Failed to update metadata after cleanup: {e}")
+            raise  # Re-raise to help with debugging
+
+    def _load_current_config(self) -> Dict[str, Any]:
+        """Load current configuration from config_path.
+
+        Returns:
+            Current configuration data
+
+        Raises:
+            OSError: If config file cannot be read
+        """
+        if not self.config_path:
+            raise OSError("No config_path set for loading current configuration")
+
+        config_file = Path(self.config_path)
+        if not config_file.exists():
+            raise OSError(f"Config file does not exist: {config_file}")
+
+        try:
+            with config_file.open('r', encoding='utf-8') as f:
+                return json.load(f)
+        except Exception as e:
+            raise OSError(f"Failed to load config from {config_file}: {e}") from e
+
+    def _write_config_file(self, config_data: Dict[str, Any]) -> None:
+        """Write configuration data to config_path.
+
+        Args:
+            config_data: Configuration data to write
+
+        Raises:
+            OSError: If config file cannot be written
+        """
+        if not self.config_path:
+            raise OSError("No config_path set for writing configuration")
+
+        config_file = Path(self.config_path)
+
+        try:
+            # Create parent directories if needed
+            config_file.parent.mkdir(parents=True, exist_ok=True)
+
+            # Write configuration
+            with config_file.open('w', encoding='utf-8') as f:
+                json.dump(config_data, f, indent=2)
+
+            self.logger.debug(f"Written configuration to {config_file}")
+
+        except Exception as e:
+            raise OSError(f"Failed to write config to {config_file}: {e}") from e
