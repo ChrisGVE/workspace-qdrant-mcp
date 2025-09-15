@@ -195,7 +195,7 @@ class ConfigMigrator:
         elif from_version == ConfigVersion.V2_CURRENT:
             if deprecated_fields:
                 migration_info["steps"] = [
-                    "Remove deprecated fields from configuration",
+                    "Remove deprecated fields from configuration using remove_deprecated_fields()",
                     "Validate updated configuration"
                 ]
                 migration_info["warnings"].append("Found deprecated fields in v2 config")
@@ -487,6 +487,386 @@ class ConfigMigrator:
 
         # Unknown version requires manual review
         return MigrationComplexity.MANUAL
+
+    def remove_deprecated_fields(self, config_data: Dict[str, Any]) -> Dict[str, Any]:
+        """Remove deprecated fields with validation and user warnings.
+
+        This method safely removes deprecated configuration fields while ensuring
+        functionality is preserved. It provides warnings about removed fields and
+        their new equivalents, and implements fallback handling for configurations
+        that rely on deprecated fields.
+
+        Args:
+            config_data: Dictionary containing configuration data to clean
+
+        Returns:
+            Dictionary containing cleaned configuration with deprecated fields removed
+
+        Raises:
+            ValueError: If removing deprecated fields would break functionality
+        """
+        if not isinstance(config_data, dict):
+            self.logger.warning("Config data is not a dictionary, cannot remove deprecated fields")
+            return config_data
+
+        cleaned_config = config_data.copy()
+        fields_removed = []
+        warnings_issued = []
+        validation_results = []
+
+        # Track what sections we process
+        processed_sections = set()
+
+        # 1. Remove deprecated fields and collect warnings
+        removed_fields = self._remove_deprecated_fields_from_config(
+            cleaned_config, fields_removed, warnings_issued
+        )
+
+        # 2. Validate that functionality is preserved after removal
+        if removed_fields:
+            validation_result = self._validate_functionality_preservation(
+                config_data, cleaned_config, removed_fields
+            )
+            validation_results.append(validation_result)
+
+            # 3. Issue user warnings about removed fields and their equivalents
+            self._issue_deprecation_warnings(removed_fields, warnings_issued)
+
+            # 4. Handle fallback scenarios for critical deprecated fields
+            fallback_changes = self._apply_fallback_handling(cleaned_config, removed_fields)
+            if fallback_changes:
+                validation_results.extend(fallback_changes)
+
+        # 5. Final validation that cleaned config is functional
+        final_validation = self._validate_cleaned_config(cleaned_config)
+        if not final_validation["is_valid"]:
+            raise ValueError(f"Removing deprecated fields would break functionality: {final_validation['error']}")
+
+        # Log summary if any changes were made
+        if removed_fields:
+            self.logger.info(
+                f"Successfully removed {len(removed_fields)} deprecated fields: {', '.join(removed_fields)}"
+            )
+            if warnings_issued:
+                self.logger.info(f"Issued {len(warnings_issued)} deprecation warnings to user")
+
+        return cleaned_config
+
+    def _remove_deprecated_fields_from_config(self,
+                                            config_data: Dict[str, Any],
+                                            fields_removed: List[str],
+                                            warnings_issued: List[str]) -> List[str]:
+        """Remove deprecated fields from configuration data.
+
+        Args:
+            config_data: Configuration to modify in place
+            fields_removed: List to track removed fields
+            warnings_issued: List to track warnings issued
+
+        Returns:
+            List of removed field paths
+        """
+        removed_fields = []
+
+        def _remove_from_section(section_data: Dict[str, Any], section_path: str = "") -> None:
+            """Remove deprecated fields from a configuration section."""
+            if not isinstance(section_data, dict):
+                return
+
+            fields_to_remove = []
+            for key, value in section_data.items():
+                current_path = f"{section_path}.{key}" if section_path else key
+
+                if key in self.DEPRECATED_FIELDS:
+                    fields_to_remove.append(key)
+                    removed_fields.append(current_path)
+                    fields_removed.append(current_path)
+
+                    # Generate specific warning for this field
+                    warning = self._generate_field_specific_warning(key, value, current_path)
+                    if warning:
+                        warnings_issued.append(warning)
+
+                elif isinstance(value, dict):
+                    # Recursively process nested sections
+                    _remove_from_section(value, current_path)
+
+            # Remove deprecated fields from this section
+            for field in fields_to_remove:
+                section_data.pop(field, None)
+                self.logger.debug(f"Removed deprecated field: {section_path}.{field}" if section_path else field)
+
+        # Process all sections of the configuration
+        _remove_from_section(config_data)
+        return removed_fields
+
+    def _generate_field_specific_warning(self, field_name: str, field_value: Any, field_path: str) -> str:
+        """Generate specific warning message for a deprecated field.
+
+        Args:
+            field_name: Name of the deprecated field
+            field_value: Value of the deprecated field
+            field_path: Full path to the field
+
+        Returns:
+            Warning message string
+        """
+        warnings = {
+            "collection_prefix": (
+                f"Deprecated field '{field_path}' with value '{field_value}' has been removed. "
+                "Collection prefixes are now handled automatically by the CollectionType system. "
+                "Use 'collections.project_suffixes' in the new schema to define collection types."
+            ),
+            "max_collections": (
+                f"Deprecated field '{field_path}' with value '{field_value}' has been removed. "
+                "Collection limits are now managed through the multi-tenant architecture. "
+                "Use 'collections.global_collections' to configure shared collections."
+            ),
+            "recursive_depth": (
+                f"Deprecated field '{field_path}' with value '{field_value}' has been removed. "
+                "File traversal depth is now controlled by 'ingestion.max_depth' setting. "
+                f"Consider setting 'ingestion.max_depth: {field_value}' in your new configuration."
+            ),
+            "enable_legacy_mode": (
+                f"Deprecated field '{field_path}' with value '{field_value}' has been removed. "
+                "Legacy mode is no longer supported. All functionality has been integrated into the current system."
+            ),
+            # Pattern-related deprecated fields
+            "include_patterns": (
+                f"Deprecated field '{field_path}' has been removed. "
+                "Use 'patterns.custom_include_patterns' in the new schema."
+            ),
+            "exclude_patterns": (
+                f"Deprecated field '{field_path}' has been removed. "
+                "Use 'patterns.custom_exclude_patterns' in the new schema."
+            ),
+            "file_patterns": (
+                f"Deprecated field '{field_path}' has been removed. "
+                "Use 'patterns.custom_include_patterns' in the new schema."
+            ),
+            "ignore_patterns": (
+                f"Deprecated field '{field_path}' has been removed. "
+                "Use 'patterns.custom_exclude_patterns' in the new schema."
+            ),
+            "supported_extensions": (
+                f"Deprecated field '{field_path}' has been removed. "
+                "File extensions are now handled through 'patterns.custom_include_patterns' using glob patterns."
+            ),
+            "file_types": (
+                f"Deprecated field '{field_path}' has been removed. "
+                "File types are now handled through 'patterns.custom_include_patterns' using glob patterns."
+            ),
+            "pattern_priorities": (
+                f"Deprecated field '{field_path}' has been removed. "
+                "Pattern ordering is now handled automatically based on specificity."
+            ),
+            "custom_ecosystems": (
+                f"Deprecated field '{field_path}' has been removed. "
+                "Use 'patterns.custom_project_indicators' in the new schema."
+            ),
+        }
+
+        return warnings.get(field_name,
+            f"Deprecated field '{field_path}' with value '{field_value}' has been removed. "
+            "Please consult the documentation for the equivalent setting in the new schema.")
+
+    def _validate_functionality_preservation(self,
+                                           original_config: Dict[str, Any],
+                                           cleaned_config: Dict[str, Any],
+                                           removed_fields: List[str]) -> Dict[str, Any]:
+        """Validate that functionality is preserved after removing deprecated fields.
+
+        Args:
+            original_config: Original configuration before field removal
+            cleaned_config: Configuration after deprecated fields removed
+            removed_fields: List of removed field paths
+
+        Returns:
+            Dictionary with validation results
+        """
+        validation_result = {
+            "is_valid": True,
+            "warnings": [],
+            "recommendations": []
+        }
+
+        # Check for critical functionality that might be affected
+        for field_path in removed_fields:
+            field_name = field_path.split('.')[-1]
+
+            # Collection functionality validation
+            if field_name in ["collection_prefix", "max_collections"]:
+                if not self._has_collection_config_replacement(cleaned_config):
+                    validation_result["warnings"].append(
+                        f"Removed {field_name} but no equivalent collection configuration found. "
+                        "Consider adding 'collections.project_suffixes' setting."
+                    )
+
+            # Ingestion depth validation
+            elif field_name == "recursive_depth":
+                if not self._has_ingestion_depth_config(cleaned_config):
+                    validation_result["recommendations"].append(
+                        "Removed recursive_depth but no 'ingestion.max_depth' found. "
+                        "Consider adding this setting to control file traversal depth."
+                    )
+
+            # Pattern functionality validation
+            elif field_name in ["include_patterns", "exclude_patterns", "file_patterns", "ignore_patterns"]:
+                if not self._has_pattern_config_replacement(cleaned_config):
+                    validation_result["warnings"].append(
+                        f"Removed {field_name} but no equivalent pattern configuration found. "
+                        "Consider adding 'patterns.custom_include_patterns' or 'patterns.custom_exclude_patterns'."
+                    )
+
+        return validation_result
+
+    def _has_collection_config_replacement(self, config: Dict[str, Any]) -> bool:
+        """Check if configuration has replacement for collection settings."""
+        collections = config.get("collections", {})
+        return bool(
+            collections.get("project_suffixes") or
+            collections.get("global_collections") or
+            config.get("workspace", {}).get("collection_types")
+        )
+
+    def _has_ingestion_depth_config(self, config: Dict[str, Any]) -> bool:
+        """Check if configuration has replacement for recursive depth."""
+        ingestion = config.get("ingestion", {})
+        return "max_depth" in ingestion
+
+    def _has_pattern_config_replacement(self, config: Dict[str, Any]) -> bool:
+        """Check if configuration has replacement for pattern settings."""
+        patterns = config.get("patterns", {})
+        return bool(
+            patterns.get("custom_include_patterns") or
+            patterns.get("custom_exclude_patterns")
+        )
+
+    def _issue_deprecation_warnings(self, removed_fields: List[str], warnings: List[str]) -> None:
+        """Issue comprehensive deprecation warnings to the user.
+
+        Args:
+            removed_fields: List of removed field paths
+            warnings: List of specific warnings to issue
+        """
+        if not removed_fields:
+            return
+
+        self.logger.warning("=" * 80)
+        self.logger.warning("DEPRECATED CONFIGURATION FIELDS REMOVED")
+        self.logger.warning("=" * 80)
+
+        self.logger.warning(
+            f"The following {len(removed_fields)} deprecated configuration fields have been removed "
+            "from your configuration:"
+        )
+
+        for field in removed_fields:
+            self.logger.warning(f"  - {field}")
+
+        self.logger.warning("\nSpecific migration guidance:")
+        for warning in warnings:
+            self.logger.warning(f"  • {warning}")
+
+        self.logger.warning(
+            "\nFor complete migration guidance, see the documentation at: "
+            "https://github.com/your-repo/workspace-qdrant-mcp/docs/migration.md"
+        )
+        self.logger.warning("=" * 80)
+
+    def _apply_fallback_handling(self,
+                               config: Dict[str, Any],
+                               removed_fields: List[str]) -> List[Dict[str, Any]]:
+        """Apply fallback handling for critical deprecated fields.
+
+        Args:
+            config: Configuration to potentially modify
+            removed_fields: List of removed field paths
+
+        Returns:
+            List of validation results for applied fallbacks
+        """
+        fallback_results = []
+
+        for field_path in removed_fields:
+            field_name = field_path.split('.')[-1]
+
+            # Apply fallbacks for critical fields that need replacement
+            if field_name == "recursive_depth" and not self._has_ingestion_depth_config(config):
+                # Set a reasonable default for ingestion depth
+                if "ingestion" not in config:
+                    config["ingestion"] = {}
+
+                # Use a sensible default depth
+                config["ingestion"]["max_depth"] = 10
+                self.logger.info(
+                    "Applied fallback: Set 'ingestion.max_depth: 10' to replace removed 'recursive_depth'"
+                )
+                fallback_results.append({
+                    "is_valid": True,
+                    "applied": "ingestion.max_depth = 10"
+                })
+
+            elif field_name in ["collection_prefix", "max_collections"] and not self._has_collection_config_replacement(config):
+                # Set basic collection configuration
+                if "collections" not in config:
+                    config["collections"] = {}
+
+                if "project_suffixes" not in config["collections"]:
+                    config["collections"]["project_suffixes"] = ["scratchbook"]
+
+                self.logger.info(
+                    "Applied fallback: Set 'collections.project_suffixes: [\"scratchbook\"]' for removed collection settings"
+                )
+                fallback_results.append({
+                    "is_valid": True,
+                    "applied": "collections.project_suffixes = [\"scratchbook\"]"
+                })
+
+        return fallback_results
+
+    def _validate_cleaned_config(self, config: Dict[str, Any]) -> Dict[str, Any]:
+        """Validate that the cleaned configuration is functional.
+
+        Args:
+            config: Cleaned configuration to validate
+
+        Returns:
+            Dictionary with validation results
+        """
+        validation_result = {
+            "is_valid": True,
+            "error": None
+        }
+
+        # Basic structure validation
+        if not isinstance(config, dict):
+            validation_result["is_valid"] = False
+            validation_result["error"] = "Configuration must be a dictionary"
+            return validation_result
+
+        # Check for at least some essential configuration
+        essential_sections = ["qdrant", "embeddings"]
+        has_essential = any(section in config for section in essential_sections)
+
+        if not has_essential and config:  # Only check if config is not empty
+            validation_result["is_valid"] = False
+            validation_result["error"] = f"Configuration missing essential sections: {essential_sections}"
+            return validation_result
+
+        # Check that we haven't accidentally removed all configuration
+        if not config:
+            validation_result["is_valid"] = False
+            validation_result["error"] = "Configuration is empty after removing deprecated fields"
+            return validation_result
+
+        # Validate that no deprecated fields remain
+        remaining_deprecated = self._detect_deprecated_fields(config)
+        if remaining_deprecated:
+            # This should not happen, but check anyway
+            self.logger.warning(f"Some deprecated fields still remain: {remaining_deprecated}")
+
+        return validation_result
 
     def migrate_pattern_config(self, config_data: Dict[str, Any]) -> Dict[str, Any]:
         """Migrate pattern configuration from legacy formats to custom pattern system.
