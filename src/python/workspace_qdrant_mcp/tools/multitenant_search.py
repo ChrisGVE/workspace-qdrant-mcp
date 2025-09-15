@@ -107,14 +107,17 @@ class MultiTenantSearchEngine:
                     "message": "No accessible collections found for search"
                 }
 
-            # Perform the search using existing search functionality
+            # Perform the search using enhanced search functionality with multi-tenant aggregation
             search_result = await base_search_workspace(
                 client=self.client,
                 query=query,
                 collections=target_collections,
                 mode=mode,
                 limit=limit,
-                score_threshold=score_threshold
+                score_threshold=score_threshold,
+                enable_multi_tenant_aggregation=True,
+                enable_deduplication=True,
+                score_aggregation_method="max_score"
             )
 
             # Enhance results with project context
