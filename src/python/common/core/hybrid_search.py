@@ -53,12 +53,13 @@ Example:
     ```
 
 Task 215: Migrated to unified logging system for MCP stdio compliance.
+Task 233.1: Enhanced for multi-tenant metadata-based filtering with project isolation.
 """
 
 # Task 215: Replace direct logging import with unified logging system
 # import logging  # MIGRATED to unified system
 from collections import defaultdict
-from typing import Optional
+from typing import Optional, Union
 
 from qdrant_client import QdrantClient
 from qdrant_client.http import models
@@ -67,6 +68,11 @@ from qdrant_client.http import models
 from loguru import logger
 
 from .sparse_vectors import create_named_sparse_vector
+from .multitenant_collections import (
+    ProjectIsolationManager,
+    WorkspaceCollectionRegistry,
+    ProjectMetadata
+)
 
 # Task 215: Use unified logging system instead of logging.getLogger(__name__)
 # logger imported from loguru
@@ -389,7 +395,12 @@ class HybridSearchEngine:
         self.client = client
         self.rrf_ranker = RRFFusionRanker()
         self.weighted_ranker = WeightedSumFusionRanker()
-        logger.info("Initialized hybrid search engine")
+
+        # Task 233.1: Initialize multi-tenant components for enhanced metadata filtering
+        self.isolation_manager = ProjectIsolationManager()
+        self.workspace_registry = WorkspaceCollectionRegistry()
+
+        logger.info("Initialized hybrid search engine with multi-tenant support")
 
     async def hybrid_search(
         self,
@@ -403,7 +414,7 @@ class HybridSearchEngine:
         search_params: Optional[models.SearchParams] = None,
         with_payload: bool = True,
         with_vectors: bool = False,
-        project_context: Optional[dict] = None,
+        project_context: Optional[Union[dict, ProjectMetadata]] = None,
         auto_inject_metadata: bool = True,
     ) -> dict:
         """Execute hybrid search with specified fusion method and metadata filtering.
@@ -419,7 +430,7 @@ class HybridSearchEngine:
             search_params: Optional search parameters
             with_payload: Whether to return payloads
             with_vectors: Whether to return vectors
-            project_context: Optional project context for metadata filtering
+            project_context: Optional project context (dict or ProjectMetadata) for metadata filtering
             auto_inject_metadata: Whether to automatically inject project metadata filters
 
         Returns:
@@ -559,14 +570,17 @@ class HybridSearchEngine:
     def _build_enhanced_filter(
         self,
         base_filter: Optional[models.Filter],
-        project_context: Optional[dict],
+        project_context: Optional[Union[dict, ProjectMetadata]],
         auto_inject: bool = True
     ) -> Optional[models.Filter]:
-        """Build enhanced filter with project metadata constraints.
+        """Build enhanced filter with project metadata constraints using multi-tenant isolation.
+
+        Task 233.1: Enhanced to leverage ProjectIsolationManager for consistent filtering
+        and support ProjectMetadata objects directly.
 
         Args:
             base_filter: Optional base filter conditions
-            project_context: Project context for metadata injection
+            project_context: Project context (dict or ProjectMetadata) for metadata injection
             auto_inject: Whether to automatically inject project metadata
 
         Returns:
@@ -575,102 +589,187 @@ class HybridSearchEngine:
         if not auto_inject or not project_context:
             return base_filter
 
-        logger.debug("Building enhanced filter with project context", context=project_context)
+        logger.debug("Building enhanced filter with project context", context=str(project_context))
 
-        # Extract project metadata for filtering
-        project_name = project_context.get("project_name")
-        tenant_namespace = project_context.get("tenant_namespace")
-        collection_type = project_context.get("collection_type")
-        workspace_scope = project_context.get("workspace_scope", "project")
+        # Handle both dict and ProjectMetadata inputs
+        if isinstance(project_context, ProjectMetadata):
+            project_name = project_context.project_name
+            collection_type = project_context.collection_type
+            tenant_namespace = project_context.tenant_namespace
+            workspace_scope = project_context.workspace_scope
+        else:
+            # Legacy dict format
+            project_name = project_context.get("project_name")
+            collection_type = project_context.get("collection_type")
+            tenant_namespace = project_context.get("tenant_namespace")
+            workspace_scope = project_context.get("workspace_scope", "project")
 
-        # Build project-specific conditions
-        project_conditions = []
+        # Validate collection type if provided
+        if collection_type and not self.workspace_registry.is_multi_tenant_type(collection_type):
+            logger.warning("Unknown workspace collection type", type=collection_type)
 
-        if project_name:
-            project_conditions.append(
-                models.FieldCondition(
-                    key="project_name",
-                    match=models.MatchValue(value=project_name)
+        # Use ProjectIsolationManager for consistent filter creation
+        project_filter = None
+
+        try:
+            if tenant_namespace:
+                # Use tenant namespace filtering for precise isolation
+                project_filter = self.isolation_manager.create_tenant_namespace_filter(tenant_namespace)
+                logger.debug("Created tenant namespace filter", namespace=tenant_namespace)
+            elif project_name:
+                # Use workspace filter with collection type and shared scope support
+                project_filter = self.isolation_manager.create_workspace_filter(
+                    project_name=project_name,
+                    collection_type=collection_type,
+                    include_shared=(workspace_scope != "global")  # Include shared unless global scope
                 )
-            )
-
-        if tenant_namespace:
-            project_conditions.append(
-                models.FieldCondition(
-                    key="tenant_namespace",
-                    match=models.MatchValue(value=tenant_namespace)
-                )
-            )
-
-        if collection_type:
-            project_conditions.append(
-                models.FieldCondition(
-                    key="collection_type",
-                    match=models.MatchValue(value=collection_type)
-                )
-            )
-
-        # Include workspace scope filtering (project, shared, global)
-        if workspace_scope:
-            scope_conditions = [
-                models.FieldCondition(
-                    key="workspace_scope",
-                    match=models.MatchValue(value=workspace_scope)
-                )
-            ]
-
-            # For project scope, also include shared resources
-            if workspace_scope == "project":
-                scope_conditions.append(
-                    models.FieldCondition(
-                        key="workspace_scope",
-                        match=models.MatchValue(value="shared")
-                    )
-                )
-
-            if len(scope_conditions) > 1:
-                project_conditions.append(
-                    models.Filter(should=scope_conditions)
+                logger.debug(
+                    "Created workspace filter",
+                    project=project_name,
+                    collection_type=collection_type,
+                    workspace_scope=workspace_scope
                 )
             else:
-                project_conditions.extend(scope_conditions)
+                logger.debug("No project name or tenant namespace provided, skipping project filtering")
 
-        # Combine with existing filter if present
-        if base_filter and project_conditions:
-            # Extract existing conditions
-            existing_conditions = []
-            if base_filter.must:
-                existing_conditions.extend(base_filter.must)
+        except Exception as e:
+            logger.error("Failed to create project filter", error=str(e))
+            project_filter = None
 
-            # Combine all conditions
-            all_conditions = existing_conditions + project_conditions
+        # Combine with existing filter if both exist
+        if base_filter and project_filter:
+            # Merge filters by combining must conditions
+            existing_conditions = base_filter.must or []
+            project_conditions = project_filter.must or []
 
             enhanced_filter = models.Filter(
-                must=all_conditions,
+                must=existing_conditions + project_conditions,
                 should=base_filter.should,
                 must_not=base_filter.must_not
             )
 
             logger.debug(
-                "Enhanced filter built",
+                "Enhanced filter built with isolation manager",
                 base_conditions=len(existing_conditions),
-                project_conditions=len(project_conditions),
-                total_conditions=len(all_conditions)
-            )
-
-            return enhanced_filter
-
-        elif project_conditions:
-            # Create new filter with project conditions only
-            enhanced_filter = models.Filter(must=project_conditions)
-
-            logger.debug(
-                "Project filter built",
                 project_conditions=len(project_conditions)
             )
 
             return enhanced_filter
 
+        elif project_filter:
+            # Use project filter only
+            logger.debug("Using project filter only")
+            return project_filter
+
         else:
-            # No enhancement needed
+            # No enhancement needed or possible
             return base_filter
+
+    async def search_project_workspace(
+        self,
+        collection_name: str,
+        query_embeddings: dict,
+        project_name: str,
+        workspace_type: str = None,
+        limit: int = 10,
+        fusion_method: str = "rrf",
+        include_shared: bool = True,
+        **kwargs
+    ) -> dict:
+        """Convenience method for searching within a specific project workspace.
+
+        Task 233.1: Added for simplified multi-tenant project searching.
+
+        Args:
+            collection_name: Name of collection to search
+            query_embeddings: Dict with 'dense' and/or 'sparse' embeddings
+            project_name: Project name for tenant isolation
+            workspace_type: Optional workspace type filter (notes, docs, etc.)
+            limit: Maximum number of results to return
+            fusion_method: Fusion algorithm to use
+            include_shared: Whether to include shared workspace resources
+            **kwargs: Additional search parameters
+
+        Returns:
+            Dictionary with search results and metadata
+        """
+        # Validate workspace type if provided
+        if workspace_type and not self.workspace_registry.is_multi_tenant_type(workspace_type):
+            logger.warning("Invalid workspace type", type=workspace_type)
+            return {"fused_results": [], "error": f"Invalid workspace type: {workspace_type}"}
+
+        # Create project metadata for filtering
+        project_metadata = ProjectMetadata.create_project_metadata(
+            project_name=project_name,
+            collection_type=workspace_type or "project",
+            workspace_scope="shared" if include_shared else "project"
+        )
+
+        return await self.hybrid_search(
+            collection_name=collection_name,
+            query_embeddings=query_embeddings,
+            project_context=project_metadata,
+            limit=limit,
+            fusion_method=fusion_method,
+            auto_inject_metadata=True,
+            **kwargs
+        )
+
+    async def search_tenant_namespace(
+        self,
+        collection_name: str,
+        query_embeddings: dict,
+        tenant_namespace: str,
+        limit: int = 10,
+        fusion_method: str = "rrf",
+        **kwargs
+    ) -> dict:
+        """Search within a specific tenant namespace for precise multi-tenant isolation.
+
+        Task 233.1: Added for tenant namespace-based searching.
+
+        Args:
+            collection_name: Name of collection to search
+            query_embeddings: Dict with 'dense' and/or 'sparse' embeddings
+            tenant_namespace: Tenant namespace for precise isolation
+            limit: Maximum number of results to return
+            fusion_method: Fusion algorithm to use
+            **kwargs: Additional search parameters
+
+        Returns:
+            Dictionary with search results and metadata
+        """
+        project_context = {"tenant_namespace": tenant_namespace}
+
+        return await self.hybrid_search(
+            collection_name=collection_name,
+            query_embeddings=query_embeddings,
+            project_context=project_context,
+            limit=limit,
+            fusion_method=fusion_method,
+            auto_inject_metadata=True,
+            **kwargs
+        )
+
+    def get_supported_workspace_types(self) -> set:
+        """Get all supported workspace collection types.
+
+        Task 233.1: Added for workspace type validation.
+
+        Returns:
+            Set of supported workspace types
+        """
+        return self.workspace_registry.get_workspace_types()
+
+    def validate_workspace_type(self, workspace_type: str) -> bool:
+        """Validate if a workspace type is supported for multi-tenant operations.
+
+        Task 233.1: Added for workspace type validation.
+
+        Args:
+            workspace_type: Workspace type to validate
+
+        Returns:
+            True if supported, False otherwise
+        """
+        return self.workspace_registry.is_multi_tenant_type(workspace_type)
