@@ -41,6 +41,8 @@ from typing import Any, Dict, List, Optional, Pattern, Set, Tuple, Union
 
 import yaml
 
+from .pattern_manager import PatternManager
+
 # logger imported from loguru
 
 # Try to import python-magic for MIME type detection
@@ -246,18 +248,24 @@ class LanguageAwareFilter:
     - Statistics tracking for monitoring and optimization
     """
     
-    def __init__(self, config_path: Optional[Union[str, Path]] = None):
+    def __init__(
+        self,
+        config_path: Optional[Union[str, Path]] = None,
+        pattern_manager: Optional[PatternManager] = None
+    ):
         """
         Initialize the language-aware filter.
-        
+
         Args:
             config_path: Path to directory containing ingestion.yaml config file
+            pattern_manager: Pattern management system (created if None)
         """
         self.config_path = Path(config_path) if config_path else Path.home() / ".config" / "workspace-qdrant-mcp"
         self.config: Optional[FilterConfiguration] = None
         self.compiled_patterns = CompiledPatterns()
         self.mime_detector = MimeTypeDetector()
         self.statistics = FilterStatistics()
+        self.pattern_manager = pattern_manager or PatternManager()
         self._initialized = False
         
     async def load_configuration(self, config_file: Optional[str] = None) -> None:
@@ -343,27 +351,39 @@ class LanguageAwareFilter:
             file_name = file_path.name
             file_parts = file_path.parts
             relative_path = str(file_path)
-            
+
+            # Use PatternManager for primary filtering decisions
+            should_exclude, exclude_reason = self.pattern_manager.should_exclude(file_path)
+            if should_exclude:
+                self._record_filter_decision(False, exclude_reason, start_time)
+                return False, exclude_reason
+
+            should_include, include_reason = self.pattern_manager.should_include(file_path)
+            if should_include:
+                self._record_filter_decision(True, include_reason, start_time)
+                return True, include_reason
+
+            # Legacy filtering logic for backward compatibility
             # Check force include patterns first (these override ignores)
             if self._matches_force_include(file_path, file_name, extension):
                 self._record_filter_decision(True, "force_included", start_time)
                 return True, "force_included"
-            
+
             # Check dot files if configured to ignore
             if self.config.dot_files_ignored and file_name.startswith('.'):
                 self._record_filter_decision(False, "dot_file_ignored", start_time)
                 return False, "dot_file_ignored"
-            
+
             # Check directory-based ignores
             if self._matches_ignored_directories(file_parts):
                 self._record_filter_decision(False, "directory_ignored", start_time)
                 return False, "directory_ignored"
-            
+
             # Check file extension ignores
             if self._matches_ignored_extensions(extension, file_name):
                 self._record_filter_decision(False, "extension_ignored", start_time)
                 return False, "extension_ignored"
-            
+
             # Check regex patterns
             regex_reason = self._matches_ignored_regex(relative_path)
             if regex_reason:

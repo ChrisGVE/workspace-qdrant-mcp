@@ -56,6 +56,8 @@ from urllib.parse import urlparse
 import git
 from git.exc import GitError, InvalidGitRepositoryError
 
+from ..core.pattern_manager import PatternManager
+
 logger = logging.getLogger(__name__)
 
 
@@ -342,15 +344,21 @@ class ProjectDetector:
         ```
     """
 
-    def __init__(self, github_user: str | None = None) -> None:
+    def __init__(
+        self,
+        github_user: str | None = None,
+        pattern_manager: Optional[PatternManager] = None
+    ) -> None:
         """Initialize the project detector with optional GitHub user filtering.
 
         Args:
             github_user: GitHub username for ownership-based project naming.
                         When provided, repositories owned by this user will use
                         remote-based names, while others use directory names
+            pattern_manager: Pattern management system for ecosystem detection
         """
         self.github_user = github_user
+        self.pattern_manager = pattern_manager or PatternManager()
 
     def get_project_name(self, path: str = ".") -> str:
         """
@@ -729,3 +737,19 @@ class ProjectDetector:
             project_path=project_path,
             suffix=suffix
         )
+
+    def detect_ecosystems(self, path: str = ".") -> list[str]:
+        """
+        Detect project ecosystems using PatternManager.
+
+        Args:
+            path: Path to analyze (defaults to current directory)
+
+        Returns:
+            List of detected ecosystem names
+        """
+        try:
+            return self.pattern_manager.detect_ecosystem(path)
+        except Exception as e:
+            logger.warning("Failed to detect ecosystems for %s: %s", path, e)
+            return []

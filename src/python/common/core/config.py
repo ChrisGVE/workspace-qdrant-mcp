@@ -239,6 +239,21 @@ class WorkspaceConfig(BaseModel):
         )
         return self.effective_collection_types
 
+    def create_pattern_manager(self):
+        """Create a PatternManager instance with custom patterns from this config.
+
+        Returns:
+            PatternManager instance configured with custom patterns
+        """
+        # Lazy import to avoid circular dependency
+        from .pattern_manager import PatternManager
+
+        return PatternManager(
+            custom_include_patterns=self.custom_include_patterns,
+            custom_exclude_patterns=self.custom_exclude_patterns,
+            custom_project_indicators=self.custom_project_indicators
+        )
+
 
 class GrpcConfig(BaseModel):
     """Configuration for gRPC communication with the Rust ingestion engine.
