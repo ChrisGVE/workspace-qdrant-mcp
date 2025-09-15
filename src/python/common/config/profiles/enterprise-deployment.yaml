@@ -32,7 +32,7 @@ embedding:
 
 # Workspace - enterprise scale
 workspace:
-  collection_suffixes: []
+  collection_types: []
   global_collections: []
   github_user: "${ENTERPRISE_GITHUB_USER}"
   collection_prefix: "${TENANT_ID}_"

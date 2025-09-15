@@ -32,7 +32,7 @@ embedding:
 
 # Workspace settings - production environment
 workspace:
-  collection_suffixes: []
+  collection_types: []
   global_collections: []
   github_user: "${GITHUB_USER}"
   collection_prefix: ""
