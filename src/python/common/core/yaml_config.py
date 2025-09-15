@@ -12,8 +12,9 @@ Configuration Hierarchy (highest to lowest priority):
 1. CLI --config parameter
 2. Project .workspace-qdrant.yaml or .workspace-qdrant.yml
 3. User ~/.config/workspace-qdrant/config.yaml or config.yml
-4. System /etc/workspace-qdrant/config.yaml or config.yml
-5. Built-in defaults
+4. User ~/.config/workspace-qdrant/workspace_qdrant_config.yaml or workspace_qdrant_config.yml
+5. System /etc/workspace-qdrant/config.yaml or config.yml
+6. Built-in defaults
 
 Note: Both .yaml and .yml extensions are supported. When both exist, .yaml takes precedence.
 
@@ -164,6 +165,9 @@ class WatchingConfig(BaseModel):
             ".DS_Store",
         ]
     )
+
+    custom_include_patterns: List[str] = Field(default_factory=list)
+    custom_exclude_patterns: List[str] = Field(default_factory=list)
 
 
 class ProcessingConfig(BaseModel):
@@ -340,7 +344,14 @@ class ConfigLoader:
                 paths.append(user_config)
                 break  # Use first found file
 
-        # 4. System /etc/workspace-qdrant/config.yaml or config.yml (Unix-like systems)
+        # 4. User ~/.config/workspace-qdrant/workspace_qdrant_config.yaml or workspace_qdrant_config.yml
+        for ext in [".yaml", ".yml"]:
+            user_legacy_config = user_config_dir / f"workspace_qdrant_config{ext}"
+            if user_legacy_config.exists():
+                paths.append(user_legacy_config)
+                break  # Use first found file
+
+        # 5. System /etc/workspace-qdrant/config.yaml or config.yml (Unix-like systems)
         if os.name != "nt":  # Not Windows
             for ext in [".yaml", ".yml"]:
                 system_config = Path(f"/etc/workspace-qdrant/config{ext}")

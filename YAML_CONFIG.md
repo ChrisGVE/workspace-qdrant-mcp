@@ -1,6 +1,15 @@
 # YAML Configuration Support
 
-The workspace-qdrant-mcp server now supports YAML configuration files for easier project-specific configuration management.
+The workspace-qdrant-mcp system supports YAML configuration files for project-specific configuration management.
+
+## Configuration Systems
+
+This project has two main components with separate configuration systems:
+
+1. **MCP Server/Python Components** - Uses the configuration structure documented below
+2. **Rust Daemon** - Uses a separate configuration structure (see daemon logs for current config path)
+
+The configuration precedence and structure documented below applies to the MCP server and Python components.
 
 ## Usage
 
@@ -19,151 +28,285 @@ The configuration system follows this precedence order (highest to lowest):
 3. **Auto-discovered configuration files** (searched in this order):
    - Project-specific: `.workspace-qdrant.yaml` or `.workspace-qdrant.yml` in current directory
    - Project-specific: `workspace_qdrant_config.yaml` or `workspace_qdrant_config.yml` in current directory
-   - User XDG config: `~/.config/workspace-qdrant/config.yaml` (or `$XDG_CONFIG_HOME/workspace-qdrant/config.yaml`)
-   - User legacy config: `~/.config/workspace-qdrant/workspace_qdrant_config.yaml` (backward compatibility)
-   - System config: `/etc/workspace-qdrant/config.yaml` (Unix-like systems)
-4. **Environment variables** (`WORKSPACE_QDRANT_*` or legacy variables)
+   - User XDG config: `~/.config/workspace-qdrant/config.yaml` or `config.yml`
+   - User config: `~/.config/workspace-qdrant/workspace_qdrant_config.yaml` or `workspace_qdrant_config.yml`
+   - System config: `/etc/workspace-qdrant/config.yaml` or `config.yml` (Unix-like systems)
+4. **Environment variables** (`WORKSPACE_QDRANT_*`)
 5. **Default values**
 
-### Configuration File Discovery
-
-The system automatically searches for configuration files using the XDG Base Directory Specification:
-
-- **XDG_CONFIG_HOME**: Uses `$XDG_CONFIG_HOME/workspace-qdrant/` if set
-- **Default locations**:
-  - macOS: `~/Library/Application Support/workspace-qdrant/`
-  - Linux/Unix: `~/.config/workspace-qdrant/`
-  - Windows: `%APPDATA%/workspace-qdrant/`
-
-**Supported file extensions**: `.yaml`, `.yml`
+**Supported file extensions**: `.yaml`, `.yml` (when both exist, `.yaml` takes precedence)
 
 ## YAML Configuration Structure
 
-The YAML configuration file supports all the same options as environment variables, but with a more readable structure:
-
 ```yaml
-# Server configuration
-host: "127.0.0.1"
-port: 8000
-debug: false
-
 # Qdrant database configuration
 qdrant:
   url: "http://localhost:6333"
   api_key: null  # Set to your API key for Qdrant Cloud
-  timeout: 30
-  prefer_grpc: false
+  timeout_seconds: 30
+  retry_count: 3
+  use_https: false
+  verify_ssl: true
+
+# Daemon configuration
+daemon:
+  database_path: "~/.config/workspace-qdrant/state.db"
+  max_concurrent_jobs: 4
+  job_timeout_seconds: 300
+  max_memory_mb: 1024
+  max_cpu_percent: 80
+
+  priority_levels:
+    mcp_server: "high"
+    cli_commands: "medium"
+    background_watching: "low"
+
+  grpc:
+    host: "127.0.0.1"
+    port: 50051
+    max_message_size_mb: 100
 
 # Embedding configuration
 embedding:
-  model: "sentence-transformers/all-MiniLM-L6-v2"
-  enable_sparse_vectors: true
-  chunk_size: 800
-  chunk_overlap: 120
-  batch_size: 50
+  provider: "fastembed"  # Options: fastembed, openai, huggingface
+  dense_model: "sentence-transformers/all-MiniLM-L6-v2"
+  sparse_model: "prithivida/Splade_PP_en_v1"
 
-# Workspace configuration
-workspace:
-  collection_types: ["project"]
-  global_collections: ["docs", "references", "standards"]
-  github_user: null  # Set to your GitHub username
-  auto_create_collections: false
-  memory_collection_name: "__memory"
-  code_collection_name: "__code"
+  openai:
+    api_key: null
+    model: "text-embedding-3-small"
+
+  huggingface:
+    api_key: null
+    model: "sentence-transformers/all-MiniLM-L6-v2"
+
+# Collection management
+collections:
+  auto_create: false
+  default_global: ["scratchbook"]
+  reserved_prefixes: ["_", "system_", "temp_"]
+
+  settings:
+    scratchbook:
+      description: "Quick notes and temporary documents"
+      auto_ingest: true
+
+# File watching configuration
+watching:
+  auto_watch_project: true
+  debounce_seconds: 5
+  max_file_size_mb: 50
+  recursive: true
+  max_depth: 5
+  follow_symlinks: false
+
+  include_patterns:
+    - "*.txt"
+    - "*.md"
+    - "*.pdf"
+    - "*.epub"
+    - "*.docx"
+    - "*.py"
+    - "*.js"
+    - "*.ts"
+    - "*.html"
+    - "*.css"
+    - "*.yaml"
+    - "*.yml"
+    - "*.json"
+    - "*.toml"
+    - "Dockerfile"
+    - "*.dockerfile"
+    - "Makefile"
+    - "*.mk"
+    - ".github/**/*.yml"
+    - ".github/**/*.yaml"
+
+  ignore_patterns:
+    - "*.tmp"
+    - "*.log"
+    - "*.cache"
+    - ".git/*"
+    - "node_modules/*"
+    - "__pycache__/*"
+    - "*.pyc"
+    - ".DS_Store"
+
+  # Additional patterns beyond defaults
+  custom_include_patterns: []
+  custom_exclude_patterns: []
+
+# Document processing configuration
+processing:
+  chunk_size: 1000
+  chunk_overlap: 200
+  min_chunk_size: 100
+
+  pdf:
+    extract_images: false
+    extract_tables: true
+
+  docx:
+    extract_images: false
+    extract_styles: false
+
+  code:
+    include_comments: true
+    language_detection: true
+
+# Web UI configuration
+web_ui:
+  enabled: true
+  host: "127.0.0.1"
+  port: 3000
+  auto_launch: false
+  cors_origins: ["http://localhost:3000"]
+  auth_required: false
+
+# Logging configuration
+logging:
+  level: "INFO"  # Options: DEBUG, INFO, WARN, ERROR
+  format: "json"  # Options: json, text
+  file_path: "~/.config/workspace-qdrant/logs/daemon.log"
+  max_file_size_mb: 10
+  backup_count: 5
+
+  components:
+    qdrant_client: "WARN"
+    embedding: "INFO"
+    file_watcher: "INFO"
+    grpc_server: "WARN"
+
+# Performance monitoring
+monitoring:
+  enabled: true
+  metrics_port: 9090
+  health_check_interval_seconds: 60
+
+  thresholds:
+    max_response_time_ms: 1000
+    max_memory_usage_mb: 512
+    max_cpu_usage_percent: 70
+
+# Development settings
+development:
+  debug_mode: false
+  profile_performance: false
+  mock_embedding: false
+  test_data_path: "tests/data"
 ```
 
-## Environment Variable Equivalents
+## Environment Variable Substitution
 
-For reference, the YAML configuration maps to these environment variables:
+YAML configuration files support environment variable substitution using `${VAR_NAME}` or `${VAR_NAME:default_value}` syntax:
 
-| YAML Path | Environment Variable |
-|-----------|---------------------|
-| `host` | `WORKSPACE_QDRANT_HOST` |
-| `port` | `WORKSPACE_QDRANT_PORT` |
-| `debug` | `WORKSPACE_QDRANT_DEBUG` |
-| `qdrant.url` | `WORKSPACE_QDRANT_QDRANT__URL` or `QDRANT_URL` (legacy) |
-| `qdrant.api_key` | `WORKSPACE_QDRANT_QDRANT__API_KEY` or `QDRANT_API_KEY` (legacy) |
-| `embedding.model` | `WORKSPACE_QDRANT_EMBEDDING__MODEL` or `FASTEMBED_MODEL` (legacy) |
-| `workspace.collection_types` | `WORKSPACE_QDRANT_WORKSPACE__COLLECTION_TYPES` (comma-separated) |
-| `workspace.global_collections` | `WORKSPACE_QDRANT_WORKSPACE__GLOBAL_COLLECTIONS` (comma-separated) |
-| `workspace.github_user` | `WORKSPACE_QDRANT_WORKSPACE__GITHUB_USER` |
+```yaml
+qdrant:
+  url: "${QDRANT_URL:http://localhost:6333}"
+  api_key: "${QDRANT_API_KEY}"
 
-## Examples
+embedding:
+  openai:
+    api_key: "${OPENAI_API_KEY}"
+```
+
+## Configuration Examples
 
 ### Development Configuration
 
 ```yaml
 # dev-config.yaml
-debug: true
 qdrant:
   url: "http://localhost:6333"
+
 embedding:
-  model: "sentence-transformers/all-MiniLM-L6-v2"
-  batch_size: 10  # Smaller batch for development
-workspace:
-  collection_types: ["dev", "test"]
-  global_collections: ["docs"]
+  provider: "fastembed"
+  dense_model: "sentence-transformers/all-MiniLM-L6-v2"
+
+daemon:
+  max_concurrent_jobs: 2
+
+collections:
+  auto_create: true
+
+watching:
+  debounce_seconds: 2
+
+logging:
+  level: "DEBUG"
+  format: "text"
+
+development:
+  debug_mode: true
+  profile_performance: true
 ```
 
 ### Production Configuration
 
 ```yaml
 # prod-config.yaml
-host: "0.0.0.0"
-port: 8000
-debug: false
 qdrant:
   url: "https://your-qdrant-cluster.example.com"
-  api_key: "your-production-api-key"
-  timeout: 60
-  prefer_grpc: true
+  api_key: "${QDRANT_API_KEY}"
+  timeout_seconds: 60
+  use_https: true
+
 embedding:
-  model: "sentence-transformers/all-MiniLM-L6-v2"
-  enable_sparse_vectors: true
-  batch_size: 100
-workspace:
-  collection_types: ["project", "docs", "tests"]
-  global_collections: ["standards", "references", "shared"]
-  github_user: "your-username"
-  auto_create_collections: true
+  provider: "fastembed"
+  dense_model: "sentence-transformers/all-MiniLM-L6-v2"
+  sparse_model: "prithivida/Splade_PP_en_v1"
+
+daemon:
+  max_concurrent_jobs: 8
+  max_memory_mb: 2048
+
+collections:
+  auto_create: false
+  default_global: ["docs", "standards", "references"]
+
+monitoring:
+  enabled: true
+  metrics_port: 9090
+
+logging:
+  level: "INFO"
+  format: "json"
 ```
 
-### Cloud Configuration
+### Qdrant Cloud Configuration
 
 ```yaml
 # cloud-config.yaml
 qdrant:
   url: "https://xyz-abc-def.us-east-1-0.aws.cloud.qdrant.io"
-  api_key: "your-qdrant-cloud-api-key"
-  timeout: 30
-  prefer_grpc: false
+  api_key: "${QDRANT_CLOUD_API_KEY}"
+  timeout_seconds: 30
+  use_https: true
+
 embedding:
-  model: "sentence-transformers/all-MiniLM-L6-v2"
-  enable_sparse_vectors: true
-workspace:
-  collection_types: ["project"]
-  global_collections: ["docs", "references"]
-  github_user: "your-github-username"
+  provider: "openai"
+  openai:
+    api_key: "${OPENAI_API_KEY}"
+    model: "text-embedding-3-small"
+
+daemon:
+  grpc:
+    host: "0.0.0.0"
+    port: 50051
 ```
 
-## Benefits of YAML Configuration
+## Configuration Validation
 
-1. **Project-specific configs**: Each project can have its own configuration file
-2. **Version control**: YAML configs can be committed to your repository
-3. **Readability**: Much easier to read and edit than environment variables
-4. **Validation**: Built-in validation with helpful error messages
-5. **Documentation**: Self-documenting with comments and structure
-6. **Sharing**: Easy to share configurations between team members
-
-## Validation
-
-The server will validate your YAML configuration on startup and provide helpful error messages if there are issues:
+The server validates your YAML configuration on startup and provides detailed error messages:
 
 ```bash
 workspace-qdrant-mcp --config=invalid-config.yaml
 # Error: Configuration validation failed: Chunk overlap must be less than chunk size
 ```
 
-## Backward Compatibility
-
-All existing environment variable configurations continue to work as before. The YAML configuration system is additive and doesn't break existing setups.
+Common validation errors:
+- Invalid Qdrant URL format
+- Chunk overlap larger than chunk size
+- Invalid log levels or formats
+- Missing required API keys for selected providers
+- Invalid priority levels (must be: low, medium, high)
