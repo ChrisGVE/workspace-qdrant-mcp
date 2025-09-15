@@ -267,6 +267,190 @@ class ConfigMigrator:
         return [section for section in self.V2_REQUIRED_SECTIONS
                 if section in config_data and isinstance(config_data[section], dict)]
 
+    def migrate_collection_config(self, config_data: Dict[str, Any]) -> Dict[str, Any]:
+        """Migrate collection configuration from legacy formats to new schema.
+
+        This method handles the migration of collection-related configuration fields:
+        1. collection_suffixes → collection_types (with CollectionType metadata)
+        2. collection_prefix mapping and integration
+        3. Backward compatibility with existing collection references
+        4. Integration with new CollectionType classification system
+
+        Args:
+            config_data: Dictionary containing configuration data to migrate
+
+        Returns:
+            Dictionary containing migrated configuration with updated collection settings
+
+        Raises:
+            ValueError: If migration encounters unrecoverable conflicts
+        """
+        if not isinstance(config_data, dict):
+            self.logger.warning("Config data is not a dictionary, cannot migrate collections")
+            return config_data
+
+        migrated_config = config_data.copy()
+        migration_applied = False
+
+        # Check if we have workspace configuration to migrate
+        workspace_config = migrated_config.get("workspace", {})
+        if not isinstance(workspace_config, dict):
+            workspace_config = {}
+
+        # 1. Handle collection_suffixes → collection_types migration
+        if "collection_suffixes" in workspace_config:
+            collection_suffixes = workspace_config["collection_suffixes"]
+            if isinstance(collection_suffixes, list):
+                if "collection_types" not in workspace_config:
+                    # Migrate collection_suffixes to collection_types
+                    workspace_config["collection_types"] = collection_suffixes.copy()
+                    self.logger.info(f"Migrated collection_suffixes {collection_suffixes} to collection_types")
+                    migration_applied = True
+                else:
+                    # Both present - use collection_types and warn
+                    self.logger.warning(
+                        "Both collection_suffixes and collection_types present. "
+                        "Using collection_types and ignoring collection_suffixes."
+                    )
+
+                # Remove deprecated field
+                workspace_config.pop("collection_suffixes", None)
+                migration_applied = True
+
+        # 2. Handle collection_prefix migration and mapping
+        collection_prefix = workspace_config.get("collection_prefix")
+        if collection_prefix:
+            self.logger.warning(
+                f"Migrating deprecated collection_prefix '{collection_prefix}'. "
+                "Collection prefixes are now handled automatically by the CollectionType system."
+            )
+
+            # If we have collection_types, try to preserve the prefix intent
+            collection_types = workspace_config.get("collection_types", [])
+            if collection_types and isinstance(collection_types, list):
+                # Map prefixed collections to standard types
+                migrated_types = self._map_prefixed_collections(collection_types, collection_prefix)
+                if migrated_types != collection_types:
+                    workspace_config["collection_types"] = migrated_types
+                    self.logger.info(f"Mapped prefixed collection types: {collection_types} → {migrated_types}")
+                    migration_applied = True
+
+            # Remove deprecated collection_prefix
+            workspace_config.pop("collection_prefix", None)
+            migration_applied = True
+
+        # 3. Handle max_collections deprecation (if present)
+        if "max_collections" in workspace_config:
+            max_collections = workspace_config.pop("max_collections")
+            self.logger.warning(
+                f"Removed deprecated max_collections setting ({max_collections}). "
+                "Collection limits are now managed through the multi-tenant architecture."
+            )
+            migration_applied = True
+
+        # 4. Ensure collection_types has sensible defaults if empty
+        collection_types = workspace_config.get("collection_types", [])
+        if not collection_types and migration_applied:
+            # If we migrated something but ended up with no types, add default
+            default_types = ["scratchbook"]
+            workspace_config["collection_types"] = default_types
+            self.logger.info(f"Added default collection_types {default_types} after migration")
+
+        # 5. Validate migrated collection types
+        if migration_applied:
+            validation_result = self._validate_migrated_collection_types(
+                workspace_config.get("collection_types", [])
+            )
+            if not validation_result["is_valid"]:
+                self.logger.warning(f"Collection types validation warning: {validation_result['warning']}")
+
+        # Update the main config with migrated workspace config
+        if migration_applied:
+            migrated_config["workspace"] = workspace_config
+            self.logger.info("Collection configuration migration completed successfully")
+
+        return migrated_config
+
+    def _map_prefixed_collections(self, collection_types: List[str], prefix: str) -> List[str]:
+        """Map prefixed collection names to standard collection types.
+
+        Args:
+            collection_types: List of collection type names
+            prefix: Collection prefix that was being used
+
+        Returns:
+            List of mapped collection type names
+        """
+        if not prefix or not collection_types:
+            return collection_types
+
+        mapped_types = []
+        prefix = prefix.rstrip("_")  # Remove trailing underscore if present
+
+        for collection_type in collection_types:
+            if isinstance(collection_type, str):
+                # Remove prefix if it was applied to the type name
+                if collection_type.startswith(f"{prefix}_"):
+                    mapped_type = collection_type[len(f"{prefix}_"):]
+                    self.logger.debug(f"Mapped prefixed collection: {collection_type} → {mapped_type}")
+                    mapped_types.append(mapped_type)
+                elif collection_type.startswith(prefix):
+                    mapped_type = collection_type[len(prefix):]
+                    self.logger.debug(f"Mapped prefixed collection: {collection_type} → {mapped_type}")
+                    mapped_types.append(mapped_type)
+                else:
+                    # Keep as-is if no prefix found
+                    mapped_types.append(collection_type)
+            else:
+                mapped_types.append(collection_type)
+
+        return mapped_types
+
+    def _validate_migrated_collection_types(self, collection_types: List[str]) -> Dict[str, Any]:
+        """Validate migrated collection types for common issues.
+
+        Args:
+            collection_types: List of collection type names to validate
+
+        Returns:
+            Dictionary with validation result including is_valid and warning
+        """
+        if not isinstance(collection_types, list):
+            return {
+                "is_valid": False,
+                "warning": "Collection types must be a list"
+            }
+
+        if not collection_types:
+            return {
+                "is_valid": True,
+                "warning": None
+            }
+
+        # Check for common issues
+        warnings = []
+        valid_types = []
+
+        for collection_type in collection_types:
+            if not isinstance(collection_type, str):
+                warnings.append(f"Collection type must be string, got {type(collection_type).__name__}")
+                continue
+
+            # Check for reserved patterns that might cause conflicts
+            if collection_type.startswith("_") or collection_type.startswith("__"):
+                warnings.append(f"Collection type '{collection_type}' uses reserved prefix pattern")
+            elif collection_type in ["memory", "system", "admin"]:
+                warnings.append(f"Collection type '{collection_type}' conflicts with reserved names")
+            else:
+                valid_types.append(collection_type)
+
+        result = {
+            "is_valid": len(valid_types) > 0 or len(collection_types) == 0,
+            "warning": "; ".join(warnings) if warnings else None
+        }
+
+        return result
+
     def _assess_migration_complexity(self,
                                    from_version: ConfigVersion,
                                    deprecated_fields: List[str]) -> MigrationComplexity:
