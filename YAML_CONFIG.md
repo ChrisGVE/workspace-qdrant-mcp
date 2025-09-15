@@ -47,6 +47,7 @@ qdrant:
   retry_count: 3
   use_https: false
   verify_ssl: true
+  prefer_grpc: true
 
 # Daemon configuration
 daemon:
@@ -250,6 +251,7 @@ qdrant:
   api_key: "${QDRANT_API_KEY}"
   timeout_seconds: 60
   use_https: true
+  prefer_grpc: true
 
 embedding:
   provider: "fastembed"
@@ -282,6 +284,7 @@ qdrant:
   api_key: "${QDRANT_CLOUD_API_KEY}"
   timeout_seconds: 30
   use_https: true
+  prefer_grpc: true
 
 embedding:
   provider: "openai"
