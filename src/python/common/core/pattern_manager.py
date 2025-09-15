@@ -208,11 +208,17 @@ class PatternManager:
             with lang_file.open() as f:
                 data = yaml.safe_load(f)
 
-            # Process language mappings
-            languages = data.get('languages', {})
-            for language_name, lang_data in languages.items():
-                if isinstance(lang_data, dict) and 'extensions' in lang_data:
-                    self._language_extensions[language_name] = lang_data['extensions']
+            # Process all categories in the language extensions file
+            for category_name, category_data in data.items():
+                if isinstance(category_data, dict):
+                    # Skip metadata fields
+                    if category_name in ['version', 'last_updated', 'research_coverage']:
+                        continue
+
+                    # Process languages in this category
+                    for language_name, lang_data in category_data.items():
+                        if isinstance(lang_data, dict) and 'extensions' in lang_data:
+                            self._language_extensions[language_name] = lang_data['extensions']
 
             logger.debug(f"Loaded extensions for {len(self._language_extensions)} languages")
 
