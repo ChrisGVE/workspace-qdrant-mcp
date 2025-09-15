@@ -251,6 +251,7 @@ if not _STDIO_MODE:
         test_grpc_connection,
     )
     from .tools.memory import register_memory_tools
+    from .tools.document_memory_tools import register_document_memory_tools
     from .tools.research import research_workspace as research_workspace_impl
     from .tools.scratchbook import ScratchbookManager, update_scratchbook
     from .tools.search import search_collection_by_metadata, search_workspace
@@ -299,9 +300,11 @@ else:
     # These should be safe to import
     try:
         from .tools.memory import register_memory_tools
+        from .tools.document_memory_tools import register_document_memory_tools
         from .tools.simplified_interface import SimplifiedToolsMode, register_simplified_tools
     except ImportError:
         register_memory_tools = None
+        register_document_memory_tools = None
         SimplifiedToolsMode = None
         register_simplified_tools = None
 
@@ -2942,6 +2945,13 @@ async def initialize_workspace(config_file: Optional[str] = None) -> None:
     # Register memory tools with the MCP app
     logger.debug("Registering memory tools")
     register_memory_tools(app)
+
+    # Register multi-tenant document memory tools
+    if register_document_memory_tools:
+        logger.debug("Registering document memory tools")
+        register_document_memory_tools(app, workspace_client)
+    else:
+        logger.warning("Document memory tools not available - import failed")
 
     # Start background health monitoring
     logger.debug("Starting background health monitoring")
