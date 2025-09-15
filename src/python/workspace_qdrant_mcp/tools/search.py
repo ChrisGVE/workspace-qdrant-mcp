@@ -154,14 +154,55 @@ async def search_workspace(
             query, include_sparse=(mode in ["sparse", "hybrid"])
         )
 
-        # Get collections to search
+        # Get collections to search using enhanced collection selector
         display_collections = collections  # Keep original for user reference
         if collections is None:
-            # Use searchable collections to exclude system collections from global search
-            if hasattr(client.collection_manager, 'list_searchable_collections'):
-                display_collections = client.collection_manager.list_searchable_collections()
-            else:
-                display_collections = client.list_collections()
+            # Use enhanced collection selector for multi-tenant aware search
+            try:
+                from common.core.collections import CollectionSelector
+
+                # Initialize collection selector with project detector
+                project_detector = getattr(client, 'project_detector', None)
+                collection_selector = CollectionSelector(
+                    client.client, client.config, project_detector
+                )
+
+                # Get project context from client or auto-detect
+                project_name = None
+                if project_context:
+                    project_name = project_context.get('project_name')
+                elif hasattr(client, 'project_info') and client.project_info:
+                    project_name = client.project_info.get('main_project')
+
+                # Determine workspace types from project context or use defaults
+                workspace_types = None
+                if project_context and 'workspace_types' in project_context:
+                    workspace_types = project_context['workspace_types']
+
+                # Get searchable collections with enhanced selector
+                display_collections = collection_selector.get_searchable_collections(
+                    project_name=project_name,
+                    workspace_types=workspace_types,
+                    include_memory=auto_inject_project_metadata,  # Include memory if metadata filtering enabled
+                    include_shared=include_shared
+                )
+
+                logger.info(
+                    f"Enhanced collection selection completed",
+                    project_name=project_name,
+                    workspace_types=workspace_types,
+                    selected_count=len(display_collections),
+                    include_shared=include_shared
+                )
+
+            except Exception as selector_error:
+                logger.warning(f"Enhanced collection selector failed, using fallback: {selector_error}")
+                # Fallback to original logic
+                if hasattr(client.collection_manager, 'list_searchable_collections'):
+                    display_collections = client.collection_manager.list_searchable_collections()
+                else:
+                    display_collections = client.list_collections()
+
             collections = display_collections
         else:
             # Validate collections exist
