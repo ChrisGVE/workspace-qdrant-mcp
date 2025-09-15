@@ -45,7 +45,7 @@ import os
 from loguru import logger
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Optional, List, Dict
+from typing import Optional, List, Dict, Tuple
 
 import git
 
