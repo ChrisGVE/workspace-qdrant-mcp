@@ -46,11 +46,12 @@ embedding:
 
 # Workspace configuration
 workspace:
-  collections: ["project"]
+  collection_types: ["project"]
   global_collections: ["docs", "references", "standards"]
   github_user: null  # Set to your GitHub username
-  collection_prefix: ""
-  max_collections: 100
+  auto_create_collections: false
+  memory_collection_name: "__memory"
+  code_collection_name: "__code"
 ```
 
 ## Environment Variable Equivalents
@@ -65,7 +66,9 @@ For reference, the YAML configuration maps to these environment variables:
 | `qdrant.url` | `WORKSPACE_QDRANT_QDRANT__URL` or `QDRANT_URL` (legacy) |
 | `qdrant.api_key` | `WORKSPACE_QDRANT_QDRANT__API_KEY` or `QDRANT_API_KEY` (legacy) |
 | `embedding.model` | `WORKSPACE_QDRANT_EMBEDDING__MODEL` or `FASTEMBED_MODEL` (legacy) |
-| `workspace.collections` | `WORKSPACE_QDRANT_WORKSPACE__COLLECTIONS` (comma-separated) |
+| `workspace.collection_types` | `WORKSPACE_QDRANT_WORKSPACE__COLLECTION_TYPES` (comma-separated) |
+| `workspace.global_collections` | `WORKSPACE_QDRANT_WORKSPACE__GLOBAL_COLLECTIONS` (comma-separated) |
+| `workspace.github_user` | `WORKSPACE_QDRANT_WORKSPACE__GITHUB_USER` |
 
 ## Examples
 
@@ -80,7 +83,7 @@ embedding:
   model: "sentence-transformers/all-MiniLM-L6-v2"
   batch_size: 10  # Smaller batch for development
 workspace:
-  collections: ["dev", "test"]
+  collection_types: ["dev", "test"]
   global_collections: ["docs"]
 ```
 
@@ -101,11 +104,10 @@ embedding:
   enable_sparse_vectors: true
   batch_size: 100
 workspace:
-  collections: ["project", "docs", "tests"]
+  collection_types: ["project", "docs", "tests"]
   global_collections: ["standards", "references", "shared"]
   github_user: "your-username"
-  collection_prefix: "prod-"
-  max_collections: 200
+  auto_create_collections: true
 ```
 
 ### Cloud Configuration
@@ -121,7 +123,7 @@ embedding:
   model: "sentence-transformers/all-MiniLM-L6-v2"
   enable_sparse_vectors: true
 workspace:
-  collections: ["project"]
+  collection_types: ["project"]
   global_collections: ["docs", "references"]
   github_user: "your-github-username"
 ```

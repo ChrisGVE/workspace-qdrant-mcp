@@ -225,11 +225,12 @@ embedding:
   batch_size: 50
 
 workspace:
-  collections: ["project"]
+  collection_types: ["project"]
   global_collections: ["docs", "references", "standards"]
   github_user: null
-  collection_prefix: ""
-  max_collections: 100
+  auto_create_collections: false
+  memory_collection_name: "__memory"
+  code_collection_name: "__code"
 ```
 
 **Benefits:**
