@@ -2,18 +2,22 @@
 
 This module provides the ConfigMigrator class for detecting configuration versions,
 identifying deprecated fields, determining migration paths, and managing configuration
-backups for safe migrations with rollback capability.
+backups for safe migrations with rollback capability. It also includes comprehensive
+migration reporting and user notification systems.
 """
 
+import difflib
 import hashlib
 import json
 import logging
 import os
 import shutil
 import time
+import uuid
+from dataclasses import dataclass, field, asdict
 from datetime import datetime
 from pathlib import Path
-from typing import Dict, List, Optional, Any, Set
+from typing import Dict, List, Optional, Any, Set, Union
 from enum import Enum
 
 
@@ -30,6 +34,442 @@ class MigrationComplexity(Enum):
     SIMPLE = "simple"
     COMPLEX = "complex"
     MANUAL = "manual"
+
+
+class NotificationLevel(Enum):
+    """Notification level enumeration."""
+    SUCCESS = "success"
+    WARNING = "warning"
+    ERROR = "error"
+    INFO = "info"
+
+
+class ChangeType(Enum):
+    """Types of configuration changes."""
+    ADDED = "added"
+    REMOVED = "removed"
+    MODIFIED = "modified"
+    DEPRECATED_REMOVED = "deprecated_removed"
+    MIGRATED = "migrated"
+    VALIDATED = "validated"
+
+
+@dataclass
+class ChangeEntry:
+    """Represents a single configuration change."""
+    change_type: ChangeType
+    field_path: str
+    old_value: Optional[Any] = None
+    new_value: Optional[Any] = None
+    reason: Optional[str] = None
+    section: Optional[str] = None
+    migration_method: Optional[str] = None
+    timestamp: Optional[str] = field(default_factory=lambda: datetime.now().isoformat())
+
+    def to_dict(self) -> Dict[str, Any]:
+        """Convert to dictionary for serialization."""
+        data = asdict(self)
+        data['change_type'] = data['change_type'].value if hasattr(data['change_type'], 'value') else data['change_type']
+        return data
+
+
+@dataclass
+class ValidationResult:
+    """Represents validation results from migration."""
+    is_valid: bool
+    warnings: List[str] = field(default_factory=list)
+    errors: List[str] = field(default_factory=list)
+    recommendations: List[str] = field(default_factory=list)
+
+    def to_dict(self) -> Dict[str, Any]:
+        """Convert to dictionary for serialization."""
+        return asdict(self)
+
+
+@dataclass
+class MigrationReport:
+    """Comprehensive migration report with detailed change tracking."""
+    # Identification
+    migration_id: str = field(default_factory=lambda: str(uuid.uuid4()))
+    timestamp: str = field(default_factory=lambda: datetime.now().isoformat())
+
+    # Version information
+    source_version: str = "unknown"
+    target_version: str = "v2_current"
+
+    # File information
+    config_file_path: Optional[str] = None
+    backup_id: Optional[str] = None
+    backup_location: Optional[str] = None
+
+    # Migration details
+    changes_made: List[ChangeEntry] = field(default_factory=list)
+    deprecated_fields_handled: Dict[str, str] = field(default_factory=dict)  # field_path -> replacement_info
+    validation_results: List[ValidationResult] = field(default_factory=list)
+
+    # Status
+    success: bool = True
+    migration_duration_seconds: Optional[float] = None
+    warnings: List[str] = field(default_factory=list)
+    errors: List[str] = field(default_factory=list)
+
+    # Additional metadata
+    migration_methods_used: List[str] = field(default_factory=list)
+    complexity: Optional[str] = None
+    rollback_instructions: Optional[str] = None
+
+    def to_dict(self) -> Dict[str, Any]:
+        """Convert to dictionary for serialization."""
+        data = asdict(self)
+        # Convert ChangeEntry objects to dictionaries
+        data['changes_made'] = [change.to_dict() for change in self.changes_made]
+        # Convert ValidationResult objects to dictionaries
+        data['validation_results'] = [result.to_dict() for result in self.validation_results]
+        return data
+
+    def add_change(self, change: ChangeEntry) -> None:
+        """Add a change entry to the report."""
+        self.changes_made.append(change)
+
+    def add_validation_result(self, result: ValidationResult) -> None:
+        """Add a validation result to the report."""
+        self.validation_results.append(result)
+
+    def add_warning(self, warning: str) -> None:
+        """Add a warning message."""
+        self.warnings.append(warning)
+
+    def add_error(self, error: str) -> None:
+        """Add an error message."""
+        self.errors.append(error)
+        self.success = False
+
+
+class ReportGenerator:
+    """Generates detailed migration reports with before/after comparisons."""
+
+    def __init__(self, logger: Optional[logging.Logger] = None):
+        """Initialize ReportGenerator.
+
+        Args:
+            logger: Optional logger instance. If None, creates a default logger.
+        """
+        self.logger = logger or logging.getLogger(__name__)
+
+    def generate_diff(self, before: Dict[str, Any], after: Dict[str, Any]) -> str:
+        """Generate a detailed diff between before and after configurations.
+
+        Args:
+            before: Configuration before migration
+            after: Configuration after migration
+
+        Returns:
+            String containing unified diff output
+        """
+        try:
+            before_json = json.dumps(before, indent=2, sort_keys=True)
+            after_json = json.dumps(after, indent=2, sort_keys=True)
+
+            before_lines = before_json.splitlines(keepends=True)
+            after_lines = after_json.splitlines(keepends=True)
+
+            diff_lines = list(difflib.unified_diff(
+                before_lines,
+                after_lines,
+                fromfile="before_migration.json",
+                tofile="after_migration.json",
+                lineterm=""
+            ))
+
+            return "".join(diff_lines)
+
+        except Exception as e:
+            self.logger.error(f"Failed to generate diff: {e}")
+            return f"Error generating diff: {e}"
+
+    def format_report_text(self, report: MigrationReport, include_diff: bool = True) -> str:
+        """Format migration report as human-readable text.
+
+        Args:
+            report: MigrationReport to format
+            include_diff: Whether to include configuration diff
+
+        Returns:
+            Formatted report text
+        """
+        lines = []
+        lines.append("=" * 80)
+        lines.append("CONFIGURATION MIGRATION REPORT")
+        lines.append("=" * 80)
+        lines.append("")
+
+        # Basic information
+        lines.append(f"Migration ID: {report.migration_id}")
+        lines.append(f"Timestamp: {report.timestamp}")
+        lines.append(f"Status: {'SUCCESS' if report.success else 'FAILED'}")
+        lines.append(f"Version: {report.source_version} → {report.target_version}")
+        if report.migration_duration_seconds:
+            lines.append(f"Duration: {report.migration_duration_seconds:.2f} seconds")
+        lines.append("")
+
+        # File information
+        if report.config_file_path:
+            lines.append(f"Configuration File: {report.config_file_path}")
+        if report.backup_id:
+            lines.append(f"Backup ID: {report.backup_id}")
+        if report.backup_location:
+            lines.append(f"Backup Location: {report.backup_location}")
+        lines.append("")
+
+        # Migration methods used
+        if report.migration_methods_used:
+            lines.append("Migration Methods Applied:")
+            for method in report.migration_methods_used:
+                lines.append(f"  • {method}")
+            lines.append("")
+
+        # Changes made
+        if report.changes_made:
+            lines.append(f"Changes Made ({len(report.changes_made)} total):")
+            lines.append("-" * 40)
+
+            # Group changes by section
+            changes_by_section = {}
+            for change in report.changes_made:
+                section = change.section or "general"
+                if section not in changes_by_section:
+                    changes_by_section[section] = []
+                changes_by_section[section].append(change)
+
+            for section, changes in changes_by_section.items():
+                lines.append(f"\n[{section.upper()}]")
+                for change in changes:
+                    change_symbol = self._get_change_symbol(change.change_type)
+                    lines.append(f"  {change_symbol} {change.field_path}")
+                    if change.old_value is not None:
+                        lines.append(f"      Old: {change.old_value}")
+                    if change.new_value is not None:
+                        lines.append(f"      New: {change.new_value}")
+                    if change.reason:
+                        lines.append(f"      Reason: {change.reason}")
+            lines.append("")
+
+        # Deprecated fields handled
+        if report.deprecated_fields_handled:
+            lines.append("Deprecated Fields Migration:")
+            lines.append("-" * 40)
+            for field_path, replacement in report.deprecated_fields_handled.items():
+                lines.append(f"  • {field_path} → {replacement}")
+            lines.append("")
+
+        # Validation results
+        if report.validation_results:
+            lines.append("Validation Results:")
+            lines.append("-" * 40)
+            for i, result in enumerate(report.validation_results, 1):
+                status = "VALID" if result.is_valid else "INVALID"
+                lines.append(f"  Validation {i}: {status}")
+                if result.warnings:
+                    lines.append("    Warnings:")
+                    for warning in result.warnings:
+                        lines.append(f"      • {warning}")
+                if result.errors:
+                    lines.append("    Errors:")
+                    for error in result.errors:
+                        lines.append(f"      • {error}")
+                if result.recommendations:
+                    lines.append("    Recommendations:")
+                    for rec in result.recommendations:
+                        lines.append(f"      • {rec}")
+            lines.append("")
+
+        # Warnings and errors
+        if report.warnings:
+            lines.append("Warnings:")
+            lines.append("-" * 40)
+            for warning in report.warnings:
+                lines.append(f"  ⚠️  {warning}")
+            lines.append("")
+
+        if report.errors:
+            lines.append("Errors:")
+            lines.append("-" * 40)
+            for error in report.errors:
+                lines.append(f"  ❌ {error}")
+            lines.append("")
+
+        # Rollback instructions
+        if report.rollback_instructions:
+            lines.append("Rollback Instructions:")
+            lines.append("-" * 40)
+            lines.append(report.rollback_instructions)
+            lines.append("")
+
+        lines.append("=" * 80)
+
+        return "\n".join(lines)
+
+    def format_report_json(self, report: MigrationReport) -> str:
+        """Format migration report as JSON.
+
+        Args:
+            report: MigrationReport to format
+
+        Returns:
+            JSON-formatted report string
+        """
+        try:
+            return json.dumps(report.to_dict(), indent=2)
+        except Exception as e:
+            self.logger.error(f"Failed to format report as JSON: {e}")
+            return json.dumps({"error": f"Failed to format report: {e}"}, indent=2)
+
+    def _get_change_symbol(self, change_type: ChangeType) -> str:
+        """Get symbol for change type.
+
+        Args:
+            change_type: Type of change
+
+        Returns:
+            Symbol representing the change
+        """
+        symbols = {
+            ChangeType.ADDED: "✅",
+            ChangeType.REMOVED: "❌",
+            ChangeType.MODIFIED: "🔄",
+            ChangeType.DEPRECATED_REMOVED: "🗑️",
+            ChangeType.MIGRATED: "🔀",
+            ChangeType.VALIDATED: "✔️"
+        }
+        return symbols.get(change_type, "📝")
+
+
+class NotificationSystem:
+    """Handles user notifications for migration processes."""
+
+    def __init__(self, logger: Optional[logging.Logger] = None):
+        """Initialize NotificationSystem.
+
+        Args:
+            logger: Optional logger instance. If None, creates a default logger.
+        """
+        self.logger = logger or logging.getLogger(__name__)
+
+    def notify_migration_started(self, migration_id: str, source_version: str, target_version: str) -> None:
+        """Notify that migration has started.
+
+        Args:
+            migration_id: Unique migration identifier
+            source_version: Source configuration version
+            target_version: Target configuration version
+        """
+        self.logger.info(f"🚀 Starting configuration migration {migration_id}")
+        self.logger.info(f"   Migrating from {source_version} to {target_version}")
+
+    def notify_migration_success(self, report: MigrationReport) -> None:
+        """Notify successful migration completion.
+
+        Args:
+            report: Migration report with details
+        """
+        self.logger.info("✅ Configuration migration completed successfully")
+        self.logger.info(f"   Migration ID: {report.migration_id}")
+        self.logger.info(f"   Changes made: {len(report.changes_made)}")
+
+        if report.backup_id:
+            self.logger.info(f"   Configuration backed up: {report.backup_id}")
+
+        if report.warnings:
+            self.logger.warning(f"   ⚠️  {len(report.warnings)} warnings (see report for details)")
+
+        if report.deprecated_fields_handled:
+            self.logger.info(f"   🗑️  {len(report.deprecated_fields_handled)} deprecated fields migrated")
+
+        self.logger.info("   💡 Use 'wqm admin migration-report' to view detailed report")
+
+    def notify_migration_failure(self, report: MigrationReport) -> None:
+        """Notify migration failure.
+
+        Args:
+            report: Migration report with error details
+        """
+        self.logger.error("❌ Configuration migration failed")
+        self.logger.error(f"   Migration ID: {report.migration_id}")
+
+        if report.errors:
+            self.logger.error("   Errors encountered:")
+            for error in report.errors[:3]:  # Show first 3 errors
+                self.logger.error(f"     • {error}")
+            if len(report.errors) > 3:
+                self.logger.error(f"     ... and {len(report.errors) - 3} more errors")
+
+        if report.backup_id:
+            self.logger.error(f"   🔄 Configuration can be restored from backup: {report.backup_id}")
+            self.logger.error(f"   🔄 Use 'wqm admin rollback-config {report.backup_id}' to restore")
+
+        self.logger.error("   📄 Use 'wqm admin migration-report' to view detailed error report")
+
+    def notify_warnings(self, warnings: List[str]) -> None:
+        """Notify about migration warnings.
+
+        Args:
+            warnings: List of warning messages
+        """
+        if warnings:
+            self.logger.warning("⚠️  Migration warnings:")
+            for warning in warnings:
+                self.logger.warning(f"   • {warning}")
+
+    def notify_deprecated_features(self, deprecated_fields: Dict[str, str]) -> None:
+        """Notify about deprecated features and their replacements.
+
+        Args:
+            deprecated_fields: Mapping of deprecated fields to replacement info
+        """
+        if deprecated_fields:
+            self.logger.warning("🔄 Deprecated configuration fields updated:")
+            for field_path, replacement in deprecated_fields.items():
+                self.logger.warning(f"   • {field_path} → {replacement}")
+            self.logger.warning("   📚 See migration documentation for details")
+
+    def notify_rollback_available(self, backup_id: str, backup_location: str) -> None:
+        """Notify that rollback is available.
+
+        Args:
+            backup_id: Backup identifier
+            backup_location: Location of backup file
+        """
+        self.logger.info("🔄 Configuration rollback available:")
+        self.logger.info(f"   Backup ID: {backup_id}")
+        self.logger.info(f"   Location: {backup_location}")
+        self.logger.info(f"   Command: wqm admin rollback-config {backup_id}")
+
+    def format_notification(self, level: NotificationLevel, message: str, details: Optional[List[str]] = None) -> str:
+        """Format a notification message.
+
+        Args:
+            level: Notification level
+            message: Main message
+            details: Optional list of detail messages
+
+        Returns:
+            Formatted notification string
+        """
+        symbols = {
+            NotificationLevel.SUCCESS: "✅",
+            NotificationLevel.WARNING: "⚠️",
+            NotificationLevel.ERROR: "❌",
+            NotificationLevel.INFO: "ℹ️"
+        }
+
+        symbol = symbols.get(level, "📝")
+        lines = [f"{symbol} {message}"]
+
+        if details:
+            for detail in details:
+                lines.append(f"   • {detail}")
+
+        return "\n".join(lines)
 
 
 class ConfigMigrator:
@@ -86,6 +526,14 @@ class ConfigMigrator:
         self.logger = logger or logging.getLogger(__name__)
         self.config_path = config_path
         self._backup_dir = None
+        self._migration_history_dir = None
+
+        # Initialize reporting components
+        self.report_generator = ReportGenerator(self.logger)
+        self.notification_system = NotificationSystem(self.logger)
+
+        # Current migration tracking
+        self._current_migration_report: Optional[MigrationReport] = None
 
     def detect_config_version(self, config_data: Dict[str, Any]) -> ConfigVersion:
         """Detect configuration version based on structure and field presence.
@@ -1486,7 +1934,7 @@ class ConfigMigrator:
 
     def migrate_with_backup(self, config_data: Dict[str, Any],
                           backup_description: str = "Pre-migration backup") -> Dict[str, Any]:
-        """Perform migration with automatic backup creation.
+        """Perform migration with automatic backup creation and comprehensive reporting.
 
         Args:
             config_data: Configuration data to migrate
@@ -1499,28 +1947,100 @@ class ConfigMigrator:
             ValueError: If migration fails
             OSError: If backup creation fails
         """
+        start_time = time.time()
+
         # Create backup before migration
         backup_id = self.backup_config(config_data, backup_description)
         self.logger.info(f"Created backup {backup_id} before migration")
 
+        # Initialize notification system and start migration
+        source_version = self.detect_config_version(config_data).value
+        migration_id = str(uuid.uuid4())
+        self.notification_system.notify_migration_started(migration_id, source_version, "v2_current")
+
         try:
             # Perform migration steps
             migrated_config = config_data.copy()
+            migration_methods = []
 
             # Apply all migration steps
+            original_config = migrated_config.copy()
             migrated_config = self.migrate_collection_config(migrated_config)
+            if migrated_config != original_config:
+                migration_methods.append("migrate_collection_config")
+
+            original_config = migrated_config.copy()
             migrated_config = self.migrate_pattern_config(migrated_config)
+            if migrated_config != original_config:
+                migration_methods.append("migrate_pattern_config")
+
+            original_config = migrated_config.copy()
             migrated_config = self.remove_deprecated_fields(migrated_config)
+            if migrated_config != original_config:
+                migration_methods.append("remove_deprecated_fields")
 
             # Validate the migrated configuration
             final_validation = self._validate_cleaned_config(migrated_config)
             if not final_validation["is_valid"]:
                 raise ValueError(f"Migration validation failed: {final_validation['error']}")
 
+            # Calculate migration duration
+            migration_duration = time.time() - start_time
+
+            # Generate comprehensive migration report
+            migration_report = self.generate_migration_report(
+                before_config=config_data,
+                after_config=migrated_config,
+                migration_methods=migration_methods,
+                backup_id=backup_id,
+                migration_duration=migration_duration
+            )
+
+            # Send success notifications
+            self.notification_system.notify_migration_success(migration_report)
+
+            # Notify about deprecated features if any were handled
+            if migration_report.deprecated_fields_handled:
+                self.notification_system.notify_deprecated_features(migration_report.deprecated_fields_handled)
+
+            # Notify about warnings if any
+            if migration_report.warnings:
+                self.notification_system.notify_warnings(migration_report.warnings)
+
+            # Notify about rollback availability
+            self.notification_system.notify_rollback_available(backup_id, migration_report.backup_location or "Unknown")
+
             self.logger.info("Migration completed successfully")
             return migrated_config
 
         except Exception as e:
+            # Calculate migration duration even for failed migrations
+            migration_duration = time.time() - start_time
+
+            # Generate failure report
+            migration_report = MigrationReport(
+                migration_id=migration_id,
+                source_version=source_version,
+                target_version="v2_current",
+                config_file_path=self.config_path,
+                backup_id=backup_id,
+                success=False,
+                migration_duration_seconds=migration_duration,
+                errors=[str(e)]
+            )
+
+            if backup_id:
+                backup_info = self.get_backup_info(backup_id)
+                if backup_info:
+                    migration_report.backup_location = backup_info.get("file_path")
+                    migration_report.rollback_instructions = self._generate_rollback_instructions(backup_id)
+
+            # Save the failure report
+            self._save_migration_report(migration_report)
+
+            # Send failure notifications
+            self.notification_system.notify_migration_failure(migration_report)
+
             self.logger.error(f"Migration failed: {e}")
             self.logger.info(f"Configuration can be restored from backup: {backup_id}")
             raise
@@ -1653,3 +2173,612 @@ class ConfigMigrator:
 
         except Exception as e:
             raise OSError(f"Failed to write config to {config_file}: {e}") from e
+
+    # Migration Reporting and History Management
+
+    @property
+    def migration_history_dir(self) -> Path:
+        """Get the migration history directory path, creating it if necessary."""
+        if self._migration_history_dir is None:
+            if self.config_path:
+                config_dir = Path(self.config_path).parent
+            else:
+                config_dir = Path.cwd() / ".workspace-qdrant"
+
+            self._migration_history_dir = config_dir / "migration_history"
+
+        self._ensure_migration_history_directory()
+        return self._migration_history_dir
+
+    def set_migration_history_dir(self, history_dir: Path) -> None:
+        """Set a custom migration history directory (useful for testing).
+
+        Args:
+            history_dir: Path to the migration history directory
+        """
+        self._migration_history_dir = history_dir
+        self._ensure_migration_history_directory()
+
+    def generate_migration_report(self,
+                                before_config: Dict[str, Any],
+                                after_config: Dict[str, Any],
+                                migration_methods: List[str] = None,
+                                backup_id: str = None,
+                                migration_duration: Optional[float] = None) -> MigrationReport:
+        """Generate a comprehensive migration report with detailed change tracking.
+
+        This method creates a detailed report of all configuration changes made during
+        migration, including before/after comparisons, deprecated field mappings,
+        validation results, and user-friendly recommendations.
+
+        Args:
+            before_config: Configuration before migration
+            after_config: Configuration after migration
+            migration_methods: List of migration methods that were applied
+            backup_id: ID of backup created before migration
+            migration_duration: Duration of migration in seconds
+
+        Returns:
+            MigrationReport with comprehensive change details
+
+        Raises:
+            ValueError: If input configurations are invalid
+        """
+        if not isinstance(before_config, dict) or not isinstance(after_config, dict):
+            raise ValueError("Both before_config and after_config must be dictionaries")
+
+        # Create migration report
+        report = MigrationReport(
+            source_version=self.detect_config_version(before_config).value,
+            target_version=self.detect_config_version(after_config).value,
+            config_file_path=self.config_path,
+            backup_id=backup_id,
+            migration_duration_seconds=migration_duration
+        )
+
+        if backup_id:
+            backup_info = self.get_backup_info(backup_id)
+            if backup_info:
+                report.backup_location = backup_info.get("file_path")
+
+        if migration_methods:
+            report.migration_methods_used = migration_methods
+
+        # Assess migration complexity
+        deprecated_fields = self._detect_deprecated_fields(before_config)
+        complexity = self._assess_migration_complexity(
+            self.detect_config_version(before_config),
+            deprecated_fields
+        )
+        report.complexity = complexity.value
+
+        try:
+            # Generate detailed change analysis
+            self._analyze_configuration_changes(before_config, after_config, report)
+
+            # Analyze deprecated field handling
+            self._analyze_deprecated_field_handling(before_config, after_config, report)
+
+            # Perform validation analysis
+            self._analyze_migration_validation(before_config, after_config, report)
+
+            # Generate rollback instructions
+            if backup_id:
+                report.rollback_instructions = self._generate_rollback_instructions(backup_id)
+
+            # Store the report in migration history
+            self._save_migration_report(report)
+
+            self.logger.info(f"Generated comprehensive migration report: {report.migration_id}")
+            return report
+
+        except Exception as e:
+            report.add_error(f"Failed to generate complete migration report: {e}")
+            self.logger.error(f"Error generating migration report: {e}")
+            return report
+
+    def _analyze_configuration_changes(self, before: Dict[str, Any], after: Dict[str, Any], report: MigrationReport) -> None:
+        """Analyze and track all configuration changes.
+
+        Args:
+            before: Configuration before migration
+            after: Configuration after migration
+            report: Migration report to update
+        """
+        def _compare_nested_dict(before_dict: Dict[str, Any], after_dict: Dict[str, Any],
+                               path: str = "", section: str = "configuration") -> None:
+            """Recursively compare nested dictionaries and track changes."""
+            # Check for removed fields
+            for key, value in before_dict.items():
+                current_path = f"{path}.{key}" if path else key
+
+                if key not in after_dict:
+                    # Field was removed
+                    change = ChangeEntry(
+                        change_type=ChangeType.DEPRECATED_REMOVED if key in self.DEPRECATED_FIELDS else ChangeType.REMOVED,
+                        field_path=current_path,
+                        old_value=value,
+                        reason="Field removed during migration" if key not in self.DEPRECATED_FIELDS else "Deprecated field removed",
+                        section=section
+                    )
+                    report.add_change(change)
+                elif isinstance(value, dict) and isinstance(after_dict[key], dict):
+                    # Recurse into nested dictionaries
+                    _compare_nested_dict(value, after_dict[key], current_path, section)
+                elif value != after_dict[key]:
+                    # Field value changed
+                    change = ChangeEntry(
+                        change_type=ChangeType.MODIFIED,
+                        field_path=current_path,
+                        old_value=value,
+                        new_value=after_dict[key],
+                        reason="Value updated during migration",
+                        section=section
+                    )
+                    report.add_change(change)
+
+            # Check for added fields
+            for key, value in after_dict.items():
+                current_path = f"{path}.{key}" if path else key
+
+                if key not in before_dict:
+                    # Field was added
+                    change = ChangeEntry(
+                        change_type=ChangeType.ADDED,
+                        field_path=current_path,
+                        new_value=value,
+                        reason="Field added during migration",
+                        section=section
+                    )
+                    report.add_change(change)
+
+        # Analyze changes in each top-level section
+        all_sections = set(before.keys()) | set(after.keys())
+        for section in all_sections:
+            before_section = before.get(section, {})
+            after_section = after.get(section, {})
+
+            if isinstance(before_section, dict) and isinstance(after_section, dict):
+                _compare_nested_dict(before_section, after_section, "", section)
+            elif before_section != after_section:
+                # Entire section changed
+                change = ChangeEntry(
+                    change_type=ChangeType.MODIFIED,
+                    field_path=section,
+                    old_value=before_section,
+                    new_value=after_section,
+                    reason="Section updated during migration",
+                    section=section
+                )
+                report.add_change(change)
+
+    def _analyze_deprecated_field_handling(self, before: Dict[str, Any], after: Dict[str, Any], report: MigrationReport) -> None:
+        """Analyze how deprecated fields were handled.
+
+        Args:
+            before: Configuration before migration
+            after: Configuration after migration
+            report: Migration report to update
+        """
+        deprecated_found = self._detect_deprecated_fields(before)
+
+        for field_path in deprecated_found:
+            # Determine replacement information
+            field_name = field_path.split('.')[-1]
+            replacement_info = self._get_field_replacement_info(field_name)
+
+            if replacement_info:
+                report.deprecated_fields_handled[field_path] = replacement_info
+            else:
+                report.deprecated_fields_handled[field_path] = "Removed (no direct replacement)"
+
+    def _analyze_migration_validation(self, before: Dict[str, Any], after: Dict[str, Any], report: MigrationReport) -> None:
+        """Perform validation analysis on the migration.
+
+        Args:
+            before: Configuration before migration
+            after: Configuration after migration
+            report: Migration report to update
+        """
+        # Validate the final configuration
+        final_validation = self._validate_cleaned_config(after)
+        validation_result = ValidationResult(
+            is_valid=final_validation["is_valid"],
+            errors=[final_validation["error"]] if final_validation["error"] else []
+        )
+        report.add_validation_result(validation_result)
+
+        # Check functionality preservation
+        removed_fields = [change.field_path for change in report.changes_made
+                         if change.change_type in [ChangeType.REMOVED, ChangeType.DEPRECATED_REMOVED]]
+
+        if removed_fields:
+            preservation_check = self._validate_functionality_preservation(before, after, removed_fields)
+            preservation_result = ValidationResult(
+                is_valid=preservation_check["is_valid"],
+                warnings=preservation_check.get("warnings", []),
+                recommendations=preservation_check.get("recommendations", [])
+            )
+            report.add_validation_result(preservation_result)
+
+            # Add warnings from preservation check to main report
+            for warning in preservation_check.get("warnings", []):
+                report.add_warning(warning)
+
+    def _get_field_replacement_info(self, field_name: str) -> str:
+        """Get replacement information for a deprecated field.
+
+        Args:
+            field_name: Name of the deprecated field
+
+        Returns:
+            String describing the replacement
+        """
+        replacements = {
+            "collection_prefix": "collections.project_suffixes (automatic collection naming)",
+            "max_collections": "Multi-tenant architecture with metadata filtering",
+            "recursive_depth": "ingestion.max_depth",
+            "enable_legacy_mode": "Integrated into current system (no replacement needed)",
+            "include_patterns": "patterns.custom_include_patterns",
+            "exclude_patterns": "patterns.custom_exclude_patterns",
+            "file_patterns": "patterns.custom_include_patterns",
+            "ignore_patterns": "patterns.custom_exclude_patterns",
+            "supported_extensions": "patterns.custom_include_patterns (as glob patterns)",
+            "file_types": "patterns.custom_include_patterns (as glob patterns)",
+            "pattern_priorities": "Automatic pattern ordering by specificity",
+            "custom_ecosystems": "patterns.custom_project_indicators",
+        }
+        return replacements.get(field_name, "See documentation for replacement")
+
+    def _generate_rollback_instructions(self, backup_id: str) -> str:
+        """Generate rollback instructions for the migration.
+
+        Args:
+            backup_id: ID of the backup that can be used for rollback
+
+        Returns:
+            String with rollback instructions
+        """
+        instructions = [
+            "To rollback this migration:",
+            f"1. Use command: wqm admin rollback-config {backup_id}",
+            f"2. Verify rollback: wqm admin validate-config",
+            f"3. Restart services if needed",
+            "",
+            f"Backup validation: wqm admin validate-backup {backup_id}",
+            f"View backup details: wqm admin backup-info {backup_id}"
+        ]
+        return "\n".join(instructions)
+
+    def _save_migration_report(self, report: MigrationReport) -> None:
+        """Save migration report to history.
+
+        Args:
+            report: Migration report to save
+        """
+        try:
+            # Save individual report file
+            report_file = self.migration_history_dir / f"{report.migration_id}.json"
+            with report_file.open('w', encoding='utf-8') as f:
+                json.dump(report.to_dict(), f, indent=2)
+
+            # Update history index
+            self._update_migration_history_index(report)
+
+            self.logger.debug(f"Saved migration report to {report_file}")
+
+        except Exception as e:
+            self.logger.error(f"Failed to save migration report: {e}")
+
+    def _update_migration_history_index(self, report: MigrationReport) -> None:
+        """Update the migration history index with new report.
+
+        Args:
+            report: Migration report to add to index
+        """
+        index_file = self.migration_history_dir / "index.json"
+
+        # Load existing index
+        if index_file.exists():
+            try:
+                with index_file.open('r', encoding='utf-8') as f:
+                    index = json.load(f)
+            except Exception as e:
+                self.logger.warning(f"Failed to read history index, creating new: {e}")
+                index = {"migrations": []}
+        else:
+            index = {"migrations": []}
+
+        # Add new migration entry
+        index_entry = {
+            "migration_id": report.migration_id,
+            "timestamp": report.timestamp,
+            "source_version": report.source_version,
+            "target_version": report.target_version,
+            "success": report.success,
+            "changes_count": len(report.changes_made),
+            "backup_id": report.backup_id,
+            "config_file_path": report.config_file_path,
+            "report_file": f"{report.migration_id}.json"
+        }
+
+        index["migrations"].append(index_entry)
+
+        # Sort by timestamp (most recent first)
+        index["migrations"].sort(key=lambda x: x["timestamp"], reverse=True)
+
+        # Write updated index
+        try:
+            with index_file.open('w', encoding='utf-8') as f:
+                json.dump(index, f, indent=2)
+        except Exception as e:
+            self.logger.error(f"Failed to update migration history index: {e}")
+
+    def get_migration_history(self, limit: Optional[int] = None) -> List[Dict[str, Any]]:
+        """Get migration history with optional limit.
+
+        Args:
+            limit: Maximum number of migration records to return
+
+        Returns:
+            List of migration history entries
+        """
+        index_file = self.migration_history_dir / "index.json"
+
+        if not index_file.exists():
+            return []
+
+        try:
+            with index_file.open('r', encoding='utf-8') as f:
+                index = json.load(f)
+
+            migrations = index.get("migrations", [])
+
+            # Apply limit if specified
+            if limit is not None and limit > 0:
+                migrations = migrations[:limit]
+
+            return migrations
+
+        except Exception as e:
+            self.logger.error(f"Failed to get migration history: {e}")
+            return []
+
+    def get_migration_report(self, migration_id: str) -> Optional[MigrationReport]:
+        """Get a specific migration report by ID.
+
+        Args:
+            migration_id: ID of the migration report to retrieve
+
+        Returns:
+            MigrationReport if found, None otherwise
+        """
+        report_file = self.migration_history_dir / f"{migration_id}.json"
+
+        if not report_file.exists():
+            return None
+
+        try:
+            with report_file.open('r', encoding='utf-8') as f:
+                report_data = json.load(f)
+
+            # Convert back to MigrationReport object
+            return self._dict_to_migration_report(report_data)
+
+        except Exception as e:
+            self.logger.error(f"Failed to load migration report {migration_id}: {e}")
+            return None
+
+    def get_latest_migration_report(self) -> Optional[MigrationReport]:
+        """Get the most recent migration report.
+
+        Returns:
+            Most recent MigrationReport if available, None otherwise
+        """
+        history = self.get_migration_history(limit=1)
+        if history:
+            return self.get_migration_report(history[0]["migration_id"])
+        return None
+
+    def search_migration_history(self,
+                                source_version: Optional[str] = None,
+                                target_version: Optional[str] = None,
+                                success_only: Optional[bool] = None,
+                                days_back: Optional[int] = None) -> List[Dict[str, Any]]:
+        """Search migration history with filters.
+
+        Args:
+            source_version: Filter by source version
+            target_version: Filter by target version
+            success_only: If True, only return successful migrations
+            days_back: Only return migrations from the last N days
+
+        Returns:
+            List of filtered migration history entries
+        """
+        all_migrations = self.get_migration_history()
+
+        # Apply filters
+        filtered_migrations = []
+        cutoff_time = None
+
+        if days_back:
+            from datetime import timedelta
+            cutoff_time = datetime.now() - timedelta(days=days_back)
+
+        for migration in all_migrations:
+            # Check time filter
+            if cutoff_time:
+                try:
+                    migration_time = datetime.fromisoformat(migration["timestamp"])
+                    if migration_time < cutoff_time:
+                        continue
+                except (ValueError, KeyError):
+                    continue
+
+            # Check version filters
+            if source_version and migration.get("source_version") != source_version:
+                continue
+            if target_version and migration.get("target_version") != target_version:
+                continue
+
+            # Check success filter
+            if success_only is not None and migration.get("success") != success_only:
+                continue
+
+            filtered_migrations.append(migration)
+
+        return filtered_migrations
+
+    def cleanup_old_migration_reports(self, keep_count: int = 50) -> int:
+        """Remove old migration reports, keeping only the most recent ones.
+
+        Args:
+            keep_count: Number of recent migration reports to keep
+
+        Returns:
+            Number of reports removed
+        """
+        if keep_count <= 0:
+            raise ValueError("keep_count must be positive")
+
+        history = self.get_migration_history()
+        if len(history) <= keep_count:
+            return 0
+
+        # Get reports to remove (oldest first)
+        reports_to_remove = history[keep_count:]
+        removed_count = 0
+
+        for migration in reports_to_remove:
+            try:
+                migration_id = migration["migration_id"]
+                report_file = self.migration_history_dir / f"{migration_id}.json"
+
+                if report_file.exists():
+                    report_file.unlink()
+                    self.logger.debug(f"Removed old migration report: {migration_id}")
+                    removed_count += 1
+
+            except Exception as e:
+                self.logger.error(f"Failed to remove migration report {migration.get('migration_id', 'unknown')}: {e}")
+
+        # Update history index to remove deleted reports
+        if removed_count > 0:
+            self._rebuild_migration_history_index()
+
+        return removed_count
+
+    def _rebuild_migration_history_index(self) -> None:
+        """Rebuild migration history index from existing report files."""
+        try:
+            # Find all report files
+            report_files = list(self.migration_history_dir.glob("*.json"))
+            report_files = [f for f in report_files if f.name != "index.json"]
+
+            migrations = []
+            for report_file in report_files:
+                try:
+                    with report_file.open('r', encoding='utf-8') as f:
+                        report_data = json.load(f)
+
+                    # Create index entry
+                    index_entry = {
+                        "migration_id": report_data["migration_id"],
+                        "timestamp": report_data["timestamp"],
+                        "source_version": report_data["source_version"],
+                        "target_version": report_data["target_version"],
+                        "success": report_data["success"],
+                        "changes_count": len(report_data.get("changes_made", [])),
+                        "backup_id": report_data.get("backup_id"),
+                        "config_file_path": report_data.get("config_file_path"),
+                        "report_file": report_file.name
+                    }
+                    migrations.append(index_entry)
+
+                except Exception as e:
+                    self.logger.warning(f"Failed to process report file {report_file}: {e}")
+
+            # Sort by timestamp
+            migrations.sort(key=lambda x: x["timestamp"], reverse=True)
+
+            # Write new index
+            index_file = self.migration_history_dir / "index.json"
+            with index_file.open('w', encoding='utf-8') as f:
+                json.dump({"migrations": migrations}, f, indent=2)
+
+            self.logger.debug(f"Rebuilt migration history index with {len(migrations)} reports")
+
+        except Exception as e:
+            self.logger.error(f"Failed to rebuild migration history index: {e}")
+
+    def _dict_to_migration_report(self, data: Dict[str, Any]) -> MigrationReport:
+        """Convert dictionary back to MigrationReport object.
+
+        Args:
+            data: Dictionary containing migration report data
+
+        Returns:
+            MigrationReport object
+        """
+        # Create base report
+        report = MigrationReport(
+            migration_id=data.get("migration_id", str(uuid.uuid4())),
+            timestamp=data.get("timestamp", datetime.now().isoformat()),
+            source_version=data.get("source_version", "unknown"),
+            target_version=data.get("target_version", "v2_current"),
+            config_file_path=data.get("config_file_path"),
+            backup_id=data.get("backup_id"),
+            backup_location=data.get("backup_location"),
+            success=data.get("success", True),
+            migration_duration_seconds=data.get("migration_duration_seconds"),
+            warnings=data.get("warnings", []),
+            errors=data.get("errors", []),
+            migration_methods_used=data.get("migration_methods_used", []),
+            complexity=data.get("complexity"),
+            rollback_instructions=data.get("rollback_instructions"),
+            deprecated_fields_handled=data.get("deprecated_fields_handled", {})
+        )
+
+        # Convert changes_made
+        for change_data in data.get("changes_made", []):
+            change_type_str = change_data.get("change_type", "modified")
+            try:
+                change_type = ChangeType(change_type_str)
+            except ValueError:
+                change_type = ChangeType.MODIFIED
+
+            change = ChangeEntry(
+                change_type=change_type,
+                field_path=change_data.get("field_path", ""),
+                old_value=change_data.get("old_value"),
+                new_value=change_data.get("new_value"),
+                reason=change_data.get("reason"),
+                section=change_data.get("section"),
+                migration_method=change_data.get("migration_method"),
+                timestamp=change_data.get("timestamp")
+            )
+            report.add_change(change)
+
+        # Convert validation_results
+        for result_data in data.get("validation_results", []):
+            validation_result = ValidationResult(
+                is_valid=result_data.get("is_valid", True),
+                warnings=result_data.get("warnings", []),
+                errors=result_data.get("errors", []),
+                recommendations=result_data.get("recommendations", [])
+            )
+            report.add_validation_result(validation_result)
+
+        return report
+
+    def _ensure_migration_history_directory(self) -> None:
+        """Ensure migration history directory exists."""
+        if self._migration_history_dir is None:
+            return
+
+        try:
+            self._migration_history_dir.mkdir(parents=True, exist_ok=True)
+        except Exception as e:
+            self.logger.error(f"Failed to create migration history directory {self._migration_history_dir}: {e}")
+            raise

@@ -18,6 +18,7 @@ from common.core.client import QdrantWorkspaceClient, create_qdrant_client
 from common.core.config import Config
 from loguru import logger
 from common.utils.project_detection import ProjectDetector
+from workspace_qdrant_mcp.utils.migration import ConfigMigrator, ReportGenerator
 from ..utils import (
     config_path_option,
     create_command_app,
@@ -38,14 +39,17 @@ admin_app = create_command_app(
     name="admin",
     help_text="""System administration and configuration.
 
-Monitor system health, manage configuration, and control processing engines.
+Monitor system health, manage configuration, control processing engines, and view migration reports.
 
 Examples:
     wqm admin status                 # Show comprehensive system status
     wqm admin health                 # Run health checks
     wqm admin collections            # List all collections
     wqm admin start-engine           # Start Rust processing engine
-    wqm admin config --show          # Show current configuration""",
+    wqm admin config --show          # Show current configuration
+    wqm admin migration-report       # Show latest migration report
+    wqm admin migration-history      # Show migration history
+    wqm admin rollback-config <id>   # Rollback to a previous backup""",
     no_args_is_help=True,
 )
 
@@ -120,6 +124,64 @@ def health_check(
 ):
     """Comprehensive health check."""
     handle_async(_health_check(deep, timeout))
+
+
+@admin_app.command("migration-report")
+def migration_report(
+    migration_id: Optional[str] = typer.Argument(None, help="Specific migration ID to view"),
+    format: str = typer.Option("text", "--format", help="Output format: text, json"),
+    export: Optional[str] = typer.Option(None, "--export", help="Export report to file"),
+    latest: bool = typer.Option(False, "--latest", help="Show latest migration report"),
+):
+    """View detailed migration reports."""
+    handle_async(_migration_report(migration_id, format, export, latest))
+
+
+@admin_app.command("migration-history")
+def migration_history(
+    limit: int = typer.Option(10, "--limit", help="Number of recent migrations to show"),
+    source_version: Optional[str] = typer.Option(None, "--source", help="Filter by source version"),
+    target_version: Optional[str] = typer.Option(None, "--target", help="Filter by target version"),
+    success_only: Optional[bool] = typer.Option(None, "--success-only", help="Show only successful migrations"),
+    days_back: Optional[int] = typer.Option(None, "--days", help="Show migrations from last N days"),
+    format: str = typer.Option("table", "--format", help="Output format: table, json"),
+):
+    """View migration history with filtering options."""
+    handle_async(_migration_history(limit, source_version, target_version, success_only, days_back, format))
+
+
+@admin_app.command("validate-backup")
+def validate_backup(
+    backup_id: str = typer.Argument(..., help="Backup ID to validate"),
+):
+    """Validate backup integrity using checksum verification."""
+    handle_async(_validate_backup(backup_id))
+
+
+@admin_app.command("rollback-config")
+def rollback_config(
+    backup_id: str = typer.Argument(..., help="Backup ID to restore from"),
+    force: bool = force_option(),
+):
+    """Rollback configuration to a previous backup."""
+    handle_async(_rollback_config(backup_id, force))
+
+
+@admin_app.command("backup-info")
+def backup_info(
+    backup_id: str = typer.Argument(..., help="Backup ID to get information about"),
+):
+    """Get detailed information about a specific backup."""
+    handle_async(_backup_info(backup_id))
+
+
+@admin_app.command("cleanup-migration-history")
+def cleanup_migration_history(
+    keep_count: int = typer.Option(50, "--keep", help="Number of recent migration reports to keep"),
+    force: bool = force_option(),
+):
+    """Clean up old migration reports to save disk space."""
+    handle_async(_cleanup_migration_history(keep_count, force))
 
 
 # Async implementation functions
@@ -579,4 +641,243 @@ async def _health_check(deep: bool, timeout: int) -> None:
             print(f"\nSystem has {warnings} warning(s)")
     else:
         print(f"\nSystem has {errors} error(s) and {warnings} warning(s)")
+        raise typer.Exit(1)
+
+
+# Migration reporting functions
+async def _migration_report(migration_id: Optional[str], format: str, export: Optional[str], latest: bool) -> None:
+    """View detailed migration reports."""
+    try:
+        migrator = ConfigMigrator()
+
+        # Determine which report to show
+        if latest:
+            report = migrator.get_latest_migration_report()
+            if not report:
+                print("No migration reports found")
+                return
+        elif migration_id:
+            report = migrator.get_migration_report(migration_id)
+            if not report:
+                print(f"Migration report '{migration_id}' not found")
+                return
+        else:
+            # Show latest if no specific ID provided
+            report = migrator.get_latest_migration_report()
+            if not report:
+                print("No migration reports found. Use --help to see options.")
+                return
+
+        # Generate report content
+        if format.lower() == "json":
+            report_content = migrator.report_generator.format_report_json(report)
+        else:
+            report_content = migrator.report_generator.format_report_text(report)
+
+        # Export or display
+        if export:
+            export_path = Path(export)
+            export_path.parent.mkdir(parents=True, exist_ok=True)
+            with export_path.open('w', encoding='utf-8') as f:
+                f.write(report_content)
+            print(f"Migration report exported to: {export_path}")
+        else:
+            print(report_content)
+
+    except Exception as e:
+        print(f"Error retrieving migration report: {e}")
+        raise typer.Exit(1)
+
+
+async def _migration_history(limit: int, source_version: Optional[str], target_version: Optional[str],
+                            success_only: Optional[bool], days_back: Optional[int], format: str) -> None:
+    """View migration history with filtering options."""
+    try:
+        migrator = ConfigMigrator()
+
+        # Get filtered migration history
+        if any([source_version, target_version, success_only is not None, days_back]):
+            migrations = migrator.search_migration_history(
+                source_version=source_version,
+                target_version=target_version,
+                success_only=success_only,
+                days_back=days_back
+            )
+        else:
+            migrations = migrator.get_migration_history(limit=limit)
+
+        if not migrations:
+            print("No migrations found matching the criteria")
+            return
+
+        # Apply limit to search results
+        if limit and len(migrations) > limit:
+            migrations = migrations[:limit]
+
+        if format.lower() == "json":
+            print(json.dumps(migrations, indent=2, default=str))
+            return
+
+        # Display as formatted table
+        print(f"Migration History ({len(migrations)} records)")
+        print("=" * 120)
+        print(f"{'Migration ID':<40} {'Timestamp':<20} {'Source':<15} {'Target':<15} {'Status':<10} {'Changes':<8}")
+        print("-" * 120)
+
+        for migration in migrations:
+            migration_id_short = migration.get("migration_id", "unknown")[:36] + "..."
+            timestamp = migration.get("timestamp", "")[:19]  # Remove microseconds
+            source = migration.get("source_version", "unknown")[:12]
+            target = migration.get("target_version", "unknown")[:12]
+            status = "SUCCESS" if migration.get("success", False) else "FAILED"
+            changes = str(migration.get("changes_count", 0))
+
+            print(f"{migration_id_short:<40} {timestamp:<20} {source:<15} {target:<15} {status:<10} {changes:<8}")
+
+        print("\nUse 'wqm admin migration-report <migration_id>' to view detailed report")
+
+    except Exception as e:
+        print(f"Error retrieving migration history: {e}")
+        raise typer.Exit(1)
+
+
+async def _validate_backup(backup_id: str) -> None:
+    """Validate backup integrity using checksum verification."""
+    try:
+        migrator = ConfigMigrator()
+
+        print(f"Validating backup: {backup_id}")
+        print("=" * 50)
+
+        is_valid = migrator.validate_backup(backup_id)
+
+        if is_valid:
+            print("✅ Backup validation successful")
+            print("   Checksum matches, JSON is valid")
+
+            # Show backup info
+            backup_info = migrator.get_backup_info(backup_id)
+            if backup_info:
+                print(f"   Backup created: {backup_info.get('timestamp', 'unknown')}")
+                print(f"   Configuration version: {backup_info.get('version', 'unknown')}")
+                print(f"   File size: {backup_info.get('file_size', 0)} bytes")
+        else:
+            print("❌ Backup validation failed")
+            print("   Backup file is corrupted or missing")
+            raise typer.Exit(1)
+
+    except Exception as e:
+        print(f"Error validating backup: {e}")
+        raise typer.Exit(1)
+
+
+async def _rollback_config(backup_id: str, force: bool) -> None:
+    """Rollback configuration to a previous backup."""
+    try:
+        migrator = ConfigMigrator()
+
+        print(f"Rolling back configuration to backup: {backup_id}")
+        print("=" * 50)
+
+        # Get backup info first
+        backup_info = migrator.get_backup_info(backup_id)
+        if not backup_info:
+            print(f"Backup '{backup_id}' not found")
+            raise typer.Exit(1)
+
+        # Validate backup before rollback
+        if not migrator.validate_backup(backup_id):
+            print("❌ Backup validation failed - cannot rollback")
+            raise typer.Exit(1)
+
+        # Confirm rollback unless forced
+        if not force:
+            print(f"This will restore configuration from backup created: {backup_info.get('timestamp', 'unknown')}")
+            print(f"Configuration version: {backup_info.get('version', 'unknown')}")
+
+            confirm = typer.confirm("Continue with rollback?")
+            if not confirm:
+                print("Rollback cancelled")
+                return
+
+        # Perform rollback
+        restored_config = migrator.rollback_config(backup_id)
+        print("✅ Configuration rollback completed successfully")
+        print(f"   Restored from: {backup_info.get('timestamp', 'unknown')}")
+        print(f"   Configuration version: {backup_info.get('version', 'unknown')}")
+        print("\n💡 Remember to restart any services that use the configuration")
+
+    except Exception as e:
+        print(f"Error during rollback: {e}")
+        raise typer.Exit(1)
+
+
+async def _backup_info(backup_id: str) -> None:
+    """Get detailed information about a specific backup."""
+    try:
+        migrator = ConfigMigrator()
+
+        backup_info = migrator.get_backup_info(backup_id)
+        if not backup_info:
+            print(f"Backup '{backup_id}' not found")
+            return
+
+        print(f"Backup Information: {backup_id}")
+        print("=" * 50)
+        print(f"Created: {backup_info.get('timestamp', 'unknown')}")
+        print(f"Version: {backup_info.get('version', 'unknown')}")
+        print(f"Description: {backup_info.get('description', 'No description')}")
+        print(f"File Location: {backup_info.get('file_path', 'unknown')}")
+        print(f"File Size: {backup_info.get('file_size', 0)} bytes")
+        print(f"Checksum: {backup_info.get('checksum', 'unknown')}")
+
+        if backup_info.get('config_path'):
+            print(f"Original Config: {backup_info.get('config_path')}")
+
+        # Validate backup
+        print("\nValidation Status:")
+        is_valid = migrator.validate_backup(backup_id)
+        if is_valid:
+            print("✅ Backup is valid and can be used for rollback")
+        else:
+            print("❌ Backup validation failed - file may be corrupted")
+
+    except Exception as e:
+        print(f"Error getting backup info: {e}")
+        raise typer.Exit(1)
+
+
+async def _cleanup_migration_history(keep_count: int, force: bool) -> None:
+    """Clean up old migration reports to save disk space."""
+    try:
+        migrator = ConfigMigrator()
+
+        # Get current count
+        current_history = migrator.get_migration_history()
+        current_count = len(current_history)
+
+        if current_count <= keep_count:
+            print(f"No cleanup needed. Current reports: {current_count}, keep: {keep_count}")
+            return
+
+        remove_count = current_count - keep_count
+
+        if not force:
+            print(f"This will remove {remove_count} old migration reports")
+            print(f"Current reports: {current_count}, will keep: {keep_count}")
+
+            confirm = typer.confirm("Continue with cleanup?")
+            if not confirm:
+                print("Cleanup cancelled")
+                return
+
+        # Perform cleanup
+        removed_count = migrator.cleanup_old_migration_reports(keep_count)
+
+        print(f"✅ Cleanup completed")
+        print(f"   Removed: {removed_count} migration reports")
+        print(f"   Remaining: {len(migrator.get_migration_history())} reports")
+
+    except Exception as e:
+        print(f"Error during cleanup: {e}")
         raise typer.Exit(1)
