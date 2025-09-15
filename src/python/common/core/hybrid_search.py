@@ -80,9 +80,481 @@ from .metadata_optimization import (
     QueryOptimizer,
     PerformanceTracker
 )
+from collections import defaultdict
+from dataclasses import dataclass
 
 # Task 215: Use unified logging system instead of logging.getLogger(__name__)
 # logger imported from loguru
+
+
+@dataclass
+class TenantAwareResult:
+    """Result container with tenant-aware metadata for multi-tenant result aggregation."""
+
+    id: str
+    score: float
+    payload: dict
+    collection: str
+    search_type: str
+    tenant_metadata: dict = None
+    project_context: dict = None
+    deduplication_key: str = None
+
+    def __post_init__(self):
+        """Post-init processing for tenant-aware results."""
+        if self.tenant_metadata is None:
+            self.tenant_metadata = {}
+
+        if self.project_context is None:
+            self.project_context = {}
+
+        # Generate deduplication key based on content hash or document identifier
+        if self.deduplication_key is None:
+            content_hash = self.payload.get("content_hash")
+            file_path = self.payload.get("file_path")
+            doc_id = self.payload.get("document_id")
+
+            # Use content hash if available, fallback to file_path or doc_id
+            self.deduplication_key = content_hash or file_path or doc_id or self.id
+
+
+class TenantAwareResultDeduplicator:
+    """
+    Handles deduplication of search results across tenant boundaries.
+
+    This class implements sophisticated deduplication logic that considers:
+    - Content-based deduplication using content hashes
+    - Tenant isolation requirements
+    - Score aggregation across duplicate instances
+    - Metadata preservation from the highest-scoring instance
+
+    Task 233.5: Added for multi-tenant result deduplication.
+    """
+
+    def __init__(self, preserve_tenant_isolation: bool = True):
+        """
+        Initialize deduplicator with tenant isolation settings.
+
+        Args:
+            preserve_tenant_isolation: If True, maintains separate results for different tenants
+        """
+        self.preserve_tenant_isolation = preserve_tenant_isolation
+
+    def deduplicate_results(
+        self,
+        results: List[TenantAwareResult],
+        aggregation_method: str = "max_score"
+    ) -> List[TenantAwareResult]:
+        """
+        Deduplicate results while preserving tenant isolation.
+
+        Args:
+            results: List of tenant-aware search results
+            aggregation_method: How to aggregate scores ("max_score", "avg_score", "sum_score")
+
+        Returns:
+            Deduplicated list of results with proper tenant isolation
+        """
+        if not results:
+            return []
+
+        logger.debug(
+            "Starting result deduplication",
+            total_results=len(results),
+            preserve_isolation=self.preserve_tenant_isolation,
+            aggregation_method=aggregation_method
+        )
+
+        # Group results by deduplication key
+        result_groups = defaultdict(list)
+        for result in results:
+            group_key = self._get_group_key(result)
+            result_groups[group_key].append(result)
+
+        deduplicated_results = []
+
+        for group_key, group_results in result_groups.items():
+            if len(group_results) == 1:
+                # No duplicates, keep as-is
+                deduplicated_results.append(group_results[0])
+            else:
+                # Handle duplicates
+                deduplicated_result = self._aggregate_duplicate_results(
+                    group_results, aggregation_method
+                )
+                deduplicated_results.append(deduplicated_result)
+
+        # Sort by score (descending)
+        deduplicated_results.sort(key=lambda x: x.score, reverse=True)
+
+        logger.info(
+            "Result deduplication completed",
+            original_count=len(results),
+            deduplicated_count=len(deduplicated_results),
+            duplicates_found=len(results) - len(deduplicated_results)
+        )
+
+        return deduplicated_results
+
+    def _get_group_key(self, result: TenantAwareResult) -> str:
+        """
+        Generate grouping key for deduplication.
+
+        Args:
+            result: Result to generate key for
+
+        Returns:
+            String key for grouping
+        """
+        if self.preserve_tenant_isolation:
+            # Include tenant information in the key to maintain isolation
+            project_name = result.project_context.get("project_name", "")
+            tenant_namespace = result.tenant_metadata.get("tenant_namespace", "")
+            return f"{result.deduplication_key}:{project_name}:{tenant_namespace}"
+        else:
+            # Global deduplication across all tenants
+            return result.deduplication_key
+
+    def _aggregate_duplicate_results(
+        self,
+        group_results: List[TenantAwareResult],
+        aggregation_method: str
+    ) -> TenantAwareResult:
+        """
+        Aggregate multiple duplicate results into a single result.
+
+        Args:
+            group_results: List of duplicate results to aggregate
+            aggregation_method: How to aggregate scores
+
+        Returns:
+            Single aggregated result
+        """
+        if not group_results:
+            return None
+
+        # Sort by score to get the best result first
+        group_results.sort(key=lambda x: x.score, reverse=True)
+        best_result = group_results[0]
+
+        # Calculate aggregated score
+        scores = [r.score for r in group_results]
+        if aggregation_method == "max_score":
+            aggregated_score = max(scores)
+        elif aggregation_method == "avg_score":
+            aggregated_score = sum(scores) / len(scores)
+        elif aggregation_method == "sum_score":
+            aggregated_score = sum(scores)
+        else:
+            logger.warning(f"Unknown aggregation method {aggregation_method}, using max_score")
+            aggregated_score = max(scores)
+
+        # Aggregate metadata from all instances
+        collection_sources = list(set(r.collection for r in group_results))
+        search_types = list(set(r.search_type for r in group_results))
+
+        # Create aggregated result based on best result
+        aggregated_result = TenantAwareResult(
+            id=best_result.id,
+            score=aggregated_score,
+            payload=best_result.payload.copy(),
+            collection=best_result.collection,
+            search_type=best_result.search_type,
+            tenant_metadata=best_result.tenant_metadata.copy(),
+            project_context=best_result.project_context.copy(),
+            deduplication_key=best_result.deduplication_key
+        )
+
+        # Add aggregation metadata
+        aggregated_result.payload["deduplication_info"] = {
+            "duplicate_count": len(group_results),
+            "score_aggregation": aggregation_method,
+            "original_scores": scores,
+            "collection_sources": collection_sources,
+            "search_types": search_types
+        }
+
+        logger.debug(
+            "Aggregated duplicate results",
+            deduplication_key=best_result.deduplication_key,
+            duplicate_count=len(group_results),
+            original_scores=scores,
+            aggregated_score=aggregated_score
+        )
+
+        return aggregated_result
+
+
+class MultiTenantResultAggregator:
+    """
+    Advanced result aggregator for multi-tenant workspace collections.
+
+    This class handles sophisticated result aggregation across multiple tenant contexts,
+    ensuring proper isolation, deduplication, and ranking while maintaining API consistency.
+
+    Key Features:
+    - Tenant-aware result deduplication
+    - Cross-collection score normalization
+    - Metadata consistency enforcement
+    - Performance-optimized aggregation algorithms
+
+    Task 233.5: Added for multi-tenant search result aggregation.
+    """
+
+    def __init__(
+        self,
+        preserve_tenant_isolation: bool = True,
+        enable_score_normalization: bool = True,
+        default_aggregation_method: str = "max_score"
+    ):
+        """
+        Initialize multi-tenant result aggregator.
+
+        Args:
+            preserve_tenant_isolation: Whether to maintain tenant isolation in results
+            enable_score_normalization: Whether to normalize scores across collections
+            default_aggregation_method: Default method for score aggregation
+        """
+        self.preserve_tenant_isolation = preserve_tenant_isolation
+        self.enable_score_normalization = enable_score_normalization
+        self.default_aggregation_method = default_aggregation_method
+        self.deduplicator = TenantAwareResultDeduplicator(preserve_tenant_isolation)
+
+        logger.debug(
+            "Initialized MultiTenantResultAggregator",
+            preserve_isolation=preserve_tenant_isolation,
+            score_normalization=enable_score_normalization,
+            aggregation_method=default_aggregation_method
+        )
+
+    def aggregate_multi_collection_results(
+        self,
+        collection_results: Dict[str, List],
+        project_contexts: Dict[str, dict] = None,
+        limit: int = 10,
+        score_threshold: float = 0.0,
+        aggregation_method: str = None
+    ) -> Dict:
+        """
+        Aggregate search results from multiple collections with tenant isolation.
+
+        Args:
+            collection_results: Dict mapping collection names to their search results
+            project_contexts: Optional dict mapping collection names to project contexts
+            limit: Maximum number of results to return
+            score_threshold: Minimum score threshold for inclusion
+            aggregation_method: Score aggregation method (overrides default)
+
+        Returns:
+            Aggregated results dict with consistent API format
+        """
+        aggregation_method = aggregation_method or self.default_aggregation_method
+        project_contexts = project_contexts or {}
+
+        logger.info(
+            "Starting multi-collection result aggregation",
+            collection_count=len(collection_results),
+            total_raw_results=sum(len(results) for results in collection_results.values()),
+            limit=limit,
+            score_threshold=score_threshold,
+            aggregation_method=aggregation_method
+        )
+
+        # Convert raw results to tenant-aware results
+        tenant_aware_results = []
+
+        for collection_name, results in collection_results.items():
+            project_context = project_contexts.get(collection_name, {})
+
+            for result in results:
+                # Extract tenant metadata from result payload
+                payload = getattr(result, 'payload', {}) or {}
+
+                tenant_metadata = {
+                    "project_name": payload.get("project_name"),
+                    "collection_type": payload.get("collection_type"),
+                    "workspace_scope": payload.get("workspace_scope"),
+                    "tenant_namespace": payload.get("tenant_namespace"),
+                    "access_level": payload.get("access_level")
+                }
+
+                # Create tenant-aware result
+                tenant_result = TenantAwareResult(
+                    id=getattr(result, 'id', ''),
+                    score=getattr(result, 'score', 0.0),
+                    payload=payload,
+                    collection=collection_name,
+                    search_type=getattr(result, 'search_type', 'unknown'),
+                    tenant_metadata=tenant_metadata,
+                    project_context=project_context
+                )
+
+                # Apply score threshold
+                if tenant_result.score >= score_threshold:
+                    tenant_aware_results.append(tenant_result)
+
+        # Normalize scores across collections if enabled
+        if self.enable_score_normalization:
+            tenant_aware_results = self._normalize_cross_collection_scores(
+                tenant_aware_results, collection_results.keys()
+            )
+
+        # Deduplicate results
+        deduplicated_results = self.deduplicator.deduplicate_results(
+            tenant_aware_results, aggregation_method
+        )
+
+        # Apply final limit
+        final_results = deduplicated_results[:limit]
+
+        # Convert back to API format
+        api_results = self._convert_to_api_format(final_results)
+
+        # Build response
+        aggregated_response = {
+            "total_results": len(api_results),
+            "results": api_results,
+            "aggregation_metadata": {
+                "collection_count": len(collection_results),
+                "raw_result_count": sum(len(results) for results in collection_results.values()),
+                "post_threshold_count": len(tenant_aware_results),
+                "post_deduplication_count": len(deduplicated_results),
+                "final_count": len(final_results),
+                "score_normalization_enabled": self.enable_score_normalization,
+                "tenant_isolation_preserved": self.preserve_tenant_isolation,
+                "aggregation_method": aggregation_method,
+                "score_threshold": score_threshold
+            }
+        }
+
+        logger.info(
+            "Multi-collection result aggregation completed",
+            raw_results=sum(len(results) for results in collection_results.values()),
+            post_threshold=len(tenant_aware_results),
+            post_deduplication=len(deduplicated_results),
+            final_results=len(final_results)
+        )
+
+        return aggregated_response
+
+    def _normalize_cross_collection_scores(
+        self,
+        results: List[TenantAwareResult],
+        collection_names: List[str]
+    ) -> List[TenantAwareResult]:
+        """
+        Normalize scores across different collections for fair comparison.
+
+        Args:
+            results: List of results to normalize
+            collection_names: Names of collections being aggregated
+
+        Returns:
+            List of results with normalized scores
+        """
+        if not results:
+            return results
+
+        # Group results by collection
+        collection_groups = defaultdict(list)
+        for result in results:
+            collection_groups[result.collection].append(result)
+
+        # Calculate normalization factors for each collection
+        normalization_factors = {}
+
+        for collection_name, collection_results in collection_groups.items():
+            if not collection_results:
+                continue
+
+            scores = [r.score for r in collection_results]
+            max_score = max(scores)
+            min_score = min(scores)
+
+            # Use min-max normalization to [0, 1] range
+            if max_score > min_score:
+                normalization_factors[collection_name] = {
+                    'min': min_score,
+                    'range': max_score - min_score
+                }
+            else:
+                # All scores are the same
+                normalization_factors[collection_name] = {
+                    'min': min_score,
+                    'range': 1.0  # Avoid division by zero
+                }
+
+        # Apply normalization
+        normalized_results = []
+        for result in results:
+            factor = normalization_factors.get(result.collection)
+            if factor:
+                normalized_score = (result.score - factor['min']) / factor['range']
+
+                # Create new result with normalized score
+                normalized_result = TenantAwareResult(
+                    id=result.id,
+                    score=normalized_score,
+                    payload=result.payload.copy(),
+                    collection=result.collection,
+                    search_type=result.search_type,
+                    tenant_metadata=result.tenant_metadata.copy(),
+                    project_context=result.project_context.copy(),
+                    deduplication_key=result.deduplication_key
+                )
+
+                # Add normalization info to payload
+                normalized_result.payload["score_normalization"] = {
+                    "original_score": result.score,
+                    "normalized_score": normalized_score,
+                    "collection_min": factor['min'],
+                    "collection_range": factor['range']
+                }
+
+                normalized_results.append(normalized_result)
+            else:
+                normalized_results.append(result)
+
+        logger.debug(
+            "Cross-collection score normalization completed",
+            collection_count=len(collection_groups),
+            result_count=len(normalized_results)
+        )
+
+        return normalized_results
+
+    def _convert_to_api_format(self, results: List[TenantAwareResult]) -> List[Dict]:
+        """
+        Convert tenant-aware results to standard API format.
+
+        Args:
+            results: List of tenant-aware results
+
+        Returns:
+            List of results in standard API dict format
+        """
+        api_results = []
+
+        for result in results:
+            api_result = {
+                "id": result.id,
+                "score": result.score,
+                "payload": result.payload,
+                "collection": result.collection,
+                "search_type": result.search_type
+            }
+
+            # Add tenant metadata if present
+            if result.tenant_metadata:
+                api_result["tenant_metadata"] = result.tenant_metadata
+
+            # Add project context if present
+            if result.project_context:
+                api_result["project_context"] = result.project_context
+
+            api_results.append(api_result)
+
+        return api_results
 
 
 class RRFFusionRanker:
@@ -393,14 +865,16 @@ class HybridSearchEngine:
 
     Task 215: Enhanced with unified logging system for comprehensive observability.
     Task 233.3: Enhanced with advanced metadata filtering optimization strategies.
+    Task 233.5: Enhanced with multi-tenant result aggregation capabilities.
     """
 
-    def __init__(self, client: QdrantClient, enable_optimizations: bool = True) -> None:
-        """Initialize hybrid search engine with optimization features.
+    def __init__(self, client: QdrantClient, enable_optimizations: bool = True, enable_multi_tenant_aggregation: bool = True) -> None:
+        """Initialize hybrid search engine with optimization and aggregation features.
 
         Args:
             client: Qdrant client for vector database operations
             enable_optimizations: Whether to enable advanced filtering optimizations
+            enable_multi_tenant_aggregation: Whether to enable multi-tenant result aggregation
         """
         self.client = client
         self.rrf_ranker = RRFFusionRanker()
@@ -410,6 +884,17 @@ class HybridSearchEngine:
         self.isolation_manager = ProjectIsolationManager()
         self.workspace_registry = WorkspaceCollectionRegistry()
 
+        # Task 233.5: Initialize multi-tenant result aggregation components
+        self.multi_tenant_aggregation_enabled = enable_multi_tenant_aggregation
+        if enable_multi_tenant_aggregation:
+            self.result_aggregator = MultiTenantResultAggregator(
+                preserve_tenant_isolation=True,
+                enable_score_normalization=True,
+                default_aggregation_method="max_score"
+            )
+        else:
+            self.result_aggregator = None
+
         # Task 233.3: Initialize optimization components
         self.optimizations_enabled = enable_optimizations
         if enable_optimizations:
@@ -418,14 +903,22 @@ class HybridSearchEngine:
             self.query_optimizer = QueryOptimizer(target_response_time=3.0)
             self.performance_tracker = PerformanceTracker(target_response_time=3.0)
 
-            logger.info("Initialized hybrid search engine with full optimization support")
+            logger.info(
+                "Initialized hybrid search engine with full optimization and aggregation support",
+                optimizations_enabled=True,
+                multi_tenant_aggregation_enabled=enable_multi_tenant_aggregation
+            )
         else:
             self.filter_optimizer = None
             self.index_manager = None
             self.query_optimizer = None
             self.performance_tracker = None
 
-            logger.info("Initialized hybrid search engine with basic multi-tenant support")
+            logger.info(
+                "Initialized hybrid search engine with basic multi-tenant support",
+                optimizations_enabled=False,
+                multi_tenant_aggregation_enabled=enable_multi_tenant_aggregation
+            )
 
     async def hybrid_search(
         self,
@@ -868,6 +1361,334 @@ class HybridSearchEngine:
             True if supported, False otherwise
         """
         return self.workspace_registry.is_multi_tenant_type(workspace_type)
+
+    # Task 233.5: Add multi-tenant result aggregation methods
+
+    async def multi_collection_hybrid_search(
+        self,
+        collection_names: List[str],
+        query_embeddings: dict,
+        project_contexts: Dict[str, dict] = None,
+        limit: int = 10,
+        fusion_method: str = "rrf",
+        dense_weight: float = 1.0,
+        sparse_weight: float = 1.0,
+        filter_conditions: Optional[models.Filter] = None,
+        search_params: Optional[models.SearchParams] = None,
+        with_payload: bool = True,
+        with_vectors: bool = False,
+        score_threshold: float = 0.0,
+        enable_deduplication: bool = True,
+        aggregation_method: str = "max_score"
+    ) -> dict:
+        """
+        Execute hybrid search across multiple collections with multi-tenant result aggregation.
+
+        This method performs hybrid search across multiple collections and applies sophisticated
+        result aggregation including deduplication, tenant-aware ranking, and score normalization.
+
+        Args:
+            collection_names: List of collections to search
+            query_embeddings: Dict with 'dense' and/or 'sparse' embeddings
+            project_contexts: Optional dict mapping collection names to project contexts
+            limit: Maximum number of results to return across all collections
+            fusion_method: Fusion algorithm ("rrf", "weighted_sum", "max_score")
+            dense_weight: Weight for dense results in fusion
+            sparse_weight: Weight for sparse results in fusion
+            filter_conditions: Optional Qdrant filters
+            search_params: Optional search parameters
+            with_payload: Whether to return payloads
+            with_vectors: Whether to return vectors
+            score_threshold: Minimum score threshold for inclusion
+            enable_deduplication: Whether to deduplicate results across collections
+            aggregation_method: How to aggregate duplicate scores ("max_score", "avg_score", "sum_score")
+
+        Returns:
+            Dictionary with aggregated results and detailed metadata
+
+        Task 233.5: Added for multi-tenant search result aggregation.
+        """
+        search_start_time = time.time() if self.optimizations_enabled else None
+
+        logger.info(
+            "Starting multi-collection hybrid search with result aggregation",
+            collection_count=len(collection_names),
+            limit=limit,
+            fusion_method=fusion_method,
+            enable_deduplication=enable_deduplication,
+            aggregation_method=aggregation_method,
+            multi_tenant_aggregation_enabled=self.multi_tenant_aggregation_enabled
+        )
+
+        if not self.multi_tenant_aggregation_enabled:
+            # Fallback to individual collection searches without advanced aggregation
+            logger.warning("Multi-tenant aggregation disabled, using basic aggregation")
+            return await self._basic_multi_collection_search(
+                collection_names, query_embeddings, limit, fusion_method,
+                dense_weight, sparse_weight, filter_conditions, search_params,
+                with_payload, with_vectors, score_threshold
+            )
+
+        # Perform individual collection searches
+        collection_results = {}
+        total_raw_results = 0
+
+        for collection_name in collection_names:
+            try:
+                # Get project context for this collection
+                project_context = project_contexts.get(collection_name) if project_contexts else None
+
+                # Perform hybrid search on individual collection
+                collection_search_result = await self.hybrid_search(
+                    collection_name=collection_name,
+                    query_embeddings=query_embeddings,
+                    limit=limit * 2,  # Get more results per collection for better aggregation
+                    fusion_method=fusion_method,
+                    dense_weight=dense_weight,
+                    sparse_weight=sparse_weight,
+                    filter_conditions=filter_conditions,
+                    search_params=search_params,
+                    with_payload=with_payload,
+                    with_vectors=with_vectors,
+                    project_context=project_context,
+                    auto_inject_metadata=True
+                )
+
+                # Extract fused results
+                fused_results = collection_search_result.get("fused_results", [])
+                collection_results[collection_name] = fused_results
+                total_raw_results += len(fused_results)
+
+                logger.debug(
+                    "Collection search completed",
+                    collection=collection_name,
+                    results_count=len(fused_results)
+                )
+
+            except Exception as e:
+                logger.error(
+                    "Failed to search collection",
+                    collection=collection_name,
+                    error=str(e)
+                )
+                collection_results[collection_name] = []
+                continue
+
+        # Use multi-tenant result aggregator for sophisticated aggregation
+        if enable_deduplication and self.result_aggregator:
+            aggregated_response = self.result_aggregator.aggregate_multi_collection_results(
+                collection_results=collection_results,
+                project_contexts=project_contexts,
+                limit=limit,
+                score_threshold=score_threshold,
+                aggregation_method=aggregation_method
+            )
+        else:
+            # Simple aggregation without deduplication
+            all_results = []
+            for collection_name, results in collection_results.items():
+                for result in results:
+                    if hasattr(result, 'score') and result.score >= score_threshold:
+                        result_dict = {
+                            "id": getattr(result, 'id', ''),
+                            "score": getattr(result, 'score', 0.0),
+                            "payload": getattr(result, 'payload', {}),
+                            "collection": collection_name,
+                            "search_type": getattr(result, 'search_type', 'hybrid')
+                        }
+                        all_results.append(result_dict)
+
+            # Sort and limit
+            all_results.sort(key=lambda x: x["score"], reverse=True)
+            final_results = all_results[:limit]
+
+            aggregated_response = {
+                "total_results": len(final_results),
+                "results": final_results,
+                "aggregation_metadata": {
+                    "collection_count": len(collection_names),
+                    "raw_result_count": total_raw_results,
+                    "final_count": len(final_results),
+                    "deduplication_enabled": False,
+                    "score_threshold": score_threshold
+                }
+            }
+
+        # Add performance metrics if available
+        if search_start_time and self.optimizations_enabled:
+            total_search_time = (time.time() - search_start_time) * 1000
+            aggregated_response["performance"] = {
+                "response_time_ms": total_search_time,
+                "target_met": total_search_time <= 3.0,
+                "multi_tenant_aggregation_enabled": self.multi_tenant_aggregation_enabled
+            }
+
+            if self.performance_tracker:
+                self.performance_tracker.record_measurement(
+                    operation="multi_collection_hybrid_search",
+                    response_time=total_search_time,
+                    metadata={
+                        "collection_count": len(collection_names),
+                        "fusion_method": fusion_method,
+                        "deduplication_enabled": enable_deduplication,
+                        "aggregation_method": aggregation_method
+                    }
+                )
+
+        logger.info(
+            "Multi-collection hybrid search completed",
+            collection_count=len(collection_names),
+            raw_results=total_raw_results,
+            final_results=aggregated_response["total_results"],
+            response_time_ms=aggregated_response.get("performance", {}).get("response_time_ms")
+        )
+
+        return aggregated_response
+
+    async def _basic_multi_collection_search(
+        self,
+        collection_names: List[str],
+        query_embeddings: dict,
+        limit: int,
+        fusion_method: str,
+        dense_weight: float,
+        sparse_weight: float,
+        filter_conditions: Optional[models.Filter],
+        search_params: Optional[models.SearchParams],
+        with_payload: bool,
+        with_vectors: bool,
+        score_threshold: float
+    ) -> dict:
+        """
+        Basic multi-collection search without advanced aggregation features.
+
+        This is used as a fallback when multi-tenant aggregation is disabled.
+
+        Args:
+            collection_names: Collections to search
+            query_embeddings: Search embeddings
+            limit: Result limit
+            fusion_method: Fusion method
+            dense_weight: Dense search weight
+            sparse_weight: Sparse search weight
+            filter_conditions: Optional filters
+            search_params: Optional search params
+            with_payload: Include payloads
+            with_vectors: Include vectors
+            score_threshold: Score threshold
+
+        Returns:
+            Basic aggregated search results
+        """
+        all_results = []
+
+        for collection_name in collection_names:
+            try:
+                collection_search = await self.hybrid_search(
+                    collection_name=collection_name,
+                    query_embeddings=query_embeddings,
+                    limit=limit,
+                    fusion_method=fusion_method,
+                    dense_weight=dense_weight,
+                    sparse_weight=sparse_weight,
+                    filter_conditions=filter_conditions,
+                    search_params=search_params,
+                    with_payload=with_payload,
+                    with_vectors=with_vectors
+                )
+
+                for result in collection_search.get("fused_results", []):
+                    if hasattr(result, 'score') and result.score >= score_threshold:
+                        result_dict = {
+                            "id": getattr(result, 'id', ''),
+                            "score": getattr(result, 'score', 0.0),
+                            "payload": getattr(result, 'payload', {}),
+                            "collection": collection_name,
+                            "search_type": "hybrid"
+                        }
+                        all_results.append(result_dict)
+
+            except Exception as e:
+                logger.error(f"Basic search failed for collection {collection_name}: {e}")
+                continue
+
+        # Sort and limit
+        all_results.sort(key=lambda x: x["score"], reverse=True)
+        final_results = all_results[:limit]
+
+        return {
+            "total_results": len(final_results),
+            "results": final_results,
+            "aggregation_metadata": {
+                "collection_count": len(collection_names),
+                "final_count": len(final_results),
+                "basic_aggregation": True,
+                "score_threshold": score_threshold
+            }
+        }
+
+    def configure_result_aggregation(
+        self,
+        preserve_tenant_isolation: bool = None,
+        enable_score_normalization: bool = None,
+        default_aggregation_method: str = None
+    ) -> Dict:
+        """
+        Configure multi-tenant result aggregation settings.
+
+        Args:
+            preserve_tenant_isolation: Whether to preserve tenant isolation
+            enable_score_normalization: Whether to enable score normalization
+            default_aggregation_method: Default aggregation method
+
+        Returns:
+            Dict with current configuration
+
+        Task 233.5: Added for result aggregation configuration.
+        """
+        if not self.multi_tenant_aggregation_enabled or not self.result_aggregator:
+            return {"error": "Multi-tenant aggregation not enabled"}
+
+        if preserve_tenant_isolation is not None:
+            self.result_aggregator.preserve_tenant_isolation = preserve_tenant_isolation
+            self.result_aggregator.deduplicator.preserve_tenant_isolation = preserve_tenant_isolation
+
+        if enable_score_normalization is not None:
+            self.result_aggregator.enable_score_normalization = enable_score_normalization
+
+        if default_aggregation_method is not None:
+            self.result_aggregator.default_aggregation_method = default_aggregation_method
+
+        current_config = {
+            "preserve_tenant_isolation": self.result_aggregator.preserve_tenant_isolation,
+            "enable_score_normalization": self.result_aggregator.enable_score_normalization,
+            "default_aggregation_method": self.result_aggregator.default_aggregation_method,
+            "multi_tenant_aggregation_enabled": True
+        }
+
+        logger.info("Result aggregation configuration updated", config=current_config)
+        return current_config
+
+    def get_result_aggregation_stats(self) -> Dict:
+        """
+        Get statistics about result aggregation performance.
+
+        Returns:
+            Dict with aggregation statistics
+
+        Task 233.5: Added for aggregation performance monitoring.
+        """
+        if not self.multi_tenant_aggregation_enabled:
+            return {"error": "Multi-tenant aggregation not enabled"}
+
+        stats = {
+            "multi_tenant_aggregation_enabled": True,
+            "preserve_tenant_isolation": self.result_aggregator.preserve_tenant_isolation if self.result_aggregator else None,
+            "enable_score_normalization": self.result_aggregator.enable_score_normalization if self.result_aggregator else None,
+            "default_aggregation_method": self.result_aggregator.default_aggregation_method if self.result_aggregator else None
+        }
+
+        return stats
 
     # Task 233.3: Add optimization management methods
 
