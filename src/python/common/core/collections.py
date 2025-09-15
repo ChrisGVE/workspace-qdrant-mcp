@@ -1505,5 +1505,444 @@ class MemoryCollectionManager:
             "thenlper/gte-base": 768,
             "nomic-ai/nomic-embed-text-v1.5": 768,
         }
-        
+
         return model_sizes.get(self.config.embedding.model, 384)
+
+
+class CollectionSelector:
+    """
+    Enhanced collection selector for multi-tenant workspace collections.
+
+    This class provides intelligent collection selection that distinguishes between
+    memory_collection and code_collection types, integrates with the multi-tenant
+    architecture, and provides robust fallback mechanisms.
+
+    Key Features:
+        - Distinguishes memory vs code collection types
+        - Integrates with WorkspaceCollectionRegistry
+        - Supports project-aware collection discovery
+        - Provides fallback mechanisms for collection selection
+        - Works with metadata-based tenant isolation
+    """
+
+    def __init__(self, client: QdrantClient, config: Config, project_detector=None):
+        """Initialize the collection selector with required dependencies."""
+        self.client = client
+        self.config = config
+        self.project_detector = project_detector
+
+        # Initialize core managers
+        self.workspace_manager = WorkspaceCollectionManager(client, config)
+        self.memory_manager = MemoryCollectionManager(client, config)
+        self.type_classifier = CollectionTypeClassifier(config)
+        self.naming_manager = CollectionNamingManager()
+
+        # Import multi-tenant components
+        from .multitenant_collections import WorkspaceCollectionRegistry, ProjectIsolationManager
+        self.registry = WorkspaceCollectionRegistry()
+        self.isolation_manager = ProjectIsolationManager()
+
+    def select_collections_by_type(
+        self,
+        collection_type: str,
+        project_name: Optional[str] = None,
+        include_shared: bool = True,
+        workspace_types: Optional[List[str]] = None
+    ) -> Dict[str, List[str]]:
+        """
+        Select collections based on type with multi-tenant support.
+
+        Args:
+            collection_type: 'memory_collection' or 'code_collection'
+            project_name: Project context for filtering
+            include_shared: Include shared workspace collections
+            workspace_types: Specific workspace types to include
+
+        Returns:
+            Dict with selected collections categorized by scope
+        """
+        try:
+            result = {
+                'memory_collections': [],
+                'code_collections': [],
+                'shared_collections': [],
+                'project_collections': [],
+                'fallback_collections': []
+            }
+
+            # Auto-detect project if not provided
+            if not project_name and self.project_detector:
+                project_info = self.project_detector.get_project_info()
+                project_name = project_info.get("main_project")
+
+            all_collections = self._get_all_collections_with_metadata()
+
+            if collection_type == 'memory_collection':
+                result['memory_collections'] = self._select_memory_collections(
+                    all_collections, project_name, include_shared
+                )
+
+            elif collection_type == 'code_collection':
+                result['code_collections'] = self._select_code_collections(
+                    all_collections, project_name, workspace_types, include_shared
+                )
+
+            else:
+                # Mixed selection - include both types
+                result['memory_collections'] = self._select_memory_collections(
+                    all_collections, project_name, include_shared
+                )
+                result['code_collections'] = self._select_code_collections(
+                    all_collections, project_name, workspace_types, include_shared
+                )
+
+            # Add shared collections if requested
+            if include_shared:
+                result['shared_collections'] = self._select_shared_collections(
+                    all_collections, workspace_types
+                )
+
+            # Apply fallback mechanism if no collections found
+            if self._is_result_empty(result):
+                result['fallback_collections'] = self._apply_fallback_selection(
+                    collection_type, project_name
+                )
+
+            return result
+
+        except Exception as e:
+            logger.error(f"Collection selection failed: {e}")
+            return self._get_empty_result_with_fallback(collection_type)
+
+    def _select_memory_collections(
+        self,
+        all_collections: List[Dict],
+        project_name: Optional[str],
+        include_shared: bool
+    ) -> List[str]:
+        """Select memory collections with project context."""
+        memory_collections = []
+
+        for collection in all_collections:
+            collection_name = collection['name']
+            collection_info = collection.get('info', {})
+
+            # Check if it's a memory collection
+            if self._is_memory_collection(collection_name, collection_info):
+                # System memory collections (CLI-managed)
+                if collection_name.startswith('__'):
+                    if include_shared:
+                        memory_collections.append(collection_name)
+
+                # Project-specific memory collections
+                elif project_name and collection_info.get('project_name') == project_name:
+                    memory_collections.append(collection_name)
+
+                # Legacy memory collection
+                elif collection_name == 'memory':
+                    if include_shared:
+                        memory_collections.append(collection_name)
+
+        return memory_collections
+
+    def _select_code_collections(
+        self,
+        all_collections: List[Dict],
+        project_name: Optional[str],
+        workspace_types: Optional[List[str]],
+        include_shared: bool
+    ) -> List[str]:
+        """Select code collections with workspace type filtering."""
+        code_collections = []
+        target_types = workspace_types or list(self.registry.get_workspace_types())
+
+        for collection in all_collections:
+            collection_name = collection['name']
+            collection_info = collection.get('info', {})
+
+            # Skip memory collections
+            if self._is_memory_collection(collection_name, collection_info):
+                continue
+
+            # Project-specific collections
+            if project_name:
+                for workspace_type in target_types:
+                    expected_name = f"{project_name}-{workspace_type}"
+
+                    if collection_name == expected_name:
+                        code_collections.append(collection_name)
+                        break
+
+            # Library collections (user-defined with _ prefix)
+            if collection_name.startswith('_') and not collection_name.startswith('__'):
+                if include_shared:
+                    code_collections.append(collection_name)
+
+            # Legacy collections that don't match patterns
+            elif self._is_legacy_code_collection(collection_name, collection_info):
+                if include_shared:
+                    code_collections.append(collection_name)
+
+        return code_collections
+
+    def _select_shared_collections(
+        self,
+        all_collections: List[Dict],
+        workspace_types: Optional[List[str]]
+    ) -> List[str]:
+        """Select shared collections across projects."""
+        shared_collections = []
+        target_types = workspace_types or list(self.registry.get_workspace_types())
+
+        for collection in all_collections:
+            collection_name = collection['name']
+            collection_info = collection.get('info', {})
+
+            # Shared workspace collections like 'scratchbook'
+            if collection_name in target_types:
+                shared_collections.append(collection_name)
+
+            # Collections with shared scope in metadata
+            elif collection_info.get('workspace_scope') == 'shared':
+                shared_collections.append(collection_name)
+
+        return shared_collections
+
+    def _is_memory_collection(self, collection_name: str, collection_info: Dict) -> bool:
+        """Check if collection is a memory collection."""
+        # System memory collections
+        if collection_name.startswith('__'):
+            return True
+
+        # Legacy memory collection
+        if collection_name == 'memory':
+            return True
+
+        # Collections with memory collection type in metadata
+        if collection_info.get('collection_type') == 'memory':
+            return True
+
+        return False
+
+    def _is_legacy_code_collection(self, collection_name: str, collection_info: Dict) -> bool:
+        """Check if collection is a legacy code collection."""
+        # Skip reserved patterns
+        if (collection_name.startswith('_') or
+            collection_name in self.naming_manager.RESERVED_NAMES or
+            collection_name == 'memory'):
+            return False
+
+        # Check if it's a known workspace type
+        if collection_name in self.registry.get_workspace_types():
+            return True
+
+        # Check metadata
+        collection_type = collection_info.get('collection_type', 'legacy')
+        return collection_type not in ['memory', 'system']
+
+    def _apply_fallback_selection(
+        self,
+        collection_type: str,
+        project_name: Optional[str]
+    ) -> List[str]:
+        """Apply fallback mechanism when no collections are found."""
+        fallback_collections = []
+
+        try:
+            # Try to get basic collection list
+            available_collections = self._get_basic_collection_list()
+
+            if collection_type == 'memory_collection':
+                # Fallback to any memory-like collections
+                for collection_name in available_collections:
+                    if ('memory' in collection_name.lower() or
+                        collection_name.startswith('__')):
+                        fallback_collections.append(collection_name)
+
+            elif collection_type == 'code_collection':
+                # Fallback to workspace collections or legacy collections
+                for collection_name in available_collections:
+                    if not self._is_memory_collection(collection_name, {}):
+                        fallback_collections.append(collection_name)
+
+            else:
+                # Mixed fallback - include all non-reserved collections
+                for collection_name in available_collections:
+                    if collection_name not in self.naming_manager.RESERVED_NAMES:
+                        fallback_collections.append(collection_name)
+
+            logger.warning(
+                f"Applied fallback collection selection",
+                collection_type=collection_type,
+                project_name=project_name,
+                fallback_count=len(fallback_collections)
+            )
+
+        except Exception as e:
+            logger.error(f"Fallback selection failed: {e}")
+
+        return fallback_collections
+
+    def _get_all_collections_with_metadata(self) -> List[Dict]:
+        """Get all collections with their metadata information."""
+        collections_with_metadata = []
+
+        try:
+            # Get basic collection list
+            collection_names = self._get_basic_collection_list()
+
+            for collection_name in collection_names:
+                try:
+                    # Get collection info including metadata
+                    collection_info = self.client.get_collection(collection_name)
+
+                    # Extract metadata from collection if available
+                    metadata = {}
+                    if hasattr(collection_info, 'config') and collection_info.config:
+                        metadata = getattr(collection_info.config, 'params', {})
+
+                    collections_with_metadata.append({
+                        'name': collection_name,
+                        'info': metadata
+                    })
+
+                except Exception as e:
+                    # Include collection with minimal info if detailed fetch fails
+                    logger.debug(f"Could not get detailed info for collection {collection_name}: {e}")
+                    collections_with_metadata.append({
+                        'name': collection_name,
+                        'info': {}
+                    })
+
+        except Exception as e:
+            logger.error(f"Failed to get collections with metadata: {e}")
+
+        return collections_with_metadata
+
+    def _get_basic_collection_list(self) -> List[str]:
+        """Get basic list of collection names with error handling."""
+        try:
+            collections = self.client.get_collections()
+            return [collection.name for collection in collections.collections]
+        except Exception as e:
+            logger.error(f"Failed to get basic collection list: {e}")
+            return []
+
+    def _is_result_empty(self, result: Dict[str, List[str]]) -> bool:
+        """Check if selection result is empty."""
+        return all(not collections for collections in result.values())
+
+    def _get_empty_result_with_fallback(self, collection_type: str) -> Dict[str, List[str]]:
+        """Get empty result structure with basic fallback."""
+        return {
+            'memory_collections': [],
+            'code_collections': [],
+            'shared_collections': [],
+            'project_collections': [],
+            'fallback_collections': self._apply_fallback_selection(collection_type, None)
+        }
+
+    def get_searchable_collections(
+        self,
+        project_name: Optional[str] = None,
+        workspace_types: Optional[List[str]] = None,
+        include_memory: bool = False,
+        include_shared: bool = True
+    ) -> List[str]:
+        """
+        Get collections suitable for search operations.
+
+        Args:
+            project_name: Project context
+            workspace_types: Specific workspace types to include
+            include_memory: Whether to include memory collections
+            include_shared: Whether to include shared collections
+
+        Returns:
+            List of collection names suitable for search
+        """
+        searchable = []
+
+        # Get code collections (primary search targets)
+        code_selection = self.select_collections_by_type(
+            'code_collection',
+            project_name=project_name,
+            workspace_types=workspace_types,
+            include_shared=include_shared
+        )
+        searchable.extend(code_selection.get('code_collections', []))
+        searchable.extend(code_selection.get('shared_collections', []))
+
+        # Add memory collections if requested
+        if include_memory:
+            memory_selection = self.select_collections_by_type(
+                'memory_collection',
+                project_name=project_name,
+                include_shared=include_shared
+            )
+            # Only include memory collections marked as searchable in registry
+            memory_collections = memory_selection.get('memory_collections', [])
+            for collection_name in memory_collections:
+                if self._is_memory_collection_searchable(collection_name):
+                    searchable.append(collection_name)
+
+        # Apply fallback if no searchable collections found
+        if not searchable:
+            fallback_selection = self.select_collections_by_type(
+                'mixed',
+                project_name=project_name,
+                workspace_types=workspace_types,
+                include_shared=include_shared
+            )
+            searchable.extend(fallback_selection.get('fallback_collections', []))
+
+        return list(set(searchable))  # Remove duplicates
+
+    def _is_memory_collection_searchable(self, collection_name: str) -> bool:
+        """Check if a memory collection should be included in search."""
+        # System memory collections are generally not searchable
+        if collection_name.startswith('__'):
+            return False
+
+        # Legacy memory collection is searchable
+        if collection_name == 'memory':
+            return True
+
+        # Check registry for memory collection searchability
+        return self.registry.is_searchable('memory')
+
+    def validate_collection_access(
+        self,
+        collection_name: str,
+        operation: str,
+        project_context: Optional[str] = None
+    ) -> Tuple[bool, str]:
+        """
+        Validate access to a collection for a given operation.
+
+        Args:
+            collection_name: Name of the collection
+            operation: Operation to validate ('read', 'write', 'delete')
+            project_context: Project context for validation
+
+        Returns:
+            Tuple of (is_allowed, reason)
+        """
+        try:
+            # Use existing validation logic from managers
+            collection_info = self.naming_manager.get_collection_info(collection_name)
+
+            # Memory collections have special validation rules
+            if self._is_memory_collection(collection_name, {}):
+                return self.memory_manager.validate_memory_collection_access(
+                    collection_name, operation
+                )
+
+            # Use workspace manager validation for code collections
+            return self.workspace_manager.validate_collection_operation(
+                collection_name, operation
+            )
+
+        except Exception as e:
+            logger.error(f"Collection access validation failed: {e}")
+            return False, f"Validation error: {e}"
