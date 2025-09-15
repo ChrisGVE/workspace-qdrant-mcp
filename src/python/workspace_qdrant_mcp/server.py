@@ -1031,6 +1031,88 @@ async def delete_scratchbook_note_tool(note_id: str, project_name: str = None) -
 
 
 @app.tool()
+@monitor_async("search_memories", timeout_warning=2.0, slow_threshold=1.0)
+@with_error_handling(ErrorRecoveryStrategy.database_strategy(), "search_memories")
+async def search_memories_tool(
+    query: str,
+    memory_types: Optional[List[str]] = None,
+    project_name: Optional[str] = None,
+    include_shared: bool = True,
+    limit: int = 10,
+    score_threshold: float = 0.7,
+) -> dict:
+    """Search workspace memories and knowledge with multi-tenant project isolation.
+
+    This tool provides semantic search across workspace memories, notes, and knowledge
+    bases with automatic project context filtering and multi-tenant isolation.
+
+    Args:
+        query: Natural language search query for finding relevant memories
+        memory_types: Specific memory types to search (notes, docs, scratchbook, etc.)
+        project_name: Project name for filtering results (auto-detected if None)
+        include_shared: Include shared memories accessible across projects
+        limit: Maximum number of results to return
+        score_threshold: Minimum relevance score (0.0-1.0)
+
+    Returns:
+        dict: Search results with project-filtered memories and knowledge
+    """
+    if not workspace_client:
+        return {"error": "Workspace client not initialized"}
+
+    try:
+        # Convert parameters
+        limit = int(limit) if isinstance(limit, str) else limit
+        score_threshold = float(score_threshold) if isinstance(score_threshold, str) else score_threshold
+
+        # Validate parameters
+        if limit <= 0:
+            return {"error": "limit must be greater than 0"}
+        if not (0.0 <= score_threshold <= 1.0):
+            return {"error": "score_threshold must be between 0.0 and 1.0"}
+
+    except (ValueError, TypeError) as e:
+        return {"error": f"Invalid parameter types: {e}"}
+
+    try:
+        from .tools.multitenant_search import MultiTenantSearchEngine
+
+        # Use multi-tenant search engine
+        search_engine = MultiTenantSearchEngine(workspace_client)
+
+        # Search across memory collections with project context
+        result = await search_engine.search_workspace_with_project_context(
+            query=query,
+            project_name=project_name,
+            workspace_types=memory_types,
+            mode="hybrid",
+            limit=limit,
+            score_threshold=score_threshold,
+            include_shared=include_shared,
+            cross_project_search=False  # Ensure project isolation
+        )
+
+        # Add memory-specific metadata
+        result["search_type"] = "memories"
+        result["project_isolation_enabled"] = True
+        result["memory_types_searched"] = memory_types
+
+        logger.info(
+            "Memory search completed",
+            query=query[:50] + "..." if len(query) > 50 else query,
+            project_name=project_name,
+            memory_types=memory_types,
+            results_count=result.get("total_results", 0)
+        )
+
+        return result
+
+    except Exception as e:
+        logger.error(f"Memory search failed: {e}")
+        return {"error": f"Memory search failed: {e}"}
+
+
+@app.tool()
 async def research_workspace(
     query: str,
     mode: str = "project",
