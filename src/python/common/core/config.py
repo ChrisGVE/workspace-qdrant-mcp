@@ -149,7 +149,7 @@ class QdrantConfig(BaseModel):
     url: str = "http://localhost:6333"
     api_key: str | None = None
     timeout: int = 30
-    prefer_grpc: bool = False
+    prefer_grpc: bool = True
 
 
 class WorkspaceConfig(BaseModel):
