@@ -10,10 +10,12 @@ This module implements a comprehensive configuration system that supports:
 
 Configuration Hierarchy (highest to lowest priority):
 1. CLI --config parameter
-2. Project .workspace-qdrant.yaml
-3. User ~/.config/workspace-qdrant/config.yaml
-4. System /etc/workspace-qdrant/config.yaml
+2. Project .workspace-qdrant.yaml or .workspace-qdrant.yml
+3. User ~/.config/workspace-qdrant/config.yaml or config.yml
+4. System /etc/workspace-qdrant/config.yaml or config.yml
 5. Built-in defaults
+
+Note: Both .yaml and .yml extensions are supported. When both exist, .yaml takes precedence.
 
 Environment Variable Substitution:
 - Use ${VAR_NAME} syntax in YAML files
@@ -323,22 +325,28 @@ class ConfigLoader:
         if cli_config_path:
             paths.append(Path(cli_config_path).expanduser())
 
-        # 2. Project .workspace-qdrant.yaml
-        project_config = Path.cwd() / ".workspace-qdrant.yaml"
-        if project_config.exists():
-            paths.append(project_config)
+        # 2. Project .workspace-qdrant.yaml or .workspace-qdrant.yml
+        for ext in [".yaml", ".yml"]:
+            project_config = Path.cwd() / f".workspace-qdrant{ext}"
+            if project_config.exists():
+                paths.append(project_config)
+                break  # Use first found file
 
-        # 3. User ~/.config/workspace-qdrant/config.yaml
+        # 3. User ~/.config/workspace-qdrant/config.yaml or config.yml
         user_config_dir = Path.home() / ".config" / "workspace-qdrant"
-        user_config = user_config_dir / "config.yaml"
-        if user_config.exists():
-            paths.append(user_config)
+        for ext in [".yaml", ".yml"]:
+            user_config = user_config_dir / f"config{ext}"
+            if user_config.exists():
+                paths.append(user_config)
+                break  # Use first found file
 
-        # 4. System /etc/workspace-qdrant/config.yaml (Unix-like systems)
+        # 4. System /etc/workspace-qdrant/config.yaml or config.yml (Unix-like systems)
         if os.name != "nt":  # Not Windows
-            system_config = Path("/etc/workspace-qdrant/config.yaml")
-            if system_config.exists():
-                paths.append(system_config)
+            for ext in [".yaml", ".yml"]:
+                system_config = Path(f"/etc/workspace-qdrant/config{ext}")
+                if system_config.exists():
+                    paths.append(system_config)
+                    break  # Use first found file
 
         return paths
 
