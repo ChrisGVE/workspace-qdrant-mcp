@@ -157,7 +157,8 @@ class WorkspaceConfig(BaseModel):
 
     Defines workspace-level settings including global collections that span
     multiple projects, configurable project collections, GitHub integration
-    for project detection, and collection organization preferences.
+    for project detection, collection organization preferences, and optional
+    custom pattern extensions.
 
     Attributes:
         collection_types: Collection types for multi-tenant architecture (e.g., 'docs', 'notes', 'scratchbook')
@@ -165,6 +166,9 @@ class WorkspaceConfig(BaseModel):
         github_user: GitHub username for project ownership detection
         auto_create_collections: Whether to automatically create project collections on startup
         memory_collection_name: Name for the system memory collection with '__' prefix support (default: '__memory')
+        custom_include_patterns: Optional custom file patterns to include beyond hardcoded patterns
+        custom_exclude_patterns: Optional custom file patterns to exclude beyond hardcoded patterns
+        custom_project_indicators: Optional custom project indicators to extend hardcoded detection
         collections: Legacy field for backward compatibility (use collection_types instead)
         collection_suffixes: Legacy field for backward compatibility (use collection_types instead)
 
@@ -174,11 +178,14 @@ class WorkspaceConfig(BaseModel):
         - github_user enables intelligent project name detection
         - auto_create_collections controls whether collections are created automatically
         - when auto_create_collections=false, no collections are created automatically
+        - custom patterns extend the built-in PatternManager patterns without replacing them
 
     Examples:
         - collection_types=["docs", "notes"] → creates multi-tenant collections 'docs', 'notes' (if auto_create_collections=true)
         - Project isolation is achieved via metadata filtering rather than separate collections
         - collections are only created when explicitly configured by user
+        - custom_include_patterns=["**/*.myext"] → includes custom file extensions beyond standard patterns
+        - custom_project_indicators={"my_indicator": {"pattern": "my_file", "confidence": 0.8}}
     """
 
     collection_types: list[str] = []
@@ -188,6 +195,12 @@ class WorkspaceConfig(BaseModel):
     github_user: str | None = None
     auto_create_collections: bool = False
     memory_collection_name: str = "__memory"
+
+    # Custom pattern extensions for PatternManager
+    custom_include_patterns: list[str] = []
+    custom_exclude_patterns: list[str] = []
+    custom_project_indicators: dict[str, Any] = {}
+
     # Legacy field for backward compatibility - will be deprecated
     collections: list[str] | None = None
 
