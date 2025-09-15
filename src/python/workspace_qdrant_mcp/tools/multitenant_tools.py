@@ -26,6 +26,12 @@ from .multitenant_search import (
     search_workspace_with_project_context,
     search_workspace_by_metadata_with_project_context
 )
+from ..validation import (
+    require_project_access,
+    require_collection_access,
+    log_security_events,
+    validate_workspace_client
+)
 
 
 def register_multitenant_tools(app: FastMCP, workspace_client: QdrantWorkspaceClient) -> None:
@@ -38,6 +44,8 @@ def register_multitenant_tools(app: FastMCP, workspace_client: QdrantWorkspaceCl
     """
 
     @app.tool()
+    @require_project_access(project_param="project_name", operation="create_collection", allow_none_project=False)
+    @log_security_events(event_type="create_workspace_collection", include_args=True)
     async def create_workspace_collection(
         project_name: str,
         collection_type: str,
@@ -108,6 +116,8 @@ def register_multitenant_tools(app: FastMCP, workspace_client: QdrantWorkspaceCl
             return {"error": f"Collection creation failed: {e}"}
 
     @app.tool()
+    @require_project_access(project_param="project_name", operation="search", allow_none_project=True)
+    @log_security_events(event_type="search_workspace_by_project", include_args=True)
     async def search_workspace_by_project(
         query: str,
         project_name: Optional[str] = None,
@@ -346,6 +356,8 @@ def register_multitenant_tools(app: FastMCP, workspace_client: QdrantWorkspaceCl
             return {"error": f"Collection listing failed: {e}"}
 
     @app.tool()
+    @require_collection_access(collection_param="collection", project_param="project_name", operation="write", allow_shared=True)
+    @log_security_events(event_type="add_document_with_project_context", include_args=False)
     async def add_document_with_project_context(
         content: str,
         collection: str,
