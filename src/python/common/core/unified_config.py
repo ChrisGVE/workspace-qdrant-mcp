@@ -543,7 +543,6 @@ class UnifiedConfigManager:
                 "max_files_per_batch": config.auto_ingestion.max_files_per_batch,
                 "batch_delay_seconds": config.auto_ingestion.batch_delay_seconds,
                 "max_file_size_mb": config.auto_ingestion.max_file_size_mb,
-                "recursive_depth": config.auto_ingestion.recursive_depth,
                 "debounce_seconds": config.auto_ingestion.debounce_seconds,
             },
         }

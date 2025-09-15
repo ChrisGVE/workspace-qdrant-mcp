@@ -392,7 +392,6 @@ def requires_service_restart(config_key: str) -> bool:
         "auto_ingestion.max_files_per_batch",
         "auto_ingestion.batch_delay_seconds",
         "auto_ingestion.max_file_size_mb",
-        "auto_ingestion.recursive_depth",
         "auto_ingestion.debounce_seconds",
         "host",
         "port",

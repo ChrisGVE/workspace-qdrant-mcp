@@ -280,14 +280,12 @@ class AutoIngestionConfig(BaseModel):
         max_files_per_batch: Maximum files to process simultaneously (default: 5)
         batch_delay_seconds: Delay between processing batches to prevent overload (default: 2.0)
         max_file_size_mb: Maximum file size to process in MB (default: 50)
-        recursive_depth: Maximum directory recursion depth (default: 5)
         debounce_seconds: File change debounce time for watches (default: 10)
 
     Performance Notes:
         - Lower batch sizes reduce memory usage but increase processing time
         - Batch delays prevent overwhelming the embedding service and database
         - File size limits prevent processing of large binaries and media files
-        - Recursive depth limits prevent scanning deep directory structures
     """
 
     enabled: bool = True
@@ -298,7 +296,6 @@ class AutoIngestionConfig(BaseModel):
     max_files_per_batch: int = 5
     batch_delay_seconds: float = 2.0
     max_file_size_mb: int = 50
-    recursive_depth: int = 5
     debounce_seconds: int = 10
 
 
@@ -730,8 +727,6 @@ class Config(BaseSettings):
             self.auto_ingestion.batch_delay_seconds = float(batch_delay)
         if max_size := os.getenv("WORKSPACE_QDRANT_AUTO_INGESTION__MAX_FILE_SIZE_MB"):
             self.auto_ingestion.max_file_size_mb = int(max_size)
-        if recursive_depth := os.getenv("WORKSPACE_QDRANT_AUTO_INGESTION__RECURSIVE_DEPTH"):
-            self.auto_ingestion.recursive_depth = int(recursive_depth)
         if debounce := os.getenv("WORKSPACE_QDRANT_AUTO_INGESTION__DEBOUNCE_SECONDS"):
             self.auto_ingestion.debounce_seconds = int(debounce)
 
@@ -1101,7 +1096,6 @@ class Config(BaseSettings):
             "max_files_per_batch",
             "batch_delay_seconds",
             "max_file_size_mb",
-            "recursive_depth",
             "debounce_seconds"
         ]
 
