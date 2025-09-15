@@ -477,6 +477,10 @@ async def search_workspace_tool(
     mode: str = "hybrid",
     limit: int = 10,
     score_threshold: float = 0.7,
+    project_name: Optional[str] = None,
+    workspace_types: Optional[List[str]] = None,
+    include_shared: bool = True,
+    auto_inject_project_metadata: bool = True,
 ) -> dict:
     """Search across workspace collections with advanced hybrid search.
 
@@ -490,6 +494,10 @@ async def search_workspace_tool(
         mode: Search strategy - 'hybrid' (best), 'dense' (semantic), 'sparse' (keyword)
         limit: Maximum number of results to return (1-100)
         score_threshold: Minimum relevance score (0.0-1.0, default 0.7)
+        project_name: Project name for multi-tenant filtering (auto-detected if None)
+        workspace_types: Specific workspace types to search (notes, docs, code, etc.)
+        include_shared: Include shared workspace resources in search results
+        auto_inject_project_metadata: Enable automatic project metadata filtering
 
     Returns:
         dict: Search results containing:
@@ -540,6 +548,15 @@ async def search_workspace_tool(
     except (ValueError, TypeError) as e:
         return {"error": f"Invalid parameter types: limit must be an integer, score_threshold must be a number. Error: {e}"}
 
+    # Build project context if provided
+    project_context = None
+    if project_name or workspace_types:
+        project_context = {}
+        if project_name:
+            project_context['project_name'] = project_name
+        if workspace_types:
+            project_context['workspace_types'] = workspace_types
+
     logger.debug(
         "Search request received",
         query_length=len(query),
@@ -547,13 +564,24 @@ async def search_workspace_tool(
         mode=mode,
         limit=limit,
         score_threshold=score_threshold,
+        project_context=project_context,
+        include_shared=include_shared,
+        auto_inject_metadata=auto_inject_project_metadata,
     )
 
     with record_operation(
         "search", mode=mode, collections_count=len(collections or [])
     ):
         result = await search_workspace(
-            workspace_client, query, collections, mode, limit, score_threshold
+            client=workspace_client,
+            query=query,
+            collections=collections,
+            mode=mode,
+            limit=limit,
+            score_threshold=score_threshold,
+            project_context=project_context,
+            auto_inject_project_metadata=auto_inject_project_metadata,
+            include_shared=include_shared,
         )
 
     logger.info(
