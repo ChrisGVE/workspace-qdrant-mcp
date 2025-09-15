@@ -280,10 +280,60 @@ class MultiTenantSearchEngine:
         workspace_types: Optional[List[str]],
         include_shared: bool = True
     ) -> List[str]:
-        """Get collections for a specific project context."""
+        """Get collections for a specific project context using enhanced selector."""
         if not project_name:
             return []
 
+        try:
+            # Use enhanced collection selector for better multi-tenant support
+            from common.core.collections import CollectionSelector
+
+            project_detector = getattr(self.client, 'project_detector', None)
+            collection_selector = CollectionSelector(
+                self.client.client, self.client.config, project_detector
+            )
+
+            # Get code collections for the project
+            selection_result = collection_selector.select_collections_by_type(
+                'code_collection',
+                project_name=project_name,
+                workspace_types=workspace_types,
+                include_shared=include_shared
+            )
+
+            # Combine code collections and shared collections
+            project_collections = []
+            project_collections.extend(selection_result.get('code_collections', []))
+            project_collections.extend(selection_result.get('shared_collections', []))
+
+            # Apply fallback if needed
+            if not project_collections:
+                project_collections = selection_result.get('fallback_collections', [])
+
+            logger.debug(
+                f"Enhanced project collection selection",
+                project_name=project_name,
+                workspace_types=workspace_types,
+                selected_count=len(project_collections),
+                collections=project_collections[:3]  # Log first 3 for debugging
+            )
+
+            return project_collections
+
+        except Exception as e:
+            logger.error(f"Enhanced project collection selection failed: {e}")
+            # Fallback to original logic
+            return self._get_project_collections_fallback(
+                project_name, workspace_types, include_shared
+            )
+
+    def _get_project_collections_fallback(
+        self,
+        project_name: Optional[str],
+        workspace_types: Optional[List[str]],
+        include_shared: bool = True
+    ) -> List[str]:
+        """Original project collection selection logic as fallback."""
         try:
             all_collections = self.client.list_collections()
             project_collections = []

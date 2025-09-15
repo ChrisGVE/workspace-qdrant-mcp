@@ -597,6 +597,130 @@ class QdrantWorkspaceClient:
             logger.error("Project context search failed: %s", e)
             return {"error": f"Project context search failed: {e}"}
 
+    def get_enhanced_collection_selector(self):
+        """Get an instance of the enhanced collection selector.
+
+        Returns:
+            CollectionSelector: Configured selector for multi-tenant collections
+        """
+        if not self.initialized:
+            raise RuntimeError("Client must be initialized before using collection selector")
+
+        from .collections import CollectionSelector
+        return CollectionSelector(self.client, self.config, self.project_detector)
+
+    def select_collections_by_type(
+        self,
+        collection_type: str,
+        project_name: Optional[str] = None,
+        include_shared: bool = True,
+        workspace_types: Optional[list[str]] = None
+    ) -> dict[str, list[str]]:
+        """
+        Select collections by type using enhanced multi-tenant selector.
+
+        Args:
+            collection_type: 'memory_collection', 'code_collection', or 'mixed'
+            project_name: Project context (auto-detected if None)
+            include_shared: Include shared workspace collections
+            workspace_types: Specific workspace types to include
+
+        Returns:
+            Dict with selected collections categorized by scope
+        """
+        if not self.initialized:
+            return {
+                'memory_collections': [],
+                'code_collections': [],
+                'shared_collections': [],
+                'project_collections': [],
+                'fallback_collections': []
+            }
+
+        try:
+            selector = self.get_enhanced_collection_selector()
+            return selector.select_collections_by_type(
+                collection_type=collection_type,
+                project_name=project_name,
+                include_shared=include_shared,
+                workspace_types=workspace_types
+            )
+        except Exception as e:
+            logger.error(f"Enhanced collection selection failed: {e}")
+            return {
+                'memory_collections': [],
+                'code_collections': [],
+                'shared_collections': [],
+                'project_collections': [],
+                'fallback_collections': []
+            }
+
+    def get_searchable_collections(
+        self,
+        project_name: Optional[str] = None,
+        workspace_types: Optional[list[str]] = None,
+        include_memory: bool = False,
+        include_shared: bool = True
+    ) -> list[str]:
+        """
+        Get collections suitable for search operations with enhanced selection.
+
+        Args:
+            project_name: Project context (auto-detected if None)
+            workspace_types: Specific workspace types to include
+            include_memory: Whether to include memory collections
+            include_shared: Whether to include shared collections
+
+        Returns:
+            List of collection names suitable for search
+        """
+        if not self.initialized:
+            return []
+
+        try:
+            selector = self.get_enhanced_collection_selector()
+            return selector.get_searchable_collections(
+                project_name=project_name,
+                workspace_types=workspace_types,
+                include_memory=include_memory,
+                include_shared=include_shared
+            )
+        except Exception as e:
+            logger.error(f"Enhanced searchable collection selection failed: {e}")
+            # Fallback to original logic
+            return self.list_collections()
+
+    def validate_collection_access(
+        self,
+        collection_name: str,
+        operation: str,
+        project_context: Optional[str] = None
+    ) -> tuple[bool, str]:
+        """
+        Validate access to a collection for a given operation.
+
+        Args:
+            collection_name: Name of the collection
+            operation: Operation to validate ('read', 'write', 'delete')
+            project_context: Project context for validation
+
+        Returns:
+            Tuple of (is_allowed, reason)
+        """
+        if not self.initialized:
+            return False, "Client not initialized"
+
+        try:
+            selector = self.get_enhanced_collection_selector()
+            return selector.validate_collection_access(
+                collection_name=collection_name,
+                operation=operation,
+                project_context=project_context
+            )
+        except Exception as e:
+            logger.error(f"Collection access validation failed: {e}")
+            return False, f"Validation error: {e}"
+
     async def close(self) -> None:
         """Clean up client connections and release resources.
 
