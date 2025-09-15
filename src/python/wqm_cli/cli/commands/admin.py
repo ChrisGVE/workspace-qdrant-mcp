@@ -420,6 +420,7 @@ async def _config_management(show: bool, validate: bool, path: str | None) -> No
                 print(f"Embedding Model:    {config.embedding.model}")
             if hasattr(config, "workspace"):
                 # Note: Collection prefix field removed as part of multi-tenant architecture
+                pass
 
         if validate:
             print("\nConfiguration Validation")
