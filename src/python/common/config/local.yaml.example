@@ -23,7 +23,7 @@ embedding:
 
 # Personal workspace settings
 workspace:
-  collection_suffixes: []  # Add your custom suffixes here
+  collection_types: []  # Add your custom collection types here
   global_collections: []  # Add your global collections here
   github_user: "your-username"
   collection_prefix: "local_"

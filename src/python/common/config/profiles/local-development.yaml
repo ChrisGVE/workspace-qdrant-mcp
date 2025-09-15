@@ -30,7 +30,7 @@ embedding:
 
 # Workspace - local collections
 workspace:
-  collection_suffixes: []
+  collection_types: []
   global_collections: []
   github_user: null
   collection_prefix: "local_"
