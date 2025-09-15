@@ -254,6 +254,10 @@ if not _STDIO_MODE:
     from .tools.research import research_workspace as research_workspace_impl
     from .tools.scratchbook import ScratchbookManager, update_scratchbook
     from .tools.search import search_collection_by_metadata, search_workspace
+    from .tools.multitenant_search import (
+        search_workspace_with_project_context,
+        search_workspace_by_metadata_with_project_context
+    )
     from .tools.watch_management import WatchToolsManager
     from .tools.simplified_interface import (
         SimplifiedToolsMode,
@@ -745,6 +749,159 @@ async def search_by_metadata_tool(
     return await search_collection_by_metadata(
         workspace_client, collection, metadata_filter, limit
     )
+
+
+@app.tool()
+@monitor_async("search_workspace_with_project_isolation", timeout_warning=2.0, slow_threshold=1.0)
+@with_error_handling(ErrorRecoveryStrategy.database_strategy(), "search_workspace_with_project_isolation")
+async def search_workspace_with_project_isolation_tool(
+    query: str,
+    project_name: Optional[str] = None,
+    collection_types: Optional[List[str]] = None,
+    mode: str = "hybrid",
+    limit: int = 10,
+    score_threshold: float = 0.7,
+    include_shared: bool = True,
+) -> dict:
+    """Search workspace with automatic multi-tenant project isolation.
+
+    This tool provides enhanced project-aware search with automatic context detection
+    and metadata filtering for true multi-tenant isolation. It leverages the new
+    multi-tenant architecture enhancements from tasks 233.1-233.3.
+
+    Args:
+        query: Natural language search query or exact text to find
+        project_name: Specific project to search within (auto-detected if None)
+        collection_types: Specific collection types to search (notes, docs, code, etc.)
+        mode: Search strategy - 'hybrid' (best), 'dense' (semantic), 'sparse' (keyword)
+        limit: Maximum number of results to return (1-100)
+        score_threshold: Minimum relevance score (0.0-1.0, default 0.7)
+        include_shared: Whether to include shared workspace resources in results
+
+    Returns:
+        dict: Enhanced search results with project isolation applied
+    """
+    if not workspace_client:
+        return {"error": "Workspace client not initialized"}
+
+    try:
+        # Convert string parameters to appropriate numeric types if needed
+        limit = int(limit) if isinstance(limit, str) else limit
+        score_threshold = float(score_threshold) if isinstance(score_threshold, str) else score_threshold
+
+        # Validate numeric parameter ranges
+        if limit <= 0:
+            return {"error": "limit must be greater than 0"}
+
+        if not (0.0 <= score_threshold <= 1.0):
+            return {"error": "score_threshold must be between 0.0 and 1.0"}
+    except (ValueError, TypeError) as e:
+        return {"error": f"Invalid parameter types: limit must be an integer, score_threshold must be a number. Error: {e}"}
+
+    logger.debug(
+        "Project-isolated search request received",
+        query_length=len(query),
+        project_name=project_name,
+        collection_types=collection_types,
+        mode=mode,
+        limit=limit,
+        score_threshold=score_threshold,
+        include_shared=include_shared,
+    )
+
+    with record_operation(
+        "search_project_isolated", mode=mode, project=project_name
+    ):
+        result = await search_workspace_with_project_context(
+            client=workspace_client,
+            query=query,
+            project_name=project_name,
+            workspace_types=collection_types,
+            mode=mode,
+            limit=limit,
+            score_threshold=score_threshold,
+            include_shared=include_shared
+        )
+
+    logger.info(
+        "Project-isolated search completed",
+        project_name=project_name or "auto-detected",
+        results_count=result.get("total_results", 0),
+    )
+
+    return result
+
+
+@app.tool()
+@monitor_async("search_workspace_by_metadata_with_project_context", timeout_warning=2.0, slow_threshold=1.0)
+@with_error_handling(ErrorRecoveryStrategy.database_strategy(), "search_workspace_by_metadata_with_project_context")
+async def search_workspace_by_metadata_with_project_context_tool(
+    metadata_filter: dict,
+    project_name: Optional[str] = None,
+    workspace_types: Optional[List[str]] = None,
+    collections: Optional[List[str]] = None,
+    limit: int = 10,
+    include_shared: bool = True,
+) -> dict:
+    """Search workspace collections by metadata with project filtering.
+
+    Performs metadata-based search with automatic project context filtering
+    using the enhanced multi-tenant architecture.
+
+    Args:
+        metadata_filter: Base metadata filter conditions
+        project_name: Project context for filtering (auto-detected if None)
+        workspace_types: Specific workspace types to search (notes, docs, code, etc.)
+        collections: Specific collections to search (overrides project filtering)
+        limit: Maximum number of results to return
+        include_shared: Include shared workspace collections
+
+    Returns:
+        dict: Search results with project metadata filtering applied
+    """
+    if not workspace_client:
+        return {"error": "Workspace client not initialized"}
+
+    try:
+        # Convert string parameters to appropriate numeric types if needed
+        limit = int(limit) if isinstance(limit, str) else limit
+
+        # Validate numeric parameter ranges
+        if limit <= 0:
+            return {"error": "limit must be greater than 0"}
+    except (ValueError, TypeError) as e:
+        return {"error": f"Invalid parameter type: limit must be an integer. Error: {e}"}
+
+    logger.debug(
+        "Project metadata search request received",
+        metadata_filter=metadata_filter,
+        project_name=project_name,
+        workspace_types=workspace_types,
+        collections=collections,
+        limit=limit,
+        include_shared=include_shared,
+    )
+
+    with record_operation(
+        "search_metadata_project_context", project=project_name
+    ):
+        result = await search_workspace_by_metadata_with_project_context(
+            client=workspace_client,
+            metadata_filter=metadata_filter,
+            project_name=project_name,
+            workspace_types=workspace_types,
+            collections=collections,
+            limit=limit,
+            include_shared=include_shared
+        )
+
+    logger.info(
+        "Project metadata search completed",
+        project_name=project_name or "auto-detected",
+        results_count=result.get("total_results", 0),
+    )
+
+    return result
 
 
 @app.tool()
