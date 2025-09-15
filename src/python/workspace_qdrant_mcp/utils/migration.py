@@ -38,7 +38,16 @@ class ConfigMigrator:
         "collection_prefix",
         "max_collections",
         "recursive_depth",
-        "enable_legacy_mode"  # Additional deprecated field
+        "enable_legacy_mode",  # Additional deprecated field
+        # Pattern-related deprecated fields
+        "include_patterns",
+        "exclude_patterns",
+        "file_patterns",
+        "ignore_patterns",
+        "supported_extensions",
+        "file_types",
+        "pattern_priorities",
+        "custom_ecosystems"
     }
 
     # Fields that indicate v2 current schema
@@ -165,6 +174,8 @@ class ConfigMigrator:
             migration_info["steps"] = [
                 "Backup current configuration file",
                 "Transform deprecated fields to new schema structure",
+                "Migrate collection configuration to new format",
+                "Migrate pattern configuration to custom pattern system",
                 "Add missing v2 required sections",
                 "Validate new configuration structure",
                 "Test configuration with workspace-qdrant-mcp"
@@ -476,3 +487,321 @@ class ConfigMigrator:
 
         # Unknown version requires manual review
         return MigrationComplexity.MANUAL
+
+    def migrate_pattern_config(self, config_data: Dict[str, Any]) -> Dict[str, Any]:
+        """Migrate pattern configuration from legacy formats to custom pattern system.
+
+        This method handles the migration of pattern-related configuration fields:
+        1. include_patterns/file_patterns → custom_include_patterns
+        2. exclude_patterns/ignore_patterns → custom_exclude_patterns
+        3. file_types/supported_extensions → include patterns for extensions
+        4. custom_ecosystems → custom_project_indicators
+        5. pattern_priorities → preserved through pattern ordering
+        6. Backward compatibility with existing pattern references
+        7. Integration with PatternManager custom pattern system
+
+        Args:
+            config_data: Dictionary containing configuration data to migrate
+
+        Returns:
+            Dictionary containing migrated configuration with updated pattern settings
+
+        Raises:
+            ValueError: If migration encounters unrecoverable conflicts
+        """
+        if not isinstance(config_data, dict):
+            self.logger.warning("Config data is not a dictionary, cannot migrate patterns")
+            return config_data
+
+        migrated_config = config_data.copy()
+        migration_applied = False
+
+        # Check if we have pattern configuration to migrate
+        pattern_config = migrated_config.get("patterns", {})
+        if not isinstance(pattern_config, dict):
+            pattern_config = {}
+
+        # Also check workspace section for legacy pattern fields
+        workspace_config = migrated_config.get("workspace", {})
+        if not isinstance(workspace_config, dict):
+            workspace_config = {}
+
+        # 1. Handle include_patterns/file_patterns → custom_include_patterns migration
+        legacy_include_fields = ["include_patterns", "file_patterns"]
+        custom_include_patterns = []
+
+        for field in legacy_include_fields:
+            # Check both pattern_config and workspace_config sections
+            for source_config in [pattern_config, workspace_config]:
+                if field in source_config:
+                    patterns = source_config[field]
+                    if isinstance(patterns, list):
+                        validated_patterns = self._validate_and_convert_patterns(patterns, "include")
+                        custom_include_patterns.extend(validated_patterns)
+                        self.logger.info(f"Migrated {field} ({len(validated_patterns)} patterns) to custom_include_patterns")
+                        migration_applied = True
+
+                    # Remove deprecated field
+                    source_config.pop(field, None)
+
+        # 2. Handle exclude_patterns/ignore_patterns → custom_exclude_patterns migration
+        legacy_exclude_fields = ["exclude_patterns", "ignore_patterns"]
+        custom_exclude_patterns = []
+
+        for field in legacy_exclude_fields:
+            for source_config in [pattern_config, workspace_config]:
+                if field in source_config:
+                    patterns = source_config[field]
+                    if isinstance(patterns, list):
+                        validated_patterns = self._validate_and_convert_patterns(patterns, "exclude")
+                        custom_exclude_patterns.extend(validated_patterns)
+                        self.logger.info(f"Migrated {field} ({len(validated_patterns)} patterns) to custom_exclude_patterns")
+                        migration_applied = True
+
+                    # Remove deprecated field
+                    source_config.pop(field, None)
+
+        # 3. Handle file_types/supported_extensions → include patterns
+        extension_fields = ["file_types", "supported_extensions"]
+        for field in extension_fields:
+            for source_config in [pattern_config, workspace_config]:
+                if field in source_config:
+                    extensions = source_config[field]
+                    if isinstance(extensions, list):
+                        extension_patterns = self._convert_extensions_to_patterns(extensions)
+                        custom_include_patterns.extend(extension_patterns)
+                        self.logger.info(f"Migrated {field} ({len(extension_patterns)} patterns) to custom_include_patterns")
+                        migration_applied = True
+
+                    # Remove deprecated field
+                    source_config.pop(field, None)
+
+        # 4. Handle custom_ecosystems → custom_project_indicators migration
+        custom_project_indicators = {}
+        if "custom_ecosystems" in pattern_config:
+            ecosystems = pattern_config["custom_ecosystems"]
+            if isinstance(ecosystems, dict):
+                custom_project_indicators = self._convert_ecosystems_to_indicators(ecosystems)
+                self.logger.info(f"Migrated custom_ecosystems ({len(custom_project_indicators)} ecosystems) to custom_project_indicators")
+                migration_applied = True
+
+            # Remove deprecated field
+            pattern_config.pop("custom_ecosystems", None)
+
+        # 5. Handle pattern_priorities → apply ordering
+        if "pattern_priorities" in pattern_config:
+            priorities = pattern_config["pattern_priorities"]
+            if isinstance(priorities, dict):
+                custom_include_patterns = self._apply_pattern_priorities(custom_include_patterns, priorities, "include")
+                custom_exclude_patterns = self._apply_pattern_priorities(custom_exclude_patterns, priorities, "exclude")
+                self.logger.info("Applied pattern priorities to migrated patterns")
+                migration_applied = True
+
+            # Remove deprecated field
+            pattern_config.pop("pattern_priorities", None)
+
+        # 6. Store migrated patterns in the configuration
+        if migration_applied:
+            if not pattern_config:
+                pattern_config = {}
+
+            if custom_include_patterns:
+                pattern_config["custom_include_patterns"] = custom_include_patterns
+
+            if custom_exclude_patterns:
+                pattern_config["custom_exclude_patterns"] = custom_exclude_patterns
+
+            if custom_project_indicators:
+                pattern_config["custom_project_indicators"] = custom_project_indicators
+
+            # Update the main config
+            migrated_config["patterns"] = pattern_config
+
+            # Clean up empty workspace pattern fields
+            if workspace_config and not any(field in workspace_config for field in self.DEPRECATED_FIELDS):
+                # Keep workspace config if it has non-deprecated fields
+                migrated_config["workspace"] = workspace_config
+
+            self.logger.info("Pattern configuration migration completed successfully")
+
+        return migrated_config
+
+    def _validate_and_convert_patterns(self, patterns: List[Any], pattern_type: str) -> List[str]:
+        """Validate and convert legacy patterns to custom pattern format.
+
+        Args:
+            patterns: List of pattern definitions (strings or dicts)
+            pattern_type: Type of patterns ("include" or "exclude")
+
+        Returns:
+            List of validated pattern strings
+        """
+        validated_patterns = []
+
+        for pattern in patterns:
+            if isinstance(pattern, str):
+                # Simple string pattern - validate and add
+                if self._is_valid_pattern(pattern):
+                    validated_patterns.append(pattern)
+                else:
+                    self.logger.warning(f"Skipping invalid {pattern_type} pattern: {pattern}")
+            elif isinstance(pattern, dict):
+                # Structured pattern - extract pattern string
+                pattern_str = pattern.get("pattern", "")
+                if isinstance(pattern_str, str) and self._is_valid_pattern(pattern_str):
+                    validated_patterns.append(pattern_str)
+                else:
+                    self.logger.warning(f"Skipping invalid structured {pattern_type} pattern: {pattern}")
+            else:
+                self.logger.warning(f"Skipping unsupported {pattern_type} pattern type: {type(pattern).__name__}")
+
+        return validated_patterns
+
+    def _convert_extensions_to_patterns(self, extensions: List[Any]) -> List[str]:
+        """Convert file extensions to glob patterns.
+
+        Args:
+            extensions: List of file extensions
+
+        Returns:
+            List of glob patterns for the extensions
+        """
+        patterns = []
+
+        for ext in extensions:
+            if isinstance(ext, str):
+                # Clean up extension format
+                ext = ext.strip()
+                if not ext:
+                    continue
+
+                # Ensure extension starts with dot
+                if not ext.startswith("."):
+                    ext = f".{ext}"
+
+                # Convert to glob pattern
+                pattern = f"**/*{ext}"
+                patterns.append(pattern)
+
+            else:
+                self.logger.warning(f"Skipping non-string extension: {ext}")
+
+        return patterns
+
+    def _convert_ecosystems_to_indicators(self, ecosystems: Dict[str, Any]) -> Dict[str, Any]:
+        """Convert custom ecosystems to project indicators format.
+
+        Args:
+            ecosystems: Dictionary of custom ecosystem definitions
+
+        Returns:
+            Dictionary of custom project indicators
+        """
+        indicators = {}
+
+        for ecosystem_name, ecosystem_def in ecosystems.items():
+            if not isinstance(ecosystem_def, dict):
+                self.logger.warning(f"Skipping invalid ecosystem definition for {ecosystem_name}")
+                continue
+
+            # Convert ecosystem definition to indicator format
+            indicator = {}
+
+            # Handle required files
+            if "files" in ecosystem_def:
+                indicator["required_files"] = ecosystem_def["files"]
+            elif "required_files" in ecosystem_def:
+                indicator["required_files"] = ecosystem_def["required_files"]
+
+            # Handle optional files
+            if "optional_files" in ecosystem_def:
+                indicator["optional_files"] = ecosystem_def["optional_files"]
+
+            # Handle minimum optional files requirement
+            if "min_optional" in ecosystem_def:
+                indicator["min_optional_files"] = ecosystem_def["min_optional"]
+            elif "min_optional_files" in ecosystem_def:
+                indicator["min_optional_files"] = ecosystem_def["min_optional_files"]
+
+            if indicator:  # Only add if we have valid indicators
+                indicators[ecosystem_name] = indicator
+
+        return indicators
+
+    def _apply_pattern_priorities(self, patterns: List[str], priorities: Dict[str, Any], pattern_type: str) -> List[str]:
+        """Apply priority settings to pattern ordering.
+
+        Args:
+            patterns: List of pattern strings
+            priorities: Dictionary of priority settings
+            pattern_type: Type of patterns ("include" or "exclude")
+
+        Returns:
+            List of patterns ordered by priority
+        """
+        # Get priority settings for this pattern type
+        type_priorities = priorities.get(pattern_type, {})
+        if not isinstance(type_priorities, dict):
+            return patterns
+
+        # Create pattern priority mapping
+        pattern_priority_map = {}
+        for pattern in patterns:
+            # Default priority is 0
+            priority = 0
+
+            # Check if pattern has specific priority
+            for priority_pattern, priority_value in type_priorities.items():
+                if isinstance(priority_value, (int, float)) and self._patterns_match(pattern, priority_pattern):
+                    priority = priority_value
+                    break
+
+            pattern_priority_map[pattern] = priority
+
+        # Sort patterns by priority (higher priority first)
+        sorted_patterns = sorted(patterns, key=lambda p: pattern_priority_map.get(p, 0), reverse=True)
+        return sorted_patterns
+
+    def _is_valid_pattern(self, pattern: str) -> bool:
+        """Validate a glob pattern.
+
+        Args:
+            pattern: Pattern string to validate
+
+        Returns:
+            True if pattern is valid
+        """
+        if not isinstance(pattern, str) or not pattern.strip():
+            return False
+
+        # Basic pattern validation
+        pattern = pattern.strip()
+
+        # Check for invalid characters or patterns
+        invalid_patterns = ["", ".", "..", "/", "\\"]
+        if pattern in invalid_patterns:
+            return False
+
+        # Check for potentially dangerous patterns
+        if pattern.startswith("/") or "\\" in pattern:
+            return False
+
+        return True
+
+    def _patterns_match(self, pattern: str, priority_pattern: str) -> bool:
+        """Check if a pattern matches a priority pattern.
+
+        Args:
+            pattern: Pattern to check
+            priority_pattern: Priority pattern to match against
+
+        Returns:
+            True if patterns match
+        """
+        import fnmatch
+
+        try:
+            return fnmatch.fnmatch(pattern, priority_pattern)
+        except Exception:
+            # Fallback to simple string matching
+            return pattern == priority_pattern
