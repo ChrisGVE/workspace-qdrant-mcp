@@ -488,12 +488,17 @@ async def search_workspace_tool(
     workspace_types: Optional[List[str]] = None,
     include_shared: bool = True,
     auto_inject_project_metadata: bool = True,
+    enable_multi_tenant_aggregation: bool = True,
+    enable_deduplication: bool = True,
 ) -> dict:
-    """Search across workspace collections with advanced hybrid search.
+    """Search across workspace collections with advanced hybrid search and multi-tenant project isolation.
 
     Combines dense semantic embeddings with sparse keyword matching using
     Reciprocal Rank Fusion (RRF) for optimal search quality. Evidence-based
     testing shows 100% precision for exact matches and 94.2% for semantic search.
+
+    Now includes enhanced multi-tenant capabilities with automatic project isolation,
+    result aggregation, and deduplication for the new collection architecture.
 
     Args:
         query: Natural language search query or exact text to find
@@ -505,6 +510,8 @@ async def search_workspace_tool(
         workspace_types: Specific workspace types to search (notes, docs, code, etc.)
         include_shared: Include shared workspace resources in search results
         auto_inject_project_metadata: Enable automatic project metadata filtering
+        enable_multi_tenant_aggregation: Enable advanced result aggregation across collections
+        enable_deduplication: Enable result deduplication for cleaner output
 
     Returns:
         dict: Search results containing:
@@ -589,6 +596,9 @@ async def search_workspace_tool(
             project_context=project_context,
             auto_inject_project_metadata=auto_inject_project_metadata,
             include_shared=include_shared,
+            enable_multi_tenant_aggregation=enable_multi_tenant_aggregation,
+            enable_deduplication=enable_deduplication,
+            score_aggregation_method="max_score",
         )
 
     logger.info(
@@ -738,20 +748,23 @@ async def search_by_metadata_tool(
     limit: int = 10,
     project_name: Optional[str] = None,
     include_shared: bool = True,
-    enhance_with_project_context: bool = False
+    enhance_with_project_context: bool = True
 ) -> dict:
-    """Search collection by metadata filter with optional project context enhancement.
+    """Search collection by metadata filter with multi-tenant project context enhancement.
+
+    Now uses enhanced project context filtering by default to provide proper multi-tenant
+    isolation in the new collection architecture.
 
     Args:
         collection: Target collection name to search
         metadata_filter: Metadata filter conditions to apply
         limit: Maximum number of results to return
-        project_name: Project name for enhanced filtering (when enhance_with_project_context=True)
+        project_name: Project name for enhanced filtering (auto-detected if None)
         include_shared: Include shared workspace resources in enhanced mode
-        enhance_with_project_context: Use enhanced multi-tenant search with project context
+        enhance_with_project_context: Use enhanced multi-tenant search with project context (default: True)
 
     Returns:
-        dict: Search results with metadata filtering applied
+        dict: Search results with metadata filtering and project isolation applied
     """
     if not workspace_client:
         return {"error": "Workspace client not initialized"}
@@ -766,7 +779,7 @@ async def search_by_metadata_tool(
     except (ValueError, TypeError) as e:
         return {"error": f"Invalid parameter type: limit must be an integer. Error: {e}"}
 
-    # Use enhanced multi-tenant search if requested
+    # Use enhanced multi-tenant search by default for proper project isolation
     if enhance_with_project_context:
         return await search_workspace_by_metadata_with_project_context(
             client=workspace_client,
@@ -777,7 +790,7 @@ async def search_by_metadata_tool(
             include_shared=include_shared
         )
 
-    # Use original metadata search for backward compatibility
+    # Fallback to original metadata search for backward compatibility
     return await search_collection_by_metadata(
         workspace_client, collection, metadata_filter, limit
     )
@@ -1086,8 +1099,27 @@ async def hybrid_search_advanced_tool(
     sparse_weight: float = 1.0,
     limit: int = 10,
     score_threshold: float = 0.0,
+    project_name: Optional[str] = None,
+    include_shared: bool = True,
+    enable_project_isolation: bool = True,
 ) -> dict:
-    """Advanced hybrid search with configurable fusion methods."""
+    """Advanced hybrid search with configurable fusion methods and multi-tenant project isolation.
+
+    Args:
+        query: Natural language search query or exact text to find
+        collection: Target collection name to search
+        fusion_method: Fusion method for combining dense and sparse results ('rrf', 'linear')
+        dense_weight: Weight for dense (semantic) search results
+        sparse_weight: Weight for sparse (keyword) search results
+        limit: Maximum number of results to return
+        score_threshold: Minimum relevance score (0.0-1.0)
+        project_name: Project name for multi-tenant filtering (auto-detected if None)
+        include_shared: Include shared workspace resources in search results
+        enable_project_isolation: Enable automatic project metadata filtering
+
+    Returns:
+        dict: Advanced search results with project isolation applied
+    """
     if not workspace_client:
         return {"error": "Workspace client not initialized"}
 
@@ -1107,13 +1139,41 @@ async def hybrid_search_advanced_tool(
         # Validate numeric parameter ranges
         if dense_weight < 0 or sparse_weight < 0:
             return {"error": "dense_weight and sparse_weight must be non-negative"}
-        
+
         if limit <= 0:
             return {"error": "limit must be greater than 0"}
-            
+
         if not (0.0 <= score_threshold <= 1.0):
             return {"error": "score_threshold must be between 0.0 and 1.0"}
 
+        # Use enhanced multi-tenant search if project isolation is enabled
+        if enable_project_isolation:
+            from .tools.multitenant_search import MultiTenantSearchEngine
+
+            search_engine = MultiTenantSearchEngine(workspace_client)
+
+            # Use single collection search with project context
+            result = await search_engine.search_workspace_with_project_context(
+                query=query,
+                project_name=project_name,
+                collections=[collection],
+                mode="hybrid",
+                limit=limit,
+                score_threshold=score_threshold,
+                include_shared=include_shared
+            )
+
+            # Add advanced search metadata
+            result["advanced_search_config"] = {
+                "fusion_method": fusion_method,
+                "dense_weight": dense_weight,
+                "sparse_weight": sparse_weight,
+                "project_isolation_enabled": True
+            }
+
+            return result
+
+        # Fallback to original hybrid search without project isolation
         # Validate collection exists
         available_collections = workspace_client.list_collections()
         if collection not in available_collections:
