@@ -252,6 +252,7 @@ if not _STDIO_MODE:
     )
     from .tools.memory import register_memory_tools
     from .tools.document_memory_tools import register_document_memory_tools
+    from .tools.multitenant_tools import register_multitenant_tools
     from .tools.research import research_workspace as research_workspace_impl
     from .tools.scratchbook import ScratchbookManager, update_scratchbook
     from .tools.search import search_collection_by_metadata, search_workspace
@@ -3606,6 +3607,19 @@ async def initialize_workspace(config_file: Optional[str] = None) -> None:
         register_document_memory_tools(app, workspace_client)
     else:
         logger.warning("Document memory tools not available - import failed")
+
+    # Register multi-tenant workspace tools
+    if register_multitenant_tools:
+        logger.debug("Registering multi-tenant workspace tools")
+        register_multitenant_tools(app, workspace_client)
+        logger.info(
+            "Multi-tenant tools registered",
+            tools=["create_workspace_collection", "search_workspace_by_project",
+                   "list_workspace_collections_by_project", "add_document_with_project_context",
+                   "initialize_project_workspace_collections", "get_workspace_collection_info"]
+        )
+    else:
+        logger.warning("Multi-tenant tools not available - import failed")
 
     # Start background health monitoring
     logger.debug("Starting background health monitoring")
