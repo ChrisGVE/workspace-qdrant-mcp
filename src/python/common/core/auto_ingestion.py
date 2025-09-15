@@ -51,45 +51,110 @@ from ..utils.project_detection import ProjectDetector
 # Import WatchToolsManager only when needed to prevent circular imports
 # This will be imported in the constructor when actually used
 
+# Import PatternManager for intelligent pattern management
+try:
+    from .pattern_manager import PatternManager
+    PATTERN_MANAGER_AVAILABLE = True
+except ImportError:
+    PATTERN_MANAGER_AVAILABLE = False
+    logger.debug("PatternManager not available - using hardcoded patterns")
+
 # logger imported from loguru
 
 
 class ProjectPatterns:
-    """Project-specific file patterns for automatic ingestion."""
+    """Project-specific file patterns for automatic ingestion.
 
-    # Common documentation and text files
-    COMMON_DOC_PATTERNS = [
-        "*.md",
-        "*.txt",
-        "*.rst",
-        "*.pdf",
-        "*.epub",
-        "*.docx",
-        "*.odt",
-        "*.rtf",
-    ]
+    This class now uses PatternManager when available, falling back to
+    hardcoded patterns for compatibility.
+    """
 
-    # Source code patterns by language/framework
-    SOURCE_PATTERNS = {
-        "python": ["*.py", "*.pyx", "*.pyi"],
-        "javascript": ["*.js", "*.jsx", "*.mjs"],
-        "typescript": ["*.ts", "*.tsx", "*.d.ts"],
-        "web": ["*.html", "*.css", "*.scss", "*.sass", "*.vue"],
-        "rust": ["*.rs"],
-        "go": ["*.go"],
-        "java": ["*.java", "*.kt", "*.scala"],
-        "cpp": ["*.cpp", "*.cxx", "*.cc", "*.c", "*.h", "*.hpp"],
-        "csharp": ["*.cs", "*.fs", "*.vb"],
-        "ruby": ["*.rb", "*.erb"],
-        "php": ["*.php", "*.phtml"],
-        "yaml": ["*.yml", "*.yaml"],
-        "json": ["*.json", "*.jsonc"],
-        "xml": ["*.xml", "*.xsd", "*.xsl"],
-        "config": ["*.ini", "*.cfg", "*.conf", "*.toml", "*.properties"],
-        "shell": ["*.sh", "*.bash", "*.zsh", "*.fish"],
-        "sql": ["*.sql", "*.ddl", "*.dml"],
-        "docker": ["Dockerfile*", "*.dockerfile", "docker-compose*.yml"],
-    }
+    @classmethod
+    def get_common_doc_patterns(cls) -> List[str]:
+        """Get common documentation file patterns."""
+        if PATTERN_MANAGER_AVAILABLE:
+            try:
+                pattern_manager = PatternManager()
+                # TODO: In future, get these from PatternManager's document patterns
+                # For now, return compatible patterns
+                return [
+                    "*.md", "*.txt", "*.rst", "*.pdf", "*.epub",
+                    "*.docx", "*.odt", "*.rtf"
+                ]
+            except Exception as e:
+                logger.debug(f"Failed to use PatternManager for doc patterns: {e}")
+
+        # Fallback hardcoded patterns
+        return [
+            "*.md", "*.txt", "*.rst", "*.pdf", "*.epub",
+            "*.docx", "*.odt", "*.rtf",
+        ]
+
+    @classmethod
+    def get_source_patterns_for_language(cls, language: str) -> List[str]:
+        """Get source file patterns for a specific language."""
+        if PATTERN_MANAGER_AVAILABLE:
+            try:
+                pattern_manager = PatternManager()
+                # TODO: In future, get language-specific patterns from PatternManager
+                # For now, return compatible patterns from fallback
+                pass
+            except Exception as e:
+                logger.debug(f"Failed to use PatternManager for language patterns: {e}")
+
+        # Fallback hardcoded patterns by language
+        source_patterns = {
+            "python": ["*.py", "*.pyx", "*.pyi"],
+            "javascript": ["*.js", "*.jsx", "*.mjs"],
+            "typescript": ["*.ts", "*.tsx", "*.d.ts"],
+            "web": ["*.html", "*.css", "*.scss", "*.sass", "*.vue"],
+            "rust": ["*.rs"],
+            "go": ["*.go"],
+            "java": ["*.java", "*.kt", "*.scala"],
+            "cpp": ["*.cpp", "*.cxx", "*.cc", "*.c", "*.h", "*.hpp"],
+            "csharp": ["*.cs", "*.fs", "*.vb"],
+            "ruby": ["*.rb", "*.erb"],
+            "php": ["*.php", "*.phtml"],
+            "yaml": ["*.yml", "*.yaml"],
+            "json": ["*.json", "*.jsonc"],
+            "xml": ["*.xml", "*.xsd", "*.xsl"],
+            "config": ["*.ini", "*.cfg", "*.conf", "*.toml", "*.properties"],
+            "shell": ["*.sh", "*.bash", "*.zsh", "*.fish"],
+            "sql": ["*.sql", "*.ddl", "*.dml"],
+            "docker": ["Dockerfile*", "*.dockerfile", "docker-compose*.yml"],
+        }
+        return source_patterns.get(language, [])
+
+    @classmethod
+    def get_all_source_patterns(cls) -> Dict[str, List[str]]:
+        """Get all source patterns by language (for backward compatibility)."""
+        if PATTERN_MANAGER_AVAILABLE:
+            try:
+                pattern_manager = PatternManager()
+                # TODO: In future, get all language patterns from PatternManager
+                # For now, build from individual language queries
+                pass
+            except Exception as e:
+                logger.debug(f"Failed to use PatternManager for all patterns: {e}")
+
+        # Fallback: build from individual language calls
+        languages = [
+            "python", "javascript", "typescript", "web", "rust", "go",
+            "java", "cpp", "csharp", "ruby", "php", "yaml", "json",
+            "xml", "config", "shell", "sql", "docker"
+        ]
+        return {lang: cls.get_source_patterns_for_language(lang) for lang in languages}
+
+    # Backward compatibility properties
+    @property
+    def COMMON_DOC_PATTERNS(self) -> List[str]:
+        """Backward compatibility property."""
+        return self.get_common_doc_patterns()
+
+    @property
+    def SOURCE_PATTERNS(self) -> Dict[str, List[str]]:
+        """Backward compatibility property."""
+        return self.get_all_source_patterns()
 
     # Universal ignore patterns
     IGNORE_PATTERNS = [
@@ -181,7 +246,7 @@ class ProjectPatterns:
 
         # Always include common documentation if enabled
         if config.include_common_files:
-            patterns.extend(cls.COMMON_DOC_PATTERNS)
+            patterns.extend(cls.get_common_doc_patterns())
 
         # Include source patterns if enabled
         if config.include_source_files:
@@ -189,8 +254,9 @@ class ProjectPatterns:
             detected_languages = cls._detect_project_languages(project_path)
 
             for language in detected_languages:
-                if language in cls.SOURCE_PATTERNS:
-                    patterns.extend(cls.SOURCE_PATTERNS[language])
+                language_patterns = cls.get_source_patterns_for_language(language)
+                if language_patterns:
+                    patterns.extend(language_patterns)
 
         return list(set(patterns))  # Remove duplicates
 
