@@ -80,6 +80,10 @@ from .metadata_optimization import (
     QueryOptimizer,
     PerformanceTracker
 )
+from .performance_monitoring import (
+    MetadataFilteringPerformanceMonitor,
+    PerformanceBaseline
+)
 from collections import defaultdict
 from dataclasses import dataclass
 
@@ -868,13 +872,22 @@ class HybridSearchEngine:
     Task 233.5: Enhanced with multi-tenant result aggregation capabilities.
     """
 
-    def __init__(self, client: QdrantClient, enable_optimizations: bool = True, enable_multi_tenant_aggregation: bool = True) -> None:
-        """Initialize hybrid search engine with optimization and aggregation features.
+    def __init__(
+        self,
+        client: QdrantClient,
+        enable_optimizations: bool = True,
+        enable_multi_tenant_aggregation: bool = True,
+        enable_performance_monitoring: bool = True,
+        performance_baseline_config: Optional[Dict] = None
+    ) -> None:
+        """Initialize hybrid search engine with optimization, aggregation, and performance monitoring features.
 
         Args:
             client: Qdrant client for vector database operations
             enable_optimizations: Whether to enable advanced filtering optimizations
             enable_multi_tenant_aggregation: Whether to enable multi-tenant result aggregation
+            enable_performance_monitoring: Whether to enable comprehensive performance monitoring
+            performance_baseline_config: Optional performance baseline configuration
         """
         self.client = client
         self.rrf_ranker = RRFFusionRanker()
@@ -902,23 +915,28 @@ class HybridSearchEngine:
             self.index_manager = MetadataIndexManager(client)
             self.query_optimizer = QueryOptimizer(target_response_time=3.0)
             self.performance_tracker = PerformanceTracker(target_response_time=3.0)
-
-            logger.info(
-                "Initialized hybrid search engine with full optimization and aggregation support",
-                optimizations_enabled=True,
-                multi_tenant_aggregation_enabled=enable_multi_tenant_aggregation
-            )
         else:
             self.filter_optimizer = None
             self.index_manager = None
             self.query_optimizer = None
             self.performance_tracker = None
 
-            logger.info(
-                "Initialized hybrid search engine with basic multi-tenant support",
-                optimizations_enabled=False,
-                multi_tenant_aggregation_enabled=enable_multi_tenant_aggregation
+        # Task 233.6: Initialize comprehensive performance monitoring system
+        self.performance_monitoring_enabled = enable_performance_monitoring
+        if enable_performance_monitoring:
+            self.performance_monitor = MetadataFilteringPerformanceMonitor(
+                search_engine=self,
+                baseline_config=performance_baseline_config
             )
+        else:
+            self.performance_monitor = None
+
+        logger.info(
+            "Initialized hybrid search engine with comprehensive monitoring support",
+            optimizations_enabled=enable_optimizations,
+            multi_tenant_aggregation_enabled=enable_multi_tenant_aggregation,
+            performance_monitoring_enabled=enable_performance_monitoring
+        )
 
     async def hybrid_search(
         self,
@@ -957,7 +975,7 @@ class HybridSearchEngine:
             Dictionary with fused results, search metadata, and performance metrics
         """
         # Task 233.3: Start performance tracking
-        search_start_time = time.time() if self.optimizations_enabled else None
+        search_start_time = time.time() if (self.optimizations_enabled or self.performance_monitoring_enabled) else None
 
         logger.info(
             "Starting optimized hybrid search",
@@ -1071,12 +1089,12 @@ class HybridSearchEngine:
             # Limit final results
             search_results["fused_results"] = fused_results[:limit]
 
-            # Task 233.3: Track performance and add optimization metadata
-            if self.optimizations_enabled and search_start_time:
+            # Task 233.3 & 233.6: Track performance and add monitoring metadata
+            if (self.optimizations_enabled or self.performance_monitoring_enabled) and search_start_time:
                 total_search_time = (time.time() - search_start_time) * 1000  # Convert to ms
 
-                # Track performance
-                if self.performance_tracker:
+                # Track performance with existing optimization tracker
+                if self.optimizations_enabled and self.performance_tracker:
                     self.performance_tracker.record_measurement(
                         operation="hybrid_search",
                         response_time=total_search_time,
@@ -1088,7 +1106,7 @@ class HybridSearchEngine:
                         }
                     )
 
-                if self.query_optimizer:
+                if self.optimizations_enabled and self.query_optimizer:
                     query_analysis = self.query_optimizer.track_query_performance(
                         query_type="hybrid",
                         response_time=total_search_time,
@@ -1096,16 +1114,34 @@ class HybridSearchEngine:
                         has_filters=enhanced_filter is not None
                     )
 
-                # Add performance metadata to results
+                # Task 233.6: Record performance monitoring metrics
+                if self.performance_monitoring_enabled and self.performance_monitor:
+                    # Record real-time metric for dashboard
+                    self.performance_monitor.dashboard.record_real_time_metric(
+                        operation_type="hybrid_search",
+                        response_time=total_search_time,
+                        metadata={
+                            "collection": collection_name,
+                            "fusion_method": fusion_method,
+                            "has_filters": enhanced_filter is not None,
+                            "cache_hit": cache_hit,
+                            "result_count": len(search_results["fused_results"]),
+                            "project_context": str(project_context) if project_context else None
+                        }
+                    )
+
+                # Add comprehensive performance metadata to results
                 search_results["performance"] = {
                     "response_time_ms": total_search_time,
                     "cache_hit": cache_hit,
-                    "target_met": total_search_time <= 3.0,
-                    "optimizations_used": True
+                    "target_met": total_search_time <= self.performance_monitor.baseline.target_response_time if self.performance_monitor else total_search_time <= 3.0,
+                    "baseline_response_time": self.performance_monitor.baseline.target_response_time if self.performance_monitor else 2.18,
+                    "optimizations_used": self.optimizations_enabled,
+                    "performance_monitoring_enabled": self.performance_monitoring_enabled
                 }
 
                 logger.info(
-                    "Optimized hybrid search completed",
+                    "Hybrid search completed with monitoring",
                     collection=collection_name,
                     dense_count=len(search_results["dense_results"]),
                     sparse_count=len(search_results["sparse_results"]),
@@ -1113,7 +1149,8 @@ class HybridSearchEngine:
                     fusion_method=fusion_method,
                     response_time_ms=total_search_time,
                     cache_hit=cache_hit,
-                    target_met=total_search_time <= 3.0
+                    target_met=search_results["performance"]["target_met"],
+                    monitoring_enabled=self.performance_monitoring_enabled
                 )
             else:
                 logger.info(
@@ -1790,7 +1827,165 @@ class HybridSearchEngine:
         Returns:
             List of recent performance alerts
         """
-        if not self.optimizations_enabled or not self.performance_tracker:
-            return []
+        alerts = []
 
-        return self.performance_tracker.get_recent_alerts(hours)
+        # Get alerts from optimization tracker
+        if self.optimizations_enabled and self.performance_tracker:
+            alerts.extend(self.performance_tracker.get_recent_alerts(hours))
+
+        # Get alerts from performance monitoring system
+        if self.performance_monitoring_enabled and self.performance_monitor:
+            accuracy_alerts = self.performance_monitor.accuracy_tracker.get_recent_accuracy_alerts(hours)
+            alerts.extend(accuracy_alerts)
+
+        return alerts
+
+    # Task 233.6: Add performance monitoring methods
+
+    def get_performance_monitoring_status(self) -> Dict:
+        """Get comprehensive performance monitoring status.
+
+        Returns:
+            Dict with monitoring status and metrics
+        """
+        if not self.performance_monitoring_enabled or not self.performance_monitor:
+            return {"error": "Performance monitoring not enabled"}
+
+        return self.performance_monitor.get_performance_status()
+
+    def get_performance_dashboard_data(self) -> Dict:
+        """Get real-time dashboard data.
+
+        Returns:
+            Dict with dashboard data for visualization
+        """
+        if not self.performance_monitoring_enabled or not self.performance_monitor:
+            return {"error": "Performance monitoring not enabled"}
+
+        return self.performance_monitor.dashboard.get_real_time_dashboard()
+
+    async def run_performance_benchmark(
+        self,
+        collection_name: str,
+        query_count: int = 50,
+        iterations: int = 10
+    ) -> Optional[Dict]:
+        """Run performance benchmark against baselines.
+
+        Args:
+            collection_name: Collection to benchmark
+            query_count: Number of test queries
+            iterations: Iterations per query
+
+        Returns:
+            Benchmark results or None if monitoring disabled
+        """
+        if not self.performance_monitoring_enabled or not self.performance_monitor:
+            logger.warning("Cannot run benchmark - performance monitoring not enabled")
+            return None
+
+        # Generate test queries (simplified for this integration)
+        import random
+        test_queries = []
+        for i in range(query_count):
+            query = {
+                "embeddings": {
+                    "dense": [random.gauss(0, 1) for _ in range(384)],
+                    "sparse": {"indices": [1, 5, 10], "values": [0.8, 0.6, 0.4]}
+                },
+                "project_context": {
+                    "project_name": f"test_project_{i % 3}",
+                    "collection_type": "project"
+                },
+                "expected_results": [f"result_{j}" for j in range(5)]
+            }
+            test_queries.append(query)
+
+        # Run benchmark
+        result = await self.performance_monitor.benchmark_suite.run_metadata_filtering_benchmark(
+            collection_name=collection_name,
+            test_queries=test_queries,
+            iterations=iterations
+        )
+
+        # Convert to dict for JSON serialization
+        return {
+            "benchmark_id": result.benchmark_id,
+            "timestamp": result.timestamp.isoformat(),
+            "test_name": result.test_name,
+            "avg_response_time": result.avg_response_time,
+            "p95_response_time": result.p95_response_time,
+            "avg_precision": result.avg_precision,
+            "avg_recall": result.avg_recall,
+            "passes_baseline": result.passes_baseline(self.performance_monitor.baseline),
+            "performance_regression": result.performance_regression,
+            "accuracy_regression": result.accuracy_regression,
+            "baseline_comparison": result.baseline_comparison
+        }
+
+    def record_search_accuracy(
+        self,
+        query_id: str,
+        query_text: str,
+        collection_name: str,
+        search_results: List,
+        expected_results: List,
+        tenant_context: Optional[str] = None
+    ) -> Optional[Dict]:
+        """Record search accuracy measurement for monitoring.
+
+        Args:
+            query_id: Unique query identifier
+            query_text: Query text
+            collection_name: Collection searched
+            search_results: Actual search results
+            expected_results: Expected results
+            tenant_context: Optional tenant context
+
+        Returns:
+            Accuracy measurement or None if monitoring disabled
+        """
+        if not self.performance_monitoring_enabled or not self.performance_monitor:
+            return None
+
+        measurement = self.performance_monitor.accuracy_tracker.record_search_accuracy(
+            query_id=query_id,
+            query_text=query_text,
+            collection_name=collection_name,
+            search_results=search_results,
+            expected_results=expected_results,
+            tenant_context=tenant_context
+        )
+
+        return {
+            "query_id": measurement.query_id,
+            "precision": measurement.precision,
+            "recall": measurement.recall,
+            "f1_score": measurement.f1_score,
+            "timestamp": measurement.timestamp.isoformat()
+        }
+
+    async def export_performance_report(self, filepath: Optional[str] = None) -> Optional[Dict]:
+        """Export comprehensive performance report.
+
+        Args:
+            filepath: Optional output file path
+
+        Returns:
+            Export result or None if monitoring disabled
+        """
+        if not self.performance_monitoring_enabled or not self.performance_monitor:
+            return None
+
+        return self.performance_monitor.dashboard.export_performance_report(filepath)
+
+    def get_baseline_configuration(self) -> Optional[Dict]:
+        """Get current performance baseline configuration.
+
+        Returns:
+            Baseline configuration or None if monitoring disabled
+        """
+        if not self.performance_monitoring_enabled or not self.performance_monitor:
+            return None
+
+        return self.performance_monitor.baseline.to_dict()
