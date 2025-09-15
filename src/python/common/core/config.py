@@ -432,6 +432,12 @@ class Config(BaseSettings):
     def _process_yaml_structure(self, yaml_data: dict[str, Any]) -> dict[str, Any]:
         """Process YAML data structure to match Pydantic model structure.
 
+        Handles backwards compatibility for deprecated configuration fields:
+        - collection_suffixes -> collection_types (with migration warning)
+        - recursive_depth (deprecated, show warning)
+        - collection_prefix (deprecated, show warning)
+        - max_collections (deprecated, show warning)
+
         Args:
             yaml_data: Raw YAML data dictionary
 
@@ -449,10 +455,14 @@ class Config(BaseSettings):
             elif key == "embedding" and isinstance(value, dict):
                 processed["embedding"] = EmbeddingConfig(**value)
             elif key == "workspace" and isinstance(value, dict):
-                processed["workspace"] = WorkspaceConfig(**value)
+                # Handle backwards compatibility for workspace config
+                workspace_config = self._migrate_workspace_config(value)
+                processed["workspace"] = WorkspaceConfig(**workspace_config)
             elif key == "auto_ingestion" and isinstance(value, dict):
-                # Filter auto_ingestion to only include server-compatible fields
-                filtered_auto_ingestion = self._filter_auto_ingestion_config(value)
+                # Handle backwards compatibility for auto_ingestion config
+                auto_ingestion_config = self._migrate_auto_ingestion_config(value)
+                # Filter to only include server-compatible fields
+                filtered_auto_ingestion = self._filter_auto_ingestion_config(auto_ingestion_config)
                 processed["auto_ingestion"] = AutoIngestionConfig(**filtered_auto_ingestion)
             elif key == "grpc" and isinstance(value, dict):
                 processed["grpc"] = GrpcConfig(**value)
@@ -1105,3 +1115,78 @@ class Config(BaseSettings):
                 filtered[field] = auto_ingestion_config[field]
 
         return filtered
+
+    def _migrate_workspace_config(self, workspace_config: dict[str, Any]) -> dict[str, Any]:
+        """Handle backwards compatibility for workspace configuration.
+
+        Migrates deprecated field names and shows warnings for removed fields:
+        - collection_suffixes -> collection_types (with warning)
+        - collection_prefix (deprecated, show warning)
+        - max_collections (deprecated, show warning)
+
+        Args:
+            workspace_config: Raw workspace configuration from YAML
+
+        Returns:
+            dict: Migrated workspace configuration
+        """
+        migrated = workspace_config.copy()
+
+        # Handle collection_suffixes -> collection_types migration
+        if "collection_suffixes" in workspace_config:
+            collection_suffixes = workspace_config["collection_suffixes"]
+            if "collection_types" not in workspace_config:
+                # Migrate collection_suffixes to collection_types
+                migrated["collection_types"] = collection_suffixes
+                logger.warning(
+                    "DEPRECATED: 'collection_suffixes' has been renamed to 'collection_types'. "
+                    "Please update your configuration file. The old field will be removed in a future version."
+                )
+            else:
+                # Both fields present - use collection_types and warn about collection_suffixes
+                logger.warning(
+                    "DEPRECATED: 'collection_suffixes' is deprecated and ignored. "
+                    "Using 'collection_types' instead. Please remove 'collection_suffixes' from your configuration."
+                )
+            # Remove the deprecated field
+            migrated.pop("collection_suffixes", None)
+
+        # Handle deprecated fields with warnings
+        deprecated_fields = {
+            "collection_prefix": "Collection prefix is no longer supported. Collections are now managed through collection_types.",
+            "max_collections": "Collection limits are no longer enforced. This setting is ignored."
+        }
+
+        for deprecated_field, message in deprecated_fields.items():
+            if deprecated_field in workspace_config:
+                logger.warning(f"DEPRECATED: '{deprecated_field}' is deprecated. {message}")
+                # Remove the deprecated field
+                migrated.pop(deprecated_field, None)
+
+        return migrated
+
+    def _migrate_auto_ingestion_config(self, auto_ingestion_config: dict[str, Any]) -> dict[str, Any]:
+        """Handle backwards compatibility for auto_ingestion configuration.
+
+        Shows warnings for deprecated fields:
+        - recursive_depth (deprecated, show warning)
+
+        Args:
+            auto_ingestion_config: Raw auto_ingestion configuration from YAML
+
+        Returns:
+            dict: Migrated auto_ingestion configuration
+        """
+        migrated = auto_ingestion_config.copy()
+
+        # Handle recursive_depth deprecation
+        if "recursive_depth" in auto_ingestion_config:
+            logger.warning(
+                "DEPRECATED: 'recursive_depth' in auto_ingestion configuration is no longer used. "
+                "Directory scanning now uses unlimited depth with intelligent filtering. "
+                "Please remove this setting from your configuration."
+            )
+            # Remove the deprecated field
+            migrated.pop("recursive_depth", None)
+
+        return migrated
