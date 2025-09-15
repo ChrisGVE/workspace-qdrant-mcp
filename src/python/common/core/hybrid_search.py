@@ -59,7 +59,8 @@ Task 233.1: Enhanced for multi-tenant metadata-based filtering with project isol
 # Task 215: Replace direct logging import with unified logging system
 # import logging  # MIGRATED to unified system
 from collections import defaultdict
-from typing import Optional, Union
+from typing import Optional, Union, Dict, List
+import time
 
 from qdrant_client import QdrantClient
 from qdrant_client.http import models
@@ -72,6 +73,12 @@ from .multitenant_collections import (
     ProjectIsolationManager,
     WorkspaceCollectionRegistry,
     ProjectMetadata
+)
+from .metadata_optimization import (
+    FilterOptimizer,
+    MetadataIndexManager,
+    QueryOptimizer,
+    PerformanceTracker
 )
 
 # Task 215: Use unified logging system instead of logging.getLogger(__name__)
@@ -378,19 +385,22 @@ class WeightedSumFusionRanker:
 
 class HybridSearchEngine:
     """
-    Advanced hybrid search engine with multiple fusion strategies.
+    Advanced hybrid search engine with multiple fusion strategies and optimized metadata filtering.
 
     Provides comprehensive hybrid search capabilities by combining dense semantic
-    and sparse keyword vector searches with configurable fusion methods.
+    and sparse keyword vector searches with configurable fusion methods. Enhanced
+    with advanced metadata filtering optimization for sub-3ms response times.
 
     Task 215: Enhanced with unified logging system for comprehensive observability.
+    Task 233.3: Enhanced with advanced metadata filtering optimization strategies.
     """
 
-    def __init__(self, client: QdrantClient) -> None:
-        """Initialize hybrid search engine.
+    def __init__(self, client: QdrantClient, enable_optimizations: bool = True) -> None:
+        """Initialize hybrid search engine with optimization features.
 
         Args:
             client: Qdrant client for vector database operations
+            enable_optimizations: Whether to enable advanced filtering optimizations
         """
         self.client = client
         self.rrf_ranker = RRFFusionRanker()
@@ -400,7 +410,22 @@ class HybridSearchEngine:
         self.isolation_manager = ProjectIsolationManager()
         self.workspace_registry = WorkspaceCollectionRegistry()
 
-        logger.info("Initialized hybrid search engine with multi-tenant support")
+        # Task 233.3: Initialize optimization components
+        self.optimizations_enabled = enable_optimizations
+        if enable_optimizations:
+            self.filter_optimizer = FilterOptimizer(cache_size=500, cache_ttl_minutes=60)
+            self.index_manager = MetadataIndexManager(client)
+            self.query_optimizer = QueryOptimizer(target_response_time=3.0)
+            self.performance_tracker = PerformanceTracker(target_response_time=3.0)
+
+            logger.info("Initialized hybrid search engine with full optimization support")
+        else:
+            self.filter_optimizer = None
+            self.index_manager = None
+            self.query_optimizer = None
+            self.performance_tracker = None
+
+            logger.info("Initialized hybrid search engine with basic multi-tenant support")
 
     async def hybrid_search(
         self,
@@ -416,8 +441,9 @@ class HybridSearchEngine:
         with_vectors: bool = False,
         project_context: Optional[Union[dict, ProjectMetadata]] = None,
         auto_inject_metadata: bool = True,
+        additional_filters: Optional[dict] = None,
     ) -> dict:
-        """Execute hybrid search with specified fusion method and metadata filtering.
+        """Execute optimized hybrid search with metadata filtering and sub-3ms performance targeting.
 
         Args:
             collection_name: Name of collection to search
@@ -427,17 +453,21 @@ class HybridSearchEngine:
             dense_weight: Weight for dense results in fusion
             sparse_weight: Weight for sparse results in fusion
             filter_conditions: Optional Qdrant filters
-            search_params: Optional search parameters
+            search_params: Optional search parameters (auto-optimized if None)
             with_payload: Whether to return payloads
             with_vectors: Whether to return vectors
             project_context: Optional project context (dict or ProjectMetadata) for metadata filtering
             auto_inject_metadata: Whether to automatically inject project metadata filters
+            additional_filters: Additional metadata filters as dict
 
         Returns:
-            Dictionary with fused results and search metadata
+            Dictionary with fused results, search metadata, and performance metrics
         """
+        # Task 233.3: Start performance tracking
+        search_start_time = time.time() if self.optimizations_enabled else None
+
         logger.info(
-            "Starting hybrid search",
+            "Starting optimized hybrid search",
             collection=collection_name,
             limit=limit,
             fusion_method=fusion_method,
@@ -445,14 +475,34 @@ class HybridSearchEngine:
             sparse_weight=sparse_weight,
             project_context=project_context,
             auto_inject_metadata=auto_inject_metadata,
+            optimizations_enabled=self.optimizations_enabled
         )
 
-        # Enhance filter conditions with project metadata if requested
-        enhanced_filter = self._build_enhanced_filter(
-            base_filter=filter_conditions,
-            project_context=project_context,
-            auto_inject=auto_inject_metadata
-        )
+        # Task 233.3: Build enhanced filter with optimization
+        if self.optimizations_enabled and self.filter_optimizer:
+            enhanced_filter, cache_hit = self.filter_optimizer.get_optimized_filter(
+                project_context=project_context,
+                additional_filters=additional_filters,
+                base_filter=filter_conditions
+            )
+        else:
+            # Fallback to original method
+            enhanced_filter = self._build_enhanced_filter(
+                base_filter=filter_conditions,
+                project_context=project_context,
+                auto_inject=auto_inject_metadata
+            )
+            cache_hit = False
+
+        # Task 233.3: Optimize search parameters if not provided
+        if search_params is None and self.optimizations_enabled and self.query_optimizer:
+            has_filters = enhanced_filter is not None
+            search_params = self.query_optimizer.optimize_search_params(
+                collection_name=collection_name,
+                query_type="hybrid",
+                limit=limit,
+                has_filters=has_filters
+            )
 
         search_results = {"dense_results": [], "sparse_results": [], "fused_results": []}
 
@@ -528,14 +578,59 @@ class HybridSearchEngine:
             # Limit final results
             search_results["fused_results"] = fused_results[:limit]
 
-            logger.info(
-                "Hybrid search completed",
-                collection=collection_name,
-                dense_count=len(search_results["dense_results"]),
-                sparse_count=len(search_results["sparse_results"]),
-                final_count=len(search_results["fused_results"]),
-                fusion_method=fusion_method,
-            )
+            # Task 233.3: Track performance and add optimization metadata
+            if self.optimizations_enabled and search_start_time:
+                total_search_time = (time.time() - search_start_time) * 1000  # Convert to ms
+
+                # Track performance
+                if self.performance_tracker:
+                    self.performance_tracker.record_measurement(
+                        operation="hybrid_search",
+                        response_time=total_search_time,
+                        metadata={
+                            "collection": collection_name,
+                            "fusion_method": fusion_method,
+                            "has_filters": enhanced_filter is not None,
+                            "cache_hit": cache_hit
+                        }
+                    )
+
+                if self.query_optimizer:
+                    query_analysis = self.query_optimizer.track_query_performance(
+                        query_type="hybrid",
+                        response_time=total_search_time,
+                        result_count=len(search_results["fused_results"]),
+                        has_filters=enhanced_filter is not None
+                    )
+
+                # Add performance metadata to results
+                search_results["performance"] = {
+                    "response_time_ms": total_search_time,
+                    "cache_hit": cache_hit,
+                    "target_met": total_search_time <= 3.0,
+                    "optimizations_used": True
+                }
+
+                logger.info(
+                    "Optimized hybrid search completed",
+                    collection=collection_name,
+                    dense_count=len(search_results["dense_results"]),
+                    sparse_count=len(search_results["sparse_results"]),
+                    final_count=len(search_results["fused_results"]),
+                    fusion_method=fusion_method,
+                    response_time_ms=total_search_time,
+                    cache_hit=cache_hit,
+                    target_met=total_search_time <= 3.0
+                )
+            else:
+                logger.info(
+                    "Hybrid search completed",
+                    collection=collection_name,
+                    dense_count=len(search_results["dense_results"]),
+                    sparse_count=len(search_results["sparse_results"]),
+                    final_count=len(search_results["fused_results"]),
+                    fusion_method=fusion_method,
+                )
 
         return search_results
 
@@ -773,3 +868,108 @@ class HybridSearchEngine:
             True if supported, False otherwise
         """
         return self.workspace_registry.is_multi_tenant_type(workspace_type)
+
+    # Task 233.3: Add optimization management methods
+
+    async def ensure_collection_optimized(self, collection_name: str, force_recreate: bool = False) -> Dict:
+        """Ensure collection has optimal metadata indexes for filtering performance.
+
+        Args:
+            collection_name: Collection to optimize
+            force_recreate: Whether to recreate existing indexes
+
+        Returns:
+            Dict with optimization results
+        """
+        if not self.optimizations_enabled or not self.index_manager:
+            return {"error": "Optimizations not enabled"}
+
+        try:
+            index_results = await self.index_manager.ensure_optimal_indexes(
+                collection_name, force_recreate
+            )
+
+            settings_optimized = await self.index_manager.optimize_collection_settings(
+                collection_name
+            )
+
+            logger.info("Collection optimization completed",
+                       collection=collection_name,
+                       indexes_created=sum(index_results.values()),
+                       settings_optimized=settings_optimized)
+
+            return {
+                "collection": collection_name,
+                "index_results": index_results,
+                "settings_optimized": settings_optimized,
+                "optimizations_enabled": True
+            }
+
+        except Exception as e:
+            logger.error("Collection optimization failed",
+                        collection=collection_name, error=str(e))
+            return {"error": f"Optimization failed: {e}"}
+
+    def get_optimization_performance(self) -> Dict:
+        """Get comprehensive performance metrics for all optimization components.
+
+        Returns:
+            Dict with performance metrics from all optimizers
+        """
+        if not self.optimizations_enabled:
+            return {"error": "Optimizations not enabled"}
+
+        performance_data = {
+            "optimizations_enabled": True,
+            "target_response_time_ms": 3.0
+        }
+
+        # Filter optimizer metrics
+        if self.filter_optimizer:
+            performance_data["filter_cache"] = self.filter_optimizer.get_performance_metrics()
+
+        # Query optimizer metrics
+        if self.query_optimizer:
+            performance_data["query_optimization"] = self.query_optimizer.get_performance_summary()
+
+        # Performance tracker metrics
+        if self.performance_tracker:
+            performance_data["overall_performance"] = self.performance_tracker.get_performance_report()
+
+        # Index manager status
+        if self.index_manager:
+            performance_data["indexed_collections"] = list(self.index_manager.get_indexed_collections())
+
+        return performance_data
+
+    def clear_optimization_caches(self) -> Dict:
+        """Clear all optimization caches to free memory or reset performance tracking.
+
+        Returns:
+            Dict with clearing results
+        """
+        if not self.optimizations_enabled:
+            return {"error": "Optimizations not enabled"}
+
+        results = {}
+
+        if self.filter_optimizer:
+            self.filter_optimizer.clear_cache()
+            results["filter_cache_cleared"] = True
+
+        logger.info("Optimization caches cleared", results=results)
+        return results
+
+    def get_performance_alerts(self, hours: int = 24) -> List[Dict]:
+        """Get recent performance alerts from the performance tracker.
+
+        Args:
+            hours: Number of hours back to look for alerts
+
+        Returns:
+            List of recent performance alerts
+        """
+        if not self.optimizations_enabled or not self.performance_tracker:
+            return []
+
+        return self.performance_tracker.get_recent_alerts(hours)
