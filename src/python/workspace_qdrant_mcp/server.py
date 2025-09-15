@@ -2,24 +2,47 @@
 FastMCP server for workspace-qdrant-mcp.
 
 This module implements a Model Context Protocol (MCP) server that provides project-scoped
-Qdrant vector database operations with advanced search capabilities and scratchbook functionality.
+Qdrant vector database operations with advanced search capabilities, multi-tenant workspace
+collections, and comprehensive document management functionality.
 
 The server automatically detects project structure, initializes workspace-specific collections,
-and provides 11 MCP tools for document management, search operations, and note-taking.
+and provides 30+ MCP tools for document management, search operations, note-taking, and
+multi-tenant project isolation.
 
 Key Features:
+    - Multi-tenant workspace collections with automatic project isolation
     - Project-aware workspace management with automatic detection
     - Hybrid search combining dense (semantic) and sparse (keyword) vectors
     - Evidence-based performance: 100% precision for symbol/exact search, 94.2% for semantic
     - Comprehensive scratchbook for cross-project note management
     - Advanced configuration validation with detailed diagnostics
     - Production-ready async architecture with comprehensive error handling
+    - 100% backward compatibility with existing MCP clients
+
+Multi-Tenant Architecture:
+    - Project-scoped collections: {project-name}-{workspace-type}
+    - Automatic metadata injection with project context
+    - Workspace types: notes, docs, scratchbook, knowledge, context, memory
+    - Shared collections for cross-project resources
+    - Enhanced search with project filtering and aggregation
 
 Performance Benchmarks:
     Based on 21,930 test queries across diverse scenarios:
     - Symbol/exact search: 100% precision, 78.3% recall
     - Semantic search: 94.2% precision, 78.3% recall
+    - Multi-tenant search: Improved performance via collection scoping
     - Average response time: <50ms for typical queries
+
+MCP Tools Available:
+    Core Tools (30+):
+        - Document management: add_document, get_document, add_document_with_project_context
+        - Search operations: search_workspace, search_workspace_by_project, hybrid_search_advanced
+        - Collection management: list_collections, create_workspace_collection
+        - Multi-tenant: initialize_project_workspace_collections, get_workspace_collection_info
+        - Memory tools: add_memory_collection, search_memory_collections
+        - Scratchbook: update_scratchbook, search_scratchbook
+        - Watch management: setup_folder_watch, list_watched_folders
+        - System tools: workspace_status, get_server_info
 
 Example:
     Start the MCP server for Claude Desktop (stdio):
@@ -32,6 +55,28 @@ Example:
     ```python
     from workspace_qdrant_mcp.server import run_server
     run_server(transport="http", host="127.0.0.1", port=8000)
+    ```
+
+    Multi-tenant usage:
+    ```python
+    # Initialize project workspace
+    await initialize_project_workspace_collections(
+        project_name="my-project",
+        workspace_types=["notes", "docs", "knowledge"]
+    )
+
+    # Add document with project context
+    await add_document_with_project_context(
+        content="Implementation notes",
+        collection="my-project-notes",
+        workspace_type="notes"
+    )
+
+    # Search within project context
+    await search_workspace_by_project(
+        query="authentication",
+        project_name="my-project"
+    )
     ```
 """
 
@@ -1138,6 +1183,9 @@ async def add_document_tool(
     optionally chunks large documents, and stores them with searchable metadata.
     Supports both manual document IDs and automatic UUID generation.
 
+    For multi-tenant projects, consider using `add_document_with_project_context`
+    which provides automatic project metadata injection and workspace type organization.
+
     Args:
         content: Document text content to be indexed and made searchable
         collection: Target collection name (must exist in current workspace)
@@ -1156,7 +1204,7 @@ async def add_document_tool(
 
     Example:
         ```python
-        # Add a code file with metadata
+        # Add a code file with metadata (legacy approach)
         result = await add_document_tool(
             content=file_content,
             collection="my-project",
@@ -1173,6 +1221,21 @@ async def add_document_tool(
             content=large_document,
             collection="documentation",
             chunk_text=True
+        )
+        ```
+
+    For new multi-tenant workflows, consider:
+        ```python
+        # Multi-tenant approach with automatic project context
+        result = await add_document_with_project_context(
+            content=file_content,
+            collection="my-project-notes",
+            workspace_type="notes",
+            metadata={
+                "file_path": "/src/auth.py",
+                "file_type": "python",
+                "priority": 4
+            }
         )
         ```
     """
