@@ -1,9 +1,23 @@
 # Workspace-Qdrant-MCP Consolidated Product Requirements Document v2.0
 
 **Document Version**: 2.0 (Consolidated)
+**Target System Version**: 0.3.0dev0
 **Date**: 2025-09-15
 **Status**: Foundational
 **Scope**: Complete system architecture based on chronological PRD analysis
+
+## First Principles
+
+Before defining the "true North" architecture, we establish the fundamental first principles that guide all design decisions:
+
+1. **Memory-First Design**: User preferences and behavioral rules are the primary drivers of system behavior, not secondary features
+2. **Zero Configuration Principle**: The system works immediately upon installation without user configuration for 95% of development scenarios
+3. **Intelligent Degradation**: Every component gracefully handles the absence of dependencies while maintaining core functionality
+4. **Performance Through Exclusion**: Exclusion patterns are processed first for optimal performance, with strategic inclusions as exceptions
+5. **Adult User Respect**: Provide intelligent defaults while allowing complete user control when needed
+6. **Multi-Tenant Efficiency**: Share collections across projects with metadata isolation rather than collection proliferation
+7. **Component Autonomy**: Each component (MCP server, daemon, CLI) operates independently while cooperating seamlessly
+8. **Resource Awareness**: Dynamic resource allocation based on system state and user activity, never interfering with user experience
 
 ## Executive Summary
 
@@ -19,80 +33,113 @@ The workspace-qdrant-mcp is a **memory-driven semantic workspace platform** that
 
 ```
 ┌─────────────────────┐    gRPC     ┌──────────────────────┐
-│   Python MCP Server│◄──────────►│   Rust Daemon       │
+│   Python MCP Server │◄──────────► │   Rust Daemon        │
 │   - FastMCP tools   │             │   - File processing  │
 │   - Search interface│             │   - LSP integration  │
 │   - Memory mgmt     │             │   - File watching    │
 │   - Claude Code API │             │   - Heavy lifting    │
+│   - Qdrant connect  │             │   - Qdrant connect   │
 └─────────────────────┘             └──────────────────────┘
+           │                                   │
+           └─────────── Qdrant ───────────────┘
 ```
 
 **Communication Protocol**: gRPC with graceful fallback to direct Qdrant access
 **Lifecycle Management**: Coordinated shutdown with work-in-progress cancellation support
+**Database Access**: Both components can directly connect to Qdrant for optimal performance
 
 ### 1.3 Component Responsibilities
 
 **Python MCP Server**:
+
 - FastMCP-based tool interface for Claude Code
 - Memory management and behavioral rule storage
 - Search orchestration and result presentation
 - Configuration management and validation
 
 **Rust Daemon (memexd)**:
+
 - High-performance file processing and ingestion
 - LSP server integration and code enrichment
 - File system watching and change detection
 - Priority-based job scheduling and resource management
 
 **WQM CLI**:
-- Administrative operations and system management
+
+- Administrative operations and system management (including web interface)
 - Service lifecycle control (start/stop/status)
 - State database inspection and maintenance
 - Debugging and health monitoring
+- Collection management and document ingestion
+- Folder watching registration and management
 
 ## 2. Collection Architecture (FINAL)
 
-### 2.1 Multi-Tenant Collection Strategy
+### 2.1 Multi- and Single-Tenant Collection Strategy
 
-**Architecture Principle**: Single collections shared across projects with metadata-based isolation rather than separate collections per project.
+**Architecture Principle**: Efficiently share collections across projects with metadata-based isolation rather than separate collections per project, while maintaining single-tenant collections for specialized use cases.
 
 ```
 Multi-Tenant Collections:
-├── _{project_collection_name}    (read-only, all project artifacts)
+├── _{project_collection_name}    (read-only, all project artifacts, auto-ingested)
 ├── {root_name}-docs              (read-write, project documentation)
 ├── {root_name}-notes             (read-write, project notes)
 ├── {root_name}-scratchbook       (read-write, project workspace)
 └── __memory                      (system, behavioral rules)
+
+Single-Tenant Collections:
+├── Global collections            (read-write, cross-project scope)
+└── Library collections          (read-only, managed via WQM)
 ```
+
+**Prefix Conventions and Collision Handling**:
+- **Single underscore `_`**: Read-only collections (`_project` → exposed as `project`)
+- **Double underscore `__`**: System collections (not accessible via MCP server)
+- **No prefix**: Regular read-write collections
+- **Collision Prevention**: Cannot have both `_collection` and `collection` - first created wins
+- **WQM Restrictions**: Cannot create collections that collide with configuration-defined schemas
 
 ### 2.2 Collection Naming Conventions
 
 **User Configuration**:
+
 ```yaml
 workspace:
-  root_name: "workspace"          # User-defined root for multi-tenant collections
-  collection_types: ["docs", "notes", "scratchbook"]
-  project_collection_name: "codebase"  # Name for read-only project artifacts
-  memory_collection_name: "memory"     # System memory (__ prefix added internally)
+  root_name: "workspace" # User-defined root for multi-tenant collections, default: "workspace"
+  collection_types: ["docs", "notes", "scratchbook"] # User-defined, no default
+  project_collection_name: "codebase" # User-defined name for read-only project artifacts, default: "project" (_ prefix added internally)
+  memory_collection_name: "memory" # User-defined name for System memory, default "llm_rules" (__ prefix added internally)
 ```
 
 **Resulting Collections**:
+
 - `workspace-docs` (multi-tenant, metadata filtered by project)
 - `workspace-notes` (multi-tenant, metadata filtered by project)
 - `workspace-scratchbook` (multi-tenant, metadata filtered by project)
-- `_codebase` (read-only, multi-tenant project artifacts)
-- `__memory` (system collection, CLI-writable from MCP)
+- `_codebase` (read-only, multi-tenant project artifacts, metadata filtered by project)
+- `__memory` (system collection, CLI-writable only)
 
-### 2.3 Collection Prefixes and Access Control
+### 2.3 Access Control Matrix
 
-- **No prefix**: Read-write workspace collections (`workspace-docs`)
-- **Single underscore `_`**: Read-only collections (`_codebase`)
-- **Double underscore `__`**: System collections (`__memory`)
+**MCP Server Access**:
+- **Workspace collections** (no prefix): Full read-write access
+- **Read-only collections** (`_` prefix): Read-only access, exposed without prefix
+- **System collections** (`__` prefix): Read-only access, auto-injected into context
+- **Scope**: Limited to configured collection types and current project context
 
-**Access Rules**:
-- MCP Server: Read-write to workspace collections, read-only to `_` collections, special access to `__memory`
-- Daemon: Full access for ingestion and processing
-- CLI: Administrative access to all collections
+**Rust Daemon Access**:
+- **All collections**: Full access for ingestion and processing
+- **No restrictions**: Filtering handled upstream by caller
+- **Purpose**: High-performance background processing and LSP integration
+
+**WQM CLI Access**:
+- **Configuration-defined collections**: Cannot delete or rename (protection)
+- **Project management**: Can remove projects with safeguards if no longer present on storage
+- **Collection creation**: Can create both single-tenant and multi-tenant collections
+- **Content management**: Can add documents, folders, webpages, websites to any collection
+- **Folder watching**: Can register/remove watched folders with optional data cleanup
+- **System collections**: Full CRUD access (content stored as strings)
+- **Multi-tenant folder mapping**: Folder becomes tenant, subfolders become separate tenants
 
 ## 3. Memory System (FINAL)
 
@@ -100,39 +147,41 @@ workspace:
 
 **Core Concept**: User preferences and behavioral rules stored in persistent collections automatically injected into Claude Code sessions to control AI behavior consistently.
 
+**Integration Method**: Claude Code hook-based injection requiring MCP server endpoint to provide memory content to the hook script.
+
 ### 3.2 Memory Architecture
 
 **System Memory** (`__memory`):
-- User preferences: "Use uv for Python", "Call me Chris"
-- Global behavioral rules: "Always make atomic commits", "Read 2000 lines before editing"
-- Cross-project agent library and deployment decisions
+- **User Preferences**: "Use uv for Python", "Call me Chris"
+- **Global Behavioral Rules**: "Always make atomic commits", "Read 2000 lines before editing"
+- **Cross-Project Decisions**: Agent library choices, deployment patterns, coding standards
 
-**Project Memory** (`{project}-memory` or metadata in multi-tenant):
-- Project-specific context and active agent tracking
-- Local behavioral overrides and preferences
-- Project history and decision logs
+**Project Memory** (via collection types):
+- **No Auto-Ingestion**: Memories are explicitly managed, not automatically captured
+- **User-Controlled Orchestration**: Directives for retrieving information from specific collection types
+- **Custom Applications**: Project context, agent tracking, decision logs, PRD history
+- **Rule-Driven**: Behavior controlled via system prompts or rules stored in system memory
 
 ### 3.3 Memory Rule Structure
 
 ```python
 @dataclass
 class MemoryRule:
-    category: MemoryCategory  # PREFERENCE, BEHAVIOR, AGENT
-    authority: AuthorityLevel # ABSOLUTE, DEFAULT
-    content: str             # The rule content
-    context: str             # When/where it applies
-    conflict_resolution: str # How to handle conflicts
+    label: str               # User-friendly rule label for easy retrieval
+    tag: str                 # Classification tag for organization
+    pos: int                 # LLM injection position (user-controlled via CLI)
+    category: MemoryCategory # PREFERENCE, BEHAVIOR, AGENT
+    content: str             # The actual rule content
+    context: str             # When/where the rule applies
 ```
 
-**Authority Levels**:
-- **ABSOLUTE**: Non-negotiable rules that override AI defaults
-- **DEFAULT**: Overridable preferences that AI can adapt
+**Rule Authority**: All rules are **non-negotiable** - the AI must strictly follow them at all times without exception.
 
 ### 3.4 Claude Code Integration
 
-**Session Initialization**: Memory rules automatically injected into Claude Code context at session start
-**Conflict Resolution**: User choice required when conflicting rules detected
-**Conditional Rules**: Support for context-dependent behavioral modifications
+**Session Initialization**: Memory rules automatically injected at Claude Code session start via hook mechanism
+**Hook Endpoint**: MCP server provides dedicated endpoint for memory content retrieval
+**Conflict Resolution**: System requires user choice when conflicting rules are detected
 
 ## 4. Tool Architecture (FINAL)
 
@@ -143,54 +192,82 @@ class MemoryRule:
 **Tool Specification**:
 
 1. **`qdrant_store`**: Content ingestion and document management
-   - Document upload with automatic classification
-   - Metadata enrichment and LSP integration
-   - Batch processing and progress tracking
+   - **Content Types**: Strings, documents (by path), folders (with/without watching)
+   - **Web Content**: Individual webpages, entire websites (top-level page + linked pages)
+   - **Exclusions**: Does NOT include automatic project folder storage (handled by daemon at startup)
+   - **Target Collections**: Single-tenant, multi-tenant, and library collections
 
 2. **`qdrant_find`**: Search and retrieval with scope control
-   - Scope options: "collection", "project", "workspace", "all", "memory"
-   - Hybrid search (dense + sparse vectors)
-   - Advanced filtering and ranking
+   - **Hybrid Search**: Dense + sparse vectors with reciprocal rank fusion
+   - **Advanced Features**: Filtering, ranking, metadata-based result refinement
+   - **Scope Options**:
+     - `"collection"`: Specific collection (requires collection + project parameters)
+     - `"project"`: Current project collection (read-only code content)
+     - `"workspace"`: All collection_types (docs, notes, scratchbook)
+     - `"extended_workspace"`: Project + workspace combined
+     - `"global"`: All global collections and server-created collections
+     - `"knowledge"`: All read-only collections except project + global
+     - `"all"`: Everything except system collections
 
 3. **`qdrant_manage`**: System administration and collection management
-   - Collection operations: create/delete/rename/status
-   - System health monitoring
-   - Configuration validation
+   - **Collection Operations**: Create/delete/rename (global collections only, not pre-defined)
+   - **Collection Listing**: Returns non-system collections with attributes:
+     - Name (without `_` prefix for read-only collections)
+     - Type (single-tenant vs multi-tenant)
+     - Access level (read-only vs read-write)
+     - Status ("clean" vs "dirty")
+     - Progress (100% if clean, percentage if dirty, "n/d" if unknown)
+   - **Project Status**: Dedicated endpoint for current project collection status
+   - **Health Monitoring**: Both `memexd` daemon and Qdrant server health
+   - **System Status**: Ingestion progress, synchronization state, folder monitoring
 
 4. **`qdrant_read`**: Direct document retrieval without search
-   - Get specific documents by ID
-   - List documents with filtering
-   - Metadata inspection
+   - **Direct Access**: Get specific documents by ID
+   - **Filtered Listing**: List documents with metadata-based filtering
+   - **Metadata Inspection**: Full document metadata and relationship analysis
+   - **Symbol-Based Retrieval**: [QUESTION: Can symbols be used for direct read, or is search required?]
 
 ### 4.2 Search Scope Definitions
 
-- **"collection"**: Specific collection (requires collection parameter)
-- **"project"**: Current project collections including project memory
-- **"workspace"**: Project + global collections (excludes readonly/system)
-- **"all"**: Project + global + library collections (excludes system)
-- **"memory"**: Both system and project memory collections
+None of the searches include any system collections
+
+- **"collection"**: Specific collection (requires collection parameter, name and for multi-tenant the project)
+- **"project"**: Current project collection (read/only) returns information about the code
+- **"workspace"**: Workspace (all collection_types)
+- **"extended_workspace"**: project + workspace
+- **"global"**: all global collections, and server created collections
+- **"knowledge"**: all read-only collections except the project collection + global
+- **"all"**: project + extended_workspace + global + knowledge
 
 ## 5. LSP Integration (FINAL)
 
 ### 5.1 Intelligent Code Processing
 
-**Automatic LSP Detection**: Scan for available language servers (rust-analyzer, ruff, typescript-language-server, etc.)
-**Dynamic Configuration**: File extension patterns derived from available LSPs
-**Code Enrichment**: Symbols, relationships, type information, documentation extracted and stored
+**Automatic LSP Detection**: Scan for available language servers with opinionated selection strategy
+**LSP Selection Philosophy**: Performance and feature optimization over choice diversity
+- **Python**: ruff (prioritized for speed)
+- **Rust**: rust-analyzer (industry standard)
+- **TypeScript/JavaScript**: typescript-language-server
+- **Single LSP Policy**: No alternative LSP support - system is opinionated for optimal performance
+
+**Dynamic Configuration**: File extension patterns automatically derived from detected LSPs
+**Code Enrichment**: Extract and store symbols, relationships, type information, signatures, documentation
 
 ### 5.2 Language Support
 
-**Minimum Requirement**: 10+ programming languages
-**Current Implementation**: 20+ languages supported (exceeds requirement)
-**Supported Languages**: Python, Rust, TypeScript, JavaScript, Java, Go, C/C++, C#, Swift, Kotlin, Scala, Ruby, PHP, and more
+**Current Implementation**: 20+ languages supported
+**Expansion Target**: Comprehensive coverage including legacy and emerging languages
+**Examples**: Pascal, Modula-2, Fortran, Zig, OCaml, and modern languages
+**Core Languages**: Python, Rust, TypeScript, JavaScript, Java, Go, C/C++, C#, Swift, Kotlin, Scala, Ruby, PHP
 
 ### 5.3 LSP Storage Strategy
 
 **"Interface + Minimal Context"** approach:
-- Store function signatures and definitions
-- Exclude implementation details to reduce noise
-- Include type information and documentation
-- Maintain symbol relationships and dependencies
+- **Function Signatures**: Complete signature definitions for external libraries
+- **Implementation Exclusion**: Avoid storing implementation details (available in project documents)
+- **Type Information**: Full type metadata and API documentation
+- **Symbol Relationships**: Declaration locations, call sites, dependency mapping
+- **Context7 Integration**: [CONSIDERATION: Leverage Context7 for external library documentation enrichment]
 
 ### 5.4 LSP Health Management
 
@@ -199,62 +276,99 @@ class MemoryRule:
 **Graceful Degradation**: System works when LSP servers unavailable
 **Recovery**: Re-process files when LSPs become available
 
+**Daemon state management**: maintain a record of code files that have been ingested without LSP metadata, maintain a record of the list of language without LSP
+**WQM**: as part of the health check, provide the list of missing LSPs
+
 ## 6. Process Priority Management (FINAL)
 
 ### 6.1 Three-Tier Priority System
 
 **Tier 1: Command Queue Priorities**
+
 - MCP Server active: High priority for MCP commands
-- WQM commands: Queued but lower priority when MCP active
+- WQM commands: Queued but lower priority when MCP active, high priority when MCP inactive
 - State database tracks pending operations
+- State database tracks list of watched folder
 
 **Tier 2: Background Execution Priorities**
 
-*When MCP Server Active*:
-- MCP command execution: Highest priority
-- File watching: High priority
-- Background ingestion: Lower priority
+_When MCP Server Active_:
 
-*When MCP Server Inactive*:
+- MCP command execution: Highest priority
+- Project Folder watching: High priority
+- Non-project Folder watching and ingestion: Low priority when project collection is dirty, High when project collections is clean
+
+_When MCP Server Inactive_:
+
 - All operations: Equal priority
-- Overall process: Lower system priority to preserve GUI responsiveness
-- WQM requests: Immediate handling (except watch list additions)
+- Overall process: Non-greedy prioritization, lower system priority to preserve computer responsiveness for the user
+- WQM requests: Immediate handling, via the queue for new folder watching or for folder ingestion without watching
 
 **Tier 3: Machine Idle Negotiation**
+
 - Idle detection: Configurable timeout (default 30 minutes)
 - Resource negotiation with other idle-aware processes
-- Never prevent machine sleep or create system interference
+- When all queued ingestions are completed, never prevent machine sleep, or create system interference
 
 ### 6.2 Dynamic Resource Management
 
-**Adaptive CPU Usage**: Replace fixed percentages with multicore-aware dynamic allocation
-**Memory Management**: Intelligent limits based on available system resources
-**I/O Throttling**: Adaptive based on system load and MCP activity
+**Adaptive CPU Usage**: Multicore-aware dynamic allocation replacing fixed percentages
+**Memory Management**: Intelligent limits based on real-time system resource availability
+**I/O Throttling**: Adaptive throttling based on system idle state, load, and MCP activity
+
+**System Dependencies and Rust Crates**:
+- **Idle Detection**: `sysinfo` crate for cross-platform system monitoring
+- **Resource Monitoring**: `sysinfo` + `psutil` equivalent functionality
+- **CPU Usage**: Native OS APIs via `sysinfo` for accurate multicore awareness
+- **Cross-Platform**: Single crate approach for universal compatibility
 
 ### 6.3 Processing Operations
 
-1. **Change Detection**: Monitor file system for modifications and new files
+1. **Change Detection**: File system monitoring for modifications and new files
 2. **LSP-Enhanced Ingestion**: Process project files with available language servers
 3. **Metadata Enrichment**: Extract and store code intelligence information
+
+**File System Monitoring**:
+- **Recursive Watching**: `notify` crate for cross-platform file system events
+- **Performance**: Efficient recursive monitoring without polling
+- **Event Filtering**: Smart filtering to reduce noise from temporary files
 
 ## 7. Configuration System (FINAL)
 
 ### 7.1 OS-Standard Directory Compliance
 
-**XDG Base Directory Specification**:
-- Configuration: `$XDG_CONFIG_HOME/workspace-qdrant/` or `~/.config/workspace-qdrant/`
-- State: `$XDG_STATE_HOME/workspace-qdrant/` or `~/.local/state/workspace-qdrant/`
-- Cache: `$XDG_CACHE_HOME/workspace-qdrant/` or `~/.cache/workspace-qdrant/`
+**XDG Base Directory Specification (Linux)**:
+- **Configuration**: `$XDG_CONFIG_HOME/workspace-qdrant/` or `~/.config/workspace-qdrant/`
+- **State**: `$XDG_STATE_HOME/workspace-qdrant/` or `~/.local/state/workspace-qdrant/`
+- **Cache**: `$XDG_CACHE_HOME/workspace-qdrant/` or `~/.cache/workspace-qdrant/`
+- **Logs**: `$XDG_STATE_HOME/workspace-qdrant/logs/` or `~/.local/state/workspace-qdrant/logs/`
 
-**Platform-Specific Fallbacks**:
-- macOS: `~/Library/Application Support/`, `~/Library/Logs/`, `~/Library/Caches/`
-- Windows: `%APPDATA%/workspace-qdrant/`, `%LOCALAPPDATA%/workspace-qdrant/`
+**Platform-Specific Paths**:
+
+**macOS**:
+- **Configuration**: `~/Library/Application Support/workspace-qdrant/`
+- **State**: `~/Library/Application Support/workspace-qdrant/state/`
+- **Cache**: `~/Library/Caches/workspace-qdrant/`
+- **Logs**: `~/Library/Logs/workspace-qdrant/`
+
+**Windows**:
+- **Configuration**: `%APPDATA%/workspace-qdrant/`
+- **State**: `%LOCALAPPDATA%/workspace-qdrant/state/`
+- **Cache**: `%LOCALAPPDATA%/workspace-qdrant/cache/`
+- **Logs**: `%LOCALAPPDATA%/workspace-qdrant/logs/`
+
+**Linux** (XDG fallbacks):
+- **Configuration**: `~/.config/workspace-qdrant/`
+- **State**: `~/.local/state/workspace-qdrant/`
+- **Cache**: `~/.cache/workspace-qdrant/`
+- **Logs**: `~/.local/state/workspace-qdrant/logs/`
 
 ### 7.2 Hardcoded Pattern System
 
-**Research-Backed Patterns**: Comprehensive inclusion/exclusion patterns embedded in system
-**Custom Extensions**: Users can extend but not replace hardcoded patterns
-**Pattern Coverage**: 95%+ of development scenarios without user configuration
+**Research-Backed Patterns**: Comprehensive inclusion/exclusion patterns embedded in system.
+**Custom Extensions**: Users can extend but not replace hardcoded patterns.
+**Pattern Coverage**: 95%+ of development scenarios without user configuration.
+**Full documentation**: All inclusion/exclusion patterns documented for the user, all project detection patterns documented for the user.
 
 ### 7.3 Configuration Simplification Principle
 
@@ -281,30 +395,52 @@ class MemoryRule:
 
 ### 9.1 Comprehensive Language Support
 
-**Missing from Initial Research** (User Feedback):
-- OCaml, R, SQL, Perl, Visual Basic, Objective-C, PL/SQL
-- Lua, Haskell, Clojure, Elixir, Elm, Erlang
-- Fortran, COBOL, Forth, Pascal, Modula-2, Delphi, Zig
-- Shell scripting variants (bash, zsh, fish, etc.)
+**Research Scope**: Comprehensive coverage based on systematic analysis
+**Primary Source**: [Wikipedia List of Programming Languages](https://en.wikipedia.org/wiki/List_of_programming_languages) and related taxonomies
+
+**Initial Missing Languages** (User Feedback):
+- **Functional**: OCaml, Haskell, Clojure, Elixir, Elm, Erlang
+- **Legacy/Specialized**: COBOL, Fortran, Pascal, Modula-2, Forth, Delphi
+- **Modern**: Zig, Lua
+- **Database**: SQL, PL/SQL, R
+- **Microsoft Stack**: Visual Basic, Objective-C
+- **Shell Variants**: bash, zsh, fish, PowerShell, nushell
+
+**Research Requirements**:
+- **Systematic Coverage**: Analysis of Wikipedia's complete language taxonomy
+- **File Extension Mapping**: Comprehensive extension-to-language mapping
+- **Priority-Based**: Common languages first, specialized languages included for completeness
+- **Maintenance**: Regular updates as new languages emerge
 
 ### 9.2 Infrastructure and Configuration
 
 **Required Additions**:
-- Terraform configurations (`*.tf`, `*.tfvars`)
-- Kubernetes manifests (`*.k8s.yaml`, kustomization files)
-- Complete shell scripting ecosystem
-- Additional build systems and package managers
+- **Infrastructure as Code**: Terraform (`*.tf`, `*.tfvars`), CloudFormation, ARM templates
+- **Container Orchestration**: Kubernetes manifests (`*.k8s.yaml`), Kustomization files, Helm charts
+- **Shell Ecosystem**: Complete coverage (sh, csh, tcsh, scsh, ksh, zsh, ash, cmd, PowerShell, fish, nushell)
+- **Build Systems**: All modern package managers and build tools across ecosystems
 
 ### 9.3 Document Type Considerations
 
 **Conservative Approach**:
-- Include parseable document types (PDF, Markdown, text)
-- Leave presentations and spreadsheets as user custom includes
-- Focus on content that provides development context value
+- **Parseable Documents**: PDF, Markdown, text files, e-books (epub, mobi)
+- **Presentations/Spreadsheets**: User custom includes (track parse failures in state)
+- **Focus**: Content that provides development context value
+
+**OCR and Parse Failure Tracking**:
+- **Unparseable PDFs**: Track OCR-required PDFs in state database
+- **Query Interface**: User can query which files failed parsing
+- **State Management**: Maintain registry of parse attempts and failures
+
+**Future Enhancement - Image Extraction**:
+- **Document Images**: Extract embedded images from documents (not scanned pages)
+- **Image Collection**: Dedicated collection with source metadata linking
+- **Bidirectional Links**: Source documents link to extracted images
+- **Use Cases**: Diagrams, charts, technical illustrations in documentation
 
 ### 9.4 Exclusion Strategy
 
-**Pattern Priority**: Exclusion-first for performance (user feedback: "intuitively exclusion first")
+**Pattern Priority**: Exclusion-first for performance (user feedback: "intuitively exclusion first, such that we can make exception in the inclusion")
 **Dot File Policy**: Generally exclude hidden files/folders with strategic exceptions
 **IDE/Build Exclusions**: Comprehensive coverage for all missing language ecosystems
 
@@ -312,9 +448,21 @@ class MemoryRule:
 
 ### 10.1 SQLite State Database
 
-**Purpose**: Track daemon operations, LSP status, processing queue, and recovery state
+**Purpose**: Comprehensive state tracking for daemon operations, LSP status, processing queues, error handling, folder watching registry, and recovery state management.
+
 **Location**: OS-standard state directory (`state.db`)
-**Schema**: Persistent storage for job queue, LSP health, ingestion status
+
+**Schema Design Philosophy**: Generic schema approach to prevent schema explosion
+**Core Tables**:
+- **`operations`**: Generic job queue with JSON metadata for operation-specific data
+- **`resources`**: Generic resource tracking (files, folders, LSPs) with type and status
+- **`events`**: Generic event log with timestamps and JSON payloads
+- **`configuration`**: Key-value pairs for runtime configuration state
+
+**Benefits**:
+- **Flexibility**: Single schema handles multiple operation types
+- **Maintainability**: Reduced complexity compared to specialized tables
+- **Extensibility**: Easy addition of new operation types without schema changes
 
 ### 10.2 LSP Tracking Requirements
 
@@ -333,13 +481,15 @@ class MemoryRule:
 ### 11.1 Collection Architecture - FINAL
 
 **Decision**: Multi-tenant collections with project-based tenancy
+
 - **Project collections**: Multi-tenant with metadata filtering (`workspace-docs`, `workspace-notes`, `workspace-scratchbook`)
 - **Global collections**: Single tenant (no project dependency)
 - **Memory collections**: Single tenant (system-wide behavioral rules)
-- **Readonly collections**: Multi-tenant (library collections via wqm watch)
+- **Readonly collections**: Multi-tenant (library collections via wqm watch, option for single-tenant library as well, use case: very large libraries)
 - **Search capability**: Both single-tenant and cross-tenant searches supported
 
 **Multi-Tenant Implementation Details**:
+
 - **Tenant Isolation**: Configurable (preserve isolation vs global deduplication)
 - **Result Deduplication**: Content hash → file path → document ID fallback
 - **Score Aggregation**: Max score, average score, or sum score methods
@@ -349,6 +499,7 @@ class MemoryRule:
 ### 11.2 Collection Naming Strategy - FINAL
 
 **Decision**: Type-based configuration
+
 - Users configure `collection_types: ["docs", "notes", "scratchbook"]`
 - System handles internal naming (`workspace-docs`, `workspace-notes`, etc.)
 - Configuration emphasizes intentionality and purpose rather than naming mechanics
@@ -356,6 +507,7 @@ class MemoryRule:
 ### 11.3 Memory System Architecture - FINAL
 
 **Decision**: Single memory system with clear purpose distinction
+
 - **Memory**: Single system-wide source of truth for behavioral rules (like CLAUDE.md context injection)
 - **Project information**: Rich contextual data including LSP metadata, symbols, definitions, usage patterns
 - **Purpose**: One-stop semantic workspace eliminating grep searches and providing rich symbol/code context
@@ -366,15 +518,19 @@ class MemoryRule:
 ## 12. Configuration Architecture (FINAL)
 
 ### 12.1 Unified Configuration System
+
 **Single Source of Truth**: One YAML configuration file serves all components (daemon, MCP server, WQM CLI)
 
 **Configuration Hierarchy** (highest to lowest priority):
+
 1. Command line arguments (component-specific)
-2. Environment variables (`WORKSPACE_QDRANT_*`)
-3. YAML configuration file (unified across components)
-4. Hardcoded defaults
+2. YAML configuration file (unified across components)
+3. Hardcoded defaults
+
+**Environment Variable Exception**: API keys only, using `${ENV_VAR}` syntax in YAML configuration
 
 **File Discovery Order**:
+
 1. `--config` parameter (explicit file path)
 2. `workspace_qdrant_config.yaml` (project-specific, current directory)
 3. `~/.config/workspace-qdrant/workspace_qdrant_config.yaml` (user XDG config)
@@ -383,49 +539,54 @@ class MemoryRule:
 **Extensions**: Both `.yaml` and `.yml` supported
 
 ### 12.2 Core Configuration Schema
+
 ```yaml
 # Qdrant database connection
 qdrant:
-  url: "http://localhost:6333"    # Qdrant server URL
-  api_key: null                   # Optional API key for cloud
-  timeout: 30                     # Connection timeout in seconds
-  prefer_grpc: true              # Use gRPC for better performance
+  url: "http://localhost:6333" # Qdrant server URL
+  api_key: null # Optional API key for cloud
+  timeout: 30 # Connection timeout in seconds
+  prefer_grpc: true # Use gRPC for better performance
 
 # Text embedding configuration
 embedding:
-  model: "sentence-transformers/all-MiniLM-L6-v2"  # Dense embedding model
-  enable_sparse_vectors: true                       # Enable BM25 for hybrid search
-  chunk_size: 800                                  # Text chunk size
-  chunk_overlap: 120                               # Chunk overlap
-  batch_size: 50                                   # Processing batch size
+  model: "sentence-transformers/all-MiniLM-L6-v2" # Dense embedding model
+  enable_sparse_vectors: true # Enable BM25 for hybrid search
+  chunk_size: 800 # Text chunk size
+  chunk_overlap: 120 # Chunk overlap
+  batch_size: 50 # Processing batch size
 
 # Workspace and collection management
 workspace:
-  collection_types: ["docs", "notes", "scratchbook"]  # Multi-tenant collection types
-  global_collections: []                               # Cross-project collections
-  github_user: null                                   # For project detection
-  custom_include_patterns: []                         # Extend default patterns
-  custom_exclude_patterns: []                         # Additional exclusions
+  collection_types: ["docs", "notes", "scratchbook"] # Multi-tenant collection types
+  global_collections: [] # Cross-project collections
+  github_user: null # For project detection
+  custom_include_patterns: [] # Extend default patterns
+  custom_exclude_patterns: [] # Additional exclusions
 
 # gRPC daemon integration
 grpc:
-  enabled: false                  # Enable Rust daemon integration
+  enabled: false # Enable Rust daemon integration
   host: "127.0.0.1"
   port: 50051
-  fallback_to_direct: true       # Fallback to direct Qdrant access
+  fallback_to_direct: true # Fallback to direct Qdrant access
   connection_timeout: 10.0
   max_retries: 3
 ```
 
 ### 12.3 OS-Standard Directory Compliance
+
 **XDG Base Directory Support**:
+
 - `XDG_CONFIG_HOME` for configuration files
 - `XDG_STATE_HOME` for runtime state (planned)
 - `XDG_CACHE_HOME` for cache data (planned)
 - Platform-specific fallbacks (Windows, macOS)
 
 ### 12.4 Pattern System Architecture
+
 **Hardcoded Research-Backed Patterns**: 250+ inclusion patterns covering:
+
 - **Source Code**: 60+ languages (C/C++, Python, JavaScript, TypeScript, Rust, Go, Java, etc.)
 - **Web Development**: HTML, CSS, templates, frameworks
 - **Infrastructure**: Docker, Kubernetes, Terraform, CI/CD
@@ -433,11 +594,13 @@ grpc:
 - **Configuration**: YAML, JSON, TOML, INI files
 
 **Custom Extensions**: Users can extend (not replace) hardcoded patterns
+
 - `custom_include_patterns`: Additional inclusion patterns
 - `custom_exclude_patterns`: Additional exclusion patterns
 - Performance-first: Exclusion patterns processed before inclusion
 
 **Missing Language Coverage** (identified gaps):
+
 - OCaml, R, SQL, Perl, Visual Basic, Objective-C
 - Lua, Haskell, Clojure, Elixir, Elm, Erlang
 - Fortran, COBOL, Forth, Pascal, Modula-2, Delphi, Zig
@@ -449,6 +612,7 @@ grpc:
 **Auto-Creation Logic**: Collections auto-created by system, no user flag needed
 **gRPC Default**: Must default to `true` (performance optimization)
 **Priority System Architecture**: Three-tier dynamic priority system:
+
 1. **Command Queue Priorities**: MCP server commands take precedence over WQM commands
 2. **Background Execution Priorities**:
    - MCP server up: Commands + watching take precedence, other tasks lower priority
@@ -457,11 +621,13 @@ grpc:
 3. **Machine Idle Negotiation**: After configurable idle time (default 30min), negotiate with other idle processes
 
 **Collection Naming Corrections**:
+
 - `memory_collection_name`: User provides clean name, `__` prefix added internally
 - `project_collection_name`: Replaces `code_collection_name`, read-only collection with `_` prefix
 - Multi-tenant root name: User provides root, system creates `{root}-{type}` collections
 
 **State Management**:
+
 - Default database: `state.db` in XDG_STATE_HOME/workspace-qdrant or system canonical location
 - Tracks missing LSP servers and projects needing metadata refresh
 - Enables background LSP integration when servers become available
@@ -471,26 +637,31 @@ grpc:
 ## 13. Implementation Roadmap
 
 ### Phase 1: Tool Consolidation (Critical Gap)
+
 - **Current State**: 30+ individual tools (30% alignment)
 - **Target**: 4 consolidated tools (qdrant_store, qdrant_find, qdrant_manage, qdrant_read)
 - **Priority**: High - Major architectural misalignment
 
 ### Phase 2: Pattern Research Completion
+
 - **Current State**: Incomplete language coverage
 - **Target**: Comprehensive coverage including user-identified missing languages
 - **Priority**: High - Foundation for accurate file detection
 
 ### Phase 3: Configuration Architecture Finalization
+
 - **Current State**: Over-engineered configuration system
 - **Target**: Minimal user configuration with intelligent defaults
 - **Priority**: Medium - Usability improvement
 
 ### Phase 4: Memory System Integration
+
 - **Current State**: Core system implemented, Claude Code integration unknown
 - **Target**: Complete memory-driven behavior with session injection
 - **Priority**: Medium - Core differentiating feature
 
 ### Phase 5: Protocol and Performance Optimization
+
 - **Current State**: Good MCP compliance, unknown edge cases
 - **Target**: Perfect stdio silence and optimal performance
 - **Priority**: Low - Polish and reliability
@@ -498,17 +669,20 @@ grpc:
 ## 13. Success Criteria
 
 ### 13.1 User Experience Success
+
 - **Zero Configuration**: New installations work immediately
 - **Memory Persistence**: User preferences and behavioral rules automatically persist
 - **Intelligent Assistance**: AI behavior consistently matches user expectations
 
 ### 13.2 Technical Success
+
 - **Protocol Compliance**: Perfect MCP stdio compliance
 - **Performance**: Sub-200ms search responses for workspace queries
 - **Reliability**: Graceful degradation when components unavailable
 - **Resource Efficiency**: Dynamic resource management without system interference
 
 ### 13.3 Architectural Success
+
 - **Tool Consolidation**: 4 unified tools replace 30+ individual tools
 - **Multi-Component Harmony**: Seamless Python MCP + Rust daemon integration
 - **Platform Universality**: Cross-platform service management (macOS, Linux, Windows)
@@ -522,17 +696,20 @@ grpc:
 **Evolution to Hybrid System**: The architecture has evolved significantly from simple port to sophisticated multi-component system with Rust daemon integration.
 
 **Core Embedding Configuration (Historical)**:
+
 - **Model**: `sentence-transformers/all-MiniLM-L6-v2` (384-dim)
 - **Sparse Vectors**: BM25 implementation for hybrid search
 - **Performance**: ONNX Runtime for fast inference
 
 **Admin CLI Architecture (Preserved)**:
+
 - **Safety Features**: Project scoping, protected collection identification, confirmation prompts
 - **Commands**: list-collections, delete-collection, collection-info
 - **Protection Pattern**: Automatically protects memexd daemon collections (ending with `-code`)
 - **Automation Support**: Dry-run mode, force flags, batch operations
 
 **Performance Targets (Historical)**:
+
 - Collection detection: < 1 second for typical projects
 - Embedding generation: > 100 docs/second on CPU
 - Search latency: < 200ms for workspace queries
@@ -541,6 +718,7 @@ grpc:
 ### 14.2 Documentation Integration Summary
 
 **Comprehensive Documentation Available** (extracted from docs/):
+
 - API specifications and tool interfaces
 - Enterprise deployment patterns (RBAC, authentication, multitenancy)
 - Container orchestration (Docker, Kubernetes)
@@ -551,6 +729,7 @@ grpc:
 - SSL optimization and warning resolution guides
 
 **Production Monitoring Stack** (extracted from monitoring/):
+
 - **Architecture**: Multi-layer monitoring with Prometheus, Grafana, Alertmanager
 - **Components**: Python MCP Server (8000), Rust Engine (8002), Qdrant (6333)
 - **Metrics Collection**: Prometheus (9090), Health Checks (8080), Node Exporter (9100)
@@ -558,6 +737,7 @@ grpc:
 - **Log Aggregation**: Centralized logging with multiple output targets
 
 ### 14.3 Technical References
+
 - FastMCP framework documentation
 - Qdrant client API specifications
 - FastEmbed model documentation
