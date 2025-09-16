@@ -513,8 +513,59 @@ grpc:
 - **Multi-Component Harmony**: Seamless Python MCP + Rust daemon integration
 - **Platform Universality**: Cross-platform service management (macOS, Linux, Windows)
 
-## 14. Conclusion
+## 14. References and Historical Architecture
+
+### 14.1 Legacy Architecture Documentation (Extracted from specs/)
+
+**Original TypeScript Base**: workspace-qdrant-mcp was initially conceived as a Python port of [marlian/claude-qdrant-mcp](https://github.com/marlian/claude-qdrant-mcp) using FastMCP framework.
+
+**Evolution to Hybrid System**: The architecture has evolved significantly from simple port to sophisticated multi-component system with Rust daemon integration.
+
+**Core Embedding Configuration (Historical)**:
+- **Model**: `sentence-transformers/all-MiniLM-L6-v2` (384-dim)
+- **Sparse Vectors**: BM25 implementation for hybrid search
+- **Performance**: ONNX Runtime for fast inference
+
+**Admin CLI Architecture (Preserved)**:
+- **Safety Features**: Project scoping, protected collection identification, confirmation prompts
+- **Commands**: list-collections, delete-collection, collection-info
+- **Protection Pattern**: Automatically protects memexd daemon collections (ending with `-code`)
+- **Automation Support**: Dry-run mode, force flags, batch operations
+
+**Performance Targets (Historical)**:
+- Collection detection: < 1 second for typical projects
+- Embedding generation: > 100 docs/second on CPU
+- Search latency: < 200ms for workspace queries
+- Memory usage: < 150MB RSS when active
+
+### 14.2 Documentation Integration Summary
+
+**Comprehensive Documentation Available** (extracted from docs/):
+- API specifications and tool interfaces
+- Enterprise deployment patterns (RBAC, authentication, multitenancy)
+- Container orchestration (Docker, Kubernetes)
+- Cross-platform compilation guides
+- Observability and monitoring patterns
+- Release automation and trusted publishing
+- Configuration management and pattern exclusions
+- SSL optimization and warning resolution guides
+
+**Production Monitoring Stack** (extracted from monitoring/):
+- **Architecture**: Multi-layer monitoring with Prometheus, Grafana, Alertmanager
+- **Components**: Python MCP Server (8000), Rust Engine (8002), Qdrant (6333)
+- **Metrics Collection**: Prometheus (9090), Health Checks (8080), Node Exporter (9100)
+- **Deployment**: Docker Compose with runbooks and alert configurations
+- **Log Aggregation**: Centralized logging with multiple output targets
+
+### 14.3 Technical References
+- FastMCP framework documentation
+- Qdrant client API specifications
+- FastEmbed model documentation
+- Rust-Python interop patterns
+- gRPC protocol specifications
+
+## 15. Conclusion
 
 This consolidated PRD establishes the **true North** for workspace-qdrant-mcp as a memory-driven semantic workspace platform. The system succeeds when developers experience seamless, memory-aware AI assistance with zero configuration overhead while maintaining complete protocol compliance and cross-platform reliability.
 
-**Next Step**: Resolve the three critical contradictions to finalize system architecture and proceed with implementation roadmap.
+**Architecture Status**: All three critical contradictions resolved (Section 11) - ready for implementation roadmap execution.
