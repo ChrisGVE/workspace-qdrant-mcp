@@ -1,0 +1,1256 @@
+# Product Requirements Document (PRD) - Consolidated Architecture
+
+**Project:** workspace-qdrant-mcp
+**Version:** v2.0
+**Date:** 2025-09-17 10:29
+**Document Type:** Consolidated Architecture PRD - Complete System Specification
+
+## 1. Executive Summary and Strategic Vision
+
+### 1.1 Core Philosophy
+
+The workspace-qdrant-mcp transforms from a vector database tool into a comprehensive **memory-driven semantic workspace platform** designed around how LLM agents naturally interact with project knowledge. The system embodies eight core architectural principles:
+
+**Memory-Driven**: LLM behavior controlled by persistent user preferences and behavioral rules that survive across sessions and automatically inject into system context.
+
+**Semantic-First**: Every piece of content becomes searchable knowledge with semantic relationships - code, documents, books, web pages unified through vector embeddings while respecting content-specific processing needs.
+
+**Project-Aware**: Automatic project detection and context management with four-tier search hierarchy (project → collection → global → all) that matches LLM reasoning patterns.
+
+**Intelligent Processing**: LSP-enhanced code understanding, document conversion, and real-time semantic extraction that transforms file watching into knowledge discovery.
+
+**Secure Resumable Operations**: All operations are atomic, recoverable, and resume seamlessly from any interruption point with transactional safety and automatic recovery.
+
+**Leverage Existing Solutions**: Build on proven, established tools (LSP servers, gRPC, SQLite) rather than reinventing solutions, following standard protocols over custom implementations.
+
+**Graceful Degradation**: System functionality degrades gracefully when components fail, maintaining core value with reduced features rather than complete failure.
+
+**Component Separation**: Four-component architecture enables distinct concerns: heavy processing, intelligent interface, user control, and real-time integration with clear responsibility boundaries.
+
+### 1.2 The Fundamental Challenge
+
+**How do LLM agents naturally want to interact with project-scoped semantic knowledge while maintaining persistent behavioral memory?**
+
+This question drives every architectural decision. Instead of forcing LLM agents to learn database query patterns, we design around their natural conversational patterns, project-aware reasoning, and need for behavioral consistency.
+
+### 1.3 Strategic Outcomes
+
+- **Memory Persistence**: "For future reference, always use uv for Python" → automatically active in every session
+- **Unified Discovery**: "Find async patterns" → returns code examples + documentation + book chapters + notes
+- **Project Intelligence**: Working in project directory automatically activates project collections and watches
+- **Conversational Control**: System behavior updates through natural conversation, not configuration files
+- **Semantic Relationships**: Content discovery through meaning, not format-specific searches
+
+## 2. Four-Component Architecture Overview
+
+### 2.1 Architectural Foundation
+
+The system implements a **four-component architecture** with clear separation of concerns, optimized for different aspects of semantic workspace management:
+
+**Component 1: Daemon (Rust Engine)**
+- **Role**: Heavy Processing Powerhouse
+- **Responsibilities**: File ingestion, LSP integration, document conversion, embedding generation, file watching
+- **Performance**: 1000+ documents/minute processing, <500MB memory usage
+- **Communication**: gRPC server for MCP interface, SQLite for state management
+
+**Component 2: Server (Python MCP)**
+- **Role**: Intelligent Interface Layer
+- **Responsibilities**: Search interface, memory management, conversational updates, Claude Code integration
+- **Performance**: Sub-100ms query responses, session initialization with rule injection
+- **Communication**: gRPC client to daemon, MCP protocol to Claude Code
+
+**Component 3: Utility (wqm)**
+- **Role**: User Control and Administration
+- **Responsibilities**: System administration, library management, configuration, daemon lifecycle
+- **Interface**: Single unified CLI with domain-specific subcommands
+- **Scope**: Complete system control without requiring MCP server
+
+**Component 4: Injector (LSP Integration/Hook)**
+- **Role**: Real-Time Semantic Extraction
+- **Responsibilities**: LSP communication, symbol extraction, incremental updates, code intelligence
+- **Integration**: Embedded within daemon, triggered by file system events
+- **Capabilities**: Symbol definitions, relationship mapping, type information, documentation extraction
+
+### 2.2 Component Communication Protocol
+
+**Primary Flow**: MCP Server ↔ gRPC ↔ Daemon (with embedded Injector)
+**Control Flow**: wqm ↔ SQLite State Database ↔ Daemon Signal Handling
+**Data Flow**: File System Events → LSP Injector → Daemon Processing → Vector Storage
+**Session Flow**: Claude Code → MCP Server → Memory Rule Injection → System Context
+
+**Graceful Lifecycle Management with Transactional Safety**:
+1. MCP Server startup triggers daemon initialization with state recovery check
+2. All operations are atomic with SQLite transaction boundaries and rollback capability
+3. Daemon cancels shutdown if new work arrives during shutdown sequence, preserving queue state
+4. MCP Server signals daemon on quit, daemon finishes queue before shutdown with transaction completion
+5. If MCP restarts while daemon finishing work, shutdown cancelled until completion with automatic state recovery
+6. Unfinished operations are detected on restart and resumption options presented to user
+7. Data loss prevention: No work is lost due to crashes, interruptions, or component failures
+
+## 3. Memory-Driven System Design
+
+### 3.1 Memory Collection as Behavioral Control
+
+**Core Concept**: The `memory` collection serves as a knowledge graph storing user preferences and LLM behavioral rules that automatically shape every session.
+
+**Authority Levels**:
+- **Absolute**: Non-negotiable rules that always apply ("Always make atomic commits")
+- **Default**: Follow unless explicitly overridden ("Use pytest for new projects, unittest otherwise")
+
+**Conversational Updates**:
+```
+Human: "For future reference, always use TypeScript strict mode"
+System: [Automatically stored in memory collection with semantic conflict detection]
+Next Session: [Rule automatically injected into system context]
+```
+
+**Memory Schema Structure**:
+```yaml
+memory_entries:
+  preferences:
+    user_name: "Chris"
+    tooling: "Use uv exclusively for Python package management"
+    standards: "Follow XDG standards for config directories"
+
+  behaviors:
+    supervisor_role: |
+      "Act as supervisor. Deploy subagents and ensure delivery.
+      Take control only when agents fail, then resume supervision.
+      Make decisions per PRD context."
+    commit_discipline: |
+      "Always make atomic commits following conventional format.
+      Read minimum 2000 lines of context before changes."
+
+  agent_library:
+    python-pro:
+      description: "Expert Python developer with modern practices"
+      capabilities: ["fastapi", "async", "testing", "type-hints"]
+      deploy_cost: "medium"
+
+  conditional_rules:
+    - trigger: "new_projects"
+      action: "use pytest for testing"
+      default: "use unittest for existing projects"
+```
+
+### 3.2 Session Initialization with Memory Integration
+
+**Claude Code Integration Workflow**:
+1. MCP server starts in Claude Code environment
+2. Load all memory rules from memory collection (user preferences + LLM behaviors + agent library)
+3. Detect rule conflicts using Claude/Sonnet semantic analysis
+4. If conflicts exist: present user with resolution options, update memory collection
+5. Inject clean, resolved rules into Claude Code system context via SDK
+6. Session begins with personalized LLM behavior automatically active
+
+**Memory Authority and Conflict Resolution**:
+```yaml
+conflict_example:
+  existing_rule:
+    rule: "Use unittest for all Python testing"
+    authority: "default"
+    source: "user_conversational"
+
+  new_rule:
+    rule: "Always use pytest for new projects"
+    authority: "default"
+    source: "user_explicit"
+
+  resolution_strategy:
+    action: "merge_conditional"
+    result: "Use pytest for new projects, unittest for existing"
+    conditions: ["project_age", "existing_test_framework"]
+```
+
+### 3.3 Dynamic Memory Updates and Token Management
+
+**Immediate Activation**: Memory changes apply to current session instantly without restart
+**Token Optimization**: `wqm memory tokens` shows usage, `wqm memory trim` provides interactive optimization
+**Conflict Prevention**: Rule-based fast checks + LLM semantic analysis for thoroughness
+
+## 4. Collection Architecture and Multi-Tenancy
+
+### 4.1 Reserved Collection Naming System
+
+**Memory Collection**: `memory`
+- **Type**: Pure knowledge graph storing behavioral rules and user preferences
+- **Authority**: Global across all projects and sessions
+- **Access**: Read/write via conversational updates and CLI management
+- **Architectural Exception**: The memory collection is **writable from both MCP server and wqm CLI** - breaking the usual read-only library pattern - because conversational memory updates require real-time write access during sessions for behavioral rule management
+
+**Library Collections**: `_{name}`
+- **Pattern**: User-defined libraries prefixed with underscore (`_technical-books`, `_reference-docs`)
+- **Access**: Read-only from MCP server, write-only from daemon via CLI
+- **Display**: Users see `library`, actual storage is `_library`
+- **Conflict Prevention**: Cannot have both `_library` and `library` collections simultaneously
+
+**Project Collections**: `{project-name}-{type}`
+- **Types**: `-scratchbook`, `-docs`, `-code` (when not using external code management)
+- **Creation**: Automatic based on project detection when MCP starts in project directory
+- **Access**: Full read/write via MCP tools for active development
+- **Watching**: Project folders automatically monitored when MCP server active
+
+### 4.2 Multi-Tenant Architecture
+
+**Collection Structure**:
+```
+Collections:
+├── memory (global behavioral rules and preferences)
+├── _codebase (read-only, multi-tenant by project metadata)
+├── _technical-books (read-only library collection)
+├── _reference-docs (read-only library collection)
+├── project-alpha-scratchbook (project-specific, read/write)
+├── project-alpha-docs (project-specific, read/write)
+├── project-beta-scratchbook (project-specific, read/write)
+└── __system (system collection for internal state)
+```
+
+**Multi-Tenancy Isolation**:
+- Projects isolated by metadata filtering, not separate collections
+- Library collections shared across projects for knowledge reuse
+- Project-specific collections automatically created and managed
+- Memory collection global across all contexts
+
+### 4.3 Collection Name Restrictions and Validation
+
+**Reserved Patterns**:
+- Collections starting with `_` reserved for read-only libraries
+- `memory` reserved for behavioral control knowledge graph
+- `__` prefix reserved for system-internal collections
+
+**Conflict Prevention**:
+- Server-level naming collision detection prevents duplicate patterns
+- Clear error messages for unauthorized access attempts
+- Automatic migration tools for existing collection conflicts
+
+### 4.4 Architectural Constraints and Protocol Compliance
+
+**Hard Constraints**:
+- **Memory Collection Authority**: Absolute rules are non-negotiable across all sessions
+- **Memory Collection Exception**: The `memory` collection is writable from both MCP server (conversational updates) and wqm CLI (direct management) - the only collection with dual write access
+- **Read-Only Libraries**: Collections prefixed with "\_" cannot be modified via MCP interface (memory collection exempt)
+- **Project Isolation**: Multi-tenancy prevents cross-project content leakage
+- **LSP Dependency**: Code intelligence requires user-managed LSP servers
+- **Transactional Safety**: All operations must be atomic with rollback capability
+- **Standard Protocol Compliance**: Must use established protocols (LSP, MCP, gRPC) over custom implementations
+
+**Graceful Degradation Requirements**:
+- **Core functionality preserved**: System continues with reduced features when components fail
+- **User transparency**: Clear communication about degraded functionality and recovery options
+- **Automatic recovery**: Resume full functionality when failed components restart
+- **State preservation**: No data loss during component failures or degraded operation
+
+## 5. Rust Daemon - Heavy Processing Engine
+
+### 5.1 Core Processing Responsibilities
+
+**Document Conversion Pipeline**:
+- **Text files**: Direct ingestion with metadata extraction
+- **PDF files**: Text extraction + OCR for image-based content
+- **EPUB/MOBI**: E-book parsing with metadata preservation
+- **Code files**: LSP-enhanced parsing with symbol analysis and relationship mapping
+- **Web pages**: Recursive crawling from root URLs with configurable rate limiting and depth
+
+**File Watching and Auto-Ingestion**:
+- **Project folders**: Automatic monitoring when MCP server active (zero user configuration)
+- **Library folders**: User-configured via `wqm watch` for specific library collections
+- **Incremental updates**: Track file modification times and content hashes, process only changes
+- **Priority-based processing**: MCP active → current project → background libraries
+
+**LSP Integration and Code Intelligence**:
+- **Auto-detection**: Discover available LSP servers in PATH (rust-analyzer, ruff, typescript-language-server, etc.)
+- **User responsibility**: No auto-installation, user maintains control over LSP server versions
+- **Symbol extraction**: Functions, classes, variables, imports, relationships, type information
+- **Semantic tokens**: Syntax classification and identifier relationships
+- **Documentation sync**: Docstrings, inline comments, API documentation
+
+### 5.2 Metadata Workflow for Library Collections
+
+**Incomplete Metadata Detection and Resolution**:
+```yaml
+# Generated by workspace-qdrant-mcp ingestion engine
+# Complete metadata for the files below and re-run ingestion
+
+pending_files:
+  - path: /library/advanced-rust.pdf
+    detected_metadata:
+      title: "Advanced Rust Programming"
+      format: pdf
+      file_size: "15.2MB"
+      content_preview: "Chapter 1: Ownership and Borrowing..."
+    required_metadata:
+      author: "?"
+      year: "?"
+      edition: "?"
+      isbn: "?"
+      tags: ["rust", "programming"]
+
+  - path: /library/algorithms.epub
+    detected_metadata:
+      title: "Introduction to Algorithms"
+      format: epub
+      authors: ["Thomas H. Cormen"]  # Sometimes auto-detectable
+    required_metadata:
+      edition: "?"
+      publisher: "?"
+      year: "?"
+      isbn: "?"
+
+processing_workflow:
+  1. Engine discovers files without complete metadata
+  2. Creates/updates YAML file in collection root with detected + required fields
+  3. User completes metadata in YAML file
+  4. Engine processes files with complete metadata on next run
+  5. Updates YAML with any remaining incomplete files
+  6. Cycle continues until all files processed with rich metadata
+```
+
+### 5.3 Version Management and Document Precedence
+
+**Document Type-Based Versioning**:
+```yaml
+document_types:
+  book:
+    primary_version: "edition"
+    secondary_version: "publication_date"
+    required_metadata: ["title", "author", "edition"]
+    optional_metadata: ["isbn", "publisher", "draft_status"]
+    retention_policy: "latest_only"
+
+  scientific_article:
+    primary_version: "publication_date"
+    required_metadata: ["title", "authors", "journal", "publication_date"]
+    optional_metadata: ["doi", "volume", "issue", "arxiv_id"]
+    retention_policy: "latest_only"
+
+  code_file:
+    primary_version: "git_tag"
+    secondary_version: "modification_date"
+    auto_metadata: true  # From git/filesystem
+    retention_policy: "current_state_only"  # Git handles history
+
+  webpage:
+    primary_version: "ingestion_date"
+    required_metadata: ["title", "url", "ingestion_date", "content_hash"]
+    retention_policy: "latest_with_archive_option"
+```
+
+**Version Conflict Resolution Strategy**:
+- **Same content, different editions**: Latest edition wins automatically with de-prioritization of older versions
+- **Code files**: Git tag precedence over modification date, only current working tree stored
+- **Format precedence**: Research task created for PDF vs EPUB vs MOBI quality analysis
+- **Metadata conflicts**: User responsibility with validation, engine doesn't override user decisions
+- **Archive collections**: Optional `_{collection}_archive` for version history when needed
+
+### 5.4 Performance and Resource Management
+
+**Resource Constraints**:
+- **Memory**: <500MB RSS for large workspaces (100k+ documents)
+- **Processing**: 1000+ documents/minute sustained throughput
+- **Startup**: <2 seconds for engine initialization and gRPC connection
+- **CPU**: Configurable priority management for background vs. interactive operations
+
+**Intelligent File Filtering**:
+```yaml
+language_ecosystems:
+  python:
+    include_patterns: ["*.py", "*.pyi", "pyproject.toml", "requirements*.txt"]
+    exclude_patterns: ["__pycache__/", ".venv/", "venv/", ".tox/", "build/", "dist/"]
+
+  rust:
+    include_patterns: ["*.rs", "Cargo.toml", "Cargo.lock"]
+    exclude_patterns: ["target/", "Cargo.lock"]
+
+  javascript:
+    include_patterns: ["*.js", "*.ts", "*.jsx", "*.tsx", "package.json"]
+    exclude_patterns: ["node_modules/", "dist/", "build/", ".next/"]
+
+  global_exclusions:
+    - ".git/"
+    - ".DS_Store"
+    - "*.log"
+    - "*.tmp"
+    - "thumbs.db"
+```
+
+## 6. Python MCP Server - Intelligent Interface
+
+### 6.1 Research Modes - Four Search Contexts
+
+**Hierarchical Search Strategy**:
+```python
+@mcp.tool()
+async def research_workspace(
+    query: str,
+    mode: Literal["project", "collection", "global", "all"] = "project",
+    target_collection: str = None,
+    include_relationships: bool = False,
+    version_preference: Literal["latest", "all", "specific"] = "latest",
+    include_archived: bool = False,
+    content_types: List[str] = ["all"]
+):
+    """Advanced semantic research with context control and version awareness"""
+```
+
+**Search Context Hierarchy**:
+
+**1. Project Collections Only**
+- Search within current project's collections (`project-scratchbook`, `project-docs`)
+- Default mode for active development work
+- Automatic project detection from current directory and git context
+- Fast, focused results for immediate development needs
+
+**2. Single Collection**
+- Target-specific collection search (`_technical-books`, `memory`, specific project)
+- High precision results within domain boundaries
+- Library research and knowledge domain specialization
+- User specifies target collection explicitly
+
+**3. Global Collections**
+- User-configured global collections in environment/config
+- Cross-project knowledge search (standards, references, shared documentation)
+- Broader context research across workspace boundaries
+- Configurable collection list in user preferences
+
+**4. All Collections** (Replaces qdrant-retrieve functionality)
+- Comprehensive search across entire workspace
+- Discovery mode for exploratory research across all content types
+- Maximum recall for finding connections across projects and libraries
+- Includes archived collections when specified
+
+### 6.2 Memory System Integration
+
+**Session Initialization with Memory Rule Injection**:
+```python
+async def claude_code_startup_hook():
+    """Initialize session with memory-driven behavioral rules"""
+
+    # Load memory rules and detect conflicts
+    memory_rules = await load_memory_collection()
+    conflicts = await detect_memory_conflicts(memory_rules)
+
+    if conflicts:
+        return {
+            "type": "conflict_resolution",
+            "message": format_conflict_prompt(conflicts),
+            "conflicts": conflicts,
+            "action_required": "resolve_before_session"
+        }
+
+    # Inject resolved rules into system context
+    system_rules = format_system_rules_for_injection(memory_rules)
+    await claude_code_sdk.inject_system_context(system_rules)
+
+    # Initialize project context
+    project_info = await detect_current_project()
+    await ensure_project_collections(project_info)
+
+    return {
+        "type": "session_ready",
+        "memory_rules_count": len(memory_rules),
+        "project_collections": len(project_info.collections),
+        "engine_status": "active"
+    }
+```
+
+**Conversational Memory Updates**:
+```python
+@mcp.tool()
+async def update_memory_rule(
+    rule_text: str,
+    authority: Literal["absolute", "default"] = "default",
+    scope: List[str] = ["all_sessions"],
+    replace_existing: bool = False
+):
+    """Update behavioral memory through conversational input"""
+
+    # Semantic conflict detection
+    conflicts = await detect_rule_conflicts(rule_text)
+    if conflicts and not replace_existing:
+        return format_conflict_resolution_options(conflicts)
+
+    # Store in memory collection with metadata
+    memory_entry = {
+        "rule": rule_text,
+        "authority": authority,
+        "scope": scope,
+        "timestamp": datetime.utcnow(),
+        "source": "conversational",
+        "session_id": current_session_id()
+    }
+
+    await store_memory_rule(memory_entry)
+    await apply_to_current_session(memory_entry)
+
+    return f"Memory rule stored with {authority} authority"
+```
+
+### 6.3 Advanced Search Interface
+
+**Code-Aware Search Tools**:
+```python
+@mcp.tool()
+async def search_code_symbols(
+    symbol_name: str,
+    symbol_type: Literal["function", "class", "variable", "import"] = None,
+    include_usage: bool = False,
+    project_scope: bool = True
+):
+    """LSP-enhanced symbol definition and usage search"""
+
+@mcp.tool()
+async def search_by_type_signature(
+    signature_pattern: str,
+    language: str = None,
+    return_examples: bool = True
+):
+    """Find functions/methods by type signature patterns"""
+
+@mcp.tool()
+async def find_related_documentation(
+    code_element: str,
+    include_external: bool = False,
+    max_distance: float = 0.8
+):
+    """Find documentation related to code elements via semantic similarity"""
+```
+
+## 7. Unified CLI - Single Command Interface (wqm)
+
+### 7.1 Complete CLI Structure
+
+```bash
+wqm                    # Single command to remember
+├── memory             # Memory rules and LLM behavior management
+│   ├── list           # Show all memory rules with authority levels
+│   ├── add            # Add new rule (preference or behavior)
+│   ├── edit           # Edit specific rule with conflict detection
+│   ├── remove         # Remove rule with dependency checking
+│   ├── tokens         # Show token usage and optimization suggestions
+│   ├── trim           # Interactive token optimization workflow
+│   ├── conflicts      # Check for rule conflicts and resolution options
+│   └── export         # Export memory rules for backup/sharing
+│
+├── admin              # System administration and configuration
+│   ├── status         # System and engine status with resource usage
+│   ├── config         # Configuration management and validation
+│   ├── start-engine   # Start Rust daemon with health checks
+│   ├── stop-engine    # Graceful daemon shutdown with queue completion
+│   ├── restart-engine # Restart daemon with new configuration
+│   ├── logs           # View daemon and MCP server logs
+│   ├── health         # Comprehensive system health diagnostics
+│   └── migrate        # Migration tools for version upgrades
+│
+├── ingest             # Manual document processing and bulk operations
+│   ├── file           # Ingest single file with metadata prompting
+│   ├── folder         # Ingest folder contents with filtering
+│   ├── yaml           # Process completed YAML metadata files
+│   ├── web            # Crawl web pages from root URL with depth limits
+│   ├── batch          # Batch processing with progress monitoring
+│   └── resume         # Resume interrupted ingestion operations
+│
+├── search             # Command-line search interface across all modes
+│   ├── project        # Search current project collections
+│   ├── collection     # Search specific collection with targeting
+│   ├── global         # Search user-configured global collections
+│   ├── all            # Search all collections with relevance ranking
+│   ├── memory         # Search memory/knowledge graph for rules
+│   ├── symbols        # Search code symbols with LSP integration
+│   └── related        # Find semantically related content across types
+│
+├── library            # Read-only library collection management
+│   ├── list           # Show all library collections with statistics
+│   ├── create         # Create new library collection with metadata setup
+│   ├── remove         # Remove library collection with confirmation
+│   ├── status         # Show library statistics and health
+│   ├── validate       # Validate library metadata completeness
+│   └── archive        # Archive old versions to separate collections
+│
+├── watch              # Library folder watching configuration (NOT projects)
+│   ├── add            # Add folder to watch for specific collection
+│   ├── list           # Show active watches with status and statistics
+│   ├── remove         # Stop watching folder with cleanup options
+│   ├── status         # Watch activity, processing queue, and errors
+│   ├── pause          # Pause all or specific watches temporarily
+│   ├── resume         # Resume paused watches with validation
+│   └── logs           # View watching activity logs and errors
+│
+└── collections        # Collection management and state inspection
+    ├── list           # List all collections with type and metadata
+    ├── inspect        # Inspect collection contents and structure
+    ├── stats          # Collection statistics and performance metrics
+    ├── validate       # Validate collection integrity and metadata
+    ├── backup         # Backup collection data and metadata
+    ├── restore        # Restore collection from backup
+    └── migrate        # Migrate collections between versions
+```
+
+### 7.2 CLI Integration Examples
+
+**Memory Management Workflows**:
+```bash
+# Add behavioral rules with authority levels
+wqm memory add "Always use uv for Python package management" --authority=default
+wqm memory add "Never commit without atomic changes" --authority=absolute
+
+# Check token usage and optimize
+wqm memory tokens  # Shows: Memory rules using 1,247 tokens (8.3% of context)
+wqm memory trim --max-tokens 2000 --interactive
+
+# Handle rule conflicts
+wqm memory conflicts --show-all --suggest-resolutions
+```
+
+**Library Management with Watching**:
+```bash
+# Create library collection and set up watching
+wqm library create technical-books  # Creates _technical-books collection
+wqm watch add /home/user/library/books --collection=_technical-books
+wqm ingest yaml /home/user/library/pending_metadata.yaml
+
+# Monitor library processing
+wqm watch status --collection=_technical-books
+wqm library stats --collection=_technical-books --show-recent
+```
+
+**Search Across Contexts**:
+```bash
+# Context-aware search with relationship inclusion
+wqm search project "rust async patterns" --include-relationships
+wqm search all "machine learning best practices" --content-types=code,docs
+wqm search memory "python preferences" --format=structured
+
+# Symbol-specific searches
+wqm search symbols "init_client" --include-usage --show-relationships
+wqm search related "authentication" --max-distance=0.8 --cross-content
+```
+
+**System Administration**:
+```bash
+# Health monitoring and diagnostics
+wqm admin status  # Engine status, active tasks, resource usage
+wqm admin health --comprehensive --check-lsp --validate-collections
+wqm admin logs --component=daemon --tail=100 --filter=ERROR
+
+# Configuration and lifecycle management
+wqm admin config validate --check-lsp-paths --verify-collections
+wqm admin restart-engine --wait-for-queue --health-check
+```
+
+## 8. LSP Injector - Code Intelligence Integration
+
+### 8.1 LSP Integration Architecture
+
+**Supported LSP Servers with Selection Criteria**:
+```yaml
+selection_criteria:
+  1. speed: "Sub-second response times for symbol queries"
+  2. project_scope: "Whole-project analysis, not single-file"
+  3. feature_completeness: "Full LSP specification support"
+  4. active_development: "Regular updates and community support"
+  5. platform_compatibility: "Works on target OS or compilable"
+
+selected_lsp_servers:
+  python:
+    primary: "ruff-lsp"
+    rationale: "Fastest Python LSP, project-wide analysis, actively developed"
+    features: ["symbols", "definitions", "references", "hover", "diagnostics"]
+
+  rust:
+    primary: "rust-analyzer"
+    rationale: "Official Rust LSP, comprehensive analysis, excellent performance"
+    features: ["symbols", "definitions", "references", "hover", "inlay_hints", "call_hierarchy"]
+
+  javascript_typescript:
+    primary: "typescript-language-server"
+    rationale: "Official TypeScript LSP, works for JS/TS, project-wide intelligence"
+    features: ["symbols", "definitions", "references", "hover", "refactoring"]
+
+  java:
+    primary: "eclipse.jdt.ls"
+    rationale: "Most mature Java LSP, excellent project analysis"
+    features: ["symbols", "definitions", "references", "hover", "workspace_symbols"]
+
+  c_cpp:
+    primary: "clangd"
+    rationale: "LLVM-based, fast, comprehensive C/C++ support"
+    features: ["symbols", "definitions", "references", "hover", "completion"]
+
+  go:
+    primary: "gopls"
+    rationale: "Official Go LSP, excellent performance and features"
+    features: ["symbols", "definitions", "references", "hover", "workspace_symbols"]
+```
+
+### 8.2 Code Intelligence Extraction
+
+**LSP Data Collection Strategy - "Interface + Minimal Context"**:
+```yaml
+include_in_vectors:
+  - complete_function_signatures
+  - class_definitions_with_inheritance
+  - import_statements_and_dependencies
+  - documentation_strings_and_comments
+  - type_annotations_and_signatures
+  - small_context_snippets (1-3 lines around definitions)
+
+exclude_from_vectors:
+  - full_method_implementations (prevents storage duplication)
+  - detailed_implementation_logic (available in file content)
+  - large_code_blocks (rely on file content for implementation details)
+
+metadata_extraction:
+  symbols:
+    - function_names_and_signatures
+    - class_definitions_and_inheritance
+    - variable_declarations_with_types
+    - module_and_import_structure
+
+  relationships:
+    - import_dependencies_and_usage
+    - inheritance_hierarchies
+    - function_call_graphs
+    - cross_file_references
+
+  semantic_information:
+    - type_information_and_annotations
+    - documentation_and_docstrings
+    - semantic_token_classification
+    - syntax_highlighting_metadata
+```
+
+### 8.3 Real-Time Integration and Updates
+
+**Incremental Update Strategy**:
+```python
+async def handle_file_change(file_path: str, change_type: str):
+    """Handle real-time file changes with LSP integration"""
+
+    if is_code_file(file_path):
+        # Get LSP analysis for changed file
+        lsp_metadata = await extract_lsp_metadata(file_path)
+
+        # Update relationships for dependent files
+        dependent_files = await get_dependent_files(file_path)
+        for dep_file in dependent_files:
+            await update_relationship_metadata(dep_file)
+
+        # Update vector embeddings with new content + metadata
+        await update_document_vectors(file_path, lsp_metadata)
+
+    else:
+        # Handle non-code files with standard processing
+        await update_document_content(file_path)
+```
+
+**LSP Server Health and Systematic Degradation**:
+- **Auto-detection**: Scan PATH for available LSP servers on daemon startup following standard protocol compliance
+- **Health monitoring**: Periodic health checks with automatic recovery and state persistence
+- **Systematic graceful degradation**:
+  - **Level 1**: LSP server crash → continue with text-only processing → notify user of degraded mode
+  - **Level 2**: LSP protocol errors → fall back to basic symbol extraction → queue advanced analysis for recovery
+  - **Level 3**: Resource constraints → disable background analysis → prioritize user queries with reduced features
+  - **Level 4**: Complete LSP failure → maintain all other functionality → clear user communication about unavailable features
+- **Automatic recovery**: Resume full functionality when LSP servers become available again
+- **User control**: No auto-installation, users manage LSP server versions following established tool principle
+- **Configuration validation**: Verify LSP server capabilities and configuration with fallback strategies
+
+## 9. Configuration Architecture Improvements
+
+### 9.1 Multi-Tenancy Collection Architecture
+
+**Migration from Suffix-Based to Multi-Tenant Collections**:
+```yaml
+# Old Configuration (v0.2.x)
+workspace:
+  collection_suffixes:
+    - "repo"
+    - "docs"
+    - "scratchbook"
+  collection_prefix: "project-name"
+  max_collections: 10
+
+# New Configuration (v0.3.0+)
+workspace:
+  collection_types:
+    - "scratchbook"
+    - "docs"
+    - "notes"
+  memory_collection_name: "memory"
+  custom_project_indicators: []
+
+auto_ingestion:
+  code_collection_name: "codebase"
+  custom_include_patterns: []
+  custom_exclude_patterns: []
+  # recursive_depth removed - no arbitrary limits
+```
+
+**Collection Architecture Benefits**:
+- **Single read-only code collection**: Multi-tenant `_codebase` with project isolation via metadata
+- **Simplified management**: No collection proliferation, clear naming conventions
+- **Conflict prevention**: Server-level collision detection with clear error messages
+- **State transparency**: New `wqm` domain for state database inspection
+
+### 9.2 OS-Standard Directory Usage
+
+**XDG Base Directory Specification (Linux/Unix)**:
+```yaml
+directories:
+  cache: "$XDG_CACHE_HOME/workspace-qdrant-mcp"  # default: ~/.cache
+  state: "$XDG_STATE_HOME/workspace-qdrant-mcp"  # default: ~/.local/state
+  config: "$XDG_CONFIG_HOME/workspace-qdrant-mcp"  # default: ~/.config
+  logs: "$XDG_STATE_HOME/workspace-qdrant-mcp/logs"
+```
+
+**Platform-Specific Directory Mapping**:
+```yaml
+macos:
+  cache: "~/Library/Caches/workspace-qdrant-mcp"
+  logs: "~/Library/Logs/workspace-qdrant-mcp"
+  config: "~/Library/Application Support/workspace-qdrant-mcp"
+
+windows:
+  cache: "%LOCALAPPDATA%\\workspace-qdrant-mcp\\cache"
+  logs: "%LOCALAPPDATA%\\workspace-qdrant-mcp\\logs"
+  config: "%APPDATA%\\workspace-qdrant-mcp"
+
+removal:
+  - user_configurable_cache_dir: "removed - use OS standards"
+  - user_configurable_log_paths: "removed - use OS standards"
+```
+
+### 9.3 Hardcoded Pattern System
+
+**Research-Backed Project Indicators**:
+```yaml
+# Embedded at compile-time: patterns/project_indicators.yaml
+project_indicators:
+  version_control:
+    - ".git"
+    - ".hg"
+    - ".svn"
+
+  language_ecosystems:
+    - "package.json"        # Node.js
+    - "pyproject.toml"      # Python
+    - "Cargo.toml"          # Rust
+    - "pom.xml"             # Java Maven
+    - "build.gradle"        # Java Gradle
+    - "go.mod"              # Go
+    - "composer.json"       # PHP
+    - "Gemfile"             # Ruby
+    - "mix.exs"             # Elixir
+    - "dune-project"        # OCaml
+
+  build_systems:
+    - "Makefile"
+    - "CMakeLists.txt"
+    - "meson.build"
+    - "BUILD.bazel"
+
+  ci_cd:
+    - ".github/"
+    - ".gitlab-ci.yml"
+    - ".travis.yml"
+    - "azure-pipelines.yml"
+    - "Jenkinsfile"
+```
+
+**LSP-Derived Language Patterns**:
+```yaml
+# Automatically generated from available LSP servers
+# Embedded: patterns/language_extensions.yaml
+language_patterns:
+  python:
+    extensions: [".py", ".pyi", ".pyx"]
+    config_files: ["pyproject.toml", "setup.py", "requirements*.txt", "Pipfile"]
+
+  rust:
+    extensions: [".rs"]
+    config_files: ["Cargo.toml", "Cargo.lock"]
+
+  javascript:
+    extensions: [".js", ".mjs", ".cjs"]
+    config_files: ["package.json", "package-lock.json"]
+
+  typescript:
+    extensions: [".ts", ".tsx", ".d.ts"]
+    config_files: ["tsconfig.json", "package.json"]
+```
+
+**Comprehensive Exclusion Patterns**:
+```yaml
+# Embedded: patterns/exclude_patterns.yaml
+global_exclusions:
+  version_control:
+    - ".git/"
+    - ".hg/"
+    - ".svn/"
+
+  build_artifacts:
+    - "build/"
+    - "dist/"
+    - "target/"  # Rust
+    - "__pycache__/"  # Python
+    - "node_modules/"  # Node.js
+    - ".next/"  # Next.js
+    - ".nuxt/"  # Nuxt.js
+
+  ide_files:
+    - ".vscode/"
+    - ".idea/"
+    - "*.swp"
+    - "*.swo"
+    - ".DS_Store"
+    - "thumbs.db"
+
+  dependencies:
+    - "venv/"
+    - ".venv/"
+    - "env/"
+    - ".tox/"
+    - "vendor/"  # Go, Ruby
+    - "deps/"    # Elixir
+```
+
+## 10. Technical Specifications and Dependencies
+
+### 10.1 Rust Daemon Dependencies
+
+**Core Processing Libraries**:
+```toml
+[dependencies]
+tokio = { version = "1.0", features = ["full"] }
+tonic = "0.10"  # gRPC implementation
+candle-core = "0.3"  # ML inference (evaluate vs ort)
+tree-sitter = "0.20"  # Code parsing
+tantivy = "0.21"  # Full-text search indexing
+serde = { version = "1.0", features = ["derive"] }
+clap = { version = "4.0", features = ["derive"] }
+qdrant-client = "1.7"
+sqlx = { version = "0.7", features = ["sqlite", "runtime-tokio-rustls"] }
+notify = "6.0"  # File system watching
+tower-lsp = "0.20"  # LSP client implementation
+```
+
+**Document Processing**:
+```toml
+pdf-extract = "0.6"
+epub = "1.2"
+html2text = "0.6"
+reqwest = { version = "0.11", features = ["json", "stream"] }
+scraper = "0.18"  # Web scraping
+```
+
+### 10.2 Python MCP Server Dependencies
+
+**Core MCP and Communication**:
+```toml
+[dependencies]
+fastmcp = "^0.4.0"
+grpcio = "^1.60.0"
+qdrant-client = "^1.7.0"
+```
+
+**Project Detection and Processing**:
+```toml
+GitPython = "^3.1.40"
+pydantic = "^2.5.0"
+PyYAML = "^6.0.1"
+watchdog = "^3.0.0"
+```
+
+**Claude Code Integration**:
+```toml
+claude-code-sdk = "^0.1.0"  # When available
+anthropic = "^0.7.0"  # For conflict detection
+```
+
+### 10.3 Performance Targets and Constraints
+
+**Processing Performance**:
+- **Document Ingestion**: 1000+ documents/minute (Rust daemon)
+- **Search Response**: <100ms across all four search modes
+- **Memory Usage**: <500MB RSS for workspaces with 100k+ documents
+- **Startup Time**: <2 seconds for daemon initialization and gRPC connection
+- **Memory Rules**: <2000 tokens for typical rule sets (user-configurable)
+
+**Recovery and Resumption Performance**:
+- **State Recovery**: <5 seconds to detect and present resumption options for interrupted operations
+- **Transaction Rollback**: <1 second for atomic operation rollback on failure
+- **Queue Persistence**: 100% preservation of unfinished work across system restarts
+- **Graceful Degradation Response**: <500ms to switch to degraded mode when components fail
+- **Automatic Recovery**: <10 seconds to resume full functionality when failed components restart
+
+**LSP Integration Performance**:
+- **Symbol Extraction**: <5 seconds per 1000 files
+- **Symbol Lookup**: <100ms response time for definition queries
+- **Incremental Updates**: <1 second for single file changes
+- **Relationship Analysis**: <200ms for dependency graph queries
+
+**Scalability Targets**:
+- **Collections**: Support 100+ collections per workspace
+- **Documents**: Handle 100k+ documents across all collections
+- **Concurrent Users**: Support multiple MCP servers on same daemon
+- **Cross-Platform**: Consistent performance across macOS, Linux, Windows
+
+## 11. Implementation Phases and Timeline
+
+### 11.1 Phase 1: Foundation and Architecture (v0.3.0)
+
+**Timeline**: 4 weeks
+**Core Objectives**: Establish four-component architecture, multi-tenancy, and memory system foundation
+
+**Deliverables**:
+- [ ] Four-component architecture with clear separation of concerns
+- [ ] Multi-tenant collection architecture replacing suffixes
+- [ ] Reserved collection naming system (`memory`, `_library`, project patterns)
+- [ ] Basic memory collection with conversational updates
+- [ ] OS-standard directory usage (XDG/macOS/Windows)
+- [ ] Hardcoded pattern system with comprehensive exclusions
+- [ ] Basic CLI structure (`wqm admin`, `wqm memory`, `wqm ingest`)
+- [ ] gRPC communication between MCP server and daemon
+- [ ] SQLite state database for daemon configuration
+
+**Technical Milestones**:
+- [ ] Rust daemon with gRPC server and basic file processing
+- [ ] Python MCP server with gRPC client and memory management
+- [ ] Collection name validation and conflict prevention
+- [ ] Memory rule storage and retrieval system
+- [ ] Platform-specific directory detection and usage
+- [ ] Embedded YAML pattern files with compile-time inclusion
+
+### 11.2 Phase 2: LSP Integration and Code Intelligence (v0.4.0)
+
+**Timeline**: 4 weeks
+**Core Objectives**: Complete LSP injector implementation and intelligent code processing
+
+**Deliverables**:
+- [ ] LSP server detection and communication system
+- [ ] Symbol extraction, relationship mapping, and type information
+- [ ] Code-aware search tools and symbol lookup functionality
+- [ ] Incremental update system for code changes
+- [ ] Smart ingestion differentiation (code vs. non-code files)
+- [ ] Enhanced CLI (`wqm search symbols`, `wqm search related`)
+- [ ] Real-time file watching with LSP integration
+- [ ] Performance optimization for large codebases
+
+**Technical Milestones**:
+- [ ] LSP client implementation in Rust daemon
+- [ ] "Interface + Minimal Context" extraction strategy
+- [ ] Symbol metadata storage and vector embedding integration
+- [ ] Cross-file relationship analysis and dependency tracking
+- [ ] Code intelligence search interface in MCP server
+- [ ] Health monitoring and graceful degradation for LSP servers
+- [ ] Language-aware file filtering with comprehensive patterns
+
+### 11.3 Phase 3: Library Management and Version Control (v0.5.0)
+
+**Timeline**: 4 weeks
+**Core Objectives**: Complete library ecosystem with version-aware document management
+
+**Deliverables**:
+- [ ] Library folder watching system (`wqm watch` commands)
+- [ ] Document type-based version management and precedence rules
+- [ ] EPUB/MOBI conversion with metadata extraction
+- [ ] Web crawling with recursive ingestion and rate limiting
+- [ ] Advanced version conflict resolution and archive collections
+- [ ] Complete CLI implementation (`wqm library`, `wqm watch`, advanced search)
+- [ ] Metadata workflow for incomplete library information
+- [ ] Performance optimization and large-scale testing
+
+**Technical Milestones**:
+- [ ] Document format detection and type-specific versioning
+- [ ] Version precedence algorithms and conflict resolution
+- [ ] YAML metadata workflow with user completion cycle
+- [ ] Web crawling engine with depth limits and content extraction
+- [ ] Archive collection system for version history
+- [ ] Comprehensive library management and statistics
+- [ ] Performance benchmarking with realistic workloads
+
+### 11.4 Phase 4: Advanced Features and Memory Integration (v0.6.0)
+
+**Timeline**: 4 weeks
+**Core Objectives**: Claude Code integration, advanced memory features, and production readiness
+
+**Deliverables**:
+- [ ] Claude Code SDK integration with session initialization
+- [ ] Memory conflict detection and resolution system
+- [ ] Agent library and deployment decision support
+- [ ] Advanced research modes across all four search contexts
+- [ ] Web interface for memory rule curation (`wqm memory --web`)
+- [ ] Knowledge graph relationship extraction from documents
+- [ ] Production deployment guides and migration tools
+- [ ] Comprehensive documentation and user guides
+
+**Technical Milestones**:
+- [ ] Claude Code system context injection with memory rules
+- [ ] Semantic conflict detection using Claude/Sonnet analysis
+- [ ] Agent library metadata and deployment cost analysis
+- [ ] Graph visualization for knowledge relationships
+- [ ] Interactive web interface for rule management
+- [ ] Advanced search with relationship traversal
+- [ ] Migration tools for existing installations
+- [ ] Performance monitoring and optimization tools
+
+## 12. Success Criteria and Acceptance Tests
+
+### 12.1 Functional Requirements
+
+**Memory-Driven Behavior**:
+- [ ] LLM follows user-defined rules consistently across all sessions
+- [ ] Conversational memory updates work without manual configuration
+- [ ] Rule conflicts are detected and resolved before session start
+- [ ] Memory rules are automatically injected into Claude Code system context
+- [ ] Authority levels (absolute vs default) are respected in all scenarios
+
+**Multi-Modal Content Integration**:
+- [ ] Seamless search across code, documents, books, web content
+- [ ] Version management works automatically without user intervention
+- [ ] LSP integration provides accurate symbol definitions and relationships
+- [ ] Project detection and collection creation happens automatically
+- [ ] Four-tier search hierarchy matches user mental models
+
+**System Performance and Reliability**:
+- [ ] 10x improvement in processing speed over Python-only implementation
+- [ ] Sub-100ms search response times across all modes
+- [ ] Graceful daemon lifecycle with queue completion before shutdown
+- [ ] Automatic recovery from LSP server failures and restarts
+- [ ] Resource usage remains under target limits (<500MB RSS)
+
+### 12.2 User Experience Requirements
+
+**Seamless Integration**:
+- [ ] Memory rules are automatically active in every Claude Code session
+- [ ] Project context is available immediately upon entering project directory
+- [ ] Library collections are accessible from any project context
+- [ ] System status and errors are clearly communicated to users
+- [ ] Migration from previous versions is seamless with clear guidance
+
+**Adult User Respect**:
+- [ ] System provides information and tools, users make decisions
+- [ ] No auto-installation of dependencies (LSP servers, etc.)
+- [ ] Configuration is optional with intelligent defaults
+- [ ] Error messages provide actionable guidance without condescension
+- [ ] Complex functionality is accessible through simple commands
+
+**Operational Simplicity**:
+- [ ] Single `wqm` command covers all functionality intuitively
+- [ ] New installations work with minimal configuration
+- [ ] Common workflows are discoverable and efficient
+- [ ] System self-diagnoses and provides health information
+- [ ] Backup and recovery procedures are straightforward
+
+### 12.3 Technical Requirements
+
+**Architecture and Maintainability**:
+- [ ] Four-component architecture enables independent optimization
+- [ ] Clean separation of concerns between daemon, server, utility, injector
+- [ ] API contracts are stable and support future extensions
+- [ ] Code is well-documented with comprehensive tests
+- [ ] Performance metrics are built-in and observable
+
+**Cross-Platform Compatibility**:
+- [ ] Consistent behavior across macOS, Linux, Windows
+- [ ] OS-standard directories are used correctly on each platform
+- [ ] Platform-specific features are handled gracefully
+- [ ] Installation and setup work reliably across environments
+- [ ] Error handling accounts for platform differences
+
+**Scalability and Performance**:
+- [ ] Handles 100k+ documents across hundreds of collections
+- [ ] Multi-tenant architecture prevents resource conflicts
+- [ ] Concurrent access from multiple MCP servers works correctly
+- [ ] Memory usage scales predictably with content volume
+- [ ] Processing performance meets or exceeds target benchmarks
+
+## 13. Risk Assessment and Mitigation Strategies
+
+### 13.1 Technical Risks
+
+**Multi-Process Architecture Complexity**:
+- **Risk**: Coordination between Python MCP and Rust daemon creates reliability issues
+- **Impact**: System instability, data loss, poor user experience
+- **Mitigation**: Comprehensive integration testing, graceful failure modes, automatic recovery
+- **Monitoring**: Health checks, process monitoring, automated restarts
+
+**LSP Integration Reliability**:
+- **Risk**: LSP servers are unreliable, crash frequently, or provide inconsistent data
+- **Impact**: Code intelligence features become unusable, user frustration
+- **Mitigation**: Graceful degradation, health monitoring, automatic recovery, fallback to text-only
+- **Monitoring**: LSP server health checks, error rate tracking, performance metrics
+
+**Platform Distribution Complexity**:
+- **Risk**: Pre-built wheels for multiple architectures create maintenance burden
+- **Impact**: Installation failures, platform-specific bugs, support complexity
+- **Mitigation**: Tier 1/2 platform strategy, automated CI/CD, comprehensive testing matrix
+- **Monitoring**: Installation success rates, platform-specific error tracking
+
+### 13.2 User Experience Risks
+
+**Memory System Complexity**:
+- **Risk**: Rule conflicts and authority levels confuse users, leading to unexpected behavior
+- **Impact**: Loss of trust in system, abandonment of memory features
+- **Mitigation**: Clear conflict resolution UI, comprehensive documentation, sensible defaults
+- **Monitoring**: User feedback, conflict resolution success rates, rule usage patterns
+
+**Learning Curve for Advanced Features**:
+- **Risk**: Rich feature set overwhelms users, especially those with simple use cases
+- **Impact**: Feature abandonment, negative user experience, support burden
+- **Mitigation**: Progressive disclosure, intelligent defaults, comprehensive onboarding
+- **Monitoring**: Feature usage analytics, user feedback, support ticket patterns
+
+**Migration and Compatibility**:
+- **Risk**: Breaking changes alienate existing users, migration tools fail
+- **Impact**: User churn, negative community feedback, adoption barriers
+- **Mitigation**: Clear migration paths, backward compatibility where possible, user communication
+- **Monitoring**: Migration success rates, user retention, community feedback
+
+### 13.3 Operational Risks
+
+**Development Scope and Timeline**:
+- **Risk**: Ambitious feature set leads to delayed releases and incomplete functionality
+- **Impact**: Missed deadlines, technical debt, user expectations not met
+- **Mitigation**: Phased implementation, MVP focus, regular milestone reviews
+- **Monitoring**: Development velocity, feature completeness, quality metrics
+
+**Support and Maintenance Burden**:
+- **Risk**: Multi-component system increases support complexity and maintenance overhead
+- **Impact**: Increased support costs, slower development, user frustration
+- **Mitigation**: Comprehensive diagnostics, clear error messages, automated health checks
+- **Monitoring**: Support ticket volume and resolution time, system health metrics
+
+**Community Adoption and Feedback**:
+- **Risk**: Limited user base provides insufficient feedback for system validation
+- **Impact**: Product-market fit issues, design decisions based on incomplete information
+- **Mitigation**: Beta testing program, community engagement, iterative development
+- **Monitoring**: User adoption rates, feature usage, community engagement metrics
+
+### 13.4 Mitigation Implementation Plan
+
+**Phase 1 Risk Mitigation**:
+- [ ] Implement comprehensive health checks and monitoring
+- [ ] Create automated testing for multi-component interactions
+- [ ] Design graceful failure modes for all component interactions
+- [ ] Establish clear error reporting and diagnostic capabilities
+
+**Phase 2 Risk Mitigation**:
+- [ ] Build LSP server health monitoring and automatic recovery
+- [ ] Create fallback modes for when LSP servers are unavailable
+- [ ] Implement comprehensive logging and performance metrics
+- [ ] Design user-friendly error messages and recovery guidance
+
+**Phase 3 Risk Mitigation**:
+- [ ] Create migration tools and backward compatibility testing
+- [ ] Build user onboarding flows and progressive feature disclosure
+- [ ] Implement user feedback collection and analysis systems
+- [ ] Create comprehensive documentation and troubleshooting guides
+
+**Ongoing Risk Management**:
+- [ ] Regular risk assessment reviews and mitigation strategy updates
+- [ ] User feedback analysis and incorporation into development priorities
+- [ ] Performance monitoring and optimization based on real-world usage
+- [ ] Community engagement and support process optimization
+
+This comprehensive PRD provides the complete specification for transforming workspace-qdrant-mcp into a sophisticated, memory-driven semantic workspace platform with intelligent code understanding and conversational behavioral control. The four-component architecture, phased implementation approach, and comprehensive risk mitigation ensure deliverable milestones while building toward an ambitious but achievable vision of natural LLM-agent workspace interaction.
