@@ -189,6 +189,12 @@ specs/
 *PRD.md
 *_PRD.txt
 *_PRD.md
+research/
+*_RESEARCH.md
+*_RESEARCH_*.md
+FIRST-PRINCIPLES.md
+LSP_LINTER_RESEARCH_SUMMARY.md
+LSP_RESEARCH_PROGRESS.md
 
 # System and editor files
 .DS_Store
