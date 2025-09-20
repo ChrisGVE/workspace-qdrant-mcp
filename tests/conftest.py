@@ -19,6 +19,12 @@ from qdrant_client import QdrantClient
 from qdrant_client.http import models
 
 from common.core.config import Config
+from tests.utils.fastmcp_test_infrastructure import (
+    FastMCPTestServer,
+    FastMCPTestClient,
+    MCPProtocolTester,
+    fastmcp_test_environment
+)
 
 
 # Configure logging for tests
@@ -293,6 +299,44 @@ def pytest_configure(config):
     config.addinivalue_line("markers", "requires_git: Tests requiring Git repository")
     config.addinivalue_line("markers", "regression: Regression tests for bug fixes")
     config.addinivalue_line("markers", "smoke: Smoke tests for basic functionality")
+    config.addinivalue_line("markers", "fastmcp: FastMCP protocol and infrastructure tests")
+    config.addinivalue_line("markers", "mcp_tools: MCP tool functionality tests")
+
+
+@pytest.fixture
+async def fastmcp_test_server():
+    """FastMCP test server fixture for in-memory testing."""
+    # Import here to avoid circular imports
+    from workspace_qdrant_mcp.server import app
+
+    async with FastMCPTestServer(app, "pytest-server") as server:
+        yield server
+
+
+@pytest.fixture
+async def fastmcp_test_client(fastmcp_test_server):
+    """FastMCP test client fixture connected to test server."""
+    client = await fastmcp_test_server.create_test_client()
+    try:
+        yield client
+    finally:
+        await client.close()
+
+
+@pytest.fixture
+async def mcp_protocol_tester(fastmcp_test_server):
+    """MCP protocol tester fixture for comprehensive compliance testing."""
+    tester = MCPProtocolTester(fastmcp_test_server)
+    yield tester
+
+
+@pytest.fixture
+async def fastmcp_test_environment():
+    """Complete FastMCP testing environment with server and client."""
+    from workspace_qdrant_mcp.server import app
+
+    async with fastmcp_test_environment(app, "pytest-environment") as (server, client):
+        yield server, client
 
 
 def pytest_collection_modifyitems(config, items):
