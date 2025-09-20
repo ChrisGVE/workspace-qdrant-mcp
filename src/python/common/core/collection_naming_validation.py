@@ -668,6 +668,16 @@ class CollectionNamingValidator:
                 conflict_type=ConflictType.PATTERN_VIOLATION
             )
 
+        # Check reserved names first (always, regardless of existing collections)
+        if name in self.conflict_detector.reserved_names:
+            return ValidationResult(
+                is_valid=False,
+                severity=ValidationSeverity.ERROR,
+                error_message=f"'{name}' is a reserved collection name",
+                conflict_type=ConflictType.RESERVED_NAME,
+                correction_hint="Choose a different name that doesn't conflict with reserved system names"
+            )
+
         # Auto-detect category if not provided
         if intended_category is None:
             intended_category = self._detect_category(name)
