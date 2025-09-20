@@ -208,14 +208,27 @@ class FastMCPTestServer:
                 return list(self.app._tool_manager._tools.keys())
         return []
 
-    def get_tool(self, tool_name: str) -> Optional[FunctionTool]:
+    async def get_tool(self, tool_name: str) -> Optional[FunctionTool]:
         """Get a specific tool by name."""
         try:
-            # Try FastMCP API first
-            return self.app.get_tool(tool_name)
+            # Try FastMCP API first (it's async)
+            return await self.app.get_tool(tool_name)
         except Exception:
             # Fallback to attribute access
             return getattr(self.app, tool_name, None)
+
+    def get_tool_sync(self, tool_name: str) -> Optional[FunctionTool]:
+        """Get a specific tool by name (synchronous version for testing)."""
+        try:
+            # Try to use internal tool manager directly
+            if hasattr(self.app, '_tool_manager') and hasattr(self.app._tool_manager, '_tools'):
+                tool_data = self.app._tool_manager._tools.get(tool_name)
+                if tool_data:
+                    return tool_data
+            # Fallback to attribute access
+            return getattr(self.app, tool_name, None)
+        except Exception:
+            return None
 
 
 class FastMCPTestClient:
