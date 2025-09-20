@@ -925,11 +925,11 @@ class MetadataFilterManager:
 
         # Handle metadata requirement
         if criteria.require_metadata:
-            # Ensure documents have required metadata fields
+            # Ensure documents have required metadata fields (non-empty project_id)
             conditions.append(
                 models.FieldCondition(
                     key="project_id",
-                    match=models.MatchExcept(except_=["", None])
+                    match=models.MatchExcept(**{"except": [""]})
                 )
             )
 
