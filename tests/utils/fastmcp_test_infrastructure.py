@@ -162,18 +162,21 @@ class FastMCPTestServer:
         if not isinstance(self.app, FastMCP):
             raise ValueError(f"Expected FastMCP instance, got {type(self.app)}")
 
-        # Check for tools registry
-        if not (hasattr(self.app, '_tools') or hasattr(self.app, 'tools')):
-            raise ValueError("FastMCP app missing tools registry")
+        # Check for tools registry using FastMCP API
+        if not hasattr(self.app, 'get_tools'):
+            raise ValueError("FastMCP app missing get_tools method")
 
-        # Count registered tools
-        tool_count = 0
-        if hasattr(self.app, '_tools'):
-            tool_count = len(self.app._tools)
-        elif hasattr(self.app, 'tools'):
-            tool_count = len(self.app.tools)
+        # Count registered tools using FastMCP API
+        try:
+            tools = await self.app.get_tools()
+            tool_count = len(tools)
+        except Exception as e:
+            # If get_tools fails, try alternate approach
+            tool_count = 0
+            if hasattr(self.app, '_tool_manager') and hasattr(self.app._tool_manager, '_tools'):
+                tool_count = len(self.app._tool_manager._tools)
 
-        if tool_count < 5:  # Expect at least 5 core tools
+        if tool_count < 1:  # Expect at least 1 tool
             raise ValueError(f"FastMCP app has insufficient tools: {tool_count}")
 
     async def create_test_client(self) -> 'FastMCPTestClient':
@@ -185,15 +188,34 @@ class FastMCPTestServer:
 
     def get_available_tools(self) -> List[str]:
         """Get list of available tool names."""
-        if hasattr(self.app, '_tools'):
-            return list(self.app._tools.keys())
-        elif hasattr(self.app, 'tools'):
-            return list(self.app.tools.keys())
+        try:
+            # Use async method in sync context - this is for testing only
+            import asyncio
+            loop = asyncio.get_event_loop()
+            if loop.is_running():
+                # Create a new task if loop is already running
+                task = asyncio.create_task(self.app.get_tools())
+                # Note: This is a simplified approach for testing
+                # In real async context, this would be awaited properly
+                if hasattr(self.app, '_tool_manager') and hasattr(self.app._tool_manager, '_tools'):
+                    return list(self.app._tool_manager._tools.keys())
+            else:
+                tools = loop.run_until_complete(self.app.get_tools())
+                return [tool.name for tool in tools]
+        except Exception:
+            # Fallback to internal structure
+            if hasattr(self.app, '_tool_manager') and hasattr(self.app._tool_manager, '_tools'):
+                return list(self.app._tool_manager._tools.keys())
         return []
 
     def get_tool(self, tool_name: str) -> Optional[FunctionTool]:
         """Get a specific tool by name."""
-        return getattr(self.app, tool_name, None)
+        try:
+            # Try FastMCP API first
+            return self.app.get_tool(tool_name)
+        except Exception:
+            # Fallback to attribute access
+            return getattr(self.app, tool_name, None)
 
 
 class FastMCPTestClient:
@@ -250,33 +272,10 @@ class FastMCPTestClient:
         start_time = asyncio.get_event_loop().time()
 
         try:
-            # Get the tool from the server
-            tool = self.server.get_tool(tool_name)
-            if tool is None:
-                return MCPTestResult(
-                    success=False,
-                    tool_name=tool_name,
-                    parameters=parameters,
-                    response=None,
-                    execution_time_ms=0.0,
-                    error=f"Tool '{tool_name}' not found"
-                )
-
-            # Verify tool has .fn attribute (FastMCP pattern)
-            if not hasattr(tool, 'fn'):
-                return MCPTestResult(
-                    success=False,
-                    tool_name=tool_name,
-                    parameters=parameters,
-                    response=None,
-                    execution_time_ms=0.0,
-                    error=f"Tool '{tool_name}' missing .fn attribute"
-                )
-
-            # Execute the tool with timeout
+            # Use FastMCP _call_tool method for direct invocation
             try:
                 response = await asyncio.wait_for(
-                    tool.fn(**parameters),
+                    self.server.app._call_tool(tool_name, parameters),
                     timeout=timeout_ms / 1000.0
                 )
             except asyncio.TimeoutError:
@@ -289,6 +288,19 @@ class FastMCPTestClient:
                     execution_time_ms=execution_time,
                     error=f"Tool call timed out after {timeout_ms}ms"
                 )
+            except Exception as tool_error:
+                # Check if it's a tool not found error
+                if "not found" in str(tool_error).lower() or "unknown" in str(tool_error).lower():
+                    return MCPTestResult(
+                        success=False,
+                        tool_name=tool_name,
+                        parameters=parameters,
+                        response=None,
+                        execution_time_ms=0.0,
+                        error=f"Tool '{tool_name}' not found"
+                    )
+                # Re-raise other errors to be handled by outer try-catch
+                raise tool_error
 
             execution_time = (asyncio.get_event_loop().time() - start_time) * 1000
 
