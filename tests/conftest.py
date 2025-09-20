@@ -25,6 +25,12 @@ from tests.utils.fastmcp_test_infrastructure import (
     MCPProtocolTester,
     fastmcp_test_environment
 )
+from tests.utils.pytest_mcp_framework import (
+    AITestEvaluator,
+    MCPToolEvaluator,
+    IntelligentTestRunner,
+    ai_powered_mcp_testing
+)
 
 
 # Configure logging for tests
@@ -301,6 +307,9 @@ def pytest_configure(config):
     config.addinivalue_line("markers", "smoke: Smoke tests for basic functionality")
     config.addinivalue_line("markers", "fastmcp: FastMCP protocol and infrastructure tests")
     config.addinivalue_line("markers", "mcp_tools: MCP tool functionality tests")
+    config.addinivalue_line("markers", "ai_evaluation: AI-powered evaluation tests")
+    config.addinivalue_line("markers", "intelligent_testing: Intelligent test runner tests")
+    config.addinivalue_line("markers", "pytest_mcp: pytest-mcp framework tests")
 
 
 @pytest.fixture
@@ -337,6 +346,36 @@ async def fastmcp_test_environment():
 
     async with fastmcp_test_environment(app, "pytest-environment") as (server, client):
         yield server, client
+
+
+@pytest.fixture
+async def ai_test_evaluator():
+    """AI test evaluator fixture for intelligent MCP evaluation."""
+    evaluator = AITestEvaluator()
+    yield evaluator
+
+
+@pytest.fixture
+async def mcp_tool_evaluator(ai_test_evaluator):
+    """MCP tool evaluator fixture for comprehensive tool testing."""
+    evaluator = MCPToolEvaluator(ai_test_evaluator)
+    yield evaluator
+
+
+@pytest.fixture
+async def intelligent_test_runner(ai_test_evaluator):
+    """Intelligent test runner fixture for AI-powered test execution."""
+    runner = IntelligentTestRunner(ai_test_evaluator)
+    yield runner
+
+
+@pytest.fixture
+async def ai_powered_test_environment():
+    """AI-powered MCP testing environment with intelligent evaluation."""
+    from workspace_qdrant_mcp.server import app
+
+    async with ai_powered_mcp_testing(app, "pytest-ai-environment") as runner:
+        yield runner
 
 
 def pytest_collection_modifyitems(config, items):
