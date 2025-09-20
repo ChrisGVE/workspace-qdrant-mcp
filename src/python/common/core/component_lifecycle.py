@@ -1173,15 +1173,23 @@ class ComponentLifecycleManager:
         # Log to coordinator if available
         if self.coordinator:
             try:
-                await self.coordinator.enqueue_processing_item(
-                    component_id=component_id,
-                    queue_type=ProcessingQueueType.ADMIN_COMMANDS,
-                    payload={
-                        "event_type": "lifecycle_event",
-                        "event_data": asdict(event)
-                    },
-                    priority=3
-                )
+                # Convert event to JSON-serializable format
+                event_data = asdict(event)
+                event_data["phase"] = event.phase.value  # Convert enum to string
+                event_data["timestamp"] = event.timestamp.isoformat()  # Convert datetime to string
+
+                # Only enqueue if this is for a registered component
+                # (lifecycle_manager events don't need to be enqueued)
+                if component_id != "lifecycle_manager":
+                    await self.coordinator.enqueue_processing_item(
+                        component_id=component_id,
+                        queue_type=ProcessingQueueType.ADMIN_COMMANDS,
+                        payload={
+                            "event_type": "lifecycle_event",
+                            "event_data": event_data
+                        },
+                        priority=3
+                    )
             except Exception as e:
                 logger.debug(f"Failed to log event to coordinator: {e}")
 
