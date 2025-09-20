@@ -84,6 +84,13 @@ from .performance_monitoring import (
     MetadataFilteringPerformanceMonitor,
     PerformanceBaseline
 )
+# Task 249.3: Import new comprehensive metadata filtering system
+from .metadata_filtering import (
+    MetadataFilterManager,
+    FilterCriteria,
+    FilterStrategy,
+    FilterPerformanceLevel
+)
 from collections import defaultdict
 from dataclasses import dataclass
 
@@ -870,6 +877,7 @@ class HybridSearchEngine:
     Task 215: Enhanced with unified logging system for comprehensive observability.
     Task 233.3: Enhanced with advanced metadata filtering optimization strategies.
     Task 233.5: Enhanced with multi-tenant result aggregation capabilities.
+    Task 249.3: Integrated comprehensive metadata filtering system for enhanced project isolation.
     """
 
     def __init__(
@@ -896,6 +904,13 @@ class HybridSearchEngine:
         # Task 233.1: Initialize multi-tenant components for enhanced metadata filtering
         self.isolation_manager = ProjectIsolationManager()
         self.workspace_registry = WorkspaceCollectionRegistry()
+
+        # Task 249.3: Initialize comprehensive metadata filtering system
+        self.metadata_filter_manager = MetadataFilterManager(
+            qdrant_client=client,
+            enable_caching=True,
+            enable_performance_monitoring=enable_performance_monitoring
+        )
 
         # Task 233.5: Initialize multi-tenant result aggregation components
         self.multi_tenant_aggregation_enabled = enable_multi_tenant_aggregation
@@ -1198,10 +1213,12 @@ class HybridSearchEngine:
         project_context: Optional[Union[dict, ProjectMetadata]],
         auto_inject: bool = True
     ) -> Optional[models.Filter]:
-        """Build enhanced filter with project metadata constraints using multi-tenant isolation.
+        """Build enhanced filter with project metadata constraints using comprehensive filtering system.
 
         Task 233.1: Enhanced to leverage ProjectIsolationManager for consistent filtering
         and support ProjectMetadata objects directly.
+        Task 249.3: Updated to use new comprehensive MetadataFilterManager for improved
+        performance and advanced filtering capabilities.
 
         Args:
             base_filter: Optional base filter conditions
@@ -1216,6 +1233,101 @@ class HybridSearchEngine:
 
         logger.debug("Building enhanced filter with project context", context=str(project_context))
 
+        # Task 249.3: Use new comprehensive metadata filtering system
+        try:
+            # Convert context to FilterCriteria for the new system
+            if isinstance(project_context, ProjectMetadata):
+                # Direct conversion from ProjectMetadata
+                from .metadata_schema import CollectionCategory, WorkspaceScope, AccessLevel
+
+                criteria = FilterCriteria(
+                    project_name=project_context.project_name,
+                    collection_types=[project_context.collection_type] if project_context.collection_type else None,
+                    tenant_namespace=project_context.tenant_namespace,
+                    workspace_scopes=[WorkspaceScope(project_context.workspace_scope)] if project_context.workspace_scope else None,
+                    strategy=FilterStrategy.STRICT,
+                    performance_level=FilterPerformanceLevel.FAST
+                )
+            else:
+                # Legacy dict format conversion
+                project_name = project_context.get("project_name")
+                collection_type = project_context.get("collection_type")
+                tenant_namespace = project_context.get("tenant_namespace")
+                workspace_scope = project_context.get("workspace_scope", "project")
+
+                criteria = FilterCriteria(
+                    project_name=project_name,
+                    collection_types=[collection_type] if collection_type else None,
+                    tenant_namespace=tenant_namespace,
+                    strategy=FilterStrategy.STRICT,
+                    performance_level=FilterPerformanceLevel.FAST,
+                    include_shared=(workspace_scope != "global")
+                )
+
+            # Use the new metadata filter manager for enhanced filtering
+            filter_result = self.metadata_filter_manager.create_composite_filter(criteria)
+
+            # Log performance metrics
+            logger.debug(
+                "Created filter using new metadata filtering system",
+                construction_time_ms=filter_result.performance_metrics.get("construction_time_ms", 0),
+                condition_count=filter_result.performance_metrics.get("condition_count", 0),
+                complexity_score=filter_result.performance_metrics.get("complexity_score", 0),
+                cache_hit=filter_result.cache_hit,
+                optimizations=filter_result.optimizations_applied
+            )
+
+            project_filter = filter_result.filter
+
+            # Combine with base filter if both exist
+            if base_filter and project_filter:
+                # Merge filters by combining must conditions
+                existing_conditions = base_filter.must or []
+                project_conditions = project_filter.must or []
+
+                enhanced_filter = models.Filter(
+                    must=existing_conditions + project_conditions,
+                    should=base_filter.should,
+                    must_not=base_filter.must_not
+                )
+
+                logger.debug(
+                    "Enhanced filter built with new metadata filtering system",
+                    base_conditions=len(existing_conditions),
+                    project_conditions=len(project_conditions),
+                    total_conditions=len(existing_conditions + project_conditions)
+                )
+
+                return enhanced_filter
+
+            elif project_filter:
+                # Use project filter only
+                logger.debug("Using project filter from new metadata filtering system")
+                return project_filter
+
+            else:
+                # No enhancement needed or possible
+                return base_filter
+
+        except Exception as e:
+            logger.error("Failed to create enhanced filter with new system, falling back to legacy", error=str(e))
+
+            # Fallback to legacy filtering logic for backward compatibility
+            return self._build_legacy_filter(base_filter, project_context)
+
+    def _build_legacy_filter(
+        self,
+        base_filter: Optional[models.Filter],
+        project_context: Optional[Union[dict, ProjectMetadata]]
+    ) -> Optional[models.Filter]:
+        """Fallback legacy filter building for backward compatibility.
+
+        This method provides the original filtering logic as a fallback when the new
+        metadata filtering system encounters errors.
+        """
+        if not project_context:
+            return base_filter
+
         # Handle both dict and ProjectMetadata inputs
         if isinstance(project_context, ProjectMetadata):
             project_name = project_context.project_name
@@ -1229,36 +1341,30 @@ class HybridSearchEngine:
             tenant_namespace = project_context.get("tenant_namespace")
             workspace_scope = project_context.get("workspace_scope", "project")
 
-        # Validate collection type if provided
-        if collection_type and not self.workspace_registry.is_multi_tenant_type(collection_type):
-            logger.warning("Unknown workspace collection type", type=collection_type)
-
-        # Use ProjectIsolationManager for consistent filter creation
+        # Use ProjectIsolationManager for legacy filter creation
         project_filter = None
 
         try:
             if tenant_namespace:
                 # Use tenant namespace filtering for precise isolation
                 project_filter = self.isolation_manager.create_tenant_namespace_filter(tenant_namespace)
-                logger.debug("Created tenant namespace filter", namespace=tenant_namespace)
+                logger.debug("Created legacy tenant namespace filter", namespace=tenant_namespace)
             elif project_name:
                 # Use workspace filter with collection type and shared scope support
                 project_filter = self.isolation_manager.create_workspace_filter(
                     project_name=project_name,
                     collection_type=collection_type,
-                    include_shared=(workspace_scope != "global")  # Include shared unless global scope
+                    include_shared=(workspace_scope != "global")
                 )
                 logger.debug(
-                    "Created workspace filter",
+                    "Created legacy workspace filter",
                     project=project_name,
                     collection_type=collection_type,
                     workspace_scope=workspace_scope
                 )
-            else:
-                logger.debug("No project name or tenant namespace provided, skipping project filtering")
 
         except Exception as e:
-            logger.error("Failed to create project filter", error=str(e))
+            logger.error("Failed to create legacy project filter", error=str(e))
             project_filter = None
 
         # Combine with existing filter if both exist
@@ -1274,7 +1380,7 @@ class HybridSearchEngine:
             )
 
             logger.debug(
-                "Enhanced filter built with isolation manager",
+                "Enhanced filter built with legacy system",
                 base_conditions=len(existing_conditions),
                 project_conditions=len(project_conditions)
             )
@@ -1283,12 +1389,56 @@ class HybridSearchEngine:
 
         elif project_filter:
             # Use project filter only
-            logger.debug("Using project filter only")
+            logger.debug("Using legacy project filter only")
             return project_filter
 
         else:
             # No enhancement needed or possible
             return base_filter
+
+    def create_project_isolation_filter(
+        self,
+        project_identifier: Union[str, ProjectMetadata],
+        strategy: FilterStrategy = FilterStrategy.STRICT
+    ) -> Optional[models.Filter]:
+        """Create a filter for complete project isolation using the new metadata filtering system.
+
+        Task 249.3: Added direct access to project isolation filtering with the new system.
+
+        Args:
+            project_identifier: Project name, project_id, or metadata schema
+            strategy: Filtering strategy to use
+
+        Returns:
+            Qdrant filter for project isolation, or None if creation fails
+        """
+        try:
+            filter_result = self.metadata_filter_manager.create_project_isolation_filter(
+                project_identifier, strategy
+            )
+
+            logger.debug(
+                "Created project isolation filter",
+                construction_time_ms=filter_result.performance_metrics.get("construction_time_ms", 0),
+                cache_hit=filter_result.cache_hit,
+                optimizations=filter_result.optimizations_applied
+            )
+
+            return filter_result.filter
+
+        except Exception as e:
+            logger.error("Failed to create project isolation filter", error=str(e))
+            return None
+
+    def get_filter_performance_stats(self) -> Dict[str, dict]:
+        """Get comprehensive filter performance statistics.
+
+        Task 249.3: Added access to metadata filtering performance metrics.
+
+        Returns:
+            Dictionary containing filtering performance statistics
+        """
+        return self.metadata_filter_manager.get_filter_performance_stats()
 
     async def search_project_workspace(
         self,
