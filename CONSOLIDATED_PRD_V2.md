@@ -200,9 +200,429 @@ class MemoryRule:
 **Hook Endpoint**: MCP server provides dedicated endpoint for memory content retrieval
 **Conflict Resolution**: System requires user choice when conflicting rules are detected
 
-## 4. Tool Architecture (FINAL)
+## 4. Complete Configuration Schema (FINAL)
 
-### 4.1 Four Consolidated Tools
+### 4.1 Unified Configuration Architecture
+
+**Single Source of Truth**: One YAML configuration file serves all components (daemon, MCP server, WQM CLI) with comprehensive coverage of every configurable parameter in the system.
+
+**Configuration Hierarchy** (highest to lowest priority):
+1. Command line arguments (component-specific)
+2. YAML configuration file (unified across components)
+3. Hardcoded intelligent defaults
+
+**File Discovery Order**:
+1. `--config` parameter (explicit file path)
+2. `workspace_qdrant_config.yaml` (project-specific, current directory)
+3. `~/.config/workspace-qdrant/workspace_qdrant_config.yaml` (user XDG config)
+4. System defaults (lowest priority)
+
+**Extensions**: Both `.yaml` and `.yml` supported
+
+### 4.2 Complete Configuration Schema
+
+**Production-Ready Configuration Template** (all options documented):
+
+```yaml
+# ==============================================================================
+# QDRANT VECTOR DATABASE CONNECTION
+# ==============================================================================
+qdrant:
+  # Database Connection
+  url: "http://localhost:6333"              # string, Qdrant server URL
+  api_key: ${QDRANT_API_KEY}               # string, optional API key for Qdrant Cloud
+  timeout: 30                              # integer (seconds), connection timeout
+  prefer_grpc: true                        # boolean, use gRPC protocol for optimal performance
+
+  # Connection Pool Settings
+  max_connections: 10                      # integer, maximum concurrent connections
+  connection_timeout: 10.0                 # float (seconds), individual connection timeout
+  request_timeout: 30.0                    # float (seconds), request timeout
+  max_retries: 3                           # integer, maximum connection retries
+
+# ==============================================================================
+# TEXT EMBEDDING AND VECTOR PROCESSING
+# ==============================================================================
+embedding:
+  # Dense Vector Embeddings (Semantic Search)
+  dense_model: "sentence-transformers/all-MiniLM-L6-v2"  # string, primary embedding model (384-dim)
+  dense_model_cache: true                  # boolean, cache model locally for performance
+
+  # Sparse Vector Embeddings (Keyword Search)
+  enable_sparse_vectors: true              # boolean, enable hybrid search capabilities
+  sparse_model: "bm25"                     # string, sparse embedding implementation ("bm25" only supported)
+  sparse_alpha: 0.5                        # float (0.0-1.0), BM25 parameter alpha
+  sparse_beta: 0.75                        # float (0.0-1.0), BM25 parameter beta
+
+  # Hybrid Search Configuration
+  fusion_method: "reciprocal_rank"         # string, fusion method ("reciprocal_rank", "linear", "max_score")
+  dense_weight: 0.7                        # float (0.0-1.0), weight for dense vectors in hybrid search
+  sparse_weight: 0.3                       # float (0.0-1.0), weight for sparse vectors in hybrid search
+
+  # Text Processing Parameters
+  chunk_size: 800                          # integer (100-2048), text chunk size for processing
+  chunk_overlap: 120                       # integer (0-chunk_size/2), overlap between chunks
+  batch_size: 50                           # integer (1-200), processing batch size
+  max_tokens: 8192                         # integer, maximum tokens per document
+
+  # Future Enhancement: Image Embeddings
+  image_model: null                        # string, image embedding model (planned feature)
+  enable_image_embeddings: false           # boolean, enable image content processing
+
+# ==============================================================================
+# WORKSPACE AND COLLECTION MANAGEMENT
+# ==============================================================================
+workspace:
+  # Multi-tenant Collection Configuration
+  root_name: "project"                     # string, root name for multi-tenant collections (corrected default)
+  collection_types: []                     # array[string], user-defined collection types (no default, user must specify)
+
+  # Project Detection and Naming
+  project_collection_name: "project"       # string, name for read-only project collection (will have _ prefix)
+
+  # Repository Integration
+  github_user: null                        # string, GitHub username for project detection and filtering
+  gitlab_user: null                        # string, GitLab username (future release)
+  detect_submodules: true                  # boolean, include Git submodules from same user
+  local_repos_as_user: true               # boolean, treat local repositories as belonging to user
+
+  # Global Collections
+  global_collections: []                   # array[string], cross-project single-tenant collections
+
+  # Pattern Customization (extends hardcoded patterns)
+  custom_include_patterns: []              # array[string], additional inclusion patterns
+  custom_exclude_patterns: []              # array[string], additional exclusion patterns
+  pattern_priority: "exclusion_first"      # string, processing order ("exclusion_first", "inclusion_first")
+
+# ==============================================================================
+# SYSTEM MEMORY CONFIGURATION (SEPARATE NAMESPACE)
+# ==============================================================================
+memory:
+  # Memory Collection Settings (CORRECTED: no longer under workspace namespace)
+  collection_name: "llm_rules"             # string, name for system memory collection (will have __ prefix)
+  auto_inject: true                        # boolean, automatically inject memory rules into Claude Code sessions
+  injection_position: "system_prompt"      # string, where to inject ("system_prompt", "context", "both")
+
+  # Memory Rule Management
+  max_rules: 100                           # integer, maximum number of memory rules
+  rule_priority_enforcement: "strict"      # string, rule authority level ("strict", "advisory", "contextual")
+  conflict_resolution: "user_choice"       # string, handling conflicting rules ("user_choice", "newest", "highest_priority")
+
+  # Claude Code Integration
+  hook_endpoint_enabled: true              # boolean, enable MCP endpoint for memory content retrieval
+  hook_endpoint_path: "/memory/inject"     # string, endpoint path for hook mechanism
+  session_persistence: true               # boolean, persist memory across Claude Code sessions
+
+# ==============================================================================
+# AUTOMATIC CONTENT INGESTION
+# ==============================================================================
+auto_ingestion:
+  # Project Content Collection (NEW NAMESPACE)
+  project_content_collection: "project_content"  # string, default name for auto-ingested project content
+
+  # Ingestion Behavior
+  startup_ingestion: true                  # boolean, ingest project content at daemon startup
+  watch_project_changes: true             # boolean, monitor project files for changes
+  ingestion_depth: 10                     # integer, maximum directory depth for recursive ingestion
+
+  # File Processing
+  respect_gitignore: true                  # boolean, respect .gitignore patterns during ingestion
+  include_hidden_files: false             # boolean, process hidden files and directories
+  follow_symlinks: false                  # boolean, follow symbolic links during traversal
+
+  # Processing Filters
+  max_file_size_mb: 50                    # integer, maximum file size to process (MB)
+  skip_binary_files: true                 # boolean, skip binary files during text processing
+  ocr_pdf_enabled: false                  # boolean, attempt OCR on image-based PDFs (requires dependencies)
+
+# ==============================================================================
+# INTER-PROCESS COMMUNICATION (GRPC)
+# ==============================================================================
+grpc:
+  # Primary Communication Protocol
+  enabled: true                           # boolean, enable Rust daemon integration (default: true for performance)
+  host: "127.0.0.1"                      # string, gRPC server host
+  port: 50051                             # integer (1024-65535), gRPC server port
+
+  # Fallback Configuration (from Section 1.2)
+  fallback_to_direct: true                # boolean, fallback to direct Qdrant on gRPC failure
+  max_retry_attempts: 5                   # integer, retry attempts before fallback (from PRD line 50)
+  retry_interval_minutes: 10              # integer, minutes to wait before retrying gRPC (from PRD line 50)
+
+  # Connection Management
+  connection_timeout: 10.0                # float (seconds), connection establishment timeout
+  request_timeout: 30.0                   # float (seconds), individual request timeout
+  keepalive_time: 60                      # integer (seconds), gRPC keepalive time
+  keepalive_timeout: 5                    # integer (seconds), gRPC keepalive timeout
+
+  # Error Handling
+  retry_exponential_backoff: true         # boolean, use exponential backoff for retries
+  max_backoff_seconds: 300                # integer, maximum backoff time
+  health_check_interval: 30               # integer (seconds), health check frequency
+
+# ==============================================================================
+# LANGUAGE PROCESSING INTEGRATION
+# ==============================================================================
+language_processing:
+  # LSP Server Configuration
+  lsp:
+    enabled: true                         # boolean, enable LSP integration for semantic analysis
+    health_check_interval: 300           # integer (seconds), LSP health check interval
+    timeout: 10.0                        # float (seconds), LSP request timeout
+    startup_timeout: 30.0                # float (seconds), LSP server startup timeout
+    max_concurrent_servers: 5            # integer, maximum concurrent LSP servers
+
+    # Opinionated LSP Selection (single choice per language for performance)
+    servers:
+      python: "ruff-lsp"                  # Fast Python LSP with integrated linting
+      rust: "rust-analyzer"              # Standard Rust LSP
+      typescript: "typescript-language-server"  # TypeScript/JavaScript LSP
+      javascript: "typescript-language-server"  # JavaScript via TypeScript LSP
+      go: "gopls"                        # Official Go LSP
+      java: "eclipse.jdt.ls"             # Eclipse Java LSP
+      c: "clangd"                        # LLVM C/C++ LSP
+      cpp: "clangd"                      # LLVM C/C++ LSP
+      csharp: "omnisharp-roslyn"         # C# LSP
+      swift: "sourcekit-lsp"             # Apple Swift LSP
+      bash: "bash-language-server"       # Bash scripting LSP
+      powershell: "powershell-es"        # PowerShell LSP
+      haskell: "haskell-language-server" # Haskell LSP
+      elixir: "elixir-ls"                # Elixir LSP
+      erlang: "erlang_ls"                # Erlang LSP
+      gleam: "gleam"                     # Built-in Gleam LSP
+      gdscript: "godot"                  # Godot built-in LSP
+      glsl: "glsl-language-server"       # OpenGL Shading Language
+      r: "languageserver"                # R statistical language
+      sql: "sqls"                        # SQL LSP
+      ruby: "solargraph"                 # Ruby LSP
+      php: "phpactor"                    # PHP LSP
+      lua: "lua-language-server"         # Lua LSP
+      # Additional servers added based on comprehensive research
+
+    # LSP Feature Configuration
+    enable_diagnostics: true             # boolean, enable LSP diagnostic reporting
+    enable_completion: true              # boolean, enable code completion
+    enable_hover: true                   # boolean, enable hover information
+    enable_references: true              # boolean, enable find references
+    enable_symbols: true                 # boolean, enable document/workspace symbols
+
+  # Tree-sitter Fallback Configuration
+  tree_sitter:
+    enabled: true                        # boolean, enable Tree-sitter fallback parsing
+    grammar_path: "${XDG_DATA_HOME}/workspace-qdrant/tree-sitter-grammars"  # string, grammar storage location
+    auto_install_grammars: false         # boolean, manual grammar management (adult user respect)
+    compilation_timeout: 60              # integer (seconds), grammar compilation timeout
+
+    # Grammar Priorities (for languages with multiple parsers)
+    preferred_grammars:
+      assembly: "tree-sitter-asm"        # Assembly language grammar
+      verilog: "tree-sitter-verilog"     # Hardware description language
+      vhdl: "tree-sitter-vhdl"          # Hardware description language
+      latex: "tree-sitter-latex"        # LaTeX document preparation
+      gnuplot: "tree-sitter-gnuplot"    # Plotting language
+      nginx: "tree-sitter-nginx"        # Nginx configuration
+      dockerfile: "tree-sitter-dockerfile"  # Docker configuration
+      yaml: "tree-sitter-yaml"          # YAML configuration
+      toml: "tree-sitter-toml"          # TOML configuration
+
+    # Tree-sitter Processing
+    enable_highlights: true             # boolean, enable syntax highlighting extraction
+    enable_tags: true                   # boolean, enable tag extraction for symbols
+    max_parse_depth: 1000              # integer, maximum AST depth to prevent runaway parsing
+
+  # Language Detection Configuration
+  detection:
+    # Project signature patterns (highest priority detection method)
+    project_signatures:
+      python: ["pyproject.toml", "requirements.txt", "setup.py", "Pipfile", "poetry.lock"]
+      rust: ["Cargo.toml", "Cargo.lock"]
+      javascript: ["package.json", "package-lock.json", "yarn.lock", "pnpm-lock.yaml"]
+      typescript: ["tsconfig.json", "package.json"]
+      java: ["pom.xml", "build.gradle", "gradle.properties", "build.gradle.kts"]
+      go: ["go.mod", "go.sum"]
+      csharp: ["*.csproj", "*.sln", "project.json", "Directory.Build.props"]
+      php: ["composer.json", "composer.lock"]
+      ruby: ["Gemfile", "Gemfile.lock", "*.gemspec"]
+
+    # Environment detection patterns
+    environments:
+      python: [".venv/", "venv/", "poetry.lock", "conda-meta/", "__pycache__/"]
+      node: ["node_modules/", ".nvmrc", ".node-version", ".yarn/"]
+      rust: ["target/", "Cargo.lock"]
+      java: [".m2/", "target/", "build/", ".gradle/"]
+      go: ["vendor/", "go.sum"]
+
+    # Multi-language project handling
+    polyglot_detection: true            # boolean, detect multiple languages in projects
+    primary_language_inference: "most_files"  # string, method for primary language ("most_files", "build_config", "git_stats")
+
+  # Processing Strategy
+  strategy:
+    lsp_tree_sitter_exclusive: true     # boolean, mutually exclusive LSP vs Tree-sitter (performance optimization)
+    graceful_degradation: true          # boolean, fallback through LSP → Tree-sitter → text-only
+    prefer_lsp_over_tree_sitter: true   # boolean, prioritize LSP when both available
+    cache_processing_results: true      # boolean, cache parsing results for performance
+
+# ==============================================================================
+# PERFORMANCE AND RESOURCE MANAGEMENT
+# ==============================================================================
+performance:
+  # CPU and Memory
+  max_cpu_cores: null                   # integer|null, max CPU cores (null = auto-detect all available)
+  memory_limit_mb: null                 # integer|null, memory limit in MB (null = auto-detect system limits)
+  cpu_usage_limit_percent: 80          # integer (1-100), maximum CPU usage percentage
+
+  # Processing Priorities (Three-Tier System from Section 6)
+  idle_timeout_minutes: 30             # integer, machine idle detection timeout (from PRD line 412)
+  background_priority: "low"           # string, background process priority ("low", "normal", "high")
+  mcp_server_priority: "high"          # string, MCP server command priority when active
+
+  # Dynamic Resource Management
+  adaptive_cpu_usage: true             # boolean, multicore-aware dynamic allocation
+  intelligent_memory_limits: true      # boolean, real-time system resource availability
+  io_throttling: true                  # boolean, adaptive throttling based on system state
+
+  # File System Monitoring
+  watch_debounce_ms: 500               # integer, file change debounce interval (from PRD)
+  max_watch_depth: 10                  # integer, maximum directory depth for watching
+  max_watched_files: 10000             # integer, maximum number of files to watch simultaneously
+
+  # Processing Batching
+  batch_size_documents: 50             # integer, document processing batch size
+  batch_size_embeddings: 100           # integer, embedding generation batch size
+  concurrent_jobs: 4                   # integer, maximum concurrent processing jobs
+
+  # Resource Negotiation (Machine Idle - Section 6.3)
+  idle_aware_processing: true          # boolean, negotiate with other idle-aware processes
+  prevent_machine_sleep: false         # boolean, never prevent machine sleep when idle
+  system_interference_prevention: true # boolean, avoid interfering with user experience
+
+# ==============================================================================
+# LOGGING AND DEVELOPMENT
+# ==============================================================================
+logging:
+  # Log Levels and Output
+  level: "INFO"                        # string, log level ("DEBUG", "INFO", "WARN", "ERROR", "CRITICAL")
+  console_output: false                # boolean, console output in stdio mode (MCP compliance)
+  file_logging: true                   # boolean, enable file logging
+
+  # File Management
+  max_file_size: "10MB"                # string, maximum log file size (e.g., "10MB", "100KB")
+  backup_count: 5                      # integer, number of backup log files to keep
+  log_rotation: "daily"                # string, rotation policy ("daily", "weekly", "size")
+
+  # Advanced Logging
+  structured_logging: true             # boolean, use structured JSON logging
+  correlation_ids: true                # boolean, add correlation IDs for request tracing
+  performance_logging: false          # boolean, log performance metrics
+
+  # Component-Specific Logging
+  mcp_server_logging: true             # boolean, enable MCP server specific logging
+  rust_daemon_logging: true           # boolean, enable Rust daemon logging
+  lsp_communication_logging: false    # boolean, log LSP communication (verbose)
+
+# ==============================================================================
+# OS-STANDARD DIRECTORY CONFIGURATION
+# ==============================================================================
+directories:
+  # XDG Base Directory Specification (Linux/Unix)
+  config_home: "${XDG_CONFIG_HOME}/workspace-qdrant"     # Configuration files
+  state_home: "${XDG_STATE_HOME}/workspace-qdrant"       # Runtime state and processing queues
+  cache_home: "${XDG_CACHE_HOME}/workspace-qdrant"       # Embedding cache and temporary processing
+  data_home: "${XDG_DATA_HOME}/workspace-qdrant"         # Tree-sitter grammars and language models
+
+  # Platform-Specific Fallbacks
+  # macOS:
+  #   config: ~/Library/Application Support/workspace-qdrant/
+  #   state: ~/Library/Application Support/workspace-qdrant/state/
+  #   cache: ~/Library/Caches/workspace-qdrant/
+  #   logs: ~/Library/Logs/workspace-qdrant/
+  #
+  # Windows:
+  #   config: %APPDATA%/workspace-qdrant/
+  #   state: %LOCALAPPDATA%/workspace-qdrant/state/
+  #   cache: %LOCALAPPDATA%/workspace-qdrant/cache/
+  #   logs: %LOCALAPPDATA%/workspace-qdrant/logs/
+
+  # State Database
+  state_database: "state.db"           # string, SQLite database filename in state directory
+  state_backup_enabled: true          # boolean, enable state database backups
+  state_backup_count: 3               # integer, number of state database backups to keep
+
+# ==============================================================================
+# DEVELOPMENT AND DEBUG OPTIONS
+# ==============================================================================
+debug:
+  # Debug Mode
+  enabled: false                       # boolean, enable debug mode (verbose output)
+  profile_performance: false          # boolean, enable performance profiling
+  memory_profiling: false             # boolean, enable memory usage profiling
+
+  # Component Debug Settings
+  verbose_lsp: false                   # boolean, verbose LSP communication logging
+  verbose_tree_sitter: false          # boolean, verbose Tree-sitter parsing logs
+  verbose_grpc: false                  # boolean, verbose gRPC communication logs
+  trace_requests: false               # boolean, trace all MCP requests and responses
+
+  # Development Features
+  hot_reload_config: false            # boolean, automatically reload configuration changes
+  expose_internal_metrics: false      # boolean, expose internal performance metrics
+  unsafe_operations: false           # boolean, enable potentially unsafe operations for testing
+
+  # Testing and Validation
+  validate_embeddings: false          # boolean, validate embedding consistency
+  test_mode: false                    # boolean, enable test mode with mock components
+  benchmark_mode: false               # boolean, enable benchmarking with detailed timing
+```
+
+### 4.3 Configuration Validation Rules
+
+**Data Type Validation**:
+- **Boolean**: `true`/`false` only, case-sensitive
+- **Integer**: Positive integers with specified ranges where applicable
+- **Float**: Decimal numbers with range validation
+- **String**: UTF-8 encoded strings with length limits
+- **Array**: Typed arrays with element validation
+- **Null**: Explicit null values for optional settings
+
+**Cross-Parameter Validation**:
+- `dense_weight + sparse_weight` must equal 1.0 in embedding configuration
+- `max_cpu_cores` cannot exceed system-detected CPU count
+- `memory_limit_mb` cannot exceed 90% of system memory
+- `chunk_overlap` must be less than `chunk_size / 2`
+- Collection names must not conflict with reserved patterns (`_*`, `__*`)
+
+**Environment Variable Validation**:
+- Environment variables must exist when referenced with `${VAR}` syntax
+- API keys validated for proper format when provided
+- Directory paths must be writable for state and cache directories
+
+**Security Validation**:
+- File paths restricted to prevent directory traversal attacks
+- Port numbers validated against system restrictions
+- URL validation for external service connections
+
+### 4.4 Configuration Migration and Backward Compatibility
+
+**Version Compatibility**:
+- Configuration schema versioning for breaking changes
+- Automatic migration from deprecated configuration options
+- Graceful handling of unknown configuration keys with warnings
+
+**Default Value Philosophy**:
+- **Zero Configuration Principle**: 95% of installations work without user configuration
+- **Intelligent Defaults**: Research-backed defaults for optimal performance
+- **Adult User Respect**: Complete control when customization needed
+- **Progressive Disclosure**: Advanced options available but not required
+
+**Configuration Validation Tools**:
+- Built-in configuration validation with detailed error messages
+- Schema documentation generation from this specification
+- Configuration testing utilities for development workflows
+
+## 5. Tool Architecture (FINAL)
+
+### 5.1 Four Consolidated Tools
 
 **Tool Specification**:
 
@@ -242,7 +662,7 @@ class MemoryRule:
    - **Metadata Inspection**: Full document metadata and relationship analysis
    - **Symbol-Based Retrieval**: [QUESTION: Can symbols be used for direct read, or is search required?]
 
-### 4.2 Search Scope Definitions
+### 5.2 Search Scope Definitions
 
 None of the searches include any system collections
 
@@ -254,9 +674,9 @@ None of the searches include any system collections
 - **"knowledge"**: all read-only collections except the project collection + global
 - **"all"**: project + extended_workspace + global + knowledge
 
-## 5. Language Processing Architecture (FINAL)
+## 6. Language Processing Architecture (FINAL)
 
-### 5.1 Mutually Exclusive LSP vs Tree-sitter Strategy
+### 6.1 Mutually Exclusive LSP vs Tree-sitter Strategy
 
 **Architecture Decision**: LSP servers take absolute priority over Tree-sitter when available. Tree-sitter serves as fallback for languages without LSP support, ensuring comprehensive language coverage while leveraging existing solutions.
 
@@ -267,7 +687,7 @@ None of the searches include any system collections
 
 **Performance Optimization**: Single LSP selection per language for optimal performance, no alternative LSP support
 
-### 5.2 Comprehensive Language Support (Research-Backed)
+### 6.2 Comprehensive Language Support (Research-Backed)
 
 **Research Foundation**: Completed systematic analysis covering 150+ languages from Wikipedia's programming language taxonomy with verified LSP server availability and Tree-sitter grammar coverage.
 
@@ -290,7 +710,7 @@ None of the searches include any system collections
 - **Configuration**: Nginx, Apache, INI variants
 - **Esoteric**: Educational and research languages
 
-### 5.3 Language Detection and Environment Handling
+### 6.3 Language Detection and Environment Handling
 
 **Detection Hierarchy**:
 1. **Project Signatures**: Language-specific configuration files (.cargo/config.toml, package.json, pyproject.toml)
@@ -305,7 +725,7 @@ None of the searches include any system collections
 - **Java**: Maven/Gradle project structure, classpath management
 - **Multi-language Projects**: Polyglot project detection with primary language inference
 
-### 5.4 Tree-sitter Integration Strategy
+### 6.4 Tree-sitter Integration Strategy
 
 **Grammar Storage**: `$XDG_DATA_HOME/workspace-qdrant/tree-sitter-grammars/` with automatic grammar download and compilation
 
@@ -321,7 +741,7 @@ File Detection → Tree-sitter Grammar Available? → Parse AST → Extract Symb
                ↘ No Grammar Available → Text Processing → Pattern Heuristics → Basic Metadata
 ```
 
-### 5.5 LSP Selection Criteria and Configuration
+### 6.5 LSP Selection Criteria and Configuration
 
 **Opinionated LSP Selection** (aligned with "Leverage Existing Solutions" principle):
 - **Speed**: Fast startup and response times
@@ -336,7 +756,7 @@ File Detection → Tree-sitter Grammar Available? → Parse AST → Extract Symb
 - **TypeScript**: tsconfig.json detection, workspace configuration
 - **Java**: Build tool detection (Maven/Gradle), classpath resolution
 
-### 5.6 Code Intelligence Storage Strategy
+### 6.6 Code Intelligence Storage Strategy
 
 **"Interface + Minimal Context"** approach:
 - **Symbol Definitions**: Function signatures, type definitions, interface contracts
@@ -350,7 +770,7 @@ File Detection → Tree-sitter Grammar Available? → Parse AST → Extract Symb
 - **Tree-sitter Data**: Syntactic structure, AST nodes, pattern-based symbol extraction
 - **Unified Storage**: Both sources contribute to the same symbol collection with metadata indicating source
 
-### 5.7 Language Processing Health Management
+### 6.7 Language Processing Health Management
 
 **No Auto-Installation Philosophy**: Users maintain control over LSP server and Tree-sitter grammar installation
 
@@ -381,9 +801,9 @@ Text Processing → Pattern-Based Extraction
 - Processing coverage statistics by language
 - Performance metrics and bottleneck identification
 
-## 6. Process Priority Management (FINAL)
+## 7. Process Priority Management (FINAL)
 
-### 6.1 Three-Tier Priority System
+### 7.1 Three-Tier Priority System
 
 **Tier 1: Command Queue Priorities**
 
@@ -413,7 +833,7 @@ _When MCP Server Inactive_:
 - Resource negotiation with other idle-aware processes
 - When all queued ingestions are completed, never prevent machine sleep, or create system interference
 
-### 6.2 Dynamic Resource Management
+### 7.2 Dynamic Resource Management
 
 **Adaptive CPU Usage**: Multicore-aware dynamic allocation replacing fixed percentages
 **Memory Management**: Intelligent limits based on real-time system resource availability
@@ -426,7 +846,7 @@ _When MCP Server Inactive_:
 - **CPU Usage**: Native OS APIs via `sysinfo` for accurate multicore awareness
 - **Cross-Platform**: Single crate approach for universal compatibility
 
-### 6.3 Processing Operations
+### 7.3 Processing Operations
 
 1. **Change Detection**: File system monitoring for modifications and new files
 2. **LSP-Enhanced Ingestion**: Process project files with available language servers
@@ -438,9 +858,9 @@ _When MCP Server Inactive_:
 - **Performance**: Efficient recursive monitoring without polling
 - **Event Filtering**: Smart filtering to reduce noise from temporary files
 
-## 7. Configuration System (FINAL)
+## 8. Configuration System (FINAL)
 
-### 7.1 OS-Standard Directory Compliance
+### 8.1 OS-Standard Directory Compliance
 
 **XDG Base Directory Specification (Linux)**:
 
@@ -472,37 +892,37 @@ _When MCP Server Inactive_:
 - **Cache**: `~/.cache/workspace-qdrant/`
 - **Logs**: `~/.local/state/workspace-qdrant/logs/`
 
-### 7.2 Hardcoded Pattern System
+### 8.2 Hardcoded Pattern System
 
 **Research-Backed Patterns**: Comprehensive inclusion/exclusion patterns embedded in system.
 **Custom Extensions**: Users can extend but not replace hardcoded patterns.
 **Pattern Coverage**: 95%+ of development scenarios without user configuration.
 **Full documentation**: All inclusion/exclusion patterns documented for the user, all project detection patterns documented for the user.
 
-### 7.3 Configuration Simplification Principle
+### 8.3 Configuration Simplification Principle
 
 **Adult User Respect**: Provide intelligent defaults, let users override when needed
 **Minimal Required Configuration**: Most installations work with zero configuration
 **Progressive Disclosure**: Advanced options available but not required
 
-## 8. Logging and Protocol Compliance (FINAL)
+## 9. Logging and Protocol Compliance (FINAL)
 
-### 8.1 Single Logging System
+### 9.1 Single Logging System
 
 **Loguru-Based Architecture**: Replace fragmented logging with unified loguru system
 **MCP stdio Compliance**: Perfect console silence in stdio mode
 **Development Experience**: Rich console logging in verbose/development modes
 
-### 8.2 Protocol Compliance Requirements
+### 9.2 Protocol Compliance Requirements
 
 **Zero Console Output**: MCP stdio mode must produce no console interference (standard FastMCP output when launched from the terminal)
 **Third-Party Suppression**: All library outputs suppressed in stdio mode
 **Graceful TTY Detection**: Automatic stdio vs TTY mode detection
 **Development Support**: Elegant banners and formatting in development mode
 
-## 9. Pattern Research and Coverage (FINAL)
+## 10. Pattern Research and Coverage (FINAL)
 
-### 9.1 Comprehensive Language Support
+### 10.1 Comprehensive Language Support
 
 **Research Scope**: Comprehensive coverage based on systematic analysis
 **Primary Source**: [Wikipedia List of Programming Languages](https://en.wikipedia.org/wiki/List_of_programming_languages) and related taxonomies
@@ -523,7 +943,7 @@ _When MCP Server Inactive_:
 - **Priority-Based**: Common languages first, specialized languages included for completeness
 - **Maintenance**: Regular updates as new languages emerge
 
-### 9.2 Infrastructure and Configuration
+### 10.2 Infrastructure and Configuration
 
 **Required Additions**:
 
@@ -532,7 +952,7 @@ _When MCP Server Inactive_:
 - **Shell Ecosystem**: Complete coverage (sh, csh, tcsh, scsh, ksh, zsh, ash, cmd, PowerShell, fish, nushell)
 - **Build Systems**: All modern package managers and build tools across ecosystems
 
-### 9.3 Document Type Considerations
+### 10.3 Document Type Considerations
 
 **Conservative Approach**:
 
@@ -553,15 +973,15 @@ _When MCP Server Inactive_:
 - **Bidirectional Links**: Source documents link to extracted images
 - **Use Cases**: Diagrams, charts, technical illustrations in documentation
 
-### 9.4 Exclusion Strategy
+### 10.4 Exclusion Strategy
 
 **Pattern Priority**: Exclusion-first for performance (user feedback: "intuitively exclusion first, such that we can make exception in the inclusion section")
 **Dot File Policy**: Generally exclude hidden files/folders with strategic exceptions
 **IDE/Build Exclusions**: Comprehensive coverage for all missing language ecosystems
 
-## 10. State Management (FINAL)
+## 11. State Management (FINAL)
 
-### 10.1 SQLite State Database
+### 11.1 SQLite State Database
 
 **Purpose**: Comprehensive state tracking for daemon operations, LSP status, processing queues, error handling, folder watching registry, and recovery state management.
 
@@ -587,21 +1007,21 @@ _When MCP Server Inactive_:
 - **Maintainability**: Reduced complexity compared to specialized tables
 - **Extensibility**: Easy addition of new operation types without schema changes
 
-### 10.2 LSP Tracking Requirements
+### 11.2 LSP Tracking Requirements
 
 **Missing LSP Detection**: Track which LSPs are expected but unavailable
 **Re-ingestion Triggers**: Monitor for newly available LSPs to refresh collections
 **Health Reporting**: WQM integration for LSP status and recommendations
 
-### 10.3 Recovery and Resilience
+### 11.3 Recovery and Resilience
 
 **Crash Recovery**: Resume processing from last known state
 **Queue Persistence**: Maintain operation queue across daemon restarts
 **Conflict Resolution**: Handle concurrent access and operation conflicts
 
-## 11. Architectural Decisions (RESOLVED)
+## 12. Architectural Decisions (RESOLVED)
 
-### 11.1 Collection Architecture - FINAL
+### 12.1 Collection Architecture - FINAL
 
 **Decision**: Multi-tenant collections with project-based tenancy
 
@@ -619,7 +1039,7 @@ _When MCP Server Inactive_:
 - **API Consistency**: TenantAwareResult converts to standard API format
 - **Performance**: Score normalization and collection-level result limiting
 
-### 11.2 Collection Naming Strategy - FINAL
+### 12.2 Collection Naming Strategy - FINAL
 
 **Decision**: Type-based configuration
 
@@ -627,7 +1047,7 @@ _When MCP Server Inactive_:
 - System handles internal naming (`workspace-docs`, `workspace-notes`, etc.)
 - Configuration emphasizes intentionality and purpose rather than naming mechanics
 
-### 11.3 Memory System Architecture - FINAL
+### 12.3 Memory System Architecture - FINAL
 
 **Decision**: Single memory system with clear purpose distinction
 
@@ -638,327 +1058,8 @@ _When MCP Server Inactive_:
 
 **Status**: All architectural contradictions resolved. System ready for implementation roadmap.
 
-## 12. Configuration Architecture (FINAL)
 
-### 12.1 Unified Configuration System
-
-**Single Source of Truth**: One YAML configuration file serves all components (daemon, MCP server, WQM CLI)
-
-**Configuration Hierarchy** (highest to lowest priority):
-
-1. Command line arguments (component-specific)
-2. YAML configuration file (unified across components)
-3. Hardcoded defaults
-
-**Environment Variable**: API keys only, using `${ENV_VAR}` syntax in YAML configuration
-
-**File Discovery Order**:
-
-1. `--config` parameter (explicit file path)
-2. `workspace_qdrant_config.yaml` (project-specific, current directory)
-3. `~/.config/workspace-qdrant/workspace_qdrant_config.yaml` (user XDG config)
-4. System defaults (lowest priority)
-
-**Extensions**: Both `.yaml` and `.yml` supported
-
-### 12.2 Complete Configuration Schema
-
-**Full Configuration Template** (with defaults and documentation):
-
-```yaml
-# Qdrant Vector Database Connection
-qdrant:
-  url: "http://localhost:6333" # Qdrant server URL
-  api_key: ${QDRANT_API_KEY} # Optional API key for Qdrant Cloud
-  timeout: 30 # Connection timeout in seconds
-  prefer_grpc: true # Use gRPC protocol for optimal performance
-
-# Text Embedding Configuration
-embedding:
-  # Dense Vector Embeddings
-  dense_model: "sentence-transformers/all-MiniLM-L6-v2" # Primary embedding model (384-dim)
-
-  # Sparse Vector Embeddings (BM25-style)
-  enable_sparse_vectors: true # Enable hybrid search capabilities
-  sparse_model: "bm25" # Sparse embedding implementation
-
-  # Image Embeddings (Future Enhancement)
-  image_model: null # Image embedding model (planned)
-  enable_image_embeddings: false # Enable image content processing
-
-  # Text Processing Parameters
-  chunk_size: 800 # Text chunk size for processing
-  chunk_overlap: 120 # Overlap between chunks
-  batch_size: 50 # Processing batch size
-  max_tokens: 8192 # Maximum tokens per document
-
-# Workspace and Collection Management
-workspace:
-  # Multi-tenant Collection Configuration
-  root_name: "workspace" # Root name for multi-tenant collections
-  collection_types: ["docs", "notes", "scratchbook"] # Collection types to create
-
-  # Project Detection
-  project_collection_name: "project" # Name for read-only project collection (_project)
-  memory_collection_name: "llm_rules" # Name for system memory (__llm_rules)
-
-  # Repository Integration
-  github_user: null # GitHub username for project detection
-  gitlab_user: null # GitLab username (future release)
-
-  # Global Collections
-  global_collections: [] # Cross-project single-tenant collections
-
-  # Pattern Customization
-  custom_include_patterns: [] # Additional inclusion patterns
-  custom_exclude_patterns: [] # Additional exclusion patterns
-
-# Inter-Process Communication
-grpc:
-  enabled: true # Enable Rust daemon integration (default: true)
-  host: "127.0.0.1" # gRPC server host
-  port: 50051 # gRPC server port
-
-  # Fallback Configuration
-  fallback_to_direct: true # Fallback to direct Qdrant on gRPC failure
-  max_retry_attempts: 5 # Retry attempts before fallback
-  retry_interval_minutes: 10 # Minutes to wait before retrying gRPC
-
-  # Connection Parameters
-  connection_timeout: 10.0 # Connection timeout in seconds
-  request_timeout: 30.0 # Individual request timeout
-  max_retries: 3 # Maximum connection retries
-
-# Language Processing Integration
-language_processing:
-  # LSP Server Configuration
-  lsp:
-    enabled: true # Enable LSP integration
-    health_check_interval: 300 # LSP health check interval (seconds)
-    timeout: 10.0 # LSP request timeout
-
-    # Opinionated LSP Selection (single choice per language)
-    servers:
-      python: "ruff-lsp" # Fast Python LSP
-      rust: "rust-analyzer" # Standard Rust LSP
-      typescript: "typescript-language-server" # TypeScript/JavaScript LSP
-      javascript: "typescript-language-server" # JavaScript via TypeScript LSP
-      go: "gopls" # Official Go LSP
-      java: "eclipse.jdt.ls" # Eclipse Java LSP
-      c: "clangd" # LLVM C/C++ LSP
-      cpp: "clangd" # LLVM C/C++ LSP
-      csharp: "omnisharp-roslyn" # C# LSP
-      swift: "sourcekit-lsp" # Apple Swift LSP
-      bash: "bash-language-server" # Bash scripting LSP
-      powershell: "powershell-es" # PowerShell LSP
-      haskell: "haskell-language-server" # Haskell LSP
-      elixir: "elixir-ls" # Elixir LSP
-      erlang: "erlang_ls" # Erlang LSP
-      gleam: "gleam" # Built-in Gleam LSP
-      gdscript: "godot" # Godot built-in LSP
-      glsl: "glsl-language-server" # OpenGL Shading Language
-      r: "languageserver" # R statistical language
-      sql: "sqls" # SQL LSP
-      # Additional LSPs from research findings
-
-  # Tree-sitter Fallback Configuration
-  tree_sitter:
-    enabled: true # Enable Tree-sitter fallback parsing
-    grammar_path: "${XDG_DATA_HOME}/workspace-qdrant/tree-sitter-grammars" # Grammar storage location
-    auto_install_grammars: false # Manual grammar management
-
-    # Grammar priorities for languages with multiple parsers
-    preferred_grammars:
-      assembly: "tree-sitter-asm" # Assembly language grammar
-      verilog: "tree-sitter-verilog" # Hardware description language
-      vhdl: "tree-sitter-vhdl" # Hardware description language
-      latex: "tree-sitter-latex" # LaTeX document preparation
-      gnuplot: "tree-sitter-gnuplot" # Plotting language
-      nginx: "tree-sitter-nginx" # Nginx configuration
-
-  # Language Detection Configuration
-  detection:
-    # Project signature patterns (highest priority)
-    project_signatures:
-      python: ["pyproject.toml", "requirements.txt", "setup.py", "Pipfile"]
-      rust: ["Cargo.toml", "Cargo.lock"]
-      javascript: ["package.json", "package-lock.json", "yarn.lock"]
-      typescript: ["tsconfig.json", "package.json"]
-      java: ["pom.xml", "build.gradle", "gradle.properties"]
-      go: ["go.mod", "go.sum"]
-      csharp: ["*.csproj", "*.sln", "project.json"]
-
-    # Environment detection patterns
-    environments:
-      python: [".venv/", "venv/", "poetry.lock", "conda-meta/"]
-      node: ["node_modules/", ".nvmrc", ".node-version"]
-      rust: ["target/", "Cargo.lock"]
-      java: [".m2/", "target/", "build/"]
-
-# Logging and Development
-logging:
-  level: "INFO" # Log level: DEBUG, INFO, WARN, ERROR
-  console_output: false # Console output in stdio mode
-  file_logging: true # Enable file logging
-  max_file_size: "10MB" # Maximum log file size
-  backup_count: 5 # Number of backup log files
-
-# Performance and Resource Management
-performance:
-  # CPU and Memory
-  max_cpu_cores: null # Max CPU cores (null = auto-detect)
-  memory_limit_mb: null # Memory limit (null = auto-detect)
-
-  # Processing Priorities
-  idle_timeout_minutes: 30 # Machine idle detection timeout
-  background_priority: "low" # Background process priority
-
-  # File System Monitoring
-  watch_debounce_ms: 500 # File change debounce interval
-  max_watch_depth: 10 # Maximum directory depth for watching
-
-# Development and Debug Options
-debug:
-  enabled: false # Enable debug mode
-  profile_performance: false # Enable performance profiling
-  verbose_lsp: false # Verbose LSP communication logging
-  verbose_tree_sitter: false # Verbose Tree-sitter parsing logs
-  trace_requests: false # Trace all MCP requests
-```
-
-### 12.3 OS-Standard Directory Compliance
-
-**XDG Base Directory Support**:
-
-- `XDG_CONFIG_HOME` for configuration files
-- `XDG_STATE_HOME` for runtime state and processing queues
-- `XDG_CACHE_HOME` for embedding cache and temporary processing
-- `XDG_DATA_HOME` for Tree-sitter grammar storage and language models
-- Platform-specific fallbacks (Windows, macOS, Linux)
-
-**Tree-sitter Grammar Storage**:
-- **Linux**: `$XDG_DATA_HOME/workspace-qdrant/tree-sitter-grammars/` or `~/.local/share/workspace-qdrant/tree-sitter-grammars/`
-- **macOS**: `~/Library/Application Support/workspace-qdrant/tree-sitter-grammars/`
-- **Windows**: `%LOCALAPPDATA%/workspace-qdrant/tree-sitter-grammars/`
-
-### 12.4 Pattern System Architecture
-
-**Hardcoded Research-Backed Patterns**: 250+ inclusion patterns covering:
-
-- **Source Code**: 60+ languages (C/C++, Python, JavaScript, TypeScript, Rust, Go, Java, etc.)
-- **Web Development**: HTML, CSS, templates, frameworks
-- **Infrastructure**: Docker, Kubernetes, Terraform, CI/CD
-- **Documentation**: Markdown, text files, wikis
-- **Configuration**: YAML, JSON, TOML, INI files
-
-[We need to make selection of LSP <-> Language, criteria: fast, multi-platform. The list of supported LSPs will have to be included into the configuration.]
-[Question: to which extend would linters be useful?]
-
-**Custom Extensions**: Users can extend (not replace) hardcoded patterns
-
-- `custom_include_patterns`: Additional inclusion patterns
-- `custom_exclude_patterns`: Additional exclusion patterns
-- Performance-first: Exclusion patterns processed before inclusion
-
-**Research-Backed Language Coverage** (based on comprehensive A-G language analysis):
-
-**Languages with Premier LSP Support**: Go, Gleam, GDScript, GLSL, Groovy (limited), GNU Octave (via mlang)
-**Languages with Tree-sitter Fallback**: Assembly variants, AWK, configuration languages, legacy languages
-**Multi-language Project Support**: Polyglot detection with primary language inference
-**Environment Detection**: Python virtual environments, Rust cargo workspaces, Node.js projects, Java build tools
-
-**Systematic Research Coverage**: Completed analysis of 150+ languages with verified LSP availability and Tree-sitter grammar support for comprehensive language ecosystem coverage.
-
-### 12.5 Configuration Implementation Requirements (Critical Feedback)
-
-**Language Processing Integration**: LSP vs Tree-sitter mutually exclusive strategy with graceful degradation
-**Environment Detection**: Automatic detection of Python virtual environments, Rust cargo workspaces, Node.js projects
-**Project Signature Priority**: Language detection through build configuration files takes precedence over file extensions
-**XDG Data Home**: Tree-sitter grammar storage follows OS-standard directory conventions
-
-**Sparse Embedding Model**: Must specify which model is used for sparse BM25 embeddings
-**Auto-Creation Logic**: Collections auto-created by system, no user flag needed
-**gRPC Default**: Must default to `true` (performance optimization)
-**Priority System Architecture**: Three-tier dynamic priority system:
-
-1. **Command Queue Priorities**: MCP server commands take precedence over WQM commands
-2. **Background Execution Priorities**:
-   - MCP server up: Commands + watching take precedence, other tasks lower priority
-   - MCP server down: Equal priority background, lower system priority for GUI responsiveness
-   - Manual WQM requests: Immediate handling (except folder watch additions)
-3. **Machine Idle Negotiation**: After configurable idle time (default 30min), negotiate with other idle processes
-
-**Collection Naming Corrections**:
-
-- `memory_collection_name`: User provides clean name, `__` prefix added internally
-- `project_collection_name`: Replaces `code_collection_name`, read-only collection with `_` prefix
-- Multi-tenant root name: User provides root, system creates `{root}-{type}` collections
-
-**State Management**:
-
-- Default database: `state.db` in XDG_STATE_HOME/workspace-qdrant or system canonical location
-- Tracks missing LSP servers and projects needing metadata refresh
-- Tracks files processed with Tree-sitter vs LSP vs text-only for coverage analysis
-- Enables background LSP integration when servers become available
-
-**Pattern Priority**: Exclusion-first processing for performance optimization
-
-### 12.6 Rust Dependencies for Language Processing
-
-**Core Language Processing Crates** (based on research findings):
-```toml
-# Tree-sitter integration
-tree-sitter = "0.20"
-tree-sitter-highlight = "0.20"
-tree-sitter-tags = "0.20"
-
-# LSP client implementation
-lsp-types = "0.94"
-lsp-server = "0.7"
-tower-lsp = "0.20"
-
-# High-priority language grammars (Premier LSP support languages)
-tree-sitter-c = "0.20"
-tree-sitter-cpp = "0.20"
-tree-sitter-rust = "0.20"
-tree-sitter-python = "0.20"
-tree-sitter-javascript = "0.20"
-tree-sitter-typescript = "0.20"
-tree-sitter-go = "0.20"
-tree-sitter-java = "0.20"
-tree-sitter-bash = "0.20"
-
-# Fallback grammars (languages without viable LSP)
-tree-sitter-awk = "0.20"
-tree-sitter-make = "0.20"
-tree-sitter-cmake = "0.20"
-tree-sitter-dockerfile = "0.20"
-tree-sitter-nginx = "0.20"
-tree-sitter-toml = "0.20"
-tree-sitter-yaml = "0.20"
-tree-sitter-json = "0.20"
-tree-sitter-html = "0.20"
-tree-sitter-css = "0.20"
-
-# Performance optimization
-rayon = "1.7"        # Parallel processing for language analysis
-dashmap = "5.4"      # Concurrent HashMap for language state caching
-bytes = "1.4"        # Efficient buffer management for LSP communication
-```
-
-**Language Processing Pipeline Crates**:
-```toml
-# AST processing and symbol extraction
-syn = "2.0"          # Rust-specific semantic analysis
-tokio = "1.0"        # Async runtime for LSP communication
-serde = "1.0"        # Serialization for LSP messages and Tree-sitter output
-
-# Error handling for graceful degradation
-anyhow = "1.0"       # Error context for LSP failures
-thiserror = "1.0"    # Custom error types for processing pipeline
-```
-
-## 13. Implementation Roadmap
+## 14. Implementation Roadmap
 
 ### Phase 1: Tool Consolidation (Critical Gap)
 
@@ -995,30 +1096,30 @@ thiserror = "1.0"    # Custom error types for processing pipeline
 - **Target**: Perfect stdio silence and optimal performance
 - **Priority**: Low - Polish and reliability
 
-## 13. Success Criteria
+## 15. Success Criteria
 
-### 13.1 User Experience Success
+### 15.1 User Experience Success
 
 - **Zero Configuration**: New installations work immediately
 - **Memory Persistence**: User preferences and behavioral rules automatically persist
 - **Intelligent Assistance**: AI behavior consistently matches user expectations
 
-### 13.2 Technical Success
+### 15.2 Technical Success
 
 - **Protocol Compliance**: Perfect MCP stdio compliance
 - **Performance**: Sub-200ms search responses for workspace queries
 - **Reliability**: Graceful degradation when components unavailable
 - **Resource Efficiency**: Dynamic resource management without system interference
 
-### 13.3 Architectural Success
+### 15.3 Architectural Success
 
 - **Tool Consolidation**: 4 unified tools replace 30+ individual tools
 - **Multi-Component Harmony**: Seamless Python MCP + Rust daemon integration
 - **Platform Universality**: Cross-platform service management (macOS, Linux, Windows)
 
-## 14. References and Historical Architecture
+## 16. References and Historical Architecture
 
-### 14.1 Legacy Architecture Documentation (Extracted from specs/)
+### 16.1 Legacy Architecture Documentation (Extracted from specs/)
 
 **Original TypeScript Base**: workspace-qdrant-mcp was initially conceived as a Python port of [marlian/claude-qdrant-mcp](https://github.com/marlian/claude-qdrant-mcp) using FastMCP framework.
 
@@ -1044,7 +1145,7 @@ thiserror = "1.0"    # Custom error types for processing pipeline
 - Search latency: < 200ms for workspace queries
 - Memory usage: < 150MB RSS when active
 
-### 14.2 Documentation Integration Summary
+### 16.2 Documentation Integration Summary
 
 **Comprehensive Documentation Available** (extracted from docs/):
 
@@ -1065,7 +1166,7 @@ thiserror = "1.0"    # Custom error types for processing pipeline
 - **Deployment**: Docker Compose with runbooks and alert configurations
 - **Log Aggregation**: Centralized logging with multiple output targets
 
-### 14.3 Technical References
+### 16.3 Technical References
 
 - FastMCP framework documentation
 - Qdrant client API specifications
@@ -1073,7 +1174,7 @@ thiserror = "1.0"    # Custom error types for processing pipeline
 - Rust-Python interop patterns
 - gRPC protocol specifications
 
-## 15. Conclusion
+## 17. Conclusion
 
 This consolidated PRD establishes the **true North** for workspace-qdrant-mcp as a memory-driven semantic workspace platform. The system succeeds when developers experience seamless, memory-aware AI assistance with zero configuration overhead while maintaining complete protocol compliance and cross-platform reliability.
 
