@@ -90,17 +90,29 @@ def register_multitenant_tools(app: FastMCP, workspace_client: QdrantWorkspaceCl
                              f"Valid types: {valid_types}"
                 }
 
-            # Create multi-tenant collection manager
-            mt_manager = MultiTenantWorkspaceCollectionManager(
-                workspace_client.client, workspace_client.config
+            # Use the new client API for collection creation
+            collection_name = f"{project_name}-{collection_type}"
+            project_metadata = {"project_name": project_name}
+
+            # Create the workspace collection using enhanced client API
+            result = await workspace_client.create_collection(
+                collection_name=collection_name,
+                collection_type=collection_type,
+                project_metadata=project_metadata
             )
 
-            # Create the workspace collection
-            result = await mt_manager.create_workspace_collection(
-                project_name=project_name,
-                collection_type=collection_type,
-                enable_metadata_indexing=enable_metadata_indexing
-            )
+            # If the new API is not available, fallback to multi-tenant manager
+            if result.get("error") and "not available" in str(result.get("error", "")):
+                # Fallback to direct multi-tenant manager
+                mt_manager = MultiTenantWorkspaceCollectionManager(
+                    workspace_client.client, workspace_client.config
+                )
+
+                result = await mt_manager.create_workspace_collection(
+                    project_name=project_name,
+                    collection_type=collection_type,
+                    enable_metadata_indexing=enable_metadata_indexing
+                )
 
             logger.info(
                 f"Workspace collection creation {'succeeded' if result['success'] else 'failed'}",
@@ -114,6 +126,92 @@ def register_multitenant_tools(app: FastMCP, workspace_client: QdrantWorkspaceCl
         except Exception as e:
             logger.error(f"Failed to create workspace collection: {e}")
             return {"error": f"Collection creation failed: {e}"}
+
+    @app.tool()
+    @require_project_access(project_param="project_name", operation="list_collections", allow_none_project=True)
+    @log_security_events(event_type="list_workspace_collections_by_project", include_args=True)
+    async def list_workspace_collections_by_project(
+        project_name: Optional[str] = None,
+        include_shared: bool = True,
+        include_metadata: bool = False
+    ) -> Dict:
+        """
+        List workspace collections for a specific project with enhanced filtering.
+
+        Args:
+            project_name: Project name to filter collections for (auto-detected if None)
+            include_shared: Whether to include shared/global collections
+            include_metadata: Whether to include collection metadata information
+
+        Returns:
+            Dict: List of collections with optional metadata
+
+        Example:
+            ```python
+            # List collections for current project
+            collections = await list_workspace_collections_by_project()
+
+            # List collections for specific project
+            collections = await list_workspace_collections_by_project(
+                project_name="backend-service",
+                include_metadata=True
+            )
+            ```
+        """
+        if not workspace_client or not workspace_client.initialized:
+            return {"error": "Workspace client not initialized"}
+
+        try:
+            # Auto-detect project name if not provided
+            if not project_name:
+                project_info = workspace_client.get_project_info()
+                if project_info:
+                    project_name = project_info.get("main_project")
+
+            # Use the enhanced client API for project-aware collection listing
+            if project_name and hasattr(workspace_client.collection_manager, 'list_collections_for_project'):
+                collections = workspace_client.collection_manager.list_collections_for_project(
+                    project_name
+                )
+            else:
+                # Fallback to regular collection listing
+                collections = workspace_client.list_collections()
+
+            result = {
+                "success": True,
+                "project_name": project_name,
+                "collections": collections,
+                "collection_count": len(collections),
+                "include_shared": include_shared
+            }
+
+            # Add metadata information if requested
+            if include_metadata and collections:
+                metadata_info = {}
+                for collection_name in collections:
+                    try:
+                        if hasattr(workspace_client.collection_manager, 'get_collection_metadata_info'):
+                            metadata = workspace_client.collection_manager.get_collection_metadata_info(collection_name)
+                            metadata_info[collection_name] = metadata
+                        else:
+                            metadata_info[collection_name] = {"metadata_available": False}
+                    except Exception as e:
+                        metadata_info[collection_name] = {"error": str(e)}
+
+                result["metadata"] = metadata_info
+
+            logger.info(
+                "Project collections listed",
+                project_name=project_name,
+                collection_count=len(collections),
+                include_metadata=include_metadata
+            )
+
+            return result
+
+        except Exception as e:
+            logger.error(f"Failed to list project collections: {e}")
+            return {"error": f"Failed to list collections: {e}"}
 
     @app.tool()
     @require_project_access(project_param="project_name", operation="search", allow_none_project=True)
