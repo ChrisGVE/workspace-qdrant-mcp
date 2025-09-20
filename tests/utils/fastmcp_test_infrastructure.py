@@ -345,7 +345,8 @@ class FastMCPTestClient:
                 error=f"Tool execution error: {str(e)}",
                 metadata={
                     "exception_type": type(e).__name__,
-                    "traceback": traceback.format_exc()
+                    "traceback": traceback.format_exc(),
+                    "timestamp": datetime.now(timezone.utc).isoformat()
                 }
             )
 
@@ -460,7 +461,7 @@ class MCPProtocolTester:
         # Test tool structure
         tool_structure_tests = []
         for tool_name in registered_tools:
-            tool = self.server.get_tool(tool_name)
+            tool = self.server.get_tool_sync(tool_name)
             structure_valid = (
                 tool is not None and
                 hasattr(tool, 'fn') and
