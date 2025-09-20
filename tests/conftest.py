@@ -31,6 +31,14 @@ from tests.utils.pytest_mcp_framework import (
     IntelligentTestRunner,
     ai_powered_mcp_testing
 )
+from tests.utils.testcontainers_qdrant import (
+    IsolatedQdrantContainer,
+    QdrantContainerManager,
+    get_container_manager,
+    create_test_config,
+    create_test_workspace_client,
+    isolated_qdrant_instance
+)
 
 
 # Configure logging for tests
@@ -310,6 +318,10 @@ def pytest_configure(config):
     config.addinivalue_line("markers", "ai_evaluation: AI-powered evaluation tests")
     config.addinivalue_line("markers", "intelligent_testing: Intelligent test runner tests")
     config.addinivalue_line("markers", "pytest_mcp: pytest-mcp framework tests")
+    config.addinivalue_line("markers", "requires_qdrant_container: Tests requiring isolated Qdrant container")
+    config.addinivalue_line("markers", "isolated_container: Tests using isolated containers")
+    config.addinivalue_line("markers", "shared_container: Tests using shared containers")
+    config.addinivalue_line("markers", "requires_docker: Tests requiring Docker daemon")
 
 
 @pytest.fixture
@@ -376,6 +388,79 @@ async def ai_powered_test_environment():
 
     async with ai_powered_mcp_testing(app, "pytest-ai-environment") as runner:
         yield runner
+
+
+# Testcontainers fixtures for isolated Qdrant testing
+
+@pytest.fixture(scope="session")
+def qdrant_container_manager():
+    """Session-scoped container manager for Qdrant instances."""
+    manager = get_container_manager()
+    yield manager
+    # Cleanup all containers at end of session
+    manager.cleanup_all()
+
+
+@pytest.fixture(scope="session")
+def session_qdrant_container(qdrant_container_manager):
+    """Session-scoped Qdrant container for integration tests."""
+    container = qdrant_container_manager.get_session_container()
+    yield container
+    # Reset container state between test modules
+    container.reset()
+
+
+@pytest.fixture
+def isolated_qdrant_container(request, qdrant_container_manager):
+    """Function-scoped isolated Qdrant container for unit tests."""
+    test_id = f"{request.module.__name__}::{request.function.__name__}"
+    container = qdrant_container_manager.get_isolated_container(test_id)
+
+    yield container
+
+    # Cleanup after test
+    qdrant_container_manager.cleanup_container(test_id)
+
+
+@pytest.fixture
+def shared_qdrant_container(session_qdrant_container):
+    """Shared Qdrant container that resets state between tests."""
+    # Reset state before each test
+    session_qdrant_container.reset()
+    yield session_qdrant_container
+
+
+@pytest.fixture
+async def isolated_qdrant_client(isolated_qdrant_container):
+    """Qdrant client connected to isolated container."""
+    yield isolated_qdrant_container.client
+
+
+@pytest.fixture
+async def shared_qdrant_client(shared_qdrant_container):
+    """Qdrant client connected to shared container."""
+    yield shared_qdrant_container.client
+
+
+@pytest.fixture
+async def test_workspace_client(isolated_qdrant_container):
+    """Workspace client connected to isolated Qdrant container."""
+    client = await create_test_workspace_client(isolated_qdrant_container)
+    yield client
+    await client.close()
+
+
+@pytest.fixture
+def test_config(isolated_qdrant_container):
+    """Test configuration using isolated Qdrant container."""
+    yield create_test_config(isolated_qdrant_container)
+
+
+@pytest.fixture
+async def containerized_qdrant_instance():
+    """Async context manager for isolated Qdrant instance."""
+    async with isolated_qdrant_instance() as (container, client):
+        yield container, client
 
 
 def pytest_collection_modifyitems(config, items):
