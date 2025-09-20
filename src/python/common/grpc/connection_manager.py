@@ -7,9 +7,13 @@ including connection pooling, health checks, and automatic reconnection.
 
 import asyncio
 import logging
+import time
 from contextlib import asynccontextmanager
 from datetime import datetime, timedelta
-from typing import Any, AsyncIterator, Dict, Optional
+from typing import Any, AsyncIterator, Dict, Optional, List
+from dataclasses import dataclass
+import weakref
+import threading
 
 import grpc
 import grpc.aio
@@ -21,8 +25,43 @@ from .ingestion_pb2_grpc import IngestServiceStub
 logger = logging.getLogger(__name__)
 
 
+@dataclass
+class ConnectionMetrics:
+    """Metrics for connection monitoring."""
+    total_requests: int = 0
+    successful_requests: int = 0
+    failed_requests: int = 0
+    connection_errors: int = 0
+    auth_failures: int = 0
+    total_response_time: float = 0.0
+    min_response_time: float = float('inf')
+    max_response_time: float = 0.0
+    connection_attempts: int = 0
+    successful_connections: int = 0
+
+    @property
+    def average_response_time(self) -> float:
+        """Calculate average response time in milliseconds."""
+        if self.successful_requests == 0:
+            return 0.0
+        return self.total_response_time / self.successful_requests
+
+    @property
+    def success_rate(self) -> float:
+        """Calculate success rate as percentage."""
+        if self.total_requests == 0:
+            return 0.0
+        return (self.successful_requests / self.total_requests) * 100
+
+    @property
+    def connection_success_rate(self) -> float:
+        """Calculate connection success rate as percentage."""
+        if self.connection_attempts == 0:
+            return 0.0
+        return (self.successful_connections / self.connection_attempts) * 100
+
 class ConnectionConfig:
-    """Configuration for gRPC connection management."""
+    """Enhanced configuration for gRPC connection management."""
 
     def __init__(
         self,
@@ -40,7 +79,23 @@ class ConnectionConfig:
         keepalive_timeout: int = 5,
         keepalive_without_calls: bool = True,
         max_concurrent_streams: int = 100,
+        # Enhanced security options
+        enable_tls: bool = False,
+        tls_cert_path: Optional[str] = None,
+        tls_key_path: Optional[str] = None,
+        tls_ca_path: Optional[str] = None,
+        api_key: Optional[str] = None,
+        # Connection pooling options
+        enable_connection_pooling: bool = True,
+        pool_size: int = 5,
+        max_pool_size: int = 10,
+        pool_timeout: float = 30.0,
+        # Circuit breaker options
+        enable_circuit_breaker: bool = True,
+        circuit_breaker_failure_threshold: int = 5,
+        circuit_breaker_timeout: float = 60.0,
     ):
+        # Basic connection settings
         self.host = host
         self.port = port
         self.max_message_length = max_message_length
@@ -56,14 +111,32 @@ class ConnectionConfig:
         self.keepalive_without_calls = keepalive_without_calls
         self.max_concurrent_streams = max_concurrent_streams
 
+        # Enhanced security settings
+        self.enable_tls = enable_tls
+        self.tls_cert_path = tls_cert_path
+        self.tls_key_path = tls_key_path
+        self.tls_ca_path = tls_ca_path
+        self.api_key = api_key
+
+        # Connection pooling settings
+        self.enable_connection_pooling = enable_connection_pooling
+        self.pool_size = pool_size
+        self.max_pool_size = max_pool_size
+        self.pool_timeout = pool_timeout
+
+        # Circuit breaker settings
+        self.enable_circuit_breaker = enable_circuit_breaker
+        self.circuit_breaker_failure_threshold = circuit_breaker_failure_threshold
+        self.circuit_breaker_timeout = circuit_breaker_timeout
+
     @property
     def address(self) -> str:
         """Get the full gRPC address."""
         return f"{self.host}:{self.port}"
 
     def get_channel_options(self) -> list:
-        """Get gRPC channel options based on configuration."""
-        return [
+        """Get enhanced gRPC channel options based on configuration."""
+        options = [
             ("grpc.max_send_message_length", self.max_message_length),
             ("grpc.max_receive_message_length", self.max_message_length),
             ("grpc.keepalive_time_ms", self.keepalive_time * 1000),
@@ -73,11 +146,17 @@ class ConnectionConfig:
             ("grpc.http2.min_time_between_pings_ms", 10000),
             ("grpc.http2.min_ping_interval_without_data_ms", 300000),
             ("grpc.max_concurrent_streams", self.max_concurrent_streams),
+            # Performance optimizations
+            ("grpc.so_reuseport", 1),
+            ("grpc.tcp_user_timeout", self.connection_timeout * 1000),
+            ("grpc.enable_http_proxy", 0),
         ]
+
+        return options
 
 
 class ConnectionState:
-    """Tracks the state of a gRPC connection."""
+    """Enhanced state tracking for a gRPC connection."""
 
     def __init__(self):
         self.channel: Optional[grpc.aio.Channel] = None
@@ -87,18 +166,74 @@ class ConnectionState:
         self.is_healthy = False
         self.connection_time = None
         self.last_used = datetime.now()
+        self.metrics = ConnectionMetrics()
+        self.is_in_use = False
+        self.connection_id = None
         self._lock = asyncio.Lock()
 
+        # Circuit breaker state
+        self.circuit_breaker_state = "closed"  # closed, open, half-open
+        self.circuit_breaker_failures = 0
+        self.circuit_breaker_last_failure = None
+
     async def reset(self):
-        """Reset connection state."""
+        """Reset connection state with enhanced cleanup."""
         async with self._lock:
             if self.channel:
-                await self.channel.close()
+                try:
+                    await asyncio.wait_for(self.channel.close(), timeout=5.0)
+                except asyncio.TimeoutError:
+                    logger.warning("Channel close timed out")
+                except Exception as e:
+                    logger.warning(f"Error closing channel: {e}")
+
             self.channel = None
             self.stub = None
             self.is_healthy = False
             self.consecutive_failures = 0
             self.connection_time = None
+            self.is_in_use = False
+            self.connection_id = None
+            # Don't reset metrics to preserve historical data
+
+    def record_request(self, duration_ms: float, success: bool = True):
+        """Record request metrics."""
+        self.metrics.total_requests += 1
+        if success:
+            self.metrics.successful_requests += 1
+            self.metrics.total_response_time += duration_ms
+            self.metrics.min_response_time = min(self.metrics.min_response_time, duration_ms)
+            self.metrics.max_response_time = max(self.metrics.max_response_time, duration_ms)
+        else:
+            self.metrics.failed_requests += 1
+
+    def update_circuit_breaker(self, success: bool):
+        """Update circuit breaker state based on operation result."""
+        current_time = time.time()
+
+        if success:
+            self.circuit_breaker_failures = 0
+            if self.circuit_breaker_state == "half-open":
+                self.circuit_breaker_state = "closed"
+        else:
+            self.circuit_breaker_failures += 1
+            self.circuit_breaker_last_failure = current_time
+
+            if self.circuit_breaker_failures >= 5:  # threshold
+                self.circuit_breaker_state = "open"
+
+    def can_attempt_connection(self, circuit_breaker_timeout: float) -> bool:
+        """Check if connection attempt is allowed by circuit breaker."""
+        if self.circuit_breaker_state == "closed":
+            return True
+        elif self.circuit_breaker_state == "open":
+            if (self.circuit_breaker_last_failure and
+                time.time() - self.circuit_breaker_last_failure > circuit_breaker_timeout):
+                self.circuit_breaker_state = "half-open"
+                return True
+            return False
+        else:  # half-open
+            return True
 
 
 class GrpcConnectionManager:
@@ -402,15 +537,43 @@ class GrpcConnectionManager:
             raise last_exception
 
     def get_connection_info(self) -> Dict[str, Any]:
-        """Get information about the current connection."""
+        """Get comprehensive connection information and metrics."""
+        if hasattr(self, '_connection_pool') and self.config.enable_connection_pooling:
+            pool_info = {
+                "pool_size": len(self._connection_pool),
+                "max_pool_size": self.config.max_pool_size,
+                "connections_in_use": sum(1 for conn in self._connection_pool if conn.is_in_use),
+                "healthy_connections": sum(1 for conn in self._connection_pool if conn.is_healthy),
+                "pool_metrics": {
+                    "total_requests": sum(conn.metrics.total_requests for conn in self._connection_pool),
+                    "avg_success_rate": sum(conn.metrics.success_rate for conn in self._connection_pool) / len(self._connection_pool) if self._connection_pool else 0,
+                }
+            }
+        else:
+            pool_info = {
+                "pooling_enabled": False,
+                "connection_healthy": self.state.is_healthy,
+                "connection_metrics": {
+                    "total_requests": self.state.metrics.total_requests,
+                    "success_rate": self.state.metrics.success_rate,
+                    "avg_response_time": self.state.metrics.average_response_time,
+                }
+            }
+
         return {
             "address": self.config.address,
-            "is_healthy": self.state.is_healthy,
-            "consecutive_failures": self.state.consecutive_failures,
-            "last_health_check": self.state.last_health_check.isoformat(),
-            "connection_time": self.state.connection_time.isoformat()
-            if self.state.connection_time
-            else None,
-            "last_used": self.state.last_used.isoformat(),
-            "is_connected": self.state.channel is not None,
+            "tls_enabled": getattr(self.config, 'enable_tls', False),
+            "api_key_configured": bool(getattr(self.config, 'api_key', None)),
+            "circuit_breaker_enabled": getattr(self.config, 'enable_circuit_breaker', False),
+            "total_metrics": {
+                "total_requests": self._total_metrics.total_requests,
+                "success_rate": self._total_metrics.success_rate,
+                "avg_response_time": self._total_metrics.average_response_time,
+                "connection_success_rate": self._total_metrics.connection_success_rate,
+            },
+            **pool_info
         }
+
+    async def get_or_create_stub(self) -> IngestServiceStub:
+        """Get or create a stub - alias for ensure_connected for backward compatibility."""
+        return await self.ensure_connected()
