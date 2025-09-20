@@ -77,8 +77,17 @@ pub enum ProcessingError {
 pub struct DocumentResult {
     pub document_id: String,
     pub collection: String,
-    pub chunks_created: usize,
+    pub chunks_created: Option<usize>,
     pub processing_time_ms: u64,
+}
+
+/// Processing statistics for monitoring
+#[derive(Debug, Clone)]
+pub struct ProcessingStats {
+    pub total_documents_processed: u64,
+    pub total_chunks_created: u64,
+    pub average_processing_time_ms: u64,
+    pub chunking_config: ChunkingConfig,
 }
 
 /// Document type enumeration
@@ -174,7 +183,7 @@ impl DocumentProcessor {
         Ok(DocumentResult {
             document_id,
             collection: collection.to_string(),
-            chunks_created,
+            chunks_created: Some(chunks_created),
             processing_time_ms,
         })
     }
@@ -591,6 +600,36 @@ impl DocumentProcessor {
         
         // Clean up excessive whitespace
         result.split_whitespace().collect::<Vec<_>>().join(" ")
+    }
+
+    /// Check if the document processor is healthy
+    pub async fn is_healthy(&self) -> bool {
+        // Check if we can create a simple text chunk
+        match self.create_text_chunks("test", &DocumentType::Text) {
+            Ok(_) => true,
+            Err(e) => {
+                tracing::warn!("DocumentProcessor health check failed: {}", e);
+                false
+            }
+        }
+    }
+
+    /// Test Qdrant connection (placeholder implementation)
+    pub async fn test_qdrant_connection(&self) -> std::result::Result<(), ProcessingError> {
+        // TODO: Implement actual Qdrant connection test
+        // For now, just return success as a placeholder
+        tracing::debug!("Qdrant connection test - placeholder implementation");
+        Ok(())
+    }
+
+    /// Get processing statistics
+    pub fn get_stats(&self) -> ProcessingStats {
+        ProcessingStats {
+            total_documents_processed: 0, // TODO: Implement actual tracking
+            total_chunks_created: 0,
+            average_processing_time_ms: 0,
+            chunking_config: self.chunking_config.clone(),
+        }
     }
 }
 

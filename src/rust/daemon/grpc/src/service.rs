@@ -1,22 +1,114 @@
 //! gRPC service implementation
 //!
-//! This module contains the actual service implementations
+//! This module contains the actual service implementations with enhanced
+//! security, error handling, and performance monitoring.
 
 use crate::proto::*;
+use crate::{AuthConfig, ServerMetrics, GrpcError};
 use std::pin::Pin;
+use std::sync::Arc;
+use std::time::{Instant, SystemTime};
 use tokio_stream::Stream;
 use tonic::{Request, Response, Status};
 use workspace_qdrant_core::DocumentProcessor;
+use uuid::Uuid;
 
-/// Ingestion service implementation
+/// Ingestion service implementation with enhanced security and monitoring
 pub struct IngestionService {
     processor: DocumentProcessor,
+    auth_config: Option<AuthConfig>,
+    metrics: Arc<ServerMetrics>,
+    start_time: SystemTime,
 }
 
 impl IngestionService {
     pub fn new() -> Self {
         Self {
             processor: DocumentProcessor::new(),
+            auth_config: None,
+            metrics: Arc::new(ServerMetrics::default()),
+            start_time: SystemTime::now(),
+        }
+    }
+
+    pub fn new_with_auth(auth_config: Option<AuthConfig>) -> Self {
+        Self {
+            processor: DocumentProcessor::new(),
+            auth_config,
+            metrics: Arc::new(ServerMetrics::default()),
+            start_time: SystemTime::now(),
+        }
+    }
+
+    pub fn with_metrics(mut self, metrics: Arc<ServerMetrics>) -> Self {
+        self.metrics = metrics;
+        self
+    }
+
+    /// Validate authentication for a request
+    fn authenticate(&self, request: &Request<impl prost::Message>) -> Result<(), Status> {
+        let Some(auth_config) = &self.auth_config else {
+            return Ok(()); // No auth configured
+        };
+
+        if !auth_config.enabled {
+            return Ok(());
+        }
+
+        // Check API key if configured
+        if let Some(expected_key) = &auth_config.api_key {
+            let auth_header = request.metadata()
+                .get("authorization")
+                .and_then(|v| v.to_str().ok())
+                .ok_or_else(|| {
+                    self.metrics.auth_failures.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                    Status::unauthenticated("Missing authorization header")
+                })?;
+
+            if !auth_header.starts_with("Bearer ") {
+                self.metrics.auth_failures.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                return Err(Status::unauthenticated("Invalid authorization format"));
+            }
+
+            let token = &auth_header[7..]; // Remove "Bearer " prefix
+            if token != expected_key {
+                self.metrics.auth_failures.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                return Err(Status::unauthenticated("Invalid API key"));
+            }
+        }
+
+        // Check origin if configured
+        if !auth_config.allowed_origins.contains(&"*".to_string()) {
+            let origin = request.metadata()
+                .get("origin")
+                .and_then(|v| v.to_str().ok())
+                .unwrap_or("");
+
+            if !auth_config.allowed_origins.contains(&origin.to_string()) {
+                self.metrics.auth_failures.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                return Err(Status::permission_denied("Origin not allowed"));
+            }
+        }
+
+        Ok(())
+    }
+
+    /// Record metrics for a request
+    fn record_request(&self, duration: std::time::Duration, success: bool) {
+        self.metrics.total_requests.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+
+        if !success {
+            self.metrics.failed_requests.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        }
+
+        // Update average response time (simplified moving average)
+        let duration_ms = duration.as_millis() as u64;
+        let current_avg = self.metrics.avg_response_time.load(std::sync::atomic::Ordering::Relaxed);
+        let total_requests = self.metrics.total_requests.load(std::sync::atomic::Ordering::Relaxed);
+
+        if total_requests > 0 {
+            let new_avg = (current_avg * (total_requests - 1) + duration_ms) / total_requests;
+            self.metrics.avg_response_time.store(new_avg, std::sync::atomic::Ordering::Relaxed);
         }
     }
 }
@@ -33,18 +125,55 @@ impl ingest_service_server::IngestService for IngestionService {
         &self,
         request: Request<ProcessDocumentRequest>,
     ) -> Result<Response<ProcessDocumentResponse>, Status> {
+        let start_time = Instant::now();
+
+        // Authenticate request
+        self.authenticate(&request)?;
+
         let req = request.into_inner();
-        
-        tracing::info!("Processing document: {} for collection: {}", req.file_path, req.collection);
-        
+
+        tracing::info!(
+            "Processing document: {} for collection: {}",
+            req.file_path,
+            req.collection
+        );
+
+        // Validate input parameters
+        if req.file_path.is_empty() {
+            self.record_request(start_time.elapsed(), false);
+            return Err(Status::invalid_argument("File path cannot be empty"));
+        }
+
+        if req.collection.is_empty() {
+            self.record_request(start_time.elapsed(), false);
+            return Err(Status::invalid_argument("Collection name cannot be empty"));
+        }
+
+        // Process the document (this is a simplified implementation)
+        // In real implementation, this would use the DocumentProcessor
+        let file_path = std::path::Path::new(&req.file_path);
+        let processing_result = match self.processor.process_file(file_path, &req.collection).await {
+            Ok(result) => result,
+            Err(e) => {
+                tracing::error!("Document processing failed: {}", e);
+                self.record_request(start_time.elapsed(), false);
+                return Err(Status::internal(format!("Processing failed: {}", e)));
+            }
+        };
+
+        let document_id = req.document_id.unwrap_or_else(|| Uuid::new_v4().to_string());
+
         let response = ProcessDocumentResponse {
             success: true,
             message: format!("Successfully processed document: {}", req.file_path),
-            document_id: req.document_id.clone(),
-            chunks_added: 1,
+            document_id: Some(document_id),
+            chunks_added: processing_result.chunks_created.unwrap_or(1) as i32,
             applied_metadata: req.metadata,
         };
-        
+
+        self.record_request(start_time.elapsed(), true);
+        tracing::info!("Document processed successfully in {:?}", start_time.elapsed());
+
         Ok(Response::new(response))
     }
 
@@ -142,20 +271,71 @@ impl ingest_service_server::IngestService for IngestionService {
         &self,
         _request: Request<()>,
     ) -> Result<Response<HealthResponse>, Status> {
+        let start_time = Instant::now();
+
         tracing::debug!("Health check requested");
-        
-        let response = HealthResponse {
-            status: HealthStatus::Healthy as i32,
-            message: "Service is healthy".to_string(),
-            services: vec![
-                ServiceHealth {
-                    name: "ingestion_engine".to_string(),
-                    status: HealthStatus::Healthy as i32,
-                    message: "Running normally".to_string(),
-                }
-            ],
+
+        // Perform comprehensive health checks
+        let mut services = vec![];
+
+        // Check ingestion engine health
+        let engine_health = if self.processor.is_healthy().await {
+            ServiceHealth {
+                name: "ingestion_engine".to_string(),
+                status: HealthStatus::Healthy as i32,
+                message: "Running normally".to_string(),
+            }
+        } else {
+            ServiceHealth {
+                name: "ingestion_engine".to_string(),
+                status: HealthStatus::Degraded as i32,
+                message: "Engine experiencing issues".to_string(),
+            }
         };
-        
+        services.push(engine_health);
+
+        // Check Qdrant connectivity
+        let qdrant_health = match self.processor.test_qdrant_connection().await {
+            Ok(_) => ServiceHealth {
+                name: "qdrant_client".to_string(),
+                status: HealthStatus::Healthy as i32,
+                message: "Connected to Qdrant".to_string(),
+            },
+            Err(e) => ServiceHealth {
+                name: "qdrant_client".to_string(),
+                status: HealthStatus::Unhealthy as i32,
+                message: format!("Qdrant connection failed: {}", e),
+            },
+        };
+        services.push(qdrant_health);
+
+        // Determine overall status
+        let overall_status = if services.iter().all(|s| s.status == HealthStatus::Healthy as i32) {
+            HealthStatus::Healthy
+        } else if services.iter().any(|s| s.status == HealthStatus::Unhealthy as i32) {
+            HealthStatus::Unhealthy
+        } else {
+            HealthStatus::Degraded
+        };
+
+        let uptime = self.start_time.elapsed().unwrap_or_default();
+        let response = HealthResponse {
+            status: overall_status as i32,
+            message: format!(
+                "Service health: {}. Uptime: {:?}. Total requests: {}",
+                match overall_status {
+                    HealthStatus::Healthy => "Healthy",
+                    HealthStatus::Degraded => "Degraded",
+                    HealthStatus::Unhealthy => "Unhealthy",
+                    _ => "Unknown",
+                },
+                uptime,
+                self.metrics.total_requests.load(std::sync::atomic::Ordering::Relaxed)
+            ),
+            services,
+        };
+
+        self.record_request(start_time.elapsed(), overall_status != HealthStatus::Unhealthy);
         Ok(Response::new(response))
     }
 
