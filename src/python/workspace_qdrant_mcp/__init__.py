@@ -31,13 +31,19 @@ __url__ = "https://github.com/your-org/workspace-qdrant-mcp"
 
 import os
 
+# Core module alias for backward compatibility with tests
+try:
+    from common import core
+except ImportError:
+    core = None
+
 # Only import the main server if not in stdio mode to prevent import hangs
 if os.getenv("WQM_STDIO_MODE", "").lower() != "true":
     try:
         from .server import app
-        __all__ = ["app"]
+        __all__ = ["app", "core"] if core else ["app"]
     except ImportError:
-        __all__ = []
+        __all__ = ["core"] if core else []
 else:
     # In stdio mode, don't import anything to avoid hangs
-    __all__ = []
+    __all__ = ["core"] if core else []
