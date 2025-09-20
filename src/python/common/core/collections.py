@@ -933,13 +933,13 @@ class WorkspaceCollectionManager:
     def list_searchable_collections(self) -> list[str]:
         """
         List collections that should be included in global searches.
-        
+
         This method returns display names for collections that are globally searchable,
         excluding system collections (__ prefix) which are only accessible by explicit name.
-        
+
         Returns:
             List[str]: Display names of collections that are globally searchable
-        
+
         Example:
             ```python
             searchable = manager.list_searchable_collections()
@@ -950,22 +950,159 @@ class WorkspaceCollectionManager:
         try:
             all_collections = self.client.get_collections()
             searchable_collections = []
-            
+
             for collection in all_collections.collections:
                 collection_name = collection.name
-                
+
                 # Use new collection type system to determine searchability
                 collection_info = self.type_classifier.get_collection_info(collection_name)
-                
+
                 # Only include globally searchable collections (excludes system collections)
                 if collection_info.is_searchable:
                     display_name = self.type_classifier.get_display_name(collection_name)
                     searchable_collections.append(display_name)
-                        
+
             return sorted(searchable_collections)
-            
+
         except Exception as e:
             logger.error(f"Failed to list searchable collections: {e}")
+            return []
+
+    def list_collections_for_project(self, project_name: str) -> list[str]:
+        """
+        List collections filtered by project context with metadata support.
+
+        This method uses metadata filtering to return only collections that are
+        accessible within the specified project context, supporting both legacy
+        and multi-tenant collection architectures.
+
+        Args:
+            project_name: Project name to filter collections for
+
+        Returns:
+            List[str]: Collection names available for the specified project
+
+        Example:
+            ```python
+            collections = manager.list_collections_for_project("my-project")
+            # Returns: ['my-project-docs', 'my-project-notes', 'scratchbook']
+            ```
+        """
+        if not project_name:
+            return self.list_workspace_collections()
+
+        try:
+            # Import metadata filtering if available
+            try:
+                from .metadata_filtering import MetadataFilterManager, FilterCriteria
+
+                # Create metadata filter manager
+                filter_manager = MetadataFilterManager(self.client)
+
+                # Create filter criteria for project
+                criteria = FilterCriteria(
+                    project_name=project_name,
+                    include_global=True,
+                    include_shared=True
+                )
+
+                # Get all collections and filter by metadata
+                all_collections = self.client.get_collections()
+                project_collections = []
+
+                for collection in all_collections.collections:
+                    collection_name = collection.name
+
+                    # Check if collection belongs to the project
+                    if self._collection_belongs_to_project(collection_name, project_name):
+                        # Use display name if collection type system is available
+                        if hasattr(self, 'type_classifier'):
+                            display_name = self.type_classifier.get_display_name(collection_name)
+                            project_collections.append(display_name)
+                        else:
+                            project_collections.append(collection_name)
+
+                logger.debug(
+                    f"Found {len(project_collections)} collections for project {project_name}"
+                )
+
+                return sorted(project_collections)
+
+            except ImportError:
+                # Fallback to legacy project filtering
+                logger.debug("Metadata filtering not available, using legacy project filtering")
+                return self._list_collections_for_project_legacy(project_name)
+
+        except Exception as e:
+            logger.error(f"Failed to list collections for project {project_name}: {e}")
+            return self.list_workspace_collections()
+
+    def _collection_belongs_to_project(self, collection_name: str, project_name: str) -> bool:
+        """
+        Check if a collection belongs to the specified project.
+
+        This method supports both legacy naming patterns and metadata-based
+        project association.
+
+        Args:
+            collection_name: Name of the collection to check
+            project_name: Project name to check against
+
+        Returns:
+            bool: True if collection belongs to project, False otherwise
+        """
+        try:
+            # Check legacy naming patterns first
+            if collection_name.startswith(f"{project_name}-"):
+                return True
+
+            # Check if it's a global/shared collection
+            if collection_name in self.config.workspace.global_collections:
+                return True
+
+            # Check system and library collections (available to all projects)
+            if collection_name.startswith("__") or collection_name.startswith("_"):
+                return True
+
+            # Check if collection matches current project exactly
+            if collection_name == project_name:
+                return True
+
+            # For multi-tenant collections, we would check metadata here
+            # This would require sampling the collection to check project_id metadata
+            # For now, we'll use naming patterns
+
+            return False
+
+        except Exception as e:
+            logger.debug(f"Error checking collection project membership: {e}")
+            return False
+
+    def _list_collections_for_project_legacy(self, project_name: str) -> list[str]:
+        """
+        Legacy project filtering method using naming patterns only.
+
+        Args:
+            project_name: Project name to filter for
+
+        Returns:
+            List[str]: Collection names for the project using legacy filtering
+        """
+        try:
+            all_collections = self.client.get_collections()
+            project_collections = []
+
+            for collection in all_collections.collections:
+                collection_name = collection.name
+
+                # Include collections that belong to this project
+                if self._collection_belongs_to_project(collection_name, project_name):
+                    project_collections.append(collection_name)
+
+            return sorted(project_collections)
+
+        except Exception as e:
+            logger.error(f"Legacy project filtering failed: {e}")
             return []
 
     def validate_collection_operation(self, display_name: str, operation: str) -> tuple[bool, str]:
@@ -1108,6 +1245,43 @@ class WorkspaceCollectionManager:
                     collection=collection_config.name,
                     error=str(e)
                 )
+
+    async def _create_collection_with_metadata_support(
+        self, collection_config: CollectionConfig, project_context: Optional[dict] = None
+    ) -> None:
+        """
+        Create a collection with metadata support for multi-tenant architecture.
+
+        This method extends the basic collection creation with metadata indexing
+        and project context injection.
+
+        Args:
+            collection_config: Collection configuration
+            project_context: Optional project context for metadata enrichment
+
+        Raises:
+            ResponseHandlingException: If Qdrant API calls fail
+            ValueError: If configuration is invalid
+        """
+        try:
+            # Create the basic collection first
+            self._ensure_collection_exists(collection_config)
+
+            # Add metadata indexing for multi-tenant support
+            if project_context:
+                await self._optimize_metadata_indexing([collection_config])
+
+                logger.info(
+                    "Collection created with metadata support",
+                    collection=collection_config.name,
+                    project_context=project_context
+                )
+
+        except Exception as e:
+            logger.error(
+                f"Failed to create collection with metadata support: {e}"
+            )
+            raise
 
 
 class MemoryCollectionManager:

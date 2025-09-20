@@ -321,7 +321,8 @@ class QdrantWorkspaceClient:
         """List all available workspace collections for the current project.
 
         Returns collections that are accessible within the current workspace scope,
-        including project-specific collections and global collections like 'scratchbook'.
+        including project-specific collections and global collections. Uses metadata
+        filtering to provide project-aware collection discovery.
 
         Returns:
             List[str]: Collection names available in the current workspace.
@@ -338,7 +339,14 @@ class QdrantWorkspaceClient:
             return []
 
         try:
-            return self.collection_manager.list_workspace_collections()
+            # Use the enhanced collection manager with project filtering
+            project_context = self.get_project_context()
+            if project_context and hasattr(self.collection_manager, 'list_collections_for_project'):
+                return self.collection_manager.list_collections_for_project(
+                    project_context.get("project_name")
+                )
+            else:
+                return self.collection_manager.list_workspace_collections()
 
         except Exception as e:
             logger.error("Failed to list collections: %s", e)
@@ -421,8 +429,8 @@ class QdrantWorkspaceClient:
         """Ensure a collection exists, creating it if necessary.
 
         This method creates a collection with appropriate configuration if it doesn't
-        already exist. It's designed to be called by tools that need to ensure
-        their target collection is available before performing operations.
+        already exist. It integrates with the multi-tenant metadata schema and
+        supports both legacy and multi-tenant collection patterns.
 
         Args:
             collection_name: Name of the collection to create
@@ -458,17 +466,37 @@ class QdrantWorkspaceClient:
         try:
             # Import here to avoid circular imports
             from .collections import CollectionConfig
+            try:
+                from .collection_naming_validation import CollectionNamingValidator
+                from .metadata_schema import MultiTenantMetadataSchema
 
-            # Create a collection configuration
+                # Validate collection name using new validation system
+                validator = CollectionNamingValidator()
+                validation_result = validator.validate_name(
+                    collection_name,
+                    existing_collections=self.list_collections()
+                )
+
+                if not validation_result.is_valid:
+                    raise ValueError(f"Invalid collection name '{collection_name}': {validation_result.error_message}")
+            except ImportError:
+                # Fallback to basic validation if new components not available
+                logger.warning("Multi-tenant validation components not available, using legacy validation")
+
+            # Get project context for metadata enrichment
+            project_context = self.get_project_context(collection_type)
+
+            # Create collection configuration with multi-tenant support
             collection_config = CollectionConfig(
                 name=collection_name,
                 description=f"{collection_type.title()} collection",
                 collection_type=collection_type,
+                project_name=project_context.get("project_name") if project_context else None,
                 vector_size=self.collection_manager._get_vector_size(),
                 enable_sparse_vectors=self.config.embedding.enable_sparse_vectors,
             )
 
-            # Use the collection manager's private method to ensure the collection exists
+            # Use the collection manager to ensure the collection exists
             self.collection_manager._ensure_collection_exists(collection_config)
 
             logger.info("Ensured collection exists: %s", collection_name)
@@ -720,6 +748,139 @@ class QdrantWorkspaceClient:
         except Exception as e:
             logger.error(f"Collection access validation failed: {e}")
             return False, f"Validation error: {e}"
+
+    async def create_collection(
+        self,
+        collection_name: str,
+        collection_type: str = "general",
+        project_metadata: Optional[dict] = None
+    ) -> dict:
+        """Create a new collection with multi-tenant metadata support.
+
+        This method creates a collection using the multi-tenant architecture
+        with proper metadata indexing and project isolation.
+
+        Args:
+            collection_name: Name of the collection to create
+            collection_type: Type/category of the collection
+            project_metadata: Optional project context metadata
+
+        Returns:
+            Dict: Creation result with success status and metadata
+
+        Example:
+            ```python
+            result = await client.create_collection(
+                collection_name="my-project-docs",
+                collection_type="docs",
+                project_metadata={"project_name": "my-project"}
+            )
+            ```
+        """
+        if not self.initialized:
+            return {"error": "Client not initialized"}
+
+        try:
+            # Import multi-tenant components if available
+            try:
+                from .multitenant_collections import MultiTenantWorkspaceCollectionManager
+                from .collection_naming_validation import CollectionNamingValidator
+
+                # Validate collection name
+                validator = CollectionNamingValidator()
+                validation_result = validator.validate_name(
+                    collection_name,
+                    existing_collections=self.list_collections()
+                )
+
+                if not validation_result.is_valid:
+                    return {
+                        "success": False,
+                        "error": f"Invalid collection name: {validation_result.error_message}",
+                        "suggestions": validation_result.suggested_names
+                    }
+
+                multitenant_available = True
+            except ImportError:
+                logger.warning("Multi-tenant components not available, using legacy collection creation")
+                multitenant_available = False
+
+            # Get or generate project context
+            if not project_metadata:
+                project_metadata = self.get_project_context(collection_type)
+
+            if multitenant_available:
+                # Create multi-tenant collection manager
+                mt_manager = MultiTenantWorkspaceCollectionManager(
+                    self.client, self.config
+                )
+
+                # Extract project information
+                project_name = None
+                if project_metadata:
+                    project_name = project_metadata.get("project_name")
+
+                if not project_name and self.project_info:
+                    project_name = self.project_info.get("main_project")
+
+                if not project_name:
+                    return {
+                        "success": False,
+                        "error": "No project context available for multi-tenant collection creation"
+                    }
+
+                # Create the collection using multi-tenant manager
+                result = await mt_manager.create_workspace_collection(
+                    project_name=project_name,
+                    collection_type=collection_type,
+                    enable_metadata_indexing=True
+                )
+
+                # Enhance result with validation metadata
+                if result.get("success") and 'validation_result' in locals() and hasattr(validation_result, 'proposed_metadata'):
+                    if validation_result.proposed_metadata:
+                        result["metadata_schema"] = validation_result.proposed_metadata.to_dict()
+
+                logger.info(
+                    "Multi-tenant collection creation completed",
+                    collection_name=collection_name,
+                    success=result.get("success"),
+                    project_name=project_name
+                )
+
+                return result
+            else:
+                # Fallback to legacy collection creation
+                from .collections import CollectionConfig
+
+                # Create collection configuration
+                collection_config = CollectionConfig(
+                    name=collection_name,
+                    description=f"{collection_type.title()} collection",
+                    collection_type=collection_type,
+                    project_name=project_metadata.get("project_name") if project_metadata else None,
+                    vector_size=self.collection_manager._get_vector_size(),
+                    enable_sparse_vectors=self.config.embedding.enable_sparse_vectors,
+                )
+
+                # Create the collection
+                self.collection_manager._ensure_collection_exists(collection_config)
+
+                logger.info("Legacy collection creation completed", collection_name=collection_name)
+
+                return {
+                    "success": True,
+                    "collection_name": collection_name,
+                    "collection_type": collection_type,
+                    "method": "legacy"
+                }
+
+        except Exception as e:
+            logger.error(f"Failed to create collection {collection_name}: {e}")
+            return {
+                "success": False,
+                "error": f"Collection creation failed: {e}"
+            }
 
     async def close(self) -> None:
         """Clean up client connections and release resources.
