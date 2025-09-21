@@ -81,7 +81,7 @@ async fn test_text_file_processing() {
     
     let doc_result = result.unwrap();
     assert_eq!(doc_result.collection, "test_collection");
-    assert!(doc_result.chunks_created > 0);
+    assert!(doc_result.chunks_created.unwrap_or(0) > 0);
     // Processing time might be 0 for very fast operations
     assert!(doc_result.processing_time_ms >= 0);
 }
@@ -120,7 +120,7 @@ This concludes the test document."#;
     
     let doc_result = result.unwrap();
     assert_eq!(doc_result.collection, "markdown_collection");
-    assert!(doc_result.chunks_created > 0);
+    assert!(doc_result.chunks_created.unwrap_or(0) > 0);
 }
 
 #[tokio::test]
@@ -171,7 +171,7 @@ pub fn main() {
     
     let doc_result = result.unwrap();
     assert_eq!(doc_result.collection, "rust_collection");
-    assert!(doc_result.chunks_created > 0);
+    assert!(doc_result.chunks_created.unwrap_or(0) > 0);
 }
 
 #[tokio::test]
@@ -226,7 +226,7 @@ if __name__ == "__main__":
     
     let doc_result = result.unwrap();
     assert_eq!(doc_result.collection, "python_collection");
-    assert!(doc_result.chunks_created > 0);
+    assert!(doc_result.chunks_created.unwrap_or(0) > 0);
 }
 
 #[tokio::test]
@@ -262,7 +262,7 @@ async fn test_json_file_processing() {
     
     let doc_result = result.unwrap();
     assert_eq!(doc_result.collection, "json_collection");
-    assert!(doc_result.chunks_created > 0);
+    assert!(doc_result.chunks_created.unwrap_or(0) > 0);
 }
 
 #[tokio::test]
@@ -284,7 +284,7 @@ async fn test_chunking_configuration() {
     let doc_result = result.unwrap();
     assert_eq!(doc_result.collection, "chunking_test");
     // With small chunk size, we should get multiple chunks
-    assert!(doc_result.chunks_created > 1);
+    assert!(doc_result.chunks_created.unwrap_or(0) > 1);
 }
 
 #[tokio::test]
@@ -300,7 +300,7 @@ async fn test_encoding_detection() {
     
     let doc_result = result.unwrap();
     assert_eq!(doc_result.collection, "encoding_test");
-    assert!(doc_result.chunks_created > 0);
+    assert!(doc_result.chunks_created.unwrap_or(0) > 0);
 }
 
 #[tokio::test]
@@ -315,7 +315,7 @@ async fn test_empty_file_handling() {
     
     let doc_result = result.unwrap();
     assert_eq!(doc_result.collection, "empty_test");
-    assert_eq!(doc_result.chunks_created, 0); // Empty file should create no chunks
+    assert_eq!(doc_result.chunks_created.unwrap_or(0), 0); // Empty file should create no chunks
 }
 
 #[tokio::test]
@@ -338,7 +338,7 @@ async fn test_large_document_chunking() {
     let doc_result = result.unwrap();
     assert_eq!(doc_result.collection, "large_test");
     // Large document should create multiple chunks
-    assert!(doc_result.chunks_created > 5);
+    assert!(doc_result.chunks_created.unwrap_or(0) > 5);
 }
 
 #[tokio::test]
@@ -369,5 +369,5 @@ async fn test_pdf_placeholder() {
     
     let doc_result = result.unwrap();
     assert_eq!(doc_result.collection, "pdf_test");
-    assert!(doc_result.chunks_created > 0);
+    assert!(doc_result.chunks_created.unwrap_or(0) > 0);
 }
