@@ -14,7 +14,7 @@ import subprocess
 import time
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Dict, List, Optional, Set, Tuple
+from typing import Dict, List, Optional, Set, Tuple, Union
 
 # Import configuration management
 try:
@@ -24,6 +24,13 @@ except ImportError:
     get_default_config = None
     get_default_cache = None
     LSPCacheEntry = None
+
+# Import pattern management for ecosystem detection
+try:
+    from .pattern_manager import PatternManager
+except ImportError:
+    # Fallback if pattern manager is not available
+    PatternManager = None
 
 # logger imported from loguru
 
@@ -41,14 +48,18 @@ class LSPServerInfo:
     detection_time: float = field(default_factory=time.time)
 
 
-@dataclass 
+@dataclass
 class LSPDetectionResult:
     """Result of LSP detection scan."""
-    
+
     detected_lsps: Dict[str, LSPServerInfo] = field(default_factory=dict)
     scan_time: float = field(default_factory=time.time)
     scan_duration: float = 0.0
     errors: List[str] = field(default_factory=list)
+    # Ecosystem-aware detection metadata
+    detected_ecosystems: List[str] = field(default_factory=list)
+    ecosystem_lsp_recommendations: Dict[str, List[str]] = field(default_factory=dict)
+    project_path: Optional[str] = None
 
 
 class LSPDetector:
@@ -204,36 +215,46 @@ class LSPDetector:
         }
     }
     
-    def __init__(self, cache_ttl: int = 300, detection_timeout: float = 5.0, config_file: Optional[str] = None):
+    def __init__(self, cache_ttl: int = 300, detection_timeout: float = 5.0, config_file: Optional[str] = None, pattern_manager: Optional['PatternManager'] = None):
         """
         Initialize LSP detector.
-        
+
         Args:
             cache_ttl: Cache time-to-live in seconds (overridden by config if available)
             detection_timeout: Timeout for binary detection calls in seconds (overridden by config)
             config_file: Optional path to configuration file
+            pattern_manager: Optional PatternManager instance for ecosystem detection
         """
         # Initialize with defaults
         self.cache_ttl = cache_ttl
         self.detection_timeout = detection_timeout
         self._cached_result: Optional[LSPDetectionResult] = None
         self._last_scan_time: float = 0.0
-        
+
+        # Initialize pattern manager for ecosystem-aware detection
+        self.pattern_manager = pattern_manager
+        if self.pattern_manager is None and PatternManager is not None:
+            try:
+                self.pattern_manager = PatternManager()
+                logger.debug("Initialized pattern manager for ecosystem detection")
+            except Exception as e:
+                logger.warning(f"Failed to initialize pattern manager: {e}")
+
         # Try to load configuration
         self.config = None
         self.cache = None
-        
+
         if get_default_config is not None:
             try:
                 self.config = get_default_config(config_file)
                 # Override defaults with config values
                 self.cache_ttl = self.config.cache_ttl
                 self.detection_timeout = self.config.detection_timeout
-                
+
                 # Initialize cache if available
                 if get_default_cache is not None:
                     self.cache = get_default_cache()
-                    
+
                 logger.debug("LSP detector initialized with configuration management")
             except Exception as e:
                 logger.warning(f"Failed to initialize LSP configuration: {e}")
@@ -353,15 +374,16 @@ class LSPDetector:
             logger.debug(f"Error getting version for {lsp_name}: {e}")
             return None
     
-    def scan_available_lsps(self, force_refresh: bool = False) -> LSPDetectionResult:
+    def scan_available_lsps(self, force_refresh: bool = False, project_path: Optional[Union[str, Path]] = None) -> LSPDetectionResult:
         """
         Scan PATH for available LSP servers, using persistent cache when available.
-        
+
         Args:
             force_refresh: Force rescan even if cache is valid
-            
+            project_path: Optional project path for ecosystem-aware detection
+
         Returns:
-            LSPDetectionResult containing detected LSP servers
+            LSPDetectionResult containing detected LSP servers with ecosystem metadata
         """
         # Check memory cache first
         if not force_refresh and self._is_cache_valid():
@@ -438,11 +460,18 @@ class LSPDetector:
                     self.cache.set(lsp_name, cache_entry)
         
         result.scan_duration = time.time() - start_time
-        
+
+        # Add ecosystem-aware information if project path is provided
+        if project_path and self.pattern_manager:
+            result.project_path = str(project_path)
+            result.detected_ecosystems = self._detect_project_ecosystems(project_path)
+            result.ecosystem_lsp_recommendations = self._generate_ecosystem_recommendations(result.detected_ecosystems, result.detected_lsps)
+            logger.info(f"Detected ecosystems: {result.detected_ecosystems}")
+
         # Cache the result in memory
         self._cached_result = result
         self._last_scan_time = time.time()
-        
+
         logger.info(f"LSP scan completed in {result.scan_duration:.2f}s, found {len(result.detected_lsps)} LSPs")
         return result
     
@@ -646,14 +675,14 @@ class LSPDetector:
     def get_detection_summary(self) -> Dict[str, any]:
         """
         Get a comprehensive summary of the current LSP detection state.
-        
+
         Returns:
             Dictionary with detection summary information
         """
         detection_result = self.scan_available_lsps()
         categories = self.get_extensions_by_category()
-        
-        return {
+
+        summary = {
             'total_lsps_detected': len(detection_result.detected_lsps),
             'total_extensions_supported': len(self.get_supported_extensions()),
             'scan_duration': detection_result.scan_duration,
@@ -677,6 +706,160 @@ class LSPDetector:
             'infrastructure_tools_supported': list(self.INFRASTRUCTURE_EXTENSIONS.keys())
         }
 
+        # Add ecosystem information if available
+        if detection_result.detected_ecosystems:
+            summary['detected_ecosystems'] = detection_result.detected_ecosystems
+        if detection_result.ecosystem_lsp_recommendations:
+            summary['ecosystem_lsp_recommendations'] = detection_result.ecosystem_lsp_recommendations
+        if detection_result.project_path:
+            summary['project_path'] = detection_result.project_path
+
+        return summary
+
+
+    def _detect_project_ecosystems(self, project_path: Union[str, Path]) -> List[str]:
+        """
+        Detect project ecosystems using the pattern manager.
+
+        Args:
+            project_path: Path to the project directory
+
+        Returns:
+            List of detected ecosystem names
+        """
+        if not self.pattern_manager:
+            logger.debug("Pattern manager not available for ecosystem detection")
+            return []
+
+        try:
+            ecosystems = self.pattern_manager.detect_ecosystem(project_path)
+            logger.debug(f"Detected ecosystems in {project_path}: {ecosystems}")
+            return ecosystems
+        except Exception as e:
+            logger.warning(f"Failed to detect ecosystems for {project_path}: {e}")
+            return []
+
+    def _generate_ecosystem_recommendations(self, ecosystems: List[str], detected_lsps: Dict[str, LSPServerInfo]) -> Dict[str, List[str]]:
+        """
+        Generate LSP recommendations based on detected ecosystems.
+
+        Args:
+            ecosystems: List of detected ecosystems
+            detected_lsps: Dictionary of available LSP servers
+
+        Returns:
+            Dictionary mapping ecosystems to recommended LSP names
+        """
+        recommendations = {}
+
+        # Ecosystem to LSP mapping based on common patterns
+        ecosystem_lsp_map = {
+            'python': ['ruff', 'pyright', 'pylsp'],
+            'javascript': ['typescript-language-server'],
+            'typescript': ['typescript-language-server'],
+            'node': ['typescript-language-server'],
+            'rust': ['rust-analyzer'],
+            'go': ['gopls'],
+            'c': ['clangd'],
+            'cpp': ['clangd'],
+            'java': ['java-language-server'],
+            'lua': ['lua-language-server'],
+            'zig': ['zls'],
+            'ocaml': ['ocaml-lsp'],
+            'haskell': ['haskell-language-server'],
+            'kotlin': [],  # Add when we have Kotlin LSP
+            'scala': [],   # Add when we have Scala LSP
+            'swift': [],   # Add when we have Swift LSP
+        }
+
+        for ecosystem in ecosystems:
+            recommended_lsps = []
+            potential_lsps = ecosystem_lsp_map.get(ecosystem.lower(), [])
+
+            # Filter to only include LSPs that are actually detected/available
+            for lsp_name in potential_lsps:
+                if lsp_name in detected_lsps:
+                    recommended_lsps.append(lsp_name)
+
+            if recommended_lsps:
+                # Sort by priority (higher priority first)
+                recommended_lsps.sort(
+                    key=lambda lsp: detected_lsps[lsp].priority,
+                    reverse=True
+                )
+                recommendations[ecosystem] = recommended_lsps
+                logger.debug(f"Ecosystem {ecosystem} -> recommended LSPs: {recommended_lsps}")
+
+        return recommendations
+
+    def get_ecosystem_aware_lsps(self, project_path: Union[str, Path], force_refresh: bool = False) -> LSPDetectionResult:
+        """
+        Get LSP detection results with ecosystem-aware recommendations.
+
+        Args:
+            project_path: Path to the project directory
+            force_refresh: Force rescan even if cache is valid
+
+        Returns:
+            LSPDetectionResult with ecosystem metadata and recommendations
+        """
+        return self.scan_available_lsps(force_refresh=force_refresh, project_path=project_path)
+
+    def get_recommended_lsps_for_project(self, project_path: Union[str, Path]) -> Dict[str, LSPServerInfo]:
+        """
+        Get recommended LSP servers for a specific project.
+
+        Args:
+            project_path: Path to the project directory
+
+        Returns:
+            Dictionary of recommended LSP servers with their info
+        """
+        detection_result = self.get_ecosystem_aware_lsps(project_path)
+        recommended_lsps = {}
+
+        # Add LSPs recommended by ecosystem analysis
+        for ecosystem, lsp_names in detection_result.ecosystem_lsp_recommendations.items():
+            for lsp_name in lsp_names:
+                if lsp_name in detection_result.detected_lsps:
+                    recommended_lsps[lsp_name] = detection_result.detected_lsps[lsp_name]
+
+        # If no ecosystem-specific recommendations, fall back to highest priority LSPs
+        if not recommended_lsps:
+            # Get top 3 highest priority LSPs as fallback
+            priority_lsps = self.get_priority_ordered_lsps()
+            for name, info in priority_lsps[:3]:
+                recommended_lsps[name] = info
+
+        logger.info(f"Recommended LSPs for {project_path}: {list(recommended_lsps.keys())}")
+        return recommended_lsps
+
+    def get_lsp_for_extension_with_context(self, extension: str, project_path: Optional[Union[str, Path]] = None) -> Optional[LSPServerInfo]:
+        """
+        Get the best LSP server for a file extension with project context.
+
+        Args:
+            extension: File extension (including the dot)
+            project_path: Optional project path for ecosystem-aware selection
+
+        Returns:
+            LSPServerInfo for the best LSP, or None if no LSP supports this extension
+        """
+        if project_path:
+            # Use ecosystem-aware detection
+            detection_result = self.get_ecosystem_aware_lsps(project_path)
+
+            # First try to find LSPs from ecosystem recommendations
+            for ecosystem, lsp_names in detection_result.ecosystem_lsp_recommendations.items():
+                for lsp_name in lsp_names:
+                    lsp_info = detection_result.detected_lsps.get(lsp_name)
+                    if lsp_info and extension in lsp_info.supported_extensions:
+                        logger.debug(f"Selected {lsp_name} for {extension} (ecosystem: {ecosystem})")
+                        return lsp_info
+
+        # Fall back to standard extension-based selection
+        return self.get_lsp_for_extension(extension)
+
 
 # Global instance for convenient access
 _default_detector: Optional[LSPDetector] = None
@@ -698,3 +881,18 @@ def scan_lsps() -> LSPDetectionResult:
 def get_supported_extensions() -> List[str]:
     """Convenience function to get supported extensions from default detector."""
     return get_default_detector().get_supported_extensions()
+
+
+def scan_lsps_for_project(project_path: Union[str, Path]) -> LSPDetectionResult:
+    """Convenience function to scan LSPs with ecosystem awareness for a project."""
+    return get_default_detector().get_ecosystem_aware_lsps(project_path)
+
+
+def get_recommended_lsps(project_path: Union[str, Path]) -> Dict[str, LSPServerInfo]:
+    """Convenience function to get recommended LSPs for a project."""
+    return get_default_detector().get_recommended_lsps_for_project(project_path)
+
+
+def get_lsp_with_context(extension: str, project_path: Optional[Union[str, Path]] = None) -> Optional[LSPServerInfo]:
+    """Convenience function to get LSP for extension with project context."""
+    return get_default_detector().get_lsp_for_extension_with_context(extension, project_path)
