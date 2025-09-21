@@ -5,10 +5,14 @@ use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
 use tokio::time::timeout;
 
-use crate::config::{ASYNC_OPERATION_TIMEOUT, DEFAULT_TEST_TIMEOUT};
+use crate::config::{DEFAULT_TEST_TIMEOUT};
 use crate::TestResult;
 use std::sync::Once;
 use tracing_subscriber::{fmt, EnvFilter};
+use tokio_test::{assert_pending, assert_ready, assert_ready_err, assert_ready_ok, task};
+use std::pin::Pin;
+use std::task::{Context, Poll};
+use std::future::Future;
 
 /// Execute an async operation with timeout
 pub async fn with_timeout<F, T>(operation: F) -> TestResult<T>
@@ -89,6 +93,110 @@ where
     }
 
     Err(Box::<dyn std::error::Error + Send + Sync>::from("Condition was not met within timeout"))
+}
+
+/// Advanced tokio-test utilities for async operation testing
+
+/// Test that a future is initially pending
+pub fn assert_future_pending<F>(future: Pin<&mut F>) -> TestResult<()>
+where
+    F: Future,
+{
+    let mut task = task::spawn(future);
+    assert_pending!(task.poll());
+    Ok(())
+}
+
+/// Test that a future becomes ready and returns expected value
+pub fn assert_future_ready<F, T>(future: Pin<&mut F>) -> TestResult<T>
+where
+    F: Future<Output = T>,
+{
+    let mut task = task::spawn(future);
+    let result = assert_ready!(task.poll());
+    Ok(result)
+}
+
+/// Test that a future becomes ready with an error
+pub fn assert_future_ready_err<F, T, E>(future: Pin<&mut F>) -> TestResult<E>
+where
+    F: Future<Output = Result<T, E>>,
+{
+    let mut task = task::spawn(future);
+    let result = assert_ready_err!(task.poll());
+    Ok(result)
+}
+
+/// Test that a future becomes ready with success
+pub fn assert_future_ready_ok<F, T, E>(future: Pin<&mut F>) -> TestResult<T>
+where
+    F: Future<Output = Result<T, E>>,
+{
+    let mut task = task::spawn(future);
+    let result = assert_ready_ok!(task.poll());
+    Ok(result)
+}
+
+/// Test async operation timing with precise control
+pub async fn test_async_timing<F, T>(
+    operation: F,
+    expected_min_duration: Duration,
+    expected_max_duration: Duration,
+) -> TestResult<T>
+where
+    F: Future<Output = T>,
+{
+    let start = Instant::now();
+    let result = operation.await;
+    let elapsed = start.elapsed();
+
+    if elapsed < expected_min_duration {
+        return Err(format!(
+            "Operation completed too quickly: {:?} < {:?}",
+            elapsed, expected_min_duration
+        ).into());
+    }
+
+    if elapsed > expected_max_duration {
+        return Err(format!(
+            "Operation took too long: {:?} > {:?}",
+            elapsed, expected_max_duration
+        ).into());
+    }
+
+    Ok(result)
+}
+
+/// Test concurrent async operations with controlled execution
+pub async fn test_concurrent_operations<F, T>(
+    operations: Vec<F>,
+    max_concurrent: usize,
+) -> TestResult<Vec<T>>
+where
+    F: Future<Output = TestResult<T>>,
+{
+    let semaphore = std::sync::Arc::new(tokio::sync::Semaphore::new(max_concurrent));
+    let mut handles = Vec::new();
+
+    for op in operations {
+        let sem = semaphore.clone();
+        let handle = tokio::spawn(async move {
+            let _permit = sem.acquire().await.map_err(|e|
+                Box::<dyn std::error::Error + Send + Sync>::from(format!("Semaphore error: {}", e))
+            )?;
+            op.await
+        });
+        handles.push(handle);
+    }
+
+    let mut results = Vec::new();
+    for handle in handles {
+        let result = handle.await
+            .map_err(|e| Box::<dyn std::error::Error + Send + Sync>::from(format!("Join error: {}", e)))??;
+        results.push(result);
+    }
+
+    Ok(results)
 }
 
 /// Wait for an async condition to become true

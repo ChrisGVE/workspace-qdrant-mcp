@@ -112,3 +112,63 @@ macro_rules! property_test {
         }
     };
 }
+
+/// Macro for testing async operations with tokio-test integration
+#[macro_export]
+macro_rules! tokio_test_async {
+    ($name:ident, $body:expr) => {
+        #[tokio::test]
+        async fn $name() -> $crate::TestResult {
+            $crate::init_test_env();
+            use $crate::tokio_test::{assert_pending, assert_ready, task};
+            $body
+        }
+    };
+}
+
+/// Macro for testing async operations with precise timing
+#[macro_export]
+macro_rules! timed_async_test {
+    ($name:ident, $min_duration:expr, $max_duration:expr, $body:expr) => {
+        #[tokio::test]
+        async fn $name() -> $crate::TestResult {
+            $crate::init_test_env();
+            $crate::test_helpers::test_async_timing(
+                async move { $body },
+                $min_duration,
+                $max_duration,
+            ).await
+        }
+    };
+}
+
+/// Macro for testing concurrent async operations
+#[macro_export]
+macro_rules! concurrent_async_test {
+    ($name:ident, $max_concurrent:expr, $operations:expr) => {
+        #[tokio::test]
+        async fn $name() -> $crate::TestResult {
+            $crate::init_test_env();
+            let results = $crate::test_helpers::test_concurrent_operations(
+                $operations,
+                $max_concurrent,
+            ).await?;
+            Ok(results)
+        }
+    };
+}
+
+/// Macro for timeout-based async tests
+#[macro_export]
+macro_rules! timeout_async_test {
+    ($name:ident, $timeout:expr, $body:expr) => {
+        #[tokio::test]
+        async fn $name() -> $crate::TestResult {
+            $crate::init_test_env();
+            $crate::test_helpers::with_custom_timeout(
+                async move { $body },
+                $timeout,
+            ).await
+        }
+    };
+}
