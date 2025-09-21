@@ -51,15 +51,16 @@ from loguru import logger
 
 # Import existing LSP components
 try:
-    from ...common.core.lsp_detector import LSPDetector, LSPDetectionResult, LSPServerInfo
-    from ...common.core.lsp_metadata_extractor import LspMetadataExtractor, CodeSymbol, FileMetadata
-    from ...common.core.lsp_client import AsyncioLspClient, ConnectionState, LspError
-    from ...common.core.pattern_manager import PatternManager
-    from ...common.core.lsp_health_monitor import LspHealthMonitor
-    from ..tools.symbol_resolver import SymbolResolver, SymbolIndex
+    from ....common.core.lsp_detector import LSPDetector, LSPDetectionResult, LSPServerInfo
+    from ....common.core.lsp_metadata_extractor import LspMetadataExtractor, CodeSymbol, FileMetadata
+    from ....common.core.lsp_client import AsyncioLspClient, ConnectionState, LspError
+    from ....common.core.pattern_manager import PatternManager
+    from ....common.core.lsp_health_monitor import LspHealthMonitor
+    from ...tools.symbol_resolver import SymbolResolver, SymbolIndex
 except ImportError as e:
     logger.warning(f"Failed to import LSP components: {e}")
     # Fallback imports for development
+    LSPDetector = None
     LspMetadataExtractor = None
     AsyncioLspClient = None
     PatternManager = None
