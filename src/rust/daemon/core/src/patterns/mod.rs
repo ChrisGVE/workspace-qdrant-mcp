@@ -9,8 +9,14 @@ use std::collections::HashMap;
 use thiserror::Error;
 
 pub mod manager;
+pub mod comprehensive;
 
 pub use manager::PatternManager;
+pub use comprehensive::{
+    ComprehensivePatternManager, ComprehensiveStats, ComprehensiveResult,
+    ComprehensivePatternError, InternalConfiguration, LspServerConfig,
+    TreeSitterConfig, BuildSystemConfig, ContentSignaturesConfig
+};
 
 /// Errors that can occur during pattern operations
 #[derive(Error, Debug)]

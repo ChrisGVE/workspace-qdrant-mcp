@@ -27,28 +27,19 @@ static EMBEDDED_PATTERNS: EmbeddedPatterns = EmbeddedPatterns {
     language_extensions: include_str!("../../../../../../patterns/language_extensions.yaml"),
 };
 
-/// Global parsed patterns - lazily initialized on first access
-static PARSED_PATTERNS: Lazy<Result<Arc<AllPatterns>, PatternError>> = Lazy::new(|| {
-    let project_indicators: ProjectIndicators = serde_yaml::from_str(EMBEDDED_PATTERNS.project_indicators)
-        .map_err(|e| PatternError::YamlParse(e))?;
+/// Global comprehensive pattern manager - lazily initialized on first access
+static COMPREHENSIVE_MANAGER: Lazy<Result<Arc<super::comprehensive::ComprehensivePatternManager>, PatternError>> = Lazy::new(|| {
+    super::comprehensive::ComprehensivePatternManager::new()
+        .map(Arc::new)
+        .map_err(|e| PatternError::Validation(format!("Comprehensive pattern manager failed: {}", e)))
+});
 
-    let exclude_patterns: ExcludePatterns = serde_yaml::from_str(EMBEDDED_PATTERNS.exclude_patterns)
-        .map_err(|e| PatternError::YamlParse(e))?;
+/// Global patterns derived from comprehensive configuration - lazily initialized
+static DERIVED_PATTERNS: Lazy<Result<Arc<AllPatterns>, PatternError>> = Lazy::new(|| {
+    let comprehensive = COMPREHENSIVE_MANAGER.as_ref()
+        .map_err(|e| PatternError::Validation(format!("Failed to load comprehensive manager: {}", e)))?;
 
-    let include_patterns: IncludePatterns = serde_yaml::from_str(EMBEDDED_PATTERNS.include_patterns)
-        .map_err(|e| PatternError::YamlParse(e))?;
-
-    let language_extensions: LanguageExtensions = serde_yaml::from_str(EMBEDDED_PATTERNS.language_extensions)
-        .map_err(|e| PatternError::YamlParse(e))?;
-
-    let all_patterns = AllPatterns {
-        project_indicators,
-        exclude_patterns,
-        include_patterns,
-        language_extensions,
-    };
-
-    // Validate patterns after loading
+    let all_patterns = convert_comprehensive_to_patterns(comprehensive)?;
     validate_patterns(&all_patterns)?;
 
     Ok(Arc::new(all_patterns))
@@ -61,17 +52,17 @@ pub struct PatternManager {
 }
 
 impl PatternManager {
-    /// Create a new PatternManager with embedded patterns
+    /// Create a new PatternManager with comprehensive embedded configuration
     ///
     /// # Errors
-    /// Returns an error if the embedded YAML patterns cannot be parsed or are invalid
+    /// Returns an error if the comprehensive configuration cannot be parsed or is invalid
     pub fn new() -> PatternResult<Self> {
-        match PARSED_PATTERNS.as_ref() {
+        match DERIVED_PATTERNS.as_ref() {
             Ok(patterns) => Ok(Self {
                 patterns: Arc::clone(patterns),
             }),
             Err(e) => Err(PatternError::Validation(format!(
-                "Failed to load embedded patterns: {}",
+                "Failed to load comprehensive configuration: {}",
                 e
             ))),
         }
@@ -192,7 +183,220 @@ impl PatternManager {
 
 impl Default for PatternManager {
     fn default() -> Self {
-        Self::new().expect("Failed to initialize PatternManager with embedded patterns")
+        Self::new().expect("Failed to initialize PatternManager with comprehensive configuration")
+    }
+}
+
+/// Get access to the comprehensive pattern manager
+pub fn comprehensive_manager() -> PatternResult<Arc<super::comprehensive::ComprehensivePatternManager>> {
+    COMPREHENSIVE_MANAGER.as_ref()
+        .map(Arc::clone)
+        .map_err(|e| PatternError::Validation(format!("Comprehensive manager unavailable: {}", e)))
+}
+
+/// Convert comprehensive configuration to legacy AllPatterns structure
+fn convert_comprehensive_to_patterns(
+    comprehensive: &super::comprehensive::ComprehensivePatternManager
+) -> PatternResult<AllPatterns> {
+    use super::{
+        ProjectIndicators, ExcludePatterns, IncludePatterns, LanguageExtensions,
+        Ecosystem, ProjectIndicator, ConfidenceLevel, LanguageGroup,
+        PatternWithMetadata
+    };
+
+    let config = comprehensive.config();
+
+    // Create project indicators from comprehensive config
+    let mut ecosystems = HashMap::new();
+
+    // Create a rust ecosystem from build system detection
+    if let Some(rust_build) = config.build_systems.get("cargo") {
+        let indicators = rust_build.files.iter().map(|file| ProjectIndicator {
+            pattern: file.clone(),
+            confidence: ConfidenceLevel::High,
+            rationale: "Cargo build system indicator".to_string(),
+            weight: 90,
+        }).collect();
+
+        ecosystems.insert("rust".to_string(), Ecosystem {
+            name: "Rust".to_string(),
+            description: "Rust programming ecosystem".to_string(),
+            confidence_levels: HashMap::new(),
+            indicators,
+        });
+    }
+
+    // Create similar ecosystems for other major languages
+    for (name, build_config) in &config.build_systems {
+        if !ecosystems.contains_key(&build_config.language) {
+            let indicators = build_config.files.iter().map(|file| ProjectIndicator {
+                pattern: file.clone(),
+                confidence: ConfidenceLevel::High,
+                rationale: format!("{} build system indicator", name),
+                weight: 80,
+            }).collect();
+
+            ecosystems.insert(build_config.language.clone(), Ecosystem {
+                name: build_config.language.clone(),
+                description: format!("{} programming ecosystem", build_config.language),
+                confidence_levels: HashMap::new(),
+                indicators,
+            });
+        }
+    }
+
+    let project_indicators = ProjectIndicators {
+        version: "1.0.0".to_string(),
+        last_updated: chrono::Utc::now().to_rfc3339(),
+        research_coverage: "500+ languages from comprehensive A-Z research".to_string(),
+        ecosystems,
+    };
+
+    // Create exclude patterns from comprehensive config
+    let mut all_exclude_patterns = Vec::new();
+    let exclusions = &config.exclusion_patterns;
+
+    for patterns in [
+        &exclusions.version_control,
+        &exclusions.build_outputs,
+        &exclusions.cache_directories,
+        &exclusions.virtual_environments,
+        &exclusions.ide_files,
+        &exclusions.temporary_files,
+        &exclusions.binary_files,
+        &exclusions.media_files,
+        &exclusions.archive_files,
+        &exclusions.package_files,
+    ] {
+        for pattern in patterns {
+            all_exclude_patterns.push(PatternWithMetadata {
+                pattern: pattern.clone(),
+                description: format!("Auto-generated from comprehensive config: {}", pattern),
+                ecosystems: vec!["all".to_string()],
+            });
+        }
+    }
+
+    let exclude_patterns = ExcludePatterns {
+        build_artifacts: all_exclude_patterns.clone(),
+        compiled_code: Vec::new(),
+        environments: Vec::new(),
+        caches: Vec::new(),
+        version_control: Vec::new(),
+        editor_files: Vec::new(),
+        system_files: Vec::new(),
+        logs_and_temp: Vec::new(),
+        media_files: Vec::new(),
+        large_binaries: Vec::new(),
+        security: Vec::new(),
+        test_artifacts: Vec::new(),
+    };
+
+    // Create include patterns for source code
+    let mut source_code_patterns = Vec::new();
+    for (ext, _language) in &config.file_extensions {
+        source_code_patterns.push(PatternWithMetadata {
+            pattern: format!("*.{}", ext.trim_start_matches('.')),
+            description: format!("Source code pattern for {}", ext),
+            ecosystems: vec!["all".to_string()],
+        });
+    }
+
+    let include_patterns = IncludePatterns {
+        version: "1.0.0".to_string(),
+        last_updated: chrono::Utc::now().to_rfc3339(),
+        research_coverage: "500+ languages from comprehensive A-Z research".to_string(),
+        source_code: source_code_patterns,
+        documentation: Vec::new(),
+        configuration: Vec::new(),
+        schema_and_data: Vec::new(),
+        templates_and_resources: Vec::new(),
+        project_management: Vec::new(),
+        special_patterns: Vec::new(),
+    };
+
+    // Create language extensions from comprehensive config
+    let mut programming_languages = HashMap::new();
+    let mut web_technologies = HashMap::new();
+    let mut markup_languages = HashMap::new();
+    let mut configuration_files = HashMap::new();
+    let mut shell_scripting = HashMap::new();
+    let mut data_formats = HashMap::new();
+    let mut specialized_formats = HashMap::new();
+    let mut extensions_to_languages = HashMap::new();
+    let mut filenames_to_languages = HashMap::new();
+
+    // Group languages by category and create language groups
+    for (ext, language) in &config.file_extensions {
+        extensions_to_languages.insert(ext.clone(), language.clone());
+
+        let lsp_id = config.lsp_servers.get(language)
+            .map(|lsp| lsp.primary.clone())
+            .unwrap_or_else(|| format!("{}-lsp", language));
+
+        let lang_group = LanguageGroup {
+            extensions: vec![ext.clone()],
+            filenames: Vec::new(),
+            lsp_id,
+            category: categorize_language(language),
+        };
+
+        match categorize_language(language).as_str() {
+            "programming" => {
+                programming_languages.insert(language.clone(), lang_group);
+            },
+            "web" => {
+                web_technologies.insert(language.clone(), lang_group);
+            },
+            "markup" => {
+                markup_languages.insert(language.clone(), lang_group);
+            },
+            "config" => {
+                configuration_files.insert(language.clone(), lang_group);
+            },
+            "shell" => {
+                shell_scripting.insert(language.clone(), lang_group);
+            },
+            "data" => {
+                data_formats.insert(language.clone(), lang_group);
+            },
+            _ => {
+                specialized_formats.insert(language.clone(), lang_group);
+            },
+        }
+    }
+
+    let language_extensions = LanguageExtensions {
+        programming_languages,
+        web_technologies,
+        markup_languages,
+        configuration_files,
+        shell_scripting,
+        data_formats,
+        specialized_formats,
+        extensions_to_languages,
+        filenames_to_languages,
+        metadata: HashMap::new(),
+    };
+
+    Ok(AllPatterns {
+        project_indicators,
+        exclude_patterns,
+        include_patterns,
+        language_extensions,
+    })
+}
+
+/// Categorize a language into a general category
+fn categorize_language(language: &str) -> String {
+    match language {
+        "rust" | "go" | "python" | "java" | "cpp" | "c" | "csharp" | "swift" | "kotlin" | "scala" | "clojure" | "haskell" | "ocaml" | "julia" | "dart" | "crystal" | "nim" | "zig" | "fortran" | "cobol" | "ada" | "d" | "elixir" | "erlang" | "fsharp" | "groovy" | "lua" | "perl" | "php" | "r" | "ruby" => "programming".to_string(),
+        "javascript" | "typescript" | "css" | "scss" | "sass" | "less" | "html" | "jsx" | "tsx" => "web".to_string(),
+        "markdown" | "asciidoc" | "restructuredtext" | "latex" | "xml" => "markup".to_string(),
+        "json" | "yaml" | "toml" | "ini" | "cfg" | "conf" => "config".to_string(),
+        "bash" | "zsh" | "fish" | "powershell" | "bat" | "cmd" => "shell".to_string(),
+        "csv" | "tsv" | "sql" | "graphql" => "data".to_string(),
+        _ => "specialized".to_string(),
     }
 }
 
