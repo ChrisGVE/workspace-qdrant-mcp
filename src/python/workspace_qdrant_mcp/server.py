@@ -218,7 +218,7 @@ from fastmcp import FastMCP
 from pydantic import BaseModel
 
 
-from common.core.advanced_watch_config import (
+from python.common.core.advanced_watch_config import (
     AdvancedConfigValidator,
     AdvancedWatchConfig,
     CollectionTargeting,
@@ -228,12 +228,12 @@ from common.core.advanced_watch_config import (
 )
 # Conditional import - auto_ingestion can be problematic in stdio mode
 if not _STDIO_MODE:
-    from common.core.auto_ingestion import AutoIngestionManager
+    from python.common.core.auto_ingestion import AutoIngestionManager
 else:
     # Provide a dummy class for stdio mode
     AutoIngestionManager = None
-from common.core.client import QdrantWorkspaceClient
-from common.core.error_handling import (
+from python.common.core.client import QdrantWorkspaceClient
+from python.common.core.error_handling import (
     ConfigurationError,
     DatabaseError,
     ErrorRecoveryStrategy,
@@ -243,16 +243,16 @@ from common.core.error_handling import (
     safe_shutdown,
     with_error_handling,
 )
-from common.core.hybrid_search import HybridSearchEngine
-from common.core.watch_validation import (
+from python.common.core.hybrid_search import HybridSearchEngine
+from python.common.core.watch_validation import (
     ValidationResult,
     WatchPathValidator,
 )
-from common.core.config import Config
+from python.common.core.config import Config
 
 # Import loguru logging system and configure early
 from loguru import logger
-from common.logging.loguru_config import setup_logging
+from python.common.logging.loguru_config import setup_logging
 
 # Track if logging has been configured to prevent multiple reconfigurations
 _LOGGING_CONFIGURED = False
@@ -275,13 +275,13 @@ else:
 # Conditional imports - only load what's needed for stdio mode vs full mode
 if not _STDIO_MODE:
     # Full mode - load all functionality
-    from common.observability import (
+    from python.common.observability import (
         health_checker_instance,
         metrics_instance,
         monitor_async,
         record_operation,
     )
-    from common.observability.endpoints import (
+    from python.common.observability.endpoints import (
         add_observability_routes,
         setup_observability_middleware,
     )
@@ -310,7 +310,7 @@ if not _STDIO_MODE:
         SimplifiedToolsMode,
         register_simplified_tools,
     )
-    from common.utils.config_validator import ConfigValidator
+    from python.common.utils.config_validator import ConfigValidator
 else:
     # Stdio mode - minimal imports, provide dummy implementations
     # Create dummy decorator for stdio mode
@@ -360,7 +360,7 @@ else:
 # Conditional optimizations import - skip in stdio mode to prevent hangs
 if not _STDIO_MODE and os.getenv("WQM_CLI_MODE") != "true":
     try:
-        from common.optimization.complete_fastmcp_optimization import (
+        from python.common.optimization.complete_fastmcp_optimization import (
             OptimizedWorkspaceServer, OptimizedFastMCPApp, StreamingStdioProtocol
         )
         OPTIMIZATIONS_AVAILABLE = True
@@ -728,7 +728,7 @@ async def create_collection(
 
             # Use multitenant collection manager if available
             try:
-                from common.core.multitenant_collections import MultiTenantWorkspaceCollectionManager
+                from python.common.core.multitenant_collections import MultiTenantWorkspaceCollectionManager
 
                 mt_manager = MultiTenantWorkspaceCollectionManager(
                     workspace_client.client, workspace_client.config
@@ -3416,7 +3416,7 @@ async def cleanup_workspace() -> None:
 
     # Clean up daemon manager and all running daemons
     try:
-        from common.core.daemon_manager import shutdown_all_daemons
+        from python.common.core.daemon_manager import shutdown_all_daemons
 
         await shutdown_all_daemons()
         logger.info("All daemons shut down successfully")
@@ -3547,7 +3547,7 @@ async def initialize_workspace(config_file: Optional[str] = None) -> None:
 
     import os
 
-    from common.utils.project_detection import ProjectDetector
+    from python.common.utils.project_detection import ProjectDetector
 
     # Detect project information for workspace context
     project_path = os.getcwd()

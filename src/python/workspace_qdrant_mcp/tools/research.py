@@ -24,8 +24,8 @@ from typing import Any
 
 from loguru import logger
 
-from common.core.client import QdrantWorkspaceClient
-from common.core.collection_naming import build_project_collection_name
+from python.common.core.client import QdrantWorkspaceClient
+from python.common.core.collection_naming import build_project_collection_name
 from .search import search_workspace
 
 # logger imported from loguru

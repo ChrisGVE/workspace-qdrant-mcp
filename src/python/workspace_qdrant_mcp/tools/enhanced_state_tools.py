@@ -19,7 +19,7 @@ Available Tools:
 import asyncio
 from typing import Any, Dict, List, Optional
 from loguru import logger
-from common.core.sqlite_state_manager import SQLiteStateManager
+from python.common.core.sqlite_state_manager import SQLiteStateManager
 from workspace_qdrant_mcp.core.state_enhancements import (
     EnhancedStateManager,
     create_enhanced_state_manager

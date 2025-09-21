@@ -12,31 +12,19 @@ from loguru import logger
 
 from mcp.server.fastmcp import FastMCP
 
-from common.core.client import create_qdrant_client
-from common.core.collection_naming import create_naming_manager
-from common.core.config import Config
-from common.memory import (
+from python.common.core.client import create_qdrant_client
+from python.common.core.collection_naming import create_naming_manager
+from python.common.core.config import Config
+from python.common.core.memory import (
     AuthorityLevel,
     MemoryCategory,
     MemoryManager,
     MemoryRule,
+    parse_conversational_memory_update,
 )
 
 
-def parse_conversational_memory_update(message: str) -> Optional[Dict[str, Any]]:
-    """
-    Placeholder for parsing conversational memory updates.
-    
-    This function was referenced but not implemented in the original codebase.
-    For now, it returns None to indicate no conversational update was detected.
-    
-    Args:
-        message: The message to parse
-        
-    Returns:
-        None (indicating no update detected)
-    """
-    return None
+# Function imported from common.core.memory
 
 
 # logger imported from loguru
@@ -60,7 +48,10 @@ def register_memory_tools(server: FastMCP):
             config = Config()
             client = create_qdrant_client(config.qdrant_client_config)
             naming_manager = create_naming_manager(config.workspace.global_collections)
-            memory_manager = MemoryManager(qdrant_client=client)
+            memory_manager = MemoryManager(
+                qdrant_client=client,
+                naming_manager=naming_manager
+            )
 
             # Ensure memory collection exists
             await memory_manager.initialize_memory_collection()
@@ -161,7 +152,10 @@ def register_memory_tools(server: FastMCP):
             config = Config()
             client = create_qdrant_client(config.qdrant_client_config)
             naming_manager = create_naming_manager(config.workspace.global_collections)
-            memory_manager = MemoryManager(qdrant_client=client)
+            memory_manager = MemoryManager(
+                qdrant_client=client,
+                naming_manager=naming_manager
+            )
 
             # Validate inputs
             try:
@@ -222,7 +216,10 @@ def register_memory_tools(server: FastMCP):
             config = Config()
             client = create_qdrant_client(config.qdrant_client_config)
             naming_manager = create_naming_manager(config.workspace.global_collections)
-            memory_manager = MemoryManager(qdrant_client=client)
+            memory_manager = MemoryManager(
+                qdrant_client=client,
+                naming_manager=naming_manager
+            )
 
             # Ensure memory collection exists
             await memory_manager.initialize_memory_collection()
@@ -295,7 +292,10 @@ def register_memory_tools(server: FastMCP):
             config = Config()
             client = create_qdrant_client(config.qdrant_client_config)
             naming_manager = create_naming_manager(config.workspace.global_collections)
-            memory_manager = MemoryManager(qdrant_client=client)
+            memory_manager = MemoryManager(
+                qdrant_client=client,
+                naming_manager=naming_manager
+            )
 
             # Validate optional parameters
             category_enum = None
@@ -368,7 +368,10 @@ def register_memory_tools(server: FastMCP):
             config = Config()
             client = create_qdrant_client(config.qdrant_client_config)
             naming_manager = create_naming_manager(config.workspace.global_collections)
-            memory_manager = MemoryManager(qdrant_client=client)
+            memory_manager = MemoryManager(
+                qdrant_client=client,
+                naming_manager=naming_manager
+            )
 
             stats = await memory_manager.get_memory_stats()
 
@@ -409,7 +412,10 @@ def register_memory_tools(server: FastMCP):
             config = Config()
             client = create_qdrant_client(config.qdrant_client_config)
             naming_manager = create_naming_manager(config.workspace.global_collections)
-            memory_manager = MemoryManager(qdrant_client=client)
+            memory_manager = MemoryManager(
+                qdrant_client=client,
+                naming_manager=naming_manager
+            )
 
             conflicts = await memory_manager.detect_conflicts()
 
@@ -462,7 +468,10 @@ def register_memory_tools(server: FastMCP):
             config = Config()
             client = create_qdrant_client(config.qdrant_client_config)
             naming_manager = create_naming_manager(config.workspace.global_collections)
-            memory_manager = MemoryManager(qdrant_client=client)
+            memory_manager = MemoryManager(
+                qdrant_client=client,
+                naming_manager=naming_manager
+            )
 
             # Validate optional parameters
             category_enum = None
@@ -521,4 +530,238 @@ def register_memory_tools(server: FastMCP):
 
         except Exception as e:
             logger.error(f"Failed to list memory rules: {e}")
+            return {"success": False, "error": str(e)}
+
+    @server.tool()
+    async def apply_memory_context(
+        task_description: str, project_context: str | None = None
+    ) -> dict[str, Any]:
+        """
+        Apply memory context to a task for behavioral adaptation.
+
+        Analyzes the task description and project context against memory rules
+        to provide relevant behavioral guidance and rule application.
+
+        Args:
+            task_description: Description of the task being performed
+            project_context: Optional project-specific context
+
+        Returns:
+            Applicable memory rules and behavioral guidance
+        """
+        try:
+            config = Config()
+            client = create_qdrant_client(config.qdrant_client_config)
+            naming_manager = create_naming_manager(config.workspace.global_collections)
+            memory_manager = MemoryManager(
+                qdrant_client=client,
+                naming_manager=naming_manager
+            )
+
+            # Search for relevant memory rules based on task description
+            relevant_rules = await memory_manager.search_memory_rules(
+                query=task_description, limit=10
+            )
+
+            # Get all absolute authority rules (always apply)
+            absolute_rules = await memory_manager.list_memory_rules(
+                authority="absolute"
+            )
+
+            # Categorize applicable rules
+            applicable_rules = {
+                "absolute": [],
+                "contextual": [],
+                "preferences": []
+            }
+
+            # Add absolute rules
+            for rule in absolute_rules:
+                applicable_rules["absolute"].append({
+                    "id": rule.id,
+                    "name": rule.name,
+                    "rule": rule.rule,
+                    "category": rule.category.value,
+                    "scope": rule.scope
+                })
+
+            # Add contextually relevant rules
+            for rule, score in relevant_rules:
+                if rule.authority == AuthorityLevel.DEFAULT and score > 0.7:
+                    category_key = "preferences" if rule.category == MemoryCategory.PREFERENCE else "contextual"
+                    applicable_rules[category_key].append({
+                        "id": rule.id,
+                        "name": rule.name,
+                        "rule": rule.rule,
+                        "category": rule.category.value,
+                        "scope": rule.scope,
+                        "relevance_score": score
+                    })
+
+            # Generate behavioral guidance
+            guidance = []
+            if applicable_rules["absolute"]:
+                guidance.append("CRITICAL: The following rules must always be followed:")
+                for rule in applicable_rules["absolute"][:3]:  # Top 3 absolute rules
+                    guidance.append(f"- {rule['rule']}")
+
+            if applicable_rules["contextual"]:
+                guidance.append("\nFor this task, consider these contextual guidelines:")
+                for rule in applicable_rules["contextual"][:5]:  # Top 5 contextual rules
+                    guidance.append(f"- {rule['rule']}")
+
+            if applicable_rules["preferences"]:
+                guidance.append("\nUser preferences to keep in mind:")
+                for rule in applicable_rules["preferences"][:3]:  # Top 3 preferences
+                    guidance.append(f"- {rule['rule']}")
+
+            logger.info(f"Applied memory context for task: {len(sum(applicable_rules.values(), []))} rules")
+            return {
+                "success": True,
+                "task_description": task_description,
+                "applicable_rules": applicable_rules,
+                "behavioral_guidance": "\n".join(guidance),
+                "total_applicable_rules": len(sum(applicable_rules.values(), [])),
+                "memory_applied": True
+            }
+
+        except Exception as e:
+            logger.error(f"Failed to apply memory context: {e}")
+            return {"success": False, "error": str(e), "memory_applied": False}
+
+    @server.tool()
+    async def optimize_memory_tokens(max_tokens: int = 2000) -> dict[str, Any]:
+        """
+        Optimize memory usage to stay within token limits.
+
+        Analyzes current memory usage and suggests optimizations to reduce
+        token consumption while preserving important rules.
+
+        Args:
+            max_tokens: Maximum allowed token count for memory rules
+
+        Returns:
+            Optimization results and actions taken
+        """
+        try:
+            config = Config()
+            client = create_qdrant_client(config.qdrant_client_config)
+            naming_manager = create_naming_manager(config.workspace.global_collections)
+            memory_manager = MemoryManager(
+                qdrant_client=client,
+                naming_manager=naming_manager
+            )
+
+            # Get current memory statistics
+            stats = await memory_manager.get_memory_stats()
+
+            if stats.estimated_tokens <= max_tokens:
+                return {
+                    "optimization_needed": False,
+                    "current_tokens": stats.estimated_tokens,
+                    "token_limit": max_tokens,
+                    "message": "Memory usage is within token limits"
+                }
+
+            # Perform optimization
+            tokens_saved, actions = await memory_manager.optimize_memory(max_tokens)
+
+            # Get updated statistics
+            new_stats = await memory_manager.get_memory_stats()
+
+            logger.info(f"Memory optimization completed: {tokens_saved} tokens saved")
+            return {
+                "optimization_needed": True,
+                "optimization_completed": True,
+                "tokens_before": stats.estimated_tokens,
+                "tokens_after": new_stats.estimated_tokens,
+                "tokens_saved": tokens_saved,
+                "token_limit": max_tokens,
+                "optimization_actions": actions,
+                "message": f"Optimized memory usage: saved {tokens_saved} tokens"
+            }
+
+        except Exception as e:
+            logger.error(f"Failed to optimize memory tokens: {e}")
+            return {"optimization_completed": False, "error": str(e)}
+
+    @server.tool()
+    async def export_memory_profile() -> dict[str, Any]:
+        """
+        Export complete memory profile for backup or transfer.
+
+        Creates a comprehensive export of all memory rules, statistics,
+        and configuration for backup or transfer to another system.
+
+        Returns:
+            Complete memory profile data
+        """
+        try:
+            config = Config()
+            client = create_qdrant_client(config.qdrant_client_config)
+            naming_manager = create_naming_manager(config.workspace.global_collections)
+            memory_manager = MemoryManager(
+                qdrant_client=client,
+                naming_manager=naming_manager
+            )
+
+            # Get all memory rules
+            all_rules = await memory_manager.list_memory_rules()
+
+            # Get memory statistics
+            stats = await memory_manager.get_memory_stats()
+
+            # Detect any conflicts
+            conflicts = await memory_manager.detect_conflicts()
+
+            # Create exportable profile
+            memory_profile = {
+                "export_timestamp": datetime.now(timezone.utc).isoformat(),
+                "memory_collection_name": memory_manager.memory_collection_name,
+                "statistics": {
+                    "total_rules": stats.total_rules,
+                    "rules_by_category": {k.value: v for k, v in stats.rules_by_category.items()},
+                    "rules_by_authority": {k.value: v for k, v in stats.rules_by_authority.items()},
+                    "estimated_tokens": stats.estimated_tokens
+                },
+                "rules": [
+                    {
+                        "id": rule.id,
+                        "category": rule.category.value,
+                        "name": rule.name,
+                        "rule": rule.rule,
+                        "authority": rule.authority.value,
+                        "scope": rule.scope,
+                        "source": rule.source,
+                        "conditions": rule.conditions,
+                        "replaces": rule.replaces,
+                        "created_at": rule.created_at.isoformat() if rule.created_at else None,
+                        "updated_at": rule.updated_at.isoformat() if rule.updated_at else None,
+                        "metadata": rule.metadata
+                    }
+                    for rule in all_rules
+                ],
+                "conflicts": [
+                    {
+                        "type": conflict.conflict_type,
+                        "description": conflict.description,
+                        "confidence": conflict.confidence,
+                        "rule1_id": conflict.rule1.id,
+                        "rule2_id": conflict.rule2.id,
+                        "resolution_options": conflict.resolution_options
+                    }
+                    for conflict in conflicts
+                ]
+            }
+
+            logger.info(f"Exported memory profile with {len(all_rules)} rules")
+            return {
+                "success": True,
+                "export_size": len(str(memory_profile)),
+                "memory_profile": memory_profile,
+                "message": f"Exported {len(all_rules)} memory rules"
+            }
+
+        except Exception as e:
+            logger.error(f"Failed to export memory profile: {e}")
             return {"success": False, "error": str(e)}

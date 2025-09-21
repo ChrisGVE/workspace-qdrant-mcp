@@ -43,8 +43,8 @@ from dataclasses import dataclass, field
 
 from loguru import logger
 
-from common.core.client import QdrantWorkspaceClient
-from common.core.multitenant_collections import WorkspaceCollectionRegistry
+from python.common.core.client import QdrantWorkspaceClient
+from python.common.core.multitenant_collections import WorkspaceCollectionRegistry
 
 
 @dataclass

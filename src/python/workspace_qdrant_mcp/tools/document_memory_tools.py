@@ -47,7 +47,7 @@ def _get_multitenant_function():
 
 # Conditional decorator imports
 try:
-    from common.observability import monitor_async
+    from python.common.observability import monitor_async
 except ImportError:
     def monitor_async(*args, **kwargs):
         def decorator(func):
@@ -55,7 +55,7 @@ except ImportError:
         return decorator
 
 try:
-    from common.core.error_handling import ErrorRecoveryStrategy, with_error_handling
+    from python.common.core.error_handling import ErrorRecoveryStrategy, with_error_handling
 except ImportError:
     class ErrorRecoveryStrategy:
         @staticmethod

@@ -24,7 +24,7 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional, Set, Tuple
 from loguru import logger
 
-from common.core.sqlite_state_manager import SQLiteStateManager, DatabaseTransaction
+from python.common.core.sqlite_state_manager import SQLiteStateManager, DatabaseTransaction
 
 
 @dataclass

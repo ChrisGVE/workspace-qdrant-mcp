@@ -56,9 +56,9 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional, Set, Tuple, Union
 
 
-from common.core.client import QdrantWorkspaceClient
-from common.core.error_handling import WorkspaceError, ErrorCategory, ErrorSeverity
-from common.core.lsp_metadata_extractor import (
+from python.common.core.client import QdrantWorkspaceClient
+from python.common.core.error_handling import WorkspaceError, ErrorCategory, ErrorSeverity
+from python.common.core.lsp_metadata_extractor import (
     CodeSymbol, SymbolKind, SymbolRelationship, RelationshipType,
     Position, Range, TypeInformation, Documentation
 )

@@ -40,7 +40,7 @@ from typing import Any, Dict, List, Optional, Tuple
 
 from loguru import logger
 
-from common.core.sqlite_state_manager import SQLiteStateManager
+from python.common.core.sqlite_state_manager import SQLiteStateManager
 
 
 class MigrationError(Exception):

@@ -58,11 +58,11 @@ from rich.progress import Progress, SpinnerColumn, TextColumn
 from rich.table import Table
 from rich.text import Text
 
-from common.core.client import QdrantWorkspaceClient
-from common.core.config import Config
-from common.core.embeddings import EmbeddingService
-from common.utils.config_validator import ConfigValidator
-from common.utils.project_detection import ProjectDetector
+from python.common.core.client import QdrantWorkspaceClient
+from python.common.core.config import Config
+from python.common.core.embeddings import EmbeddingService
+from python.common.utils.config_validator import ConfigValidator
+from python.common.utils.project_detection import ProjectDetector
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -463,7 +463,7 @@ class DiagnosticTool:
                 import urllib3
 
                 # Test basic connection with SSL warning suppression
-                from common.core.ssl_config import suppress_qdrant_ssl_warnings
+                from python.common.core.ssl_config import suppress_qdrant_ssl_warnings
                 with suppress_qdrant_ssl_warnings():
                     client = QdrantClient(**self.config.qdrant_client_config)
 

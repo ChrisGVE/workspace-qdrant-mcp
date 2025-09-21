@@ -24,7 +24,7 @@ except ImportError:
     PYGMENTS_AVAILABLE = False
 
 try:
-    from common.core.lsp_metadata_extractor import LspMetadataExtractor, FileMetadata
+    from python.common.core.lsp_metadata_extractor import LspMetadataExtractor, FileMetadata
     LSP_AVAILABLE = True
 except ImportError:
     LSP_AVAILABLE = False

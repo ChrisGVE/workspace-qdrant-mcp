@@ -13,17 +13,17 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
-from common.core.client import QdrantWorkspaceClient
-from common.core.persistent_file_watcher import PersistentWatchManager
-from common.core.watch_config import (
+from python.common.core.client import QdrantWorkspaceClient
+from python.common.core.persistent_file_watcher import PersistentWatchManager
+from python.common.core.watch_config import (
     PersistentWatchConfigManager,
     WatchConfigurationPersistent,
 )
-from common.core.watch_sync import (
+from python.common.core.watch_sync import (
     ConfigChangeEvent,
     SynchronizedWatchConfigManager,
 )
-from common.core.watch_validation import (
+from python.common.core.watch_validation import (
     WatchErrorRecovery,
     WatchHealthMonitor,
     WatchPathValidator,
@@ -31,7 +31,7 @@ from common.core.watch_validation import (
 
 # Import PatternManager for default patterns
 try:
-    from common.core.pattern_manager import PatternManager
+    from python.common.core.pattern_manager import PatternManager
 
     def _get_default_watch_patterns() -> List[str]:
         """Get default file patterns for watching."""

@@ -41,12 +41,12 @@ from typing import Any, Dict, List, Optional, Union
 from loguru import logger
 from mcp.types import Tool
 
-from common.core.graceful_degradation import (
+from python.common.core.graceful_degradation import (
     DegradationManager,
     DegradationMode,
     FeatureType,
 )
-from common.core.component_coordination import ComponentType
+from python.common.core.component_coordination import ComponentType
 
 
 @dataclass

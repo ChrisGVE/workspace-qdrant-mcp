@@ -418,7 +418,7 @@ def _extract_project_from_collection(collection_name: str) -> Optional[str]:
     parts = collection_name.split('-')
     if len(parts) >= 2:
         # Last part should be a workspace type, everything before is project name
-        from common.core.multitenant_collections import WorkspaceCollectionRegistry
+        from python.common.core.multitenant_collections import WorkspaceCollectionRegistry
         registry = WorkspaceCollectionRegistry()
 
         potential_type = parts[-1]

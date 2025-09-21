@@ -7,13 +7,13 @@ into the workspace_qdrant_mcp.core namespace for tests and legacy code.
 
 # Import all core modules from common for backward compatibility
 try:
-    from common.core.config import *
-    from common.core.embeddings import *
-    from common.core.client import *
-    from common.core.hybrid_search import *
-    from common.core.memory import *
-    from common.core.collections import *
-    from common.core.sparse_vectors import *
+    from python.common.core.config import *
+    from python.common.core.embeddings import *
+    from python.common.core.client import *
+    from python.common.core.hybrid_search import *
+    from python.common.core.memory import *
+    from python.common.core.collections import *
+    from python.common.core.sparse_vectors import *
 except ImportError as e:
     # If common.core is not available, provide a helpful error message
     import warnings
