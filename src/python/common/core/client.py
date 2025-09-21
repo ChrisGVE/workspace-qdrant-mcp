@@ -40,7 +40,6 @@ from typing import Optional
 from qdrant_client import QdrantClient
 
 from loguru import logger
-from ..utils.project_detection import ProjectDetector
 from .collections import WorkspaceCollectionManager, MemoryCollectionManager
 from .config import Config
 from .embeddings import EmbeddingService
@@ -77,7 +76,7 @@ class QdrantWorkspaceClient:
         client (Optional[QdrantClient]): Underlying Qdrant client instance
         collection_manager (Optional[WorkspaceCollectionManager]): Collection management
         embedding_service (EmbeddingService): Embedding generation service
-        project_detector (ProjectDetector): Project structure detection
+        project_detector (Optional[ProjectDetector]): Project structure detection
         project_info (Optional[Dict]): Detected project information
         initialized (bool): Whether the client has been initialized
 
@@ -110,9 +109,8 @@ class QdrantWorkspaceClient:
         self.collection_manager: WorkspaceCollectionManager | None = None
         self.memory_collection_manager: MemoryCollectionManager | None = None
         self.embedding_service = EmbeddingService(config)
-        self.project_detector = ProjectDetector(
-            github_user=self.config.workspace.github_user
-        )
+        # Lazy import to avoid circular dependency
+        self.project_detector = None
         self.project_info: dict | None = None
         self.initialized = False
 
@@ -208,6 +206,13 @@ class QdrantWorkspaceClient:
                 )
 
             logger.info("Connected to Qdrant at %s", self.config.qdrant.url)
+
+            # Initialize project detector (lazy import to avoid circular dependency)
+            if self.project_detector is None:
+                from ..utils.project_detection import ProjectDetector
+                self.project_detector = ProjectDetector(
+                    github_user=self.config.workspace.github_user
+                )
 
             # Detect current project and subprojects
             self.project_info = self.project_detector.get_project_info()
@@ -409,6 +414,13 @@ class QdrantWorkspaceClient:
         Returns:
             Dict: Updated project information with same structure as get_project_info()
         """
+        # Ensure project detector is initialized
+        if self.project_detector is None:
+            from ..utils.project_detection import ProjectDetector
+            self.project_detector = ProjectDetector(
+                github_user=self.config.workspace.github_user
+            )
+
         self.project_info = self.project_detector.get_project_info()
         return self.project_info
 
@@ -633,6 +645,13 @@ class QdrantWorkspaceClient:
         """
         if not self.initialized:
             raise RuntimeError("Client must be initialized before using collection selector")
+
+        # Ensure project detector is initialized
+        if self.project_detector is None:
+            from ..utils.project_detection import ProjectDetector
+            self.project_detector = ProjectDetector(
+                github_user=self.config.workspace.github_user
+            )
 
         from .collections import CollectionSelector
         return CollectionSelector(self.client, self.config, self.project_detector)
