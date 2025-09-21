@@ -11,6 +11,7 @@ use thiserror::Error;
 pub mod manager;
 pub mod comprehensive;
 pub mod detection;
+pub mod project;
 
 pub use manager::PatternManager;
 pub use comprehensive::{
@@ -21,6 +22,10 @@ pub use comprehensive::{
 pub use detection::{
     LanguageDetector, DetectionResult, DetectionConfidence, DetectionMethod,
     DetectorStats, detect_language_from_path, detect_language_from_content
+};
+pub use project::{
+    ProjectDetector, ProjectInfo, BuildSystemInfo, ProjectType, ProjectConfidence,
+    DetectionDetails, PatternMatch, analyze_project_from_files
 };
 
 /// Errors that can occur during pattern operations
