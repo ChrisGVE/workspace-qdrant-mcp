@@ -1,4 +1,85 @@
 //! Error types for the Workspace Qdrant Daemon
 
 use thiserror::Error;
-use tonic::{Code, Status};\n\n/// Main error type for daemon operations\n#[derive(Error, Debug)]\npub enum DaemonError {\n    #[error(\"Configuration error: {0}\")]\n    Config(#[from] config::ConfigError),\n\n    #[error(\"Database error: {0}\")]\n    Database(#[from] sqlx::Error),\n\n    #[error(\"I/O error: {0}\")]\n    Io(#[from] std::io::Error),\n\n    #[error(\"gRPC error: {0}\")]\n    Grpc(#[from] tonic::transport::Error),\n\n    #[error(\"Serialization error: {0}\")]\n    Serialization(#[from] serde_json::Error),\n\n    #[error(\"File watching error: {0}\")]\n    FileWatcher(#[from] notify::Error),\n\n    #[error(\"Git error: {0}\")]\n    Git(#[from] git2::Error),\n\n    #[error(\"HTTP client error: {0}\")]\n    Http(#[from] reqwest::Error),\n\n    #[error(\"Document processing error: {message}\")]\n    DocumentProcessing { message: String },\n\n    #[error(\"Search error: {message}\")]\n    Search { message: String },\n\n    #[error(\"Memory management error: {message}\")]\n    Memory { message: String },\n\n    #[error(\"System error: {message}\")]\n    System { message: String },\n\n    #[error(\"Project detection error: {message}\")]\n    ProjectDetection { message: String },\n\n    #[error(\"Connection pool error: {message}\")]\n    ConnectionPool { message: String },\n\n    #[error(\"Timeout error: operation timed out after {seconds}s\")]\n    Timeout { seconds: u64 },\n\n    #[error(\"Resource not found: {resource}\")]\n    NotFound { resource: String },\n\n    #[error(\"Invalid input: {message}\")]\n    InvalidInput { message: String },\n\n    #[error(\"Internal error: {message}\")]\n    Internal { message: String },\n}\n\nimpl From<DaemonError> for Status {\n    fn from(err: DaemonError) -> Self {\n        match err {\n            DaemonError::Config(_) | DaemonError::InvalidInput { .. } => {\n                Status::new(Code::InvalidArgument, err.to_string())\n            },\n            DaemonError::NotFound { .. } => {\n                Status::new(Code::NotFound, err.to_string())\n            },\n            DaemonError::Timeout { .. } => {\n                Status::new(Code::DeadlineExceeded, err.to_string())\n            },\n            DaemonError::Database(_) | DaemonError::Io(_) | DaemonError::FileWatcher(_) => {\n                Status::new(Code::Internal, \"Internal server error\")\n            },\n            _ => Status::new(Code::Internal, \"Internal server error\"),\n        }\n    }\n}\n\n/// Result type alias for daemon operations\npub type DaemonResult<T> = Result<T, DaemonError>;"
+use tonic::{Code, Status};
+
+/// Main error type for daemon operations
+#[derive(Error, Debug)]
+pub enum DaemonError {
+    #[error("Configuration error: {0}")]
+    Config(#[from] config::ConfigError),
+
+    #[error("Database error: {0}")]
+    Database(#[from] sqlx::Error),
+
+    #[error("I/O error: {0}")]
+    Io(#[from] std::io::Error),
+
+    #[error("gRPC error: {0}")]
+    Grpc(#[from] tonic::transport::Error),
+
+    #[error("Serialization error: {0}")]
+    Serialization(#[from] serde_json::Error),
+
+    #[error("File watching error: {0}")]
+    FileWatcher(#[from] notify::Error),
+
+    #[error("Git error: {0}")]
+    Git(#[from] git2::Error),
+
+    #[error("HTTP client error: {0}")]
+    Http(#[from] reqwest::Error),
+
+    #[error("Document processing error: {message}")]
+    DocumentProcessing { message: String },
+
+    #[error("Search error: {message}")]
+    Search { message: String },
+
+    #[error("Memory management error: {message}")]
+    Memory { message: String },
+
+    #[error("System error: {message}")]
+    System { message: String },
+
+    #[error("Project detection error: {message}")]
+    ProjectDetection { message: String },
+
+    #[error("Connection pool error: {message}")]
+    ConnectionPool { message: String },
+
+    #[error("Timeout error: operation timed out after {seconds}s")]
+    Timeout { seconds: u64 },
+
+    #[error("Resource not found: {resource}")]
+    NotFound { resource: String },
+
+    #[error("Invalid input: {message}")]
+    InvalidInput { message: String },
+
+    #[error("Internal error: {message}")]
+    Internal { message: String },
+}
+
+impl From<DaemonError> for Status {
+    fn from(err: DaemonError) -> Self {
+        match err {
+            DaemonError::Config(_) | DaemonError::InvalidInput { .. } => {
+                Status::new(Code::InvalidArgument, err.to_string())
+            },
+            DaemonError::NotFound { .. } => {
+                Status::new(Code::NotFound, err.to_string())
+            },
+            DaemonError::Timeout { .. } => {
+                Status::new(Code::DeadlineExceeded, err.to_string())
+            },
+            DaemonError::Database(_) | DaemonError::Io(_) | DaemonError::FileWatcher(_) => {
+                Status::new(Code::Internal, "Internal server error")
+            },
+            _ => Status::new(Code::Internal, "Internal server error"),
+        }
+    }
+}
+
+/// Result type alias for daemon operations
+pub type DaemonResult<T> = Result<T, DaemonError>;

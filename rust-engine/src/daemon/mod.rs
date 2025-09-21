@@ -9,4 +9,101 @@ use crate::config::DaemonConfig;
 use crate::error::{DaemonError, DaemonResult};
 use std::sync::Arc;
 use tokio::sync::RwLock;
-use tracing::{info, warn};\n\n/// Main daemon coordinator\npub struct WorkspaceDaemon {\n    config: DaemonConfig,\n    state: Arc<RwLock<state::DaemonState>>,\n    processing: Arc<processing::DocumentProcessor>,\n    watcher: Option<Arc<watcher::FileWatcher>>,\n}\n\nimpl WorkspaceDaemon {\n    /// Create a new daemon instance\n    pub async fn new(config: DaemonConfig) -> DaemonResult<Self> {\n        // Validate configuration\n        config.validate()?;\n        \n        info!(\"Initializing Workspace Daemon with config: {:?}\", config);\n        \n        // Initialize state management\n        let state = Arc::new(RwLock::new(\n            state::DaemonState::new(&config.database).await?\n        ));\n        \n        // Initialize document processor\n        let processing = Arc::new(\n            processing::DocumentProcessor::new(&config.processing, &config.qdrant).await?\n        );\n        \n        // Initialize file watcher if enabled\n        let watcher = if config.file_watcher.enabled {\n            Some(Arc::new(\n                watcher::FileWatcher::new(&config.file_watcher, Arc::clone(&processing)).await?\n            ))\n        } else {\n            None\n        };\n        \n        Ok(Self {\n            config,\n            state,\n            processing,\n            watcher,\n        })\n    }\n    \n    /// Start all daemon services\n    pub async fn start(&mut self) -> DaemonResult<()> {\n        info!(\"Starting daemon services\");\n        \n        // Start file watcher if enabled\n        if let Some(ref watcher) = self.watcher {\n            watcher.start().await?;\n            info!(\"File watcher started\");\n        }\n        \n        info!(\"All daemon services started successfully\");\n        Ok(())\n    }\n    \n    /// Stop all daemon services\n    pub async fn stop(&mut self) -> DaemonResult<()> {\n        info!(\"Stopping daemon services\");\n        \n        // Stop file watcher\n        if let Some(ref watcher) = self.watcher {\n            watcher.stop().await?;\n            info!(\"File watcher stopped\");\n        }\n        \n        info!(\"All daemon services stopped\");\n        Ok(())\n    }\n    \n    /// Get daemon configuration\n    pub fn config(&self) -> &DaemonConfig {\n        &self.config\n    }\n    \n    /// Get daemon state (read-only)\n    pub async fn state(&self) -> tokio::sync::RwLockReadGuard<state::DaemonState> {\n        self.state.read().await\n    }\n    \n    /// Get daemon state (read-write)\n    pub async fn state_mut(&self) -> tokio::sync::RwLockWriteGuard<state::DaemonState> {\n        self.state.write().await\n    }\n    \n    /// Get document processor\n    pub fn processor(&self) -> &Arc<processing::DocumentProcessor> {\n        &self.processing\n    }\n    \n    /// Get file watcher\n    pub fn watcher(&self) -> Option<&Arc<watcher::FileWatcher>> {\n        self.watcher.as_ref()\n    }\n}"
+use tracing::{info, warn};
+
+/// Main daemon coordinator
+pub struct WorkspaceDaemon {
+    config: DaemonConfig,
+    state: Arc<RwLock<state::DaemonState>>,
+    processing: Arc<processing::DocumentProcessor>,
+    watcher: Option<Arc<watcher::FileWatcher>>,
+}
+
+impl WorkspaceDaemon {
+    /// Create a new daemon instance
+    pub async fn new(config: DaemonConfig) -> DaemonResult<Self> {
+        // Validate configuration
+        config.validate()?;
+
+        info!("Initializing Workspace Daemon with config: {:?}", config);
+
+        // Initialize state management
+        let state = Arc::new(RwLock::new(
+            state::DaemonState::new(&config.database).await?
+        ));
+
+        // Initialize document processor
+        let processing = Arc::new(
+            processing::DocumentProcessor::new(&config.processing, &config.qdrant).await?
+        );
+
+        // Initialize file watcher if enabled
+        let watcher = if config.file_watcher.enabled {
+            Some(Arc::new(
+                watcher::FileWatcher::new(&config.file_watcher, Arc::clone(&processing)).await?
+            ))
+        } else {
+            None
+        };
+
+        Ok(Self {
+            config,
+            state,
+            processing,
+            watcher,
+        })
+    }
+
+    /// Start all daemon services
+    pub async fn start(&mut self) -> DaemonResult<()> {
+        info!("Starting daemon services");
+
+        // Start file watcher if enabled
+        if let Some(ref watcher) = self.watcher {
+            watcher.start().await?;
+            info!("File watcher started");
+        }
+
+        info!("All daemon services started successfully");
+        Ok(())
+    }
+
+    /// Stop all daemon services
+    pub async fn stop(&mut self) -> DaemonResult<()> {
+        info!("Stopping daemon services");
+
+        // Stop file watcher
+        if let Some(ref watcher) = self.watcher {
+            watcher.stop().await?;
+            info!("File watcher stopped");
+        }
+
+        info!("All daemon services stopped");
+        Ok(())
+    }
+
+    /// Get daemon configuration
+    pub fn config(&self) -> &DaemonConfig {
+        &self.config
+    }
+
+    /// Get daemon state (read-only)
+    pub async fn state(&self) -> tokio::sync::RwLockReadGuard<state::DaemonState> {
+        self.state.read().await
+    }
+
+    /// Get daemon state (read-write)
+    pub async fn state_mut(&self) -> tokio::sync::RwLockWriteGuard<state::DaemonState> {
+        self.state.write().await
+    }
+
+    /// Get document processor
+    pub fn processor(&self) -> &Arc<processing::DocumentProcessor> {
+        &self.processing
+    }
+
+    /// Get file watcher
+    pub fn watcher(&self) -> Option<&Arc<watcher::FileWatcher>> {
+        self.watcher.as_ref()
+    }
+}
