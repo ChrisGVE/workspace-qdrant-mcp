@@ -1,3 +1,242 @@
 //! System administration gRPC service implementation
 
-use crate::daemon::WorkspaceDaemon;\nuse crate::proto::{\n    system_service_server::SystemService,\n    HealthCheckResponse, SystemStatusResponse, MetricsRequest, MetricsResponse,\n    ConfigResponse, UpdateConfigRequest, DetectProjectRequest, DetectProjectResponse,\n    ListProjectsResponse, ServiceStatus, ComponentHealth, SystemMetrics, ProjectInfo,\n};\nuse std::sync::Arc;\nuse tonic::{Request, Response, Status};\nuse tracing::{debug, error, info};\n\n/// System service implementation\n#[derive(Debug)]\npub struct SystemServiceImpl {\n    daemon: Arc<WorkspaceDaemon>,\n}\n\nimpl SystemServiceImpl {\n    pub fn new(daemon: Arc<WorkspaceDaemon>) -> Self {\n        Self { daemon }\n    }\n}\n\n#[tonic::async_trait]\nimpl SystemService for SystemServiceImpl {\n    async fn health_check(\n        &self,\n        _request: Request<()>,\n    ) -> Result<Response<HealthCheckResponse>, Status> {\n        debug!(\"Health check requested\");\n        \n        // TODO: Implement actual health checks\n        let response = HealthCheckResponse {\n            status: ServiceStatus::Healthy as i32,\n            components: vec![\n                ComponentHealth {\n                    component_name: \"database\".to_string(),\n                    status: ServiceStatus::Healthy as i32,\n                    message: \"SQLite database operational\".to_string(),\n                    last_check: Some(prost_types::Timestamp {\n                        seconds: chrono::Utc::now().timestamp(),\n                        nanos: 0,\n                    }),\n                },\n                ComponentHealth {\n                    component_name: \"qdrant\".to_string(),\n                    status: ServiceStatus::Healthy as i32,\n                    message: \"Qdrant connection active\".to_string(),\n                    last_check: Some(prost_types::Timestamp {\n                        seconds: chrono::Utc::now().timestamp(),\n                        nanos: 0,\n                    }),\n                },\n                ComponentHealth {\n                    component_name: \"file_watcher\".to_string(),\n                    status: ServiceStatus::Healthy as i32,\n                    message: \"File watching active\".to_string(),\n                    last_check: Some(prost_types::Timestamp {\n                        seconds: chrono::Utc::now().timestamp(),\n                        nanos: 0,\n                    }),\n                },\n            ],\n            timestamp: Some(prost_types::Timestamp {\n                seconds: chrono::Utc::now().timestamp(),\n                nanos: 0,\n            }),\n        };\n        \n        Ok(Response::new(response))\n    }\n    \n    async fn get_status(\n        &self,\n        _request: Request<()>,\n    ) -> Result<Response<SystemStatusResponse>, Status> {\n        debug!(\"System status requested\");\n        \n        // TODO: Implement actual system status collection\n        let response = SystemStatusResponse {\n            status: ServiceStatus::Healthy as i32,\n            metrics: Some(SystemMetrics {\n                cpu_usage_percent: 15.5,\n                memory_usage_bytes: 128 * 1024 * 1024, // 128MB\n                memory_total_bytes: 8 * 1024 * 1024 * 1024, // 8GB\n                disk_usage_bytes: 2 * 1024 * 1024 * 1024, // 2GB\n                disk_total_bytes: 500 * 1024 * 1024 * 1024, // 500GB\n                active_connections: 5,\n                pending_operations: 0,\n            }),\n            active_projects: vec![\"workspace-qdrant-mcp\".to_string()],\n            total_documents: 1000,\n            total_collections: 5,\n            uptime_since: Some(prost_types::Timestamp {\n                seconds: chrono::Utc::now().timestamp() - 3600, // 1 hour ago\n                nanos: 0,\n            }),\n        };\n        \n        Ok(Response::new(response))\n    }\n    \n    async fn get_metrics(\n        &self,\n        request: Request<MetricsRequest>,\n    ) -> Result<Response<MetricsResponse>, Status> {\n        let req = request.into_inner();\n        debug!(\"Metrics requested: {:?}\", req.metric_names);\n        \n        // TODO: Implement actual metrics collection\n        let response = MetricsResponse {\n            metrics: vec![\n                crate::proto::Metric {\n                    name: \"grpc_requests_total\".to_string(),\n                    r#type: \"counter\".to_string(),\n                    labels: [(\"method\".to_string(), \"ProcessDocument\".to_string())].into_iter().collect(),\n                    value: 150.0,\n                    timestamp: Some(prost_types::Timestamp {\n                        seconds: chrono::Utc::now().timestamp(),\n                        nanos: 0,\n                    }),\n                },\n                crate::proto::Metric {\n                    name: \"document_processing_duration_seconds\".to_string(),\n                    r#type: \"histogram\".to_string(),\n                    labels: [(\"status\".to_string(), \"success\".to_string())].into_iter().collect(),\n                    value: 2.5,\n                    timestamp: Some(prost_types::Timestamp {\n                        seconds: chrono::Utc::now().timestamp(),\n                        nanos: 0,\n                    }),\n                },\n            ],\n            collected_at: Some(prost_types::Timestamp {\n                seconds: chrono::Utc::now().timestamp(),\n                nanos: 0,\n            }),\n        };\n        \n        Ok(Response::new(response))\n    }\n    \n    async fn get_config(\n        &self,\n        _request: Request<()>,\n    ) -> Result<Response<ConfigResponse>, Status> {\n        debug!(\"Configuration requested\");\n        \n        let config = self.daemon.config();\n        \n        // Convert configuration to string map\n        let mut configuration = std::collections::HashMap::new();\n        configuration.insert(\"server.host\".to_string(), config.server.host.clone());\n        configuration.insert(\"server.port\".to_string(), config.server.port.to_string());\n        configuration.insert(\"qdrant.url\".to_string(), config.qdrant.url.clone());\n        configuration.insert(\"database.sqlite_path\".to_string(), config.database.sqlite_path.clone());\n        configuration.insert(\"processing.max_concurrent_tasks\".to_string(), config.processing.max_concurrent_tasks.to_string());\n        \n        let response = ConfigResponse {\n            configuration,\n            version: env!(\"CARGO_PKG_VERSION\").to_string(),\n        };\n        \n        Ok(Response::new(response))\n    }\n    \n    async fn update_config(\n        &self,\n        request: Request<UpdateConfigRequest>,\n    ) -> Result<Response<()>, Status> {\n        let req = request.into_inner();\n        info!(\"Configuration update requested: {:?}\", req.configuration);\n        \n        // TODO: Implement configuration updates\n        // For now, just log the request\n        \n        if req.restart_required {\n            info!(\"Configuration update requires restart\");\n        }\n        \n        Ok(Response::new(()))\n    }\n    \n    async fn detect_project(\n        &self,\n        request: Request<DetectProjectRequest>,\n    ) -> Result<Response<DetectProjectResponse>, Status> {\n        let req = request.into_inner();\n        debug!(\"Project detection requested for: {}\", req.path);\n        \n        // TODO: Implement actual project detection\n        let response = DetectProjectResponse {\n            project: Some(ProjectInfo {\n                project_id: uuid::Uuid::new_v4().to_string(),\n                name: \"example-project\".to_string(),\n                root_path: req.path.clone(),\n                git_repository: \"https://github.com/example/project.git\".to_string(),\n                git_branch: \"main\".to_string(),\n                submodules: vec![],\n                metadata: [(\"detected_at\".to_string(), chrono::Utc::now().to_rfc3339())].into_iter().collect(),\n                detected_at: Some(prost_types::Timestamp {\n                    seconds: chrono::Utc::now().timestamp(),\n                    nanos: 0,\n                }),\n            }),\n            is_valid_project: true,\n            reasons: vec![\"Git repository detected\".to_string()],\n        };\n        \n        Ok(Response::new(response))\n    }\n    \n    async fn list_projects(\n        &self,\n        _request: Request<()>,\n    ) -> Result<Response<ListProjectsResponse>, Status> {\n        debug!(\"Project list requested\");\n        \n        // TODO: Implement actual project listing\n        let response = ListProjectsResponse {\n            projects: vec![\n                ProjectInfo {\n                    project_id: uuid::Uuid::new_v4().to_string(),\n                    name: \"workspace-qdrant-mcp\".to_string(),\n                    root_path: \"/Users/example/workspace-qdrant-mcp\".to_string(),\n                    git_repository: \"https://github.com/example/workspace-qdrant-mcp.git\".to_string(),\n                    git_branch: \"main\".to_string(),\n                    submodules: vec![],\n                    metadata: [(\"language\".to_string(), \"rust,python\".to_string())].into_iter().collect(),\n                    detected_at: Some(prost_types::Timestamp {\n                        seconds: chrono::Utc::now().timestamp() - 86400, // 1 day ago\n                        nanos: 0,\n                    }),\n                },\n            ],\n        };\n        \n        Ok(Response::new(response))\n    }\n}"
+use crate::daemon::WorkspaceDaemon;
+use crate::proto::{
+    system_service_server::SystemService,
+    HealthCheckResponse, SystemStatusResponse, MetricsRequest, MetricsResponse,
+    ConfigResponse, UpdateConfigRequest, DetectProjectRequest, DetectProjectResponse,
+    ListProjectsResponse, ServiceStatus, ComponentHealth, SystemMetrics, ProjectInfo,
+};
+use std::sync::Arc;
+use tonic::{Request, Response, Status};
+use tracing::{debug, error, info};
+
+/// System service implementation
+#[derive(Debug)]
+pub struct SystemServiceImpl {
+    daemon: Arc<WorkspaceDaemon>,
+}
+
+impl SystemServiceImpl {
+    pub fn new(daemon: Arc<WorkspaceDaemon>) -> Self {
+        Self { daemon }
+    }
+}
+
+#[tonic::async_trait]
+impl SystemService for SystemServiceImpl {
+    async fn health_check(
+        &self,
+        _request: Request<()>,
+    ) -> Result<Response<HealthCheckResponse>, Status> {
+        debug!("Health check requested");
+
+        // TODO: Implement actual health checks
+        let response = HealthCheckResponse {
+            status: ServiceStatus::Healthy as i32,
+            components: vec![
+                ComponentHealth {
+                    component_name: "database".to_string(),
+                    status: ServiceStatus::Healthy as i32,
+                    message: "SQLite database operational".to_string(),
+                    last_check: Some(prost_types::Timestamp {
+                        seconds: chrono::Utc::now().timestamp(),
+                        nanos: 0,
+                    }),
+                },
+                ComponentHealth {
+                    component_name: "qdrant".to_string(),
+                    status: ServiceStatus::Healthy as i32,
+                    message: "Qdrant connection active".to_string(),
+                    last_check: Some(prost_types::Timestamp {
+                        seconds: chrono::Utc::now().timestamp(),
+                        nanos: 0,
+                    }),
+                },
+                ComponentHealth {
+                    component_name: "file_watcher".to_string(),
+                    status: ServiceStatus::Healthy as i32,
+                    message: "File watching active".to_string(),
+                    last_check: Some(prost_types::Timestamp {
+                        seconds: chrono::Utc::now().timestamp(),
+                        nanos: 0,
+                    }),
+                },
+            ],
+            timestamp: Some(prost_types::Timestamp {
+                seconds: chrono::Utc::now().timestamp(),
+                nanos: 0,
+            }),
+        };
+
+        Ok(Response::new(response))
+    }
+
+    async fn get_status(
+        &self,
+        _request: Request<()>,
+    ) -> Result<Response<SystemStatusResponse>, Status> {
+        debug!("System status requested");
+
+        // TODO: Implement actual system status collection
+        let response = SystemStatusResponse {
+            status: ServiceStatus::Healthy as i32,
+            metrics: Some(SystemMetrics {
+                cpu_usage_percent: 15.5,
+                memory_usage_bytes: 128 * 1024 * 1024, // 128MB
+                memory_total_bytes: 8 * 1024 * 1024 * 1024, // 8GB
+                disk_usage_bytes: 2 * 1024 * 1024 * 1024, // 2GB
+                disk_total_bytes: 500 * 1024 * 1024 * 1024, // 500GB
+                active_connections: 5,
+                pending_operations: 0,
+            }),
+            active_projects: vec!["workspace-qdrant-mcp".to_string()],
+            total_documents: 1000,
+            total_collections: 5,
+            uptime_since: Some(prost_types::Timestamp {
+                seconds: chrono::Utc::now().timestamp() - 3600, // 1 hour ago
+                nanos: 0,
+            }),
+        };
+
+        Ok(Response::new(response))
+    }
+
+    async fn get_metrics(
+        &self,
+        request: Request<MetricsRequest>,
+    ) -> Result<Response<MetricsResponse>, Status> {
+        let req = request.into_inner();
+        debug!("Metrics requested: {:?}", req.metric_names);
+
+        // TODO: Implement actual metrics collection
+        let response = MetricsResponse {
+            metrics: vec![
+                crate::proto::Metric {
+                    name: "grpc_requests_total".to_string(),
+                    r#type: "counter".to_string(),
+                    labels: [("method".to_string(), "ProcessDocument".to_string())].into_iter().collect(),
+                    value: 150.0,
+                    timestamp: Some(prost_types::Timestamp {
+                        seconds: chrono::Utc::now().timestamp(),
+                        nanos: 0,
+                    }),
+                },
+                crate::proto::Metric {
+                    name: "document_processing_duration_seconds".to_string(),
+                    r#type: "histogram".to_string(),
+                    labels: [("status".to_string(), "success".to_string())].into_iter().collect(),
+                    value: 2.5,
+                    timestamp: Some(prost_types::Timestamp {
+                        seconds: chrono::Utc::now().timestamp(),
+                        nanos: 0,
+                    }),
+                },
+            ],
+            collected_at: Some(prost_types::Timestamp {
+                seconds: chrono::Utc::now().timestamp(),
+                nanos: 0,
+            }),
+        };
+
+        Ok(Response::new(response))
+    }
+
+    async fn get_config(
+        &self,
+        _request: Request<()>,
+    ) -> Result<Response<ConfigResponse>, Status> {
+        debug!("Configuration requested");
+
+        let config = self.daemon.config();
+
+        // Convert configuration to string map
+        let mut configuration = std::collections::HashMap::new();
+        configuration.insert("server.host".to_string(), config.server.host.clone());
+        configuration.insert("server.port".to_string(), config.server.port.to_string());
+        configuration.insert("qdrant.url".to_string(), config.qdrant.url.clone());
+        configuration.insert("database.sqlite_path".to_string(), config.database.sqlite_path.clone());
+        configuration.insert("processing.max_concurrent_tasks".to_string(), config.processing.max_concurrent_tasks.to_string());
+
+        let response = ConfigResponse {
+            configuration,
+            version: env!("CARGO_PKG_VERSION").to_string(),
+        };
+
+        Ok(Response::new(response))
+    }
+
+    async fn update_config(
+        &self,
+        request: Request<UpdateConfigRequest>,
+    ) -> Result<Response<()>, Status> {
+        let req = request.into_inner();
+        info!("Configuration update requested: {:?}", req.configuration);
+
+        // TODO: Implement configuration updates
+        // For now, just log the request
+
+        if req.restart_required {
+            info!("Configuration update requires restart");
+        }
+
+        Ok(Response::new(()))
+    }
+
+    async fn detect_project(
+        &self,
+        request: Request<DetectProjectRequest>,
+    ) -> Result<Response<DetectProjectResponse>, Status> {
+        let req = request.into_inner();
+        debug!("Project detection requested for: {}", req.path);
+
+        // TODO: Implement actual project detection
+        let response = DetectProjectResponse {
+            project: Some(ProjectInfo {
+                project_id: uuid::Uuid::new_v4().to_string(),
+                name: "example-project".to_string(),
+                root_path: req.path.clone(),
+                git_repository: "https://github.com/example/project.git".to_string(),
+                git_branch: "main".to_string(),
+                submodules: vec![],
+                metadata: [("detected_at".to_string(), chrono::Utc::now().to_rfc3339())].into_iter().collect(),
+                detected_at: Some(prost_types::Timestamp {
+                    seconds: chrono::Utc::now().timestamp(),
+                    nanos: 0,
+                }),
+            }),
+            is_valid_project: true,
+            reasons: vec!["Git repository detected".to_string()],
+        };
+
+        Ok(Response::new(response))
+    }
+
+    async fn list_projects(
+        &self,
+        _request: Request<()>,
+    ) -> Result<Response<ListProjectsResponse>, Status> {
+        debug!("Project list requested");
+
+        // TODO: Implement actual project listing
+        let response = ListProjectsResponse {
+            projects: vec![
+                ProjectInfo {
+                    project_id: uuid::Uuid::new_v4().to_string(),
+                    name: "workspace-qdrant-mcp".to_string(),
+                    root_path: "/Users/example/workspace-qdrant-mcp".to_string(),
+                    git_repository: "https://github.com/example/workspace-qdrant-mcp.git".to_string(),
+                    git_branch: "main".to_string(),
+                    submodules: vec![],
+                    metadata: [("language".to_string(), "rust,python".to_string())].into_iter().collect(),
+                    detected_at: Some(prost_types::Timestamp {
+                        seconds: chrono::Utc::now().timestamp() - 86400, // 1 day ago
+                        nanos: 0,
+                    }),
+                },
+            ],
+        };
+
+        Ok(Response::new(response))
+    }
+}
