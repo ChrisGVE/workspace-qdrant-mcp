@@ -1,0 +1,8369 @@
+# Test Coverage Gap Analysis Report
+Generated: /Users/chris/Dropbox/dev/ai/claude-code-cfg/mcp/workspace-qdrant-mcp
+
+## Summary Statistics
+- **Total Python Files**: 234
+- **Total Functions**: 3898
+- **Total Classes**: 659
+- **Total Methods**: 3036
+- **Total Lines of Code**: 135183
+
+## Component Analysis
+### elegant_launcher.py
+- Files: 1
+- Functions: 6
+- Classes: 0
+- Methods: 0
+- Lines: 206
+
+### common
+- Files: 113
+- Functions: 2554
+- Classes: 523
+- Methods: 2320
+- Lines: 82851
+
+### wqm_cli
+- Files: 47
+- Functions: 744
+- Classes: 62
+- Methods: 350
+- Lines: 27441
+
+### workspace_qdrant_mcp
+- Files: 73
+- Functions: 594
+- Classes: 74
+- Methods: 366
+- Lines: 24685
+
+## MCP Tools Identified
+Found 0 MCP tool functions:
+
+## High-Priority Files for Test Coverage
+- `common/core/sqlite_state_manager.py`: 172 functions, 3336 lines
+- `common/core/lsp_client.py`: 151 functions, 2073 lines
+- `common/core/automatic_recovery.py`: 141 functions, 2072 lines
+- `common/core/lsp_metadata_extractor.py`: 125 functions, 1948 lines
+- `workspace_qdrant_mcp/tools/symbol_resolver.py`: 111 functions, 1545 lines
+- `workspace_qdrant_mcp/tools/dependency_analyzer.py`: 100 functions, 1280 lines
+- `workspace_qdrant_mcp/tools/code_search.py`: 97 functions, 1749 lines
+- `common/core/daemon_manager.py`: 95 functions, 1421 lines
+- `common/core/collections.py`: 90 functions, 2122 lines
+- `common/core/graceful_degradation.py`: 86 functions, 1156 lines
+- `common/core/component_isolation.py`: 82 functions, 1435 lines
+- `common/core/collision_detection.py`: 82 functions, 1172 lines
+- `common/core/hybrid_search.py`: 80 functions, 2141 lines
+- `common/core/priority_queue_manager.py`: 80 functions, 1276 lines
+- `common/core/file_watcher.py`: 68 functions, 612 lines
+- `common/memory/migration_utils.py`: 68 functions, 1388 lines
+- `workspace_qdrant_mcp/server.py`: 67 functions, 3904 lines
+- `common/core/watch_sync.py`: 66 functions, 529 lines
+- `common/core/daemon_client.py`: 65 functions, 695 lines
+- `common/core/error_handling.py`: 64 functions, 695 lines
+
+## Coverage Gap Recommendations
+### Immediate Priority (Phase 1)
+1. **MCP Server Tools** - 11 tools across multiple files
+2. **Core Infrastructure** - hybrid_search.py, memory.py, client.py
+3. **State Management** - collection management and validation
+
+### Secondary Priority (Phase 2)
+1. **CLI Utilities** - wqm commands and workflows
+2. **Context Injector** - document ingestion and processing
+3. **Configuration System** - config validation and management
+
+### Testing Strategy
+1. **Unit Tests**: Focus on individual functions and methods
+2. **Integration Tests**: MCP tool interactions and workflows
+3. **End-to-End Tests**: Complete user scenarios
+4. **Performance Tests**: Search and ingestion benchmarks
+
+## Detailed File Analysis
+### elegant_launcher.py
+- Functions: 6
+- Methods: 0
+- Classes: 0
+- Lines: 206
+- Functions:
+  - `show_elegant_banner()` (line 22)
+  - `parse_arguments()` (line 42)
+  - `print_help()` (line 83)
+  - `setup_environment()` (line 122)
+  - `run_server()` (line 148)
+  - `main()` (line 184)
+
+### wqm_cli/cli_wrapper.py
+- Functions: 1
+- Methods: 0
+- Classes: 0
+- Lines: 42
+- Functions:
+  - `main()` (line 30)
+
+### workspace_qdrant_mcp/server.py
+- Functions: 59
+- Methods: 8
+- Classes: 3
+- Lines: 3904
+- Functions:
+  - `_detect_stdio_mode()` (line 96)
+  - `__init__()` (line 140)
+  - `buffer()` (line 145) @property
+  - `write()` (line 149)
+  - `flush()` (line 168)
+  - `__getattr__()` (line 171)
+  - `emit()` (line 194)
+  - `handle()` (line 195)
+  - `createLock()` (line 196)
+  - `monitor_async()` (line 317)
+  - `decorator()` (line 326)
+  - `with_error_handling()` (line 330)
+  - `decorator()` (line 331)
+  - `_test_mcp_protocol_compliance()` (line 378)
+  - `async workspace_status()` (line 453) @<ast.Call object at 0x10c6d1650>,<ast.Call object at 0x10c6d0d90>,<ast.Call object at 0x10c6d13d0>
+  - `async list_workspace_collections()` (line 496) @<ast.Call object at 0x10c7267d0>
+  - `async create_collection()` (line 613) @<ast.Call object at 0x10c812350>
+  - `async delete_collection()` (line 829) @<ast.Call object at 0x10c7e7150>
+  - `async search_workspace_tool()` (line 1039) @<ast.Call object at 0x10c7d2cd0>,<ast.Call object at 0x10c7d2ad0>,<ast.Call object at 0x10c7d26d0>
+  - `async add_document_tool()` (line 1173) @<ast.Call object at 0x10c7c2710>,<ast.Call object at 0x10c7c2510>
+  - `async get_document_tool()` (line 1272) @<ast.Call object at 0x10c7c1010>
+  - `async search_by_metadata_tool()` (line 1321) @<ast.Call object at 0x10c7b5810>
+  - `async search_workspace_with_project_isolation_tool()` (line 1378) @<ast.Call object at 0x10c7a76d0>,<ast.Call object at 0x10c7a74d0>,<ast.Call object at 0x10c7a70d0>
+  - `async search_workspace_by_metadata_with_project_context_tool()` (line 1459) @<ast.Call object at 0x10c84e090>,<ast.Call object at 0x10c84e290>,<ast.Call object at 0x10c84e690>
+  - `async update_scratchbook_tool()` (line 1529) @<ast.Call object at 0x10c854150>
+  - `async search_scratchbook_tool()` (line 1546) @<ast.Call object at 0x10c857490>
+  - `async list_scratchbook_notes_tool()` (line 1575) @<ast.Call object at 0x10c862390>
+  - `async delete_scratchbook_note_tool()` (line 1600) @<ast.Call object at 0x10c863850>
+  - `async search_memories_tool()` (line 1612) @<ast.Call object at 0x10c872750>,<ast.Call object at 0x10c872950>,<ast.Call object at 0x10c872d50>
+  - `async research_workspace()` (line 1692) @<ast.Call object at 0x10c882f50>
+  - `async hybrid_search_advanced_tool()` (line 1752) @<ast.Call object at 0x10c8a0990>
+  - `async add_watch_folder()` (line 1866) @<ast.Call object at 0x10c8b2690>
+  - `async remove_watch_folder()` (line 1957) @<ast.Call object at 0x10c8b37d0>
+  - `async list_watched_folders()` (line 1987) @<ast.Call object at 0x10c8b8f50>
+  - `async configure_watch_settings()` (line 2031) @<ast.Call object at 0x10c8c3a50>
+  - `async get_watch_status()` (line 2122) @<ast.Call object at 0x10c8ccc50>
+  - `async configure_advanced_watch()` (line 2156) @<ast.Call object at 0x10c8f5ad0>
+  - `async validate_watch_configuration()` (line 2372) @<ast.Call object at 0x10c916410>
+  - `async validate_watch_path()` (line 2534) @<ast.Call object at 0x10c92ebd0>
+  - `async get_watch_health_status()` (line 2682) @<ast.Call object at 0x10c9453d0>
+  - `async trigger_watch_recovery()` (line 2777) @<ast.Call object at 0x10c94ecd0>
+  - `async get_watch_sync_status()` (line 2867) @<ast.Call object at 0x10c9613d0>
+  - `async force_watch_sync()` (line 2955) @<ast.Call object at 0x10c968490>
+  - `async get_watch_change_history()` (line 3005) @<ast.Call object at 0x10c982ed0>
+  - `async test_grpc_connection_tool()` (line 3136) @<ast.Call object at 0x10c9920d0>
+  - `async get_grpc_engine_stats_tool()` (line 3168) @<ast.Call object at 0x10c99d6d0>
+  - `async process_document_via_grpc_tool()` (line 3208) @<ast.Call object at 0x10c9a9250>
+  - `async get_error_stats_tool()` (line 3257) @<ast.Call object at 0x10c9aba10>
+  - `async search_via_grpc_tool()` (line 3284) @<ast.Call object at 0x10c9bd050>
+  - `_format_time_ago()` (line 3337)
+  - `_detect_config_changes()` (line 3354)
+  - `async cleanup_workspace()` (line 3383)
+  - `setup_signal_handlers()` (line 3441)
+  - `signal_handler()` (line 3449)
+  - `atexit_cleanup()` (line 3475)
+  - `async initialize_workspace()` (line 3488) @<ast.Call object at 0x10ca1d990>,<ast.Call object at 0x10ca1dd90>
+  - `run_server()` (line 3694)
+  - `cleanup()` (line 3826)
+  - `main()` (line 3883)
+- Methods:
+  - `MCPStdoutWrapper.__init__()` (line 140)
+  - `MCPStdoutWrapper.buffer()` (line 145) @property
+  - `MCPStdoutWrapper.write()` (line 149)
+  - `MCPStdoutWrapper.flush()` (line 168)
+  - `MCPStdoutWrapper.__getattr__()` (line 171)
+  - `_NullHandler.emit()` (line 194)
+  - `_NullHandler.handle()` (line 195)
+  - `_NullHandler.createLock()` (line 196)
+
+### workspace_qdrant_mcp/stdio_server.py
+- Functions: 13
+- Methods: 3
+- Classes: 1
+- Lines: 258
+- Functions:
+  - `safe_log_error()` (line 54)
+  - `emit()` (line 69)
+  - `handle()` (line 70)
+  - `createLock()` (line 71)
+  - `_null_console_init()` (line 102)
+  - `_null_echo()` (line 122)
+  - `_null_secho()` (line 126)
+  - `run_lightweight_stdio_server()` (line 139)
+  - `async workspace_status()` (line 155) @<ast.Call object at 0x10c6e9c10>
+  - `async echo_test()` (line 167) @<ast.Call object at 0x10c6ea650>
+  - `async search_workspace()` (line 174) @<ast.Call object at 0x10c6eb810>
+  - `async get_server_info()` (line 200) @<ast.Call object at 0x10ca3d390>
+  - `main()` (line 233)
+- Methods:
+  - `_NullHandler.emit()` (line 69)
+  - `_NullHandler.handle()` (line 70)
+  - `_NullHandler.createLock()` (line 71)
+
+### workspace_qdrant_mcp/entry_point.py
+- Functions: 10
+- Methods: 6
+- Classes: 1
+- Lines: 191
+- Functions:
+  - `detect_stdio_mode()` (line 14)
+  - `run_stdio_mode()` (line 46)
+  - `__init__()` (line 72)
+  - `handle_initialize()` (line 75)
+  - `handle_tools_list()` (line 94)
+  - `handle_tool_call()` (line 106)
+  - `handle_request()` (line 130)
+  - `run()` (line 150)
+  - `run_full_mode()` (line 171)
+  - `main()` (line 181)
+- Methods:
+  - `StdioMCPServer.__init__()` (line 72)
+  - `StdioMCPServer.handle_initialize()` (line 75)
+  - `StdioMCPServer.handle_tools_list()` (line 94)
+  - `StdioMCPServer.handle_tool_call()` (line 106)
+  - `StdioMCPServer.handle_request()` (line 130)
+  - `StdioMCPServer.run()` (line 150)
+
+### workspace_qdrant_mcp/standalone_stdio_server.py
+- Functions: 12
+- Methods: 6
+- Classes: 1
+- Lines: 171
+- Functions:
+  - `__init__()` (line 33)
+  - `tool()` (line 36)
+  - `decorator()` (line 37)
+  - `run()` (line 41)
+  - `_run_jsonrpc_loop()` (line 44)
+  - `_handle_request()` (line 62)
+  - `_handle_tool_call()` (line 97)
+  - `create_standalone_server()` (line 124)
+  - `async workspace_status()` (line 129) @<ast.Call object at 0x10c6dad50>
+  - `async echo_test()` (line 140) @<ast.Call object at 0x10c6d9150>
+  - `async search_placeholder()` (line 145) @<ast.Call object at 0x10c6e8850>
+  - `main()` (line 158)
+- Methods:
+  - `MinimalStdioServer.__init__()` (line 33)
+  - `MinimalStdioServer.tool()` (line 36)
+  - `MinimalStdioServer.run()` (line 41)
+  - `MinimalStdioServer._run_jsonrpc_loop()` (line 44)
+  - `MinimalStdioServer._handle_request()` (line 62)
+  - `MinimalStdioServer._handle_tool_call()` (line 97)
+
+### workspace_qdrant_mcp/launcher.py
+- Functions: 8
+- Methods: 3
+- Classes: 1
+- Lines: 276
+- Functions:
+  - `_detect_stdio_at_import()` (line 14)
+  - `_setup_stdio_suppression()` (line 69)
+  - `detect_stdio_mode()` (line 88)
+  - `main()` (line 120)
+  - `_run_isolated_stdio_server()` (line 135)
+  - `__init__()` (line 165)
+  - `handle_request()` (line 184)
+  - `run_stdio()` (line 245)
+- Methods:
+  - `InlineMCPServer.__init__()` (line 165)
+  - `InlineMCPServer.handle_request()` (line 184)
+  - `InlineMCPServer.run_stdio()` (line 245)
+
+### workspace_qdrant_mcp/isolated_stdio_server.py
+- Functions: 10
+- Methods: 4
+- Classes: 1
+- Lines: 195
+- Functions:
+  - `__init__()` (line 34)
+  - `tool()` (line 38)
+  - `decorator()` (line 40)
+  - `handle_request()` (line 46)
+  - `run_stdio()` (line 114)
+  - `create_isolated_server()` (line 146)
+  - `workspace_status()` (line 152) @<ast.Call object at 0x10ca1c350>
+  - `echo_test()` (line 162) @<ast.Call object at 0x10c6f5bd0>
+  - `server_info()` (line 167) @<ast.Call object at 0x10c6f7210>
+  - `main()` (line 180)
+- Methods:
+  - `MinimalMCPServer.__init__()` (line 34)
+  - `MinimalMCPServer.tool()` (line 38)
+  - `MinimalMCPServer.handle_request()` (line 46)
+  - `MinimalMCPServer.run_stdio()` (line 114)
+
+### common/tools/performance_benchmark_cli.py
+- Functions: 18
+- Methods: 9
+- Classes: 1
+- Lines: 545
+- Functions:
+  - `__init__()` (line 55)
+  - `generate_synthetic_test_data()` (line 89)
+  - `async run_performance_benchmark()` (line 124)
+  - `async run_multi_tenant_benchmark()` (line 156)
+  - `_display_benchmark_results()` (line 199)
+  - `_display_multi_tenant_results()` (line 240)
+  - `async _save_benchmark_results()` (line 279)
+  - `async generate_performance_report()` (line 313)
+  - `async continuous_monitoring()` (line 356)
+  - `cli()` (line 441) @<ast.Call object at 0x10c72ba50>,<ast.Call object at 0x10c72bb50>,<ast.Call object at 0x10c6ea510>,<ast.Call object at 0x10c6ea110>,<ast.Call object at 0x10c6e8710>,<ast.Call object at 0x10c6e9a10>,<ast.Attribute object at 0x10c6eb210>
+  - `benchmark()` (line 470) @<ast.Call object at 0x10c6f1c90>,<ast.Call object at 0x10c6f1f10>,<ast.Call object at 0x10c6f3a90>,<ast.Call object at 0x10c6f37d0>,<ast.Call object at 0x10c6f2d50>,<ast.Attribute object at 0x10c6f2f50>
+  - `async run_benchmark()` (line 474)
+  - `multi_tenant()` (line 495) @<ast.Call object at 0x10c6e3990>,<ast.Call object at 0x10c6e05d0>,<ast.Call object at 0x10c6e0c90>,<ast.Call object at 0x10c6e0ed0>,<ast.Call object at 0x10c6bf210>,<ast.Attribute object at 0x10c776050>
+  - `async run_multi_tenant()` (line 499)
+  - `report()` (line 513) @<ast.Call object at 0x10c777490>,<ast.Call object at 0x10c777690>,<ast.Attribute object at 0x10c777b10>
+  - `async generate_report()` (line 517)
+  - `monitor()` (line 529) @<ast.Call object at 0x10c735410>,<ast.Call object at 0x10c735610>,<ast.Call object at 0x10c735a90>,<ast.Call object at 0x10c735f10>,<ast.Call object at 0x10c736390>,<ast.Attribute object at 0x10c736810>
+  - `async run_monitoring()` (line 533)
+- Methods:
+  - `PerformanceBenchmarkCLI.__init__()` (line 55)
+  - `PerformanceBenchmarkCLI.generate_synthetic_test_data()` (line 89)
+  - `async PerformanceBenchmarkCLI.run_performance_benchmark()` (line 124)
+  - `async PerformanceBenchmarkCLI.run_multi_tenant_benchmark()` (line 156)
+  - `PerformanceBenchmarkCLI._display_benchmark_results()` (line 199)
+  - `PerformanceBenchmarkCLI._display_multi_tenant_results()` (line 240)
+  - `async PerformanceBenchmarkCLI._save_benchmark_results()` (line 279)
+  - `async PerformanceBenchmarkCLI.generate_performance_report()` (line 313)
+  - `async PerformanceBenchmarkCLI.continuous_monitoring()` (line 356)
+
+### common/core/llm_access_control.py
+- Functions: 20
+- Methods: 16
+- Classes: 4
+- Lines: 577
+- Functions:
+  - `__init__()` (line 94)
+  - `__init__()` (line 108)
+  - `set_existing_collections()` (line 124)
+  - `can_llm_create_collection()` (line 133)
+  - `can_llm_delete_collection()` (line 149)
+  - `can_llm_write_to_collection()` (line 165)
+  - `validate_llm_collection_access()` (line 181)
+  - `_validate_create_access()` (line 235)
+  - `_validate_delete_access()` (line 312)
+  - `_validate_write_access()` (line 366)
+  - `get_forbidden_collection_patterns()` (line 401)
+  - `suggest_collection_name()` (line 416)
+  - `_build_forbidden_patterns()` (line 456)
+  - `_suggest_alternatives_for_system()` (line 472)
+  - `_suggest_alternatives_for_library()` (line 479)
+  - `_suggest_alternatives_for_global()` (line 486)
+  - `can_llm_create_collection()` (line 504)
+  - `can_llm_delete_collection()` (line 519)
+  - `validate_llm_collection_access()` (line 534)
+  - `get_forbidden_collection_patterns()` (line 550)
+- Methods:
+  - `LLMAccessControlError.__init__()` (line 94)
+  - `LLMAccessController.__init__()` (line 108)
+  - `LLMAccessController.set_existing_collections()` (line 124)
+  - `LLMAccessController.can_llm_create_collection()` (line 133)
+  - `LLMAccessController.can_llm_delete_collection()` (line 149)
+  - `LLMAccessController.can_llm_write_to_collection()` (line 165)
+  - `LLMAccessController.validate_llm_collection_access()` (line 181)
+  - `LLMAccessController._validate_create_access()` (line 235)
+  - `LLMAccessController._validate_delete_access()` (line 312)
+  - `LLMAccessController._validate_write_access()` (line 366)
+  - `LLMAccessController.get_forbidden_collection_patterns()` (line 401)
+  - `LLMAccessController.suggest_collection_name()` (line 416)
+  - `LLMAccessController._build_forbidden_patterns()` (line 456)
+  - `LLMAccessController._suggest_alternatives_for_system()` (line 472)
+  - `LLMAccessController._suggest_alternatives_for_library()` (line 479)
+  - `LLMAccessController._suggest_alternatives_for_global()` (line 486)
+
+### common/core/metadata_schema.py
+- Functions: 18
+- Methods: 18
+- Classes: 5
+- Lines: 700
+- Functions:
+  - `__post_init__()` (line 195)
+  - `_validate_required_fields()` (line 209)
+  - `_normalize_string_fields()` (line 221)
+  - `_validate_field_constraints()` (line 236)
+  - `to_qdrant_payload()` (line 259)
+  - `from_qdrant_payload()` (line 303) @classmethod
+  - `create_for_project()` (line 355) @classmethod
+  - `create_for_system()` (line 414) @classmethod
+  - `create_for_library()` (line 470) @classmethod
+  - `create_for_global()` (line 526) @classmethod
+  - `_generate_project_id()` (line 584) @staticmethod
+  - `get_indexed_fields()` (line 596)
+  - `matches_project_filter()` (line 618)
+  - `matches_collection_type_filter()` (line 630)
+  - `is_accessible_by_mcp()` (line 642)
+  - `is_writable_by_mcp()` (line 652)
+  - `is_globally_searchable()` (line 661)
+  - `update_timestamp()` (line 682)
+- Methods:
+  - `MultiTenantMetadataSchema.__post_init__()` (line 195)
+  - `MultiTenantMetadataSchema._validate_required_fields()` (line 209)
+  - `MultiTenantMetadataSchema._normalize_string_fields()` (line 221)
+  - `MultiTenantMetadataSchema._validate_field_constraints()` (line 236)
+  - `MultiTenantMetadataSchema.to_qdrant_payload()` (line 259)
+  - `MultiTenantMetadataSchema.from_qdrant_payload()` (line 303) @classmethod
+  - `MultiTenantMetadataSchema.create_for_project()` (line 355) @classmethod
+  - `MultiTenantMetadataSchema.create_for_system()` (line 414) @classmethod
+  - `MultiTenantMetadataSchema.create_for_library()` (line 470) @classmethod
+  - `MultiTenantMetadataSchema.create_for_global()` (line 526) @classmethod
+  - `MultiTenantMetadataSchema._generate_project_id()` (line 584) @staticmethod
+  - `MultiTenantMetadataSchema.get_indexed_fields()` (line 596)
+  - `MultiTenantMetadataSchema.matches_project_filter()` (line 618)
+  - `MultiTenantMetadataSchema.matches_collection_type_filter()` (line 630)
+  - `MultiTenantMetadataSchema.is_accessible_by_mcp()` (line 642)
+  - `MultiTenantMetadataSchema.is_writable_by_mcp()` (line 652)
+  - `MultiTenantMetadataSchema.is_globally_searchable()` (line 661)
+  - `MultiTenantMetadataSchema.update_timestamp()` (line 682)
+
+### common/core/advanced_watch_config.py
+- Functions: 18
+- Methods: 14
+- Classes: 6
+- Lines: 609
+- Functions:
+  - `_get_advanced_default_patterns()` (line 28)
+  - `_get_advanced_default_exclude_patterns()` (line 38)
+  - `_get_advanced_default_patterns()` (line 57)
+  - `_get_advanced_default_exclude_patterns()` (line 61)
+  - `validate_patterns()` (line 100) @<ast.Call object at 0x10ca1ef10>,classmethod
+  - `validate_regex_patterns()` (line 117) @<ast.Call object at 0x10c738b90>,classmethod
+  - `validate_exclude_dirs()` (line 148) @<ast.Call object at 0x10c701010>,classmethod
+  - `validate_routing_rules()` (line 208) @<ast.Call object at 0x10c6e3f50>,classmethod
+  - `validate()` (line 273)
+  - `get_effective_patterns()` (line 310)
+  - `should_process_file()` (line 374)
+  - `get_target_collection()` (line 435)
+  - `to_dict()` (line 473)
+  - `from_dict()` (line 493) @classmethod
+  - `validate_patterns()` (line 523) @staticmethod
+  - `validate_regex()` (line 537) @staticmethod
+  - `validate_collection_routing()` (line 546) @staticmethod
+  - `validate_performance_settings()` (line 583) @staticmethod
+- Methods:
+  - `FileFilterConfig.validate_patterns()` (line 100) @<ast.Call object at 0x10ca1ef10>,classmethod
+  - `FileFilterConfig.validate_regex_patterns()` (line 117) @<ast.Call object at 0x10c738b90>,classmethod
+  - `RecursiveConfig.validate_exclude_dirs()` (line 148) @<ast.Call object at 0x10c701010>,classmethod
+  - `CollectionTargeting.validate_routing_rules()` (line 208) @<ast.Call object at 0x10c6e3f50>,classmethod
+  - `AdvancedWatchConfig.validate()` (line 273)
+  - `AdvancedWatchConfig.get_effective_patterns()` (line 310)
+  - `AdvancedWatchConfig.should_process_file()` (line 374)
+  - `AdvancedWatchConfig.get_target_collection()` (line 435)
+  - `AdvancedWatchConfig.to_dict()` (line 473)
+  - `AdvancedWatchConfig.from_dict()` (line 493) @classmethod
+  - `AdvancedConfigValidator.validate_patterns()` (line 523) @staticmethod
+  - `AdvancedConfigValidator.validate_regex()` (line 537) @staticmethod
+  - `AdvancedConfigValidator.validate_collection_routing()` (line 546) @staticmethod
+  - `AdvancedConfigValidator.validate_performance_settings()` (line 583) @staticmethod
+
+### common/core/lsp_detector.py
+- Functions: 20
+- Methods: 17
+- Classes: 3
+- Lines: 700
+- Functions:
+  - `__init__()` (line 207)
+  - `_is_cache_valid()` (line 242)
+  - `_load_from_persistent_cache()` (line 248)
+  - `_check_binary_exists()` (line 283)
+  - `_get_lsp_version()` (line 304)
+  - `scan_available_lsps()` (line 356)
+  - `get_supported_extensions()` (line 449)
+  - `get_lsp_for_extension()` (line 505)
+  - `get_extension_lsp_map()` (line 529)
+  - `is_lsp_available()` (line 548)
+  - `clear_cache()` (line 561)
+  - `get_fallback_extensions_for_language()` (line 567)
+  - `get_build_tool_extensions()` (line 579)
+  - `get_infrastructure_extensions()` (line 591)
+  - `get_extensions_by_category()` (line 603)
+  - `get_priority_ordered_lsps()` (line 634)
+  - `get_detection_summary()` (line 646)
+  - `get_default_detector()` (line 685)
+  - `scan_lsps()` (line 693)
+  - `get_supported_extensions()` (line 698)
+- Methods:
+  - `LSPDetector.__init__()` (line 207)
+  - `LSPDetector._is_cache_valid()` (line 242)
+  - `LSPDetector._load_from_persistent_cache()` (line 248)
+  - `LSPDetector._check_binary_exists()` (line 283)
+  - `LSPDetector._get_lsp_version()` (line 304)
+  - `LSPDetector.scan_available_lsps()` (line 356)
+  - `LSPDetector.get_supported_extensions()` (line 449)
+  - `LSPDetector.get_lsp_for_extension()` (line 505)
+  - `LSPDetector.get_extension_lsp_map()` (line 529)
+  - `LSPDetector.is_lsp_available()` (line 548)
+  - `LSPDetector.clear_cache()` (line 561)
+  - `LSPDetector.get_fallback_extensions_for_language()` (line 567)
+  - `LSPDetector.get_build_tool_extensions()` (line 579)
+  - `LSPDetector.get_infrastructure_extensions()` (line 591)
+  - `LSPDetector.get_extensions_by_category()` (line 603)
+  - `LSPDetector.get_priority_ordered_lsps()` (line 634)
+  - `LSPDetector.get_detection_summary()` (line 646)
+
+### common/core/hybrid_search.py
+- Functions: 40
+- Methods: 40
+- Classes: 6
+- Lines: 2141
+- Functions:
+  - `__post_init__()` (line 114)
+  - `__init__()` (line 145)
+  - `deduplicate_results()` (line 154)
+  - `_get_group_key()` (line 210)
+  - `_aggregate_duplicate_results()` (line 229)
+  - `__init__()` (line 315)
+  - `aggregate_multi_collection_results()` (line 341)
+  - `_normalize_cross_collection_scores()` (line 451)
+  - `_convert_to_api_format()` (line 537)
+  - `__init__()` (line 592)
+  - `fuse()` (line 603)
+  - `explain_fusion()` (line 697)
+  - `__init__()` (line 784)
+  - `fuse()` (line 799)
+  - `_normalize_scores()` (line 852)
+  - `__init__()` (line 883)
+  - `async hybrid_search()` (line 956)
+  - `_max_score_fusion()` (line 1182)
+  - `_build_enhanced_filter()` (line 1210)
+  - `_build_legacy_filter()` (line 1318)
+  - `create_project_isolation_filter()` (line 1399)
+  - `get_filter_performance_stats()` (line 1433)
+  - `async search_project_workspace()` (line 1443)
+  - `async search_tenant_namespace()` (line 1493)
+  - `get_supported_workspace_types()` (line 1529)
+  - `validate_workspace_type()` (line 1539)
+  - `async multi_collection_hybrid_search()` (line 1554)
+  - `async _basic_multi_collection_search()` (line 1735)
+  - `configure_result_aggregation()` (line 1817)
+  - `get_result_aggregation_stats()` (line 1859)
+  - `async ensure_collection_optimized()` (line 1882)
+  - `get_optimization_performance()` (line 1921)
+  - `clear_optimization_caches()` (line 1953)
+  - `get_performance_alerts()` (line 1971)
+  - `get_performance_monitoring_status()` (line 1995)
+  - `get_performance_dashboard_data()` (line 2006)
+  - `async run_performance_benchmark()` (line 2017)
+  - `record_search_accuracy()` (line 2076)
+  - `async export_performance_report()` (line 2118)
+  - `get_baseline_configuration()` (line 2132)
+- Methods:
+  - `TenantAwareResult.__post_init__()` (line 114)
+  - `TenantAwareResultDeduplicator.__init__()` (line 145)
+  - `TenantAwareResultDeduplicator.deduplicate_results()` (line 154)
+  - `TenantAwareResultDeduplicator._get_group_key()` (line 210)
+  - `TenantAwareResultDeduplicator._aggregate_duplicate_results()` (line 229)
+  - `MultiTenantResultAggregator.__init__()` (line 315)
+  - `MultiTenantResultAggregator.aggregate_multi_collection_results()` (line 341)
+  - `MultiTenantResultAggregator._normalize_cross_collection_scores()` (line 451)
+  - `MultiTenantResultAggregator._convert_to_api_format()` (line 537)
+  - `RRFFusionRanker.__init__()` (line 592)
+  - `RRFFusionRanker.fuse()` (line 603)
+  - `RRFFusionRanker.explain_fusion()` (line 697)
+  - `WeightedSumFusionRanker.__init__()` (line 784)
+  - `WeightedSumFusionRanker.fuse()` (line 799)
+  - `WeightedSumFusionRanker._normalize_scores()` (line 852)
+  - `HybridSearchEngine.__init__()` (line 883)
+  - `async HybridSearchEngine.hybrid_search()` (line 956)
+  - `HybridSearchEngine._max_score_fusion()` (line 1182)
+  - `HybridSearchEngine._build_enhanced_filter()` (line 1210)
+  - `HybridSearchEngine._build_legacy_filter()` (line 1318)
+  - `HybridSearchEngine.create_project_isolation_filter()` (line 1399)
+  - `HybridSearchEngine.get_filter_performance_stats()` (line 1433)
+  - `async HybridSearchEngine.search_project_workspace()` (line 1443)
+  - `async HybridSearchEngine.search_tenant_namespace()` (line 1493)
+  - `HybridSearchEngine.get_supported_workspace_types()` (line 1529)
+  - `HybridSearchEngine.validate_workspace_type()` (line 1539)
+  - `async HybridSearchEngine.multi_collection_hybrid_search()` (line 1554)
+  - `async HybridSearchEngine._basic_multi_collection_search()` (line 1735)
+  - `HybridSearchEngine.configure_result_aggregation()` (line 1817)
+  - `HybridSearchEngine.get_result_aggregation_stats()` (line 1859)
+  - `async HybridSearchEngine.ensure_collection_optimized()` (line 1882)
+  - `HybridSearchEngine.get_optimization_performance()` (line 1921)
+  - `HybridSearchEngine.clear_optimization_caches()` (line 1953)
+  - `HybridSearchEngine.get_performance_alerts()` (line 1971)
+  - `HybridSearchEngine.get_performance_monitoring_status()` (line 1995)
+  - `HybridSearchEngine.get_performance_dashboard_data()` (line 2006)
+  - `async HybridSearchEngine.run_performance_benchmark()` (line 2017)
+  - `HybridSearchEngine.record_search_accuracy()` (line 2076)
+  - `async HybridSearchEngine.export_performance_report()` (line 2118)
+  - `HybridSearchEngine.get_baseline_configuration()` (line 2132)
+
+### common/core/graceful_degradation.py
+- Functions: 44
+- Methods: 42
+- Classes: 9
+- Lines: 1156
+- Functions:
+  - `__lt__()` (line 80)
+  - `__le__()` (line 85)
+  - `__gt__()` (line 90)
+  - `__ge__()` (line 95)
+  - `should_allow_request()` (line 178)
+  - `record_success()` (line 195)
+  - `record_failure()` (line 205)
+  - `__post_init__()` (line 233)
+  - `__init__()` (line 339)
+  - `_initialize_feature_configs()` (line 397)
+  - `async initialize()` (line 419)
+  - `async _start_monitoring_tasks()` (line 448)
+  - `async _degradation_monitoring_loop()` (line 457)
+  - `async _resource_monitoring_loop()` (line 478)
+  - `async _cache_cleanup_loop()` (line 491)
+  - `async _evaluate_degradation_mode()` (line 504)
+  - `_calculate_degradation_mode()` (line 548)
+  - `async _change_degradation_mode()` (line 591)
+  - `_update_disabled_features_for_mode()` (line 637)
+  - `_generate_user_guidance()` (line 643)
+  - `async _update_circuit_breakers()` (line 699)
+  - `async _update_feature_availability()` (line 725)
+  - `async _monitor_resource_usage()` (line 731)
+  - `async _cleanup_expired_cache()` (line 766)
+  - `is_feature_available()` (line 786)
+  - `get_available_features()` (line 798)
+  - `get_unavailable_features()` (line 808)
+  - `async get_fallback_response()` (line 817)
+  - `async _generate_fallback_response()` (line 873)
+  - `should_throttle_request()` (line 904)
+  - `get_circuit_breaker_state()` (line 922)
+  - `is_component_available()` (line 936)
+  - `async record_component_success()` (line 950)
+  - `async record_component_failure()` (line 955)
+  - `register_notification_handler()` (line 960)
+  - `async _handle_health_notification()` (line 967)
+  - `async _send_degradation_notification()` (line 973)
+  - `async _store_degradation_event()` (line 1012)
+  - `get_degradation_status()` (line 1030)
+  - `async force_degradation_mode()` (line 1075)
+  - `async shutdown()` (line 1090)
+  - `async degradation_context()` (line 1109) @asynccontextmanager
+  - `async get_degradation_manager()` (line 1130)
+  - `async shutdown_degradation_manager()` (line 1150)
+- Methods:
+  - `DegradationMode.__lt__()` (line 80)
+  - `DegradationMode.__le__()` (line 85)
+  - `DegradationMode.__gt__()` (line 90)
+  - `DegradationMode.__ge__()` (line 95)
+  - `CircuitBreaker.should_allow_request()` (line 178)
+  - `CircuitBreaker.record_success()` (line 195)
+  - `CircuitBreaker.record_failure()` (line 205)
+  - `DegradationEvent.__post_init__()` (line 233)
+  - `DegradationManager.__init__()` (line 339)
+  - `DegradationManager._initialize_feature_configs()` (line 397)
+  - `async DegradationManager.initialize()` (line 419)
+  - `async DegradationManager._start_monitoring_tasks()` (line 448)
+  - `async DegradationManager._degradation_monitoring_loop()` (line 457)
+  - `async DegradationManager._resource_monitoring_loop()` (line 478)
+  - `async DegradationManager._cache_cleanup_loop()` (line 491)
+  - `async DegradationManager._evaluate_degradation_mode()` (line 504)
+  - `DegradationManager._calculate_degradation_mode()` (line 548)
+  - `async DegradationManager._change_degradation_mode()` (line 591)
+  - `DegradationManager._update_disabled_features_for_mode()` (line 637)
+  - `DegradationManager._generate_user_guidance()` (line 643)
+  - `async DegradationManager._update_circuit_breakers()` (line 699)
+  - `async DegradationManager._update_feature_availability()` (line 725)
+  - `async DegradationManager._monitor_resource_usage()` (line 731)
+  - `async DegradationManager._cleanup_expired_cache()` (line 766)
+  - `DegradationManager.is_feature_available()` (line 786)
+  - `DegradationManager.get_available_features()` (line 798)
+  - `DegradationManager.get_unavailable_features()` (line 808)
+  - `async DegradationManager.get_fallback_response()` (line 817)
+  - `async DegradationManager._generate_fallback_response()` (line 873)
+  - `DegradationManager.should_throttle_request()` (line 904)
+  - `DegradationManager.get_circuit_breaker_state()` (line 922)
+  - `DegradationManager.is_component_available()` (line 936)
+  - `async DegradationManager.record_component_success()` (line 950)
+  - `async DegradationManager.record_component_failure()` (line 955)
+  - `DegradationManager.register_notification_handler()` (line 960)
+  - `async DegradationManager._handle_health_notification()` (line 967)
+  - `async DegradationManager._send_degradation_notification()` (line 973)
+  - `async DegradationManager._store_degradation_event()` (line 1012)
+  - `DegradationManager.get_degradation_status()` (line 1030)
+  - `async DegradationManager.force_degradation_mode()` (line 1075)
+  - `async DegradationManager.shutdown()` (line 1090)
+  - `async DegradationManager.degradation_context()` (line 1109) @asynccontextmanager
+
+### common/core/config.py
+- Functions: 23
+- Methods: 22
+- Classes: 6
+- Lines: 1192
+- Functions:
+  - `setup_stdio_environment()` (line 67)
+  - `effective_collection_types()` (line 203) @property
+  - `create_pattern_manager()` (line 208)
+  - `__init__()` (line 355)
+  - `_load_yaml_config()` (line 386)
+  - `_process_yaml_structure()` (line 432)
+  - `_find_default_config_file()` (line 480)
+  - `_get_xdg_config_dirs()` (line 535)
+  - `_apply_yaml_overrides()` (line 573)
+  - `from_yaml()` (line 594) @classmethod
+  - `to_yaml()` (line 611)
+  - `_load_nested_env_vars()` (line 657)
+  - `_load_legacy_env_vars()` (line 743)
+  - `qdrant_client_config()` (line 777) @property
+  - `validate_config()` (line 808)
+  - `get_auto_ingestion_diagnostics()` (line 937)
+  - `_get_auto_ingestion_summary()` (line 998)
+  - `get_effective_auto_ingestion_behavior()` (line 1018)
+  - `_current_project_name()` (line 1046)
+  - `_filter_qdrant_config()` (line 1057)
+  - `_filter_auto_ingestion_config()` (line 1090)
+  - `_migrate_workspace_config()` (line 1119)
+  - `_migrate_auto_ingestion_config()` (line 1168)
+- Methods:
+  - `WorkspaceConfig.effective_collection_types()` (line 203) @property
+  - `WorkspaceConfig.create_pattern_manager()` (line 208)
+  - `Config.__init__()` (line 355)
+  - `Config._load_yaml_config()` (line 386)
+  - `Config._process_yaml_structure()` (line 432)
+  - `Config._find_default_config_file()` (line 480)
+  - `Config._get_xdg_config_dirs()` (line 535)
+  - `Config._apply_yaml_overrides()` (line 573)
+  - `Config.from_yaml()` (line 594) @classmethod
+  - `Config.to_yaml()` (line 611)
+  - `Config._load_nested_env_vars()` (line 657)
+  - `Config._load_legacy_env_vars()` (line 743)
+  - `Config.qdrant_client_config()` (line 777) @property
+  - `Config.validate_config()` (line 808)
+  - `Config.get_auto_ingestion_diagnostics()` (line 937)
+  - `Config._get_auto_ingestion_summary()` (line 998)
+  - `Config.get_effective_auto_ingestion_behavior()` (line 1018)
+  - `Config._current_project_name()` (line 1046)
+  - `Config._filter_qdrant_config()` (line 1057)
+  - `Config._filter_auto_ingestion_config()` (line 1090)
+  - `Config._migrate_workspace_config()` (line 1119)
+  - `Config._migrate_auto_ingestion_config()` (line 1168)
+
+### common/core/sparse_vectors.py
+- Functions: 16
+- Methods: 13
+- Classes: 1
+- Lines: 823
+- Functions:
+  - `word_tokenize()` (line 99)
+  - `__init__()` (line 189)
+  - `async initialize()` (line 241)
+  - `encode()` (line 330)
+  - `async encode_single()` (line 430)
+  - `async encode_batch()` (line 434)
+  - `async _encode_with_fastembed()` (line 502)
+  - `_encode_with_custom_bm25()` (line 536)
+  - `_build_vocabulary()` (line 549)
+  - `_compute_bm25_scores()` (line 587)
+  - `_tokenize()` (line 626)
+  - `get_vocabulary()` (line 639)
+  - `get_vocab_size()` (line 647)
+  - `get_model_info()` (line 651)
+  - `create_qdrant_sparse_vector()` (line 716)
+  - `create_named_sparse_vector()` (line 766)
+- Methods:
+  - `BM25SparseEncoder.__init__()` (line 189)
+  - `async BM25SparseEncoder.initialize()` (line 241)
+  - `BM25SparseEncoder.encode()` (line 330)
+  - `async BM25SparseEncoder.encode_single()` (line 430)
+  - `async BM25SparseEncoder.encode_batch()` (line 434)
+  - `async BM25SparseEncoder._encode_with_fastembed()` (line 502)
+  - `BM25SparseEncoder._encode_with_custom_bm25()` (line 536)
+  - `BM25SparseEncoder._build_vocabulary()` (line 549)
+  - `BM25SparseEncoder._compute_bm25_scores()` (line 587)
+  - `BM25SparseEncoder._tokenize()` (line 626)
+  - `BM25SparseEncoder.get_vocabulary()` (line 639)
+  - `BM25SparseEncoder.get_vocab_size()` (line 647)
+  - `BM25SparseEncoder.get_model_info()` (line 651)
+
+### common/core/logging_config.py
+- Functions: 8
+- Methods: 6
+- Classes: 2
+- Lines: 130
+- Functions:
+  - `__init__()` (line 23)
+  - `setup_structured_logging()` (line 27)
+  - `log_performance()` (line 40)
+  - `setup_logging()` (line 55)
+  - `__init__()` (line 110)
+  - `__enter__()` (line 116)
+  - `__exit__()` (line 120)
+  - `get_structured_logger()` (line 128)
+- Methods:
+  - `PerformanceLogger.__init__()` (line 23)
+  - `PerformanceLogger.setup_structured_logging()` (line 27)
+  - `PerformanceLogger.log_performance()` (line 40)
+  - `ContextTimer.__init__()` (line 110)
+  - `ContextTimer.__enter__()` (line 116)
+  - `ContextTimer.__exit__()` (line 120)
+
+### common/core/watch_config.py
+- Functions: 26
+- Methods: 22
+- Classes: 4
+- Lines: 713
+- Functions:
+  - `_get_default_patterns()` (line 31)
+  - `_get_default_ignore_patterns()` (line 41)
+  - `_get_default_patterns()` (line 64)
+  - `_get_default_ignore_patterns()` (line 68)
+  - `validate_path_exists()` (line 139) @<ast.Call object at 0x10c6daa10>,classmethod
+  - `validate_patterns()` (line 150) @<ast.Call object at 0x10c6db510>,classmethod
+  - `to_dict()` (line 211)
+  - `from_dict()` (line 216) @classmethod
+  - `validate()` (line 222)
+  - `get_effective_patterns()` (line 255)
+  - `__init__()` (line 305)
+  - `_get_default_database_path()` (line 332)
+  - `_initialize_database()` (line 339)
+  - `_watch_config_to_dict()` (line 369)
+  - `_dict_to_watch_config()` (line 391)
+  - `async load_config()` (line 413)
+  - `async save_config()` (line 452)
+  - `async add_watch_config()` (line 463)
+  - `async remove_watch_config()` (line 501)
+  - `async update_watch_config()` (line 520)
+  - `async list_watch_configs()` (line 561)
+  - `async get_watch_config()` (line 601)
+  - `async validate_all_configs()` (line 629)
+  - `get_database_path()` (line 642)
+  - `async backup_config()` (line 646)
+  - `async migrate_from_json()` (line 669)
+- Methods:
+  - `WatchConfigSchema.validate_path_exists()` (line 139) @<ast.Call object at 0x10c6daa10>,classmethod
+  - `WatchConfigSchema.validate_patterns()` (line 150) @<ast.Call object at 0x10c6db510>,classmethod
+  - `WatchConfigurationPersistent.to_dict()` (line 211)
+  - `WatchConfigurationPersistent.from_dict()` (line 216) @classmethod
+  - `WatchConfigurationPersistent.validate()` (line 222)
+  - `WatchConfigurationPersistent.get_effective_patterns()` (line 255)
+  - `DatabaseWatchConfigManager.__init__()` (line 305)
+  - `DatabaseWatchConfigManager._get_default_database_path()` (line 332)
+  - `DatabaseWatchConfigManager._initialize_database()` (line 339)
+  - `DatabaseWatchConfigManager._watch_config_to_dict()` (line 369)
+  - `DatabaseWatchConfigManager._dict_to_watch_config()` (line 391)
+  - `async DatabaseWatchConfigManager.load_config()` (line 413)
+  - `async DatabaseWatchConfigManager.save_config()` (line 452)
+  - `async DatabaseWatchConfigManager.add_watch_config()` (line 463)
+  - `async DatabaseWatchConfigManager.remove_watch_config()` (line 501)
+  - `async DatabaseWatchConfigManager.update_watch_config()` (line 520)
+  - `async DatabaseWatchConfigManager.list_watch_configs()` (line 561)
+  - `async DatabaseWatchConfigManager.get_watch_config()` (line 601)
+  - `async DatabaseWatchConfigManager.validate_all_configs()` (line 629)
+  - `DatabaseWatchConfigManager.get_database_path()` (line 642)
+  - `async DatabaseWatchConfigManager.backup_config()` (line 646)
+  - `async DatabaseWatchConfigManager.migrate_from_json()` (line 669)
+
+### common/core/state_aware_ingestion.py
+- Functions: 3
+- Methods: 0
+- Classes: 0
+- Lines: 70
+- Functions:
+  - `_is_stdio_mode()` (line 8)
+  - `async get_ingestion_manager()` (line 37)
+  - `async shutdown_ingestion_manager()` (line 63)
+
+### common/core/lsp_metadata_extractor.py
+- Functions: 63
+- Methods: 62
+- Classes: 18
+- Lines: 1948
+- Functions:
+  - `to_dict()` (line 112)
+  - `from_lsp()` (line 116) @classmethod
+  - `to_dict()` (line 130)
+  - `from_lsp()` (line 137) @classmethod
+  - `to_dict()` (line 155)
+  - `to_dict()` (line 175)
+  - `to_dict()` (line 225)
+  - `get_full_name()` (line 248)
+  - `get_signature()` (line 254)
+  - `to_dict()` (line 295)
+  - `to_dict()` (line 325)
+  - `to_dict()` (line 357)
+  - `extract_documentation()` (line 383) @abstractmethod
+  - `extract_type_information()` (line 388) @abstractmethod
+  - `extract_imports_exports()` (line 393) @abstractmethod
+  - `get_minimal_context()` (line 398) @abstractmethod
+  - `extract_documentation()` (line 406)
+  - `extract_type_information()` (line 449)
+  - `extract_imports_exports()` (line 488)
+  - `get_minimal_context()` (line 513)
+  - `extract_documentation()` (line 541)
+  - `extract_type_information()` (line 575)
+  - `extract_imports_exports()` (line 592)
+  - `get_minimal_context()` (line 610)
+  - `extract_documentation()` (line 630)
+  - `extract_type_information()` (line 671)
+  - `extract_imports_exports()` (line 688)
+  - `get_minimal_context()` (line 706)
+  - `extract_documentation()` (line 726)
+  - `extract_type_information()` (line 767)
+  - `extract_imports_exports()` (line 786)
+  - `get_minimal_context()` (line 804)
+  - `extract_documentation()` (line 824)
+  - `extract_type_information()` (line 846)
+  - `extract_imports_exports()` (line 865)
+  - `get_minimal_context()` (line 900)
+  - `extract_documentation()` (line 920)
+  - `extract_type_information()` (line 954)
+  - `extract_imports_exports()` (line 973)
+  - `get_minimal_context()` (line 993)
+  - `__init__()` (line 1028)
+  - `async initialize()` (line 1130)
+  - `async _detect_languages()` (line 1166)
+  - `async _initialize_lsp_client()` (line 1179)
+  - `_get_language_from_file()` (line 1223)
+  - `async extract_file_metadata()` (line 1233)
+  - `async _extract_file_metadata_impl()` (line 1251)
+  - `async _extract_document_symbols()` (line 1411)
+  - `async _process_symbol_hierarchy()` (line 1448)
+  - `async _create_code_symbol()` (line 1496)
+  - `async _extract_file_documentation()` (line 1588)
+  - `async _extract_symbol_relationships()` (line 1636)
+  - `_cache_metadata()` (line 1708)
+  - `async extract_directory_metadata()` (line 1723)
+  - `async process_file()` (line 1777)
+  - `async build_relationship_graph()` (line 1803)
+  - `_parse_import_statement()` (line 1874)
+  - `get_statistics()` (line 1906)
+  - `reset_statistics()` (line 1910)
+  - `clear_cache()` (line 1914)
+  - `async shutdown()` (line 1919)
+  - `async __aenter__()` (line 1942)
+  - `async __aexit__()` (line 1946)
+- Methods:
+  - `Position.to_dict()` (line 112)
+  - `Position.from_lsp()` (line 116) @classmethod
+  - `Range.to_dict()` (line 130)
+  - `Range.from_lsp()` (line 137) @classmethod
+  - `TypeInformation.to_dict()` (line 155)
+  - `Documentation.to_dict()` (line 175)
+  - `CodeSymbol.to_dict()` (line 225)
+  - `CodeSymbol.get_full_name()` (line 248)
+  - `CodeSymbol.get_signature()` (line 254)
+  - `SymbolRelationship.to_dict()` (line 295)
+  - `FileMetadata.to_dict()` (line 325)
+  - `ExtractionStatistics.to_dict()` (line 357)
+  - `LanguageSpecificExtractor.extract_documentation()` (line 383) @abstractmethod
+  - `LanguageSpecificExtractor.extract_type_information()` (line 388) @abstractmethod
+  - `LanguageSpecificExtractor.extract_imports_exports()` (line 393) @abstractmethod
+  - `LanguageSpecificExtractor.get_minimal_context()` (line 398) @abstractmethod
+  - `PythonExtractor.extract_documentation()` (line 406)
+  - `PythonExtractor.extract_type_information()` (line 449)
+  - `PythonExtractor.extract_imports_exports()` (line 488)
+  - `PythonExtractor.get_minimal_context()` (line 513)
+  - `RustExtractor.extract_documentation()` (line 541)
+  - `RustExtractor.extract_type_information()` (line 575)
+  - `RustExtractor.extract_imports_exports()` (line 592)
+  - `RustExtractor.get_minimal_context()` (line 610)
+  - `JavaScriptExtractor.extract_documentation()` (line 630)
+  - `JavaScriptExtractor.extract_type_information()` (line 671)
+  - `JavaScriptExtractor.extract_imports_exports()` (line 688)
+  - `JavaScriptExtractor.get_minimal_context()` (line 706)
+  - `JavaExtractor.extract_documentation()` (line 726)
+  - `JavaExtractor.extract_type_information()` (line 767)
+  - `JavaExtractor.extract_imports_exports()` (line 786)
+  - `JavaExtractor.get_minimal_context()` (line 804)
+  - `GoExtractor.extract_documentation()` (line 824)
+  - `GoExtractor.extract_type_information()` (line 846)
+  - `GoExtractor.extract_imports_exports()` (line 865)
+  - `GoExtractor.get_minimal_context()` (line 900)
+  - `CppExtractor.extract_documentation()` (line 920)
+  - `CppExtractor.extract_type_information()` (line 954)
+  - `CppExtractor.extract_imports_exports()` (line 973)
+  - `CppExtractor.get_minimal_context()` (line 993)
+  - `LspMetadataExtractor.__init__()` (line 1028)
+  - `async LspMetadataExtractor.initialize()` (line 1130)
+  - `async LspMetadataExtractor._detect_languages()` (line 1166)
+  - `async LspMetadataExtractor._initialize_lsp_client()` (line 1179)
+  - `LspMetadataExtractor._get_language_from_file()` (line 1223)
+  - `async LspMetadataExtractor.extract_file_metadata()` (line 1233)
+  - `async LspMetadataExtractor._extract_file_metadata_impl()` (line 1251)
+  - `async LspMetadataExtractor._extract_document_symbols()` (line 1411)
+  - `async LspMetadataExtractor._process_symbol_hierarchy()` (line 1448)
+  - `async LspMetadataExtractor._create_code_symbol()` (line 1496)
+  - `async LspMetadataExtractor._extract_file_documentation()` (line 1588)
+  - `async LspMetadataExtractor._extract_symbol_relationships()` (line 1636)
+  - `LspMetadataExtractor._cache_metadata()` (line 1708)
+  - `async LspMetadataExtractor.extract_directory_metadata()` (line 1723)
+  - `async LspMetadataExtractor.build_relationship_graph()` (line 1803)
+  - `LspMetadataExtractor._parse_import_statement()` (line 1874)
+  - `LspMetadataExtractor.get_statistics()` (line 1906)
+  - `LspMetadataExtractor.reset_statistics()` (line 1910)
+  - `LspMetadataExtractor.clear_cache()` (line 1914)
+  - `async LspMetadataExtractor.shutdown()` (line 1919)
+  - `async LspMetadataExtractor.__aenter__()` (line 1942)
+  - `async LspMetadataExtractor.__aexit__()` (line 1946)
+
+### common/core/memory.py
+- Functions: 18
+- Methods: 16
+- Classes: 7
+- Lines: 952
+- Functions:
+  - `__post_init__()` (line 102)
+  - `__init__()` (line 197)
+  - `async initialize_memory_collection()` (line 237)
+  - `async add_memory_rule()` (line 277)
+  - `async get_memory_rule()` (line 380)
+  - `async list_memory_rules()` (line 416)
+  - `async update_memory_rule()` (line 493)
+  - `async delete_memory_rule()` (line 568)
+  - `async search_memory_rules()` (line 601)
+  - `async detect_conflicts()` (line 676)
+  - `async get_memory_stats()` (line 720)
+  - `async optimize_memory()` (line 752)
+  - `_generate_rule_id()` (line 777)
+  - `_point_to_memory_rule()` (line 783)
+  - `_rules_conflict()` (line 806)
+  - `async _handle_rule_replacement()` (line 841)
+  - `create_memory_manager()` (line 861)
+  - `parse_conversational_memory_update()` (line 890)
+- Methods:
+  - `MemoryRule.__post_init__()` (line 102)
+  - `MemoryManager.__init__()` (line 197)
+  - `async MemoryManager.initialize_memory_collection()` (line 237)
+  - `async MemoryManager.add_memory_rule()` (line 277)
+  - `async MemoryManager.get_memory_rule()` (line 380)
+  - `async MemoryManager.list_memory_rules()` (line 416)
+  - `async MemoryManager.update_memory_rule()` (line 493)
+  - `async MemoryManager.delete_memory_rule()` (line 568)
+  - `async MemoryManager.search_memory_rules()` (line 601)
+  - `async MemoryManager.detect_conflicts()` (line 676)
+  - `async MemoryManager.get_memory_stats()` (line 720)
+  - `async MemoryManager.optimize_memory()` (line 752)
+  - `MemoryManager._generate_rule_id()` (line 777)
+  - `MemoryManager._point_to_memory_rule()` (line 783)
+  - `MemoryManager._rules_conflict()` (line 806)
+  - `async MemoryManager._handle_rule_replacement()` (line 841)
+
+### common/core/component_isolation.py
+- Functions: 42
+- Methods: 40
+- Classes: 13
+- Lines: 1435
+- Functions:
+  - `__post_init__()` (line 188)
+  - `__init__()` (line 304)
+  - `async initialize()` (line 378)
+  - `async _discover_existing_processes()` (line 415)
+  - `_identify_component_from_cmdline()` (line 449)
+  - `async _start_monitoring_tasks()` (line 467)
+  - `async _resource_monitoring_loop()` (line 478)
+  - `async _boundary_monitoring_loop()` (line 491)
+  - `async _process_health_monitoring_loop()` (line 504)
+  - `async _timeout_cleanup_loop()` (line 517)
+  - `async _isolation_metrics_loop()` (line 530)
+  - `async _check_resource_usage()` (line 543)
+  - `async _check_resource_violations()` (line 611)
+  - `async _check_boundary_violations()` (line 669)
+  - `async _check_process_health()` (line 712)
+  - `async _handle_process_termination()` (line 765)
+  - `async _cleanup_expired_timeouts()` (line 800)
+  - `async _update_isolation_metrics()` (line 820)
+  - `async component_boundary()` (line 854) @asynccontextmanager
+  - `_handle_call_timeout()` (line 955)
+  - `_is_allowed_exception()` (line 977)
+  - `_is_critical_exception()` (line 982)
+  - `async _record_successful_operation()` (line 987)
+  - `async _record_operation_error()` (line 996)
+  - `async _trigger_component_isolation()` (line 1012)
+  - `async set_component_resource_limits()` (line 1046)
+  - `async set_component_boundary()` (line 1067)
+  - `async get_isolation_status()` (line 1086)
+  - `async force_component_isolation()` (line 1165)
+  - `async _terminate_violating_process()` (line 1180)
+  - `async _send_resource_violation_notification()` (line 1222)
+  - `async _send_isolation_notification()` (line 1252)
+  - `async _handle_degradation_notification()` (line 1282)
+  - `async _handle_recovery_notification()` (line 1294)
+  - `async _handle_health_notification()` (line 1299)
+  - `register_notification_handler()` (line 1311)
+  - `async shutdown()` (line 1318)
+  - `__init__()` (line 1349)
+  - `get_elapsed_time()` (line 1365)
+  - `async check_timeout()` (line 1369)
+  - `async get_isolation_manager()` (line 1407)
+  - `async shutdown_isolation_manager()` (line 1429)
+- Methods:
+  - `IsolationEvent.__post_init__()` (line 188)
+  - `ComponentIsolationManager.__init__()` (line 304)
+  - `async ComponentIsolationManager.initialize()` (line 378)
+  - `async ComponentIsolationManager._discover_existing_processes()` (line 415)
+  - `ComponentIsolationManager._identify_component_from_cmdline()` (line 449)
+  - `async ComponentIsolationManager._start_monitoring_tasks()` (line 467)
+  - `async ComponentIsolationManager._resource_monitoring_loop()` (line 478)
+  - `async ComponentIsolationManager._boundary_monitoring_loop()` (line 491)
+  - `async ComponentIsolationManager._process_health_monitoring_loop()` (line 504)
+  - `async ComponentIsolationManager._timeout_cleanup_loop()` (line 517)
+  - `async ComponentIsolationManager._isolation_metrics_loop()` (line 530)
+  - `async ComponentIsolationManager._check_resource_usage()` (line 543)
+  - `async ComponentIsolationManager._check_resource_violations()` (line 611)
+  - `async ComponentIsolationManager._check_boundary_violations()` (line 669)
+  - `async ComponentIsolationManager._check_process_health()` (line 712)
+  - `async ComponentIsolationManager._handle_process_termination()` (line 765)
+  - `async ComponentIsolationManager._cleanup_expired_timeouts()` (line 800)
+  - `async ComponentIsolationManager._update_isolation_metrics()` (line 820)
+  - `async ComponentIsolationManager.component_boundary()` (line 854) @asynccontextmanager
+  - `ComponentIsolationManager._handle_call_timeout()` (line 955)
+  - `ComponentIsolationManager._is_allowed_exception()` (line 977)
+  - `ComponentIsolationManager._is_critical_exception()` (line 982)
+  - `async ComponentIsolationManager._record_successful_operation()` (line 987)
+  - `async ComponentIsolationManager._record_operation_error()` (line 996)
+  - `async ComponentIsolationManager._trigger_component_isolation()` (line 1012)
+  - `async ComponentIsolationManager.set_component_resource_limits()` (line 1046)
+  - `async ComponentIsolationManager.set_component_boundary()` (line 1067)
+  - `async ComponentIsolationManager.get_isolation_status()` (line 1086)
+  - `async ComponentIsolationManager.force_component_isolation()` (line 1165)
+  - `async ComponentIsolationManager._terminate_violating_process()` (line 1180)
+  - `async ComponentIsolationManager._send_resource_violation_notification()` (line 1222)
+  - `async ComponentIsolationManager._send_isolation_notification()` (line 1252)
+  - `async ComponentIsolationManager._handle_degradation_notification()` (line 1282)
+  - `async ComponentIsolationManager._handle_recovery_notification()` (line 1294)
+  - `async ComponentIsolationManager._handle_health_notification()` (line 1299)
+  - `ComponentIsolationManager.register_notification_handler()` (line 1311)
+  - `async ComponentIsolationManager.shutdown()` (line 1318)
+  - `ComponentBoundaryContext.__init__()` (line 1349)
+  - `ComponentBoundaryContext.get_elapsed_time()` (line 1365)
+  - `async ComponentBoundaryContext.check_timeout()` (line 1369)
+
+### common/core/daemon_manager.py
+- Functions: 51
+- Methods: 44
+- Classes: 5
+- Lines: 1421
+- Functions:
+  - `from_project_config()` (line 71) @classmethod
+  - `__init__()` (line 128)
+  - `allocate_port()` (line 142)
+  - `release_port()` (line 186)
+  - `get_allocated_ports()` (line 207)
+  - `is_port_allocated()` (line 215)
+  - `_is_port_available()` (line 226)
+  - `_is_port_usable()` (line 243)
+  - `_get_project_port()` (line 258)
+  - `_register_port()` (line 272)
+  - `_cleanup_stale_allocations()` (line 290)
+  - `_load_registry()` (line 321)
+  - `_save_registry()` (line 342)
+  - `get_instance()` (line 358) @classmethod
+  - `__init__()` (line 368)
+  - `async start()` (line 402)
+  - `async stop()` (line 559)
+  - `async restart()` (line 667)
+  - `async health_check()` (line 692)
+  - `add_log_handler()` (line 769)
+  - `async get_status()` (line 773)
+  - `_on_config_change()` (line 798)
+  - `async _update_resource_limits()` (line 832)
+  - `async _write_config_file()` (line 868)
+  - `async _find_daemon_binary()` (line 937)
+  - `async _wait_for_startup()` (line 996)
+  - `async _health_monitor_loop()` (line 1019)
+  - `async _monitor_output()` (line 1081)
+  - `async read_stream()` (line 1086)
+  - `_cleanup()` (line 1119)
+  - `__init__()` (line 1143)
+  - `async get_instance()` (line 1150) @classmethod
+  - `_setup_signal_handlers()` (line 1158)
+  - `signal_handler()` (line 1161)
+  - `_sync_shutdown()` (line 1170)
+  - `async get_or_create_daemon()` (line 1184)
+  - `async start_daemon()` (line 1218)
+  - `async stop_daemon()` (line 1236)
+  - `async get_daemon_status()` (line 1252)
+  - `async list_daemons()` (line 1263)
+  - `async health_check_all()` (line 1270)
+  - `async shutdown_all()` (line 1283)
+  - `add_shutdown_handler()` (line 1325)
+  - `async get_system_resource_status()` (line 1329)
+  - `_get_daemon_key()` (line 1342)
+  - `_get_available_port()` (line 1349)
+  - `async get_daemon_manager()` (line 1371)
+  - `async ensure_daemon_running()` (line 1379)
+  - `async get_daemon_for_project()` (line 1398)
+  - `async shutdown_all_daemons()` (line 1407)
+  - `async _initialize_daemon_manager()` (line 1414)
+- Methods:
+  - `DaemonConfig.from_project_config()` (line 71) @classmethod
+  - `PortManager.__init__()` (line 128)
+  - `PortManager.allocate_port()` (line 142)
+  - `PortManager.release_port()` (line 186)
+  - `PortManager.get_allocated_ports()` (line 207)
+  - `PortManager.is_port_allocated()` (line 215)
+  - `PortManager._is_port_available()` (line 226)
+  - `PortManager._is_port_usable()` (line 243)
+  - `PortManager._get_project_port()` (line 258)
+  - `PortManager._register_port()` (line 272)
+  - `PortManager._cleanup_stale_allocations()` (line 290)
+  - `PortManager._load_registry()` (line 321)
+  - `PortManager._save_registry()` (line 342)
+  - `PortManager.get_instance()` (line 358) @classmethod
+  - `DaemonInstance.__init__()` (line 368)
+  - `async DaemonInstance.start()` (line 402)
+  - `async DaemonInstance.stop()` (line 559)
+  - `async DaemonInstance.restart()` (line 667)
+  - `async DaemonInstance.health_check()` (line 692)
+  - `DaemonInstance.add_log_handler()` (line 769)
+  - `async DaemonInstance.get_status()` (line 773)
+  - `DaemonInstance._on_config_change()` (line 798)
+  - `async DaemonInstance._update_resource_limits()` (line 832)
+  - `async DaemonInstance._write_config_file()` (line 868)
+  - `async DaemonInstance._find_daemon_binary()` (line 937)
+  - `async DaemonInstance._wait_for_startup()` (line 996)
+  - `async DaemonInstance._health_monitor_loop()` (line 1019)
+  - `async DaemonInstance._monitor_output()` (line 1081)
+  - `DaemonInstance._cleanup()` (line 1119)
+  - `DaemonManager.__init__()` (line 1143)
+  - `async DaemonManager.get_instance()` (line 1150) @classmethod
+  - `DaemonManager._setup_signal_handlers()` (line 1158)
+  - `DaemonManager._sync_shutdown()` (line 1170)
+  - `async DaemonManager.get_or_create_daemon()` (line 1184)
+  - `async DaemonManager.start_daemon()` (line 1218)
+  - `async DaemonManager.stop_daemon()` (line 1236)
+  - `async DaemonManager.get_daemon_status()` (line 1252)
+  - `async DaemonManager.list_daemons()` (line 1263)
+  - `async DaemonManager.health_check_all()` (line 1270)
+  - `async DaemonManager.shutdown_all()` (line 1283)
+  - `DaemonManager.add_shutdown_handler()` (line 1325)
+  - `async DaemonManager.get_system_resource_status()` (line 1329)
+  - `DaemonManager._get_daemon_key()` (line 1342)
+  - `DaemonManager._get_available_port()` (line 1349)
+
+### common/core/watch_validation.py
+- Functions: 23
+- Methods: 23
+- Classes: 5
+- Lines: 621
+- Functions:
+  - `to_dict()` (line 32)
+  - `to_dict()` (line 53)
+  - `validate_path_existence()` (line 68) @staticmethod
+  - `validate_permissions()` (line 104) @staticmethod
+  - `validate_path_type()` (line 166) @staticmethod
+  - `validate_filesystem_compatibility()` (line 232) @staticmethod
+  - `validate_watch_path()` (line 301) @classmethod
+  - `__init__()` (line 336)
+  - `async attempt_recovery()` (line 341)
+  - `_get_recovery_strategy()` (line 394)
+  - `async _execute_recovery_strategy()` (line 427)
+  - `get_recovery_history()` (line 476)
+  - `clear_recovery_history()` (line 481)
+  - `should_retry_recovery()` (line 486)
+  - `__init__()` (line 497)
+  - `register_watch()` (line 504)
+  - `unregister_watch()` (line 514)
+  - `async start_monitoring()` (line 519)
+  - `async stop_monitoring()` (line 528)
+  - `async _monitoring_loop()` (line 541)
+  - `async _perform_health_checks()` (line 555)
+  - `get_health_status()` (line 612)
+  - `is_monitoring()` (line 619)
+- Methods:
+  - `ValidationResult.to_dict()` (line 32)
+  - `RecoveryAttempt.to_dict()` (line 53)
+  - `WatchPathValidator.validate_path_existence()` (line 68) @staticmethod
+  - `WatchPathValidator.validate_permissions()` (line 104) @staticmethod
+  - `WatchPathValidator.validate_path_type()` (line 166) @staticmethod
+  - `WatchPathValidator.validate_filesystem_compatibility()` (line 232) @staticmethod
+  - `WatchPathValidator.validate_watch_path()` (line 301) @classmethod
+  - `WatchErrorRecovery.__init__()` (line 336)
+  - `async WatchErrorRecovery.attempt_recovery()` (line 341)
+  - `WatchErrorRecovery._get_recovery_strategy()` (line 394)
+  - `async WatchErrorRecovery._execute_recovery_strategy()` (line 427)
+  - `WatchErrorRecovery.get_recovery_history()` (line 476)
+  - `WatchErrorRecovery.clear_recovery_history()` (line 481)
+  - `WatchErrorRecovery.should_retry_recovery()` (line 486)
+  - `WatchHealthMonitor.__init__()` (line 497)
+  - `WatchHealthMonitor.register_watch()` (line 504)
+  - `WatchHealthMonitor.unregister_watch()` (line 514)
+  - `async WatchHealthMonitor.start_monitoring()` (line 519)
+  - `async WatchHealthMonitor.stop_monitoring()` (line 528)
+  - `async WatchHealthMonitor._monitoring_loop()` (line 541)
+  - `async WatchHealthMonitor._perform_health_checks()` (line 555)
+  - `WatchHealthMonitor.get_health_status()` (line 612)
+  - `WatchHealthMonitor.is_monitoring()` (line 619)
+
+### common/core/ssl_config.py
+- Functions: 11
+- Methods: 8
+- Classes: 2
+- Lines: 352
+- Functions:
+  - `__init__()` (line 54)
+  - `to_qdrant_config()` (line 83)
+  - `create_ssl_context()` (line 110)
+  - `__init__()` (line 142)
+  - `for_localhost()` (line 148) @<ast.Attribute object at 0x10c7ffc50>
+  - `is_localhost_url()` (line 198)
+  - `create_ssl_config()` (line 216)
+  - `get_qdrant_client_config()` (line 257)
+  - `get_ssl_manager()` (line 289)
+  - `create_secure_qdrant_config()` (line 298)
+  - `suppress_qdrant_ssl_warnings()` (line 329) @<ast.Attribute object at 0x10c802390>
+- Methods:
+  - `SSLConfiguration.__init__()` (line 54)
+  - `SSLConfiguration.to_qdrant_config()` (line 83)
+  - `SSLConfiguration.create_ssl_context()` (line 110)
+  - `SSLContextManager.__init__()` (line 142)
+  - `SSLContextManager.for_localhost()` (line 148) @<ast.Attribute object at 0x10c7ffc50>
+  - `SSLContextManager.is_localhost_url()` (line 198)
+  - `SSLContextManager.create_ssl_config()` (line 216)
+  - `SSLContextManager.get_qdrant_client_config()` (line 257)
+
+### common/core/smart_ingestion_router.py
+- Functions: 31
+- Methods: 31
+- Classes: 7
+- Lines: 1192
+- Functions:
+  - `to_dict()` (line 85)
+  - `from_yaml()` (line 136) @classmethod
+  - `to_dict()` (line 224)
+  - `__init__()` (line 271)
+  - `classify_file()` (line 323)
+  - `_classify_by_extension()` (line 448)
+  - `_detect_mime_type()` (line 465)
+  - `_classify_by_mime_type()` (line 474)
+  - `_classify_by_content()` (line 494)
+  - `_detect_language()` (line 554)
+  - `_determine_strategy()` (line 602)
+  - `__init__()` (line 633)
+  - `_get_config_summary()` (line 668)
+  - `async initialize()` (line 680)
+  - `async route_file()` (line 712)
+  - `async _get_file_classification()` (line 774)
+  - `_cache_classification()` (line 804)
+  - `async process_single_file()` (line 820)
+  - `async _process_lsp_enriched()` (line 906)
+  - `async _process_standard_ingestion()` (line 946)
+  - `async _process_fallback_code()` (line 984)
+  - `async process_batch()` (line 1034)
+  - `async _group_files_by_strategy()` (line 1088)
+  - `async _process_strategy_batch()` (line 1105)
+  - `get_statistics()` (line 1139)
+  - `reset_statistics()` (line 1143)
+  - `clear_classification_cache()` (line 1148)
+  - `async get_processing_capabilities()` (line 1154)
+  - `async shutdown()` (line 1171)
+  - `async __aenter__()` (line 1185)
+  - `async __aexit__()` (line 1190)
+- Methods:
+  - `ClassificationResult.to_dict()` (line 85)
+  - `RouterConfiguration.from_yaml()` (line 136) @classmethod
+  - `RouterStatistics.to_dict()` (line 224)
+  - `FileClassifier.__init__()` (line 271)
+  - `FileClassifier.classify_file()` (line 323)
+  - `FileClassifier._classify_by_extension()` (line 448)
+  - `FileClassifier._detect_mime_type()` (line 465)
+  - `FileClassifier._classify_by_mime_type()` (line 474)
+  - `FileClassifier._classify_by_content()` (line 494)
+  - `FileClassifier._detect_language()` (line 554)
+  - `FileClassifier._determine_strategy()` (line 602)
+  - `SmartIngestionRouter.__init__()` (line 633)
+  - `SmartIngestionRouter._get_config_summary()` (line 668)
+  - `async SmartIngestionRouter.initialize()` (line 680)
+  - `async SmartIngestionRouter.route_file()` (line 712)
+  - `async SmartIngestionRouter._get_file_classification()` (line 774)
+  - `SmartIngestionRouter._cache_classification()` (line 804)
+  - `async SmartIngestionRouter.process_single_file()` (line 820)
+  - `async SmartIngestionRouter._process_lsp_enriched()` (line 906)
+  - `async SmartIngestionRouter._process_standard_ingestion()` (line 946)
+  - `async SmartIngestionRouter._process_fallback_code()` (line 984)
+  - `async SmartIngestionRouter.process_batch()` (line 1034)
+  - `async SmartIngestionRouter._group_files_by_strategy()` (line 1088)
+  - `async SmartIngestionRouter._process_strategy_batch()` (line 1105)
+  - `SmartIngestionRouter.get_statistics()` (line 1139)
+  - `SmartIngestionRouter.reset_statistics()` (line 1143)
+  - `SmartIngestionRouter.clear_classification_cache()` (line 1148)
+  - `async SmartIngestionRouter.get_processing_capabilities()` (line 1154)
+  - `async SmartIngestionRouter.shutdown()` (line 1171)
+  - `async SmartIngestionRouter.__aenter__()` (line 1185)
+  - `async SmartIngestionRouter.__aexit__()` (line 1190)
+
+### common/core/collection_manager_integration.py
+- Functions: 15
+- Methods: 13
+- Classes: 3
+- Lines: 491
+- Functions:
+  - `__init__()` (line 70)
+  - `__post_init__()` (line 94)
+  - `__init__()` (line 108)
+  - `async initialize()` (line 135)
+  - `async create_collection_safely()` (line 153)
+  - `async suggest_alternative_names()` (line 263)
+  - `async validate_collection_name()` (line 291)
+  - `async list_collections_by_category()` (line 310)
+  - `async get_collection_statistics()` (line 326)
+  - `async remove_collection_safely()` (line 344)
+  - `async shutdown()` (line 373)
+  - `_create_qdrant_collection()` (line 381)
+  - `_generate_collection_metadata()` (line 405)
+  - `async create_collection_with_collision_detection()` (line 438)
+  - `async validate_collection_name_with_collision_detection()` (line 462)
+- Methods:
+  - `CollectionCollisionError.__init__()` (line 70)
+  - `CollectionCreationResult.__post_init__()` (line 94)
+  - `CollisionAwareCollectionManager.__init__()` (line 108)
+  - `async CollisionAwareCollectionManager.initialize()` (line 135)
+  - `async CollisionAwareCollectionManager.create_collection_safely()` (line 153)
+  - `async CollisionAwareCollectionManager.suggest_alternative_names()` (line 263)
+  - `async CollisionAwareCollectionManager.validate_collection_name()` (line 291)
+  - `async CollisionAwareCollectionManager.list_collections_by_category()` (line 310)
+  - `async CollisionAwareCollectionManager.get_collection_statistics()` (line 326)
+  - `async CollisionAwareCollectionManager.remove_collection_safely()` (line 344)
+  - `async CollisionAwareCollectionManager.shutdown()` (line 373)
+  - `CollisionAwareCollectionManager._create_qdrant_collection()` (line 381)
+  - `CollisionAwareCollectionManager._generate_collection_metadata()` (line 405)
+
+### common/core/collision_detection.py
+- Functions: 41
+- Methods: 41
+- Classes: 9
+- Lines: 1172
+- Functions:
+  - `update_access()` (line 148)
+  - `__init__()` (line 162)
+  - `_hash()` (line 186)
+  - `add()` (line 190)
+  - `might_contain()` (line 197)
+  - `clear()` (line 205)
+  - `__init__()` (line 219)
+  - `add_collection()` (line 251)
+  - `contains()` (line 295)
+  - `get_similar_names()` (line 329)
+  - `get_by_category()` (line 366)
+  - `get_by_project()` (line 371)
+  - `remove_collection()` (line 376)
+  - `get_statistics()` (line 412)
+  - `clear()` (line 432)
+  - `_manage_cache_size()` (line 449)
+  - `_calculate_similarity()` (line 459)
+  - `__init__()` (line 512)
+  - `async generate_suggestions()` (line 554)
+  - `async _suggest_with_suffixes()` (line 596)
+  - `async _suggest_with_prefixes()` (line 623)
+  - `async _suggest_with_numbers()` (line 659)
+  - `async _suggest_with_variations()` (line 681)
+  - `async _suggest_category_specific()` (line 752)
+  - `async _suggest_semantic_alternatives()` (line 784)
+  - `__init__()` (line 816)
+  - `async acquire_creation_lock()` (line 828) @asynccontextmanager
+  - `is_creation_pending()` (line 866)
+  - `get_pending_creations()` (line 879)
+  - `__init__()` (line 893)
+  - `async initialize()` (line 920)
+  - `async check_collection_collision()` (line 941)
+  - `async register_collection_creation()` (line 1055)
+  - `async remove_collection_registration()` (line 1070)
+  - `async create_collection_guard()` (line 1083) @asynccontextmanager
+  - `async get_collision_statistics()` (line 1101)
+  - `async refresh_registry()` (line 1114)
+  - `async shutdown()` (line 1121)
+  - `async _load_existing_collections()` (line 1134)
+  - `async _refresh_if_needed()` (line 1157)
+  - `async _periodic_refresh()` (line 1163)
+- Methods:
+  - `CollisionRegistryEntry.update_access()` (line 148)
+  - `BloomFilter.__init__()` (line 162)
+  - `BloomFilter._hash()` (line 186)
+  - `BloomFilter.add()` (line 190)
+  - `BloomFilter.might_contain()` (line 197)
+  - `BloomFilter.clear()` (line 205)
+  - `CollisionRegistry.__init__()` (line 219)
+  - `CollisionRegistry.add_collection()` (line 251)
+  - `CollisionRegistry.contains()` (line 295)
+  - `CollisionRegistry.get_similar_names()` (line 329)
+  - `CollisionRegistry.get_by_category()` (line 366)
+  - `CollisionRegistry.get_by_project()` (line 371)
+  - `CollisionRegistry.remove_collection()` (line 376)
+  - `CollisionRegistry.get_statistics()` (line 412)
+  - `CollisionRegistry.clear()` (line 432)
+  - `CollisionRegistry._manage_cache_size()` (line 449)
+  - `CollisionRegistry._calculate_similarity()` (line 459)
+  - `NameSuggestionEngine.__init__()` (line 512)
+  - `async NameSuggestionEngine.generate_suggestions()` (line 554)
+  - `async NameSuggestionEngine._suggest_with_suffixes()` (line 596)
+  - `async NameSuggestionEngine._suggest_with_prefixes()` (line 623)
+  - `async NameSuggestionEngine._suggest_with_numbers()` (line 659)
+  - `async NameSuggestionEngine._suggest_with_variations()` (line 681)
+  - `async NameSuggestionEngine._suggest_category_specific()` (line 752)
+  - `async NameSuggestionEngine._suggest_semantic_alternatives()` (line 784)
+  - `ConcurrentCreationGuard.__init__()` (line 816)
+  - `async ConcurrentCreationGuard.acquire_creation_lock()` (line 828) @asynccontextmanager
+  - `ConcurrentCreationGuard.is_creation_pending()` (line 866)
+  - `ConcurrentCreationGuard.get_pending_creations()` (line 879)
+  - `CollisionDetector.__init__()` (line 893)
+  - `async CollisionDetector.initialize()` (line 920)
+  - `async CollisionDetector.check_collection_collision()` (line 941)
+  - `async CollisionDetector.register_collection_creation()` (line 1055)
+  - `async CollisionDetector.remove_collection_registration()` (line 1070)
+  - `async CollisionDetector.create_collection_guard()` (line 1083) @asynccontextmanager
+  - `async CollisionDetector.get_collision_statistics()` (line 1101)
+  - `async CollisionDetector.refresh_registry()` (line 1114)
+  - `async CollisionDetector.shutdown()` (line 1121)
+  - `async CollisionDetector._load_existing_collections()` (line 1134)
+  - `async CollisionDetector._refresh_if_needed()` (line 1157)
+  - `async CollisionDetector._periodic_refresh()` (line 1163)
+
+### common/core/yaml_config.py
+- Functions: 26
+- Methods: 20
+- Classes: 23
+- Lines: 687
+- Functions:
+  - `validate_priority()` (line 76) @<ast.Call object at 0x10ca232d0>,classmethod
+  - `validate_provider()` (line 110) @<ast.Call object at 0x10c726550>,classmethod
+  - `validate_level()` (line 228) @<ast.Call object at 0x10c99fad0>,classmethod
+  - `validate_format()` (line 235) @<ast.Call object at 0x10c99c890>,classmethod
+  - `__init__()` (line 285)
+  - `_load_schema_validator()` (line 290)
+  - `_substitute_env_vars()` (line 300)
+  - `replacer()` (line 314)
+  - `_get_config_paths()` (line 323)
+  - `_load_yaml_file()` (line 365)
+  - `_merge_configs()` (line 377)
+  - `_deep_merge()` (line 389)
+  - `_validate_config()` (line 409)
+  - `load_config()` (line 421)
+  - `save_config()` (line 464)
+  - `__init__()` (line 492)
+  - `_substitute_env_vars()` (line 496)
+  - `replacer()` (line 510)
+  - `_deep_merge()` (line 527)
+  - `async load_with_hierarchy()` (line 547)
+  - `async load_with_env_substitution()` (line 579)
+  - `async load_and_validate()` (line 602)
+  - `load_config()` (line 655)
+  - `save_config()` (line 669)
+  - `create_default_config()` (line 680)
+  - `expand_path()` (line 685)
+- Methods:
+  - `PriorityLevels.validate_priority()` (line 76) @<ast.Call object at 0x10ca232d0>,classmethod
+  - `EmbeddingConfig.validate_provider()` (line 110) @<ast.Call object at 0x10c726550>,classmethod
+  - `LoggingConfig.validate_level()` (line 228) @<ast.Call object at 0x10c99fad0>,classmethod
+  - `LoggingConfig.validate_format()` (line 235) @<ast.Call object at 0x10c99c890>,classmethod
+  - `ConfigLoader.__init__()` (line 285)
+  - `ConfigLoader._load_schema_validator()` (line 290)
+  - `ConfigLoader._substitute_env_vars()` (line 300)
+  - `ConfigLoader._get_config_paths()` (line 323)
+  - `ConfigLoader._load_yaml_file()` (line 365)
+  - `ConfigLoader._merge_configs()` (line 377)
+  - `ConfigLoader._deep_merge()` (line 389)
+  - `ConfigLoader._validate_config()` (line 409)
+  - `ConfigLoader.load_config()` (line 421)
+  - `ConfigLoader.save_config()` (line 464)
+  - `YAMLConfigLoader.__init__()` (line 492)
+  - `YAMLConfigLoader._substitute_env_vars()` (line 496)
+  - `YAMLConfigLoader._deep_merge()` (line 527)
+  - `async YAMLConfigLoader.load_with_hierarchy()` (line 547)
+  - `async YAMLConfigLoader.load_with_env_substitution()` (line 579)
+  - `async YAMLConfigLoader.load_and_validate()` (line 602)
+
+### common/core/client.py
+- Functions: 19
+- Methods: 17
+- Classes: 1
+- Lines: 930
+- Functions:
+  - `__init__()` (line 101)
+  - `async initialize()` (line 119)
+  - `get_collections_with_suppression()` (line 188)
+  - `async get_status()` (line 255)
+  - `list_collections()` (line 320)
+  - `get_project_info()` (line 355)
+  - `get_project_context()` (line 368)
+  - `_generate_project_id()` (line 390)
+  - `refresh_project_detection()` (line 402)
+  - `get_embedding_service()` (line 415)
+  - `async ensure_collection_exists()` (line 426)
+  - `async search_with_project_context()` (line 512)
+  - `get_enhanced_collection_selector()` (line 628)
+  - `select_collections_by_type()` (line 640)
+  - `get_searchable_collections()` (line 686)
+  - `validate_collection_access()` (line 721)
+  - `async create_collection()` (line 752)
+  - `async close()` (line 885)
+  - `create_qdrant_client()` (line 910)
+- Methods:
+  - `QdrantWorkspaceClient.__init__()` (line 101)
+  - `async QdrantWorkspaceClient.initialize()` (line 119)
+  - `async QdrantWorkspaceClient.get_status()` (line 255)
+  - `QdrantWorkspaceClient.list_collections()` (line 320)
+  - `QdrantWorkspaceClient.get_project_info()` (line 355)
+  - `QdrantWorkspaceClient.get_project_context()` (line 368)
+  - `QdrantWorkspaceClient._generate_project_id()` (line 390)
+  - `QdrantWorkspaceClient.refresh_project_detection()` (line 402)
+  - `QdrantWorkspaceClient.get_embedding_service()` (line 415)
+  - `async QdrantWorkspaceClient.ensure_collection_exists()` (line 426)
+  - `async QdrantWorkspaceClient.search_with_project_context()` (line 512)
+  - `QdrantWorkspaceClient.get_enhanced_collection_selector()` (line 628)
+  - `QdrantWorkspaceClient.select_collections_by_type()` (line 640)
+  - `QdrantWorkspaceClient.get_searchable_collections()` (line 686)
+  - `QdrantWorkspaceClient.validate_collection_access()` (line 721)
+  - `async QdrantWorkspaceClient.create_collection()` (line 752)
+  - `async QdrantWorkspaceClient.close()` (line 885)
+
+### common/core/grpc_client.py
+- Functions: 19
+- Methods: 19
+- Classes: 1
+- Lines: 493
+- Functions:
+  - `__init__()` (line 34)
+  - `async initialize()` (line 78)
+  - `async close()` (line 112)
+  - `get_operation_mode()` (line 133)
+  - `is_grpc_available()` (line 137)
+  - `async get_status()` (line 141)
+  - `async list_collections()` (line 167)
+  - `async add_document()` (line 172)
+  - `async process_document_file()` (line 212)
+  - `async search_workspace()` (line 274)
+  - `async get_document()` (line 332)
+  - `async get_grpc_stats()` (line 340)
+  - `async start_file_watching()` (line 350)
+  - `async _initialize_grpc_with_daemon()` (line 378)
+  - `_detect_project_name()` (line 457)
+  - `async ensure_daemon_available()` (line 464)
+  - `async get_daemon_status()` (line 479)
+  - `get_embedding_service()` (line 486)
+  - `client()` (line 491) @property
+- Methods:
+  - `GrpcWorkspaceClient.__init__()` (line 34)
+  - `async GrpcWorkspaceClient.initialize()` (line 78)
+  - `async GrpcWorkspaceClient.close()` (line 112)
+  - `GrpcWorkspaceClient.get_operation_mode()` (line 133)
+  - `GrpcWorkspaceClient.is_grpc_available()` (line 137)
+  - `async GrpcWorkspaceClient.get_status()` (line 141)
+  - `async GrpcWorkspaceClient.list_collections()` (line 167)
+  - `async GrpcWorkspaceClient.add_document()` (line 172)
+  - `async GrpcWorkspaceClient.process_document_file()` (line 212)
+  - `async GrpcWorkspaceClient.search_workspace()` (line 274)
+  - `async GrpcWorkspaceClient.get_document()` (line 332)
+  - `async GrpcWorkspaceClient.get_grpc_stats()` (line 340)
+  - `async GrpcWorkspaceClient.start_file_watching()` (line 350)
+  - `async GrpcWorkspaceClient._initialize_grpc_with_daemon()` (line 378)
+  - `GrpcWorkspaceClient._detect_project_name()` (line 457)
+  - `async GrpcWorkspaceClient.ensure_daemon_available()` (line 464)
+  - `async GrpcWorkspaceClient.get_daemon_status()` (line 479)
+  - `GrpcWorkspaceClient.get_embedding_service()` (line 486)
+  - `GrpcWorkspaceClient.client()` (line 491) @property
+
+### common/core/persistent_file_watcher.py
+- Functions: 25
+- Methods: 25
+- Classes: 2
+- Lines: 473
+- Functions:
+  - `__init__()` (line 35)
+  - `_to_legacy_config()` (line 59)
+  - `async start()` (line 79)
+  - `async stop()` (line 88)
+  - `async pause()` (line 96)
+  - `async resume()` (line 103)
+  - `async _trigger_ingestion()` (line 114)
+  - `async _save_config_state()` (line 135)
+  - `__init__()` (line 170)
+  - `set_ingestion_callback()` (line 191)
+  - `set_event_callback()` (line 199)
+  - `async initialize()` (line 207)
+  - `async _startup_recovery()` (line 241)
+  - `async start_watch()` (line 329)
+  - `async stop_watch()` (line 360)
+  - `async pause_watch()` (line 371)
+  - `async resume_watch()` (line 382)
+  - `async remove_watch()` (line 395)
+  - `async start_all_active_watches()` (line 408)
+  - `async stop_all_watches()` (line 424)
+  - `get_watch_runtime_status()` (line 434)
+  - `async validate_all_watches()` (line 451)
+  - `async cleanup()` (line 455)
+  - `is_initialized()` (line 467)
+  - `get_config_manager()` (line 471)
+- Methods:
+  - `PersistentFileWatcher.__init__()` (line 35)
+  - `PersistentFileWatcher._to_legacy_config()` (line 59)
+  - `async PersistentFileWatcher.start()` (line 79)
+  - `async PersistentFileWatcher.stop()` (line 88)
+  - `async PersistentFileWatcher.pause()` (line 96)
+  - `async PersistentFileWatcher.resume()` (line 103)
+  - `async PersistentFileWatcher._trigger_ingestion()` (line 114)
+  - `async PersistentFileWatcher._save_config_state()` (line 135)
+  - `PersistentWatchManager.__init__()` (line 170)
+  - `PersistentWatchManager.set_ingestion_callback()` (line 191)
+  - `PersistentWatchManager.set_event_callback()` (line 199)
+  - `async PersistentWatchManager.initialize()` (line 207)
+  - `async PersistentWatchManager._startup_recovery()` (line 241)
+  - `async PersistentWatchManager.start_watch()` (line 329)
+  - `async PersistentWatchManager.stop_watch()` (line 360)
+  - `async PersistentWatchManager.pause_watch()` (line 371)
+  - `async PersistentWatchManager.resume_watch()` (line 382)
+  - `async PersistentWatchManager.remove_watch()` (line 395)
+  - `async PersistentWatchManager.start_all_active_watches()` (line 408)
+  - `async PersistentWatchManager.stop_all_watches()` (line 424)
+  - `PersistentWatchManager.get_watch_runtime_status()` (line 434)
+  - `async PersistentWatchManager.validate_all_watches()` (line 451)
+  - `async PersistentWatchManager.cleanup()` (line 455)
+  - `PersistentWatchManager.is_initialized()` (line 467)
+  - `PersistentWatchManager.get_config_manager()` (line 471)
+
+### common/core/metadata_optimization.py
+- Functions: 27
+- Methods: 27
+- Classes: 6
+- Lines: 881
+- Functions:
+  - `update_performance()` (line 47)
+  - `add_response_time()` (line 75)
+  - `_update_metrics()` (line 87)
+  - `__init__()` (line 112)
+  - `get_optimized_filter()` (line 128)
+  - `_generate_cache_key()` (line 181)
+  - `_get_from_cache()` (line 223)
+  - `_store_in_cache()` (line 238)
+  - `_evict_lru_entries()` (line 258)
+  - `_create_optimized_filter()` (line 277)
+  - `get_performance_metrics()` (line 371)
+  - `clear_cache()` (line 391)
+  - `__init__()` (line 405)
+  - `async ensure_optimal_indexes()` (line 440)
+  - `async _create_field_index()` (line 492)
+  - `async optimize_collection_settings()` (line 535)
+  - `get_indexed_collections()` (line 580)
+  - `get_index_status()` (line 584)
+  - `__init__()` (line 597)
+  - `optimize_search_params()` (line 606)
+  - `track_query_performance()` (line 659)
+  - `get_performance_summary()` (line 719)
+  - `__init__()` (line 751)
+  - `record_measurement()` (line 759)
+  - `_create_performance_alert()` (line 780)
+  - `get_performance_report()` (line 807)
+  - `get_recent_alerts()` (line 862)
+- Methods:
+  - `FilterCacheEntry.update_performance()` (line 47)
+  - `PerformanceMetrics.add_response_time()` (line 75)
+  - `PerformanceMetrics._update_metrics()` (line 87)
+  - `FilterOptimizer.__init__()` (line 112)
+  - `FilterOptimizer.get_optimized_filter()` (line 128)
+  - `FilterOptimizer._generate_cache_key()` (line 181)
+  - `FilterOptimizer._get_from_cache()` (line 223)
+  - `FilterOptimizer._store_in_cache()` (line 238)
+  - `FilterOptimizer._evict_lru_entries()` (line 258)
+  - `FilterOptimizer._create_optimized_filter()` (line 277)
+  - `FilterOptimizer.get_performance_metrics()` (line 371)
+  - `FilterOptimizer.clear_cache()` (line 391)
+  - `MetadataIndexManager.__init__()` (line 405)
+  - `async MetadataIndexManager.ensure_optimal_indexes()` (line 440)
+  - `async MetadataIndexManager._create_field_index()` (line 492)
+  - `async MetadataIndexManager.optimize_collection_settings()` (line 535)
+  - `MetadataIndexManager.get_indexed_collections()` (line 580)
+  - `MetadataIndexManager.get_index_status()` (line 584)
+  - `QueryOptimizer.__init__()` (line 597)
+  - `QueryOptimizer.optimize_search_params()` (line 606)
+  - `QueryOptimizer.track_query_performance()` (line 659)
+  - `QueryOptimizer.get_performance_summary()` (line 719)
+  - `PerformanceTracker.__init__()` (line 751)
+  - `PerformanceTracker.record_measurement()` (line 759)
+  - `PerformanceTracker._create_performance_alert()` (line 780)
+  - `PerformanceTracker.get_performance_report()` (line 807)
+  - `PerformanceTracker.get_recent_alerts()` (line 862)
+
+### common/core/performance_monitor.py
+- Functions: 29
+- Methods: 25
+- Classes: 2
+- Lines: 579
+- Functions:
+  - `__post_init__()` (line 45)
+  - `__init__()` (line 58)
+  - `async start()` (line 116)
+  - `async stop()` (line 135)
+  - `add_alert_callback()` (line 158)
+  - `async record_search_performance()` (line 162)
+  - `async record_lsp_performance()` (line 175)
+  - `async record_file_processing()` (line 188)
+  - `profile_operation()` (line 201)
+  - `async get_current_performance_report()` (line 205)
+  - `async get_optimization_recommendations()` (line 209)
+  - `async apply_optimization()` (line 214)
+  - `async get_performance_summary()` (line 222)
+  - `async _collection_loop()` (line 252)
+  - `async _analysis_loop()` (line 273)
+  - `async _storage_loop()` (line 301)
+  - `_on_metric_collected()` (line 320)
+  - `_on_operation_completed()` (line 327)
+  - `async _flush_to_storage()` (line 338)
+  - `async _check_metric_alerts()` (line 358)
+  - `async _check_performance_alerts()` (line 440)
+  - `_get_metric_recommendations()` (line 466)
+  - `async _notify_alert()` (line 498)
+  - `async resolve_alert()` (line 511)
+  - `async get_active_alerts()` (line 518)
+  - `async get_performance_monitor()` (line 528)
+  - `async stop_performance_monitor()` (line 542)
+  - `async get_all_performance_summaries()` (line 553)
+  - `async cleanup_all_performance_monitors()` (line 568)
+- Methods:
+  - `PerformanceAlert.__post_init__()` (line 45)
+  - `PerformanceMonitor.__init__()` (line 58)
+  - `async PerformanceMonitor.start()` (line 116)
+  - `async PerformanceMonitor.stop()` (line 135)
+  - `PerformanceMonitor.add_alert_callback()` (line 158)
+  - `async PerformanceMonitor.record_search_performance()` (line 162)
+  - `async PerformanceMonitor.record_lsp_performance()` (line 175)
+  - `async PerformanceMonitor.record_file_processing()` (line 188)
+  - `PerformanceMonitor.profile_operation()` (line 201)
+  - `async PerformanceMonitor.get_current_performance_report()` (line 205)
+  - `async PerformanceMonitor.get_optimization_recommendations()` (line 209)
+  - `async PerformanceMonitor.apply_optimization()` (line 214)
+  - `async PerformanceMonitor.get_performance_summary()` (line 222)
+  - `async PerformanceMonitor._collection_loop()` (line 252)
+  - `async PerformanceMonitor._analysis_loop()` (line 273)
+  - `async PerformanceMonitor._storage_loop()` (line 301)
+  - `PerformanceMonitor._on_metric_collected()` (line 320)
+  - `PerformanceMonitor._on_operation_completed()` (line 327)
+  - `async PerformanceMonitor._flush_to_storage()` (line 338)
+  - `async PerformanceMonitor._check_metric_alerts()` (line 358)
+  - `async PerformanceMonitor._check_performance_alerts()` (line 440)
+  - `PerformanceMonitor._get_metric_recommendations()` (line 466)
+  - `async PerformanceMonitor._notify_alert()` (line 498)
+  - `async PerformanceMonitor.resolve_alert()` (line 511)
+  - `async PerformanceMonitor.get_active_alerts()` (line 518)
+
+### common/core/resource_manager.py
+- Functions: 31
+- Methods: 28
+- Classes: 6
+- Lines: 686
+- Functions:
+  - `__post_init__()` (line 91)
+  - `__init__()` (line 119)
+  - `async get_qdrant_connection()` (line 127)
+  - `async release_qdrant_connection()` (line 145)
+  - `async get_embedding_model()` (line 164)
+  - `async cleanup_all()` (line 180)
+  - `__init__()` (line 211)
+  - `add_alert_callback()` (line 223)
+  - `async start_monitoring()` (line 227)
+  - `async stop_monitoring()` (line 236)
+  - `async get_current_usage()` (line 247)
+  - `async _monitoring_loop()` (line 310)
+  - `async _check_thresholds()` (line 328)
+  - `get_usage_history()` (line 398)
+  - `__init__()` (line 413)
+  - `async register_project()` (line 430)
+  - `async unregister_project()` (line 468)
+  - `async get_project_usage()` (line 481)
+  - `async get_all_usage()` (line 487)
+  - `async enforce_limits()` (line 494)
+  - `_handle_alert()` (line 522)
+  - `async shared_qdrant_connection()` (line 539) @asynccontextmanager
+  - `async get_shared_embedding_model()` (line 547)
+  - `add_cleanup_handler()` (line 551)
+  - `async cleanup_all()` (line 555)
+  - `async _save_registry()` (line 578)
+  - `async get_system_status()` (line 604)
+  - `async get_performance_recommendations()` (line 641)
+  - `async get_resource_manager()` (line 666)
+  - `async register_project_resources()` (line 674)
+  - `async cleanup_project_resources()` (line 683)
+- Methods:
+  - `ResourceUsage.__post_init__()` (line 91)
+  - `SharedResourcePool.__init__()` (line 119)
+  - `async SharedResourcePool.get_qdrant_connection()` (line 127)
+  - `async SharedResourcePool.release_qdrant_connection()` (line 145)
+  - `async SharedResourcePool.get_embedding_model()` (line 164)
+  - `async SharedResourcePool.cleanup_all()` (line 180)
+  - `ResourceMonitor.__init__()` (line 211)
+  - `ResourceMonitor.add_alert_callback()` (line 223)
+  - `async ResourceMonitor.start_monitoring()` (line 227)
+  - `async ResourceMonitor.stop_monitoring()` (line 236)
+  - `async ResourceMonitor.get_current_usage()` (line 247)
+  - `async ResourceMonitor._monitoring_loop()` (line 310)
+  - `async ResourceMonitor._check_thresholds()` (line 328)
+  - `ResourceMonitor.get_usage_history()` (line 398)
+  - `ResourceManager.__init__()` (line 413)
+  - `async ResourceManager.register_project()` (line 430)
+  - `async ResourceManager.unregister_project()` (line 468)
+  - `async ResourceManager.get_project_usage()` (line 481)
+  - `async ResourceManager.get_all_usage()` (line 487)
+  - `async ResourceManager.enforce_limits()` (line 494)
+  - `ResourceManager._handle_alert()` (line 522)
+  - `async ResourceManager.shared_qdrant_connection()` (line 539) @asynccontextmanager
+  - `async ResourceManager.get_shared_embedding_model()` (line 547)
+  - `ResourceManager.add_cleanup_handler()` (line 551)
+  - `async ResourceManager.cleanup_all()` (line 555)
+  - `async ResourceManager._save_registry()` (line 578)
+  - `async ResourceManager.get_system_status()` (line 604)
+  - `async ResourceManager.get_performance_recommendations()` (line 641)
+
+### common/core/priority_queue_manager.py
+- Functions: 40
+- Methods: 40
+- Classes: 10
+- Lines: 1276
+- Functions:
+  - `update_activity()` (line 113)
+  - `__init__()` (line 227)
+  - `async initialize()` (line 278)
+  - `async shutdown()` (line 318)
+  - `async enqueue_file()` (line 356)
+  - `async process_next_batch()` (line 430)
+  - `async _create_priority_context()` (line 521)
+  - `async _calculate_dynamic_priority()` (line 582)
+  - `async _initialize_processing_resources()` (line 670)
+  - `async _update_processing_mode()` (line 678)
+  - `async _configure_executor()` (line 710)
+  - `async _get_concurrency_limiter()` (line 755) @asynccontextmanager
+  - `async _get_optimal_batch_size()` (line 763)
+  - `async _check_backpressure()` (line 785)
+  - `async _process_single_job()` (line 814)
+  - `async _process_job_fallback()` (line 885)
+  - `async _handle_job_failure()` (line 898)
+  - `async _wait_for_jobs_completion()` (line 931)
+  - `async _activity_detection_loop()` (line 938)
+  - `async _detect_mcp_activity()` (line 959)
+  - `async _monitoring_loop()` (line 995)
+  - `async _update_health_metrics()` (line 1029)
+  - `async _update_queue_statistics()` (line 1045)
+  - `async _update_processing_statistics()` (line 1076)
+  - `async _cleanup_old_statistics()` (line 1098)
+  - `async _check_system_health()` (line 1113)
+  - `async _perform_crash_recovery()` (line 1137)
+  - `async get_queue_status()` (line 1154)
+  - `async get_processing_context()` (line 1182)
+  - `add_priority_calculation_hook()` (line 1186)
+  - `add_processing_hook()` (line 1190)
+  - `add_monitoring_hook()` (line 1194)
+  - `set_current_project_root()` (line 1198)
+  - `async clear_queue()` (line 1203)
+  - `async get_health_status()` (line 1210)
+  - `__init__()` (line 1240)
+  - `async __aenter__()` (line 1244)
+  - `async __aexit__()` (line 1248)
+  - `async process_next_batch()` (line 1255)
+  - `async enqueue_multiple_files()` (line 1259)
+- Methods:
+  - `MCPActivityMetrics.update_activity()` (line 113)
+  - `PriorityQueueManager.__init__()` (line 227)
+  - `async PriorityQueueManager.initialize()` (line 278)
+  - `async PriorityQueueManager.shutdown()` (line 318)
+  - `async PriorityQueueManager.enqueue_file()` (line 356)
+  - `async PriorityQueueManager.process_next_batch()` (line 430)
+  - `async PriorityQueueManager._create_priority_context()` (line 521)
+  - `async PriorityQueueManager._calculate_dynamic_priority()` (line 582)
+  - `async PriorityQueueManager._initialize_processing_resources()` (line 670)
+  - `async PriorityQueueManager._update_processing_mode()` (line 678)
+  - `async PriorityQueueManager._configure_executor()` (line 710)
+  - `async PriorityQueueManager._get_concurrency_limiter()` (line 755) @asynccontextmanager
+  - `async PriorityQueueManager._get_optimal_batch_size()` (line 763)
+  - `async PriorityQueueManager._check_backpressure()` (line 785)
+  - `async PriorityQueueManager._process_single_job()` (line 814)
+  - `async PriorityQueueManager._process_job_fallback()` (line 885)
+  - `async PriorityQueueManager._handle_job_failure()` (line 898)
+  - `async PriorityQueueManager._wait_for_jobs_completion()` (line 931)
+  - `async PriorityQueueManager._activity_detection_loop()` (line 938)
+  - `async PriorityQueueManager._detect_mcp_activity()` (line 959)
+  - `async PriorityQueueManager._monitoring_loop()` (line 995)
+  - `async PriorityQueueManager._update_health_metrics()` (line 1029)
+  - `async PriorityQueueManager._update_queue_statistics()` (line 1045)
+  - `async PriorityQueueManager._update_processing_statistics()` (line 1076)
+  - `async PriorityQueueManager._cleanup_old_statistics()` (line 1098)
+  - `async PriorityQueueManager._check_system_health()` (line 1113)
+  - `async PriorityQueueManager._perform_crash_recovery()` (line 1137)
+  - `async PriorityQueueManager.get_queue_status()` (line 1154)
+  - `async PriorityQueueManager.get_processing_context()` (line 1182)
+  - `PriorityQueueManager.add_priority_calculation_hook()` (line 1186)
+  - `PriorityQueueManager.add_processing_hook()` (line 1190)
+  - `PriorityQueueManager.add_monitoring_hook()` (line 1194)
+  - `PriorityQueueManager.set_current_project_root()` (line 1198)
+  - `async PriorityQueueManager.clear_queue()` (line 1203)
+  - `async PriorityQueueManager.get_health_status()` (line 1210)
+  - `ProcessingContextManager.__init__()` (line 1240)
+  - `async ProcessingContextManager.__aenter__()` (line 1244)
+  - `async ProcessingContextManager.__aexit__()` (line 1248)
+  - `async ProcessingContextManager.process_next_batch()` (line 1255)
+  - `async ProcessingContextManager.enqueue_multiple_files()` (line 1259)
+
+### common/core/multitenant_collections.py
+- Functions: 21
+- Methods: 21
+- Classes: 5
+- Lines: 565
+- Functions:
+  - `to_dict()` (line 66)
+  - `create_project_metadata()` (line 86) @staticmethod
+  - `__init__()` (line 136)
+  - `get_workspace_types()` (line 181)
+  - `is_multi_tenant_type()` (line 185)
+  - `get_default_metadata()` (line 189)
+  - `is_searchable()` (line 207)
+  - `__init__()` (line 215)
+  - `create_project_filter()` (line 219)
+  - `create_workspace_filter()` (line 230)
+  - `create_tenant_namespace_filter()` (line 271)
+  - `get_tenant_metadata()` (line 282)
+  - `enrich_document_metadata()` (line 301)
+  - `__init__()` (line 330)
+  - `async create_workspace_collection()` (line 339)
+  - `async _create_metadata_indexes()` (line 431)
+  - `async initialize_workspace_collections()` (line 455)
+  - `get_workspace_collection_types()` (line 540)
+  - `is_workspace_collection_type()` (line 544)
+  - `get_project_isolation_filter()` (line 548)
+  - `enrich_document_metadata()` (line 556)
+- Methods:
+  - `ProjectMetadata.to_dict()` (line 66)
+  - `ProjectMetadata.create_project_metadata()` (line 86) @staticmethod
+  - `WorkspaceCollectionRegistry.__init__()` (line 136)
+  - `WorkspaceCollectionRegistry.get_workspace_types()` (line 181)
+  - `WorkspaceCollectionRegistry.is_multi_tenant_type()` (line 185)
+  - `WorkspaceCollectionRegistry.get_default_metadata()` (line 189)
+  - `WorkspaceCollectionRegistry.is_searchable()` (line 207)
+  - `ProjectIsolationManager.__init__()` (line 215)
+  - `ProjectIsolationManager.create_project_filter()` (line 219)
+  - `ProjectIsolationManager.create_workspace_filter()` (line 230)
+  - `ProjectIsolationManager.create_tenant_namespace_filter()` (line 271)
+  - `ProjectIsolationManager.get_tenant_metadata()` (line 282)
+  - `ProjectIsolationManager.enrich_document_metadata()` (line 301)
+  - `MultiTenantWorkspaceCollectionManager.__init__()` (line 330)
+  - `async MultiTenantWorkspaceCollectionManager.create_workspace_collection()` (line 339)
+  - `async MultiTenantWorkspaceCollectionManager._create_metadata_indexes()` (line 431)
+  - `async MultiTenantWorkspaceCollectionManager.initialize_workspace_collections()` (line 455)
+  - `MultiTenantWorkspaceCollectionManager.get_workspace_collection_types()` (line 540)
+  - `MultiTenantWorkspaceCollectionManager.is_workspace_collection_type()` (line 544)
+  - `MultiTenantWorkspaceCollectionManager.get_project_isolation_filter()` (line 548)
+  - `MultiTenantWorkspaceCollectionManager.enrich_document_metadata()` (line 556)
+
+### common/core/enhanced_config.py
+- Functions: 21
+- Methods: 20
+- Classes: 8
+- Lines: 562
+- Functions:
+  - `validate_chunk_overlap()` (line 101) @<ast.Call object at 0x10c7e2cd0>
+  - `validate_batch_size()` (line 108) @<ast.Call object at 0x10c7e1bd0>
+  - `validate_url()` (line 129) @<ast.Call object at 0x10c7040d0>
+  - `validate_timeout()` (line 136) @<ast.Call object at 0x10ca22b90>
+  - `effective_collection_types()` (line 157) @property
+  - `validate_collections()` (line 162) @<ast.Call object at 0x10ca20110>
+  - `__init__()` (line 197)
+  - `_load_configuration_files()` (line 231)
+  - `_load_yaml_file()` (line 260)
+  - `_substitute_env_vars()` (line 276)
+  - `replace_var()` (line 281)
+  - `_apply_config_data()` (line 293)
+  - `_load_nested_env_vars()` (line 323)
+  - `_load_legacy_env_vars()` (line 404)
+  - `is_valid()` (line 448) @property
+  - `validation_errors()` (line 453) @property
+  - `qdrant_client_config()` (line 458) @property
+  - `validate_config()` (line 471)
+  - `reload_config()` (line 518)
+  - `mask_sensitive_value()` (line 525)
+  - `get_config_summary()` (line 536)
+- Methods:
+  - `EmbeddingConfig.validate_chunk_overlap()` (line 101) @<ast.Call object at 0x10c7e2cd0>
+  - `EmbeddingConfig.validate_batch_size()` (line 108) @<ast.Call object at 0x10c7e1bd0>
+  - `QdrantConfig.validate_url()` (line 129) @<ast.Call object at 0x10c7040d0>
+  - `QdrantConfig.validate_timeout()` (line 136) @<ast.Call object at 0x10ca22b90>
+  - `WorkspaceConfig.effective_collection_types()` (line 157) @property
+  - `WorkspaceConfig.validate_collections()` (line 162) @<ast.Call object at 0x10ca20110>
+  - `EnhancedConfig.__init__()` (line 197)
+  - `EnhancedConfig._load_configuration_files()` (line 231)
+  - `EnhancedConfig._load_yaml_file()` (line 260)
+  - `EnhancedConfig._substitute_env_vars()` (line 276)
+  - `EnhancedConfig._apply_config_data()` (line 293)
+  - `EnhancedConfig._load_nested_env_vars()` (line 323)
+  - `EnhancedConfig._load_legacy_env_vars()` (line 404)
+  - `EnhancedConfig.is_valid()` (line 448) @property
+  - `EnhancedConfig.validation_errors()` (line 453) @property
+  - `EnhancedConfig.qdrant_client_config()` (line 458) @property
+  - `EnhancedConfig.validate_config()` (line 471)
+  - `EnhancedConfig.reload_config()` (line 518)
+  - `EnhancedConfig.mask_sensitive_value()` (line 525)
+  - `EnhancedConfig.get_config_summary()` (line 536)
+
+### common/core/performance_metrics.py
+- Functions: 28
+- Methods: 28
+- Classes: 8
+- Lines: 741
+- Functions:
+  - `to_dict()` (line 87)
+  - `from_dict()` (line 101) @classmethod
+  - `duration()` (line 148) @property
+  - `add_metric()` (line 154)
+  - `complete()` (line 168)
+  - `__init__()` (line 178)
+  - `async add()` (line 183)
+  - `async get_metrics()` (line 188)
+  - `async clear()` (line 213)
+  - `async get_size()` (line 218)
+  - `__init__()` (line 227)
+  - `async __aenter__()` (line 241)
+  - `async __aexit__()` (line 271)
+  - `__init__()` (line 306)
+  - `add_metric_callback()` (line 345)
+  - `add_operation_callback()` (line 349)
+  - `async record_metric()` (line 353)
+  - `async record_operation_trace()` (line 383)
+  - `profile_operation()` (line 409)
+  - `async record_search_performance()` (line 417)
+  - `async record_lsp_performance()` (line 457)
+  - `async record_file_processing()` (line 497)
+  - `async record_system_resources()` (line 532)
+  - `async get_metric_summary()` (line 608)
+  - `_calculate_performance_level()` (line 664)
+  - `_calculate_trend()` (line 682)
+  - `async get_recent_operations()` (line 722)
+  - `async cleanup_old_data()` (line 728)
+- Methods:
+  - `PerformanceMetric.to_dict()` (line 87)
+  - `PerformanceMetric.from_dict()` (line 101) @classmethod
+  - `OperationTrace.duration()` (line 148) @property
+  - `OperationTrace.add_metric()` (line 154)
+  - `OperationTrace.complete()` (line 168)
+  - `MetricsBuffer.__init__()` (line 178)
+  - `async MetricsBuffer.add()` (line 183)
+  - `async MetricsBuffer.get_metrics()` (line 188)
+  - `async MetricsBuffer.clear()` (line 213)
+  - `async MetricsBuffer.get_size()` (line 218)
+  - `PerformanceProfiler.__init__()` (line 227)
+  - `async PerformanceProfiler.__aenter__()` (line 241)
+  - `async PerformanceProfiler.__aexit__()` (line 271)
+  - `PerformanceMetricsCollector.__init__()` (line 306)
+  - `PerformanceMetricsCollector.add_metric_callback()` (line 345)
+  - `PerformanceMetricsCollector.add_operation_callback()` (line 349)
+  - `async PerformanceMetricsCollector.record_metric()` (line 353)
+  - `async PerformanceMetricsCollector.record_operation_trace()` (line 383)
+  - `PerformanceMetricsCollector.profile_operation()` (line 409)
+  - `async PerformanceMetricsCollector.record_search_performance()` (line 417)
+  - `async PerformanceMetricsCollector.record_lsp_performance()` (line 457)
+  - `async PerformanceMetricsCollector.record_file_processing()` (line 497)
+  - `async PerformanceMetricsCollector.record_system_resources()` (line 532)
+  - `async PerformanceMetricsCollector.get_metric_summary()` (line 608)
+  - `PerformanceMetricsCollector._calculate_performance_level()` (line 664)
+  - `PerformanceMetricsCollector._calculate_trend()` (line 682)
+  - `async PerformanceMetricsCollector.get_recent_operations()` (line 722)
+  - `async PerformanceMetricsCollector.cleanup_old_data()` (line 728)
+
+### common/core/automatic_recovery.py
+- Functions: 74
+- Methods: 67
+- Classes: 9
+- Lines: 2072
+- Functions:
+  - `__post_init__()` (line 162)
+  - `__init__()` (line 265)
+  - `async initialize()` (line 319)
+  - `async _initialize_recovery_database()` (line 355)
+  - `create_tables()` (line 360)
+  - `async _load_recovery_history()` (line 423)
+  - `load_history()` (line 426)
+  - `async _start_monitoring_tasks()` (line 471)
+  - `async _recovery_monitoring_loop()` (line 481)
+  - `async _cleanup_monitoring_loop()` (line 502)
+  - `async _state_validation_loop()` (line 517)
+  - `async _statistics_update_loop()` (line 532)
+  - `async _detect_component_failures()` (line 545)
+  - `async _monitor_active_recoveries()` (line 575)
+  - `async _check_recovery_timeouts()` (line 597)
+  - `async _trigger_automatic_recovery()` (line 619)
+  - `async _execute_recovery_attempt()` (line 653)
+  - `async _analyze_failure()` (line 697)
+  - `async _prepare_recovery_actions()` (line 733)
+  - `async _execute_recovery_actions()` (line 895)
+  - `async _execute_single_action()` (line 938)
+  - `async _stop_component_action()` (line 973)
+  - `async _start_component_action()` (line 981)
+  - `async _cleanup_state_action()` (line 1005)
+  - `async _backup_state_action()` (line 1037)
+  - `async _restore_state_action()` (line 1072)
+  - `async _cleanup_corrupted_state_action()` (line 1080)
+  - `async _verify_dependency_action()` (line 1115)
+  - `async _progressive_delay_action()` (line 1120)
+  - `async _emergency_stop_all_action()` (line 1126)
+  - `async _full_cleanup_action()` (line 1141)
+  - `async _initialize_fresh_state_action()` (line 1166)
+  - `async _start_all_components_action()` (line 1181)
+  - `_get_component_start_order()` (line 1208)
+  - `async _validate_recovery()` (line 1232)
+  - `async _validate_rust_daemon()` (line 1262)
+  - `async _validate_mcp_server()` (line 1268)
+  - `async _validate_cli_utility()` (line 1274)
+  - `async _validate_context_injector()` (line 1280)
+  - `async _is_component_healthy()` (line 1286)
+  - `async _cleanup_paths()` (line 1308)
+  - `async _perform_automatic_cleanup()` (line 1342)
+  - `async _cleanup_temporary_files()` (line 1366)
+  - `async _cleanup_stale_locks()` (line 1395)
+  - `async _cleanup_zombie_processes()` (line 1420)
+  - `async _cleanup_invalid_caches()` (line 1431)
+  - `async _validate_component_states()` (line 1442)
+  - `async _update_recovery_statistics()` (line 1471)
+  - `async _update_recovery_progress()` (line 1508)
+  - `async _finalize_recovery_attempt()` (line 1514)
+  - `async _store_recovery_attempt()` (line 1543)
+  - `store_attempt()` (line 1546)
+  - `async _record_cleanup_operation()` (line 1579)
+  - `record_operation()` (line 1592)
+  - `async _handle_recovery_timeout()` (line 1622)
+  - `async _handle_health_notification()` (line 1638)
+  - `async _handle_degradation_notification()` (line 1660)
+  - `async _send_recovery_notification()` (line 1682)
+  - `async trigger_component_recovery()` (line 1720)
+  - `async get_recovery_status()` (line 1769)
+  - `_attempt_to_dict()` (line 1791)
+  - `async get_active_recoveries()` (line 1816)
+  - `async get_recovery_history()` (line 1825)
+  - `get_recovery_statistics()` (line 1838)
+  - `async cancel_recovery()` (line 1847)
+  - `register_notification_handler()` (line 1872)
+  - `async update_recovery_config()` (line 1879)
+  - `update_config()` (line 1895)
+  - `async get_recovery_config()` (line 1930)
+  - `async force_cleanup()` (line 1942)
+  - `async shutdown()` (line 1994)
+  - `async recovery_context()` (line 2024) @asynccontextmanager
+  - `async get_recovery_manager()` (line 2045)
+  - `async shutdown_recovery_manager()` (line 2066)
+- Methods:
+  - `RecoveryAttempt.__post_init__()` (line 162)
+  - `RecoveryManager.__init__()` (line 265)
+  - `async RecoveryManager.initialize()` (line 319)
+  - `async RecoveryManager._initialize_recovery_database()` (line 355)
+  - `async RecoveryManager._load_recovery_history()` (line 423)
+  - `async RecoveryManager._start_monitoring_tasks()` (line 471)
+  - `async RecoveryManager._recovery_monitoring_loop()` (line 481)
+  - `async RecoveryManager._cleanup_monitoring_loop()` (line 502)
+  - `async RecoveryManager._state_validation_loop()` (line 517)
+  - `async RecoveryManager._statistics_update_loop()` (line 532)
+  - `async RecoveryManager._detect_component_failures()` (line 545)
+  - `async RecoveryManager._monitor_active_recoveries()` (line 575)
+  - `async RecoveryManager._check_recovery_timeouts()` (line 597)
+  - `async RecoveryManager._trigger_automatic_recovery()` (line 619)
+  - `async RecoveryManager._execute_recovery_attempt()` (line 653)
+  - `async RecoveryManager._analyze_failure()` (line 697)
+  - `async RecoveryManager._prepare_recovery_actions()` (line 733)
+  - `async RecoveryManager._execute_recovery_actions()` (line 895)
+  - `async RecoveryManager._execute_single_action()` (line 938)
+  - `async RecoveryManager._stop_component_action()` (line 973)
+  - `async RecoveryManager._start_component_action()` (line 981)
+  - `async RecoveryManager._cleanup_state_action()` (line 1005)
+  - `async RecoveryManager._backup_state_action()` (line 1037)
+  - `async RecoveryManager._restore_state_action()` (line 1072)
+  - `async RecoveryManager._cleanup_corrupted_state_action()` (line 1080)
+  - `async RecoveryManager._verify_dependency_action()` (line 1115)
+  - `async RecoveryManager._progressive_delay_action()` (line 1120)
+  - `async RecoveryManager._emergency_stop_all_action()` (line 1126)
+  - `async RecoveryManager._full_cleanup_action()` (line 1141)
+  - `async RecoveryManager._initialize_fresh_state_action()` (line 1166)
+  - `async RecoveryManager._start_all_components_action()` (line 1181)
+  - `RecoveryManager._get_component_start_order()` (line 1208)
+  - `async RecoveryManager._validate_recovery()` (line 1232)
+  - `async RecoveryManager._validate_rust_daemon()` (line 1262)
+  - `async RecoveryManager._validate_mcp_server()` (line 1268)
+  - `async RecoveryManager._validate_cli_utility()` (line 1274)
+  - `async RecoveryManager._validate_context_injector()` (line 1280)
+  - `async RecoveryManager._is_component_healthy()` (line 1286)
+  - `async RecoveryManager._cleanup_paths()` (line 1308)
+  - `async RecoveryManager._perform_automatic_cleanup()` (line 1342)
+  - `async RecoveryManager._cleanup_temporary_files()` (line 1366)
+  - `async RecoveryManager._cleanup_stale_locks()` (line 1395)
+  - `async RecoveryManager._cleanup_zombie_processes()` (line 1420)
+  - `async RecoveryManager._cleanup_invalid_caches()` (line 1431)
+  - `async RecoveryManager._validate_component_states()` (line 1442)
+  - `async RecoveryManager._update_recovery_statistics()` (line 1471)
+  - `async RecoveryManager._update_recovery_progress()` (line 1508)
+  - `async RecoveryManager._finalize_recovery_attempt()` (line 1514)
+  - `async RecoveryManager._store_recovery_attempt()` (line 1543)
+  - `async RecoveryManager._record_cleanup_operation()` (line 1579)
+  - `async RecoveryManager._handle_recovery_timeout()` (line 1622)
+  - `async RecoveryManager._handle_health_notification()` (line 1638)
+  - `async RecoveryManager._handle_degradation_notification()` (line 1660)
+  - `async RecoveryManager._send_recovery_notification()` (line 1682)
+  - `async RecoveryManager.trigger_component_recovery()` (line 1720)
+  - `async RecoveryManager.get_recovery_status()` (line 1769)
+  - `RecoveryManager._attempt_to_dict()` (line 1791)
+  - `async RecoveryManager.get_active_recoveries()` (line 1816)
+  - `async RecoveryManager.get_recovery_history()` (line 1825)
+  - `RecoveryManager.get_recovery_statistics()` (line 1838)
+  - `async RecoveryManager.cancel_recovery()` (line 1847)
+  - `RecoveryManager.register_notification_handler()` (line 1872)
+  - `async RecoveryManager.update_recovery_config()` (line 1879)
+  - `async RecoveryManager.get_recovery_config()` (line 1930)
+  - `async RecoveryManager.force_cleanup()` (line 1942)
+  - `async RecoveryManager.shutdown()` (line 1994)
+  - `async RecoveryManager.recovery_context()` (line 2024) @asynccontextmanager
+
+### common/core/daemon_client.py
+- Functions: 34
+- Methods: 31
+- Classes: 2
+- Lines: 695
+- Functions:
+  - `__init__()` (line 112)
+  - `async connect()` (line 121)
+  - `async disconnect()` (line 195)
+  - `async connection()` (line 206) @asynccontextmanager
+  - `_ensure_connected()` (line 214)
+  - `get_connection_info()` (line 228)
+  - `async process_document()` (line 255)
+  - `async process_folder()` (line 283)
+  - `async start_watching()` (line 321)
+  - `async stop_watching()` (line 353)
+  - `async list_watches()` (line 360)
+  - `async configure_watch()` (line 367)
+  - `async execute_query()` (line 396)
+  - `async list_collections()` (line 417)
+  - `async get_collection_info()` (line 426)
+  - `async create_collection()` (line 439)
+  - `async delete_collection()` (line 463)
+  - `async list_documents()` (line 484)
+  - `async get_document()` (line 503)
+  - `async delete_document()` (line 517)
+  - `async load_configuration()` (line 531)
+  - `async save_configuration()` (line 540)
+  - `async validate_configuration()` (line 552)
+  - `async add_memory_rule()` (line 563)
+  - `async list_memory_rules()` (line 586)
+  - `async delete_memory_rule()` (line 602)
+  - `async search_memory_rules()` (line 609)
+  - `async get_stats()` (line 627)
+  - `async get_processing_status()` (line 640)
+  - `async get_system_status()` (line 652)
+  - `async health_check()` (line 658)
+  - `get_daemon_client()` (line 669)
+  - `async with_daemon_client()` (line 682)
+  - `create_project_client()` (line 693)
+- Methods:
+  - `DaemonClient.__init__()` (line 112)
+  - `async DaemonClient.connect()` (line 121)
+  - `async DaemonClient.disconnect()` (line 195)
+  - `async DaemonClient.connection()` (line 206) @asynccontextmanager
+  - `DaemonClient._ensure_connected()` (line 214)
+  - `DaemonClient.get_connection_info()` (line 228)
+  - `async DaemonClient.process_document()` (line 255)
+  - `async DaemonClient.process_folder()` (line 283)
+  - `async DaemonClient.start_watching()` (line 321)
+  - `async DaemonClient.stop_watching()` (line 353)
+  - `async DaemonClient.list_watches()` (line 360)
+  - `async DaemonClient.configure_watch()` (line 367)
+  - `async DaemonClient.execute_query()` (line 396)
+  - `async DaemonClient.list_collections()` (line 417)
+  - `async DaemonClient.get_collection_info()` (line 426)
+  - `async DaemonClient.create_collection()` (line 439)
+  - `async DaemonClient.delete_collection()` (line 463)
+  - `async DaemonClient.list_documents()` (line 484)
+  - `async DaemonClient.get_document()` (line 503)
+  - `async DaemonClient.delete_document()` (line 517)
+  - `async DaemonClient.load_configuration()` (line 531)
+  - `async DaemonClient.save_configuration()` (line 540)
+  - `async DaemonClient.validate_configuration()` (line 552)
+  - `async DaemonClient.add_memory_rule()` (line 563)
+  - `async DaemonClient.list_memory_rules()` (line 586)
+  - `async DaemonClient.delete_memory_rule()` (line 602)
+  - `async DaemonClient.search_memory_rules()` (line 609)
+  - `async DaemonClient.get_stats()` (line 627)
+  - `async DaemonClient.get_processing_status()` (line 640)
+  - `async DaemonClient.get_system_status()` (line 652)
+  - `async DaemonClient.health_check()` (line 658)
+
+### common/core/performance_monitoring.py
+- Functions: 21
+- Methods: 21
+- Classes: 7
+- Lines: 1001
+- Functions:
+  - `to_dict()` (line 69)
+  - `__post_init__()` (line 117)
+  - `passes_baseline()` (line 164)
+  - `__init__()` (line 181)
+  - `record_search_accuracy()` (line 191)
+  - `_check_accuracy_regression()` (line 256)
+  - `get_accuracy_summary()` (line 295)
+  - `get_recent_accuracy_alerts()` (line 348)
+  - `__init__()` (line 365)
+  - `async run_metadata_filtering_benchmark()` (line 381)
+  - `_compare_with_baseline()` (line 522)
+  - `async run_multi_tenant_isolation_benchmark()` (line 556)
+  - `get_benchmark_history()` (line 657)
+  - `generate_performance_regression_report()` (line 661)
+  - `__init__()` (line 735)
+  - `record_real_time_metric()` (line 755)
+  - `get_real_time_dashboard()` (line 777)
+  - `export_performance_report()` (line 882)
+  - `__init__()` (line 929)
+  - `async run_comprehensive_benchmark()` (line 954)
+  - `get_performance_status()` (line 979)
+- Methods:
+  - `PerformanceBaseline.to_dict()` (line 69)
+  - `SearchAccuracyMeasurement.__post_init__()` (line 117)
+  - `PerformanceBenchmarkResult.passes_baseline()` (line 164)
+  - `SearchAccuracyTracker.__init__()` (line 181)
+  - `SearchAccuracyTracker.record_search_accuracy()` (line 191)
+  - `SearchAccuracyTracker._check_accuracy_regression()` (line 256)
+  - `SearchAccuracyTracker.get_accuracy_summary()` (line 295)
+  - `SearchAccuracyTracker.get_recent_accuracy_alerts()` (line 348)
+  - `PerformanceBenchmarkSuite.__init__()` (line 365)
+  - `async PerformanceBenchmarkSuite.run_metadata_filtering_benchmark()` (line 381)
+  - `PerformanceBenchmarkSuite._compare_with_baseline()` (line 522)
+  - `async PerformanceBenchmarkSuite.run_multi_tenant_isolation_benchmark()` (line 556)
+  - `PerformanceBenchmarkSuite.get_benchmark_history()` (line 657)
+  - `PerformanceBenchmarkSuite.generate_performance_regression_report()` (line 661)
+  - `PerformanceMonitoringDashboard.__init__()` (line 735)
+  - `PerformanceMonitoringDashboard.record_real_time_metric()` (line 755)
+  - `PerformanceMonitoringDashboard.get_real_time_dashboard()` (line 777)
+  - `PerformanceMonitoringDashboard.export_performance_report()` (line 882)
+  - `MetadataFilteringPerformanceMonitor.__init__()` (line 929)
+  - `async MetadataFilteringPerformanceMonitor.run_comprehensive_benchmark()` (line 954)
+  - `MetadataFilteringPerformanceMonitor.get_performance_status()` (line 979)
+
+### common/core/sqlite_state_manager.py
+- Functions: 87
+- Methods: 85
+- Classes: 11
+- Lines: 3336
+- Functions:
+  - `__post_init__()` (line 111)
+  - `__post_init__()` (line 137)
+  - `__post_init__()` (line 157)
+  - `__post_init__()` (line 178)
+  - `__post_init__()` (line 200)
+  - `__init__()` (line 210)
+  - `__enter__()` (line 214)
+  - `__exit__()` (line 220)
+  - `__init__()` (line 238)
+  - `async initialize()` (line 252)
+  - `async close()` (line 320)
+  - `async transaction()` (line 354) @asynccontextmanager
+  - `async _setup_schema()` (line 364)
+  - `async _create_initial_schema()` (line 385)
+  - `async _migrate_schema()` (line 632)
+  - `async _perform_crash_recovery()` (line 714)
+  - `async _maintenance_loop()` (line 809)
+  - `async _perform_maintenance()` (line 837)
+  - `_serialize_json()` (line 872)
+  - `_deserialize_json()` (line 882)
+  - `async update_processing_state()` (line 894)
+  - `async get_processing_states()` (line 948)
+  - `async record_search_operation()` (line 993)
+  - `async get_search_history()` (line 1025)
+  - `async store_memory_rule()` (line 1062)
+  - `async get_memory_rules()` (line 1082)
+  - `async record_event()` (line 1105)
+  - `async get_events()` (line 1129)
+  - `async record_configuration_change()` (line 1172)
+  - `async get_configuration_history()` (line 1196)
+  - `async record_error()` (line 1218)
+  - `async get_errors()` (line 1247)
+  - `async record_performance_metric()` (line 1285)
+  - `async get_performance_metrics()` (line 1307)
+  - `async record_resource_usage()` (line 1344)
+  - `async get_resource_usage_history()` (line 1365)
+  - `async start_file_processing()` (line 1389)
+  - `async complete_file_processing()` (line 1434)
+  - `async get_file_processing_status()` (line 1510)
+  - `async get_files_by_status()` (line 1565)
+  - `async retry_failed_file()` (line 1637)
+  - `async save_watch_folder_config()` (line 1698)
+  - `async get_watch_folder_config()` (line 1735)
+  - `async get_all_watch_folder_configs()` (line 1786)
+  - `async remove_watch_folder_config()` (line 1845)
+  - `async update_watch_folder_scan_time()` (line 1865)
+  - `async add_to_processing_queue()` (line 1882)
+  - `async get_next_queue_item()` (line 1937)
+  - `async mark_queue_item_processing()` (line 1983)
+  - `async remove_from_processing_queue()` (line 1998)
+  - `async reschedule_queue_item()` (line 2016)
+  - `async get_queue_stats()` (line 2049)
+  - `async clear_queue()` (line 2088)
+  - `async set_system_state()` (line 2110)
+  - `async get_system_state()` (line 2132)
+  - `async delete_system_state()` (line 2156)
+  - `async get_processing_stats()` (line 2170)
+  - `async get_failed_files()` (line 2251)
+  - `async cleanup_old_records()` (line 2297)
+  - `async vacuum_database()` (line 2340)
+  - `async get_database_stats()` (line 2379)
+  - `async create_project()` (line 2438)
+  - `async get_project()` (line 2476)
+  - `async get_project_by_path()` (line 2516)
+  - `async update_project()` (line 2556)
+  - `async delete_project()` (line 2604)
+  - `async list_projects()` (line 2629)
+  - `async update_project_scan_time()` (line 2675)
+  - `async create_lsp_server()` (line 2707)
+  - `async get_lsp_server()` (line 2746)
+  - `async get_lsp_server_by_language()` (line 2787)
+  - `async update_lsp_server()` (line 2830)
+  - `async delete_lsp_server()` (line 2879)
+  - `async list_lsp_servers()` (line 2904)
+  - `async update_lsp_server_health()` (line 2962)
+  - `async get_active_lsp_servers()` (line 2997)
+  - `async update_file_lsp_metadata()` (line 3008)
+  - `async get_file_lsp_metadata()` (line 3062)
+  - `async get_files_by_language()` (line 3100)
+  - `async get_files_needing_lsp_analysis()` (line 3131)
+  - `async mark_file_lsp_failed()` (line 3166)
+  - `async get_lsp_analysis_stats()` (line 3207)
+  - `__init__()` (line 3276)
+  - `add_shutdown_handler()` (line 3280)
+  - `async shutdown()` (line 3284)
+  - `async get_state_manager()` (line 3308)
+  - `async shutdown_state_manager()` (line 3329)
+- Methods:
+  - `FileProcessingRecord.__post_init__()` (line 111)
+  - `WatchFolderConfig.__post_init__()` (line 137)
+  - `ProcessingQueueItem.__post_init__()` (line 157)
+  - `ProjectRecord.__post_init__()` (line 178)
+  - `LSPServerRecord.__post_init__()` (line 200)
+  - `DatabaseTransaction.__init__()` (line 210)
+  - `DatabaseTransaction.__enter__()` (line 214)
+  - `DatabaseTransaction.__exit__()` (line 220)
+  - `SQLiteStateManager.__init__()` (line 238)
+  - `async SQLiteStateManager.initialize()` (line 252)
+  - `async SQLiteStateManager.close()` (line 320)
+  - `async SQLiteStateManager.transaction()` (line 354) @asynccontextmanager
+  - `async SQLiteStateManager._setup_schema()` (line 364)
+  - `async SQLiteStateManager._create_initial_schema()` (line 385)
+  - `async SQLiteStateManager._migrate_schema()` (line 632)
+  - `async SQLiteStateManager._perform_crash_recovery()` (line 714)
+  - `async SQLiteStateManager._maintenance_loop()` (line 809)
+  - `async SQLiteStateManager._perform_maintenance()` (line 837)
+  - `SQLiteStateManager._serialize_json()` (line 872)
+  - `SQLiteStateManager._deserialize_json()` (line 882)
+  - `async SQLiteStateManager.update_processing_state()` (line 894)
+  - `async SQLiteStateManager.get_processing_states()` (line 948)
+  - `async SQLiteStateManager.record_search_operation()` (line 993)
+  - `async SQLiteStateManager.get_search_history()` (line 1025)
+  - `async SQLiteStateManager.store_memory_rule()` (line 1062)
+  - `async SQLiteStateManager.get_memory_rules()` (line 1082)
+  - `async SQLiteStateManager.record_event()` (line 1105)
+  - `async SQLiteStateManager.get_events()` (line 1129)
+  - `async SQLiteStateManager.record_configuration_change()` (line 1172)
+  - `async SQLiteStateManager.get_configuration_history()` (line 1196)
+  - `async SQLiteStateManager.record_error()` (line 1218)
+  - `async SQLiteStateManager.get_errors()` (line 1247)
+  - `async SQLiteStateManager.record_performance_metric()` (line 1285)
+  - `async SQLiteStateManager.get_performance_metrics()` (line 1307)
+  - `async SQLiteStateManager.record_resource_usage()` (line 1344)
+  - `async SQLiteStateManager.get_resource_usage_history()` (line 1365)
+  - `async SQLiteStateManager.start_file_processing()` (line 1389)
+  - `async SQLiteStateManager.complete_file_processing()` (line 1434)
+  - `async SQLiteStateManager.get_file_processing_status()` (line 1510)
+  - `async SQLiteStateManager.get_files_by_status()` (line 1565)
+  - `async SQLiteStateManager.retry_failed_file()` (line 1637)
+  - `async SQLiteStateManager.save_watch_folder_config()` (line 1698)
+  - `async SQLiteStateManager.get_watch_folder_config()` (line 1735)
+  - `async SQLiteStateManager.get_all_watch_folder_configs()` (line 1786)
+  - `async SQLiteStateManager.remove_watch_folder_config()` (line 1845)
+  - `async SQLiteStateManager.update_watch_folder_scan_time()` (line 1865)
+  - `async SQLiteStateManager.add_to_processing_queue()` (line 1882)
+  - `async SQLiteStateManager.get_next_queue_item()` (line 1937)
+  - `async SQLiteStateManager.mark_queue_item_processing()` (line 1983)
+  - `async SQLiteStateManager.remove_from_processing_queue()` (line 1998)
+  - `async SQLiteStateManager.reschedule_queue_item()` (line 2016)
+  - `async SQLiteStateManager.get_queue_stats()` (line 2049)
+  - `async SQLiteStateManager.clear_queue()` (line 2088)
+  - `async SQLiteStateManager.set_system_state()` (line 2110)
+  - `async SQLiteStateManager.get_system_state()` (line 2132)
+  - `async SQLiteStateManager.delete_system_state()` (line 2156)
+  - `async SQLiteStateManager.get_processing_stats()` (line 2170)
+  - `async SQLiteStateManager.get_failed_files()` (line 2251)
+  - `async SQLiteStateManager.cleanup_old_records()` (line 2297)
+  - `async SQLiteStateManager.vacuum_database()` (line 2340)
+  - `async SQLiteStateManager.get_database_stats()` (line 2379)
+  - `async SQLiteStateManager.create_project()` (line 2438)
+  - `async SQLiteStateManager.get_project()` (line 2476)
+  - `async SQLiteStateManager.get_project_by_path()` (line 2516)
+  - `async SQLiteStateManager.update_project()` (line 2556)
+  - `async SQLiteStateManager.delete_project()` (line 2604)
+  - `async SQLiteStateManager.list_projects()` (line 2629)
+  - `async SQLiteStateManager.update_project_scan_time()` (line 2675)
+  - `async SQLiteStateManager.create_lsp_server()` (line 2707)
+  - `async SQLiteStateManager.get_lsp_server()` (line 2746)
+  - `async SQLiteStateManager.get_lsp_server_by_language()` (line 2787)
+  - `async SQLiteStateManager.update_lsp_server()` (line 2830)
+  - `async SQLiteStateManager.delete_lsp_server()` (line 2879)
+  - `async SQLiteStateManager.list_lsp_servers()` (line 2904)
+  - `async SQLiteStateManager.update_lsp_server_health()` (line 2962)
+  - `async SQLiteStateManager.get_active_lsp_servers()` (line 2997)
+  - `async SQLiteStateManager.update_file_lsp_metadata()` (line 3008)
+  - `async SQLiteStateManager.get_file_lsp_metadata()` (line 3062)
+  - `async SQLiteStateManager.get_files_by_language()` (line 3100)
+  - `async SQLiteStateManager.get_files_needing_lsp_analysis()` (line 3131)
+  - `async SQLiteStateManager.mark_file_lsp_failed()` (line 3166)
+  - `async SQLiteStateManager.get_lsp_analysis_stats()` (line 3207)
+  - `StateManagerShutdownHandler.__init__()` (line 3276)
+  - `StateManagerShutdownHandler.add_shutdown_handler()` (line 3280)
+  - `async StateManagerShutdownHandler.shutdown()` (line 3284)
+
+### common/core/error_handling.py
+- Functions: 36
+- Methods: 28
+- Classes: 15
+- Lines: 695
+- Functions:
+  - `__init__()` (line 55)
+  - `to_dict()` (line 74)
+  - `__str__()` (line 86)
+  - `__init__()` (line 95)
+  - `__init__()` (line 112)
+  - `__init__()` (line 135)
+  - `__init__()` (line 152)
+  - `__init__()` (line 175)
+  - `__init__()` (line 197)
+  - `__init__()` (line 215)
+  - `__init__()` (line 237)
+  - `network_strategy()` (line 275) @classmethod
+  - `database_strategy()` (line 287) @classmethod
+  - `file_strategy()` (line 299) @classmethod
+  - `calculate_delay_ms()` (line 310)
+  - `should_allow_request()` (line 331)
+  - `record_success()` (line 349)
+  - `record_failure()` (line 355)
+  - `get_status()` (line 363)
+  - `__init__()` (line 378)
+  - `report_error()` (line 389)
+  - `report_recovery()` (line 421)
+  - `get_circuit_breaker()` (line 430)
+  - `get_stats()` (line 438)
+  - `__init__()` (line 455)
+  - `async execute_with_retry()` (line 458)
+  - `async _handle_retry()` (line 541)
+  - `async _ensure_awaitable()` (line 566)
+  - `with_error_handling()` (line 577)
+  - `decorator()` (line 583)
+  - `async wrapper()` (line 588) @<ast.Call object at 0x10c84a310>
+  - `async error_context()` (line 599) @asynccontextmanager
+  - `async safe_shutdown()` (line 646)
+  - `async run_cleanup()` (line 652)
+  - `get_error_stats()` (line 687)
+  - `reset_error_stats()` (line 692)
+- Methods:
+  - `WorkspaceError.__init__()` (line 55)
+  - `WorkspaceError.to_dict()` (line 74)
+  - `WorkspaceError.__str__()` (line 86)
+  - `ConfigurationError.__init__()` (line 95)
+  - `NetworkError.__init__()` (line 112)
+  - `DatabaseError.__init__()` (line 135)
+  - `FileSystemError.__init__()` (line 152)
+  - `ProcessingError.__init__()` (line 175)
+  - `EmbeddingError.__init__()` (line 197)
+  - `TimeoutError.__init__()` (line 215)
+  - `CircuitBreakerOpenError.__init__()` (line 237)
+  - `ErrorRecoveryStrategy.network_strategy()` (line 275) @classmethod
+  - `ErrorRecoveryStrategy.database_strategy()` (line 287) @classmethod
+  - `ErrorRecoveryStrategy.file_strategy()` (line 299) @classmethod
+  - `ErrorRecoveryStrategy.calculate_delay_ms()` (line 310)
+  - `CircuitBreakerState.should_allow_request()` (line 331)
+  - `CircuitBreakerState.record_success()` (line 349)
+  - `CircuitBreakerState.record_failure()` (line 355)
+  - `CircuitBreakerState.get_status()` (line 363)
+  - `ErrorMonitor.__init__()` (line 378)
+  - `ErrorMonitor.report_error()` (line 389)
+  - `ErrorMonitor.report_recovery()` (line 421)
+  - `ErrorMonitor.get_circuit_breaker()` (line 430)
+  - `ErrorMonitor.get_stats()` (line 438)
+  - `ErrorRecovery.__init__()` (line 455)
+  - `async ErrorRecovery.execute_with_retry()` (line 458)
+  - `async ErrorRecovery._handle_retry()` (line 541)
+  - `async ErrorRecovery._ensure_awaitable()` (line 566)
+
+### common/core/collection_naming.py
+- Functions: 25
+- Methods: 19
+- Classes: 11
+- Lines: 1034
+- Functions:
+  - `__init__()` (line 110)
+  - `validate_collection_name()` (line 121)
+  - `check_naming_conflicts()` (line 295)
+  - `get_collection_info()` (line 353)
+  - `get_display_name()` (line 365)
+  - `get_actual_name()` (line 381)
+  - `is_mcp_readonly()` (line 404)
+  - `is_system_memory_collection()` (line 420)
+  - `filter_workspace_collections()` (line 433)
+  - `generate_project_collection_names()` (line 470)
+  - `_classify_collection_name()` (line 485)
+  - `validate_collection_name()` (line 568)
+  - `normalize_collection_name_component()` (line 603)
+  - `build_project_collection_name()` (line 621)
+  - `build_system_memory_collection_name()` (line 638)
+  - `create_naming_manager()` (line 652)
+  - `__init__()` (line 698)
+  - `__init__()` (line 727)
+  - `set_existing_collections()` (line 756)
+  - `validate_collection_creation()` (line 768)
+  - `validate_collection_deletion()` (line 833)
+  - `validate_collection_write()` (line 901)
+  - `validate_operation()` (line 965)
+  - `enforce_operation()` (line 1004)
+  - `create_rules_enforcer()` (line 1024)
+- Methods:
+  - `CollectionNamingManager.__init__()` (line 110)
+  - `CollectionNamingManager.validate_collection_name()` (line 121)
+  - `CollectionNamingManager.check_naming_conflicts()` (line 295)
+  - `CollectionNamingManager.get_collection_info()` (line 353)
+  - `CollectionNamingManager.get_display_name()` (line 365)
+  - `CollectionNamingManager.get_actual_name()` (line 381)
+  - `CollectionNamingManager.is_mcp_readonly()` (line 404)
+  - `CollectionNamingManager.is_system_memory_collection()` (line 420)
+  - `CollectionNamingManager.filter_workspace_collections()` (line 433)
+  - `CollectionNamingManager.generate_project_collection_names()` (line 470)
+  - `CollectionNamingManager._classify_collection_name()` (line 485)
+  - `CollectionRulesEnforcementError.__init__()` (line 698)
+  - `CollectionRulesEnforcer.__init__()` (line 727)
+  - `CollectionRulesEnforcer.set_existing_collections()` (line 756)
+  - `CollectionRulesEnforcer.validate_collection_creation()` (line 768)
+  - `CollectionRulesEnforcer.validate_collection_deletion()` (line 833)
+  - `CollectionRulesEnforcer.validate_collection_write()` (line 901)
+  - `CollectionRulesEnforcer.validate_operation()` (line 965)
+  - `CollectionRulesEnforcer.enforce_operation()` (line 1004)
+
+### common/core/lsp_config.py
+- Functions: 30
+- Methods: 27
+- Classes: 4
+- Lines: 527
+- Functions:
+  - `validate_lsp_names()` (line 67) @<ast.Call object at 0x10c726f90>,classmethod
+  - `validate_custom_paths()` (line 76) @<ast.Call object at 0x10c923590>,classmethod
+  - `is_expired()` (line 101)
+  - `touch()` (line 105)
+  - `__post_init__()` (line 137)
+  - `_apply_env_overrides()` (line 142)
+  - `is_lsp_enabled()` (line 181)
+  - `get_lsp_binary_path()` (line 194)
+  - `set_custom_lsp_path()` (line 198)
+  - `enable_lsp()` (line 204)
+  - `disable_lsp()` (line 211)
+  - `_mark_updated()` (line 218)
+  - `to_dict()` (line 222)
+  - `from_dict()` (line 233) @classmethod
+  - `validate()` (line 245)
+  - `save_to_file()` (line 274)
+  - `load_from_file()` (line 295) @classmethod
+  - `__init__()` (line 325)
+  - `get()` (line 342)
+  - `set()` (line 356)
+  - `remove()` (line 362)
+  - `clear()` (line 371)
+  - `cleanup_expired()` (line 377)
+  - `get_stats()` (line 397)
+  - `_load_cache()` (line 423)
+  - `_save_cache_async()` (line 446)
+  - `_save_cache()` (line 455)
+  - `get_default_config()` (line 488)
+  - `get_default_cache()` (line 505)
+  - `reset_globals()` (line 522)
+- Methods:
+  - `LSPConfigSchema.validate_lsp_names()` (line 67) @<ast.Call object at 0x10c726f90>,classmethod
+  - `LSPConfigSchema.validate_custom_paths()` (line 76) @<ast.Call object at 0x10c923590>,classmethod
+  - `LSPCacheEntry.is_expired()` (line 101)
+  - `LSPCacheEntry.touch()` (line 105)
+  - `LSPConfig.__post_init__()` (line 137)
+  - `LSPConfig._apply_env_overrides()` (line 142)
+  - `LSPConfig.is_lsp_enabled()` (line 181)
+  - `LSPConfig.get_lsp_binary_path()` (line 194)
+  - `LSPConfig.set_custom_lsp_path()` (line 198)
+  - `LSPConfig.enable_lsp()` (line 204)
+  - `LSPConfig.disable_lsp()` (line 211)
+  - `LSPConfig._mark_updated()` (line 218)
+  - `LSPConfig.to_dict()` (line 222)
+  - `LSPConfig.from_dict()` (line 233) @classmethod
+  - `LSPConfig.validate()` (line 245)
+  - `LSPConfig.save_to_file()` (line 274)
+  - `LSPConfig.load_from_file()` (line 295) @classmethod
+  - `LSPCache.__init__()` (line 325)
+  - `LSPCache.get()` (line 342)
+  - `LSPCache.set()` (line 356)
+  - `LSPCache.remove()` (line 362)
+  - `LSPCache.clear()` (line 371)
+  - `LSPCache.cleanup_expired()` (line 377)
+  - `LSPCache.get_stats()` (line 397)
+  - `LSPCache._load_cache()` (line 423)
+  - `LSPCache._save_cache_async()` (line 446)
+  - `LSPCache._save_cache()` (line 455)
+
+### common/core/embeddings.py
+- Functions: 16
+- Methods: 16
+- Classes: 1
+- Lines: 570
+- Functions:
+  - `__init__()` (line 105)
+  - `async initialize()` (line 118)
+  - `async generate_embeddings()` (line 158)
+  - `async generate_embeddings_batch()` (line 201)
+  - `async _generate_dense_embeddings()` (line 251)
+  - `async _generate_sparse_embeddings()` (line 284)
+  - `async embed_documents()` (line 310)
+  - `chunk_text()` (line 360)
+  - `_hash_content()` (line 444)
+  - `_generate_cache_key()` (line 448)
+  - `_preprocess_text()` (line 453)
+  - `_get_vector_size()` (line 465)
+  - `get_model_info()` (line 477)
+  - `async close()` (line 555)
+  - `async __aenter__()` (line 563)
+  - `async __aexit__()` (line 568)
+- Methods:
+  - `EmbeddingService.__init__()` (line 105)
+  - `async EmbeddingService.initialize()` (line 118)
+  - `async EmbeddingService.generate_embeddings()` (line 158)
+  - `async EmbeddingService.generate_embeddings_batch()` (line 201)
+  - `async EmbeddingService._generate_dense_embeddings()` (line 251)
+  - `async EmbeddingService._generate_sparse_embeddings()` (line 284)
+  - `async EmbeddingService.embed_documents()` (line 310)
+  - `EmbeddingService.chunk_text()` (line 360)
+  - `EmbeddingService._hash_content()` (line 444)
+  - `EmbeddingService._generate_cache_key()` (line 448)
+  - `EmbeddingService._preprocess_text()` (line 453)
+  - `EmbeddingService._get_vector_size()` (line 465)
+  - `EmbeddingService.get_model_info()` (line 477)
+  - `async EmbeddingService.close()` (line 555)
+  - `async EmbeddingService.__aenter__()` (line 563)
+  - `async EmbeddingService.__aexit__()` (line 568)
+
+### common/core/component_lifecycle.py
+- Functions: 31
+- Methods: 29
+- Classes: 6
+- Lines: 1234
+- Functions:
+  - `__post_init__()` (line 125)
+  - `__post_init__()` (line 149)
+  - `__init__()` (line 225)
+  - `async initialize()` (line 274)
+  - `async startup_sequence()` (line 323)
+  - `async shutdown_sequence()` (line 409)
+  - `async restart_component()` (line 494)
+  - `async get_component_status()` (line 535)
+  - `async _mark_sqlite_ready()` (line 590)
+  - `async _start_dependency_level()` (line 625)
+  - `async _start_component_with_retry()` (line 667)
+  - `async _start_component()` (line 691)
+  - `async _start_rust_daemon()` (line 763)
+  - `async _start_python_mcp_server()` (line 808)
+  - `async _start_cli_utility()` (line 842)
+  - `async _start_context_injector()` (line 863)
+  - `async _register_component()` (line 884)
+  - `async _validate_all_components_ready()` (line 898)
+  - `async _validate_component_readiness()` (line 909)
+  - `async _perform_readiness_check()` (line 938)
+  - `async _shutdown_dependency_level()` (line 989)
+  - `async _shutdown_component()` (line 1013)
+  - `async _start_lifecycle_monitoring()` (line 1060)
+  - `async _component_health_monitor()` (line 1068)
+  - `async _dependency_monitor()` (line 1101)
+  - `async _handle_startup_failure()` (line 1119)
+  - `async _cleanup_lifecycle_resources()` (line 1130)
+  - `async _log_lifecycle_event()` (line 1143)
+  - `_detect_project_name()` (line 1196)
+  - `async get_lifecycle_manager()` (line 1208)
+  - `async shutdown_lifecycle_manager()` (line 1228)
+- Methods:
+  - `ComponentConfig.__post_init__()` (line 125)
+  - `LifecycleEvent.__post_init__()` (line 149)
+  - `ComponentLifecycleManager.__init__()` (line 225)
+  - `async ComponentLifecycleManager.initialize()` (line 274)
+  - `async ComponentLifecycleManager.startup_sequence()` (line 323)
+  - `async ComponentLifecycleManager.shutdown_sequence()` (line 409)
+  - `async ComponentLifecycleManager.restart_component()` (line 494)
+  - `async ComponentLifecycleManager.get_component_status()` (line 535)
+  - `async ComponentLifecycleManager._mark_sqlite_ready()` (line 590)
+  - `async ComponentLifecycleManager._start_dependency_level()` (line 625)
+  - `async ComponentLifecycleManager._start_component_with_retry()` (line 667)
+  - `async ComponentLifecycleManager._start_component()` (line 691)
+  - `async ComponentLifecycleManager._start_rust_daemon()` (line 763)
+  - `async ComponentLifecycleManager._start_python_mcp_server()` (line 808)
+  - `async ComponentLifecycleManager._start_cli_utility()` (line 842)
+  - `async ComponentLifecycleManager._start_context_injector()` (line 863)
+  - `async ComponentLifecycleManager._register_component()` (line 884)
+  - `async ComponentLifecycleManager._validate_all_components_ready()` (line 898)
+  - `async ComponentLifecycleManager._validate_component_readiness()` (line 909)
+  - `async ComponentLifecycleManager._perform_readiness_check()` (line 938)
+  - `async ComponentLifecycleManager._shutdown_dependency_level()` (line 989)
+  - `async ComponentLifecycleManager._shutdown_component()` (line 1013)
+  - `async ComponentLifecycleManager._start_lifecycle_monitoring()` (line 1060)
+  - `async ComponentLifecycleManager._component_health_monitor()` (line 1068)
+  - `async ComponentLifecycleManager._dependency_monitor()` (line 1101)
+  - `async ComponentLifecycleManager._handle_startup_failure()` (line 1119)
+  - `async ComponentLifecycleManager._cleanup_lifecycle_resources()` (line 1130)
+  - `async ComponentLifecycleManager._log_lifecycle_event()` (line 1143)
+  - `ComponentLifecycleManager._detect_project_name()` (line 1196)
+
+### common/core/lsp_health_monitor.py
+- Functions: 31
+- Methods: 31
+- Classes: 8
+- Lines: 1219
+- Functions:
+  - `to_dict()` (line 121)
+  - `current_status()` (line 159) @property
+  - `is_healthy()` (line 166) @property
+  - `add_check_result()` (line 170)
+  - `to_dict()` (line 214)
+  - `__init__()` (line 239)
+  - `register_server()` (line 272)
+  - `unregister_server()` (line 309)
+  - `start_monitoring()` (line 330)
+  - `stop_monitoring()` (line 352)
+  - `async shutdown()` (line 364)
+  - `register_notification_handler()` (line 382)
+  - `async perform_health_check()` (line 395)
+  - `async _validate_capabilities()` (line 498)
+  - `async attempt_recovery()` (line 548)
+  - `_determine_recovery_strategy()` (line 660)
+  - `async _immediate_recovery()` (line 688)
+  - `async _backoff_recovery()` (line 735)
+  - `async _circuit_breaker_recovery()` (line 759)
+  - `async _enable_fallback_mode()` (line 792)
+  - `async _monitoring_loop()` (line 837)
+  - `async _handle_health_status_change()` (line 912)
+  - `async _update_priority_queue_health()` (line 973)
+  - `_get_troubleshooting_steps()` (line 1004)
+  - `async _send_notification()` (line 1063)
+  - `get_server_health()` (line 1100)
+  - `get_all_servers_health()` (line 1112)
+  - `is_feature_available()` (line 1121)
+  - `get_available_features()` (line 1140)
+  - `get_health_statistics()` (line 1158)
+  - `async monitoring_context()` (line 1201) @asynccontextmanager
+- Methods:
+  - `HealthCheckResult.to_dict()` (line 121)
+  - `ServerHealthInfo.current_status()` (line 159) @property
+  - `ServerHealthInfo.is_healthy()` (line 166) @property
+  - `ServerHealthInfo.add_check_result()` (line 170)
+  - `UserNotification.to_dict()` (line 214)
+  - `LspHealthMonitor.__init__()` (line 239)
+  - `LspHealthMonitor.register_server()` (line 272)
+  - `LspHealthMonitor.unregister_server()` (line 309)
+  - `LspHealthMonitor.start_monitoring()` (line 330)
+  - `LspHealthMonitor.stop_monitoring()` (line 352)
+  - `async LspHealthMonitor.shutdown()` (line 364)
+  - `LspHealthMonitor.register_notification_handler()` (line 382)
+  - `async LspHealthMonitor.perform_health_check()` (line 395)
+  - `async LspHealthMonitor._validate_capabilities()` (line 498)
+  - `async LspHealthMonitor.attempt_recovery()` (line 548)
+  - `LspHealthMonitor._determine_recovery_strategy()` (line 660)
+  - `async LspHealthMonitor._immediate_recovery()` (line 688)
+  - `async LspHealthMonitor._backoff_recovery()` (line 735)
+  - `async LspHealthMonitor._circuit_breaker_recovery()` (line 759)
+  - `async LspHealthMonitor._enable_fallback_mode()` (line 792)
+  - `async LspHealthMonitor._monitoring_loop()` (line 837)
+  - `async LspHealthMonitor._handle_health_status_change()` (line 912)
+  - `async LspHealthMonitor._update_priority_queue_health()` (line 973)
+  - `LspHealthMonitor._get_troubleshooting_steps()` (line 1004)
+  - `async LspHealthMonitor._send_notification()` (line 1063)
+  - `LspHealthMonitor.get_server_health()` (line 1100)
+  - `LspHealthMonitor.get_all_servers_health()` (line 1112)
+  - `LspHealthMonitor.is_feature_available()` (line 1121)
+  - `LspHealthMonitor.get_available_features()` (line 1140)
+  - `LspHealthMonitor.get_health_statistics()` (line 1158)
+  - `async LspHealthMonitor.monitoring_context()` (line 1201) @asynccontextmanager
+
+### common/core/pattern_manager.py
+- Functions: 15
+- Methods: 15
+- Classes: 1
+- Lines: 494
+- Functions:
+  - `__init__()` (line 60)
+  - `_load_all_patterns()` (line 107)
+  - `_load_include_patterns()` (line 123)
+  - `_load_exclude_patterns()` (line 150)
+  - `_load_project_indicators()` (line 177)
+  - `_load_language_extensions()` (line 200)
+  - `should_include()` (line 229)
+  - `should_exclude()` (line 271)
+  - `detect_ecosystem()` (line 313)
+  - `get_language_info()` (line 343)
+  - `_match_pattern()` (line 367)
+  - `_check_ecosystem_indicators()` (line 410)
+  - `_cache_result()` (line 454)
+  - `clear_cache()` (line 464)
+  - `get_statistics()` (line 469)
+- Methods:
+  - `PatternManager.__init__()` (line 60)
+  - `PatternManager._load_all_patterns()` (line 107)
+  - `PatternManager._load_include_patterns()` (line 123)
+  - `PatternManager._load_exclude_patterns()` (line 150)
+  - `PatternManager._load_project_indicators()` (line 177)
+  - `PatternManager._load_language_extensions()` (line 200)
+  - `PatternManager.should_include()` (line 229)
+  - `PatternManager.should_exclude()` (line 271)
+  - `PatternManager.detect_ecosystem()` (line 313)
+  - `PatternManager.get_language_info()` (line 343)
+  - `PatternManager._match_pattern()` (line 367)
+  - `PatternManager._check_ecosystem_indicators()` (line 410)
+  - `PatternManager._cache_result()` (line 454)
+  - `PatternManager.clear_cache()` (line 464)
+  - `PatternManager.get_statistics()` (line 469)
+
+### common/core/claude_integration.py
+- Functions: 12
+- Methods: 11
+- Classes: 1
+- Lines: 472
+- Functions:
+  - `__init__()` (line 32)
+  - `async initialize_session()` (line 41)
+  - `async format_system_rules_for_injection()` (line 108)
+  - `async handle_conversational_update()` (line 125)
+  - `async resolve_conflicts()` (line 179)
+  - `_create_rules_summary()` (line 220)
+  - `async _format_system_context()` (line 246)
+  - `_format_conflict()` (line 330)
+  - `_generate_conflict_resolution_prompt()` (line 353)
+  - `_generate_rule_name()` (line 383)
+  - `async _apply_conflict_resolution()` (line 413)
+  - `create_claude_integration()` (line 460)
+- Methods:
+  - `ClaudeIntegrationManager.__init__()` (line 32)
+  - `async ClaudeIntegrationManager.initialize_session()` (line 41)
+  - `async ClaudeIntegrationManager.format_system_rules_for_injection()` (line 108)
+  - `async ClaudeIntegrationManager.handle_conversational_update()` (line 125)
+  - `async ClaudeIntegrationManager.resolve_conflicts()` (line 179)
+  - `ClaudeIntegrationManager._create_rules_summary()` (line 220)
+  - `async ClaudeIntegrationManager._format_system_context()` (line 246)
+  - `ClaudeIntegrationManager._format_conflict()` (line 330)
+  - `ClaudeIntegrationManager._generate_conflict_resolution_prompt()` (line 353)
+  - `ClaudeIntegrationManager._generate_rule_name()` (line 383)
+  - `async ClaudeIntegrationManager._apply_conflict_resolution()` (line 413)
+
+### common/core/collections.py
+- Functions: 45
+- Methods: 45
+- Classes: 4
+- Lines: 2122
+- Functions:
+  - `__init__()` (line 164)
+  - `_get_current_project_name()` (line 183)
+  - `_get_all_project_names()` (line 231)
+  - `validate_collection_filtering()` (line 261)
+  - `_get_filtering_reason()` (line 313)
+  - `async initialize_workspace_collections()` (line 351)
+  - `_ensure_collection_exists()` (line 483)
+  - `list_workspace_collections()` (line 590)
+  - `get_collection_info()` (line 653)
+  - `_is_workspace_collection()` (line 734)
+  - `resolve_collection_name()` (line 824)
+  - `validate_mcp_write_access()` (line 900)
+  - `get_naming_manager()` (line 924)
+  - `list_searchable_collections()` (line 933)
+  - `list_collections_for_project()` (line 971)
+  - `_collection_belongs_to_project()` (line 1040)
+  - `_list_collections_for_project_legacy()` (line 1081)
+  - `validate_collection_operation()` (line 1108)
+  - `_get_vector_size()` (line 1143)
+  - `async _optimize_metadata_indexing()` (line 1183)
+  - `async _create_collection_with_metadata_support()` (line 1249)
+  - `__init__()` (line 1303)
+  - `async ensure_memory_collections_exist()` (line 1324)
+  - `collection_exists()` (line 1374)
+  - `create_system_memory_collection()` (line 1392)
+  - `create_project_memory_collection()` (line 1456)
+  - `_create_memory_collection()` (line 1518)
+  - `get_memory_collections()` (line 1580)
+  - `validate_memory_collection_access()` (line 1633)
+  - `_get_vector_size()` (line 1664)
+  - `__init__()` (line 1702)
+  - `select_collections_by_type()` (line 1719)
+  - `_select_memory_collections()` (line 1791)
+  - `_select_code_collections()` (line 1822)
+  - `_select_shared_collections()` (line 1862)
+  - `_is_memory_collection()` (line 1885)
+  - `_is_legacy_code_collection()` (line 1901)
+  - `_apply_fallback_selection()` (line 1917)
+  - `_get_all_collections_with_metadata()` (line 1960)
+  - `_get_basic_collection_list()` (line 1996)
+  - `_is_result_empty()` (line 2005)
+  - `_get_empty_result_with_fallback()` (line 2009)
+  - `get_searchable_collections()` (line 2019)
+  - `_is_memory_collection_searchable()` (line 2075)
+  - `validate_collection_access()` (line 2088)
+- Methods:
+  - `WorkspaceCollectionManager.__init__()` (line 164)
+  - `WorkspaceCollectionManager._get_current_project_name()` (line 183)
+  - `WorkspaceCollectionManager._get_all_project_names()` (line 231)
+  - `WorkspaceCollectionManager.validate_collection_filtering()` (line 261)
+  - `WorkspaceCollectionManager._get_filtering_reason()` (line 313)
+  - `async WorkspaceCollectionManager.initialize_workspace_collections()` (line 351)
+  - `WorkspaceCollectionManager._ensure_collection_exists()` (line 483)
+  - `WorkspaceCollectionManager.list_workspace_collections()` (line 590)
+  - `WorkspaceCollectionManager.get_collection_info()` (line 653)
+  - `WorkspaceCollectionManager._is_workspace_collection()` (line 734)
+  - `WorkspaceCollectionManager.resolve_collection_name()` (line 824)
+  - `WorkspaceCollectionManager.validate_mcp_write_access()` (line 900)
+  - `WorkspaceCollectionManager.get_naming_manager()` (line 924)
+  - `WorkspaceCollectionManager.list_searchable_collections()` (line 933)
+  - `WorkspaceCollectionManager.list_collections_for_project()` (line 971)
+  - `WorkspaceCollectionManager._collection_belongs_to_project()` (line 1040)
+  - `WorkspaceCollectionManager._list_collections_for_project_legacy()` (line 1081)
+  - `WorkspaceCollectionManager.validate_collection_operation()` (line 1108)
+  - `WorkspaceCollectionManager._get_vector_size()` (line 1143)
+  - `async WorkspaceCollectionManager._optimize_metadata_indexing()` (line 1183)
+  - `async WorkspaceCollectionManager._create_collection_with_metadata_support()` (line 1249)
+  - `MemoryCollectionManager.__init__()` (line 1303)
+  - `async MemoryCollectionManager.ensure_memory_collections_exist()` (line 1324)
+  - `MemoryCollectionManager.collection_exists()` (line 1374)
+  - `MemoryCollectionManager.create_system_memory_collection()` (line 1392)
+  - `MemoryCollectionManager.create_project_memory_collection()` (line 1456)
+  - `MemoryCollectionManager._create_memory_collection()` (line 1518)
+  - `MemoryCollectionManager.get_memory_collections()` (line 1580)
+  - `MemoryCollectionManager.validate_memory_collection_access()` (line 1633)
+  - `MemoryCollectionManager._get_vector_size()` (line 1664)
+  - `CollectionSelector.__init__()` (line 1702)
+  - `CollectionSelector.select_collections_by_type()` (line 1719)
+  - `CollectionSelector._select_memory_collections()` (line 1791)
+  - `CollectionSelector._select_code_collections()` (line 1822)
+  - `CollectionSelector._select_shared_collections()` (line 1862)
+  - `CollectionSelector._is_memory_collection()` (line 1885)
+  - `CollectionSelector._is_legacy_code_collection()` (line 1901)
+  - `CollectionSelector._apply_fallback_selection()` (line 1917)
+  - `CollectionSelector._get_all_collections_with_metadata()` (line 1960)
+  - `CollectionSelector._get_basic_collection_list()` (line 1996)
+  - `CollectionSelector._is_result_empty()` (line 2005)
+  - `CollectionSelector._get_empty_result_with_fallback()` (line 2009)
+  - `CollectionSelector.get_searchable_collections()` (line 2019)
+  - `CollectionSelector._is_memory_collection_searchable()` (line 2075)
+  - `CollectionSelector.validate_collection_access()` (line 2088)
+
+### common/core/language_filters.py
+- Functions: 20
+- Methods: 20
+- Classes: 5
+- Lines: 525
+- Functions:
+  - `to_dict()` (line 72)
+  - `from_yaml_config()` (line 116) @classmethod
+  - `__init__()` (line 138)
+  - `match_glob()` (line 144)
+  - `match_regex()` (line 166)
+  - `get_cache_stats()` (line 184)
+  - `__init__()` (line 197)
+  - `get_mime_type()` (line 210)
+  - `__init__()` (line 251)
+  - `async load_configuration()` (line 271)
+  - `should_process_file()` (line 308)
+  - `_matches_force_include()` (line 417)
+  - `_matches_ignored_directories()` (line 431)
+  - `_matches_ignored_extensions()` (line 442)
+  - `_matches_ignored_regex()` (line 456)
+  - `_is_filtered_mime_type()` (line 463)
+  - `_record_filter_decision()` (line 482)
+  - `get_statistics()` (line 495)
+  - `reset_statistics()` (line 504)
+  - `get_configuration_summary()` (line 508)
+- Methods:
+  - `FilterStatistics.to_dict()` (line 72)
+  - `FilterConfiguration.from_yaml_config()` (line 116) @classmethod
+  - `CompiledPatterns.__init__()` (line 138)
+  - `CompiledPatterns.match_glob()` (line 144)
+  - `CompiledPatterns.match_regex()` (line 166)
+  - `CompiledPatterns.get_cache_stats()` (line 184)
+  - `MimeTypeDetector.__init__()` (line 197)
+  - `MimeTypeDetector.get_mime_type()` (line 210)
+  - `LanguageAwareFilter.__init__()` (line 251)
+  - `async LanguageAwareFilter.load_configuration()` (line 271)
+  - `LanguageAwareFilter.should_process_file()` (line 308)
+  - `LanguageAwareFilter._matches_force_include()` (line 417)
+  - `LanguageAwareFilter._matches_ignored_directories()` (line 431)
+  - `LanguageAwareFilter._matches_ignored_extensions()` (line 442)
+  - `LanguageAwareFilter._matches_ignored_regex()` (line 456)
+  - `LanguageAwareFilter._is_filtered_mime_type()` (line 463)
+  - `LanguageAwareFilter._record_filter_decision()` (line 482)
+  - `LanguageAwareFilter.get_statistics()` (line 495)
+  - `LanguageAwareFilter.reset_statistics()` (line 504)
+  - `LanguageAwareFilter.get_configuration_summary()` (line 508)
+
+### common/core/performance_analytics.py
+- Functions: 15
+- Methods: 15
+- Classes: 7
+- Lines: 751
+- Functions:
+  - `to_dict()` (line 80)
+  - `to_dict()` (line 136)
+  - `__init__()` (line 172)
+  - `async analyze_performance()` (line 201)
+  - `async _generate_insights()` (line 269)
+  - `async _generate_recommendations()` (line 371)
+  - `_calculate_performance_score()` (line 553)
+  - `_determine_performance_level()` (line 610)
+  - `_calculate_resource_efficiency()` (line 623)
+  - `_identify_bottlenecks()` (line 644)
+  - `_calculate_error_rates()` (line 675)
+  - `_calculate_availability_metrics()` (line 687)
+  - `__init__()` (line 701)
+  - `async apply_recommendation()` (line 705)
+  - `async get_optimization_history()` (line 735)
+- Methods:
+  - `OptimizationRecommendation.to_dict()` (line 80)
+  - `PerformanceReport.to_dict()` (line 136)
+  - `PerformanceAnalyzer.__init__()` (line 172)
+  - `async PerformanceAnalyzer.analyze_performance()` (line 201)
+  - `async PerformanceAnalyzer._generate_insights()` (line 269)
+  - `async PerformanceAnalyzer._generate_recommendations()` (line 371)
+  - `PerformanceAnalyzer._calculate_performance_score()` (line 553)
+  - `PerformanceAnalyzer._determine_performance_level()` (line 610)
+  - `PerformanceAnalyzer._calculate_resource_efficiency()` (line 623)
+  - `PerformanceAnalyzer._identify_bottlenecks()` (line 644)
+  - `PerformanceAnalyzer._calculate_error_rates()` (line 675)
+  - `PerformanceAnalyzer._calculate_availability_metrics()` (line 687)
+  - `OptimizationEngine.__init__()` (line 701)
+  - `async OptimizationEngine.apply_recommendation()` (line 705)
+  - `async OptimizationEngine.get_optimization_history()` (line 735)
+
+### common/core/metadata_filtering.py
+- Functions: 32
+- Methods: 31
+- Classes: 5
+- Lines: 1097
+- Functions:
+  - `__post_init__()` (line 147)
+  - `_generate_project_id()` (line 168) @staticmethod
+  - `to_cache_key()` (line 172)
+  - `__post_init__()` (line 201)
+  - `__init__()` (line 221)
+  - `create_project_isolation_filter()` (line 265)
+  - `create_composite_filter()` (line 405)
+  - `create_collection_type_filter()` (line 525)
+  - `create_access_control_filter()` (line 551)
+  - `validate_filter_compatibility()` (line 580)
+  - `get_filter_performance_stats()` (line 633)
+  - `clear_cache()` (line 662)
+  - `_build_project_conditions()` (line 667)
+  - `_build_collection_type_conditions()` (line 698)
+  - `_build_collection_category_conditions()` (line 718)
+  - `_build_workspace_scope_conditions()` (line 740)
+  - `_build_access_control_conditions()` (line 762)
+  - `_build_temporal_conditions()` (line 817)
+  - `_build_organizational_conditions()` (line 853)
+  - `_build_special_conditions()` (line 893)
+  - `_get_cached_filter()` (line 938)
+  - `_cache_filter()` (line 955)
+  - `_cleanup_cache()` (line 967)
+  - `_count_filter_conditions()` (line 977)
+  - `_count_indexed_conditions()` (line 988)
+  - `count_conditions()` (line 992)
+  - `_calculate_complexity_score()` (line 1009)
+  - `_get_non_indexed_conditions()` (line 1026)
+  - `_map_criteria_to_metadata_field()` (line 1041)
+  - `_record_performance_stats()` (line 1064)
+  - `_calculate_cache_hit_rate()` (line 1073)
+  - `_generate_project_id()` (line 1085) @staticmethod
+- Methods:
+  - `FilterCriteria.__post_init__()` (line 147)
+  - `FilterCriteria._generate_project_id()` (line 168) @staticmethod
+  - `FilterCriteria.to_cache_key()` (line 172)
+  - `FilterResult.__post_init__()` (line 201)
+  - `MetadataFilterManager.__init__()` (line 221)
+  - `MetadataFilterManager.create_project_isolation_filter()` (line 265)
+  - `MetadataFilterManager.create_composite_filter()` (line 405)
+  - `MetadataFilterManager.create_collection_type_filter()` (line 525)
+  - `MetadataFilterManager.create_access_control_filter()` (line 551)
+  - `MetadataFilterManager.validate_filter_compatibility()` (line 580)
+  - `MetadataFilterManager.get_filter_performance_stats()` (line 633)
+  - `MetadataFilterManager.clear_cache()` (line 662)
+  - `MetadataFilterManager._build_project_conditions()` (line 667)
+  - `MetadataFilterManager._build_collection_type_conditions()` (line 698)
+  - `MetadataFilterManager._build_collection_category_conditions()` (line 718)
+  - `MetadataFilterManager._build_workspace_scope_conditions()` (line 740)
+  - `MetadataFilterManager._build_access_control_conditions()` (line 762)
+  - `MetadataFilterManager._build_temporal_conditions()` (line 817)
+  - `MetadataFilterManager._build_organizational_conditions()` (line 853)
+  - `MetadataFilterManager._build_special_conditions()` (line 893)
+  - `MetadataFilterManager._get_cached_filter()` (line 938)
+  - `MetadataFilterManager._cache_filter()` (line 955)
+  - `MetadataFilterManager._cleanup_cache()` (line 967)
+  - `MetadataFilterManager._count_filter_conditions()` (line 977)
+  - `MetadataFilterManager._count_indexed_conditions()` (line 988)
+  - `MetadataFilterManager._calculate_complexity_score()` (line 1009)
+  - `MetadataFilterManager._get_non_indexed_conditions()` (line 1026)
+  - `MetadataFilterManager._map_criteria_to_metadata_field()` (line 1041)
+  - `MetadataFilterManager._record_performance_stats()` (line 1064)
+  - `MetadataFilterManager._calculate_cache_hit_rate()` (line 1073)
+  - `MetadataFilterManager._generate_project_id()` (line 1085) @staticmethod
+
+### common/core/backward_compatibility.py
+- Functions: 20
+- Methods: 20
+- Classes: 6
+- Lines: 956
+- Functions:
+  - `__init__()` (line 146)
+  - `async analyze_existing_collections()` (line 169)
+  - `async _analyze_single_collection()` (line 200)
+  - `async _check_existing_metadata()` (line 264)
+  - `_map_collection_type_to_analysis()` (line 295)
+  - `_generate_estimated_metadata()` (line 306)
+  - `_determine_migration_strategy()` (line 364)
+  - `_generate_recommendations()` (line 395)
+  - `async migrate_collections()` (line 433)
+  - `async _migrate_batch()` (line 498)
+  - `async _migrate_single_collection_with_semaphore()` (line 529)
+  - `async _migrate_single_collection()` (line 538)
+  - `async _add_metadata_to_documents()` (line 623)
+  - `async validate_migration()` (line 683)
+  - `async _validate_single_collection_migration()` (line 734)
+  - `_log_analysis_summary()` (line 820)
+  - `async rollback_migration()` (line 845)
+  - `async _remove_metadata_from_documents()` (line 878)
+  - `get_migration_history()` (line 937)
+  - `clear_migration_history()` (line 941)
+- Methods:
+  - `BackwardCompatibilityManager.__init__()` (line 146)
+  - `async BackwardCompatibilityManager.analyze_existing_collections()` (line 169)
+  - `async BackwardCompatibilityManager._analyze_single_collection()` (line 200)
+  - `async BackwardCompatibilityManager._check_existing_metadata()` (line 264)
+  - `BackwardCompatibilityManager._map_collection_type_to_analysis()` (line 295)
+  - `BackwardCompatibilityManager._generate_estimated_metadata()` (line 306)
+  - `BackwardCompatibilityManager._determine_migration_strategy()` (line 364)
+  - `BackwardCompatibilityManager._generate_recommendations()` (line 395)
+  - `async BackwardCompatibilityManager.migrate_collections()` (line 433)
+  - `async BackwardCompatibilityManager._migrate_batch()` (line 498)
+  - `async BackwardCompatibilityManager._migrate_single_collection_with_semaphore()` (line 529)
+  - `async BackwardCompatibilityManager._migrate_single_collection()` (line 538)
+  - `async BackwardCompatibilityManager._add_metadata_to_documents()` (line 623)
+  - `async BackwardCompatibilityManager.validate_migration()` (line 683)
+  - `async BackwardCompatibilityManager._validate_single_collection_migration()` (line 734)
+  - `BackwardCompatibilityManager._log_analysis_summary()` (line 820)
+  - `async BackwardCompatibilityManager.rollback_migration()` (line 845)
+  - `async BackwardCompatibilityManager._remove_metadata_from_documents()` (line 878)
+  - `BackwardCompatibilityManager.get_migration_history()` (line 937)
+  - `BackwardCompatibilityManager.clear_migration_history()` (line 941)
+
+### common/core/service_discovery_integration.py
+- Functions: 12
+- Methods: 9
+- Classes: 1
+- Lines: 247
+- Functions:
+  - `__init__()` (line 26)
+  - `async start()` (line 39)
+  - `async stop()` (line 82)
+  - `async discover_rust_daemon()` (line 96)
+  - `async get_all_services()` (line 100)
+  - `_handle_discovery_event()` (line 104)
+  - `async _discover_rust_daemon()` (line 125)
+  - `async _establish_daemon_communication()` (line 135)
+  - `async _run_health_server()` (line 157)
+  - `async health_handler()` (line 165)
+  - `async main()` (line 197)
+  - `signal_handler()` (line 225)
+- Methods:
+  - `MCPServerWithDiscovery.__init__()` (line 26)
+  - `async MCPServerWithDiscovery.start()` (line 39)
+  - `async MCPServerWithDiscovery.stop()` (line 82)
+  - `async MCPServerWithDiscovery.discover_rust_daemon()` (line 96)
+  - `async MCPServerWithDiscovery.get_all_services()` (line 100)
+  - `MCPServerWithDiscovery._handle_discovery_event()` (line 104)
+  - `async MCPServerWithDiscovery._discover_rust_daemon()` (line 125)
+  - `async MCPServerWithDiscovery._establish_daemon_communication()` (line 135)
+  - `async MCPServerWithDiscovery._run_health_server()` (line 157)
+
+### common/core/pure_daemon_client.py
+- Functions: 16
+- Methods: 16
+- Classes: 1
+- Lines: 453
+- Functions:
+  - `__init__()` (line 29)
+  - `async initialize()` (line 63)
+  - `async close()` (line 85)
+  - `async get_status()` (line 101)
+  - `async list_collections()` (line 146)
+  - `async add_document()` (line 171)
+  - `async get_document()` (line 222)
+  - `async search()` (line 259)
+  - `async search_by_metadata()` (line 318)
+  - `async get_resource_stats()` (line 357)
+  - `async _initialize_workspace_collections()` (line 380)
+  - `async _mark_mcp_operation()` (line 409)
+  - `async _set_mcp_active()` (line 417)
+  - `get_operation_mode()` (line 436)
+  - `is_daemon_mode()` (line 440)
+  - `get_connection_info()` (line 444)
+- Methods:
+  - `PureDaemonWorkspaceClient.__init__()` (line 29)
+  - `async PureDaemonWorkspaceClient.initialize()` (line 63)
+  - `async PureDaemonWorkspaceClient.close()` (line 85)
+  - `async PureDaemonWorkspaceClient.get_status()` (line 101)
+  - `async PureDaemonWorkspaceClient.list_collections()` (line 146)
+  - `async PureDaemonWorkspaceClient.add_document()` (line 171)
+  - `async PureDaemonWorkspaceClient.get_document()` (line 222)
+  - `async PureDaemonWorkspaceClient.search()` (line 259)
+  - `async PureDaemonWorkspaceClient.search_by_metadata()` (line 318)
+  - `async PureDaemonWorkspaceClient.get_resource_stats()` (line 357)
+  - `async PureDaemonWorkspaceClient._initialize_workspace_collections()` (line 380)
+  - `async PureDaemonWorkspaceClient._mark_mcp_operation()` (line 409)
+  - `async PureDaemonWorkspaceClient._set_mcp_active()` (line 417)
+  - `PureDaemonWorkspaceClient.get_operation_mode()` (line 436)
+  - `PureDaemonWorkspaceClient.is_daemon_mode()` (line 440)
+  - `PureDaemonWorkspaceClient.get_connection_info()` (line 444)
+
+### common/core/yaml_metadata.py
+- Functions: 30
+- Methods: 30
+- Classes: 6
+- Lines: 969
+- Functions:
+  - `validate_metadata()` (line 48)
+  - `is_complete()` (line 80)
+  - `to_yaml_dict()` (line 100)
+  - `from_yaml_dict()` (line 139) @classmethod
+  - `__init__()` (line 244)
+  - `async detect_document_type()` (line 247)
+  - `__init__()` (line 392)
+  - `async extract_enhanced_metadata()` (line 400)
+  - `_get_parser()` (line 432)
+  - `async _extract_book_metadata()` (line 437)
+  - `async _extract_article_metadata()` (line 475)
+  - `async _extract_webpage_metadata()` (line 509)
+  - `_extract_title_from_content()` (line 526)
+  - `_extract_author_from_content()` (line 544)
+  - `_extract_authors_from_content()` (line 562)
+  - `_extract_isbn_from_content()` (line 583)
+  - `_extract_publisher_from_content()` (line 595)
+  - `_extract_year_from_content()` (line 614)
+  - `_extract_journal_from_content()` (line 639)
+  - `_extract_doi_from_content()` (line 658)
+  - `_extract_publication_date_from_content()` (line 669)
+  - `_clean_metadata()` (line 688)
+  - `__init__()` (line 710)
+  - `async generate_yaml_file()` (line 715)
+  - `async process_yaml_file()` (line 783)
+  - `async _find_documents()` (line 836)
+  - `async _process_document()` (line 854)
+  - `async _save_yaml_file()` (line 911)
+  - `async _load_yaml_file()` (line 925)
+  - `async _ingest_document_with_metadata()` (line 932)
+- Methods:
+  - `DocumentTypeSchema.validate_metadata()` (line 48)
+  - `PendingDocument.is_complete()` (line 80)
+  - `YamlMetadataFile.to_yaml_dict()` (line 100)
+  - `YamlMetadataFile.from_yaml_dict()` (line 139) @classmethod
+  - `DocumentTypeDetector.__init__()` (line 244)
+  - `async DocumentTypeDetector.detect_document_type()` (line 247)
+  - `MetadataExtractor.__init__()` (line 392)
+  - `async MetadataExtractor.extract_enhanced_metadata()` (line 400)
+  - `MetadataExtractor._get_parser()` (line 432)
+  - `async MetadataExtractor._extract_book_metadata()` (line 437)
+  - `async MetadataExtractor._extract_article_metadata()` (line 475)
+  - `async MetadataExtractor._extract_webpage_metadata()` (line 509)
+  - `MetadataExtractor._extract_title_from_content()` (line 526)
+  - `MetadataExtractor._extract_author_from_content()` (line 544)
+  - `MetadataExtractor._extract_authors_from_content()` (line 562)
+  - `MetadataExtractor._extract_isbn_from_content()` (line 583)
+  - `MetadataExtractor._extract_publisher_from_content()` (line 595)
+  - `MetadataExtractor._extract_year_from_content()` (line 614)
+  - `MetadataExtractor._extract_journal_from_content()` (line 639)
+  - `MetadataExtractor._extract_doi_from_content()` (line 658)
+  - `MetadataExtractor._extract_publication_date_from_content()` (line 669)
+  - `MetadataExtractor._clean_metadata()` (line 688)
+  - `YamlMetadataWorkflow.__init__()` (line 710)
+  - `async YamlMetadataWorkflow.generate_yaml_file()` (line 715)
+  - `async YamlMetadataWorkflow.process_yaml_file()` (line 783)
+  - `async YamlMetadataWorkflow._find_documents()` (line 836)
+  - `async YamlMetadataWorkflow._process_document()` (line 854)
+  - `async YamlMetadataWorkflow._save_yaml_file()` (line 911)
+  - `async YamlMetadataWorkflow._load_yaml_file()` (line 925)
+  - `async YamlMetadataWorkflow._ingest_document_with_metadata()` (line 932)
+
+### common/core/lsp_notifications.py
+- Functions: 22
+- Methods: 19
+- Classes: 5
+- Lines: 627
+- Functions:
+  - `__init__()` (line 237)
+  - `_load_persisted_state()` (line 269)
+  - `_save_persisted_state()` (line 303)
+  - `_should_notify()` (line 335)
+  - `_get_platform_specific_instructions()` (line 354)
+  - `_format_installation_message()` (line 384)
+  - `notify_missing_lsp()` (line 431)
+  - `_send_notification()` (line 489)
+  - `_send_console_notification()` (line 501)
+  - `_send_file_notification()` (line 512)
+  - `_send_callback_notification()` (line 527)
+  - `dismiss_file_type()` (line 535)
+  - `undismiss_file_type()` (line 546)
+  - `register_callback()` (line 560)
+  - `unregister_callback()` (line 565)
+  - `get_notification_history()` (line 570)
+  - `get_dismissed_types()` (line 574)
+  - `clear_history()` (line 578)
+  - `get_statistics()` (line 585)
+  - `get_default_notification_manager()` (line 612)
+  - `notify_missing_lsp()` (line 620)
+  - `dismiss_file_type()` (line 625)
+- Methods:
+  - `LSPNotificationManager.__init__()` (line 237)
+  - `LSPNotificationManager._load_persisted_state()` (line 269)
+  - `LSPNotificationManager._save_persisted_state()` (line 303)
+  - `LSPNotificationManager._should_notify()` (line 335)
+  - `LSPNotificationManager._get_platform_specific_instructions()` (line 354)
+  - `LSPNotificationManager._format_installation_message()` (line 384)
+  - `LSPNotificationManager.notify_missing_lsp()` (line 431)
+  - `LSPNotificationManager._send_notification()` (line 489)
+  - `LSPNotificationManager._send_console_notification()` (line 501)
+  - `LSPNotificationManager._send_file_notification()` (line 512)
+  - `LSPNotificationManager._send_callback_notification()` (line 527)
+  - `LSPNotificationManager.dismiss_file_type()` (line 535)
+  - `LSPNotificationManager.undismiss_file_type()` (line 546)
+  - `LSPNotificationManager.register_callback()` (line 560)
+  - `LSPNotificationManager.unregister_callback()` (line 565)
+  - `LSPNotificationManager.get_notification_history()` (line 570)
+  - `LSPNotificationManager.get_dismissed_types()` (line 574)
+  - `LSPNotificationManager.clear_history()` (line 578)
+  - `LSPNotificationManager.get_statistics()` (line 585)
+
+### common/core/lsp_fallback.py
+- Functions: 21
+- Methods: 17
+- Classes: 5
+- Lines: 736
+- Functions:
+  - `__init__()` (line 257)
+  - `_is_cache_valid()` (line 272)
+  - `_check_binary_exists()` (line 278)
+  - `_get_tool_version()` (line 298)
+  - `scan_build_tools()` (line 333)
+  - `get_fallback_extensions()` (line 411)
+  - `is_build_tool_available()` (line 424)
+  - `get_build_tool_info()` (line 437)
+  - `get_infrastructure_extensions()` (line 450)
+  - `get_extensions_by_category()` (line 457)
+  - `clear_cache()` (line 473)
+  - `__init__()` (line 486)
+  - `get_comprehensive_extensions()` (line 510)
+  - `get_extensions_with_sources()` (line 568)
+  - `get_priority_extensions()` (line 622)
+  - `is_extension_supported()` (line 652)
+  - `get_summary()` (line 671)
+  - `get_default_build_tool_detector()` (line 702)
+  - `get_default_fallback_provider()` (line 710)
+  - `get_fallback_extensions()` (line 729)
+  - `get_build_tool_extensions()` (line 734)
+- Methods:
+  - `BuildToolDetector.__init__()` (line 257)
+  - `BuildToolDetector._is_cache_valid()` (line 272)
+  - `BuildToolDetector._check_binary_exists()` (line 278)
+  - `BuildToolDetector._get_tool_version()` (line 298)
+  - `BuildToolDetector.scan_build_tools()` (line 333)
+  - `BuildToolDetector.get_fallback_extensions()` (line 411)
+  - `BuildToolDetector.is_build_tool_available()` (line 424)
+  - `BuildToolDetector.get_build_tool_info()` (line 437)
+  - `BuildToolDetector.get_infrastructure_extensions()` (line 450)
+  - `BuildToolDetector.get_extensions_by_category()` (line 457)
+  - `BuildToolDetector.clear_cache()` (line 473)
+  - `FallbackExtensionProvider.__init__()` (line 486)
+  - `FallbackExtensionProvider.get_comprehensive_extensions()` (line 510)
+  - `FallbackExtensionProvider.get_extensions_with_sources()` (line 568)
+  - `FallbackExtensionProvider.get_priority_extensions()` (line 622)
+  - `FallbackExtensionProvider.is_extension_supported()` (line 652)
+  - `FallbackExtensionProvider.get_summary()` (line 671)
+
+### common/core/file_watcher.py
+- Functions: 34
+- Methods: 34
+- Classes: 4
+- Lines: 612
+- Functions:
+  - `to_dict()` (line 56)
+  - `from_dict()` (line 61) @classmethod
+  - `__init__()` (line 86)
+  - `async start()` (line 117)
+  - `async stop()` (line 142)
+  - `async pause()` (line 162)
+  - `async resume()` (line 168)
+  - `is_running()` (line 173)
+  - `get_filter_statistics()` (line 177)
+  - `reset_filter_statistics()` (line 194)
+  - `async _watch_loop()` (line 201)
+  - `async _handle_changes()` (line 222)
+  - `_matches_patterns()` (line 271)
+  - `_matches_ignore_patterns()` (line 278)
+  - `_get_change_name()` (line 285)
+  - `async _debounce_ingestion()` (line 296)
+  - `async _delayed_ingestion()` (line 307)
+  - `async _trigger_ingestion()` (line 329)
+  - `__init__()` (line 349)
+  - `set_ingestion_callback()` (line 375)
+  - `set_event_callback()` (line 379)
+  - `async load_configurations()` (line 383)
+  - `async save_configurations()` (line 402)
+  - `async add_watch()` (line 423)
+  - `async remove_watch()` (line 466)
+  - `async start_all_watches()` (line 483)
+  - `async stop_all_watches()` (line 495)
+  - `async pause_watch()` (line 504)
+  - `async resume_watch()` (line 515)
+  - `async _start_watcher()` (line 525)
+  - `get_watch_status()` (line 547)
+  - `list_watches()` (line 562)
+  - `get_all_filter_statistics()` (line 578)
+  - `reset_all_filter_statistics()` (line 609)
+- Methods:
+  - `WatchConfiguration.to_dict()` (line 56)
+  - `WatchConfiguration.from_dict()` (line 61) @classmethod
+  - `FileWatcher.__init__()` (line 86)
+  - `async FileWatcher.start()` (line 117)
+  - `async FileWatcher.stop()` (line 142)
+  - `async FileWatcher.pause()` (line 162)
+  - `async FileWatcher.resume()` (line 168)
+  - `FileWatcher.is_running()` (line 173)
+  - `FileWatcher.get_filter_statistics()` (line 177)
+  - `FileWatcher.reset_filter_statistics()` (line 194)
+  - `async FileWatcher._watch_loop()` (line 201)
+  - `async FileWatcher._handle_changes()` (line 222)
+  - `FileWatcher._matches_patterns()` (line 271)
+  - `FileWatcher._matches_ignore_patterns()` (line 278)
+  - `FileWatcher._get_change_name()` (line 285)
+  - `async FileWatcher._debounce_ingestion()` (line 296)
+  - `async FileWatcher._delayed_ingestion()` (line 307)
+  - `async FileWatcher._trigger_ingestion()` (line 329)
+  - `WatchManager.__init__()` (line 349)
+  - `WatchManager.set_ingestion_callback()` (line 375)
+  - `WatchManager.set_event_callback()` (line 379)
+  - `async WatchManager.load_configurations()` (line 383)
+  - `async WatchManager.save_configurations()` (line 402)
+  - `async WatchManager.add_watch()` (line 423)
+  - `async WatchManager.remove_watch()` (line 466)
+  - `async WatchManager.start_all_watches()` (line 483)
+  - `async WatchManager.stop_all_watches()` (line 495)
+  - `async WatchManager.pause_watch()` (line 504)
+  - `async WatchManager.resume_watch()` (line 515)
+  - `async WatchManager._start_watcher()` (line 525)
+  - `WatchManager.get_watch_status()` (line 547)
+  - `WatchManager.list_watches()` (line 562)
+  - `WatchManager.get_all_filter_statistics()` (line 578)
+  - `WatchManager.reset_all_filter_statistics()` (line 609)
+
+### common/core/ingestion_config.py
+- Functions: 14
+- Methods: 13
+- Classes: 9
+- Lines: 699
+- Functions:
+  - `validate_languages()` (line 226) @<ast.Call object at 0x10c99cf10>,classmethod
+  - `validate_config()` (line 233)
+  - `__init__()` (line 270)
+  - `_initialize_language_patterns()` (line 285)
+  - `_add_remaining_languages()` (line 411)
+  - `load_config()` (line 471)
+  - `_load_config_file()` (line 525)
+  - `_find_ingestion_config()` (line 535)
+  - `_get_default_config()` (line 560)
+  - `_merge_with_defaults()` (line 610)
+  - `deep_merge()` (line 615)
+  - `should_ignore_file()` (line 626)
+  - `_matches_ignore_patterns()` (line 651)
+  - `get_config_info()` (line 686)
+- Methods:
+  - `IngestionConfig.validate_languages()` (line 226) @<ast.Call object at 0x10c99cf10>,classmethod
+  - `IngestionConfig.validate_config()` (line 233)
+  - `IngestionConfigManager.__init__()` (line 270)
+  - `IngestionConfigManager._initialize_language_patterns()` (line 285)
+  - `IngestionConfigManager._add_remaining_languages()` (line 411)
+  - `IngestionConfigManager.load_config()` (line 471)
+  - `IngestionConfigManager._load_config_file()` (line 525)
+  - `IngestionConfigManager._find_ingestion_config()` (line 535)
+  - `IngestionConfigManager._get_default_config()` (line 560)
+  - `IngestionConfigManager._merge_with_defaults()` (line 610)
+  - `IngestionConfigManager.should_ignore_file()` (line 626)
+  - `IngestionConfigManager._matches_ignore_patterns()` (line 651)
+  - `IngestionConfigManager.get_config_info()` (line 686)
+
+### common/core/project_config_manager.py
+- Functions: 30
+- Methods: 26
+- Classes: 5
+- Lines: 627
+- Functions:
+  - `is_stale()` (line 50)
+  - `merge_with()` (line 104)
+  - `__init__()` (line 123)
+  - `add_file()` (line 128)
+  - `remove_file()` (line 132)
+  - `on_modified()` (line 136)
+  - `__init__()` (line 159)
+  - `add_change_callback()` (line 182)
+  - `get_config_paths()` (line 186)
+  - `load_config()` (line 203)
+  - `save_config()` (line 276)
+  - `start_watching()` (line 321)
+  - `stop_watching()` (line 339)
+  - `async config_context()` (line 349) @asynccontextmanager
+  - `validate_config()` (line 358)
+  - `get_resource_limits()` (line 396)
+  - `create_template_config()` (line 409)
+  - `restore_from_backup()` (line 419)
+  - `list_backups()` (line 445)
+  - `_load_config_file()` (line 465)
+  - `_calculate_config_checksum()` (line 492)
+  - `_calculate_file_checksum()` (line 503)
+  - `_config_changed()` (line 513)
+  - `_on_config_change()` (line 521)
+  - `_create_backup()` (line 547)
+  - `_cleanup_old_backups()` (line 570)
+  - `get_project_config_manager()` (line 595)
+  - `cleanup_config_managers()` (line 605)
+  - `load_project_config()` (line 613)
+  - `save_project_config()` (line 619)
+- Methods:
+  - `ConfigSource.is_stale()` (line 50)
+  - `DaemonProjectConfig.merge_with()` (line 104)
+  - `ConfigWatcher.__init__()` (line 123)
+  - `ConfigWatcher.add_file()` (line 128)
+  - `ConfigWatcher.remove_file()` (line 132)
+  - `ConfigWatcher.on_modified()` (line 136)
+  - `ProjectConfigManager.__init__()` (line 159)
+  - `ProjectConfigManager.add_change_callback()` (line 182)
+  - `ProjectConfigManager.get_config_paths()` (line 186)
+  - `ProjectConfigManager.load_config()` (line 203)
+  - `ProjectConfigManager.save_config()` (line 276)
+  - `ProjectConfigManager.start_watching()` (line 321)
+  - `ProjectConfigManager.stop_watching()` (line 339)
+  - `async ProjectConfigManager.config_context()` (line 349) @asynccontextmanager
+  - `ProjectConfigManager.validate_config()` (line 358)
+  - `ProjectConfigManager.get_resource_limits()` (line 396)
+  - `ProjectConfigManager.create_template_config()` (line 409)
+  - `ProjectConfigManager.restore_from_backup()` (line 419)
+  - `ProjectConfigManager.list_backups()` (line 445)
+  - `ProjectConfigManager._load_config_file()` (line 465)
+  - `ProjectConfigManager._calculate_config_checksum()` (line 492)
+  - `ProjectConfigManager._calculate_file_checksum()` (line 503)
+  - `ProjectConfigManager._config_changed()` (line 513)
+  - `ProjectConfigManager._on_config_change()` (line 521)
+  - `ProjectConfigManager._create_backup()` (line 547)
+  - `ProjectConfigManager._cleanup_old_backups()` (line 570)
+
+### common/core/collection_naming_validation.py
+- Functions: 22
+- Methods: 19
+- Classes: 7
+- Lines: 935
+- Functions:
+  - `__init__()` (line 173)
+  - `_compile_patterns()` (line 179)
+  - `validate_memory_collection()` (line 200)
+  - `validate_system_collection()` (line 261)
+  - `validate_library_collection()` (line 300)
+  - `validate_project_collection()` (line 339)
+  - `validate_global_collection()` (line 394)
+  - `__init__()` (line 447)
+  - `detect_conflicts()` (line 463)
+  - `_check_memory_conflicts()` (line 516)
+  - `_check_category_conflicts()` (line 549)
+  - `_check_prefix_abuse()` (line 584)
+  - `__init__()` (line 621)
+  - `validate_name()` (line 637)
+  - `check_conflicts()` (line 705)
+  - `get_name_suggestions()` (line 719)
+  - `_detect_category()` (line 783)
+  - `_validate_by_category()` (line 808)
+  - `_generate_metadata_schema()` (line 835)
+  - `create_naming_validator()` (line 877)
+  - `validate_collection_name_with_metadata()` (line 892)
+  - `check_collection_conflicts()` (line 908)
+- Methods:
+  - `PatternValidator.__init__()` (line 173)
+  - `PatternValidator._compile_patterns()` (line 179)
+  - `PatternValidator.validate_memory_collection()` (line 200)
+  - `PatternValidator.validate_system_collection()` (line 261)
+  - `PatternValidator.validate_library_collection()` (line 300)
+  - `PatternValidator.validate_project_collection()` (line 339)
+  - `PatternValidator.validate_global_collection()` (line 394)
+  - `ConflictDetector.__init__()` (line 447)
+  - `ConflictDetector.detect_conflicts()` (line 463)
+  - `ConflictDetector._check_memory_conflicts()` (line 516)
+  - `ConflictDetector._check_category_conflicts()` (line 549)
+  - `ConflictDetector._check_prefix_abuse()` (line 584)
+  - `CollectionNamingValidator.__init__()` (line 621)
+  - `CollectionNamingValidator.validate_name()` (line 637)
+  - `CollectionNamingValidator.check_conflicts()` (line 705)
+  - `CollectionNamingValidator.get_name_suggestions()` (line 719)
+  - `CollectionNamingValidator._detect_category()` (line 783)
+  - `CollectionNamingValidator._validate_by_category()` (line 808)
+  - `CollectionNamingValidator._generate_metadata_schema()` (line 835)
+
+### common/core/collection_types.py
+- Functions: 15
+- Methods: 10
+- Classes: 3
+- Lines: 492
+- Functions:
+  - `__init__()` (line 93)
+  - `classify_collection_type()` (line 100)
+  - `is_system_collection()` (line 142)
+  - `is_library_collection()` (line 157)
+  - `is_project_collection()` (line 172)
+  - `is_global_collection()` (line 187)
+  - `is_memory_collection()` (line 202)
+  - `get_display_name()` (line 219)
+  - `get_collection_info()` (line 250)
+  - `extract_project_components()` (line 300)
+  - `validate_collection_operation()` (line 326)
+  - `get_collections_by_type()` (line 369)
+  - `get_searchable_collections()` (line 391)
+  - `validate_collection_name_with_type()` (line 406)
+  - `build_collection_name_for_type()` (line 429)
+- Methods:
+  - `CollectionTypeClassifier.__init__()` (line 93)
+  - `CollectionTypeClassifier.classify_collection_type()` (line 100)
+  - `CollectionTypeClassifier.is_system_collection()` (line 142)
+  - `CollectionTypeClassifier.is_library_collection()` (line 157)
+  - `CollectionTypeClassifier.is_project_collection()` (line 172)
+  - `CollectionTypeClassifier.is_global_collection()` (line 187)
+  - `CollectionTypeClassifier.is_memory_collection()` (line 202)
+  - `CollectionTypeClassifier.get_display_name()` (line 219)
+  - `CollectionTypeClassifier.get_collection_info()` (line 250)
+  - `CollectionTypeClassifier.extract_project_components()` (line 300)
+
+### common/core/performance_storage.py
+- Functions: 19
+- Methods: 17
+- Classes: 1
+- Lines: 734
+- Functions:
+  - `__init__()` (line 42)
+  - `_get_connection()` (line 77)
+  - `_init_database()` (line 98)
+  - `async store_metric()` (line 205)
+  - `async store_metrics_batch()` (line 228)
+  - `async store_operation_trace()` (line 261)
+  - `async store_performance_report()` (line 293)
+  - `async get_metrics()` (line 305)
+  - `async get_operation_traces()` (line 373)
+  - `async get_metric_aggregates()` (line 441)
+  - `async get_performance_reports()` (line 474)
+  - `async generate_hourly_aggregates()` (line 511)
+  - `async generate_daily_aggregates()` (line 575)
+  - `async cleanup_old_data()` (line 583)
+  - `async archive_old_data()` (line 628)
+  - `async get_storage_stats()` (line 660)
+  - `close()` (line 696)
+  - `async get_performance_storage()` (line 712)
+  - `async cleanup_all_storage()` (line 723)
+- Methods:
+  - `PerformanceStorage.__init__()` (line 42)
+  - `PerformanceStorage._get_connection()` (line 77)
+  - `PerformanceStorage._init_database()` (line 98)
+  - `async PerformanceStorage.store_metric()` (line 205)
+  - `async PerformanceStorage.store_metrics_batch()` (line 228)
+  - `async PerformanceStorage.store_operation_trace()` (line 261)
+  - `async PerformanceStorage.store_performance_report()` (line 293)
+  - `async PerformanceStorage.get_metrics()` (line 305)
+  - `async PerformanceStorage.get_operation_traces()` (line 373)
+  - `async PerformanceStorage.get_metric_aggregates()` (line 441)
+  - `async PerformanceStorage.get_performance_reports()` (line 474)
+  - `async PerformanceStorage.generate_hourly_aggregates()` (line 511)
+  - `async PerformanceStorage.generate_daily_aggregates()` (line 575)
+  - `async PerformanceStorage.cleanup_old_data()` (line 583)
+  - `async PerformanceStorage.archive_old_data()` (line 628)
+  - `async PerformanceStorage.get_storage_stats()` (line 660)
+  - `PerformanceStorage.close()` (line 696)
+
+### common/core/incremental_processor.py
+- Functions: 32
+- Methods: 30
+- Classes: 11
+- Lines: 1016
+- Functions:
+  - `__init__()` (line 129)
+  - `async detect_changes()` (line 133)
+  - `async _detect_single_file_change()` (line 197)
+  - `async _calculate_file_hash()` (line 289)
+  - `_determine_priority()` (line 302)
+  - `_determine_collection()` (line 321)
+  - `__init__()` (line 346)
+  - `async apply_changes()` (line 355)
+  - `async _apply_collection_changes()` (line 390)
+  - `async _process_change_batch()` (line 404)
+  - `async _create_document_point()` (line 444)
+  - `async _generate_embeddings()` (line 481)
+  - `_get_document_id()` (line 509)
+  - `async _batch_upsert()` (line 513)
+  - `async _batch_delete()` (line 528)
+  - `async _update_lsp_metadata()` (line 541)
+  - `__init__()` (line 571)
+  - `async resolve_conflicts()` (line 578)
+  - `async _resolve_single_conflict()` (line 610)
+  - `__init__()` (line 647)
+  - `async transaction()` (line 652) @asynccontextmanager
+  - `async create_savepoint()` (line 675)
+  - `async rollback_to_savepoint()` (line 683)
+  - `async release_savepoint()` (line 691)
+  - `__init__()` (line 708)
+  - `async initialize()` (line 730)
+  - `async process_changes()` (line 740)
+  - `async _update_processing_state()` (line 867)
+  - `async get_processing_statistics()` (line 928)
+  - `async clear_caches()` (line 938)
+  - `async create_incremental_processor()` (line 946)
+  - `async collect_processing_metrics()` (line 993)
+- Methods:
+  - `ChangeDetector.__init__()` (line 129)
+  - `async ChangeDetector.detect_changes()` (line 133)
+  - `async ChangeDetector._detect_single_file_change()` (line 197)
+  - `async ChangeDetector._calculate_file_hash()` (line 289)
+  - `ChangeDetector._determine_priority()` (line 302)
+  - `ChangeDetector._determine_collection()` (line 321)
+  - `DifferentialUpdater.__init__()` (line 346)
+  - `async DifferentialUpdater.apply_changes()` (line 355)
+  - `async DifferentialUpdater._apply_collection_changes()` (line 390)
+  - `async DifferentialUpdater._process_change_batch()` (line 404)
+  - `async DifferentialUpdater._create_document_point()` (line 444)
+  - `async DifferentialUpdater._generate_embeddings()` (line 481)
+  - `DifferentialUpdater._get_document_id()` (line 509)
+  - `async DifferentialUpdater._batch_upsert()` (line 513)
+  - `async DifferentialUpdater._batch_delete()` (line 528)
+  - `async DifferentialUpdater._update_lsp_metadata()` (line 541)
+  - `ConflictResolver.__init__()` (line 571)
+  - `async ConflictResolver.resolve_conflicts()` (line 578)
+  - `async ConflictResolver._resolve_single_conflict()` (line 610)
+  - `TransactionManager.__init__()` (line 647)
+  - `async TransactionManager.transaction()` (line 652) @asynccontextmanager
+  - `async TransactionManager.create_savepoint()` (line 675)
+  - `async TransactionManager.rollback_to_savepoint()` (line 683)
+  - `async TransactionManager.release_savepoint()` (line 691)
+  - `IncrementalProcessor.__init__()` (line 708)
+  - `async IncrementalProcessor.initialize()` (line 730)
+  - `async IncrementalProcessor.process_changes()` (line 740)
+  - `async IncrementalProcessor._update_processing_state()` (line 867)
+  - `async IncrementalProcessor.get_processing_statistics()` (line 928)
+  - `async IncrementalProcessor.clear_caches()` (line 938)
+
+### common/core/component_coordination.py
+- Functions: 29
+- Methods: 27
+- Classes: 10
+- Lines: 1251
+- Functions:
+  - `__post_init__()` (line 142)
+  - `__post_init__()` (line 170)
+  - `__post_init__()` (line 191)
+  - `__post_init__()` (line 218)
+  - `__init__()` (line 239)
+  - `async initialize()` (line 251)
+  - `async _setup_coordination_schema()` (line 271)
+  - `async register_component()` (line 403)
+  - `async update_component_status()` (line 484)
+  - `async record_heartbeat()` (line 556)
+  - `async update_component_health()` (line 587)
+  - `async _record_health_metric()` (line 624)
+  - `_get_metric_unit()` (line 684)
+  - `async get_component_status()` (line 700)
+  - `async enqueue_processing_item()` (line 759)
+  - `async get_next_queue_item()` (line 831)
+  - `async complete_queue_item()` (line 918)
+  - `async get_queue_status()` (line 963)
+  - `async _start_coordination_tasks()` (line 1032)
+  - `async _health_monitoring_loop()` (line 1041)
+  - `async _queue_cleanup_loop()` (line 1053)
+  - `async _component_timeout_monitor()` (line 1065)
+  - `async _check_component_health()` (line 1077)
+  - `async _cleanup_old_queue_items()` (line 1108)
+  - `async _check_component_timeouts()` (line 1131)
+  - `async _log_component_failure()` (line 1168)
+  - `async close()` (line 1208)
+  - `async get_component_coordinator()` (line 1232)
+  - `async shutdown_component_coordinator()` (line 1245)
+- Methods:
+  - `ComponentRecord.__post_init__()` (line 142)
+  - `CommunicationRecord.__post_init__()` (line 170)
+  - `HealthMetric.__post_init__()` (line 191)
+  - `ComponentQueueItem.__post_init__()` (line 218)
+  - `ComponentCoordinator.__init__()` (line 239)
+  - `async ComponentCoordinator.initialize()` (line 251)
+  - `async ComponentCoordinator._setup_coordination_schema()` (line 271)
+  - `async ComponentCoordinator.register_component()` (line 403)
+  - `async ComponentCoordinator.update_component_status()` (line 484)
+  - `async ComponentCoordinator.record_heartbeat()` (line 556)
+  - `async ComponentCoordinator.update_component_health()` (line 587)
+  - `async ComponentCoordinator._record_health_metric()` (line 624)
+  - `ComponentCoordinator._get_metric_unit()` (line 684)
+  - `async ComponentCoordinator.get_component_status()` (line 700)
+  - `async ComponentCoordinator.enqueue_processing_item()` (line 759)
+  - `async ComponentCoordinator.get_next_queue_item()` (line 831)
+  - `async ComponentCoordinator.complete_queue_item()` (line 918)
+  - `async ComponentCoordinator.get_queue_status()` (line 963)
+  - `async ComponentCoordinator._start_coordination_tasks()` (line 1032)
+  - `async ComponentCoordinator._health_monitoring_loop()` (line 1041)
+  - `async ComponentCoordinator._queue_cleanup_loop()` (line 1053)
+  - `async ComponentCoordinator._component_timeout_monitor()` (line 1065)
+  - `async ComponentCoordinator._check_component_health()` (line 1077)
+  - `async ComponentCoordinator._cleanup_old_queue_items()` (line 1108)
+  - `async ComponentCoordinator._check_component_timeouts()` (line 1131)
+  - `async ComponentCoordinator._log_component_failure()` (line 1168)
+  - `async ComponentCoordinator.close()` (line 1208)
+
+### common/core/depth_validation.py
+- Functions: 6
+- Methods: 2
+- Classes: 2
+- Lines: 252
+- Functions:
+  - `__init__()` (line 29)
+  - `to_dict()` (line 45)
+  - `validate_recursive_depth()` (line 57)
+  - `get_depth_recommendations()` (line 140)
+  - `format_depth_display()` (line 190)
+  - `estimate_performance_impact()` (line 210)
+- Methods:
+  - `DepthValidationResult.__init__()` (line 29)
+  - `DepthValidationResult.to_dict()` (line 45)
+
+### common/core/auto_ingestion.py
+- Functions: 28
+- Methods: 26
+- Classes: 3
+- Lines: 949
+- Functions:
+  - `build_project_collection_name()` (line 41)
+  - `normalize_collection_name_component()` (line 45)
+  - `get_common_doc_patterns()` (line 73) @classmethod
+  - `get_source_patterns_for_language()` (line 94) @classmethod
+  - `get_all_source_patterns()` (line 129) @classmethod
+  - `COMMON_DOC_PATTERNS()` (line 150) @property
+  - `SOURCE_PATTERNS()` (line 155) @property
+  - `get_patterns_for_project()` (line 232) @classmethod
+  - `_detect_project_languages()` (line 264) @classmethod
+  - `__init__()` (line 316)
+  - `start()` (line 326)
+  - `start_batch()` (line 340)
+  - `start_file()` (line 347)
+  - `file_completed()` (line 351)
+  - `log_progress()` (line 364)
+  - `get_summary()` (line 375)
+  - `__init__()` (line 397)
+  - `async setup_project_watches()` (line 424)
+  - `async _detect_project_info()` (line 529)
+  - `_select_primary_collection()` (line 538)
+  - `async _create_project_watch()` (line 614)
+  - `async _create_subproject_watch()` (line 648)
+  - `async _perform_initial_bulk_ingestion()` (line 690)
+  - `_filter_files_for_ingestion()` (line 786)
+  - `_should_ignore_file()` (line 816)
+  - `async _create_collection_for_auto_ingestion()` (line 847)
+  - `_get_vector_size()` (line 895)
+  - `async _ingest_single_file()` (line 915)
+- Methods:
+  - `ProjectPatterns.get_common_doc_patterns()` (line 73) @classmethod
+  - `ProjectPatterns.get_source_patterns_for_language()` (line 94) @classmethod
+  - `ProjectPatterns.get_all_source_patterns()` (line 129) @classmethod
+  - `ProjectPatterns.COMMON_DOC_PATTERNS()` (line 150) @property
+  - `ProjectPatterns.SOURCE_PATTERNS()` (line 155) @property
+  - `ProjectPatterns.get_patterns_for_project()` (line 232) @classmethod
+  - `ProjectPatterns._detect_project_languages()` (line 264) @classmethod
+  - `IngestionProgressTracker.__init__()` (line 316)
+  - `IngestionProgressTracker.start()` (line 326)
+  - `IngestionProgressTracker.start_batch()` (line 340)
+  - `IngestionProgressTracker.start_file()` (line 347)
+  - `IngestionProgressTracker.file_completed()` (line 351)
+  - `IngestionProgressTracker.log_progress()` (line 364)
+  - `IngestionProgressTracker.get_summary()` (line 375)
+  - `AutoIngestionManager.__init__()` (line 397)
+  - `async AutoIngestionManager.setup_project_watches()` (line 424)
+  - `async AutoIngestionManager._detect_project_info()` (line 529)
+  - `AutoIngestionManager._select_primary_collection()` (line 538)
+  - `async AutoIngestionManager._create_project_watch()` (line 614)
+  - `async AutoIngestionManager._create_subproject_watch()` (line 648)
+  - `async AutoIngestionManager._perform_initial_bulk_ingestion()` (line 690)
+  - `AutoIngestionManager._filter_files_for_ingestion()` (line 786)
+  - `AutoIngestionManager._should_ignore_file()` (line 816)
+  - `async AutoIngestionManager._create_collection_for_auto_ingestion()` (line 847)
+  - `AutoIngestionManager._get_vector_size()` (line 895)
+  - `async AutoIngestionManager._ingest_single_file()` (line 915)
+
+### common/core/watch_sync.py
+- Functions: 33
+- Methods: 33
+- Classes: 4
+- Lines: 529
+- Functions:
+  - `to_dict()` (line 38)
+  - `__init__()` (line 53)
+  - `async acquire_lock()` (line 60) @asynccontextmanager
+  - `async _acquire_lock()` (line 68)
+  - `async _release_lock()` (line 113)
+  - `async _is_stale_lock()` (line 130)
+  - `__init__()` (line 159)
+  - `subscribe()` (line 167)
+  - `unsubscribe()` (line 172)
+  - `async notify()` (line 177)
+  - `async start_notifications()` (line 187)
+  - `async stop_notifications()` (line 196)
+  - `async _notification_loop()` (line 209)
+  - `async _process_event()` (line 226)
+  - `get_event_history()` (line 244)
+  - `__init__()` (line 263)
+  - `async initialize()` (line 291)
+  - `async cleanup()` (line 297)
+  - `async load_config()` (line 301)
+  - `async save_config()` (line 325)
+  - `async add_watch_config()` (line 339)
+  - `async remove_watch_config()` (line 374)
+  - `async update_watch_config()` (line 410)
+  - `async update_watch_status()` (line 446)
+  - `async list_watch_configs()` (line 478)
+  - `async get_watch_config()` (line 482)
+  - `async validate_all_configs()` (line 486)
+  - `get_config_file_path()` (line 490)
+  - `async backup_config()` (line 501)
+  - `subscribe_to_changes()` (line 506)
+  - `unsubscribe_from_changes()` (line 512)
+  - `get_change_history()` (line 518)
+  - `async force_sync()` (line 524)
+- Methods:
+  - `ConfigChangeEvent.to_dict()` (line 38)
+  - `FileLockManager.__init__()` (line 53)
+  - `async FileLockManager.acquire_lock()` (line 60) @asynccontextmanager
+  - `async FileLockManager._acquire_lock()` (line 68)
+  - `async FileLockManager._release_lock()` (line 113)
+  - `async FileLockManager._is_stale_lock()` (line 130)
+  - `WatchEventNotifier.__init__()` (line 159)
+  - `WatchEventNotifier.subscribe()` (line 167)
+  - `WatchEventNotifier.unsubscribe()` (line 172)
+  - `async WatchEventNotifier.notify()` (line 177)
+  - `async WatchEventNotifier.start_notifications()` (line 187)
+  - `async WatchEventNotifier.stop_notifications()` (line 196)
+  - `async WatchEventNotifier._notification_loop()` (line 209)
+  - `async WatchEventNotifier._process_event()` (line 226)
+  - `WatchEventNotifier.get_event_history()` (line 244)
+  - `SynchronizedWatchConfigManager.__init__()` (line 263)
+  - `async SynchronizedWatchConfigManager.initialize()` (line 291)
+  - `async SynchronizedWatchConfigManager.cleanup()` (line 297)
+  - `async SynchronizedWatchConfigManager.load_config()` (line 301)
+  - `async SynchronizedWatchConfigManager.save_config()` (line 325)
+  - `async SynchronizedWatchConfigManager.add_watch_config()` (line 339)
+  - `async SynchronizedWatchConfigManager.remove_watch_config()` (line 374)
+  - `async SynchronizedWatchConfigManager.update_watch_config()` (line 410)
+  - `async SynchronizedWatchConfigManager.update_watch_status()` (line 446)
+  - `async SynchronizedWatchConfigManager.list_watch_configs()` (line 478)
+  - `async SynchronizedWatchConfigManager.get_watch_config()` (line 482)
+  - `async SynchronizedWatchConfigManager.validate_all_configs()` (line 486)
+  - `SynchronizedWatchConfigManager.get_config_file_path()` (line 490)
+  - `async SynchronizedWatchConfigManager.backup_config()` (line 501)
+  - `SynchronizedWatchConfigManager.subscribe_to_changes()` (line 506)
+  - `SynchronizedWatchConfigManager.unsubscribe_from_changes()` (line 512)
+  - `SynchronizedWatchConfigManager.get_change_history()` (line 518)
+  - `async SynchronizedWatchConfigManager.force_sync()` (line 524)
+
+### common/core/component_migration.py
+- Functions: 18
+- Methods: 16
+- Classes: 2
+- Lines: 510
+- Functions:
+  - `__init__()` (line 62)
+  - `async needs_migration()` (line 72)
+  - `async _verify_component_tables_exist()` (line 107)
+  - `async migrate()` (line 135)
+  - `async _create_backup()` (line 166)
+  - `async _perform_migration()` (line 174)
+  - `_add_component_registry_table()` (line 202)
+  - `_add_component_communication_table()` (line 229)
+  - `_add_component_health_metrics_table()` (line 254)
+  - `_add_component_processing_queue_table()` (line 273)
+  - `_add_component_recovery_log_table()` (line 298)
+  - `_create_component_indexes()` (line 318)
+  - `async _verify_migration()` (line 338)
+  - `async _rollback()` (line 411)
+  - `async _cleanup_backup()` (line 424)
+  - `async get_migration_status()` (line 433)
+  - `async migrate_to_component_coordination()` (line 480)
+  - `async check_migration_status()` (line 499)
+- Methods:
+  - `ComponentMigrator.__init__()` (line 62)
+  - `async ComponentMigrator.needs_migration()` (line 72)
+  - `async ComponentMigrator._verify_component_tables_exist()` (line 107)
+  - `async ComponentMigrator.migrate()` (line 135)
+  - `async ComponentMigrator._create_backup()` (line 166)
+  - `async ComponentMigrator._perform_migration()` (line 174)
+  - `ComponentMigrator._add_component_registry_table()` (line 202)
+  - `ComponentMigrator._add_component_communication_table()` (line 229)
+  - `ComponentMigrator._add_component_health_metrics_table()` (line 254)
+  - `ComponentMigrator._add_component_processing_queue_table()` (line 273)
+  - `ComponentMigrator._add_component_recovery_log_table()` (line 298)
+  - `ComponentMigrator._create_component_indexes()` (line 318)
+  - `async ComponentMigrator._verify_migration()` (line 338)
+  - `async ComponentMigrator._rollback()` (line 411)
+  - `async ComponentMigrator._cleanup_backup()` (line 424)
+  - `async ComponentMigrator.get_migration_status()` (line 433)
+
+### common/core/schema_documentation.py
+- Functions: 16
+- Methods: 13
+- Classes: 4
+- Lines: 1027
+- Functions:
+  - `__init__()` (line 107)
+  - `_build_field_specifications()` (line 113)
+  - `_build_usage_patterns()` (line 615)
+  - `_build_migration_scenarios()` (line 843)
+  - `get_field_specification()` (line 871)
+  - `get_all_fields()` (line 875)
+  - `get_required_fields()` (line 879)
+  - `get_indexed_fields()` (line 883)
+  - `get_usage_examples()` (line 887)
+  - `get_all_usage_patterns()` (line 891)
+  - `get_migration_scenarios()` (line 895)
+  - `generate_field_reference()` (line 899)
+  - `generate_usage_guide()` (line 956)
+  - `get_field_specification()` (line 997)
+  - `get_usage_pattern()` (line 1003)
+  - `generate_documentation()` (line 1009)
+- Methods:
+  - `SchemaDocumentation.__init__()` (line 107)
+  - `SchemaDocumentation._build_field_specifications()` (line 113)
+  - `SchemaDocumentation._build_usage_patterns()` (line 615)
+  - `SchemaDocumentation._build_migration_scenarios()` (line 843)
+  - `SchemaDocumentation.get_field_specification()` (line 871)
+  - `SchemaDocumentation.get_all_fields()` (line 875)
+  - `SchemaDocumentation.get_required_fields()` (line 879)
+  - `SchemaDocumentation.get_indexed_fields()` (line 883)
+  - `SchemaDocumentation.get_usage_examples()` (line 887)
+  - `SchemaDocumentation.get_all_usage_patterns()` (line 891)
+  - `SchemaDocumentation.get_migration_scenarios()` (line 895)
+  - `SchemaDocumentation.generate_field_reference()` (line 899)
+  - `SchemaDocumentation.generate_usage_guide()` (line 956)
+
+### common/core/unified_config.py
+- Functions: 21
+- Methods: 20
+- Classes: 6
+- Lines: 720
+- Functions:
+  - `__init__()` (line 89)
+  - `on_modified()` (line 93)
+  - `__init__()` (line 111)
+  - `_discover_config_sources()` (line 145)
+  - `_detect_format()` (line 164)
+  - `get_preferred_config_source()` (line 186)
+  - `load_config()` (line 210)
+  - `_load_config_file()` (line 273)
+  - `_process_config_structure()` (line 307)
+  - `_apply_env_overrides()` (line 380)
+  - `save_config()` (line 453)
+  - `_config_to_dict()` (line 496)
+  - `convert_config()` (line 550)
+  - `watch_config()` (line 586)
+  - `on_config_change()` (line 604)
+  - `stop_watching()` (line 628)
+  - `validate_config_file()` (line 637)
+  - `get_config_info()` (line 655)
+  - `create_default_configs()` (line 679)
+  - `__enter__()` (line 714)
+  - `__exit__()` (line 718)
+- Methods:
+  - `ConfigWatchHandler.__init__()` (line 89)
+  - `ConfigWatchHandler.on_modified()` (line 93)
+  - `UnifiedConfigManager.__init__()` (line 111)
+  - `UnifiedConfigManager._discover_config_sources()` (line 145)
+  - `UnifiedConfigManager._detect_format()` (line 164)
+  - `UnifiedConfigManager.get_preferred_config_source()` (line 186)
+  - `UnifiedConfigManager.load_config()` (line 210)
+  - `UnifiedConfigManager._load_config_file()` (line 273)
+  - `UnifiedConfigManager._process_config_structure()` (line 307)
+  - `UnifiedConfigManager._apply_env_overrides()` (line 380)
+  - `UnifiedConfigManager.save_config()` (line 453)
+  - `UnifiedConfigManager._config_to_dict()` (line 496)
+  - `UnifiedConfigManager.convert_config()` (line 550)
+  - `UnifiedConfigManager.watch_config()` (line 586)
+  - `UnifiedConfigManager.stop_watching()` (line 628)
+  - `UnifiedConfigManager.validate_config_file()` (line 637)
+  - `UnifiedConfigManager.get_config_info()` (line 655)
+  - `UnifiedConfigManager.create_default_configs()` (line 679)
+  - `UnifiedConfigManager.__enter__()` (line 714)
+  - `UnifiedConfigManager.__exit__()` (line 718)
+
+### common/core/lsp_client.py
+- Functions: 78
+- Methods: 73
+- Classes: 17
+- Lines: 2073
+- Functions:
+  - `__init__()` (line 54)
+  - `__init__()` (line 80)
+  - `__init__()` (line 94)
+  - `to_dict()` (line 120)
+  - `to_dict()` (line 135)
+  - `from_dict()` (line 149) @classmethod
+  - `to_dict()` (line 173)
+  - `from_dict()` (line 180) @classmethod
+  - `to_dict()` (line 229)
+  - `to_dict()` (line 255)
+  - `supports_hover()` (line 282)
+  - `supports_definition()` (line 286)
+  - `supports_references()` (line 290)
+  - `supports_document_symbol()` (line 294)
+  - `supports_workspace_symbol()` (line 298)
+  - `supports_completion()` (line 302)
+  - `supports_diagnostics()` (line 306)
+  - `get_text_document_sync()` (line 310)
+  - `to_dict()` (line 320)
+  - `__init__()` (line 336)
+  - `connection_state()` (line 397) @property
+  - `server_name()` (line 402) @property
+  - `is_connected()` (line 406)
+  - `is_initialized()` (line 411) @property
+  - `server_capabilities()` (line 416) @property
+  - `communication_mode()` (line 421) @property
+  - `circuit_breaker_state()` (line 426) @property
+  - `is_circuit_open()` (line 431) @property
+  - `async connect_stdio()` (line 435)
+  - `async connect_tcp()` (line 529)
+  - `async connect()` (line 601)
+  - `async _connect_streams()` (line 641)
+  - `_reset_circuit_breaker()` (line 673)
+  - `_record_success()` (line 682)
+  - `_record_failure()` (line 697)
+  - `_should_allow_request()` (line 721)
+  - `_calculate_retry_delay()` (line 739)
+  - `_is_retryable_error()` (line 757)
+  - `async disconnect()` (line 774)
+  - `async initialize()` (line 853)
+  - `async hover()` (line 1035)
+  - `async definition()` (line 1078)
+  - `async references()` (line 1136)
+  - `async document_symbol()` (line 1182)
+  - `async workspace_symbol()` (line 1218)
+  - `async did_open()` (line 1253)
+  - `async did_change()` (line 1286)
+  - `async did_save()` (line 1316)
+  - `async did_close()` (line 1341)
+  - `register_diagnostics_handler()` (line 1363)
+  - `diagnostics_wrapper()` (line 1373)
+  - `register_progress_handler()` (line 1392)
+  - `progress_wrapper()` (line 1402)
+  - `register_log_message_handler()` (line 1421)
+  - `log_wrapper()` (line 1431)
+  - `register_show_message_handler()` (line 1450)
+  - `show_message_wrapper()` (line 1460)
+  - `register_configuration_handler()` (line 1479)
+  - `async config_wrapper()` (line 1490)
+  - `async sync_file_opened()` (line 1516)
+  - `async sync_file_changed()` (line 1564)
+  - `async sync_file_saved()` (line 1585)
+  - `async sync_file_closed()` (line 1600)
+  - `async send_request()` (line 1613)
+  - `async send_notification()` (line 1712)
+  - `register_notification_handler()` (line 1740)
+  - `register_global_handler()` (line 1756)
+  - `async _send_message()` (line 1763)
+  - `async _message_reader_loop()` (line 1789)
+  - `async _read_message()` (line 1823)
+  - `async _handle_incoming_message()` (line 1874)
+  - `async _handle_response()` (line 1906)
+  - `async _handle_notification()` (line 1923)
+  - `async _request_cleanup_loop()` (line 1959)
+  - `async _health_check_loop()` (line 1992)
+  - `get_stats()` (line 2030)
+  - `async __aenter__()` (line 2067)
+  - `async __aexit__()` (line 2071)
+- Methods:
+  - `LspError.__init__()` (line 54)
+  - `LspTimeoutError.__init__()` (line 80)
+  - `LspProtocolError.__init__()` (line 94)
+  - `JsonRpcRequest.to_dict()` (line 120)
+  - `JsonRpcResponse.to_dict()` (line 135)
+  - `JsonRpcResponse.from_dict()` (line 149) @classmethod
+  - `JsonRpcNotification.to_dict()` (line 173)
+  - `JsonRpcNotification.from_dict()` (line 180) @classmethod
+  - `ClientCapabilities.to_dict()` (line 229)
+  - `InitializeParams.to_dict()` (line 255)
+  - `ServerCapabilities.supports_hover()` (line 282)
+  - `ServerCapabilities.supports_definition()` (line 286)
+  - `ServerCapabilities.supports_references()` (line 290)
+  - `ServerCapabilities.supports_document_symbol()` (line 294)
+  - `ServerCapabilities.supports_workspace_symbol()` (line 298)
+  - `ServerCapabilities.supports_completion()` (line 302)
+  - `ServerCapabilities.supports_diagnostics()` (line 306)
+  - `ServerCapabilities.get_text_document_sync()` (line 310)
+  - `ServerCapabilities.to_dict()` (line 320)
+  - `AsyncioLspClient.__init__()` (line 336)
+  - `AsyncioLspClient.connection_state()` (line 397) @property
+  - `AsyncioLspClient.server_name()` (line 402) @property
+  - `AsyncioLspClient.is_connected()` (line 406)
+  - `AsyncioLspClient.is_initialized()` (line 411) @property
+  - `AsyncioLspClient.server_capabilities()` (line 416) @property
+  - `AsyncioLspClient.communication_mode()` (line 421) @property
+  - `AsyncioLspClient.circuit_breaker_state()` (line 426) @property
+  - `AsyncioLspClient.is_circuit_open()` (line 431) @property
+  - `async AsyncioLspClient.connect_stdio()` (line 435)
+  - `async AsyncioLspClient.connect_tcp()` (line 529)
+  - `async AsyncioLspClient.connect()` (line 601)
+  - `async AsyncioLspClient._connect_streams()` (line 641)
+  - `AsyncioLspClient._reset_circuit_breaker()` (line 673)
+  - `AsyncioLspClient._record_success()` (line 682)
+  - `AsyncioLspClient._record_failure()` (line 697)
+  - `AsyncioLspClient._should_allow_request()` (line 721)
+  - `AsyncioLspClient._calculate_retry_delay()` (line 739)
+  - `AsyncioLspClient._is_retryable_error()` (line 757)
+  - `async AsyncioLspClient.disconnect()` (line 774)
+  - `async AsyncioLspClient.initialize()` (line 853)
+  - `async AsyncioLspClient.hover()` (line 1035)
+  - `async AsyncioLspClient.definition()` (line 1078)
+  - `async AsyncioLspClient.references()` (line 1136)
+  - `async AsyncioLspClient.document_symbol()` (line 1182)
+  - `async AsyncioLspClient.workspace_symbol()` (line 1218)
+  - `async AsyncioLspClient.did_open()` (line 1253)
+  - `async AsyncioLspClient.did_change()` (line 1286)
+  - `async AsyncioLspClient.did_save()` (line 1316)
+  - `async AsyncioLspClient.did_close()` (line 1341)
+  - `AsyncioLspClient.register_diagnostics_handler()` (line 1363)
+  - `AsyncioLspClient.register_progress_handler()` (line 1392)
+  - `AsyncioLspClient.register_log_message_handler()` (line 1421)
+  - `AsyncioLspClient.register_show_message_handler()` (line 1450)
+  - `AsyncioLspClient.register_configuration_handler()` (line 1479)
+  - `async AsyncioLspClient.sync_file_opened()` (line 1516)
+  - `async AsyncioLspClient.sync_file_changed()` (line 1564)
+  - `async AsyncioLspClient.sync_file_saved()` (line 1585)
+  - `async AsyncioLspClient.sync_file_closed()` (line 1600)
+  - `async AsyncioLspClient.send_request()` (line 1613)
+  - `async AsyncioLspClient.send_notification()` (line 1712)
+  - `AsyncioLspClient.register_notification_handler()` (line 1740)
+  - `AsyncioLspClient.register_global_handler()` (line 1756)
+  - `async AsyncioLspClient._send_message()` (line 1763)
+  - `async AsyncioLspClient._message_reader_loop()` (line 1789)
+  - `async AsyncioLspClient._read_message()` (line 1823)
+  - `async AsyncioLspClient._handle_incoming_message()` (line 1874)
+  - `async AsyncioLspClient._handle_response()` (line 1906)
+  - `async AsyncioLspClient._handle_notification()` (line 1923)
+  - `async AsyncioLspClient._request_cleanup_loop()` (line 1959)
+  - `async AsyncioLspClient._health_check_loop()` (line 1992)
+  - `AsyncioLspClient.get_stats()` (line 2030)
+  - `async AsyncioLspClient.__aenter__()` (line 2067)
+  - `async AsyncioLspClient.__aexit__()` (line 2071)
+
+### common/core/degradation_integration.py
+- Functions: 29
+- Methods: 21
+- Classes: 4
+- Lines: 964
+- Functions:
+  - `__post_init__()` (line 70)
+  - `__init__()` (line 85)
+  - `async search_with_degradation()` (line 110)
+  - `async ingest_document_with_degradation()` (line 239)
+  - `async get_health_status_with_degradation()` (line 335)
+  - `_should_attempt_operation()` (line 390)
+  - `async _attempt_hybrid_search()` (line 403)
+  - `async _attempt_semantic_search()` (line 420)
+  - `async _attempt_keyword_search()` (line 438)
+  - `async _attempt_document_ingestion()` (line 456)
+  - `__init__()` (line 481)
+  - `async execute_command_with_degradation()` (line 498)
+  - `async _execute_offline_command()` (line 552)
+  - `async _execute_limited_command()` (line 590)
+  - `async _execute_full_command()` (line 622)
+  - `async _execute_basic_command()` (line 631)
+  - `async _status_command()` (line 673)
+  - `async _health_command()` (line 684)
+  - `_help_command()` (line 701)
+  - `__init__()` (line 729)
+  - `degradation_aware()` (line 738)
+  - `decorator()` (line 755)
+  - `async wrapper()` (line 756)
+  - `create_degradation_aware_mcp_tools()` (line 815)
+  - `async create_degradation_status_report()` (line 854)
+  - `_get_user_friendly_status()` (line 879)
+  - `_get_impact_summary()` (line 894)
+  - `_get_recommended_actions()` (line 908)
+  - `_estimate_recovery_time()` (line 951)
+- Methods:
+  - `DegradedOperation.__post_init__()` (line 70)
+  - `DegradationAwareMCPServer.__init__()` (line 85)
+  - `async DegradationAwareMCPServer.search_with_degradation()` (line 110)
+  - `async DegradationAwareMCPServer.ingest_document_with_degradation()` (line 239)
+  - `async DegradationAwareMCPServer.get_health_status_with_degradation()` (line 335)
+  - `DegradationAwareMCPServer._should_attempt_operation()` (line 390)
+  - `async DegradationAwareMCPServer._attempt_hybrid_search()` (line 403)
+  - `async DegradationAwareMCPServer._attempt_semantic_search()` (line 420)
+  - `async DegradationAwareMCPServer._attempt_keyword_search()` (line 438)
+  - `async DegradationAwareMCPServer._attempt_document_ingestion()` (line 456)
+  - `DegradationAwareCLI.__init__()` (line 481)
+  - `async DegradationAwareCLI.execute_command_with_degradation()` (line 498)
+  - `async DegradationAwareCLI._execute_offline_command()` (line 552)
+  - `async DegradationAwareCLI._execute_limited_command()` (line 590)
+  - `async DegradationAwareCLI._execute_full_command()` (line 622)
+  - `async DegradationAwareCLI._execute_basic_command()` (line 631)
+  - `async DegradationAwareCLI._status_command()` (line 673)
+  - `async DegradationAwareCLI._health_command()` (line 684)
+  - `DegradationAwareCLI._help_command()` (line 701)
+  - `DegradationMiddleware.__init__()` (line 729)
+  - `DegradationMiddleware.degradation_aware()` (line 738)
+
+### common/core/metadata_validator.py
+- Functions: 17
+- Methods: 17
+- Classes: 4
+- Lines: 736
+- Functions:
+  - `add_error()` (line 95)
+  - `add_warning()` (line 108)
+  - `add_info()` (line 120)
+  - `get_all_issues()` (line 132)
+  - `has_errors()` (line 136)
+  - `has_warnings()` (line 140)
+  - `__init__()` (line 155)
+  - `validate_metadata()` (line 203)
+  - `_validate_core_fields()` (line 244)
+  - `_validate_collection_classification()` (line 297)
+  - `_validate_access_control()` (line 344)
+  - `_validate_naming_patterns()` (line 400)
+  - `_validate_consistency()` (line 451)
+  - `_validate_migration_compatibility()` (line 519)
+  - `_validate_formats_and_constraints()` (line 557)
+  - `validate_collection_name_pattern()` (line 641)
+  - `suggest_fixes()` (line 697)
+- Methods:
+  - `ValidationResult.add_error()` (line 95)
+  - `ValidationResult.add_warning()` (line 108)
+  - `ValidationResult.add_info()` (line 120)
+  - `ValidationResult.get_all_issues()` (line 132)
+  - `ValidationResult.has_errors()` (line 136)
+  - `ValidationResult.has_warnings()` (line 140)
+  - `MetadataValidator.__init__()` (line 155)
+  - `MetadataValidator.validate_metadata()` (line 203)
+  - `MetadataValidator._validate_core_fields()` (line 244)
+  - `MetadataValidator._validate_collection_classification()` (line 297)
+  - `MetadataValidator._validate_access_control()` (line 344)
+  - `MetadataValidator._validate_naming_patterns()` (line 400)
+  - `MetadataValidator._validate_consistency()` (line 451)
+  - `MetadataValidator._validate_migration_compatibility()` (line 519)
+  - `MetadataValidator._validate_formats_and_constraints()` (line 557)
+  - `MetadataValidator.validate_collection_name_pattern()` (line 641)
+  - `MetadataValidator.suggest_fixes()` (line 697)
+
+### common/memory/token_counter.py
+- Functions: 13
+- Methods: 13
+- Classes: 4
+- Lines: 530
+- Functions:
+  - `__post_init__()` (line 50)
+  - `to_dict()` (line 55)
+  - `__lt__()` (line 87)
+  - `__init__()` (line 100)
+  - `count_rule_tokens()` (line 145)
+  - `count_rules_tokens()` (line 159)
+  - `optimize_rules_for_context()` (line 193)
+  - `suggest_memory_optimizations()` (line 246)
+  - `_count_text_tokens()` (line 345)
+  - `_format_rule_for_context()` (line 362)
+  - `_calculate_priority_score()` (line 380)
+  - `_find_similar_rules()` (line 428)
+  - `_extract_keywords()` (line 475)
+- Methods:
+  - `TokenUsage.__post_init__()` (line 50)
+  - `TokenUsage.to_dict()` (line 55)
+  - `RuleTokenInfo.__lt__()` (line 87)
+  - `TokenCounter.__init__()` (line 100)
+  - `TokenCounter.count_rule_tokens()` (line 145)
+  - `TokenCounter.count_rules_tokens()` (line 159)
+  - `TokenCounter.optimize_rules_for_context()` (line 193)
+  - `TokenCounter.suggest_memory_optimizations()` (line 246)
+  - `TokenCounter._count_text_tokens()` (line 345)
+  - `TokenCounter._format_rule_for_context()` (line 362)
+  - `TokenCounter._calculate_priority_score()` (line 380)
+  - `TokenCounter._find_similar_rules()` (line 428)
+  - `TokenCounter._extract_keywords()` (line 475)
+
+### common/memory/types.py
+- Functions: 14
+- Methods: 14
+- Classes: 10
+- Lines: 317
+- Functions:
+  - `__post_init__()` (line 53)
+  - `update_usage()` (line 62)
+  - `matches_scope()` (line 68)
+  - `to_dict()` (line 74)
+  - `from_dict()` (line 92) @classmethod
+  - `to_dict()` (line 126)
+  - `to_scope_list()` (line 153)
+  - `is_valid()` (line 184)
+  - `to_dict()` (line 206)
+  - `from_dict()` (line 215) @classmethod
+  - `to_dict()` (line 241)
+  - `from_dict()` (line 256) @classmethod
+  - `to_dict()` (line 287)
+  - `to_dict()` (line 309)
+- Methods:
+  - `MemoryRule.__post_init__()` (line 53)
+  - `MemoryRule.update_usage()` (line 62)
+  - `MemoryRule.matches_scope()` (line 68)
+  - `MemoryRule.to_dict()` (line 74)
+  - `MemoryRule.from_dict()` (line 92) @classmethod
+  - `MemoryRuleConflict.to_dict()` (line 126)
+  - `MemoryContext.to_scope_list()` (line 153)
+  - `ConversationalUpdate.is_valid()` (line 184)
+  - `AgentCapability.to_dict()` (line 206)
+  - `AgentCapability.from_dict()` (line 215) @classmethod
+  - `AgentDefinition.to_dict()` (line 241)
+  - `AgentDefinition.from_dict()` (line 256) @classmethod
+  - `ClaudeCodeSession.to_dict()` (line 287)
+  - `MemoryInjectionResult.to_dict()` (line 309)
+
+### common/memory/conflict_detector.py
+- Functions: 11
+- Methods: 11
+- Classes: 1
+- Lines: 514
+- Functions:
+  - `__init__()` (line 30)
+  - `async detect_conflicts()` (line 67)
+  - `async analyze_all_conflicts()` (line 150)
+  - `async _detect_rule_based_conflicts()` (line 171)
+  - `async _detect_semantic_conflicts()` (line 223)
+  - `async _analyze_rule_batch()` (line 254)
+  - `async _call_claude_api()` (line 372)
+  - `_check_scope_overlap()` (line 396)
+  - `_detect_text_contradictions()` (line 412)
+  - `_get_api_key_from_env()` (line 457)
+  - `get_conflict_summary()` (line 463)
+- Methods:
+  - `ConflictDetector.__init__()` (line 30)
+  - `async ConflictDetector.detect_conflicts()` (line 67)
+  - `async ConflictDetector.analyze_all_conflicts()` (line 150)
+  - `async ConflictDetector._detect_rule_based_conflicts()` (line 171)
+  - `async ConflictDetector._detect_semantic_conflicts()` (line 223)
+  - `async ConflictDetector._analyze_rule_batch()` (line 254)
+  - `async ConflictDetector._call_claude_api()` (line 372)
+  - `ConflictDetector._check_scope_overlap()` (line 396)
+  - `ConflictDetector._detect_text_contradictions()` (line 412)
+  - `ConflictDetector._get_api_key_from_env()` (line 457)
+  - `ConflictDetector.get_conflict_summary()` (line 463)
+
+### common/memory/migration_utils.py
+- Functions: 34
+- Methods: 34
+- Classes: 11
+- Lines: 1388
+- Functions:
+  - `__init__()` (line 184)
+  - `async analyze_all_collections()` (line 196)
+  - `async _analyze_single_collection()` (line 233)
+  - `_analyze_naming_pattern()` (line 273)
+  - `_looks_like_project_name()` (line 305)
+  - `_get_collection_stats()` (line 325)
+  - `async _analyze_metadata_structure()` (line 372)
+  - `_calculate_migration_priority()` (line 406)
+  - `__init__()` (line 437)
+  - `async create_migration_plan()` (line 448)
+  - `async _generate_target_names()` (line 491)
+  - `async _detect_migration_conflicts()` (line 516)
+  - `_calculate_migration_order()` (line 561)
+  - `_estimate_duration()` (line 596)
+  - `_optimize_batch_config()` (line 615)
+  - `__init__()` (line 647)
+  - `async migrate_collection()` (line 659)
+  - `async _ensure_target_collection()` (line 712)
+  - `async _migrate_data_in_batches()` (line 747)
+  - `_inject_project_metadata()` (line 813)
+  - `__init__()` (line 860)
+  - `async create_backup()` (line 872)
+  - `async restore_backup()` (line 937)
+  - `__init__()` (line 1012)
+  - `async generate_migration_report()` (line 1022)
+  - `generate_summary_text()` (line 1117)
+  - `__init__()` (line 1171)
+  - `async analyze_collections()` (line 1203)
+  - `async create_migration_plan()` (line 1212)
+  - `async execute_migration()` (line 1230)
+  - `async _validate_migration()` (line 1313)
+  - `async _cleanup_migration()` (line 1339)
+  - `async _rollback_migration()` (line 1351)
+  - `async generate_migration_report()` (line 1371)
+- Methods:
+  - `CollectionStructureAnalyzer.__init__()` (line 184)
+  - `async CollectionStructureAnalyzer.analyze_all_collections()` (line 196)
+  - `async CollectionStructureAnalyzer._analyze_single_collection()` (line 233)
+  - `CollectionStructureAnalyzer._analyze_naming_pattern()` (line 273)
+  - `CollectionStructureAnalyzer._looks_like_project_name()` (line 305)
+  - `CollectionStructureAnalyzer._get_collection_stats()` (line 325)
+  - `async CollectionStructureAnalyzer._analyze_metadata_structure()` (line 372)
+  - `CollectionStructureAnalyzer._calculate_migration_priority()` (line 406)
+  - `MigrationPlanner.__init__()` (line 437)
+  - `async MigrationPlanner.create_migration_plan()` (line 448)
+  - `async MigrationPlanner._generate_target_names()` (line 491)
+  - `async MigrationPlanner._detect_migration_conflicts()` (line 516)
+  - `MigrationPlanner._calculate_migration_order()` (line 561)
+  - `MigrationPlanner._estimate_duration()` (line 596)
+  - `MigrationPlanner._optimize_batch_config()` (line 615)
+  - `BatchMigrator.__init__()` (line 647)
+  - `async BatchMigrator.migrate_collection()` (line 659)
+  - `async BatchMigrator._ensure_target_collection()` (line 712)
+  - `async BatchMigrator._migrate_data_in_batches()` (line 747)
+  - `BatchMigrator._inject_project_metadata()` (line 813)
+  - `RollbackManager.__init__()` (line 860)
+  - `async RollbackManager.create_backup()` (line 872)
+  - `async RollbackManager.restore_backup()` (line 937)
+  - `MigrationReporter.__init__()` (line 1012)
+  - `async MigrationReporter.generate_migration_report()` (line 1022)
+  - `MigrationReporter.generate_summary_text()` (line 1117)
+  - `CollectionMigrationManager.__init__()` (line 1171)
+  - `async CollectionMigrationManager.analyze_collections()` (line 1203)
+  - `async CollectionMigrationManager.create_migration_plan()` (line 1212)
+  - `async CollectionMigrationManager.execute_migration()` (line 1230)
+  - `async CollectionMigrationManager._validate_migration()` (line 1313)
+  - `async CollectionMigrationManager._cleanup_migration()` (line 1339)
+  - `async CollectionMigrationManager._rollback_migration()` (line 1351)
+  - `async CollectionMigrationManager.generate_migration_report()` (line 1371)
+
+### common/memory/claude_integration.py
+- Functions: 12
+- Methods: 12
+- Classes: 1
+- Lines: 542
+- Functions:
+  - `__init__()` (line 40)
+  - `async initialize_session()` (line 61)
+  - `detect_conversational_updates()` (line 146)
+  - `process_conversational_update()` (line 250)
+  - `get_session_context()` (line 282)
+  - `update_session_context()` (line 294)
+  - `async _create_memory_context()` (line 322)
+  - `_filter_rules_by_context()` (line 362)
+  - `_generate_injection_content()` (line 384)
+  - `async _inject_into_session()` (line 439)
+  - `_find_claude_config()` (line 477)
+  - `create_system_prompt_injection()` (line 497)
+- Methods:
+  - `ClaudeCodeIntegration.__init__()` (line 40)
+  - `async ClaudeCodeIntegration.initialize_session()` (line 61)
+  - `ClaudeCodeIntegration.detect_conversational_updates()` (line 146)
+  - `ClaudeCodeIntegration.process_conversational_update()` (line 250)
+  - `ClaudeCodeIntegration.get_session_context()` (line 282)
+  - `ClaudeCodeIntegration.update_session_context()` (line 294)
+  - `async ClaudeCodeIntegration._create_memory_context()` (line 322)
+  - `ClaudeCodeIntegration._filter_rules_by_context()` (line 362)
+  - `ClaudeCodeIntegration._generate_injection_content()` (line 384)
+  - `async ClaudeCodeIntegration._inject_into_session()` (line 439)
+  - `ClaudeCodeIntegration._find_claude_config()` (line 477)
+  - `ClaudeCodeIntegration.create_system_prompt_injection()` (line 497)
+
+### common/memory/manager.py
+- Functions: 18
+- Methods: 18
+- Classes: 1
+- Lines: 512
+- Functions:
+  - `__init__()` (line 47)
+  - `async initialize()` (line 90)
+  - `async add_rule()` (line 115)
+  - `async update_rule()` (line 164)
+  - `async get_rule()` (line 190)
+  - `async delete_rule()` (line 205)
+  - `async list_rules()` (line 230)
+  - `async search_rules()` (line 256)
+  - `async check_conflicts()` (line 275)
+  - `async analyze_all_conflicts()` (line 291)
+  - `async get_token_usage()` (line 304)
+  - `async optimize_rules_for_context()` (line 317)
+  - `async suggest_optimizations()` (line 345)
+  - `async process_conversational_text()` (line 361)
+  - `async initialize_claude_session()` (line 406)
+  - `async get_memory_stats()` (line 424)
+  - `async export_rules()` (line 451)
+  - `async import_rules()` (line 464)
+- Methods:
+  - `MemoryManager.__init__()` (line 47)
+  - `async MemoryManager.initialize()` (line 90)
+  - `async MemoryManager.add_rule()` (line 115)
+  - `async MemoryManager.update_rule()` (line 164)
+  - `async MemoryManager.get_rule()` (line 190)
+  - `async MemoryManager.delete_rule()` (line 205)
+  - `async MemoryManager.list_rules()` (line 230)
+  - `async MemoryManager.search_rules()` (line 256)
+  - `async MemoryManager.check_conflicts()` (line 275)
+  - `async MemoryManager.analyze_all_conflicts()` (line 291)
+  - `async MemoryManager.get_token_usage()` (line 304)
+  - `async MemoryManager.optimize_rules_for_context()` (line 317)
+  - `async MemoryManager.suggest_optimizations()` (line 345)
+  - `async MemoryManager.process_conversational_text()` (line 361)
+  - `async MemoryManager.initialize_claude_session()` (line 406)
+  - `async MemoryManager.get_memory_stats()` (line 424)
+  - `async MemoryManager.export_rules()` (line 451)
+  - `async MemoryManager.import_rules()` (line 464)
+
+### common/memory/schema.py
+- Functions: 11
+- Methods: 11
+- Classes: 1
+- Lines: 523
+- Functions:
+  - `__init__()` (line 54)
+  - `async ensure_collection_exists()` (line 65)
+  - `async store_rule()` (line 125)
+  - `async update_rule()` (line 179)
+  - `async get_rule()` (line 192)
+  - `async delete_rule()` (line 217)
+  - `async search_rules()` (line 238)
+  - `async list_all_rules()` (line 322)
+  - `async get_collection_stats()` (line 399)
+  - `_validate_collection_schema()` (line 453)
+  - `_point_to_rule()` (line 484)
+- Methods:
+  - `MemoryCollectionSchema.__init__()` (line 54)
+  - `async MemoryCollectionSchema.ensure_collection_exists()` (line 65)
+  - `async MemoryCollectionSchema.store_rule()` (line 125)
+  - `async MemoryCollectionSchema.update_rule()` (line 179)
+  - `async MemoryCollectionSchema.get_rule()` (line 192)
+  - `async MemoryCollectionSchema.delete_rule()` (line 217)
+  - `async MemoryCollectionSchema.search_rules()` (line 238)
+  - `async MemoryCollectionSchema.list_all_rules()` (line 322)
+  - `async MemoryCollectionSchema.get_collection_stats()` (line 399)
+  - `MemoryCollectionSchema._validate_collection_schema()` (line 453)
+  - `MemoryCollectionSchema._point_to_rule()` (line 484)
+
+### common/grpc/ingestion_pb2_grpc.py
+- Functions: 58
+- Methods: 57
+- Classes: 3
+- Lines: 1379
+- Functions:
+  - `__init__()` (line 37)
+  - `ProcessDocument()` (line 216)
+  - `ProcessFolder()` (line 222)
+  - `StartWatching()` (line 228)
+  - `StopWatching()` (line 234)
+  - `ListWatches()` (line 240)
+  - `ConfigureWatch()` (line 246)
+  - `ExecuteQuery()` (line 252)
+  - `ListCollections()` (line 258)
+  - `GetCollectionInfo()` (line 264)
+  - `CreateCollection()` (line 270)
+  - `DeleteCollection()` (line 276)
+  - `ListDocuments()` (line 282)
+  - `GetDocument()` (line 288)
+  - `DeleteDocument()` (line 294)
+  - `LoadConfiguration()` (line 300)
+  - `SaveConfiguration()` (line 306)
+  - `ValidateConfiguration()` (line 312)
+  - `AddMemoryRule()` (line 318)
+  - `ListMemoryRules()` (line 324)
+  - `DeleteMemoryRule()` (line 330)
+  - `SearchMemoryRules()` (line 336)
+  - `GetStats()` (line 342)
+  - `GetProcessingStatus()` (line 348)
+  - `GetSystemStatus()` (line 354)
+  - `HealthCheck()` (line 360)
+  - `StreamProcessingStatus()` (line 366)
+  - `StreamSystemMetrics()` (line 372)
+  - `StreamQueueStatus()` (line 378)
+  - `add_IngestServiceServicer_to_server()` (line 385)
+  - `ProcessDocument()` (line 542) @staticmethod
+  - `ProcessFolder()` (line 572) @staticmethod
+  - `StartWatching()` (line 602) @staticmethod
+  - `StopWatching()` (line 632) @staticmethod
+  - `ListWatches()` (line 662) @staticmethod
+  - `ConfigureWatch()` (line 692) @staticmethod
+  - `ExecuteQuery()` (line 722) @staticmethod
+  - `ListCollections()` (line 752) @staticmethod
+  - `GetCollectionInfo()` (line 782) @staticmethod
+  - `CreateCollection()` (line 812) @staticmethod
+  - `DeleteCollection()` (line 842) @staticmethod
+  - `ListDocuments()` (line 872) @staticmethod
+  - `GetDocument()` (line 902) @staticmethod
+  - `DeleteDocument()` (line 932) @staticmethod
+  - `LoadConfiguration()` (line 962) @staticmethod
+  - `SaveConfiguration()` (line 992) @staticmethod
+  - `ValidateConfiguration()` (line 1022) @staticmethod
+  - `AddMemoryRule()` (line 1052) @staticmethod
+  - `ListMemoryRules()` (line 1082) @staticmethod
+  - `DeleteMemoryRule()` (line 1112) @staticmethod
+  - `SearchMemoryRules()` (line 1142) @staticmethod
+  - `GetStats()` (line 1172) @staticmethod
+  - `GetProcessingStatus()` (line 1202) @staticmethod
+  - `GetSystemStatus()` (line 1232) @staticmethod
+  - `HealthCheck()` (line 1262) @staticmethod
+  - `StreamProcessingStatus()` (line 1292) @staticmethod
+  - `StreamSystemMetrics()` (line 1322) @staticmethod
+  - `StreamQueueStatus()` (line 1352) @staticmethod
+- Methods:
+  - `IngestServiceStub.__init__()` (line 37)
+  - `IngestServiceServicer.ProcessDocument()` (line 216)
+  - `IngestServiceServicer.ProcessFolder()` (line 222)
+  - `IngestServiceServicer.StartWatching()` (line 228)
+  - `IngestServiceServicer.StopWatching()` (line 234)
+  - `IngestServiceServicer.ListWatches()` (line 240)
+  - `IngestServiceServicer.ConfigureWatch()` (line 246)
+  - `IngestServiceServicer.ExecuteQuery()` (line 252)
+  - `IngestServiceServicer.ListCollections()` (line 258)
+  - `IngestServiceServicer.GetCollectionInfo()` (line 264)
+  - `IngestServiceServicer.CreateCollection()` (line 270)
+  - `IngestServiceServicer.DeleteCollection()` (line 276)
+  - `IngestServiceServicer.ListDocuments()` (line 282)
+  - `IngestServiceServicer.GetDocument()` (line 288)
+  - `IngestServiceServicer.DeleteDocument()` (line 294)
+  - `IngestServiceServicer.LoadConfiguration()` (line 300)
+  - `IngestServiceServicer.SaveConfiguration()` (line 306)
+  - `IngestServiceServicer.ValidateConfiguration()` (line 312)
+  - `IngestServiceServicer.AddMemoryRule()` (line 318)
+  - `IngestServiceServicer.ListMemoryRules()` (line 324)
+  - `IngestServiceServicer.DeleteMemoryRule()` (line 330)
+  - `IngestServiceServicer.SearchMemoryRules()` (line 336)
+  - `IngestServiceServicer.GetStats()` (line 342)
+  - `IngestServiceServicer.GetProcessingStatus()` (line 348)
+  - `IngestServiceServicer.GetSystemStatus()` (line 354)
+  - `IngestServiceServicer.HealthCheck()` (line 360)
+  - `IngestServiceServicer.StreamProcessingStatus()` (line 366)
+  - `IngestServiceServicer.StreamSystemMetrics()` (line 372)
+  - `IngestServiceServicer.StreamQueueStatus()` (line 378)
+  - `IngestService.ProcessDocument()` (line 542) @staticmethod
+  - `IngestService.ProcessFolder()` (line 572) @staticmethod
+  - `IngestService.StartWatching()` (line 602) @staticmethod
+  - `IngestService.StopWatching()` (line 632) @staticmethod
+  - `IngestService.ListWatches()` (line 662) @staticmethod
+  - `IngestService.ConfigureWatch()` (line 692) @staticmethod
+  - `IngestService.ExecuteQuery()` (line 722) @staticmethod
+  - `IngestService.ListCollections()` (line 752) @staticmethod
+  - `IngestService.GetCollectionInfo()` (line 782) @staticmethod
+  - `IngestService.CreateCollection()` (line 812) @staticmethod
+  - `IngestService.DeleteCollection()` (line 842) @staticmethod
+  - `IngestService.ListDocuments()` (line 872) @staticmethod
+  - `IngestService.GetDocument()` (line 902) @staticmethod
+  - `IngestService.DeleteDocument()` (line 932) @staticmethod
+  - `IngestService.LoadConfiguration()` (line 962) @staticmethod
+  - `IngestService.SaveConfiguration()` (line 992) @staticmethod
+  - `IngestService.ValidateConfiguration()` (line 1022) @staticmethod
+  - `IngestService.AddMemoryRule()` (line 1052) @staticmethod
+  - `IngestService.ListMemoryRules()` (line 1082) @staticmethod
+  - `IngestService.DeleteMemoryRule()` (line 1112) @staticmethod
+  - `IngestService.SearchMemoryRules()` (line 1142) @staticmethod
+  - `IngestService.GetStats()` (line 1172) @staticmethod
+  - `IngestService.GetProcessingStatus()` (line 1202) @staticmethod
+  - `IngestService.GetSystemStatus()` (line 1232) @staticmethod
+  - `IngestService.HealthCheck()` (line 1262) @staticmethod
+  - `IngestService.StreamProcessingStatus()` (line 1292) @staticmethod
+  - `IngestService.StreamSystemMetrics()` (line 1322) @staticmethod
+  - `IngestService.StreamQueueStatus()` (line 1352) @staticmethod
+
+### common/grpc/client.py
+- Functions: 24
+- Methods: 16
+- Classes: 1
+- Lines: 664
+- Functions:
+  - `__init__()` (line 44)
+  - `async start()` (line 67)
+  - `async stop()` (line 74)
+  - `async __aenter__()` (line 81)
+  - `async __aexit__()` (line 86)
+  - `async process_document()` (line 90)
+  - `async _process_doc()` (line 128)
+  - `async execute_query()` (line 137)
+  - `async _execute_query()` (line 175)
+  - `async health_check()` (line 184)
+  - `async _health_check()` (line 201)
+  - `async start_watching()` (line 209)
+  - `async stop_watching()` (line 280)
+  - `async _stop_watching()` (line 300)
+  - `async get_stats()` (line 312)
+  - `async _get_stats()` (line 336)
+  - `get_connection_info()` (line 387)
+  - `async test_connection()` (line 391)
+  - `async stream_processing_status()` (line 405)
+  - `async _stream_status()` (line 440)
+  - `async stream_system_metrics()` (line 509)
+  - `async _stream_metrics()` (line 537)
+  - `async stream_queue_status()` (line 595)
+  - `async _stream_queue()` (line 622)
+- Methods:
+  - `AsyncIngestClient.__init__()` (line 44)
+  - `async AsyncIngestClient.start()` (line 67)
+  - `async AsyncIngestClient.stop()` (line 74)
+  - `async AsyncIngestClient.__aenter__()` (line 81)
+  - `async AsyncIngestClient.__aexit__()` (line 86)
+  - `async AsyncIngestClient.process_document()` (line 90)
+  - `async AsyncIngestClient.execute_query()` (line 137)
+  - `async AsyncIngestClient.health_check()` (line 184)
+  - `async AsyncIngestClient.start_watching()` (line 209)
+  - `async AsyncIngestClient.stop_watching()` (line 280)
+  - `async AsyncIngestClient.get_stats()` (line 312)
+  - `AsyncIngestClient.get_connection_info()` (line 387)
+  - `async AsyncIngestClient.test_connection()` (line 391)
+  - `async AsyncIngestClient.stream_processing_status()` (line 405)
+  - `async AsyncIngestClient.stream_system_metrics()` (line 509)
+  - `async AsyncIngestClient.stream_queue_status()` (line 595)
+
+### common/grpc/types.py
+- Functions: 10
+- Methods: 7
+- Classes: 7
+- Lines: 250
+- Functions:
+  - `to_pb()` (line 45)
+  - `from_pb()` (line 73) @classmethod
+  - `to_pb()` (line 100)
+  - `from_pb()` (line 132) @classmethod
+  - `from_pb()` (line 167) @classmethod
+  - `to_pb()` (line 194)
+  - `from_pb()` (line 210) @classmethod
+  - `dict_to_metadata_map()` (line 234)
+  - `timestamp_to_datetime()` (line 239)
+  - `datetime_to_timestamp()` (line 244)
+- Methods:
+  - `ProcessDocumentRequest.to_pb()` (line 45)
+  - `ProcessDocumentResponse.from_pb()` (line 73) @classmethod
+  - `ExecuteQueryRequest.to_pb()` (line 100)
+  - `SearchResult.from_pb()` (line 132) @classmethod
+  - `ExecuteQueryResponse.from_pb()` (line 167) @classmethod
+  - `HealthCheckRequest.to_pb()` (line 194)
+  - `HealthCheckResponse.from_pb()` (line 210) @classmethod
+
+### common/grpc/connection_manager.py
+- Functions: 23
+- Methods: 23
+- Classes: 4
+- Lines: 579
+- Functions:
+  - `average_response_time()` (line 43) @property
+  - `success_rate()` (line 50) @property
+  - `connection_success_rate()` (line 57) @property
+  - `__init__()` (line 66)
+  - `address()` (line 133) @property
+  - `get_channel_options()` (line 137)
+  - `__init__()` (line 161)
+  - `async reset()` (line 179)
+  - `record_request()` (line 199)
+  - `update_circuit_breaker()` (line 210)
+  - `can_attempt_connection()` (line 225)
+  - `__init__()` (line 242)
+  - `async start()` (line 250)
+  - `async stop()` (line 259)
+  - `async ensure_connected()` (line 274)
+  - `async _create_connection()` (line 283)
+  - `async _perform_health_check()` (line 327)
+  - `async _health_check_loop()` (line 368)
+  - `async get_stub()` (line 406) @asynccontextmanager
+  - `async with_retry()` (line 418)
+  - `async with_stream()` (line 463)
+  - `get_connection_info()` (line 539)
+  - `async get_or_create_stub()` (line 577)
+- Methods:
+  - `ConnectionMetrics.average_response_time()` (line 43) @property
+  - `ConnectionMetrics.success_rate()` (line 50) @property
+  - `ConnectionMetrics.connection_success_rate()` (line 57) @property
+  - `ConnectionConfig.__init__()` (line 66)
+  - `ConnectionConfig.address()` (line 133) @property
+  - `ConnectionConfig.get_channel_options()` (line 137)
+  - `ConnectionState.__init__()` (line 161)
+  - `async ConnectionState.reset()` (line 179)
+  - `ConnectionState.record_request()` (line 199)
+  - `ConnectionState.update_circuit_breaker()` (line 210)
+  - `ConnectionState.can_attempt_connection()` (line 225)
+  - `GrpcConnectionManager.__init__()` (line 242)
+  - `async GrpcConnectionManager.start()` (line 250)
+  - `async GrpcConnectionManager.stop()` (line 259)
+  - `async GrpcConnectionManager.ensure_connected()` (line 274)
+  - `async GrpcConnectionManager._create_connection()` (line 283)
+  - `async GrpcConnectionManager._perform_health_check()` (line 327)
+  - `async GrpcConnectionManager._health_check_loop()` (line 368)
+  - `async GrpcConnectionManager.get_stub()` (line 406) @asynccontextmanager
+  - `async GrpcConnectionManager.with_retry()` (line 418)
+  - `async GrpcConnectionManager.with_stream()` (line 463)
+  - `GrpcConnectionManager.get_connection_info()` (line 539)
+  - `async GrpcConnectionManager.get_or_create_stub()` (line 577)
+
+### common/optimization/complete_fastmcp_optimization.py
+- Functions: 54
+- Methods: 43
+- Classes: 10
+- Lines: 884
+- Functions:
+  - `add_request_time()` (line 52)
+  - `get_average_request_time()` (line 61)
+  - `get_success_rate()` (line 67)
+  - `__init__()` (line 81)
+  - `register_tool()` (line 88)
+  - `get_tool()` (line 111)
+  - `get_tool_list()` (line 128)
+  - `get_initialized_tools()` (line 131)
+  - `get_metrics()` (line 134)
+  - `__post_init__()` (line 159)
+  - `should_compress()` (line 167) @staticmethod
+  - `compress_message()` (line 172) @staticmethod
+  - `decompress_message()` (line 188) @staticmethod
+  - `__init__()` (line 205)
+  - `add_message()` (line 212)
+  - `get_batch()` (line 225)
+  - `is_empty()` (line 233)
+  - `__init__()` (line 240)
+  - `async start()` (line 257)
+  - `async stop()` (line 264)
+  - `async read_message()` (line 277)
+  - `async write_message()` (line 306)
+  - `async _flush_output_buffer()` (line 331)
+  - `async _periodic_flush()` (line 349)
+  - `get_statistics()` (line 361)
+  - `__init__()` (line 379)
+  - `tool()` (line 390)
+  - `decorator()` (line 392)
+  - `add_middleware()` (line 412)
+  - `async handle_request()` (line 416)
+  - `async _handle_tools_list()` (line 464)
+  - `async _handle_initialize()` (line 482)
+  - `async _handle_initialized()` (line 501)
+  - `async _handle_ping()` (line 506)
+  - `async _handle_tool_call()` (line 510)
+  - `async run_stdio()` (line 545)
+  - `stop()` (line 572)
+  - `get_performance_stats()` (line 576)
+  - `create_optimized_app()` (line 608) @staticmethod
+  - `performance_middleware()` (line 613)
+  - `optimize_tool_registration()` (line 623) @staticmethod
+  - `async optimized_qdrant_store()` (line 631) @<ast.Call object at 0x10c7ae1d0>
+  - `async optimized_qdrant_find()` (line 635) @<ast.Call object at 0x10c9d48d0>
+  - `async optimized_qdrant_manage()` (line 640) @<ast.Call object at 0x10c86a3d0>
+  - `async optimized_qdrant_watch()` (line 644) @<ast.Call object at 0x10c702390>
+  - `__init__()` (line 653)
+  - `create_optimized_app()` (line 658)
+  - `get_optimization_stats()` (line 672)
+  - `generate_performance_report()` (line 687)
+  - `create_optimization_test()` (line 729)
+  - `async test_complete_optimization()` (line 732)
+  - `test_tool()` (line 753)
+  - `async test_tool_impl()` (line 814) @<ast.Call object at 0x10c979c10>
+  - `async main()` (line 866)
+- Methods:
+  - `FrameworkMetrics.add_request_time()` (line 52)
+  - `FrameworkMetrics.get_average_request_time()` (line 61)
+  - `FrameworkMetrics.get_success_rate()` (line 67)
+  - `OptimizedToolRegistry.__init__()` (line 81)
+  - `OptimizedToolRegistry.register_tool()` (line 88)
+  - `OptimizedToolRegistry.get_tool()` (line 111)
+  - `OptimizedToolRegistry.get_tool_list()` (line 128)
+  - `OptimizedToolRegistry.get_initialized_tools()` (line 131)
+  - `OptimizedToolRegistry.get_metrics()` (line 134)
+  - `StdioMessage.__post_init__()` (line 159)
+  - `MessageCompressor.should_compress()` (line 167) @staticmethod
+  - `MessageCompressor.compress_message()` (line 172) @staticmethod
+  - `MessageCompressor.decompress_message()` (line 188) @staticmethod
+  - `StdioBuffer.__init__()` (line 205)
+  - `StdioBuffer.add_message()` (line 212)
+  - `StdioBuffer.get_batch()` (line 225)
+  - `StdioBuffer.is_empty()` (line 233)
+  - `StreamingStdioProtocol.__init__()` (line 240)
+  - `async StreamingStdioProtocol.start()` (line 257)
+  - `async StreamingStdioProtocol.stop()` (line 264)
+  - `async StreamingStdioProtocol.read_message()` (line 277)
+  - `async StreamingStdioProtocol.write_message()` (line 306)
+  - `async StreamingStdioProtocol._flush_output_buffer()` (line 331)
+  - `async StreamingStdioProtocol._periodic_flush()` (line 349)
+  - `StreamingStdioProtocol.get_statistics()` (line 361)
+  - `OptimizedFastMCPApp.__init__()` (line 379)
+  - `OptimizedFastMCPApp.tool()` (line 390)
+  - `OptimizedFastMCPApp.add_middleware()` (line 412)
+  - `async OptimizedFastMCPApp.handle_request()` (line 416)
+  - `async OptimizedFastMCPApp._handle_tools_list()` (line 464)
+  - `async OptimizedFastMCPApp._handle_initialize()` (line 482)
+  - `async OptimizedFastMCPApp._handle_initialized()` (line 501)
+  - `async OptimizedFastMCPApp._handle_ping()` (line 506)
+  - `async OptimizedFastMCPApp._handle_tool_call()` (line 510)
+  - `async OptimizedFastMCPApp.run_stdio()` (line 545)
+  - `OptimizedFastMCPApp.stop()` (line 572)
+  - `OptimizedFastMCPApp.get_performance_stats()` (line 576)
+  - `FastMCPOptimizer.create_optimized_app()` (line 608) @staticmethod
+  - `FastMCPOptimizer.optimize_tool_registration()` (line 623) @staticmethod
+  - `OptimizedWorkspaceServer.__init__()` (line 653)
+  - `OptimizedWorkspaceServer.create_optimized_app()` (line 658)
+  - `OptimizedWorkspaceServer.get_optimization_stats()` (line 672)
+  - `OptimizedWorkspaceServer.generate_performance_report()` (line 687)
+
+### common/utils/project_detection.py
+- Functions: 28
+- Methods: 28
+- Classes: 2
+- Lines: 755
+- Functions:
+  - `__init__()` (line 91)
+  - `generate_identifier()` (line 105)
+  - `get_identifier()` (line 159)
+  - `get_path_hash()` (line 167)
+  - `validate_identifier()` (line 175)
+  - `release_identifier()` (line 206)
+  - `_generate_path_hash()` (line 219)
+  - `_check_collision()` (line 236)
+  - `_register_identifier()` (line 253)
+  - `get_active_identifiers()` (line 266) @classmethod
+  - `get_identifier_info()` (line 275) @classmethod
+  - `clear_registry()` (line 287) @classmethod
+  - `__str__()` (line 292)
+  - `__repr__()` (line 298)
+  - `__init__()` (line 347)
+  - `get_project_name()` (line 363)
+  - `get_project_and_subprojects()` (line 389)
+  - `get_subprojects()` (line 404)
+  - `get_detailed_submodules()` (line 417)
+  - `_analyze_submodule()` (line 457)
+  - `_find_git_root()` (line 507)
+  - `_get_git_remote_url()` (line 524)
+  - `_parse_git_url()` (line 553)
+  - `_belongs_to_user()` (line 615)
+  - `_extract_repo_name_from_remote()` (line 645)
+  - `get_project_info()` (line 666)
+  - `create_daemon_identifier()` (line 722)
+  - `detect_ecosystems()` (line 741)
+- Methods:
+  - `DaemonIdentifier.__init__()` (line 91)
+  - `DaemonIdentifier.generate_identifier()` (line 105)
+  - `DaemonIdentifier.get_identifier()` (line 159)
+  - `DaemonIdentifier.get_path_hash()` (line 167)
+  - `DaemonIdentifier.validate_identifier()` (line 175)
+  - `DaemonIdentifier.release_identifier()` (line 206)
+  - `DaemonIdentifier._generate_path_hash()` (line 219)
+  - `DaemonIdentifier._check_collision()` (line 236)
+  - `DaemonIdentifier._register_identifier()` (line 253)
+  - `DaemonIdentifier.get_active_identifiers()` (line 266) @classmethod
+  - `DaemonIdentifier.get_identifier_info()` (line 275) @classmethod
+  - `DaemonIdentifier.clear_registry()` (line 287) @classmethod
+  - `DaemonIdentifier.__str__()` (line 292)
+  - `DaemonIdentifier.__repr__()` (line 298)
+  - `ProjectDetector.__init__()` (line 347)
+  - `ProjectDetector.get_project_name()` (line 363)
+  - `ProjectDetector.get_project_and_subprojects()` (line 389)
+  - `ProjectDetector.get_subprojects()` (line 404)
+  - `ProjectDetector.get_detailed_submodules()` (line 417)
+  - `ProjectDetector._analyze_submodule()` (line 457)
+  - `ProjectDetector._find_git_root()` (line 507)
+  - `ProjectDetector._get_git_remote_url()` (line 524)
+  - `ProjectDetector._parse_git_url()` (line 553)
+  - `ProjectDetector._belongs_to_user()` (line 615)
+  - `ProjectDetector._extract_repo_name_from_remote()` (line 645)
+  - `ProjectDetector.get_project_info()` (line 666)
+  - `ProjectDetector.create_daemon_identifier()` (line 722)
+  - `ProjectDetector.detect_ecosystems()` (line 741)
+
+### common/utils/config_validator.py
+- Functions: 16
+- Methods: 14
+- Classes: 1
+- Lines: 812
+- Functions:
+  - `__init__()` (line 125)
+  - `validate_qdrant_connection()` (line 137)
+  - `validate_embedding_model()` (line 189)
+  - `validate_project_detection()` (line 240)
+  - `validate_all()` (line 302)
+  - `_generate_warnings()` (line 415)
+  - `_validate_qdrant_config()` (line 436)
+  - `_validate_embedding_config()` (line 463)
+  - `_validate_workspace_config()` (line 500)
+  - `_validate_server_config()` (line 528)
+  - `_validate_environment()` (line 546)
+  - `_test_qdrant_connection()` (line 572)
+  - `get_setup_guide()` (line 590)
+  - `print_validation_results()` (line 663)
+  - `validate_config_cmd()` (line 696)
+  - `validate_config_cli()` (line 787)
+- Methods:
+  - `ConfigValidator.__init__()` (line 125)
+  - `ConfigValidator.validate_qdrant_connection()` (line 137)
+  - `ConfigValidator.validate_embedding_model()` (line 189)
+  - `ConfigValidator.validate_project_detection()` (line 240)
+  - `ConfigValidator.validate_all()` (line 302)
+  - `ConfigValidator._generate_warnings()` (line 415)
+  - `ConfigValidator._validate_qdrant_config()` (line 436)
+  - `ConfigValidator._validate_embedding_config()` (line 463)
+  - `ConfigValidator._validate_workspace_config()` (line 500)
+  - `ConfigValidator._validate_server_config()` (line 528)
+  - `ConfigValidator._validate_environment()` (line 546)
+  - `ConfigValidator._test_qdrant_connection()` (line 572)
+  - `ConfigValidator.get_setup_guide()` (line 590)
+  - `ConfigValidator.print_validation_results()` (line 663)
+
+### common/utils/admin_cli.py
+- Functions: 9
+- Methods: 7
+- Classes: 1
+- Lines: 603
+- Functions:
+  - `__init__()` (line 86)
+  - `async get_client()` (line 128) @asynccontextmanager
+  - `async list_collections()` (line 139)
+  - `async delete_collection()` (line 185)
+  - `async search_collections()` (line 252)
+  - `async reset_project()` (line 304)
+  - `async get_system_health()` (line 350)
+  - `async main()` (line 405)
+  - `admin_cli()` (line 583)
+- Methods:
+  - `WorkspaceQdrantAdmin.__init__()` (line 86)
+  - `async WorkspaceQdrantAdmin.get_client()` (line 128) @asynccontextmanager
+  - `async WorkspaceQdrantAdmin.list_collections()` (line 139)
+  - `async WorkspaceQdrantAdmin.delete_collection()` (line 185)
+  - `async WorkspaceQdrantAdmin.search_collections()` (line 252)
+  - `async WorkspaceQdrantAdmin.reset_project()` (line 304)
+  - `async WorkspaceQdrantAdmin.get_system_health()` (line 350)
+
+### common/observability/metrics.py
+- Functions: 39
+- Methods: 37
+- Classes: 7
+- Lines: 627
+- Functions:
+  - `__init__()` (line 72)
+  - `increment()` (line 79)
+  - `get_value()` (line 87)
+  - `get_all_labeled_values()` (line 95)
+  - `_serialize_labels()` (line 100)
+  - `__init__()` (line 108)
+  - `set()` (line 115)
+  - `add()` (line 124)
+  - `subtract()` (line 133)
+  - `get_value()` (line 137)
+  - `get_all_labeled_values()` (line 145)
+  - `_serialize_labels()` (line 150)
+  - `__init__()` (line 173)
+  - `observe()` (line 198)
+  - `get_buckets()` (line 221)
+  - `get_count()` (line 229)
+  - `get_sum()` (line 237)
+  - `get_average()` (line 245)
+  - `_serialize_labels()` (line 252)
+  - `__init__()` (line 260)
+  - `_initialize_standard_metrics()` (line 285)
+  - `create_counter()` (line 325)
+  - `create_gauge()` (line 333)
+  - `create_histogram()` (line 341)
+  - `increment_counter()` (line 351)
+  - `set_gauge()` (line 356)
+  - `add_gauge()` (line 361)
+  - `record_histogram()` (line 366)
+  - `timer()` (line 372) @contextmanager
+  - `start_operation()` (line 381)
+  - `complete_operation()` (line 397)
+  - `update_system_metrics()` (line 430)
+  - `get_metrics_summary()` (line 462)
+  - `export_prometheus_format()` (line 502)
+  - `reset_metrics()` (line 559)
+  - `get_metrics_collector()` (line 574)
+  - `__getattr__()` (line 589)
+  - `__call__()` (line 592)
+  - `record_operation()` (line 601) @contextmanager
+- Methods:
+  - `Counter.__init__()` (line 72)
+  - `Counter.increment()` (line 79)
+  - `Counter.get_value()` (line 87)
+  - `Counter.get_all_labeled_values()` (line 95)
+  - `Counter._serialize_labels()` (line 100)
+  - `Gauge.__init__()` (line 108)
+  - `Gauge.set()` (line 115)
+  - `Gauge.add()` (line 124)
+  - `Gauge.subtract()` (line 133)
+  - `Gauge.get_value()` (line 137)
+  - `Gauge.get_all_labeled_values()` (line 145)
+  - `Gauge._serialize_labels()` (line 150)
+  - `Histogram.__init__()` (line 173)
+  - `Histogram.observe()` (line 198)
+  - `Histogram.get_buckets()` (line 221)
+  - `Histogram.get_count()` (line 229)
+  - `Histogram.get_sum()` (line 237)
+  - `Histogram.get_average()` (line 245)
+  - `Histogram._serialize_labels()` (line 252)
+  - `MetricsCollector.__init__()` (line 260)
+  - `MetricsCollector._initialize_standard_metrics()` (line 285)
+  - `MetricsCollector.create_counter()` (line 325)
+  - `MetricsCollector.create_gauge()` (line 333)
+  - `MetricsCollector.create_histogram()` (line 341)
+  - `MetricsCollector.increment_counter()` (line 351)
+  - `MetricsCollector.set_gauge()` (line 356)
+  - `MetricsCollector.add_gauge()` (line 361)
+  - `MetricsCollector.record_histogram()` (line 366)
+  - `MetricsCollector.timer()` (line 372) @contextmanager
+  - `MetricsCollector.start_operation()` (line 381)
+  - `MetricsCollector.complete_operation()` (line 397)
+  - `MetricsCollector.update_system_metrics()` (line 430)
+  - `MetricsCollector.get_metrics_summary()` (line 462)
+  - `MetricsCollector.export_prometheus_format()` (line 502)
+  - `MetricsCollector.reset_metrics()` (line 559)
+  - `LazyMetricsCollector.__getattr__()` (line 589)
+  - `LazyMetricsCollector.__call__()` (line 592)
+
+### common/observability/health.py
+- Functions: 21
+- Methods: 20
+- Classes: 5
+- Lines: 787
+- Functions:
+  - `__init__()` (line 91)
+  - `_initialize_standard_checks()` (line 116)
+  - `register_check()` (line 129)
+  - `unregister_check()` (line 158)
+  - `async run_check()` (line 164)
+  - `async get_health_status()` (line 273)
+  - `async get_detailed_diagnostics()` (line 364)
+  - `async _get_system_info()` (line 383)
+  - `_get_check_history()` (line 405)
+  - `_get_health_configuration()` (line 422)
+  - `async _check_system_resources()` (line 434)
+  - `async _check_qdrant_connectivity()` (line 505)
+  - `async _check_embedding_service()` (line 553)
+  - `async _check_file_watchers()` (line 597)
+  - `async _check_configuration()` (line 654)
+  - `start_background_monitoring()` (line 698)
+  - `stop_background_monitoring()` (line 713)
+  - `async _background_monitor()` (line 719)
+  - `get_health_checker()` (line 764)
+  - `__getattr__()` (line 779)
+  - `__call__()` (line 782)
+- Methods:
+  - `HealthChecker.__init__()` (line 91)
+  - `HealthChecker._initialize_standard_checks()` (line 116)
+  - `HealthChecker.register_check()` (line 129)
+  - `HealthChecker.unregister_check()` (line 158)
+  - `async HealthChecker.run_check()` (line 164)
+  - `async HealthChecker.get_health_status()` (line 273)
+  - `async HealthChecker.get_detailed_diagnostics()` (line 364)
+  - `async HealthChecker._get_system_info()` (line 383)
+  - `HealthChecker._get_check_history()` (line 405)
+  - `HealthChecker._get_health_configuration()` (line 422)
+  - `async HealthChecker._check_system_resources()` (line 434)
+  - `async HealthChecker._check_qdrant_connectivity()` (line 505)
+  - `async HealthChecker._check_embedding_service()` (line 553)
+  - `async HealthChecker._check_file_watchers()` (line 597)
+  - `async HealthChecker._check_configuration()` (line 654)
+  - `HealthChecker.start_background_monitoring()` (line 698)
+  - `HealthChecker.stop_background_monitoring()` (line 713)
+  - `async HealthChecker._background_monitor()` (line 719)
+  - `LazyHealthChecker.__getattr__()` (line 779)
+  - `LazyHealthChecker.__call__()` (line 782)
+
+### common/observability/grpc_health.py
+- Functions: 17
+- Methods: 14
+- Classes: 3
+- Lines: 654
+- Functions:
+  - `__init__()` (line 92)
+  - `async initialize()` (line 131)
+  - `async shutdown()` (line 160)
+  - `async Check()` (line 192)
+  - `async Watch()` (line 288)
+  - `async set_service_health()` (line 367)
+  - `async get_service_health_status()` (line 423)
+  - `async get_all_service_statuses()` (line 428)
+  - `async _background_health_monitor()` (line 442)
+  - `async _update_all_service_health()` (line 461)
+  - `async _get_global_health_status()` (line 510)
+  - `async _update_global_health()` (line 535)
+  - `async _watch_global_health()` (line 555)
+  - `async _notify_watchers()` (line 580)
+  - `async get_grpc_health_service()` (line 612)
+  - `async shutdown_grpc_health_service()` (line 623)
+  - `add_grpc_health_service_to_server()` (line 632)
+- Methods:
+  - `GrpcHealthService.__init__()` (line 92)
+  - `async GrpcHealthService.initialize()` (line 131)
+  - `async GrpcHealthService.shutdown()` (line 160)
+  - `async GrpcHealthService.Check()` (line 192)
+  - `async GrpcHealthService.Watch()` (line 288)
+  - `async GrpcHealthService.set_service_health()` (line 367)
+  - `async GrpcHealthService.get_service_health_status()` (line 423)
+  - `async GrpcHealthService.get_all_service_statuses()` (line 428)
+  - `async GrpcHealthService._background_health_monitor()` (line 442)
+  - `async GrpcHealthService._update_all_service_health()` (line 461)
+  - `async GrpcHealthService._get_global_health_status()` (line 510)
+  - `async GrpcHealthService._update_global_health()` (line 535)
+  - `async GrpcHealthService._watch_global_health()` (line 555)
+  - `async GrpcHealthService._notify_watchers()` (line 580)
+
+### common/observability/monitoring.py
+- Functions: 19
+- Methods: 7
+- Classes: 3
+- Lines: 672
+- Functions:
+  - `__init__()` (line 73)
+  - `__enter__()` (line 89)
+  - `__exit__()` (line 112)
+  - `async async_operation_monitor()` (line 190) @asynccontextmanager
+  - `monitor_sync()` (line 206)
+  - `decorator()` (line 235)
+  - `wrapper()` (line 239) @<ast.Call object at 0x10ca6be50>
+  - `monitor_async()` (line 288)
+  - `decorator()` (line 317)
+  - `async wrapper()` (line 321) @<ast.Call object at 0x10c7c7250>
+  - `monitor_performance()` (line 370)
+  - `decorator()` (line 391)
+  - `async async_wrapper()` (line 397) @<ast.Call object at 0x10c730d90>
+  - `sync_wrapper()` (line 476) @<ast.Call object at 0x10ca85ad0>
+  - `__init__()` (line 558)
+  - `__enter__()` (line 567)
+  - `__exit__()` (line 586)
+  - `record_item_processed()` (line 625)
+  - `monitor_batch_operation()` (line 651)
+- Methods:
+  - `OperationMonitor.__init__()` (line 73)
+  - `OperationMonitor.__enter__()` (line 89)
+  - `OperationMonitor.__exit__()` (line 112)
+  - `BatchOperationMonitor.__init__()` (line 558)
+  - `BatchOperationMonitor.__enter__()` (line 567)
+  - `BatchOperationMonitor.__exit__()` (line 586)
+  - `BatchOperationMonitor.record_item_processed()` (line 625)
+
+### common/observability/health_dashboard.py
+- Functions: 26
+- Methods: 24
+- Classes: 1
+- Lines: 1502
+- Functions:
+  - `__init__()` (line 68)
+  - `async initialize()` (line 122)
+  - `async start_server()` (line 146)
+  - `async stop_server()` (line 178)
+  - `async _setup_routes()` (line 208)
+  - `async _dashboard_handler()` (line 235)
+  - `async _api_status_handler()` (line 250)
+  - `async _api_dashboard_handler()` (line 274)
+  - `async _api_alerts_handler()` (line 294)
+  - `async _api_metrics_handler()` (line 324)
+  - `async _api_components_handler()` (line 349)
+  - `async _action_acknowledge_handler()` (line 370)
+  - `async _action_resolve_handler()` (line 397)
+  - `async _action_recovery_handler()` (line 424)
+  - `async _websocket_handler()` (line 468)
+  - `async _handle_websocket_message()` (line 506)
+  - `async _websocket_update_loop()` (line 526)
+  - `_should_send_update()` (line 569)
+  - `async _dashboard_metrics_loop()` (line 600)
+  - `async _static_js_handler()` (line 624)
+  - `async _static_css_handler()` (line 633)
+  - `_generate_dashboard_html()` (line 642)
+  - `_generate_dashboard_js()` (line 719)
+  - `_generate_dashboard_css()` (line 1059)
+  - `async get_health_dashboard()` (line 1485)
+  - `async shutdown_health_dashboard()` (line 1496)
+- Methods:
+  - `HealthDashboard.__init__()` (line 68)
+  - `async HealthDashboard.initialize()` (line 122)
+  - `async HealthDashboard.start_server()` (line 146)
+  - `async HealthDashboard.stop_server()` (line 178)
+  - `async HealthDashboard._setup_routes()` (line 208)
+  - `async HealthDashboard._dashboard_handler()` (line 235)
+  - `async HealthDashboard._api_status_handler()` (line 250)
+  - `async HealthDashboard._api_dashboard_handler()` (line 274)
+  - `async HealthDashboard._api_alerts_handler()` (line 294)
+  - `async HealthDashboard._api_metrics_handler()` (line 324)
+  - `async HealthDashboard._api_components_handler()` (line 349)
+  - `async HealthDashboard._action_acknowledge_handler()` (line 370)
+  - `async HealthDashboard._action_resolve_handler()` (line 397)
+  - `async HealthDashboard._action_recovery_handler()` (line 424)
+  - `async HealthDashboard._websocket_handler()` (line 468)
+  - `async HealthDashboard._handle_websocket_message()` (line 506)
+  - `async HealthDashboard._websocket_update_loop()` (line 526)
+  - `HealthDashboard._should_send_update()` (line 569)
+  - `async HealthDashboard._dashboard_metrics_loop()` (line 600)
+  - `async HealthDashboard._static_js_handler()` (line 624)
+  - `async HealthDashboard._static_css_handler()` (line 633)
+  - `HealthDashboard._generate_dashboard_html()` (line 642)
+  - `HealthDashboard._generate_dashboard_js()` (line 719)
+  - `HealthDashboard._generate_dashboard_css()` (line 1059)
+
+### common/observability/health_coordinator.py
+- Functions: 27
+- Methods: 25
+- Classes: 6
+- Lines: 1113
+- Functions:
+  - `__init__()` (line 164)
+  - `async initialize()` (line 221)
+  - `async start_monitoring()` (line 250)
+  - `async stop_monitoring()` (line 276)
+  - `async get_unified_health_status()` (line 296)
+  - `async get_health_dashboard_data()` (line 364)
+  - `register_alert_callback()` (line 388)
+  - `async trigger_manual_recovery()` (line 393)
+  - `async _monitor_component_health()` (line 442)
+  - `async _get_component_health_detailed()` (line 486)
+  - `async _check_alert_conditions()` (line 550)
+  - `async _process_alert()` (line 613)
+  - `async _consider_auto_recovery()` (line 658)
+  - `async _trend_analysis_loop()` (line 710)
+  - `async _analyze_component_trend()` (line 732)
+  - `async _alert_processing_loop()` (line 824)
+  - `async _performance_correlation_loop()` (line 852)
+  - `async _analyze_performance_correlations()` (line 867)
+  - `async _get_trend_summary()` (line 906)
+  - `_get_alert_summary()` (line 920)
+  - `async _get_dependency_health_matrix()` (line 965)
+  - `async _get_visualization_data()` (line 984)
+  - `async _get_health_timeline()` (line 1034)
+  - `async _get_recovery_actions_summary()` (line 1058)
+  - `_detect_project_name()` (line 1072)
+  - `async get_health_coordinator()` (line 1084)
+  - `async shutdown_health_coordinator()` (line 1107)
+- Methods:
+  - `HealthCoordinator.__init__()` (line 164)
+  - `async HealthCoordinator.initialize()` (line 221)
+  - `async HealthCoordinator.start_monitoring()` (line 250)
+  - `async HealthCoordinator.stop_monitoring()` (line 276)
+  - `async HealthCoordinator.get_unified_health_status()` (line 296)
+  - `async HealthCoordinator.get_health_dashboard_data()` (line 364)
+  - `HealthCoordinator.register_alert_callback()` (line 388)
+  - `async HealthCoordinator.trigger_manual_recovery()` (line 393)
+  - `async HealthCoordinator._monitor_component_health()` (line 442)
+  - `async HealthCoordinator._get_component_health_detailed()` (line 486)
+  - `async HealthCoordinator._check_alert_conditions()` (line 550)
+  - `async HealthCoordinator._process_alert()` (line 613)
+  - `async HealthCoordinator._consider_auto_recovery()` (line 658)
+  - `async HealthCoordinator._trend_analysis_loop()` (line 710)
+  - `async HealthCoordinator._analyze_component_trend()` (line 732)
+  - `async HealthCoordinator._alert_processing_loop()` (line 824)
+  - `async HealthCoordinator._performance_correlation_loop()` (line 852)
+  - `async HealthCoordinator._analyze_performance_correlations()` (line 867)
+  - `async HealthCoordinator._get_trend_summary()` (line 906)
+  - `HealthCoordinator._get_alert_summary()` (line 920)
+  - `async HealthCoordinator._get_dependency_health_matrix()` (line 965)
+  - `async HealthCoordinator._get_visualization_data()` (line 984)
+  - `async HealthCoordinator._get_health_timeline()` (line 1034)
+  - `async HealthCoordinator._get_recovery_actions_summary()` (line 1058)
+  - `HealthCoordinator._detect_project_name()` (line 1072)
+
+### common/observability/enhanced_alerting.py
+- Functions: 31
+- Methods: 29
+- Classes: 8
+- Lines: 1066
+- Functions:
+  - `__init__()` (line 170)
+  - `async initialize()` (line 218)
+  - `async shutdown()` (line 245)
+  - `async send_alert()` (line 268)
+  - `async acknowledge_alert()` (line 360)
+  - `async resolve_alert()` (line 387)
+  - `add_email_channel()` (line 414)
+  - `add_webhook_channel()` (line 445)
+  - `add_slack_channel()` (line 466)
+  - `add_custom_handler()` (line 488)
+  - `async _alert_processing_loop()` (line 509)
+  - `async _deliver_alert()` (line 530)
+  - `async _deliver_to_channel()` (line 576)
+  - `async _deliver_email()` (line 599)
+  - `_send_email_blocking()` (line 659)
+  - `async _deliver_webhook()` (line 680)
+  - `async _deliver_slack()` (line 713)
+  - `async _deliver_custom()` (line 766)
+  - `async _escalation_processing_loop()` (line 787)
+  - `async _process_escalation()` (line 808)
+  - `async _trigger_paging()` (line 850)
+  - `async _handle_alert_correlation()` (line 855)
+  - `_alert_matches_rule()` (line 876)
+  - `async _find_or_create_alert_group()` (line 881)
+  - `async _check_rate_limits()` (line 917)
+  - `async _add_default_correlation_rules()` (line 947)
+  - `async _add_default_escalation_policies()` (line 969)
+  - `async _cleanup_loop()` (line 984)
+  - `async _rate_limit_cleanup_loop()` (line 1024)
+  - `async get_alerting_manager()` (line 1049)
+  - `async shutdown_alerting_manager()` (line 1060)
+- Methods:
+  - `AlertingManager.__init__()` (line 170)
+  - `async AlertingManager.initialize()` (line 218)
+  - `async AlertingManager.shutdown()` (line 245)
+  - `async AlertingManager.send_alert()` (line 268)
+  - `async AlertingManager.acknowledge_alert()` (line 360)
+  - `async AlertingManager.resolve_alert()` (line 387)
+  - `AlertingManager.add_email_channel()` (line 414)
+  - `AlertingManager.add_webhook_channel()` (line 445)
+  - `AlertingManager.add_slack_channel()` (line 466)
+  - `AlertingManager.add_custom_handler()` (line 488)
+  - `async AlertingManager._alert_processing_loop()` (line 509)
+  - `async AlertingManager._deliver_alert()` (line 530)
+  - `async AlertingManager._deliver_to_channel()` (line 576)
+  - `async AlertingManager._deliver_email()` (line 599)
+  - `AlertingManager._send_email_blocking()` (line 659)
+  - `async AlertingManager._deliver_webhook()` (line 680)
+  - `async AlertingManager._deliver_slack()` (line 713)
+  - `async AlertingManager._deliver_custom()` (line 766)
+  - `async AlertingManager._escalation_processing_loop()` (line 787)
+  - `async AlertingManager._process_escalation()` (line 808)
+  - `async AlertingManager._trigger_paging()` (line 850)
+  - `async AlertingManager._handle_alert_correlation()` (line 855)
+  - `AlertingManager._alert_matches_rule()` (line 876)
+  - `async AlertingManager._find_or_create_alert_group()` (line 881)
+  - `async AlertingManager._check_rate_limits()` (line 917)
+  - `async AlertingManager._add_default_correlation_rules()` (line 947)
+  - `async AlertingManager._add_default_escalation_policies()` (line 969)
+  - `async AlertingManager._cleanup_loop()` (line 984)
+  - `async AlertingManager._rate_limit_cleanup_loop()` (line 1024)
+
+### common/observability/endpoints.py
+- Functions: 13
+- Methods: 0
+- Classes: 0
+- Lines: 501
+- Functions:
+  - `async health_check_basic()` (line 44)
+  - `async health_check_detailed()` (line 81)
+  - `async metrics_prometheus()` (line 103)
+  - `async metrics_json()` (line 128)
+  - `async system_diagnostics()` (line 163)
+  - `add_observability_routes()` (line 197)
+  - `async health_endpoint()` (line 212) @<ast.Call object at 0x10c7cf1d0>
+  - `async health_detailed_endpoint()` (line 258) @<ast.Call object at 0x10c758150>
+  - `async metrics_endpoint()` (line 298) @<ast.Call object at 0x10c8db810>
+  - `async metrics_json_endpoint()` (line 336) @<ast.Call object at 0x10c8e9650>
+  - `async diagnostics_endpoint()` (line 374) @<ast.Call object at 0x10c8e8bd0>
+  - `setup_observability_middleware()` (line 422)
+  - `async observability_middleware()` (line 430) @<ast.Call object at 0x10c9ec210>
+
+### common/dashboard/performance_dashboard.py
+- Functions: 16
+- Methods: 6
+- Classes: 1
+- Lines: 712
+- Functions:
+  - `__init__()` (line 44)
+  - `_setup_routes()` (line 61)
+  - `async dashboard_home()` (line 65) @<ast.Call object at 0x10c8eaa90>
+  - `async get_performance_status()` (line 70) @<ast.Call object at 0x10c8e9590>
+  - `async get_dashboard_data()` (line 80) @<ast.Call object at 0x10c7fd6d0>
+  - `async get_baseline_config()` (line 90) @<ast.Call object at 0x10c73ae10>
+  - `async get_accuracy_summary()` (line 95) @<ast.Call object at 0x10c713850>
+  - `async get_benchmark_history()` (line 105) @<ast.Call object at 0x10cade810>
+  - `async get_performance_alerts()` (line 131) @<ast.Call object at 0x10c7f8610>
+  - `async simulate_performance_data()` (line 141) @<ast.Call object at 0x10c8d8e90>
+  - `_setup_websockets()` (line 160)
+  - `async websocket_performance_updates()` (line 164) @<ast.Call object at 0x10c7ce3d0>
+  - `_render_dashboard_template()` (line 186)
+  - `async broadcast_update()` (line 674)
+  - `run()` (line 697)
+  - `async create_dashboard_server()` (line 703)
+- Methods:
+  - `PerformanceDashboardServer.__init__()` (line 44)
+  - `PerformanceDashboardServer._setup_routes()` (line 61)
+  - `PerformanceDashboardServer._setup_websockets()` (line 160)
+  - `PerformanceDashboardServer._render_dashboard_template()` (line 186)
+  - `async PerformanceDashboardServer.broadcast_update()` (line 674)
+  - `PerformanceDashboardServer.run()` (line 697)
+
+### common/logging/loguru_config.py
+- Functions: 2
+- Methods: 0
+- Classes: 0
+- Lines: 49
+- Functions:
+  - `setup_logging()` (line 13)
+  - `_is_mcp_stdio_mode()` (line 43)
+
+### common/logging/__init__.py
+- Functions: 6
+- Methods: 5
+- Classes: 2
+- Lines: 47
+- Functions:
+  - `__init__()` (line 20)
+  - `__enter__()` (line 24)
+  - `__exit__()` (line 27)
+  - `__init__()` (line 33)
+  - `async operation()` (line 37) @asynccontextmanager
+  - `safe_log_error()` (line 41)
+- Methods:
+  - `LogContext.__init__()` (line 20)
+  - `LogContext.__enter__()` (line 24)
+  - `LogContext.__exit__()` (line 27)
+  - `PerformanceLogger.__init__()` (line 33)
+  - `async PerformanceLogger.operation()` (line 37) @asynccontextmanager
+
+### common/core/service_discovery/registry.py
+- Functions: 19
+- Methods: 19
+- Classes: 4
+- Lines: 305
+- Functions:
+  - `create()` (line 50) @classmethod
+  - `with_auth_token()` (line 60)
+  - `with_health_endpoint()` (line 65)
+  - `with_additional_port()` (line 70)
+  - `with_metadata()` (line 75)
+  - `generate_auth_token()` (line 81) @staticmethod
+  - `__init__()` (line 97)
+  - `_default_registry_path()` (line 110) @staticmethod
+  - `async register_service()` (line 115)
+  - `async deregister_service()` (line 138)
+  - `async discover_service()` (line 154)
+  - `async list_services()` (line 174)
+  - `async update_service_status()` (line 183)
+  - `async cleanup_stale_entries()` (line 199)
+  - `exists()` (line 217)
+  - `async _load_or_create_registry()` (line 221)
+  - `async _load_registry()` (line 226)
+  - `async _save_registry()` (line 260)
+  - `_is_process_running()` (line 298) @staticmethod
+- Methods:
+  - `ServiceInfo.create()` (line 50) @classmethod
+  - `ServiceInfo.with_auth_token()` (line 60)
+  - `ServiceInfo.with_health_endpoint()` (line 65)
+  - `ServiceInfo.with_additional_port()` (line 70)
+  - `ServiceInfo.with_metadata()` (line 75)
+  - `ServiceInfo.generate_auth_token()` (line 81) @staticmethod
+  - `ServiceRegistry.__init__()` (line 97)
+  - `ServiceRegistry._default_registry_path()` (line 110) @staticmethod
+  - `async ServiceRegistry.register_service()` (line 115)
+  - `async ServiceRegistry.deregister_service()` (line 138)
+  - `async ServiceRegistry.discover_service()` (line 154)
+  - `async ServiceRegistry.list_services()` (line 174)
+  - `async ServiceRegistry.update_service_status()` (line 183)
+  - `async ServiceRegistry.cleanup_stale_entries()` (line 199)
+  - `ServiceRegistry.exists()` (line 217)
+  - `async ServiceRegistry._load_or_create_registry()` (line 221)
+  - `async ServiceRegistry._load_registry()` (line 226)
+  - `async ServiceRegistry._save_registry()` (line 260)
+  - `ServiceRegistry._is_process_running()` (line 298) @staticmethod
+
+### common/core/service_discovery/health.py
+- Functions: 20
+- Methods: 19
+- Classes: 4
+- Lines: 302
+- Functions:
+  - `is_healthy()` (line 50)
+  - `is_reachable()` (line 54)
+  - `age_seconds()` (line 58)
+  - `__init__()` (line 80)
+  - `async start()` (line 90)
+  - `async stop()` (line 105)
+  - `async check_service_health()` (line 123)
+  - `async start_monitoring()` (line 208)
+  - `async stop_monitoring()` (line 219)
+  - `async get_service_health()` (line 231)
+  - `async get_all_health_status()` (line 235)
+  - `async is_service_healthy()` (line 239)
+  - `async get_failure_count()` (line 244)
+  - `async has_exceeded_max_failures()` (line 248)
+  - `async _monitor_service()` (line 252)
+  - `async _cache_health_result()` (line 269)
+  - `async _increment_failure_counter()` (line 273)
+  - `async _reset_failure_counter()` (line 283)
+  - `_is_process_running()` (line 290) @staticmethod
+  - `health_config_with_timeout()` (line 300)
+- Methods:
+  - `HealthCheckResult.is_healthy()` (line 50)
+  - `HealthCheckResult.is_reachable()` (line 54)
+  - `HealthCheckResult.age_seconds()` (line 58)
+  - `HealthChecker.__init__()` (line 80)
+  - `async HealthChecker.start()` (line 90)
+  - `async HealthChecker.stop()` (line 105)
+  - `async HealthChecker.check_service_health()` (line 123)
+  - `async HealthChecker.start_monitoring()` (line 208)
+  - `async HealthChecker.stop_monitoring()` (line 219)
+  - `async HealthChecker.get_service_health()` (line 231)
+  - `async HealthChecker.get_all_health_status()` (line 235)
+  - `async HealthChecker.is_service_healthy()` (line 239)
+  - `async HealthChecker.get_failure_count()` (line 244)
+  - `async HealthChecker.has_exceeded_max_failures()` (line 248)
+  - `async HealthChecker._monitor_service()` (line 252)
+  - `async HealthChecker._cache_health_result()` (line 269)
+  - `async HealthChecker._increment_failure_counter()` (line 273)
+  - `async HealthChecker._reset_failure_counter()` (line 283)
+  - `HealthChecker._is_process_running()` (line 290) @staticmethod
+
+### common/core/service_discovery/network.py
+- Functions: 20
+- Methods: 20
+- Classes: 4
+- Lines: 394
+- Functions:
+  - `to_json()` (line 45)
+  - `from_json()` (line 52) @classmethod
+  - `__init__()` (line 72)
+  - `async start()` (line 99)
+  - `async stop()` (line 131)
+  - `async announce_service()` (line 150)
+  - `async discover_services()` (line 165)
+  - `async send_health_ping()` (line 204)
+  - `async announce_shutdown()` (line 221)
+  - `get_cached_services()` (line 235)
+  - `subscribe_events()` (line 242)
+  - `unsubscribe_events()` (line 246)
+  - `async _send_message()` (line 251)
+  - `async _receive_loop()` (line 265)
+  - `_wait_for_data()` (line 288)
+  - `async _process_message()` (line 297)
+  - `_cache_discovered_service()` (line 353)
+  - `_remove_cached_service()` (line 357)
+  - `_broadcast_event()` (line 361)
+  - `async _cache_cleanup_loop()` (line 369)
+- Methods:
+  - `DiscoveryMessage.to_json()` (line 45)
+  - `DiscoveryMessage.from_json()` (line 52) @classmethod
+  - `NetworkDiscovery.__init__()` (line 72)
+  - `async NetworkDiscovery.start()` (line 99)
+  - `async NetworkDiscovery.stop()` (line 131)
+  - `async NetworkDiscovery.announce_service()` (line 150)
+  - `async NetworkDiscovery.discover_services()` (line 165)
+  - `async NetworkDiscovery.send_health_ping()` (line 204)
+  - `async NetworkDiscovery.announce_shutdown()` (line 221)
+  - `NetworkDiscovery.get_cached_services()` (line 235)
+  - `NetworkDiscovery.subscribe_events()` (line 242)
+  - `NetworkDiscovery.unsubscribe_events()` (line 246)
+  - `async NetworkDiscovery._send_message()` (line 251)
+  - `async NetworkDiscovery._receive_loop()` (line 265)
+  - `NetworkDiscovery._wait_for_data()` (line 288)
+  - `async NetworkDiscovery._process_message()` (line 297)
+  - `NetworkDiscovery._cache_discovered_service()` (line 353)
+  - `NetworkDiscovery._remove_cached_service()` (line 357)
+  - `NetworkDiscovery._broadcast_event()` (line 361)
+  - `async NetworkDiscovery._cache_cleanup_loop()` (line 369)
+
+### common/core/service_discovery/manager.py
+- Functions: 22
+- Methods: 21
+- Classes: 5
+- Lines: 505
+- Functions:
+  - `__init__()` (line 62)
+  - `async start()` (line 97)
+  - `async stop()` (line 116)
+  - `async register_service()` (line 138)
+  - `async deregister_service()` (line 168)
+  - `async discover_service()` (line 200)
+  - `async discover_all_services()` (line 228)
+  - `async get_known_services()` (line 255)
+  - `async check_service_health()` (line 262)
+  - `async start_health_monitoring()` (line 274)
+  - `subscribe_events()` (line 282)
+  - `unsubscribe_events()` (line 286)
+  - `async _try_registry_discovery()` (line 291)
+  - `async _try_network_discovery()` (line 326)
+  - `async _try_configuration_discovery()` (line 365)
+  - `async _try_default_discovery()` (line 384)
+  - `_update_known_service()` (line 431)
+  - `_setup_network_event_handling()` (line 435)
+  - `handle_network_event()` (line 438)
+  - `_start_periodic_cleanup()` (line 466)
+  - `async _cleanup_loop()` (line 471)
+  - `_broadcast_event()` (line 492)
+- Methods:
+  - `DiscoveryManager.__init__()` (line 62)
+  - `async DiscoveryManager.start()` (line 97)
+  - `async DiscoveryManager.stop()` (line 116)
+  - `async DiscoveryManager.register_service()` (line 138)
+  - `async DiscoveryManager.deregister_service()` (line 168)
+  - `async DiscoveryManager.discover_service()` (line 200)
+  - `async DiscoveryManager.discover_all_services()` (line 228)
+  - `async DiscoveryManager.get_known_services()` (line 255)
+  - `async DiscoveryManager.check_service_health()` (line 262)
+  - `async DiscoveryManager.start_health_monitoring()` (line 274)
+  - `DiscoveryManager.subscribe_events()` (line 282)
+  - `DiscoveryManager.unsubscribe_events()` (line 286)
+  - `async DiscoveryManager._try_registry_discovery()` (line 291)
+  - `async DiscoveryManager._try_network_discovery()` (line 326)
+  - `async DiscoveryManager._try_configuration_discovery()` (line 365)
+  - `async DiscoveryManager._try_default_discovery()` (line 384)
+  - `DiscoveryManager._update_known_service()` (line 431)
+  - `DiscoveryManager._setup_network_event_handling()` (line 435)
+  - `DiscoveryManager._start_periodic_cleanup()` (line 466)
+  - `async DiscoveryManager._cleanup_loop()` (line 471)
+  - `DiscoveryManager._broadcast_event()` (line 492)
+
+### wqm_cli/cli/ingest.py
+- Functions: 15
+- Methods: 0
+- Classes: 0
+- Lines: 852
+- Functions:
+  - `setup_logging()` (line 50)
+  - `ingest()` (line 70) @<ast.Call object at 0x10c9d7790>
+  - `formats()` (line 144) @<ast.Call object at 0x10c9d7350>
+  - `estimate()` (line 150) @<ast.Call object at 0x10ca87d10>
+  - `ingest_web()` (line 164) @<ast.Call object at 0x10c6dca10>
+  - `async _run_ingestion()` (line 237)
+  - `_display_estimation()` (line 373)
+  - `_create_progress_tracker()` (line 400)
+  - `_create_progress_callback()` (line 417)
+  - `update_progress()` (line 421)
+  - `_display_results()` (line 431)
+  - `async _show_formats()` (line 517)
+  - `async _estimate_processing()` (line 559)
+  - `async _run_web_ingestion()` (line 648)
+  - `main()` (line 846)
+
+### wqm_cli/cli/memory.py
+- Functions: 18
+- Methods: 0
+- Classes: 0
+- Lines: 644
+- Functions:
+  - `memory()` (line 46) @<ast.Call object at 0x10c7281d0>
+  - `list()` (line 64) @<ast.Call object at 0x10c8896d0>,<ast.Call object at 0x10c8d3750>,<ast.Call object at 0x10c8d08d0>,<ast.Call object at 0x10c8d0490>,<ast.Call object at 0x10c8d2150>
+  - `add()` (line 86) @<ast.Call object at 0x10cadf350>,<ast.Call object at 0x10cadeed0>,<ast.Call object at 0x10cadd490>,<ast.Call object at 0x10cadee10>,<ast.Call object at 0x10cadd090>,<ast.Call object at 0x10cadf950>
+  - `edit()` (line 99) @<ast.Call object at 0x10cade150>,<ast.Call object at 0x10cade750>
+  - `remove()` (line 107) @<ast.Call object at 0x10c7f8a10>,<ast.Call object at 0x10c7f9b10>,<ast.Call object at 0x10c7f9a90>
+  - `tokens()` (line 113) @<ast.Call object at 0x10c8ed450>
+  - `trim()` (line 123) @<ast.Call object at 0x10c739950>,<ast.Call object at 0x10c73bb10>,<ast.Call object at 0x10ca1bc10>
+  - `conflicts()` (line 132) @<ast.Call object at 0x10ca190d0>,<ast.Call object at 0x10ca193d0>
+  - `parse()` (line 139) @<ast.Call object at 0x10c8591d0>,<ast.Call object at 0x10c858790>
+  - `async _list_memory_rules()` (line 144)
+  - `async _add_memory_rule()` (line 227)
+  - `async _edit_memory_rule()` (line 308)
+  - `async _remove_memory_rule()` (line 377)
+  - `async _show_token_usage()` (line 418)
+  - `async _trim_memory()` (line 465)
+  - `async _detect_conflicts()` (line 509)
+  - `async _parse_conversational_update()` (line 566)
+  - `_generate_name_from_rule()` (line 614)
+
+### wqm_cli/cli/health.py
+- Functions: 16
+- Methods: 13
+- Classes: 5
+- Lines: 1168
+- Functions:
+  - `to_dict()` (line 136)
+  - `__init__()` (line 202)
+  - `async check_system_health()` (line 211)
+  - `_check_system_resources()` (line 267)
+  - `async _check_collection_health()` (line 310)
+  - `async _check_performance_metrics()` (line 385)
+  - `async _check_configuration_validity()` (line 447)
+  - `_generate_alerts()` (line 483)
+  - `_generate_recommendations()` (line 556)
+  - `_calculate_overall_health()` (line 638)
+  - `async run_continuous_monitoring()` (line 671)
+  - `_update_live_layout()` (line 705)
+  - `async close()` (line 838)
+  - `main()` (line 845) @<ast.Call object at 0x10c8d1a50>
+  - `async run_health_monitor()` (line 886)
+  - `display_health_report()` (line 963)
+- Methods:
+  - `HealthReport.to_dict()` (line 136)
+  - `HealthMonitor.__init__()` (line 202)
+  - `async HealthMonitor.check_system_health()` (line 211)
+  - `HealthMonitor._check_system_resources()` (line 267)
+  - `async HealthMonitor._check_collection_health()` (line 310)
+  - `async HealthMonitor._check_performance_metrics()` (line 385)
+  - `async HealthMonitor._check_configuration_validity()` (line 447)
+  - `HealthMonitor._generate_alerts()` (line 483)
+  - `HealthMonitor._generate_recommendations()` (line 556)
+  - `HealthMonitor._calculate_overall_health()` (line 638)
+  - `async HealthMonitor.run_continuous_monitoring()` (line 671)
+  - `HealthMonitor._update_live_layout()` (line 705)
+  - `async HealthMonitor.close()` (line 838)
+
+### wqm_cli/cli/diagnostics.py
+- Functions: 21
+- Methods: 19
+- Classes: 3
+- Lines: 1618
+- Functions:
+  - `__post_init__()` (line 93)
+  - `to_dict()` (line 112)
+  - `__init__()` (line 160)
+  - `async run_diagnostics()` (line 173)
+  - `_show_header()` (line 240)
+  - `_collect_system_info()` (line 264)
+  - `async _test_system_requirements()` (line 280)
+  - `async _test_configuration()` (line 389)
+  - `async _test_qdrant_connection()` (line 448)
+  - `get_collections_with_suppression()` (line 471)
+  - `async _test_embedding_service()` (line 568)
+  - `async _test_workspace_detection()` (line 671)
+  - `async _test_collection_operations()` (line 749)
+  - `async _test_search_functionality()` (line 900)
+  - `async _test_integration()` (line 1094)
+  - `async _run_performance_tests()` (line 1234)
+  - `_identify_config_source()` (line 1340)
+  - `_get_config_summary()` (line 1356)
+  - `_generate_recommendations()` (line 1369)
+  - `_display_report()` (line 1413)
+  - `main()` (line 1534) @<ast.Call object at 0x10cb48b10>
+- Methods:
+  - `ComponentStatus.__post_init__()` (line 93)
+  - `DiagnosticReport.to_dict()` (line 112)
+  - `DiagnosticTool.__init__()` (line 160)
+  - `async DiagnosticTool.run_diagnostics()` (line 173)
+  - `DiagnosticTool._show_header()` (line 240)
+  - `DiagnosticTool._collect_system_info()` (line 264)
+  - `async DiagnosticTool._test_system_requirements()` (line 280)
+  - `async DiagnosticTool._test_configuration()` (line 389)
+  - `async DiagnosticTool._test_qdrant_connection()` (line 448)
+  - `async DiagnosticTool._test_embedding_service()` (line 568)
+  - `async DiagnosticTool._test_workspace_detection()` (line 671)
+  - `async DiagnosticTool._test_collection_operations()` (line 749)
+  - `async DiagnosticTool._test_search_functionality()` (line 900)
+  - `async DiagnosticTool._test_integration()` (line 1094)
+  - `async DiagnosticTool._run_performance_tests()` (line 1234)
+  - `DiagnosticTool._identify_config_source()` (line 1340)
+  - `DiagnosticTool._get_config_summary()` (line 1356)
+  - `DiagnosticTool._generate_recommendations()` (line 1369)
+  - `DiagnosticTool._display_report()` (line 1413)
+
+### wqm_cli/cli/observability.py
+- Functions: 10
+- Methods: 0
+- Classes: 0
+- Lines: 572
+- Functions:
+  - `print_health_status()` (line 57)
+  - `print_metrics_summary()` (line 86)
+  - `health()` (line 151) @<ast.Call object at 0x10c7b31d0>
+  - `async check_health()` (line 162)
+  - `metrics()` (line 222) @<ast.Call object at 0x10c7c5d10>
+  - `diagnostics()` (line 303) @<ast.Call object at 0x10c9ff610>
+  - `async run_diagnostics()` (line 313)
+  - `monitor()` (line 424) @<ast.Call object at 0x10c97c750>
+  - `async continuous_monitor()` (line 437)
+  - `create_monitor_layout()` (line 452)
+
+### wqm_cli/cli/ingestion_engine.py
+- Functions: 12
+- Methods: 10
+- Classes: 3
+- Lines: 488
+- Functions:
+  - `files_per_second()` (line 64) @property
+  - `success_rate()` (line 71) @property
+  - `__init__()` (line 106)
+  - `async process_directory()` (line 148)
+  - `async check_collection()` (line 208)
+  - `async _find_files()` (line 261)
+  - `async _process_files_batch()` (line 324)
+  - `async _process_single_file()` (line 356)
+  - `async process_document()` (line 397)
+  - `_find_parser()` (line 435)
+  - `async get_supported_formats()` (line 442)
+  - `async estimate_processing_time()` (line 455)
+- Methods:
+  - `IngestionStats.files_per_second()` (line 64) @property
+  - `IngestionStats.success_rate()` (line 71) @property
+  - `DocumentIngestionEngine.__init__()` (line 106)
+  - `async DocumentIngestionEngine.process_directory()` (line 148)
+  - `async DocumentIngestionEngine._find_files()` (line 261)
+  - `async DocumentIngestionEngine._process_files_batch()` (line 324)
+  - `async DocumentIngestionEngine._process_single_file()` (line 356)
+  - `DocumentIngestionEngine._find_parser()` (line 435)
+  - `async DocumentIngestionEngine.get_supported_formats()` (line 442)
+  - `async DocumentIngestionEngine.estimate_processing_time()` (line 455)
+
+### wqm_cli/cli/formatting.py
+- Functions: 19
+- Methods: 0
+- Classes: 0
+- Lines: 286
+- Functions:
+  - `success_panel()` (line 20)
+  - `error_panel()` (line 36)
+  - `warning_panel()` (line 52)
+  - `info_panel()` (line 68)
+  - `simple_success()` (line 84)
+  - `simple_error()` (line 93)
+  - `simple_warning()` (line 102)
+  - `simple_info()` (line 111)
+  - `create_status_table()` (line 120)
+  - `create_data_table()` (line 135)
+  - `display_table_or_empty()` (line 151)
+  - `format_rule_summary()` (line 164)
+  - `format_status_text()` (line 177)
+  - `format_boolean_text()` (line 202)
+  - `truncate_text()` (line 216)
+  - `format_list_items()` (line 232)
+  - `print_section_header()` (line 245)
+  - `print_subsection_header()` (line 256)
+  - `display_operation_result()` (line 267)
+
+### wqm_cli/cli/watch_service.py
+- Functions: 16
+- Methods: 14
+- Classes: 1
+- Lines: 372
+- Functions:
+  - `__init__()` (line 34)
+  - `async initialize()` (line 51)
+  - `async add_watch()` (line 56)
+  - `async remove_watch()` (line 101)
+  - `async start_all_watches()` (line 105)
+  - `async stop_all_watches()` (line 110)
+  - `async pause_watch()` (line 115)
+  - `async resume_watch()` (line 119)
+  - `async list_watches()` (line 123)
+  - `async get_watch_status()` (line 131)
+  - `async sync_watched_folders()` (line 182)
+  - `get_recent_activity()` (line 228)
+  - `async _handle_file_ingestion()` (line 232)
+  - `_handle_watch_event()` (line 281)
+  - `create_status_table()` (line 296)
+  - `create_watches_table()` (line 334)
+- Methods:
+  - `WatchService.__init__()` (line 34)
+  - `async WatchService.initialize()` (line 51)
+  - `async WatchService.add_watch()` (line 56)
+  - `async WatchService.remove_watch()` (line 101)
+  - `async WatchService.start_all_watches()` (line 105)
+  - `async WatchService.stop_all_watches()` (line 110)
+  - `async WatchService.pause_watch()` (line 115)
+  - `async WatchService.resume_watch()` (line 119)
+  - `async WatchService.list_watches()` (line 123)
+  - `async WatchService.get_watch_status()` (line 131)
+  - `async WatchService.sync_watched_folders()` (line 182)
+  - `WatchService.get_recent_activity()` (line 228)
+  - `async WatchService._handle_file_ingestion()` (line 232)
+  - `WatchService._handle_watch_event()` (line 281)
+
+### wqm_cli/cli/setup.py
+- Functions: 29
+- Methods: 22
+- Classes: 2
+- Lines: 1157
+- Functions:
+  - `get_confirmation()` (line 61)
+  - `get_int_input()` (line 75)
+  - `get_input()` (line 90)
+  - `__init__()` (line 114)
+  - `__init__()` (line 144)
+  - `async run_interactive_setup()` (line 150)
+  - `_show_welcome()` (line 238)
+  - `async _check_requirements()` (line 251)
+  - `_check_python_version()` (line 278)
+  - `_check_packages()` (line 290)
+  - `_check_working_directory()` (line 305)
+  - `async _configure_qdrant()` (line 316)
+  - `async _test_qdrant_connection()` (line 372)
+  - `get_collections_with_suppression()` (line 395)
+  - `async _configure_embedding()` (line 418)
+  - `async _test_embedding_model()` (line 517)
+  - `async _configure_workspace()` (line 544)
+  - `async _test_configuration()` (line 608)
+  - `async _save_configuration()` (line 637)
+  - `_generate_env_content()` (line 673)
+  - `async _setup_claude_integration()` (line 739)
+  - `_show_manual_claude_config()` (line 822)
+  - `async _create_sample_documents()` (line 847)
+  - `async _ingest_sample_documents()` (line 956)
+  - `async ingest_operation()` (line 960)
+  - `async _verify_installation()` (line 1014)
+  - `async verify_operation()` (line 1018)
+  - `_show_completion_message()` (line 1051)
+  - `main()` (line 1116) @<ast.Call object at 0x10c9596d0>
+- Methods:
+  - `SetupResult.__init__()` (line 114)
+  - `SetupWizard.__init__()` (line 144)
+  - `async SetupWizard.run_interactive_setup()` (line 150)
+  - `SetupWizard._show_welcome()` (line 238)
+  - `async SetupWizard._check_requirements()` (line 251)
+  - `SetupWizard._check_python_version()` (line 278)
+  - `SetupWizard._check_packages()` (line 290)
+  - `SetupWizard._check_working_directory()` (line 305)
+  - `async SetupWizard._configure_qdrant()` (line 316)
+  - `async SetupWizard._test_qdrant_connection()` (line 372)
+  - `async SetupWizard._configure_embedding()` (line 418)
+  - `async SetupWizard._test_embedding_model()` (line 517)
+  - `async SetupWizard._configure_workspace()` (line 544)
+  - `async SetupWizard._test_configuration()` (line 608)
+  - `async SetupWizard._save_configuration()` (line 637)
+  - `SetupWizard._generate_env_content()` (line 673)
+  - `async SetupWizard._setup_claude_integration()` (line 739)
+  - `SetupWizard._show_manual_claude_config()` (line 822)
+  - `async SetupWizard._create_sample_documents()` (line 847)
+  - `async SetupWizard._ingest_sample_documents()` (line 956)
+  - `async SetupWizard._verify_installation()` (line 1014)
+  - `SetupWizard._show_completion_message()` (line 1051)
+
+### wqm_cli/cli/utils.py
+- Functions: 24
+- Methods: 1
+- Classes: 1
+- Lines: 474
+- Functions:
+  - `__init__()` (line 21)
+  - `handle_cli_error()` (line 27)
+  - `handle_async()` (line 52)
+  - `format_table()` (line 68)
+  - `confirm()` (line 114)
+  - `prompt_input()` (line 140)
+  - `validate_file_path()` (line 163)
+  - `validate_directory_path()` (line 192)
+  - `verbose_option()` (line 227)
+  - `debug_option()` (line 232)
+  - `json_output_option()` (line 239)
+  - `force_option()` (line 244)
+  - `dry_run_option()` (line 249)
+  - `config_path_option()` (line 256)
+  - `create_command_app()` (line 262)
+  - `success_message()` (line 285)
+  - `info_message()` (line 291)
+  - `warning_message()` (line 297)
+  - `show_service_restart_notification()` (line 303)
+  - `get_platform_service_commands()` (line 326)
+  - `show_service_restart_help()` (line 346)
+  - `error_message()` (line 366)
+  - `requires_service_restart()` (line 373)
+  - `get_configured_client()` (line 406)
+- Methods:
+  - `CLIError.__init__()` (line 21)
+
+### wqm_cli/cli/config_commands.py
+- Functions: 9
+- Methods: 0
+- Classes: 0
+- Lines: 387
+- Functions:
+  - `config_group()` (line 29) @<ast.Call object at 0x10c992d90>
+  - `info()` (line 39) @<ast.Call object at 0x10c8c7b50>,<ast.Call object at 0x10c8c7090>,<ast.Call object at 0x10c8c6410>
+  - `init()` (line 98) @<ast.Call object at 0x10c8cec90>,<ast.Call object at 0x10c8cfc90>,<ast.Call object at 0x10c8ccad0>,<ast.Call object at 0x10c8cce50>
+  - `validate()` (line 137) @<ast.Call object at 0x10c92c490>,<ast.Call object at 0x10c92e6d0>,<ast.Call object at 0x10cb34f90>
+  - `convert()` (line 175) @<ast.Call object at 0x10c8e9dd0>,<ast.Call object at 0x10c8e8510>,<ast.Call object at 0x10c8e8d50>,<ast.Call object at 0x10c8ead50>,<ast.Call object at 0x10c8d4fd0>
+  - `show()` (line 222) @<ast.Call object at 0x10c932590>,<ast.Call object at 0x10c931b90>,<ast.Call object at 0x10c933c90>,<ast.Call object at 0x10c933950>,<ast.Call object at 0x10c7f6550>
+  - `watch()` (line 272) @<ast.Call object at 0x10c93a310>,<ast.Call object at 0x10c939010>,<ast.Call object at 0x10c946d10>,<ast.Call object at 0x10c944190>
+  - `on_config_change()` (line 289)
+  - `env_vars()` (line 320) @<ast.Call object at 0x10c95fd10>,<ast.Call object at 0x10c95d610>,<ast.Call object at 0x10c95fbd0>
+
+### wqm_cli/cli/main.py
+- Functions: 3
+- Methods: 0
+- Classes: 0
+- Lines: 263
+- Functions:
+  - `main()` (line 136) @<ast.Call object at 0x10c89dd50>
+  - `show_version()` (line 215)
+  - `handle_async_command()` (line 240)
+
+### wqm_cli/cli/migration.py
+- Functions: 20
+- Methods: 0
+- Classes: 0
+- Lines: 712
+- Functions:
+  - `migration_cli()` (line 62) @<ast.Call object at 0x10c97d6d0>,<ast.Attribute object at 0x10c97e3d0>
+  - `analyze()` (line 74) @<ast.Call object at 0x10c8b3a50>,<ast.Call object at 0x10c8b39d0>,<ast.Call object at 0x10c8b2cd0>,<ast.Call object at 0x10c8a5a10>,<ast.Call object at 0x10ca863d0>,<ast.Attribute object at 0x10ca85350>
+  - `async _analyze()` (line 76)
+  - `plan()` (line 145) @<ast.Call object at 0x10c97be10>,<ast.Call object at 0x10c97b310>,<ast.Call object at 0x10c9785d0>,<ast.Call object at 0x10c978b10>,<ast.Call object at 0x10c978e90>,<ast.Call object at 0x10c979690>,<ast.Call object at 0x10c979910>,<ast.Attribute object at 0x10c97a390>
+  - `async _plan()` (line 147)
+  - `execute()` (line 214) @<ast.Call object at 0x10cab0ed0>,<ast.Call object at 0x10c745810>,<ast.Call object at 0x10cb7bf90>,<ast.Call object at 0x10cb7aa90>,<ast.Call object at 0x10cb79dd0>,<ast.Call object at 0x10cb7b850>,<ast.Attribute object at 0x10cb7b7d0>
+  - `async _execute()` (line 216)
+  - `status()` (line 282) @<ast.Call object at 0x10ca6a690>,<ast.Call object at 0x10ca6b790>,<ast.Call object at 0x10ca68190>,<ast.Call object at 0x10ca686d0>,<ast.Attribute object at 0x10ca22b50>
+  - `rollback()` (line 332) @<ast.Call object at 0x10c759a10>,<ast.Call object at 0x10c708f10>,<ast.Call object at 0x10c775810>,<ast.Attribute object at 0x10c859d90>
+  - `async _rollback()` (line 334)
+  - `list_backups()` (line 387) @<ast.Call object at 0x10c95edd0>,<ast.Call object at 0x10c95d010>,<ast.Call object at 0x10c95d810>,<ast.Attribute object at 0x10c95f210>
+  - `cleanup()` (line 450) @<ast.Call object at 0x10ca74a50>,<ast.Call object at 0x10ca75110>,<ast.Call object at 0x10c99ee50>,<ast.Call object at 0x10c99e750>,<ast.Call object at 0x10c99fe10>,<ast.Attribute object at 0x10c72bb50>
+  - `_collection_to_dict()` (line 509)
+  - `_dict_to_collection()` (line 527)
+  - `_migration_plan_to_dict()` (line 545)
+  - `_dict_to_migration_plan()` (line 566)
+  - `_display_collections_table()` (line 587)
+  - `_display_migration_plan()` (line 614)
+  - `_display_migration_result()` (line 659)
+  - `_display_migration_status()` (line 690)
+
+### wqm_cli/cli/enhanced_ingestion.py
+- Functions: 17
+- Methods: 16
+- Classes: 2
+- Lines: 510
+- Functions:
+  - `__init__()` (line 32)
+  - `update()` (line 41)
+  - `_is_complete()` (line 56)
+  - `_display_progress()` (line 60)
+  - `_create_progress_bar()` (line 87)
+  - `summary()` (line 93)
+  - `__init__()` (line 109)
+  - `async ingest_single_file()` (line 115)
+  - `async ingest_folder()` (line 186)
+  - `async process_file_with_semaphore()` (line 226)
+  - `async get_ingestion_status()` (line 279)
+  - `async _validate_file()` (line 306)
+  - `async _read_file_content()` (line 360)
+  - `async _find_files()` (line 378)
+  - `async _analyze_file()` (line 412)
+  - `async _analyze_folder()` (line 433)
+  - `_get_error_suggestions()` (line 469)
+- Methods:
+  - `IngestionProgress.__init__()` (line 32)
+  - `IngestionProgress.update()` (line 41)
+  - `IngestionProgress._is_complete()` (line 56)
+  - `IngestionProgress._display_progress()` (line 60)
+  - `IngestionProgress._create_progress_bar()` (line 87)
+  - `IngestionProgress.summary()` (line 93)
+  - `EnhancedIngestionEngine.__init__()` (line 109)
+  - `async EnhancedIngestionEngine.ingest_single_file()` (line 115)
+  - `async EnhancedIngestionEngine.ingest_folder()` (line 186)
+  - `async EnhancedIngestionEngine.get_ingestion_status()` (line 279)
+  - `async EnhancedIngestionEngine._validate_file()` (line 306)
+  - `async EnhancedIngestionEngine._read_file_content()` (line 360)
+  - `async EnhancedIngestionEngine._find_files()` (line 378)
+  - `async EnhancedIngestionEngine._analyze_file()` (line 412)
+  - `async EnhancedIngestionEngine._analyze_folder()` (line 433)
+  - `EnhancedIngestionEngine._get_error_suggestions()` (line 469)
+
+### wqm_cli/cli/status.py
+- Functions: 27
+- Methods: 1
+- Classes: 1
+- Lines: 1254
+- Functions:
+  - `__init__()` (line 92)
+  - `async get_processing_status()` (line 98)
+  - `async get_queue_stats()` (line 102)
+  - `async get_watch_folder_configs()` (line 106)
+  - `async get_database_stats()` (line 110)
+  - `format_timestamp()` (line 124)
+  - `format_file_size()` (line 133)
+  - `format_duration()` (line 149)
+  - `create_status_overview()` (line 159)
+  - `create_queue_breakdown()` (line 210)
+  - `create_recent_activity()` (line 248)
+  - `create_watch_status()` (line 297)
+  - `create_performance_metrics()` (line 340)
+  - `async get_comprehensive_status()` (line 397)
+  - `status_main()` (line 457) @<ast.Call object at 0x10c8b2290>
+  - `async show_status_overview()` (line 533)
+  - `create_processing_history_panel()` (line 670)
+  - `async export_status_data()` (line 758)
+  - `async live_status_monitor()` (line 858)
+  - `create_live_layout()` (line 863)
+  - `async live_streaming_status_monitor()` (line 945)
+  - `create_streaming_layout()` (line 953)
+  - `async update_processing_status()` (line 1052)
+  - `async update_system_metrics()` (line 1072)
+  - `async update_queue_status()` (line 1091)
+  - `create_streaming_processing_panel()` (line 1147)
+  - `create_streaming_metrics_panel()` (line 1199)
+- Methods:
+  - `WatchToolsManager.__init__()` (line 92)
+
+### wqm_cli/cli/parsers/pdf_parser.py
+- Functions: 9
+- Methods: 9
+- Classes: 2
+- Lines: 370
+- Functions:
+  - `supported_extensions()` (line 50) @property
+  - `format_name()` (line 55) @property
+  - `can_parse()` (line 59)
+  - `async parse()` (line 66)
+  - `async _extract_pdf_metadata()` (line 199)
+  - `_parse_pdf_date()` (line 245)
+  - `_clean_pdf_text()` (line 270)
+  - `_analyze_pdf_content()` (line 306)
+  - `get_parsing_options()` (line 347)
+- Methods:
+  - `PDFParser.supported_extensions()` (line 50) @property
+  - `PDFParser.format_name()` (line 55) @property
+  - `PDFParser.can_parse()` (line 59)
+  - `async PDFParser.parse()` (line 66)
+  - `async PDFParser._extract_pdf_metadata()` (line 199)
+  - `PDFParser._parse_pdf_date()` (line 245)
+  - `PDFParser._clean_pdf_text()` (line 270)
+  - `PDFParser._analyze_pdf_content()` (line 306)
+  - `PDFParser.get_parsing_options()` (line 347)
+
+### wqm_cli/cli/parsers/markdown_parser.py
+- Functions: 11
+- Methods: 11
+- Classes: 1
+- Lines: 452
+- Functions:
+  - `supported_extensions()` (line 53) @property
+  - `format_name()` (line 58) @property
+  - `async parse()` (line 62)
+  - `_extract_frontmatter()` (line 156)
+  - `_extract_simple_frontmatter()` (line 192)
+  - `async _parse_with_markdown_lib()` (line 205)
+  - `async _parse_with_regex()` (line 245)
+  - `_analyze_markdown_structure()` (line 267)
+  - `_convert_to_structured_text()` (line 307)
+  - `_strip_markdown()` (line 378)
+  - `get_parsing_options()` (line 424)
+- Methods:
+  - `MarkdownParser.supported_extensions()` (line 53) @property
+  - `MarkdownParser.format_name()` (line 58) @property
+  - `async MarkdownParser.parse()` (line 62)
+  - `MarkdownParser._extract_frontmatter()` (line 156)
+  - `MarkdownParser._extract_simple_frontmatter()` (line 192)
+  - `async MarkdownParser._parse_with_markdown_lib()` (line 205)
+  - `async MarkdownParser._parse_with_regex()` (line 245)
+  - `MarkdownParser._analyze_markdown_structure()` (line 267)
+  - `MarkdownParser._convert_to_structured_text()` (line 307)
+  - `MarkdownParser._strip_markdown()` (line 378)
+  - `MarkdownParser.get_parsing_options()` (line 424)
+
+### wqm_cli/cli/parsers/html_parser.py
+- Functions: 9
+- Methods: 9
+- Classes: 1
+- Lines: 531
+- Functions:
+  - `supported_extensions()` (line 44) @property
+  - `format_name()` (line 49) @property
+  - `_check_availability()` (line 53)
+  - `async parse()` (line 61)
+  - `async _read_html_file()` (line 156)
+  - `_detect_encoding()` (line 184)
+  - `async _extract_metadata()` (line 219)
+  - `async _extract_text_content()` (line 291)
+  - `get_parsing_options()` (line 483)
+- Methods:
+  - `HtmlParser.supported_extensions()` (line 44) @property
+  - `HtmlParser.format_name()` (line 49) @property
+  - `HtmlParser._check_availability()` (line 53)
+  - `async HtmlParser.parse()` (line 61)
+  - `async HtmlParser._read_html_file()` (line 156)
+  - `HtmlParser._detect_encoding()` (line 184)
+  - `async HtmlParser._extract_metadata()` (line 219)
+  - `async HtmlParser._extract_text_content()` (line 291)
+  - `HtmlParser.get_parsing_options()` (line 483)
+
+### wqm_cli/cli/parsers/docx_parser.py
+- Functions: 14
+- Methods: 14
+- Classes: 1
+- Lines: 390
+- Functions:
+  - `supported_extensions()` (line 40) @property
+  - `format_name()` (line 45) @property
+  - `_check_availability()` (line 49)
+  - `async parse()` (line 57)
+  - `async _extract_metadata()` (line 134)
+  - `async _extract_text_content()` (line 198)
+  - `async _extract_main_content()` (line 226)
+  - `async _extract_paragraph_text()` (line 254)
+  - `async _extract_table_text()` (line 279)
+  - `async _format_table_markdown()` (line 307)
+  - `async _format_table_csv()` (line 330)
+  - `async _format_table_plain()` (line 341)
+  - `async _extract_headers_footers()` (line 348)
+  - `get_parsing_options()` (line 367)
+- Methods:
+  - `DocxParser.supported_extensions()` (line 40) @property
+  - `DocxParser.format_name()` (line 45) @property
+  - `DocxParser._check_availability()` (line 49)
+  - `async DocxParser.parse()` (line 57)
+  - `async DocxParser._extract_metadata()` (line 134)
+  - `async DocxParser._extract_text_content()` (line 198)
+  - `async DocxParser._extract_main_content()` (line 226)
+  - `async DocxParser._extract_paragraph_text()` (line 254)
+  - `async DocxParser._extract_table_text()` (line 279)
+  - `async DocxParser._format_table_markdown()` (line 307)
+  - `async DocxParser._format_table_csv()` (line 330)
+  - `async DocxParser._format_table_plain()` (line 341)
+  - `async DocxParser._extract_headers_footers()` (line 348)
+  - `DocxParser.get_parsing_options()` (line 367)
+
+### wqm_cli/cli/parsers/pptx_parser.py
+- Functions: 18
+- Methods: 18
+- Classes: 1
+- Lines: 531
+- Functions:
+  - `supported_extensions()` (line 43) @property
+  - `format_name()` (line 48) @property
+  - `_check_availability()` (line 52)
+  - `async parse()` (line 60)
+  - `async _extract_metadata()` (line 158)
+  - `async _extract_text_content()` (line 217)
+  - `_is_slide_hidden()` (line 260)
+  - `async _extract_slide_content()` (line 271)
+  - `async _extract_text_frame_content()` (line 314)
+  - `async _extract_table_content()` (line 340)
+  - `async _extract_chart_content()` (line 366)
+  - `async _extract_group_content()` (line 395)
+  - `async _extract_speaker_notes()` (line 418)
+  - `async _has_images()` (line 437)
+  - `async _has_tables()` (line 453)
+  - `async _has_charts()` (line 468)
+  - `async _has_speaker_notes()` (line 483)
+  - `get_parsing_options()` (line 498)
+- Methods:
+  - `PptxParser.supported_extensions()` (line 43) @property
+  - `PptxParser.format_name()` (line 48) @property
+  - `PptxParser._check_availability()` (line 52)
+  - `async PptxParser.parse()` (line 60)
+  - `async PptxParser._extract_metadata()` (line 158)
+  - `async PptxParser._extract_text_content()` (line 217)
+  - `PptxParser._is_slide_hidden()` (line 260)
+  - `async PptxParser._extract_slide_content()` (line 271)
+  - `async PptxParser._extract_text_frame_content()` (line 314)
+  - `async PptxParser._extract_table_content()` (line 340)
+  - `async PptxParser._extract_chart_content()` (line 366)
+  - `async PptxParser._extract_group_content()` (line 395)
+  - `async PptxParser._extract_speaker_notes()` (line 418)
+  - `async PptxParser._has_images()` (line 437)
+  - `async PptxParser._has_tables()` (line 453)
+  - `async PptxParser._has_charts()` (line 468)
+  - `async PptxParser._has_speaker_notes()` (line 483)
+  - `PptxParser.get_parsing_options()` (line 498)
+
+### wqm_cli/cli/parsers/exceptions.py
+- Functions: 22
+- Methods: 19
+- Classes: 12
+- Lines: 554
+- Functions:
+  - `__init__()` (line 50)
+  - `_generate_error_code()` (line 84)
+  - `to_dict()` (line 90)
+  - `log_error()` (line 106)
+  - `__init__()` (line 124)
+  - `__init__()` (line 143)
+  - `__init__()` (line 181)
+  - `__init__()` (line 209)
+  - `__init__()` (line 243)
+  - `__init__()` (line 278)
+  - `__init__()` (line 306)
+  - `__init__()` (line 335)
+  - `__init__()` (line 358)
+  - `handle_error()` (line 369)
+  - `_classify_error()` (line 403)
+  - `_track_error()` (line 480)
+  - `_attempt_recovery()` (line 485)
+  - `get_error_statistics()` (line 507)
+  - `reset_statistics()` (line 516)
+  - `handle_parsing_error()` (line 526)
+  - `get_error_statistics()` (line 547)
+  - `reset_error_statistics()` (line 552)
+- Methods:
+  - `ParsingError.__init__()` (line 50)
+  - `ParsingError._generate_error_code()` (line 84)
+  - `ParsingError.to_dict()` (line 90)
+  - `ParsingError.log_error()` (line 106)
+  - `FileAccessError.__init__()` (line 124)
+  - `FileFormatError.__init__()` (line 143)
+  - `FileCorruptionError.__init__()` (line 181)
+  - `EncodingError.__init__()` (line 209)
+  - `MemoryError.__init__()` (line 243)
+  - `ValidationError.__init__()` (line 278)
+  - `ParsingTimeout.__init__()` (line 306)
+  - `SystemError.__init__()` (line 335)
+  - `ErrorHandler.__init__()` (line 358)
+  - `ErrorHandler.handle_error()` (line 369)
+  - `ErrorHandler._classify_error()` (line 403)
+  - `ErrorHandler._track_error()` (line 480)
+  - `ErrorHandler._attempt_recovery()` (line 485)
+  - `ErrorHandler.get_error_statistics()` (line 507)
+  - `ErrorHandler.reset_statistics()` (line 516)
+
+### wqm_cli/cli/parsers/file_detector.py
+- Functions: 14
+- Methods: 10
+- Classes: 3
+- Lines: 430
+- Functions:
+  - `__init__()` (line 127)
+  - `detect_file_type()` (line 141)
+  - `_detect_mime_type()` (line 182)
+  - `_check_magic_numbers()` (line 223)
+  - `_detect_zip_based_format()` (line 251)
+  - `_is_text_file()` (line 293)
+  - `_get_parser_type()` (line 323)
+  - `get_supported_extensions()` (line 358)
+  - `get_supported_mime_types()` (line 367)
+  - `is_supported_file()` (line 376)
+  - `detect_file_type()` (line 397)
+  - `is_supported_file()` (line 410)
+  - `get_supported_extensions()` (line 423)
+  - `get_supported_mime_types()` (line 428)
+- Methods:
+  - `FileDetector.__init__()` (line 127)
+  - `FileDetector.detect_file_type()` (line 141)
+  - `FileDetector._detect_mime_type()` (line 182)
+  - `FileDetector._check_magic_numbers()` (line 223)
+  - `FileDetector._detect_zip_based_format()` (line 251)
+  - `FileDetector._is_text_file()` (line 293)
+  - `FileDetector._get_parser_type()` (line 323)
+  - `FileDetector.get_supported_extensions()` (line 358)
+  - `FileDetector.get_supported_mime_types()` (line 367)
+  - `FileDetector.is_supported_file()` (line 376)
+
+### wqm_cli/cli/parsers/code_parser.py
+- Functions: 15
+- Methods: 15
+- Classes: 1
+- Lines: 526
+- Functions:
+  - `supported_extensions()` (line 131) @property
+  - `format_name()` (line 136) @property
+  - `_check_availability()` (line 140)
+  - `async parse()` (line 145)
+  - `async _detect_language()` (line 255)
+  - `async _extract_metadata()` (line 288)
+  - `async _count_comment_lines()` (line 319)
+  - `async _extract_structure_metadata()` (line 352)
+  - `async _extract_python_structure()` (line 367)
+  - `async _extract_js_structure()` (line 387)
+  - `async _extract_java_structure()` (line 421)
+  - `async _extract_code_structure()` (line 448)
+  - `async _extract_comments()` (line 474)
+  - `async _add_syntax_info()` (line 484)
+  - `get_parsing_options()` (line 498)
+- Methods:
+  - `CodeParser.supported_extensions()` (line 131) @property
+  - `CodeParser.format_name()` (line 136) @property
+  - `CodeParser._check_availability()` (line 140)
+  - `async CodeParser.parse()` (line 145)
+  - `async CodeParser._detect_language()` (line 255)
+  - `async CodeParser._extract_metadata()` (line 288)
+  - `async CodeParser._count_comment_lines()` (line 319)
+  - `async CodeParser._extract_structure_metadata()` (line 352)
+  - `async CodeParser._extract_python_structure()` (line 367)
+  - `async CodeParser._extract_js_structure()` (line 387)
+  - `async CodeParser._extract_java_structure()` (line 421)
+  - `async CodeParser._extract_code_structure()` (line 448)
+  - `async CodeParser._extract_comments()` (line 474)
+  - `async CodeParser._add_syntax_info()` (line 484)
+  - `CodeParser.get_parsing_options()` (line 498)
+
+### wqm_cli/cli/parsers/progress.py
+- Functions: 40
+- Methods: 37
+- Classes: 8
+- Lines: 663
+- Functions:
+  - `progress_percent()` (line 84) @property
+  - `is_complete()` (line 91) @property
+  - `update_timing()` (line 95)
+  - `update_memory()` (line 110)
+  - `to_dict()` (line 120)
+  - `on_progress_update()` (line 146) @abstractmethod
+  - `on_phase_change()` (line 151) @abstractmethod
+  - `on_error()` (line 158) @abstractmethod
+  - `__init__()` (line 166)
+  - `on_progress_update()` (line 177)
+  - `on_phase_change()` (line 202)
+  - `on_error()` (line 208)
+  - `_create_progress_bar()` (line 212)
+  - `_format_time()` (line 218)
+  - `__init__()` (line 233)
+  - `on_progress_update()` (line 249)
+  - `on_phase_change()` (line 260)
+  - `on_error()` (line 266)
+  - `__init__()` (line 279)
+  - `__enter__()` (line 311)
+  - `__exit__()` (line 315)
+  - `update()` (line 329)
+  - `increment()` (line 357)
+  - `set_phase()` (line 367)
+  - `set_file_info()` (line 385)
+  - `add_warning()` (line 399)
+  - `add_error()` (line 404)
+  - `get_metrics()` (line 416)
+  - `stop()` (line 421)
+  - `_start_memory_monitoring()` (line 427)
+  - `monitor_memory()` (line 430)
+  - `_notify_callbacks()` (line 442)
+  - `__init__()` (line 454)
+  - `start_file()` (line 484)
+  - `complete_current_file()` (line 523)
+  - `get_batch_summary()` (line 562)
+  - `__enter__()` (line 578)
+  - `__exit__()` (line 583)
+  - `create_progress_tracker()` (line 599)
+  - `create_batch_progress_tracker()` (line 635)
+- Methods:
+  - `ProgressMetrics.progress_percent()` (line 84) @property
+  - `ProgressMetrics.is_complete()` (line 91) @property
+  - `ProgressMetrics.update_timing()` (line 95)
+  - `ProgressMetrics.update_memory()` (line 110)
+  - `ProgressMetrics.to_dict()` (line 120)
+  - `ProgressCallback.on_progress_update()` (line 146) @abstractmethod
+  - `ProgressCallback.on_phase_change()` (line 151) @abstractmethod
+  - `ProgressCallback.on_error()` (line 158) @abstractmethod
+  - `ConsoleProgressCallback.__init__()` (line 166)
+  - `ConsoleProgressCallback.on_progress_update()` (line 177)
+  - `ConsoleProgressCallback.on_phase_change()` (line 202)
+  - `ConsoleProgressCallback.on_error()` (line 208)
+  - `ConsoleProgressCallback._create_progress_bar()` (line 212)
+  - `ConsoleProgressCallback._format_time()` (line 218)
+  - `LoggingProgressCallback.__init__()` (line 233)
+  - `LoggingProgressCallback.on_progress_update()` (line 249)
+  - `LoggingProgressCallback.on_phase_change()` (line 260)
+  - `LoggingProgressCallback.on_error()` (line 266)
+  - `ProgressTracker.__init__()` (line 279)
+  - `ProgressTracker.__enter__()` (line 311)
+  - `ProgressTracker.__exit__()` (line 315)
+  - `ProgressTracker.update()` (line 329)
+  - `ProgressTracker.increment()` (line 357)
+  - `ProgressTracker.set_phase()` (line 367)
+  - `ProgressTracker.set_file_info()` (line 385)
+  - `ProgressTracker.add_warning()` (line 399)
+  - `ProgressTracker.add_error()` (line 404)
+  - `ProgressTracker.get_metrics()` (line 416)
+  - `ProgressTracker.stop()` (line 421)
+  - `ProgressTracker._start_memory_monitoring()` (line 427)
+  - `ProgressTracker._notify_callbacks()` (line 442)
+  - `BatchProgressTracker.__init__()` (line 454)
+  - `BatchProgressTracker.start_file()` (line 484)
+  - `BatchProgressTracker.complete_current_file()` (line 523)
+  - `BatchProgressTracker.get_batch_summary()` (line 562)
+  - `BatchProgressTracker.__enter__()` (line 578)
+  - `BatchProgressTracker.__exit__()` (line 583)
+
+### wqm_cli/cli/parsers/text_parser.py
+- Functions: 9
+- Methods: 9
+- Classes: 1
+- Lines: 409
+- Functions:
+  - `supported_extensions()` (line 41) @property
+  - `format_name()` (line 70) @property
+  - `async parse()` (line 74)
+  - `async _detect_encoding()` (line 206)
+  - `async _read_with_encoding()` (line 240)
+  - `_clean_content()` (line 291)
+  - `_analyze_text()` (line 335)
+  - `_detect_language()` (line 368)
+  - `get_parsing_options()` (line 386)
+- Methods:
+  - `TextParser.supported_extensions()` (line 41) @property
+  - `TextParser.format_name()` (line 70) @property
+  - `async TextParser.parse()` (line 74)
+  - `async TextParser._detect_encoding()` (line 206)
+  - `async TextParser._read_with_encoding()` (line 240)
+  - `TextParser._clean_content()` (line 291)
+  - `TextParser._analyze_text()` (line 335)
+  - `TextParser._detect_language()` (line 368)
+  - `TextParser.get_parsing_options()` (line 386)
+
+### wqm_cli/cli/parsers/epub_parser.py
+- Functions: 7
+- Methods: 7
+- Classes: 1
+- Lines: 272
+- Functions:
+  - `supported_extensions()` (line 39) @property
+  - `format_name()` (line 44) @property
+  - `_check_availability()` (line 48)
+  - `async parse()` (line 56)
+  - `async _extract_metadata()` (line 125)
+  - `async _extract_text_content()` (line 180)
+  - `get_parsing_options()` (line 254)
+- Methods:
+  - `EpubParser.supported_extensions()` (line 39) @property
+  - `EpubParser.format_name()` (line 44) @property
+  - `EpubParser._check_availability()` (line 48)
+  - `async EpubParser.parse()` (line 56)
+  - `async EpubParser._extract_metadata()` (line 125)
+  - `async EpubParser._extract_text_content()` (line 180)
+  - `EpubParser.get_parsing_options()` (line 254)
+
+### wqm_cli/cli/parsers/base.py
+- Functions: 8
+- Methods: 8
+- Classes: 2
+- Lines: 279
+- Functions:
+  - `create()` (line 59) @classmethod
+  - `supported_extensions()` (line 140) @property,abstractmethod
+  - `format_name()` (line 151) @property,abstractmethod
+  - `can_parse()` (line 160)
+  - `_matches_parser_type()` (line 186)
+  - `async parse()` (line 216) @abstractmethod
+  - `get_parsing_options()` (line 238)
+  - `validate_file()` (line 254)
+- Methods:
+  - `ParsedDocument.create()` (line 59) @classmethod
+  - `DocumentParser.supported_extensions()` (line 140) @property,abstractmethod
+  - `DocumentParser.format_name()` (line 151) @property,abstractmethod
+  - `DocumentParser.can_parse()` (line 160)
+  - `DocumentParser._matches_parser_type()` (line 186)
+  - `async DocumentParser.parse()` (line 216) @abstractmethod
+  - `DocumentParser.get_parsing_options()` (line 238)
+  - `DocumentParser.validate_file()` (line 254)
+
+### wqm_cli/cli/parsers/web_parser.py
+- Functions: 13
+- Methods: 12
+- Classes: 2
+- Lines: 386
+- Functions:
+  - `__init__()` (line 32)
+  - `supported_extensions()` (line 38) @property
+  - `format_name()` (line 43) @property
+  - `can_parse()` (line 47)
+  - `async parse()` (line 56)
+  - `_create_config_from_options()` (line 116)
+  - `async _process_crawl_results()` (line 148)
+  - `get_parsing_options()` (line 249)
+  - `__init__()` (line 308)
+  - `async ingest_url()` (line 311)
+  - `async ingest_site()` (line 323)
+  - `async ingest_with_allowlist()` (line 341)
+  - `create_secure_web_parser()` (line 357)
+- Methods:
+  - `WebParser.__init__()` (line 32)
+  - `WebParser.supported_extensions()` (line 38) @property
+  - `WebParser.format_name()` (line 43) @property
+  - `WebParser.can_parse()` (line 47)
+  - `async WebParser.parse()` (line 56)
+  - `WebParser._create_config_from_options()` (line 116)
+  - `async WebParser._process_crawl_results()` (line 148)
+  - `WebParser.get_parsing_options()` (line 249)
+  - `WebIngestionInterface.__init__()` (line 308)
+  - `async WebIngestionInterface.ingest_url()` (line 311)
+  - `async WebIngestionInterface.ingest_site()` (line 323)
+  - `async WebIngestionInterface.ingest_with_allowlist()` (line 341)
+
+### wqm_cli/cli/parsers/web_crawler.py
+- Functions: 22
+- Methods: 21
+- Classes: 4
+- Lines: 702
+- Functions:
+  - `__init__()` (line 55)
+  - `__init__()` (line 97)
+  - `__init__()` (line 114)
+  - `async scan_content()` (line 139)
+  - `_is_safe_content_type()` (line 183)
+  - `async scan_url()` (line 196)
+  - `__init__()` (line 225)
+  - `async __aenter__()` (line 251)
+  - `async __aexit__()` (line 255)
+  - `async _ensure_session()` (line 258)
+  - `async close()` (line 273)
+  - `async crawl_url()` (line 279)
+  - `async crawl_recursive()` (line 329)
+  - `async _validate_url()` (line 387)
+  - `async _check_robots_txt()` (line 452)
+  - `async _respect_rate_limit()` (line 480)
+  - `async _fetch_content()` (line 500)
+  - `async _scan_content_security()` (line 562)
+  - `async _quarantine_content()` (line 581)
+  - `async _process_content()` (line 613)
+  - `async _extract_links()` (line 650)
+  - `create_security_config()` (line 676)
+- Methods:
+  - `SecurityConfig.__init__()` (line 55)
+  - `CrawlResult.__init__()` (line 97)
+  - `SecurityScanner.__init__()` (line 114)
+  - `async SecurityScanner.scan_content()` (line 139)
+  - `SecurityScanner._is_safe_content_type()` (line 183)
+  - `async SecurityScanner.scan_url()` (line 196)
+  - `SecureWebCrawler.__init__()` (line 225)
+  - `async SecureWebCrawler.__aenter__()` (line 251)
+  - `async SecureWebCrawler.__aexit__()` (line 255)
+  - `async SecureWebCrawler._ensure_session()` (line 258)
+  - `async SecureWebCrawler.close()` (line 273)
+  - `async SecureWebCrawler.crawl_url()` (line 279)
+  - `async SecureWebCrawler.crawl_recursive()` (line 329)
+  - `async SecureWebCrawler._validate_url()` (line 387)
+  - `async SecureWebCrawler._check_robots_txt()` (line 452)
+  - `async SecureWebCrawler._respect_rate_limit()` (line 480)
+  - `async SecureWebCrawler._fetch_content()` (line 500)
+  - `async SecureWebCrawler._scan_content_security()` (line 562)
+  - `async SecureWebCrawler._quarantine_content()` (line 581)
+  - `async SecureWebCrawler._process_content()` (line 613)
+  - `async SecureWebCrawler._extract_links()` (line 650)
+
+### wqm_cli/cli/parsers/mobi_parser.py
+- Functions: 7
+- Methods: 7
+- Classes: 1
+- Lines: 236
+- Functions:
+  - `supported_extensions()` (line 34) @property
+  - `format_name()` (line 39) @property
+  - `async parse()` (line 43)
+  - `async _extract_mobi_content()` (line 100)
+  - `async _extract_text_content()` (line 169)
+  - `_extract_readable_text()` (line 190)
+  - `get_parsing_options()` (line 223)
+- Methods:
+  - `MobiParser.supported_extensions()` (line 34) @property
+  - `MobiParser.format_name()` (line 39) @property
+  - `async MobiParser.parse()` (line 43)
+  - `async MobiParser._extract_mobi_content()` (line 100)
+  - `async MobiParser._extract_text_content()` (line 169)
+  - `MobiParser._extract_readable_text()` (line 190)
+  - `MobiParser.get_parsing_options()` (line 223)
+
+### wqm_cli/cli/commands/service.py
+- Functions: 40
+- Methods: 26
+- Classes: 1
+- Lines: 1335
+- Functions:
+  - `__init__()` (line 52)
+  - `validate_binary()` (line 61)
+  - `get_config_path()` (line 77)
+  - `get_log_path()` (line 91)
+  - `get_pid_path()` (line 97)
+  - `async install_service()` (line 103)
+  - `async _install_macos_service()` (line 119)
+  - `async _install_linux_service()` (line 266)
+  - `async uninstall_service()` (line 327)
+  - `async _uninstall_macos_service()` (line 341)
+  - `async _bootout_service()` (line 392)
+  - `async _force_stop_service()` (line 427)
+  - `async _uninstall_linux_service()` (line 472)
+  - `async start_service()` (line 503)
+  - `async _start_macos_service()` (line 516)
+  - `async _start_linux_service()` (line 612)
+  - `async stop_service()` (line 644)
+  - `async _stop_macos_service()` (line 657)
+  - `async _stop_linux_service()` (line 808)
+  - `async restart_service()` (line 829)
+  - `async get_service_status()` (line 838)
+  - `async _get_macos_service_status()` (line 851)
+  - `async _get_linux_service_status()` (line 967)
+  - `async get_service_logs()` (line 998)
+  - `async _get_macos_service_logs()` (line 1011)
+  - `async _get_linux_service_logs()` (line 1039)
+  - `install_service()` (line 1077) @<ast.Call object at 0x10caf5310>
+  - `async _install()` (line 1084)
+  - `uninstall_service()` (line 1118) @<ast.Call object at 0x10cb18190>
+  - `async _uninstall()` (line 1121)
+  - `start_service()` (line 1148) @<ast.Call object at 0x10cb1b8d0>
+  - `async _start()` (line 1151)
+  - `stop_service()` (line 1183) @<ast.Call object at 0x10cb2a750>
+  - `async _stop()` (line 1186)
+  - `restart_service()` (line 1213) @<ast.Call object at 0x10cb2d5d0>
+  - `async _restart()` (line 1216)
+  - `get_status()` (line 1243) @<ast.Call object at 0x10cb92190>
+  - `async _status()` (line 1248)
+  - `get_logs()` (line 1303) @<ast.Call object at 0x10cb9e3d0>
+  - `async _logs()` (line 1308)
+- Methods:
+  - `MemexdServiceManager.__init__()` (line 52)
+  - `MemexdServiceManager.validate_binary()` (line 61)
+  - `MemexdServiceManager.get_config_path()` (line 77)
+  - `MemexdServiceManager.get_log_path()` (line 91)
+  - `MemexdServiceManager.get_pid_path()` (line 97)
+  - `async MemexdServiceManager.install_service()` (line 103)
+  - `async MemexdServiceManager._install_macos_service()` (line 119)
+  - `async MemexdServiceManager._install_linux_service()` (line 266)
+  - `async MemexdServiceManager.uninstall_service()` (line 327)
+  - `async MemexdServiceManager._uninstall_macos_service()` (line 341)
+  - `async MemexdServiceManager._bootout_service()` (line 392)
+  - `async MemexdServiceManager._force_stop_service()` (line 427)
+  - `async MemexdServiceManager._uninstall_linux_service()` (line 472)
+  - `async MemexdServiceManager.start_service()` (line 503)
+  - `async MemexdServiceManager._start_macos_service()` (line 516)
+  - `async MemexdServiceManager._start_linux_service()` (line 612)
+  - `async MemexdServiceManager.stop_service()` (line 644)
+  - `async MemexdServiceManager._stop_macos_service()` (line 657)
+  - `async MemexdServiceManager._stop_linux_service()` (line 808)
+  - `async MemexdServiceManager.restart_service()` (line 829)
+  - `async MemexdServiceManager.get_service_status()` (line 838)
+  - `async MemexdServiceManager._get_macos_service_status()` (line 851)
+  - `async MemexdServiceManager._get_linux_service_status()` (line 967)
+  - `async MemexdServiceManager.get_service_logs()` (line 998)
+  - `async MemexdServiceManager._get_macos_service_logs()` (line 1011)
+  - `async MemexdServiceManager._get_linux_service_logs()` (line 1039)
+
+### wqm_cli/cli/commands/ingest.py
+- Functions: 20
+- Methods: 0
+- Classes: 0
+- Lines: 845
+- Functions:
+  - `ingest_file()` (line 40) @<ast.Call object at 0x10cb9c550>
+  - `ingest_folder()` (line 61) @<ast.Call object at 0x10ca9fa10>
+  - `ingest_yaml_metadata()` (line 105) @<ast.Call object at 0x10ca9d5d0>
+  - `generate_yaml_metadata()` (line 115) @<ast.Call object at 0x10cb0cb50>
+  - `ingest_web_pages()` (line 135) @<ast.Call object at 0x10c8ea410>
+  - `ingestion_status()` (line 173) @<ast.Call object at 0x10cb92ad0>
+  - `validate_files()` (line 184) @<ast.Call object at 0x10cb91bd0>
+  - `smart_ingest()` (line 199) @<ast.Call object at 0x10cb2f550>
+  - `async _ingest_file()` (line 218)
+  - `async ingest_operation()` (line 237)
+  - `async _ingest_folder()` (line 313)
+  - `async folder_operation()` (line 336)
+  - `async _generate_yaml_metadata()` (line 399)
+  - `async _ingest_yaml_metadata()` (line 475)
+  - `async _ingest_web_pages()` (line 552)
+  - `async _ingestion_status()` (line 584)
+  - `async status_operation()` (line 586)
+  - `async _validate_files()` (line 666)
+  - `async _smart_ingest()` (line 766)
+  - `_display_ingestion_result()` (line 827)
+
+### wqm_cli/cli/commands/web.py
+- Functions: 7
+- Methods: 0
+- Classes: 0
+- Lines: 248
+- Functions:
+  - `get_web_ui_path()` (line 48)
+  - `ensure_dependencies()` (line 63)
+  - `start()` (line 91) @<ast.Call object at 0x10c9744d0>
+  - `dev()` (line 133) @<ast.Call object at 0x10cb90b90>
+  - `build()` (line 161) @<ast.Call object at 0x10c8e9e90>
+  - `install()` (line 196) @<ast.Call object at 0x10cb0fa50>
+  - `status()` (line 218) @<ast.Call object at 0x10cb9d2d0>
+
+### wqm_cli/cli/commands/config.py
+- Functions: 23
+- Methods: 0
+- Classes: 0
+- Lines: 1033
+- Functions:
+  - `show_config()` (line 62) @<ast.Call object at 0x10ca952d0>
+  - `get_config_value()` (line 96) @<ast.Call object at 0x10cb38a90>
+  - `set_config_value()` (line 130) @<ast.Call object at 0x10c9fe1d0>
+  - `edit_config()` (line 182) @<ast.Call object at 0x10c8ccad0>
+  - `validate_config()` (line 253) @<ast.Call object at 0x10ca74c50>
+  - `config_info()` (line 333) @<ast.Call object at 0x10c726d90>
+  - `convert_config()` (line 395) @<ast.Call object at 0x10c7d34d0>
+  - `init_unified_config()` (line 450) @<ast.Call object at 0x10caddb90>
+  - `watch_config()` (line 507) @<ast.Call object at 0x10ca7fd10>
+  - `on_config_change()` (line 539)
+  - `show_env_vars()` (line 571) @<ast.Call object at 0x10cb62790>
+  - `_show_config_table()` (line 647)
+  - `add_rows()` (line 654)
+  - `_convert_value_type()` (line 669)
+  - `_set_nested_value()` (line 692)
+  - `_show_validation_results()` (line 708)
+  - `ingestion_command()` (line 733) @<ast.Call object at 0x10cb0e850>
+  - `show_ingestion_config()` (line 747) @<ast.Call object at 0x10cb928d0>
+  - `edit_ingestion_config()` (line 782) @<ast.Call object at 0x10ca87490>
+  - `validate_ingestion_config()` (line 836) @<ast.Call object at 0x10ca78350>
+  - `reset_ingestion_config()` (line 886) @<ast.Call object at 0x10cb31fd0>
+  - `show_ingestion_info()` (line 932) @<ast.Call object at 0x10cacc0d0>
+  - `_show_ingestion_config_table()` (line 980)
+
+### wqm_cli/cli/commands/library.py
+- Functions: 20
+- Methods: 0
+- Classes: 0
+- Lines: 536
+- Functions:
+  - `list_libraries()` (line 50) @<ast.Call object at 0x10cadf790>
+  - `create_library()` (line 62) @<ast.Call object at 0x10cadd710>
+  - `remove_library()` (line 78) @<ast.Call object at 0x10c8a2ad0>
+  - `library_status()` (line 90) @<ast.Call object at 0x10c8a3a90>
+  - `library_info()` (line 102) @<ast.Call object at 0x10c8c6ad0>
+  - `rename_library()` (line 112) @<ast.Call object at 0x10c8c7450>
+  - `copy_library()` (line 122) @<ast.Call object at 0x10ca6a9d0>
+  - `async _list_libraries()` (line 134)
+  - `async _operation()` (line 139)
+  - `async _create_library()` (line 246)
+  - `async _operation()` (line 272)
+  - `async _remove_library()` (line 329)
+  - `async _operation()` (line 342)
+  - `async _delete_operation()` (line 384)
+  - `async _library_status()` (line 396)
+  - `async _operation()` (line 408)
+  - `async _library_info()` (line 446)
+  - `async _operation()` (line 456)
+  - `async _rename_library()` (line 507)
+  - `async _copy_library()` (line 523)
+
+### wqm_cli/cli/commands/memory.py
+- Functions: 19
+- Methods: 0
+- Classes: 0
+- Lines: 688
+- Functions:
+  - `list_rules()` (line 61) @<ast.Call object at 0x10c932250>
+  - `add_rule()` (line 78) @<ast.Call object at 0x10c7f50d0>
+  - `edit_rule()` (line 110) @<ast.Call object at 0x10c8d5c50>
+  - `remove_rule()` (line 118) @<ast.Call object at 0x10c8d5410>
+  - `token_usage()` (line 127) @<ast.Call object at 0x10c89e210>
+  - `trim_rules()` (line 133) @<ast.Call object at 0x10c89e090>
+  - `detect_conflicts()` (line 144) @<ast.Call object at 0x10ca965d0>
+  - `parse_conversational()` (line 154) @<ast.Call object at 0x10ca97250>
+  - `start_web_interface()` (line 162) @<ast.Call object at 0x10ca94450>
+  - `async _list_memory_rules()` (line 171)
+  - `async _add_memory_rule()` (line 253)
+  - `async _edit_memory_rule()` (line 334)
+  - `async _remove_memory_rule()` (line 405)
+  - `async _show_token_usage()` (line 448)
+  - `async _trim_memory()` (line 493)
+  - `async _detect_conflicts()` (line 537)
+  - `async _parse_conversational_update()` (line 591)
+  - `async _start_web_interface()` (line 639)
+  - `_generate_name_from_rule()` (line 662)
+
+### wqm_cli/cli/commands/admin.py
+- Functions: 29
+- Methods: 0
+- Classes: 0
+- Lines: 884
+- Functions:
+  - `system_status()` (line 58) @<ast.Call object at 0x10cb32fd0>
+  - `config_management()` (line 73) @<ast.Call object at 0x10cb30a10>
+  - `start_engine()` (line 83) @<ast.Call object at 0x10cb32110>
+  - `stop_engine()` (line 92) @<ast.Call object at 0x10cac61d0>
+  - `restart_engine()` (line 101) @<ast.Call object at 0x10cac4650>
+  - `list_collections()` (line 109) @<ast.Call object at 0x10cac6750>
+  - `health_check()` (line 121) @<ast.Call object at 0x10cb4ba50>
+  - `migration_report()` (line 130) @<ast.Call object at 0x10c945850>
+  - `migration_history()` (line 141) @<ast.Call object at 0x10cb9dbd0>
+  - `validate_backup()` (line 154) @<ast.Call object at 0x10cb9ec10>
+  - `rollback_config()` (line 162) @<ast.Call object at 0x10cacfb50>
+  - `backup_info()` (line 171) @<ast.Call object at 0x10cacf110>
+  - `cleanup_migration_history()` (line 179) @<ast.Call object at 0x10cacd990>
+  - `async _system_status()` (line 188)
+  - `async _watch_status()` (line 205)
+  - `async _collect_status_data()` (line 231)
+  - `_display_status_panel()` (line 323)
+  - `async _config_management()` (line 407)
+  - `async _start_engine()` (line 453)
+  - `async _stop_engine()` (line 471)
+  - `async _restart_engine()` (line 491)
+  - `async _list_collections()` (line 506)
+  - `async _health_check()` (line 577)
+  - `async _migration_report()` (line 649)
+  - `async _migration_history()` (line 693)
+  - `async _validate_backup()` (line 745)
+  - `async _rollback_config()` (line 775)
+  - `async _backup_info()` (line 816)
+  - `async _cleanup_migration_history()` (line 851)
+
+### wqm_cli/cli/commands/search.py
+- Functions: 20
+- Methods: 0
+- Classes: 0
+- Lines: 758
+- Functions:
+  - `search_project()` (line 47) @<ast.Call object at 0x10cae9d10>
+  - `search_collection()` (line 76) @<ast.Call object at 0x10c97bd50>
+  - `search_global()` (line 104) @<ast.Call object at 0x10c8b0690>
+  - `search_all()` (line 129) @<ast.Call object at 0x10ca1a3d0>
+  - `search_memory()` (line 154) @<ast.Call object at 0x10cb7a210>
+  - `research_query()` (line 172) @<ast.Call object at 0x10cb38c90>
+  - `async _search_project()` (line 195)
+  - `async search_operation()` (line 205)
+  - `async _search_collection()` (line 282)
+  - `async search_operation()` (line 293)
+  - `async _search_global()` (line 341)
+  - `async search_operation()` (line 351)
+  - `async _search_all()` (line 419)
+  - `async search_operation()` (line 429)
+  - `async _search_memory()` (line 479)
+  - `async search_operation()` (line 484)
+  - `async _research_query()` (line 545)
+  - `_display_search_results()` (line 590)
+  - `_display_detailed_results()` (line 653)
+  - `_display_grouped_search_results()` (line 710)
+
+### wqm_cli/cli/commands/watch.py
+- Functions: 21
+- Methods: 0
+- Classes: 0
+- Lines: 982
+- Functions:
+  - `_get_cli_default_patterns()` (line 21)
+  - `_get_cli_default_ignore_patterns()` (line 31)
+  - `_get_cli_default_patterns()` (line 44)
+  - `_get_cli_default_ignore_patterns()` (line 48)
+  - `async _get_daemon_client()` (line 111)
+  - `add_watch()` (line 119) @<ast.Call object at 0x10cac6850>
+  - `list_watches()` (line 156) @<ast.Call object at 0x10cac5b10>
+  - `remove_watch()` (line 172) @<ast.Call object at 0x10cb4a8d0>
+  - `watch_status()` (line 185) @<ast.Call object at 0x10cb4b4d0>
+  - `pause_watches()` (line 196) @<ast.Call object at 0x10c715210>
+  - `resume_watches()` (line 210) @<ast.Call object at 0x10cb9fe50>
+  - `configure_watch()` (line 224) @<ast.Call object at 0x10cacd6d0>
+  - `sync_watched_folders()` (line 242) @<ast.Call object at 0x10cacc0d0>
+  - `async _configure_watch()` (line 252)
+  - `async _add_watch()` (line 366)
+  - `async _list_watches()` (line 490)
+  - `async _remove_watch()` (line 574)
+  - `async _watch_status()` (line 661)
+  - `async _pause_watches()` (line 727)
+  - `async _resume_watches()` (line 811)
+  - `async _sync_watched_folders()` (line 894)
+
+### wqm_cli/cli/commands/service_fixed.py
+- Functions: 36
+- Methods: 22
+- Classes: 1
+- Lines: 1041
+- Functions:
+  - `__init__()` (line 50)
+  - `_create_daemon_script()` (line 58)
+  - `async install_service()` (line 125)
+  - `async _install_macos_service()` (line 141)
+  - `async _install_linux_service()` (line 278)
+  - `async uninstall_service()` (line 327)
+  - `async _uninstall_macos_service()` (line 341)
+  - `async _unload_service()` (line 377)
+  - `async _uninstall_linux_service()` (line 391)
+  - `async start_service()` (line 422)
+  - `async _start_macos_service()` (line 435)
+  - `async _start_linux_service()` (line 487)
+  - `async stop_service()` (line 519)
+  - `async _stop_macos_service()` (line 532)
+  - `async _stop_linux_service()` (line 568)
+  - `async restart_service()` (line 589)
+  - `async get_service_status()` (line 598)
+  - `async _get_macos_service_status()` (line 611)
+  - `async _get_linux_service_status()` (line 676)
+  - `async get_service_logs()` (line 707)
+  - `async _get_macos_service_logs()` (line 720)
+  - `async _get_linux_service_logs()` (line 747)
+  - `install_service()` (line 785) @<ast.Call object at 0x10caa52d0>
+  - `async _install()` (line 792)
+  - `uninstall_service()` (line 825) @<ast.Call object at 0x10cb0de50>
+  - `async _uninstall()` (line 828)
+  - `start_service()` (line 855) @<ast.Call object at 0x10ca9d150>
+  - `async _start()` (line 858)
+  - `stop_service()` (line 890) @<ast.Call object at 0x10cacf6d0>
+  - `async _stop()` (line 893)
+  - `restart_service()` (line 920) @<ast.Call object at 0x10cacf090>
+  - `async _restart()` (line 923)
+  - `get_status()` (line 950) @<ast.Call object at 0x10c7ceb50>
+  - `async _status()` (line 955)
+  - `get_logs()` (line 1009) @<ast.Call object at 0x10ca872d0>
+  - `async _logs()` (line 1014)
+- Methods:
+  - `FixedServiceManager.__init__()` (line 50)
+  - `FixedServiceManager._create_daemon_script()` (line 58)
+  - `async FixedServiceManager.install_service()` (line 125)
+  - `async FixedServiceManager._install_macos_service()` (line 141)
+  - `async FixedServiceManager._install_linux_service()` (line 278)
+  - `async FixedServiceManager.uninstall_service()` (line 327)
+  - `async FixedServiceManager._uninstall_macos_service()` (line 341)
+  - `async FixedServiceManager._unload_service()` (line 377)
+  - `async FixedServiceManager._uninstall_linux_service()` (line 391)
+  - `async FixedServiceManager.start_service()` (line 422)
+  - `async FixedServiceManager._start_macos_service()` (line 435)
+  - `async FixedServiceManager._start_linux_service()` (line 487)
+  - `async FixedServiceManager.stop_service()` (line 519)
+  - `async FixedServiceManager._stop_macos_service()` (line 532)
+  - `async FixedServiceManager._stop_linux_service()` (line 568)
+  - `async FixedServiceManager.restart_service()` (line 589)
+  - `async FixedServiceManager.get_service_status()` (line 598)
+  - `async FixedServiceManager._get_macos_service_status()` (line 611)
+  - `async FixedServiceManager._get_linux_service_status()` (line 676)
+  - `async FixedServiceManager.get_service_logs()` (line 707)
+  - `async FixedServiceManager._get_macos_service_logs()` (line 720)
+  - `async FixedServiceManager._get_linux_service_logs()` (line 747)
+
+### wqm_cli/cli/commands/lsp_management.py
+- Functions: 28
+- Methods: 0
+- Classes: 0
+- Lines: 1239
+- Functions:
+  - `lsp_status()` (line 146) @<ast.Call object at 0x10cac6290>
+  - `install_lsp_server()` (line 160) @<ast.Call object at 0x10cac4e10>
+  - `restart_lsp_server()` (line 171) @<ast.Call object at 0x10c744650>
+  - `lsp_config_management()` (line 181) @<ast.Call object at 0x10cb4add0>
+  - `diagnose_lsp_server()` (line 193) @<ast.Call object at 0x10c946f50>
+  - `interactive_setup()` (line 204) @<ast.Call object at 0x10cb9f390>
+  - `list_available_servers()` (line 214) @<ast.Call object at 0x10cb9fe90>
+  - `lsp_performance_monitoring()` (line 223) @<ast.Call object at 0x10c8461d0>
+  - `async _show_lsp_status()` (line 235)
+  - `async _get_server_status()` (line 269)
+  - `async _get_all_servers_status()` (line 301)
+  - `_display_server_status()` (line 323)
+  - `_display_all_servers_status()` (line 357)
+  - `async _check_server_installation()` (line 397)
+  - `async _install_lsp_server()` (line 420)
+  - `async _restart_lsp_server()` (line 494)
+  - `async _manage_lsp_config()` (line 534)
+  - `async _show_lsp_configs()` (line 562)
+  - `async _validate_lsp_configs()` (line 591)
+  - `async _edit_lsp_config()` (line 666)
+  - `_get_config_template()` (line 727)
+  - `async _diagnose_lsp_server()` (line 775)
+  - `_check_workspace_compatibility()` (line 930)
+  - `async _interactive_lsp_setup()` (line 963)
+  - `async _interactive_config_setup()` (line 1038)
+  - `async _list_lsp_servers()` (line 1073)
+  - `async _monitor_lsp_performance()` (line 1126)
+  - `async _watch_lsp_status()` (line 1218)
+
+### wqm_cli/cli/commands/init.py
+- Functions: 6
+- Methods: 0
+- Classes: 1
+- Lines: 166
+- Functions:
+  - `init_callback()` (line 40) @<ast.Call object at 0x10cb32b10>
+  - `bash_completion()` (line 63) @<ast.Call object at 0x10cb30690>
+  - `zsh_completion()` (line 76) @<ast.Call object at 0x10c8a1e90>
+  - `fish_completion()` (line 89) @<ast.Call object at 0x10c8a3990>
+  - `detailed_help()` (line 102) @<ast.Call object at 0x10c8a30d0>
+  - `generate_completion_script()` (line 149)
+
+### workspace_qdrant_mcp/tools/simplified_interface.py
+- Functions: 22
+- Methods: 8
+- Classes: 6
+- Lines: 1066
+- Functions:
+  - `validate_search_scope()` (line 88)
+  - `resolve_search_scope()` (line 106)
+  - `_resolve_single_collection()` (line 136)
+  - `get_project_collections()` (line 149)
+  - `get_workspace_collections()` (line 174)
+  - `get_all_collections()` (line 198)
+  - `get_memory_collections()` (line 211)
+  - `get_mode()` (line 257) @classmethod
+  - `is_simplified_mode()` (line 262) @classmethod
+  - `get_enabled_tools()` (line 267) @classmethod
+  - `__init__()` (line 282)
+  - `async qdrant_store()` (line 306) @<ast.Call object at 0x10cb34b90>,<ast.Call object at 0x10cb37ad0>
+  - `async qdrant_find()` (line 424) @<ast.Call object at 0x10c97cd50>,<ast.Call object at 0x10c97d890>
+  - `async qdrant_manage()` (line 617) @<ast.Call object at 0x10ca19150>,<ast.Call object at 0x10ca18790>
+  - `async qdrant_read()` (line 800) @<ast.Call object at 0x10caa4290>,<ast.Call object at 0x10caa4090>
+  - `initialize_simplified_router()` (line 957)
+  - `get_simplified_router()` (line 963)
+  - `async register_simplified_tools()` (line 969)
+  - `async qdrant_store()` (line 987) @<ast.Call object at 0x10cacf510>
+  - `async qdrant_find()` (line 1008) @<ast.Call object at 0x10cace350>
+  - `async qdrant_manage()` (line 1033) @<ast.Call object at 0x10c92b1d0>
+  - `async qdrant_read()` (line 1048) @<ast.Call object at 0x10cb93f10>
+- Methods:
+  - `SimplifiedToolsMode.get_mode()` (line 257) @classmethod
+  - `SimplifiedToolsMode.is_simplified_mode()` (line 262) @classmethod
+  - `SimplifiedToolsMode.get_enabled_tools()` (line 267) @classmethod
+  - `SimplifiedToolsRouter.__init__()` (line 282)
+  - `async SimplifiedToolsRouter.qdrant_store()` (line 306) @<ast.Call object at 0x10cb34b90>,<ast.Call object at 0x10cb37ad0>
+  - `async SimplifiedToolsRouter.qdrant_find()` (line 424) @<ast.Call object at 0x10c97cd50>,<ast.Call object at 0x10c97d890>
+  - `async SimplifiedToolsRouter.qdrant_manage()` (line 617) @<ast.Call object at 0x10ca19150>,<ast.Call object at 0x10ca18790>
+  - `async SimplifiedToolsRouter.qdrant_read()` (line 800) @<ast.Call object at 0x10caa4290>,<ast.Call object at 0x10caa4090>
+
+### workspace_qdrant_mcp/tools/type_search.py
+- Functions: 31
+- Methods: 30
+- Classes: 7
+- Lines: 858
+- Functions:
+  - `to_dict()` (line 104)
+  - `to_dict()` (line 125)
+  - `to_dict()` (line 151)
+  - `to_dict()` (line 178)
+  - `__init__()` (line 199)
+  - `async initialize()` (line 207)
+  - `async search_exact_signature()` (line 235)
+  - `async search_compatible_signatures()` (line 294)
+  - `async search_generic_implementations()` (line 347)
+  - `async search_interface_implementations()` (line 395)
+  - `async analyze_type_compatibility()` (line 442)
+  - `async _execute_type_search()` (line 492)
+  - `async _convert_to_base_query()` (line 512)
+  - `async _matches_type_criteria()` (line 530)
+  - `async _matches_signature_pattern()` (line 561)
+  - `async _types_match()` (line 591)
+  - `async _are_compatible_types()` (line 604)
+  - `async _matches_generic_pattern()` (line 635)
+  - `async _structurally_compatible()` (line 643)
+  - `async _matches_generic_patterns()` (line 649)
+  - `async _matches_interface_patterns()` (line 662)
+  - `async _enrich_with_type_info()` (line 674)
+  - `async _extract_type_signature()` (line 700)
+  - `async _calculate_compatibility_score()` (line 724)
+  - `async _analyze_generic_substitutions()` (line 743)
+  - `async _rank_type_results()` (line 756)
+  - `score_function()` (line 762)
+  - `async _parse_signature_string()` (line 777)
+  - `async _compile_generic_patterns()` (line 815)
+  - `async _build_compatibility_cache()` (line 830)
+  - `async _analyze_compatibility()` (line 836)
+- Methods:
+  - `TypePattern.to_dict()` (line 104)
+  - `TypeSignature.to_dict()` (line 125)
+  - `TypeSearchQuery.to_dict()` (line 151)
+  - `TypeSearchResult.to_dict()` (line 178)
+  - `TypeSearchEngine.__init__()` (line 199)
+  - `async TypeSearchEngine.initialize()` (line 207)
+  - `async TypeSearchEngine.search_exact_signature()` (line 235)
+  - `async TypeSearchEngine.search_compatible_signatures()` (line 294)
+  - `async TypeSearchEngine.search_generic_implementations()` (line 347)
+  - `async TypeSearchEngine.search_interface_implementations()` (line 395)
+  - `async TypeSearchEngine.analyze_type_compatibility()` (line 442)
+  - `async TypeSearchEngine._execute_type_search()` (line 492)
+  - `async TypeSearchEngine._convert_to_base_query()` (line 512)
+  - `async TypeSearchEngine._matches_type_criteria()` (line 530)
+  - `async TypeSearchEngine._matches_signature_pattern()` (line 561)
+  - `async TypeSearchEngine._types_match()` (line 591)
+  - `async TypeSearchEngine._are_compatible_types()` (line 604)
+  - `async TypeSearchEngine._matches_generic_pattern()` (line 635)
+  - `async TypeSearchEngine._structurally_compatible()` (line 643)
+  - `async TypeSearchEngine._matches_generic_patterns()` (line 649)
+  - `async TypeSearchEngine._matches_interface_patterns()` (line 662)
+  - `async TypeSearchEngine._enrich_with_type_info()` (line 674)
+  - `async TypeSearchEngine._extract_type_signature()` (line 700)
+  - `async TypeSearchEngine._calculate_compatibility_score()` (line 724)
+  - `async TypeSearchEngine._analyze_generic_substitutions()` (line 743)
+  - `async TypeSearchEngine._rank_type_results()` (line 756)
+  - `async TypeSearchEngine._parse_signature_string()` (line 777)
+  - `async TypeSearchEngine._compile_generic_patterns()` (line 815)
+  - `async TypeSearchEngine._build_compatibility_cache()` (line 830)
+  - `async TypeSearchEngine._analyze_compatibility()` (line 836)
+
+### workspace_qdrant_mcp/tools/document_memory_tools.py
+- Functions: 12
+- Methods: 1
+- Classes: 1
+- Lines: 531
+- Functions:
+  - `_get_document_functions()` (line 31)
+  - `_get_multitenant_function()` (line 40)
+  - `monitor_async()` (line 52)
+  - `decorator()` (line 53)
+  - `database_strategy()` (line 62) @staticmethod
+  - `with_error_handling()` (line 64)
+  - `decorator()` (line 65)
+  - `register_document_memory_tools()` (line 70)
+  - `async add_memory()` (line 76) @<ast.Call object at 0x10cbda850>,<ast.Call object at 0x10cbda990>,<ast.Call object at 0x10cbd97d0>
+  - `async get_memory()` (line 185) @<ast.Call object at 0x10cb633d0>,<ast.Call object at 0x10cb60690>,<ast.Call object at 0x10c7f7d10>
+  - `async update_memory()` (line 282) @<ast.Call object at 0x10ca95390>,<ast.Call object at 0x10ca94690>,<ast.Call object at 0x10c97f510>
+  - `async delete_memory()` (line 423) @<ast.Call object at 0x10c8e9a10>,<ast.Call object at 0x10c8eae10>,<ast.Call object at 0x10c8e9610>
+- Methods:
+  - `ErrorRecoveryStrategy.database_strategy()` (line 62) @staticmethod
+
+### workspace_qdrant_mcp/tools/degradation_aware.py
+- Functions: 20
+- Methods: 18
+- Classes: 3
+- Lines: 808
+- Functions:
+  - `__init__()` (line 75)
+  - `async search_workspace()` (line 97)
+  - `async add_document()` (line 163)
+  - `async list_collections()` (line 222)
+  - `async get_workspace_status()` (line 274)
+  - `async _handle_search_degraded()` (line 342)
+  - `async _handle_ingestion_degraded()` (line 393)
+  - `_get_status_user_guidance()` (line 427)
+  - `get_tool_statistics()` (line 455)
+  - `async register_original_tool()` (line 473)
+  - `create_mcp_tool_definitions()` (line 478)
+  - `__init__()` (line 588)
+  - `async handle_search_command()` (line 600)
+  - `async handle_status_command()` (line 638)
+  - `async handle_service_command()` (line 675)
+  - `async _local_file_search()` (line 705)
+  - `_get_status_recommendations()` (line 724)
+  - `_get_simple_status_message()` (line 758)
+  - `async create_degradation_aware_tools()` (line 775)
+  - `async create_cli_degradation_handler()` (line 794)
+- Methods:
+  - `DegradationAwareMCPTools.__init__()` (line 75)
+  - `async DegradationAwareMCPTools.search_workspace()` (line 97)
+  - `async DegradationAwareMCPTools.add_document()` (line 163)
+  - `async DegradationAwareMCPTools.list_collections()` (line 222)
+  - `async DegradationAwareMCPTools.get_workspace_status()` (line 274)
+  - `async DegradationAwareMCPTools._handle_search_degraded()` (line 342)
+  - `async DegradationAwareMCPTools._handle_ingestion_degraded()` (line 393)
+  - `DegradationAwareMCPTools._get_status_user_guidance()` (line 427)
+  - `DegradationAwareMCPTools.get_tool_statistics()` (line 455)
+  - `async DegradationAwareMCPTools.register_original_tool()` (line 473)
+  - `DegradationAwareMCPTools.create_mcp_tool_definitions()` (line 478)
+  - `CLIDegradationHandler.__init__()` (line 588)
+  - `async CLIDegradationHandler.handle_search_command()` (line 600)
+  - `async CLIDegradationHandler.handle_status_command()` (line 638)
+  - `async CLIDegradationHandler.handle_service_command()` (line 675)
+  - `async CLIDegradationHandler._local_file_search()` (line 705)
+  - `CLIDegradationHandler._get_status_recommendations()` (line 724)
+  - `CLIDegradationHandler._get_simple_status_message()` (line 758)
+
+### workspace_qdrant_mcp/tools/grpc_tools.py
+- Functions: 7
+- Methods: 0
+- Classes: 0
+- Lines: 535
+- Functions:
+  - `async test_grpc_connection()` (line 19)
+  - `async get_grpc_engine_stats()` (line 109)
+  - `async process_document_via_grpc()` (line 163)
+  - `async search_via_grpc()` (line 248)
+  - `async stream_processing_status_grpc()` (line 338)
+  - `async stream_system_metrics_grpc()` (line 407)
+  - `async stream_queue_status_grpc()` (line 473)
+
+### workspace_qdrant_mcp/tools/memory.py
+- Functions: 9
+- Methods: 0
+- Classes: 0
+- Lines: 524
+- Functions:
+  - `parse_conversational_memory_update()` (line 26)
+  - `register_memory_tools()` (line 45)
+  - `async initialize_memory_session()` (line 49) @<ast.Call object at 0x10c95fd90>
+  - `async add_memory_rule()` (line 138) @<ast.Call object at 0x10ca98b90>
+  - `async update_memory_from_conversation()` (line 198) @<ast.Call object at 0x10c99e250>
+  - `async search_memory_rules()` (line 276) @<ast.Call object at 0x10c8b2190>
+  - `async get_memory_stats()` (line 360) @<ast.Call object at 0x10cae9a50>
+  - `async detect_memory_conflicts()` (line 401) @<ast.Call object at 0x10c8e92d0>
+  - `async list_memory_rules()` (line 447) @<ast.Call object at 0x10c938150>
+
+### workspace_qdrant_mcp/tools/research.py
+- Functions: 1
+- Methods: 0
+- Classes: 0
+- Lines: 217
+- Functions:
+  - `async research_workspace()` (line 34)
+
+### workspace_qdrant_mcp/tools/scratchbook.py
+- Functions: 9
+- Methods: 8
+- Classes: 1
+- Lines: 737
+- Functions:
+  - `__init__()` (line 130)
+  - `_get_scratchbook_collection_name()` (line 139)
+  - `async add_note()` (line 160)
+  - `async update_note()` (line 284)
+  - `async search_notes()` (line 418)
+  - `async list_notes()` (line 523)
+  - `async delete_note()` (line 608)
+  - `_generate_title_from_content()` (line 672)
+  - `async update_scratchbook()` (line 704)
+- Methods:
+  - `ScratchbookManager.__init__()` (line 130)
+  - `ScratchbookManager._get_scratchbook_collection_name()` (line 139)
+  - `async ScratchbookManager.add_note()` (line 160)
+  - `async ScratchbookManager.update_note()` (line 284)
+  - `async ScratchbookManager.search_notes()` (line 418)
+  - `async ScratchbookManager.list_notes()` (line 523)
+  - `async ScratchbookManager.delete_note()` (line 608)
+  - `ScratchbookManager._generate_title_from_content()` (line 672)
+
+### workspace_qdrant_mcp/tools/multitenant_tools.py
+- Functions: 9
+- Methods: 0
+- Classes: 0
+- Lines: 756
+- Functions:
+  - `register_multitenant_tools()` (line 37)
+  - `async create_workspace_collection()` (line 49) @<ast.Call object at 0x10c85b650>,<ast.Call object at 0x10c85a090>,<ast.Call object at 0x10c858990>
+  - `async list_workspace_collections_by_project()` (line 133) @<ast.Call object at 0x10cab0d90>,<ast.Call object at 0x10cab2950>,<ast.Call object at 0x10cab2dd0>
+  - `async search_workspace_by_project()` (line 219) @<ast.Call object at 0x10ca6a350>,<ast.Call object at 0x10ca7c5d0>,<ast.Call object at 0x10ca7cf50>
+  - `async search_workspace_metadata_by_project()` (line 303) @<ast.Call object at 0x10c8c6710>
+  - `async list_workspace_collections_by_project()` (line 369) @<ast.Call object at 0x10caea9d0>
+  - `async add_document_with_project_context()` (line 459) @<ast.Call object at 0x10c979f50>,<ast.Call object at 0x10c97abd0>,<ast.Call object at 0x10c979910>
+  - `async initialize_project_workspace_collections()` (line 590) @<ast.Call object at 0x10cbd9310>
+  - `async get_workspace_collection_info()` (line 668) @<ast.Call object at 0x10cb62590>
+
+### workspace_qdrant_mcp/tools/documents.py
+- Functions: 8
+- Methods: 0
+- Classes: 0
+- Lines: 797
+- Functions:
+  - `async add_document()` (line 79)
+  - `async _add_single_document()` (line 284)
+  - `async update_document()` (line 356)
+  - `async delete_document()` (line 468)
+  - `async get_document()` (line 536)
+  - `async find_document_versions()` (line 617)
+  - `async ingest_new_version()` (line 664)
+  - `get_document_type_config()` (line 760)
+
+### workspace_qdrant_mcp/tools/multitenant_search.py
+- Functions: 11
+- Methods: 9
+- Classes: 1
+- Lines: 528
+- Functions:
+  - `__init__()` (line 36)
+  - `async search_workspace_with_project_context()` (line 41)
+  - `async search_workspace_by_metadata()` (line 145)
+  - `_get_all_workspace_collections()` (line 262)
+  - `_get_project_collections()` (line 280)
+  - `_get_project_collections_fallback()` (line 333)
+  - `_build_project_metadata_filter()` (line 365)
+  - `_enrich_search_results()` (line 436)
+  - `_filter_to_dict()` (line 470)
+  - `async search_workspace_with_project_context()` (line 480)
+  - `async search_workspace_by_metadata_with_project_context()` (line 508)
+- Methods:
+  - `MultiTenantSearchEngine.__init__()` (line 36)
+  - `async MultiTenantSearchEngine.search_workspace_with_project_context()` (line 41)
+  - `async MultiTenantSearchEngine.search_workspace_by_metadata()` (line 145)
+  - `MultiTenantSearchEngine._get_all_workspace_collections()` (line 262)
+  - `MultiTenantSearchEngine._get_project_collections()` (line 280)
+  - `MultiTenantSearchEngine._get_project_collections_fallback()` (line 333)
+  - `MultiTenantSearchEngine._build_project_metadata_filter()` (line 365)
+  - `MultiTenantSearchEngine._enrich_search_results()` (line 436)
+  - `MultiTenantSearchEngine._filter_to_dict()` (line 470)
+
+### workspace_qdrant_mcp/tools/dependency_analyzer.py
+- Functions: 52
+- Methods: 48
+- Classes: 14
+- Lines: 1280
+- Functions:
+  - `__hash__()` (line 123)
+  - `__eq__()` (line 126)
+  - `to_dict()` (line 131)
+  - `to_dict()` (line 148)
+  - `to_dict()` (line 165)
+  - `to_dict()` (line 183)
+  - `__init__()` (line 196)
+  - `add_node()` (line 203)
+  - `add_edge()` (line 211)
+  - `get_neighbors()` (line 217)
+  - `get_reverse_neighbors()` (line 221)
+  - `find_paths()` (line 225)
+  - `dfs()` (line 229)
+  - `find_cycles()` (line 244)
+  - `dfs_cycles()` (line 250)
+  - `async build_graph()` (line 278) @abstractmethod
+  - `clear()` (line 282)
+  - `__init__()` (line 294)
+  - `async build_graph()` (line 299)
+  - `async find_callers()` (line 407)
+  - `async find_callees()` (line 419)
+  - `async find_call_chains()` (line 431)
+  - `async find_recursive_calls()` (line 439)
+  - `__init__()` (line 451)
+  - `async build_graph()` (line 457)
+  - `_get_module_identifier()` (line 571)
+  - `_is_external_dependency()` (line 588)
+  - `async find_circular_dependencies()` (line 603)
+  - `async get_module_dependencies()` (line 652)
+  - `__init__()` (line 685)
+  - `async build_graph()` (line 691)
+  - `async get_class_hierarchy()` (line 812)
+  - `find_ancestors()` (line 825)
+  - `find_descendants()` (line 844)
+  - `async find_method_overrides()` (line 866)
+  - `async find_interface_implementations()` (line 886)
+  - `__init__()` (line 909)
+  - `async analyze_function_change()` (line 915)
+  - `async analyze_class_change()` (line 973)
+  - `async analyze_module_change()` (line 1031)
+  - `__init__()` (line 1088)
+  - `async find_callers()` (line 1091)
+  - `async find_callees()` (line 1096)
+  - `async find_dependencies()` (line 1101)
+  - `async find_dependents()` (line 1124)
+  - `async analyze_circular_dependencies()` (line 1144)
+  - `async get_dependency_statistics()` (line 1158)
+  - `__init__()` (line 1187)
+  - `async initialize()` (line 1197)
+  - `async ensure_graphs_built()` (line 1230)
+  - `async rebuild_graphs()` (line 1249)
+  - `get_analysis_summary()` (line 1266)
+- Methods:
+  - `DependencyNode.__hash__()` (line 123)
+  - `DependencyNode.__eq__()` (line 126)
+  - `DependencyNode.to_dict()` (line 131)
+  - `DependencyEdge.to_dict()` (line 148)
+  - `CircularDependency.to_dict()` (line 165)
+  - `RefactoringImpact.to_dict()` (line 183)
+  - `DependencyGraph.__init__()` (line 196)
+  - `DependencyGraph.add_node()` (line 203)
+  - `DependencyGraph.add_edge()` (line 211)
+  - `DependencyGraph.get_neighbors()` (line 217)
+  - `DependencyGraph.get_reverse_neighbors()` (line 221)
+  - `DependencyGraph.find_paths()` (line 225)
+  - `DependencyGraph.find_cycles()` (line 244)
+  - `async DependencyGraph.build_graph()` (line 278) @abstractmethod
+  - `DependencyGraph.clear()` (line 282)
+  - `CallGraph.__init__()` (line 294)
+  - `async CallGraph.build_graph()` (line 299)
+  - `async CallGraph.find_callers()` (line 407)
+  - `async CallGraph.find_callees()` (line 419)
+  - `async CallGraph.find_call_chains()` (line 431)
+  - `async CallGraph.find_recursive_calls()` (line 439)
+  - `ImportGraph.__init__()` (line 451)
+  - `async ImportGraph.build_graph()` (line 457)
+  - `ImportGraph._get_module_identifier()` (line 571)
+  - `ImportGraph._is_external_dependency()` (line 588)
+  - `async ImportGraph.find_circular_dependencies()` (line 603)
+  - `async ImportGraph.get_module_dependencies()` (line 652)
+  - `InheritanceGraph.__init__()` (line 685)
+  - `async InheritanceGraph.build_graph()` (line 691)
+  - `async InheritanceGraph.get_class_hierarchy()` (line 812)
+  - `async InheritanceGraph.find_method_overrides()` (line 866)
+  - `async InheritanceGraph.find_interface_implementations()` (line 886)
+  - `ImpactAnalyzer.__init__()` (line 909)
+  - `async ImpactAnalyzer.analyze_function_change()` (line 915)
+  - `async ImpactAnalyzer.analyze_class_change()` (line 973)
+  - `async ImpactAnalyzer.analyze_module_change()` (line 1031)
+  - `DependencyQueryEngine.__init__()` (line 1088)
+  - `async DependencyQueryEngine.find_callers()` (line 1091)
+  - `async DependencyQueryEngine.find_callees()` (line 1096)
+  - `async DependencyQueryEngine.find_dependencies()` (line 1101)
+  - `async DependencyQueryEngine.find_dependents()` (line 1124)
+  - `async DependencyQueryEngine.analyze_circular_dependencies()` (line 1144)
+  - `async DependencyQueryEngine.get_dependency_statistics()` (line 1158)
+  - `DependencyAnalyzer.__init__()` (line 1187)
+  - `async DependencyAnalyzer.initialize()` (line 1197)
+  - `async DependencyAnalyzer.ensure_graphs_built()` (line 1230)
+  - `async DependencyAnalyzer.rebuild_graphs()` (line 1249)
+  - `DependencyAnalyzer.get_analysis_summary()` (line 1266)
+
+### workspace_qdrant_mcp/tools/compatibility_layer.py
+- Functions: 8
+- Methods: 4
+- Classes: 2
+- Lines: 405
+- Functions:
+  - `create_compatibility_wrapper()` (line 227)
+  - `async wrapper()` (line 231) @<ast.Call object at 0x10c8a2390>
+  - `should_disable_tool()` (line 323)
+  - `get_compatibility_message()` (line 355)
+  - `__init__()` (line 371)
+  - `should_register_tool()` (line 376)
+  - `register_tool_conditionally()` (line 383)
+  - `log_registration_summary()` (line 398)
+- Methods:
+  - `ToolRegistrationManager.__init__()` (line 371)
+  - `ToolRegistrationManager.should_register_tool()` (line 376)
+  - `ToolRegistrationManager.register_tool_conditionally()` (line 383)
+  - `ToolRegistrationManager.log_registration_summary()` (line 398)
+
+### workspace_qdrant_mcp/tools/watch_management.py
+- Functions: 17
+- Methods: 12
+- Classes: 1
+- Lines: 805
+- Functions:
+  - `_get_default_watch_patterns()` (line 36)
+  - `_get_default_ignore_patterns()` (line 46)
+  - `_get_default_watch_patterns()` (line 65)
+  - `_get_default_ignore_patterns()` (line 69)
+  - `__init__()` (line 82)
+  - `async initialize()` (line 99)
+  - `async ingestion_callback()` (line 106)
+  - `async add_watch_folder()` (line 166)
+  - `async remove_watch_folder()` (line 327)
+  - `async list_watched_folders()` (line 372)
+  - `async configure_watch_settings()` (line 486)
+  - `async get_watch_status()` (line 637)
+  - `_get_runtime_info()` (line 708)
+  - `async start_all_active_watches()` (line 719)
+  - `async stop_all_watches()` (line 735)
+  - `async _handle_config_change()` (line 746)
+  - `async cleanup()` (line 785)
+- Methods:
+  - `WatchToolsManager.__init__()` (line 82)
+  - `async WatchToolsManager.initialize()` (line 99)
+  - `async WatchToolsManager.add_watch_folder()` (line 166)
+  - `async WatchToolsManager.remove_watch_folder()` (line 327)
+  - `async WatchToolsManager.list_watched_folders()` (line 372)
+  - `async WatchToolsManager.configure_watch_settings()` (line 486)
+  - `async WatchToolsManager.get_watch_status()` (line 637)
+  - `WatchToolsManager._get_runtime_info()` (line 708)
+  - `async WatchToolsManager.start_all_active_watches()` (line 719)
+  - `async WatchToolsManager.stop_all_watches()` (line 735)
+  - `async WatchToolsManager._handle_config_change()` (line 746)
+  - `async WatchToolsManager.cleanup()` (line 785)
+
+### workspace_qdrant_mcp/tools/symbol_resolver.py
+- Functions: 58
+- Methods: 53
+- Classes: 9
+- Lines: 1545
+- Functions:
+  - `to_dict()` (line 107)
+  - `get_range_key()` (line 118)
+  - `get_symbol_hash()` (line 169)
+  - `matches_signature()` (line 176)
+  - `to_dict()` (line 214)
+  - `to_dict()` (line 250)
+  - `__init__()` (line 269)
+  - `add_symbol()` (line 302)
+  - `find_by_name()` (line 337)
+  - `find_by_qualified_name()` (line 345)
+  - `find_by_kind()` (line 353)
+  - `find_by_file()` (line 361)
+  - `find_by_collection()` (line 369)
+  - `find_children()` (line 377)
+  - `find_overloads()` (line 385)
+  - `_get_signature_hash()` (line 393)
+  - `get_statistics()` (line 399)
+  - `clear()` (line 416)
+  - `__init__()` (line 441)
+  - `disambiguate_symbols()` (line 446)
+  - `_calculate_disambiguation_score()` (line 503)
+  - `_generate_disambiguation_key()` (line 554)
+  - `get_statistics()` (line 567)
+  - `__init__()` (line 587)
+  - `add_symbol_reference()` (line 604)
+  - `add_symbol_dependency()` (line 627)
+  - `get_symbol_references()` (line 634)
+  - `get_symbol_dependencies()` (line 638)
+  - `collect_dependencies()` (line 647)
+  - `get_symbol_dependents()` (line 661)
+  - `collect_dependents()` (line 670)
+  - `analyze_impact()` (line 684)
+  - `_calculate_impact_score()` (line 727)
+  - `_assess_risk_level()` (line 743)
+  - `get_popular_symbols()` (line 756)
+  - `get_statistics()` (line 764)
+  - `__init__()` (line 787)
+  - `async initialize()` (line 837)
+  - `async find_symbol_definitions()` (line 895)
+  - `async resolve_symbol_with_params()` (line 1011)
+  - `async find_all_references()` (line 1075)
+  - `async get_symbol_hierarchy()` (line 1094)
+  - `async analyze_symbol_impact()` (line 1148)
+  - `async search_symbols_by_kind()` (line 1164)
+  - `async get_collection_symbols()` (line 1188)
+  - `async get_file_symbols()` (line 1192)
+  - `async _index_collection_symbols()` (line 1198)
+  - `async _create_symbol_entry()` (line 1230)
+  - `_extract_doc_summary()` (line 1307)
+  - `async _build_cross_references()` (line 1327)
+  - `async _find_related_symbols()` (line 1363)
+  - `_generate_cache_key()` (line 1390)
+  - `_cache_resolution_result()` (line 1405)
+  - `get_statistics()` (line 1420)
+  - `async shutdown()` (line 1442)
+  - `async find_symbol_definition()` (line 1460)
+  - `async resolve_function_overload()` (line 1491)
+  - `async analyze_symbol_usage()` (line 1525)
+- Methods:
+  - `SymbolLocation.to_dict()` (line 107)
+  - `SymbolLocation.get_range_key()` (line 118)
+  - `SymbolEntry.get_symbol_hash()` (line 169)
+  - `SymbolEntry.matches_signature()` (line 176)
+  - `SymbolEntry.to_dict()` (line 214)
+  - `SymbolResolutionResult.to_dict()` (line 250)
+  - `SymbolIndex.__init__()` (line 269)
+  - `SymbolIndex.add_symbol()` (line 302)
+  - `SymbolIndex.find_by_name()` (line 337)
+  - `SymbolIndex.find_by_qualified_name()` (line 345)
+  - `SymbolIndex.find_by_kind()` (line 353)
+  - `SymbolIndex.find_by_file()` (line 361)
+  - `SymbolIndex.find_by_collection()` (line 369)
+  - `SymbolIndex.find_children()` (line 377)
+  - `SymbolIndex.find_overloads()` (line 385)
+  - `SymbolIndex._get_signature_hash()` (line 393)
+  - `SymbolIndex.get_statistics()` (line 399)
+  - `SymbolIndex.clear()` (line 416)
+  - `DisambiguationEngine.__init__()` (line 441)
+  - `DisambiguationEngine.disambiguate_symbols()` (line 446)
+  - `DisambiguationEngine._calculate_disambiguation_score()` (line 503)
+  - `DisambiguationEngine._generate_disambiguation_key()` (line 554)
+  - `DisambiguationEngine.get_statistics()` (line 567)
+  - `CrossReferenceTracker.__init__()` (line 587)
+  - `CrossReferenceTracker.add_symbol_reference()` (line 604)
+  - `CrossReferenceTracker.add_symbol_dependency()` (line 627)
+  - `CrossReferenceTracker.get_symbol_references()` (line 634)
+  - `CrossReferenceTracker.get_symbol_dependencies()` (line 638)
+  - `CrossReferenceTracker.get_symbol_dependents()` (line 661)
+  - `CrossReferenceTracker.analyze_impact()` (line 684)
+  - `CrossReferenceTracker._calculate_impact_score()` (line 727)
+  - `CrossReferenceTracker._assess_risk_level()` (line 743)
+  - `CrossReferenceTracker.get_popular_symbols()` (line 756)
+  - `CrossReferenceTracker.get_statistics()` (line 764)
+  - `SymbolResolver.__init__()` (line 787)
+  - `async SymbolResolver.initialize()` (line 837)
+  - `async SymbolResolver.find_symbol_definitions()` (line 895)
+  - `async SymbolResolver.resolve_symbol_with_params()` (line 1011)
+  - `async SymbolResolver.find_all_references()` (line 1075)
+  - `async SymbolResolver.get_symbol_hierarchy()` (line 1094)
+  - `async SymbolResolver.analyze_symbol_impact()` (line 1148)
+  - `async SymbolResolver.search_symbols_by_kind()` (line 1164)
+  - `async SymbolResolver.get_collection_symbols()` (line 1188)
+  - `async SymbolResolver.get_file_symbols()` (line 1192)
+  - `async SymbolResolver._index_collection_symbols()` (line 1198)
+  - `async SymbolResolver._create_symbol_entry()` (line 1230)
+  - `SymbolResolver._extract_doc_summary()` (line 1307)
+  - `async SymbolResolver._build_cross_references()` (line 1327)
+  - `async SymbolResolver._find_related_symbols()` (line 1363)
+  - `SymbolResolver._generate_cache_key()` (line 1390)
+  - `SymbolResolver._cache_resolution_result()` (line 1405)
+  - `SymbolResolver.get_statistics()` (line 1420)
+  - `async SymbolResolver.shutdown()` (line 1442)
+
+### workspace_qdrant_mcp/tools/search.py
+- Functions: 6
+- Methods: 0
+- Classes: 0
+- Lines: 931
+- Functions:
+  - `async search_workspace()` (line 63)
+  - `async _search_collection()` (line 450)
+  - `async search_collection_by_metadata()` (line 577)
+  - `_build_metadata_filter()` (line 643)
+  - `async search_workspace_with_project_isolation()` (line 708)
+  - `async search_workspace_with_advanced_aggregation()` (line 829)
+
+### workspace_qdrant_mcp/tools/state_management.py
+- Functions: 13
+- Methods: 0
+- Classes: 0
+- Lines: 627
+- Functions:
+  - `async _get_ingestion_manager_or_disabled_response()` (line 36)
+  - `async get_processing_status()` (line 60)
+  - `async retry_failed_files()` (line 104)
+  - `async get_queue_stats()` (line 153)
+  - `async process_pending_files()` (line 190)
+  - `async cleanup_old_records()` (line 240)
+  - `async get_database_stats()` (line 289)
+  - `async get_failed_files()` (line 320)
+  - `async get_processing_analytics()` (line 365)
+  - `async add_files_to_queue()` (line 412)
+  - `async clear_processing_queue()` (line 469)
+  - `async get_watch_folder_configs()` (line 511)
+  - `async vacuum_state_database()` (line 577)
+
+### workspace_qdrant_mcp/tools/code_search.py
+- Functions: 50
+- Methods: 47
+- Classes: 6
+- Lines: 1749
+- Functions:
+  - `to_dict()` (line 116)
+  - `to_dict()` (line 145)
+  - `to_dict()` (line 171)
+  - `__init__()` (line 189)
+  - `async initialize()` (line 196)
+  - `async _build_code_intelligence_caches()` (line 227)
+  - `_is_code_collection()` (line 246)
+  - `async _cache_collection_symbols()` (line 252)
+  - `async _cache_collection_relationships()` (line 279)
+  - `async search_symbols()` (line 306)
+  - `async search_by_signature()` (line 374)
+  - `async search_semantic_code()` (line 432)
+  - `async search_dependencies()` (line 510)
+  - `async search_fuzzy()` (line 580)
+  - `async _get_code_collections()` (line 652)
+  - `async _build_symbol_filters()` (line 658)
+  - `async _search_symbols_in_collection()` (line 682)
+  - `async _search_cached_symbols()` (line 726)
+  - `_calculate_symbol_match_score()` (line 756)
+  - `async _search_signatures_in_collection()` (line 790)
+  - `_matches_signature_query()` (line 829)
+  - `_is_code_result()` (line 887)
+  - `async _convert_to_code_result()` (line 918)
+  - `async _build_context_snippet()` (line 958)
+  - `_extract_documentation_summary()` (line 987)
+  - `async _rank_symbol_results()` (line 1009)
+  - `async _rank_signature_results()` (line 1047)
+  - `_calculate_signature_match_quality()` (line 1070)
+  - `async _rank_semantic_code_results()` (line 1106)
+  - `async _rank_dependency_results()` (line 1147)
+  - `async _rank_fuzzy_results()` (line 1172)
+  - `async _enrich_symbol_result()` (line 1203)
+  - `async _enrich_signature_result()` (line 1217)
+  - `async _enrich_dependency_result()` (line 1237)
+  - `async _enrich_fuzzy_result()` (line 1252)
+  - `async _find_related_symbols()` (line 1270)
+  - `async _find_similar_signatures()` (line 1304)
+  - `_has_similar_signature()` (line 1332)
+  - `async _find_usage_examples()` (line 1356)
+  - `async _find_dependency_chain()` (line 1392)
+  - `async _fuzzy_search_symbols()` (line 1428)
+  - `async _fuzzy_search_collection()` (line 1473)
+  - `async _search_cached_relationships()` (line 1512)
+  - `async _search_dependency_metadata()` (line 1538)
+  - `_matches_dependency_query()` (line 1575)
+  - `async _enhance_semantic_results_with_metadata()` (line 1595)
+  - `_create_type_summary()` (line 1627)
+  - `async search_code_symbols()` (line 1653)
+  - `async search_function_signatures()` (line 1686)
+  - `async search_code_semantically()` (line 1724)
+- Methods:
+  - `CodeSearchQuery.to_dict()` (line 116)
+  - `CodeSearchResult.to_dict()` (line 145)
+  - `SignatureSearchQuery.to_dict()` (line 171)
+  - `CodeSearchEngine.__init__()` (line 189)
+  - `async CodeSearchEngine.initialize()` (line 196)
+  - `async CodeSearchEngine._build_code_intelligence_caches()` (line 227)
+  - `CodeSearchEngine._is_code_collection()` (line 246)
+  - `async CodeSearchEngine._cache_collection_symbols()` (line 252)
+  - `async CodeSearchEngine._cache_collection_relationships()` (line 279)
+  - `async CodeSearchEngine.search_symbols()` (line 306)
+  - `async CodeSearchEngine.search_by_signature()` (line 374)
+  - `async CodeSearchEngine.search_semantic_code()` (line 432)
+  - `async CodeSearchEngine.search_dependencies()` (line 510)
+  - `async CodeSearchEngine.search_fuzzy()` (line 580)
+  - `async CodeSearchEngine._get_code_collections()` (line 652)
+  - `async CodeSearchEngine._build_symbol_filters()` (line 658)
+  - `async CodeSearchEngine._search_symbols_in_collection()` (line 682)
+  - `async CodeSearchEngine._search_cached_symbols()` (line 726)
+  - `CodeSearchEngine._calculate_symbol_match_score()` (line 756)
+  - `async CodeSearchEngine._search_signatures_in_collection()` (line 790)
+  - `CodeSearchEngine._matches_signature_query()` (line 829)
+  - `CodeSearchEngine._is_code_result()` (line 887)
+  - `async CodeSearchEngine._convert_to_code_result()` (line 918)
+  - `async CodeSearchEngine._build_context_snippet()` (line 958)
+  - `CodeSearchEngine._extract_documentation_summary()` (line 987)
+  - `async CodeSearchEngine._rank_symbol_results()` (line 1009)
+  - `async CodeSearchEngine._rank_signature_results()` (line 1047)
+  - `CodeSearchEngine._calculate_signature_match_quality()` (line 1070)
+  - `async CodeSearchEngine._rank_semantic_code_results()` (line 1106)
+  - `async CodeSearchEngine._rank_dependency_results()` (line 1147)
+  - `async CodeSearchEngine._rank_fuzzy_results()` (line 1172)
+  - `async CodeSearchEngine._enrich_symbol_result()` (line 1203)
+  - `async CodeSearchEngine._enrich_signature_result()` (line 1217)
+  - `async CodeSearchEngine._enrich_dependency_result()` (line 1237)
+  - `async CodeSearchEngine._enrich_fuzzy_result()` (line 1252)
+  - `async CodeSearchEngine._find_related_symbols()` (line 1270)
+  - `async CodeSearchEngine._find_similar_signatures()` (line 1304)
+  - `CodeSearchEngine._has_similar_signature()` (line 1332)
+  - `async CodeSearchEngine._find_usage_examples()` (line 1356)
+  - `async CodeSearchEngine._find_dependency_chain()` (line 1392)
+  - `async CodeSearchEngine._fuzzy_search_symbols()` (line 1428)
+  - `async CodeSearchEngine._fuzzy_search_collection()` (line 1473)
+  - `async CodeSearchEngine._search_cached_relationships()` (line 1512)
+  - `async CodeSearchEngine._search_dependency_metadata()` (line 1538)
+  - `CodeSearchEngine._matches_dependency_query()` (line 1575)
+  - `async CodeSearchEngine._enhance_semantic_results_with_metadata()` (line 1595)
+  - `CodeSearchEngine._create_type_summary()` (line 1627)
+
+### workspace_qdrant_mcp/web/server.py
+- Functions: 20
+- Methods: 3
+- Classes: 1
+- Lines: 592
+- Functions:
+  - `__init__()` (line 31)
+  - `async initialize()` (line 38)
+  - `async start()` (line 51)
+  - `create_web_app()` (line 68)
+  - `async health_check()` (line 102) @<ast.Call object at 0x10cac6450>
+  - `async read_root()` (line 108) @<ast.Call object at 0x10cac5610>
+  - `async get_rules()` (line 115) @<ast.Call object at 0x10cb4b210>
+  - `async get_rule()` (line 157) @<ast.Call object at 0x10c8a3850>
+  - `async create_rule()` (line 182) @<ast.Call object at 0x10c8597d0>
+  - `async update_rule()` (line 216) @<ast.Call object at 0x10cb3c450>
+  - `async delete_rule()` (line 255) @<ast.Call object at 0x10cb3c990>
+  - `async get_memory_stats()` (line 271) @<ast.Call object at 0x10cb9ec50>
+  - `async get_conflicts()` (line 295) @<ast.Call object at 0x10cb78650>
+  - `async get_enums()` (line 328) @<ast.Call object at 0x10cadcfd0>
+  - `async get_optimization_suggestions()` (line 336) @<ast.Call object at 0x10cb4e010>
+  - `async preview_optimization()` (line 353) @<ast.Call object at 0x10c92be50>
+  - `async reorder_rules()` (line 405) @<ast.Call object at 0x10caefed0>
+  - `async preview_import()` (line 416) @<ast.Call object at 0x10cc075d0>
+  - `async apply_import()` (line 512) @<ast.Call object at 0x10cb5b610>
+  - `async start_web_server()` (line 589)
+- Methods:
+  - `MemoryWebServer.__init__()` (line 31)
+  - `async MemoryWebServer.initialize()` (line 38)
+  - `async MemoryWebServer.start()` (line 51)
+
+### workspace_qdrant_mcp/utils/migration.py
+- Functions: 84
+- Methods: 80
+- Classes: 10
+- Lines: 2784
+- Functions:
+  - `to_dict()` (line 69)
+  - `to_dict()` (line 84)
+  - `to_dict()` (line 121)
+  - `add_change()` (line 130)
+  - `add_validation_result()` (line 134)
+  - `add_warning()` (line 138)
+  - `add_error()` (line 142)
+  - `__init__()` (line 151)
+  - `generate_diff()` (line 159)
+  - `format_report_text()` (line 190)
+  - `format_report_json()` (line 312)
+  - `_get_change_symbol()` (line 327)
+  - `__init__()` (line 350)
+  - `notify_migration_started()` (line 358)
+  - `notify_migration_success()` (line 369)
+  - `notify_migration_failure()` (line 390)
+  - `notify_warnings()` (line 412)
+  - `notify_deprecated_features()` (line 423)
+  - `notify_rollback_available()` (line 435)
+  - `format_notification()` (line 447)
+  - `__init__()` (line 519)
+  - `detect_config_version()` (line 538)
+  - `needs_migration()` (line 584)
+  - `get_migration_path()` (line 599)
+  - `_detect_deprecated_fields()` (line 669)
+  - `_check_nested_dict()` (line 680)
+  - `_detect_v2_indicators()` (line 694)
+  - `_check_nested_path()` (line 705)
+  - `_detect_v2_sections()` (line 727)
+  - `migrate_collection_config()` (line 739)
+  - `_map_prefixed_collections()` (line 843)
+  - `_validate_migrated_collection_types()` (line 878)
+  - `_assess_migration_complexity()` (line 923)
+  - `remove_deprecated_fields()` (line 949)
+  - `_remove_deprecated_fields_from_config()` (line 1013)
+  - `_remove_from_section()` (line 1029)
+  - `_generate_field_specific_warning()` (line 1061)
+  - `_validate_functionality_preservation()` (line 1131)
+  - `_has_collection_config_replacement()` (line 1181)
+  - `_has_ingestion_depth_config()` (line 1190)
+  - `_has_pattern_config_replacement()` (line 1195)
+  - `_issue_deprecation_warnings()` (line 1203)
+  - `_apply_fallback_handling()` (line 1235)
+  - `_validate_cleaned_config()` (line 1302)
+  - `migrate_pattern_config()` (line 1345)
+  - `_validate_and_convert_patterns()` (line 1483)
+  - `_convert_extensions_to_patterns()` (line 1514)
+  - `_convert_ecosystems_to_indicators()` (line 1545)
+  - `_apply_pattern_priorities()` (line 1585)
+  - `_is_valid_pattern()` (line 1619)
+  - `_patterns_match()` (line 1645)
+  - `backup_dir()` (line 1666) @property
+  - `set_backup_dir()` (line 1679)
+  - `backup_config()` (line 1688)
+  - `rollback_config()` (line 1745)
+  - `list_backups()` (line 1793)
+  - `validate_backup()` (line 1831)
+  - `get_backup_info()` (line 1877)
+  - `cleanup_old_backups()` (line 1892)
+  - `migrate_with_backup()` (line 1935)
+  - `_ensure_backup_directory()` (line 2048)
+  - `_update_backup_metadata()` (line 2059)
+  - `_remove_backups_from_metadata()` (line 2089)
+  - `_load_current_config()` (line 2128)
+  - `_write_config_file()` (line 2150)
+  - `migration_history_dir()` (line 2180) @property
+  - `set_migration_history_dir()` (line 2193)
+  - `generate_migration_report()` (line 2202)
+  - `_analyze_configuration_changes()` (line 2280)
+  - `_compare_nested_dict()` (line 2288)
+  - `_analyze_deprecated_field_handling()` (line 2355)
+  - `_analyze_migration_validation()` (line 2375)
+  - `_get_field_replacement_info()` (line 2408)
+  - `_generate_rollback_instructions()` (line 2433)
+  - `_save_migration_report()` (line 2453)
+  - `_update_migration_history_index()` (line 2473)
+  - `get_migration_history()` (line 2517)
+  - `get_migration_report()` (line 2547)
+  - `get_latest_migration_report()` (line 2572)
+  - `search_migration_history()` (line 2583)
+  - `cleanup_old_migration_reports()` (line 2633)
+  - `_rebuild_migration_history_index()` (line 2672)
+  - `_dict_to_migration_report()` (line 2715)
+  - `_ensure_migration_history_directory()` (line 2775)
+- Methods:
+  - `ChangeEntry.to_dict()` (line 69)
+  - `ValidationResult.to_dict()` (line 84)
+  - `MigrationReport.to_dict()` (line 121)
+  - `MigrationReport.add_change()` (line 130)
+  - `MigrationReport.add_validation_result()` (line 134)
+  - `MigrationReport.add_warning()` (line 138)
+  - `MigrationReport.add_error()` (line 142)
+  - `ReportGenerator.__init__()` (line 151)
+  - `ReportGenerator.generate_diff()` (line 159)
+  - `ReportGenerator.format_report_text()` (line 190)
+  - `ReportGenerator.format_report_json()` (line 312)
+  - `ReportGenerator._get_change_symbol()` (line 327)
+  - `NotificationSystem.__init__()` (line 350)
+  - `NotificationSystem.notify_migration_started()` (line 358)
+  - `NotificationSystem.notify_migration_success()` (line 369)
+  - `NotificationSystem.notify_migration_failure()` (line 390)
+  - `NotificationSystem.notify_warnings()` (line 412)
+  - `NotificationSystem.notify_deprecated_features()` (line 423)
+  - `NotificationSystem.notify_rollback_available()` (line 435)
+  - `NotificationSystem.format_notification()` (line 447)
+  - `ConfigMigrator.__init__()` (line 519)
+  - `ConfigMigrator.detect_config_version()` (line 538)
+  - `ConfigMigrator.needs_migration()` (line 584)
+  - `ConfigMigrator.get_migration_path()` (line 599)
+  - `ConfigMigrator._detect_deprecated_fields()` (line 669)
+  - `ConfigMigrator._detect_v2_indicators()` (line 694)
+  - `ConfigMigrator._detect_v2_sections()` (line 727)
+  - `ConfigMigrator.migrate_collection_config()` (line 739)
+  - `ConfigMigrator._map_prefixed_collections()` (line 843)
+  - `ConfigMigrator._validate_migrated_collection_types()` (line 878)
+  - `ConfigMigrator._assess_migration_complexity()` (line 923)
+  - `ConfigMigrator.remove_deprecated_fields()` (line 949)
+  - `ConfigMigrator._remove_deprecated_fields_from_config()` (line 1013)
+  - `ConfigMigrator._generate_field_specific_warning()` (line 1061)
+  - `ConfigMigrator._validate_functionality_preservation()` (line 1131)
+  - `ConfigMigrator._has_collection_config_replacement()` (line 1181)
+  - `ConfigMigrator._has_ingestion_depth_config()` (line 1190)
+  - `ConfigMigrator._has_pattern_config_replacement()` (line 1195)
+  - `ConfigMigrator._issue_deprecation_warnings()` (line 1203)
+  - `ConfigMigrator._apply_fallback_handling()` (line 1235)
+  - `ConfigMigrator._validate_cleaned_config()` (line 1302)
+  - `ConfigMigrator.migrate_pattern_config()` (line 1345)
+  - `ConfigMigrator._validate_and_convert_patterns()` (line 1483)
+  - `ConfigMigrator._convert_extensions_to_patterns()` (line 1514)
+  - `ConfigMigrator._convert_ecosystems_to_indicators()` (line 1545)
+  - `ConfigMigrator._apply_pattern_priorities()` (line 1585)
+  - `ConfigMigrator._is_valid_pattern()` (line 1619)
+  - `ConfigMigrator._patterns_match()` (line 1645)
+  - `ConfigMigrator.backup_dir()` (line 1666) @property
+  - `ConfigMigrator.set_backup_dir()` (line 1679)
+  - `ConfigMigrator.backup_config()` (line 1688)
+  - `ConfigMigrator.rollback_config()` (line 1745)
+  - `ConfigMigrator.list_backups()` (line 1793)
+  - `ConfigMigrator.validate_backup()` (line 1831)
+  - `ConfigMigrator.get_backup_info()` (line 1877)
+  - `ConfigMigrator.cleanup_old_backups()` (line 1892)
+  - `ConfigMigrator.migrate_with_backup()` (line 1935)
+  - `ConfigMigrator._ensure_backup_directory()` (line 2048)
+  - `ConfigMigrator._update_backup_metadata()` (line 2059)
+  - `ConfigMigrator._remove_backups_from_metadata()` (line 2089)
+  - `ConfigMigrator._load_current_config()` (line 2128)
+  - `ConfigMigrator._write_config_file()` (line 2150)
+  - `ConfigMigrator.migration_history_dir()` (line 2180) @property
+  - `ConfigMigrator.set_migration_history_dir()` (line 2193)
+  - `ConfigMigrator.generate_migration_report()` (line 2202)
+  - `ConfigMigrator._analyze_configuration_changes()` (line 2280)
+  - `ConfigMigrator._analyze_deprecated_field_handling()` (line 2355)
+  - `ConfigMigrator._analyze_migration_validation()` (line 2375)
+  - `ConfigMigrator._get_field_replacement_info()` (line 2408)
+  - `ConfigMigrator._generate_rollback_instructions()` (line 2433)
+  - `ConfigMigrator._save_migration_report()` (line 2453)
+  - `ConfigMigrator._update_migration_history_index()` (line 2473)
+  - `ConfigMigrator.get_migration_history()` (line 2517)
+  - `ConfigMigrator.get_migration_report()` (line 2547)
+  - `ConfigMigrator.get_latest_migration_report()` (line 2572)
+  - `ConfigMigrator.search_migration_history()` (line 2583)
+  - `ConfigMigrator.cleanup_old_migration_reports()` (line 2633)
+  - `ConfigMigrator._rebuild_migration_history_index()` (line 2672)
+  - `ConfigMigrator._dict_to_migration_report()` (line 2715)
+  - `ConfigMigrator._ensure_migration_history_directory()` (line 2775)
+
+### workspace_qdrant_mcp/validation/project_isolation.py
+- Functions: 18
+- Methods: 15
+- Classes: 4
+- Lines: 716
+- Functions:
+  - `__init__()` (line 77)
+  - `__init__()` (line 92)
+  - `validate_project_access()` (line 112)
+  - `validate_collection_ownership()` (line 213)
+  - `validate_document_access()` (line 297)
+  - `validate_cross_project_operation()` (line 387)
+  - `sanitize_error_message()` (line 456)
+  - `get_security_events()` (line 488)
+  - `clear_security_events()` (line 517)
+  - `_is_valid_project_name()` (line 531)
+  - `_is_valid_document_id()` (line 537)
+  - `_is_shared_collection()` (line 546)
+  - `_is_project_collection()` (line 551)
+  - `_validate_collection_exists()` (line 563)
+  - `_log_security_event()` (line 581)
+  - `get_validator()` (line 631)
+  - `validate_project_operation()` (line 651)
+  - `validate_collection_operation()` (line 679)
+- Methods:
+  - `SecurityError.__init__()` (line 77)
+  - `ProjectIsolationValidator.__init__()` (line 92)
+  - `ProjectIsolationValidator.validate_project_access()` (line 112)
+  - `ProjectIsolationValidator.validate_collection_ownership()` (line 213)
+  - `ProjectIsolationValidator.validate_document_access()` (line 297)
+  - `ProjectIsolationValidator.validate_cross_project_operation()` (line 387)
+  - `ProjectIsolationValidator.sanitize_error_message()` (line 456)
+  - `ProjectIsolationValidator.get_security_events()` (line 488)
+  - `ProjectIsolationValidator.clear_security_events()` (line 517)
+  - `ProjectIsolationValidator._is_valid_project_name()` (line 531)
+  - `ProjectIsolationValidator._is_valid_document_id()` (line 537)
+  - `ProjectIsolationValidator._is_shared_collection()` (line 546)
+  - `ProjectIsolationValidator._is_project_collection()` (line 551)
+  - `ProjectIsolationValidator._validate_collection_exists()` (line 563)
+  - `ProjectIsolationValidator._log_security_event()` (line 581)
+
+### workspace_qdrant_mcp/validation/decorators.py
+- Functions: 17
+- Methods: 0
+- Classes: 0
+- Lines: 464
+- Functions:
+  - `require_project_access()` (line 40)
+  - `decorator()` (line 60)
+  - `async wrapper()` (line 62) @<ast.Call object at 0x10cc60f90>
+  - `require_collection_access()` (line 113)
+  - `decorator()` (line 137)
+  - `async wrapper()` (line 139) @<ast.Call object at 0x10cc13e90>
+  - `require_document_access()` (line 199)
+  - `decorator()` (line 221)
+  - `async wrapper()` (line 223) @<ast.Call object at 0x10ca7ee10>
+  - `log_security_events()` (line 287)
+  - `decorator()` (line 303)
+  - `async wrapper()` (line 305) @<ast.Call object at 0x10ca9efd0>
+  - `validate_workspace_client()` (line 365)
+  - `decorator()` (line 379)
+  - `async wrapper()` (line 381) @<ast.Call object at 0x10cab1250>
+  - `_extract_project_from_collection()` (line 412)
+  - `_sanitize_log_args()` (line 436)
