@@ -175,7 +175,7 @@ pub fn arbitrary_document_chunk() -> impl Strategy<Value = ArbitraryDocumentChun
         100usize..10000,          // end_offset (will be adjusted)
         0usize..1000,             // chunk_index
         arbitrary_metadata(),      // metadata
-    ).prop_map(|(id, content, start_offset, end_offset, chunk_index, metadata)| {
+    ).prop_map(|(id, content, start_offset, _end_offset, chunk_index, metadata)| {
         let actual_end_offset = start_offset + content.len().max(1);
         ArbitraryDocumentChunk {
             id,
@@ -295,6 +295,7 @@ pub fn arbitrary_test_scenario() -> impl Strategy<Value = ArbitraryTestScenario>
 mod tests {
     use super::*;
     use proptest::test_runner::TestRunner;
+    use proptest::strategy::ValueTree;
 
     #[test]
     fn test_arbitrary_text_generation() {

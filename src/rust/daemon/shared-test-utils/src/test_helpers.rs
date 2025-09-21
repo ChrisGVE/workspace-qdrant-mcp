@@ -15,7 +15,7 @@ where
 {
     timeout(DEFAULT_TEST_TIMEOUT, operation)
         .await
-        .map_err(|_| "Operation timed out".into())?
+        .map_err(|_| Box::<dyn std::error::Error + Send + Sync>::from("Operation timed out"))?
 }
 
 /// Execute an async operation with custom timeout
@@ -25,7 +25,7 @@ where
 {
     timeout(timeout_duration, operation)
         .await
-        .map_err(|_| "Operation timed out".into())?
+        .map_err(|_| Box::<dyn std::error::Error + Send + Sync>::from("Operation timed out"))?
 }
 
 /// Measure execution time of an async operation
@@ -40,7 +40,7 @@ where
 }
 
 /// Retry an operation with exponential backoff
-pub async fn retry_with_backoff<F, T, E>(
+pub async fn retry_with_backoff<F, Fut, T, E>(
     mut operation: F,
     max_attempts: usize,
     initial_delay: Duration,
@@ -86,7 +86,7 @@ where
         tokio::time::sleep(poll_interval).await;
     }
 
-    Err("Condition was not met within timeout".into())
+    Err(Box::<dyn std::error::Error + Send + Sync>::from("Condition was not met within timeout"))
 }
 
 /// Wait for an async condition to become true
@@ -108,7 +108,7 @@ where
         tokio::time::sleep(poll_interval).await;
     }
 
-    Err("Async condition was not met within timeout".into())
+    Err(Box::<dyn std::error::Error + Send + Sync>::from("Async condition was not met within timeout"))
 }
 
 /// Generate a unique test identifier
