@@ -88,9 +88,9 @@ test-log = { version = "0.2", features = ["trace"] }
 tracing-test = "0.2"
 once_cell = "1.19"
 regex = "1.10"
-# Complex dependencies disabled for now:
-# testcontainers = "0.15"
-# testcontainers-modules = { version = "0.3" }
+# Complex dependencies (use latest compatible versions):
+testcontainers = { version = "0.25", features = ["blocking"] }
+testcontainers-modules = { version = "0.13" }
 # wiremock = "0.5"
 # hyper = { version = "0.14", features = ["server", "http1", "http2"] }
 

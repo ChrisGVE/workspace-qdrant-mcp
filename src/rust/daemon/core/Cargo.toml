@@ -78,8 +78,8 @@ proptest = { workspace = true }
 serial_test = { workspace = true }
 test-log = { workspace = true }
 tracing-test = { workspace = true }
-# Complex dependencies disabled:
-# testcontainers = { workspace = true }
-# testcontainers-modules = { workspace = true }
+# Complex dependencies:
+testcontainers = { workspace = true }
+testcontainers-modules = { workspace = true }
 # wiremock = { workspace = true }
 futures = "0.3"
