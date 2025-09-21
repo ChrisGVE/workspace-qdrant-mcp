@@ -1,4 +1,4 @@
-use std::time::Duration;
+// use std::time::Duration; // Unused import
 use tempfile::NamedTempFile;
 use tokio::io::AsyncWriteExt;
 use workspace_qdrant_core::{ProcessingEngine, TaskPriority};
@@ -68,7 +68,7 @@ This demonstrates that the DocumentProcessor can handle markdown files with embe
             
             // The data should contain document processing results
             match data {
-                workspace_qdrant_core::processing::TaskResultData::DocumentProcessed { 
+                workspace_qdrant_core::processing::TaskResultData::DocumentProcessing { 
                     document_id, 
                     collection, 
                     chunks_created,
@@ -101,10 +101,10 @@ async fn test_processing_engine_stats() {
     let stats = engine.get_stats().await.expect("Failed to get stats");
     
     // Verify stats structure
-    assert!(stats.total_tasks_processed >= 0);
-    assert!(stats.total_tasks_queued >= 0);
-    assert!(stats.total_tasks_failed >= 0);
-    assert!(stats.current_queue_size >= 0);
+    assert!(stats.tasks_completed >= 0);
+    assert!(stats.queued_tasks >= 0);
+    assert!(stats.tasks_failed >= 0);
+    assert!(stats.queued_tasks >= 0);
     
     // Shutdown
     engine.shutdown().await.expect("Failed to shutdown engine");
