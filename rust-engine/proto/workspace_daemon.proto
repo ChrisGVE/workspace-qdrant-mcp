@@ -1,0 +1,480 @@
+syntax = "proto3";
+
+package workspace_daemon;
+
+// Import common types
+import "google/protobuf/timestamp.proto";
+import "google/protobuf/empty.proto";
+
+// Document Processing Service
+service DocumentProcessor {
+    // Process a single document
+    rpc ProcessDocument(ProcessDocumentRequest) returns (ProcessDocumentResponse);
+
+    // Process multiple documents in batch
+    rpc ProcessDocuments(stream ProcessDocumentRequest) returns (stream ProcessDocumentResponse);
+
+    // Get processing status
+    rpc GetProcessingStatus(ProcessingStatusRequest) returns (ProcessingStatusResponse);
+
+    // Cancel processing operation
+    rpc CancelProcessing(CancelProcessingRequest) returns (google.protobuf.Empty);
+}
+
+// Search Operations Service
+service SearchService {
+    // Perform hybrid search (semantic + keyword)
+    rpc HybridSearch(HybridSearchRequest) returns (HybridSearchResponse);
+
+    // Perform semantic search only
+    rpc SemanticSearch(SemanticSearchRequest) returns (SemanticSearchResponse);
+
+    // Perform keyword search only
+    rpc KeywordSearch(KeywordSearchRequest) returns (KeywordSearchResponse);
+
+    // Get search suggestions
+    rpc GetSuggestions(SuggestionsRequest) returns (SuggestionsResponse);
+}
+
+// Memory Management Service
+service MemoryService {
+    // Add document to memory
+    rpc AddDocument(AddDocumentRequest) returns (AddDocumentResponse);
+
+    // Update existing document
+    rpc UpdateDocument(UpdateDocumentRequest) returns (UpdateDocumentResponse);
+
+    // Remove document from memory
+    rpc RemoveDocument(RemoveDocumentRequest) returns (google.protobuf.Empty);
+
+    // Get document metadata
+    rpc GetDocument(GetDocumentRequest) returns (GetDocumentResponse);
+
+    // List documents with filtering
+    rpc ListDocuments(ListDocumentsRequest) returns (ListDocumentsResponse);
+
+    // Collection management
+    rpc CreateCollection(CreateCollectionRequest) returns (CreateCollectionResponse);
+    rpc DeleteCollection(DeleteCollectionRequest) returns (google.protobuf.Empty);
+    rpc ListCollections(ListCollectionsRequest) returns (ListCollectionsResponse);
+}
+
+// System Administration Service
+service SystemService {
+    // Health check
+    rpc HealthCheck(google.protobuf.Empty) returns (HealthCheckResponse);
+
+    // Get system status
+    rpc GetStatus(google.protobuf.Empty) returns (SystemStatusResponse);
+
+    // Get metrics
+    rpc GetMetrics(MetricsRequest) returns (MetricsResponse);
+
+    // Configuration management
+    rpc GetConfig(google.protobuf.Empty) returns (ConfigResponse);
+    rpc UpdateConfig(UpdateConfigRequest) returns (google.protobuf.Empty);
+
+    // Project management
+    rpc DetectProject(DetectProjectRequest) returns (DetectProjectResponse);
+    rpc ListProjects(google.protobuf.Empty) returns (ListProjectsResponse);
+}
+
+// Message Types
+
+// Document Processing Messages
+message ProcessDocumentRequest {
+    string file_path = 1;
+    string project_id = 2;
+    string collection_name = 3;
+    DocumentType document_type = 4;
+    map<string, string> metadata = 5;
+    ProcessingOptions options = 6;
+}
+
+message ProcessDocumentResponse {
+    string document_id = 1;
+    ProcessingStatus status = 2;
+    string error_message = 3;
+    int32 chunks_created = 4;
+    map<string, string> extracted_metadata = 5;
+    google.protobuf.Timestamp processed_at = 6;
+}
+
+message ProcessingStatusRequest {
+    string operation_id = 1;
+}
+
+message ProcessingStatusResponse {
+    string operation_id = 1;
+    ProcessingStatus status = 2;
+    int32 total_documents = 3;
+    int32 processed_documents = 4;
+    int32 failed_documents = 5;
+    repeated string error_messages = 6;
+    google.protobuf.Timestamp started_at = 7;
+    google.protobuf.Timestamp updated_at = 8;
+}
+
+message CancelProcessingRequest {
+    string operation_id = 1;
+}
+
+// Search Messages
+message HybridSearchRequest {
+    string query = 1;
+    SearchContext context = 2;
+    SearchOptions options = 3;
+    string project_id = 4;
+    repeated string collection_names = 5;
+}
+
+message HybridSearchResponse {
+    repeated SearchResult results = 1;
+    SearchMetadata metadata = 2;
+    string query_id = 3;
+}
+
+message SemanticSearchRequest {
+    string query = 1;
+    SearchContext context = 2;
+    SearchOptions options = 3;
+    string project_id = 4;
+    repeated string collection_names = 5;
+}
+
+message SemanticSearchResponse {
+    repeated SearchResult results = 1;
+    SearchMetadata metadata = 2;
+    string query_id = 3;
+}
+
+message KeywordSearchRequest {
+    string query = 1;
+    SearchContext context = 2;
+    SearchOptions options = 3;
+    string project_id = 4;
+    repeated string collection_names = 5;
+}
+
+message KeywordSearchResponse {
+    repeated SearchResult results = 1;
+    SearchMetadata metadata = 2;
+    string query_id = 3;
+}
+
+message SuggestionsRequest {
+    string partial_query = 1;
+    SearchContext context = 2;
+    int32 max_suggestions = 3;
+    string project_id = 4;
+}
+
+message SuggestionsResponse {
+    repeated string suggestions = 1;
+    SearchMetadata metadata = 2;
+}
+
+// Memory Management Messages
+message AddDocumentRequest {
+    string file_path = 1;
+    string collection_name = 2;
+    string project_id = 3;
+    DocumentContent content = 4;
+    map<string, string> metadata = 5;
+}
+
+message AddDocumentResponse {
+    string document_id = 1;
+    bool success = 2;
+    string error_message = 3;
+}
+
+message UpdateDocumentRequest {
+    string document_id = 1;
+    DocumentContent content = 2;
+    map<string, string> metadata = 3;
+}
+
+message UpdateDocumentResponse {
+    bool success = 1;
+    string error_message = 2;
+    google.protobuf.Timestamp updated_at = 3;
+}
+
+message RemoveDocumentRequest {
+    string document_id = 1;
+    string collection_name = 2;
+}
+
+message GetDocumentRequest {
+    string document_id = 1;
+    string collection_name = 2;
+}
+
+message GetDocumentResponse {
+    string document_id = 1;
+    DocumentContent content = 2;
+    map<string, string> metadata = 3;
+    google.protobuf.Timestamp created_at = 4;
+    google.protobuf.Timestamp updated_at = 5;
+}
+
+message ListDocumentsRequest {
+    string collection_name = 1;
+    string project_id = 2;
+    int32 limit = 3;
+    int32 offset = 4;
+    DocumentFilter filter = 5;
+}
+
+message ListDocumentsResponse {
+    repeated DocumentInfo documents = 1;
+    int32 total_count = 2;
+    bool has_more = 3;
+}
+
+message CreateCollectionRequest {
+    string collection_name = 1;
+    string project_id = 2;
+    CollectionConfig config = 3;
+}
+
+message CreateCollectionResponse {
+    bool success = 1;
+    string error_message = 2;
+    string collection_id = 3;
+}
+
+message DeleteCollectionRequest {
+    string collection_name = 1;
+    string project_id = 2;
+    bool force = 3;
+}
+
+message ListCollectionsRequest {
+    string project_id = 1;
+}
+
+message ListCollectionsResponse {
+    repeated CollectionInfo collections = 1;
+}
+
+// System Messages
+message HealthCheckResponse {
+    ServiceStatus status = 1;
+    repeated ComponentHealth components = 2;
+    google.protobuf.Timestamp timestamp = 3;
+}
+
+message SystemStatusResponse {
+    ServiceStatus status = 1;
+    SystemMetrics metrics = 2;
+    repeated string active_projects = 3;
+    int32 total_documents = 4;
+    int32 total_collections = 5;
+    google.protobuf.Timestamp uptime_since = 6;
+}
+
+message MetricsRequest {
+    google.protobuf.Timestamp since = 1;
+    repeated string metric_names = 2;
+}
+
+message MetricsResponse {
+    repeated Metric metrics = 1;
+    google.protobuf.Timestamp collected_at = 2;
+}
+
+message ConfigResponse {
+    map<string, string> configuration = 1;
+    string version = 2;
+}
+
+message UpdateConfigRequest {
+    map<string, string> configuration = 1;
+    bool restart_required = 2;
+}
+
+message DetectProjectRequest {
+    string path = 1;
+}
+
+message DetectProjectResponse {
+    ProjectInfo project = 1;
+    bool is_valid_project = 2;
+    repeated string reasons = 3;
+}
+
+message ListProjectsResponse {
+    repeated ProjectInfo projects = 1;
+}
+
+// Common Types
+
+enum DocumentType {
+    DOCUMENT_TYPE_UNSPECIFIED = 0;
+    DOCUMENT_TYPE_CODE = 1;
+    DOCUMENT_TYPE_PDF = 2;
+    DOCUMENT_TYPE_EPUB = 3;
+    DOCUMENT_TYPE_MOBI = 4;
+    DOCUMENT_TYPE_HTML = 5;
+    DOCUMENT_TYPE_TEXT = 6;
+    DOCUMENT_TYPE_MARKDOWN = 7;
+    DOCUMENT_TYPE_JSON = 8;
+    DOCUMENT_TYPE_XML = 9;
+}
+
+enum ProcessingStatus {
+    PROCESSING_STATUS_UNSPECIFIED = 0;
+    PROCESSING_STATUS_PENDING = 1;
+    PROCESSING_STATUS_IN_PROGRESS = 2;
+    PROCESSING_STATUS_COMPLETED = 3;
+    PROCESSING_STATUS_FAILED = 4;
+    PROCESSING_STATUS_CANCELLED = 5;
+}
+
+enum SearchContext {
+    SEARCH_CONTEXT_UNSPECIFIED = 0;
+    SEARCH_CONTEXT_PROJECT = 1;      // Current project collections
+    SEARCH_CONTEXT_COLLECTION = 2;   // Specific target collection
+    SEARCH_CONTEXT_GLOBAL = 3;       // User-configured global collections
+    SEARCH_CONTEXT_ALL = 4;          // All available collections
+}
+
+enum ServiceStatus {
+    SERVICE_STATUS_UNSPECIFIED = 0;
+    SERVICE_STATUS_HEALTHY = 1;
+    SERVICE_STATUS_DEGRADED = 2;
+    SERVICE_STATUS_UNHEALTHY = 3;
+    SERVICE_STATUS_UNAVAILABLE = 4;
+}
+
+message ProcessingOptions {
+    bool enable_lsp_analysis = 1;
+    int32 chunk_size = 2;
+    int32 chunk_overlap = 3;
+    bool extract_metadata = 4;
+    bool detect_language = 5;
+    repeated string custom_parsers = 6;
+}
+
+message SearchOptions {
+    int32 limit = 1;
+    float score_threshold = 2;
+    bool include_metadata = 3;
+    bool include_content = 4;
+    RankingOptions ranking = 5;
+}
+
+message RankingOptions {
+    float semantic_weight = 1;    // Weight for semantic search (0.0-1.0)
+    float keyword_weight = 2;     // Weight for keyword search (0.0-1.0)
+    float rrf_constant = 3;       // Reciprocal rank fusion constant
+}
+
+message SearchResult {
+    string document_id = 1;
+    string collection_name = 2;
+    float score = 3;
+    float semantic_score = 4;
+    float keyword_score = 5;
+    string title = 6;
+    string content_snippet = 7;
+    map<string, string> metadata = 8;
+    string file_path = 9;
+    repeated string matched_terms = 10;
+}
+
+message SearchMetadata {
+    int32 total_results = 1;
+    float max_score = 2;
+    google.protobuf.Timestamp search_time = 3;
+    int32 search_duration_ms = 4;
+    repeated string searched_collections = 5;
+}
+
+message DocumentContent {
+    string text = 1;
+    repeated DocumentChunk chunks = 2;
+    map<string, string> extracted_metadata = 3;
+}
+
+message DocumentChunk {
+    string id = 1;
+    string content = 2;
+    int32 start_offset = 3;
+    int32 end_offset = 4;
+    map<string, string> metadata = 5;
+}
+
+message DocumentInfo {
+    string document_id = 1;
+    string file_path = 2;
+    string title = 3;
+    DocumentType document_type = 4;
+    int64 file_size = 5;
+    map<string, string> metadata = 6;
+    google.protobuf.Timestamp created_at = 7;
+    google.protobuf.Timestamp updated_at = 8;
+}
+
+message DocumentFilter {
+    DocumentType document_type = 1;
+    google.protobuf.Timestamp created_after = 2;
+    google.protobuf.Timestamp created_before = 3;
+    map<string, string> metadata_filters = 4;
+    string file_path_pattern = 5;
+}
+
+message CollectionConfig {
+    int32 vector_size = 1;
+    string distance_metric = 2;
+    bool enable_indexing = 3;
+    map<string, string> metadata_schema = 4;
+}
+
+message CollectionInfo {
+    string collection_name = 1;
+    string collection_id = 2;
+    string project_id = 3;
+    int32 document_count = 4;
+    int64 total_size_bytes = 5;
+    CollectionConfig config = 6;
+    google.protobuf.Timestamp created_at = 7;
+}
+
+message ComponentHealth {
+    string component_name = 1;
+    ServiceStatus status = 2;
+    string message = 3;
+    google.protobuf.Timestamp last_check = 4;
+}
+
+message SystemMetrics {
+    double cpu_usage_percent = 1;
+    int64 memory_usage_bytes = 2;
+    int64 memory_total_bytes = 3;
+    int64 disk_usage_bytes = 4;
+    int64 disk_total_bytes = 5;
+    int32 active_connections = 6;
+    int32 pending_operations = 7;
+}
+
+message Metric {
+    string name = 1;
+    string type = 2;
+    map<string, string> labels = 3;
+    double value = 4;
+    google.protobuf.Timestamp timestamp = 5;
+}
+
+message ProjectInfo {
+    string project_id = 1;
+    string name = 2;
+    string root_path = 3;
+    string git_repository = 4;
+    string git_branch = 5;
+    repeated string submodules = 6;
+    map<string, string> metadata = 7;
+    google.protobuf.Timestamp detected_at = 8;
+}
