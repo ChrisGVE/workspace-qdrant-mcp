@@ -1,0 +1,65 @@
+[store]
+# Store test results and metadata for analysis
+dir = "target/nextest"
+
+[profile.default]
+# Default test execution profile
+retries = 1
+test-threads = "num-cpus"
+slow-timeout = { period = "60s", terminate-after = 2 }
+leak-timeout = "100ms"
+
+# Filter configuration
+filter = 'all()'
+
+# Output configuration
+status-level = "pass"
+final-status-level = "flaky"
+failure-output = "immediate-final"
+success-output = "never"
+
+[profile.default.junit]
+# JUnit XML output for CI integration
+path = "target/nextest/default.xml"
+report-name = "nextest-run"
+store-success-output = false
+store-failure-output = true
+
+[profile.ci]
+# CI-optimized profile for faster feedback
+retries = 3
+test-threads = "num-cpus"
+slow-timeout = { period = "30s", terminate-after = 1 }
+failure-output = "immediate"
+success-output = "never"
+final-status-level = "fail"
+
+[profile.ci.junit]
+path = "target/nextest/ci.xml"
+report-name = "nextest-ci"
+
+[profile.integration]
+# Profile for integration tests requiring external resources
+retries = 2
+test-threads = 4  # Limit parallel execution for external dependencies
+slow-timeout = { period = "120s", terminate-after = 3 }
+filter = 'test(integration)'
+
+[profile.unit]
+# Fast unit test execution
+retries = 0
+test-threads = "num-cpus"
+slow-timeout = { period = "10s", terminate-after = 1 }
+filter = 'test(unit) and not test(integration)'
+failure-output = "immediate"
+
+[profile.performance]
+# Performance and benchmark test profile
+retries = 0
+test-threads = 1  # Single-threaded for consistent benchmarking
+slow-timeout = { period = "300s", terminate-after = 1 }
+filter = 'test(bench) or test(performance)'
+
+[experimental]
+# Enable experimental features
+tool-config-file = true
