@@ -5,11 +5,7 @@
 
 use std::sync::{Arc, Mutex, RwLock};
 use std::thread;
-use std::time::{Duration, Instant};
-use std::ptr;
-use std::mem;
-use std::ffi::{CStr, CString};
-use std::os::raw::c_char;
+use std::time::Instant;
 use std::collections::HashMap;
 
 use tokio::test;
@@ -641,12 +637,13 @@ impl UnsafeCodeAuditor {
     async fn test_concurrent_string_operations(&self) -> Result<bool, UnsafeAuditError> {
         // Test string conversion operations under concurrent access
 
+        let long_string = "very long string ".repeat(1000);
         let test_strings = vec![
             "simple",
             "with spaces",
             "with/unicode/测试",
             "",
-            "very long string ".repeat(1000).as_str(),
+            long_string.as_str(),
         ];
 
         let handles: Vec<_> = test_strings
@@ -685,7 +682,7 @@ impl UnsafeCodeAuditor {
         let violations = self.violations.lock().unwrap();
 
         // Base score starts at 100
-        let mut score = 100.0;
+        let mut score: f64 = 100.0;
 
         // Deduct points for violations
         for violation in violations.iter() {
