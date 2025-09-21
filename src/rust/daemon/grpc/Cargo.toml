@@ -43,6 +43,7 @@ shared-test-utils = { path = "../shared-test-utils" }
 # Testing framework
 tokio-test = { workspace = true }
 tonic-build = { workspace = true }
+futures = "0.3"
 # Complex dependencies disabled:
 # testcontainers = { workspace = true }
 # wiremock = { workspace = true }
