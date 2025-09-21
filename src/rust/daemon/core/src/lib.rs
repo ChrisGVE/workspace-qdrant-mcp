@@ -24,7 +24,7 @@ pub mod unified_config;
 // Temporarily disable watching module for compilation
 // pub mod watching;
 
-use crate::processing::{Pipeline, TaskSubmitter, TaskPriority, TaskSource, TaskPayload, TaskResult};
+use crate::processing::{Pipeline, TaskSubmitter, TaskSource, TaskPayload, TaskResult};
 use crate::ipc::{IpcServer, IpcClient};
 use crate::storage::StorageClient;
 use crate::config::{Config, DaemonConfig};
