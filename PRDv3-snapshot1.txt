@@ -87,15 +87,9 @@ The system implements a **four-component architecture** with clear separation of
 5. Unfinished operations are detected on restart and resumed
 6. Data loss prevention: No work is lost due to crashes, interruptions, or component failures
 
-## 2.3 User Configuration Reference
+## 2.3 Complete System Configuration Reference
 
-**IMPORTANT**: This section provides the COMPLETE user-configurable options for the workspace-qdrant-mcp system. Only settings that users can and should customize are documented here.
-
-**System Assets**: All embedded, non-user-configurable assets (LSP server configurations, file extension mappings, exclusion patterns, etc.) are stored in:
-- `assets/internal_configuration.yaml` - Complete embedded asset definitions
-- `research/languages/` - Comprehensive A-Z language and LSP research (500+ languages analyzed)
-
-These assets are compiled into the application and loaded into the state database during daemon initialization. Users do not need to configure these elements as they represent industry-standard patterns and research-backed defaults.
+**IMPORTANT**: This section provides the COMPLETE and EXHAUSTIVE configuration reference for the workspace-qdrant-mcp system. Every configuration option mentioned throughout this PRD is documented here with full details, defaults, constraints, and examples. This is the single source of truth for all system configuration.
 
 ```yaml
 # =============================================================================
@@ -451,15 +445,37 @@ project_detection:
     # Default: 2
     # Purpose: Priority order for project detection methods
 
-    # Note: Project detection patterns are embedded assets from comprehensive research
-    # See: assets/internal_configuration.yaml for complete 500+ project indicator patterns
-    # Based on: research/languages/ comprehensive A-Z language ecosystem analysis
-
-    additional_patterns:
-      # Optional: Add custom project detection patterns beyond embedded defaults
-      # Default: [] (use embedded patterns from assets/internal_configuration.yaml)
-      # Purpose: Extend default patterns for custom or proprietary project types
-      custom_indicators: []
+    # Hardcoded patterns embedded at compile-time
+    patterns:
+      version_control:
+        - ".git"
+        - ".hg"
+        - ".svn"
+      language_ecosystems:
+        - "package.json"       # Node.js
+        - "pyproject.toml"     # Python
+        - "Cargo.toml"         # Rust
+        - "pom.xml"            # Java Maven
+        - "build.gradle"       # Java Gradle
+        - "go.mod"             # Go
+        - "composer.json"      # PHP
+        - "Gemfile"            # Ruby
+        - "mix.exs"            # Elixir
+        - "dune-project"       # OCaml
+      build_systems:
+        - "Makefile"
+        - "CMakeLists.txt"
+        - "meson.build"
+        - "BUILD.bazel"
+      ci_cd:
+        - ".github/"
+        - ".gitlab-ci.yml"
+        - ".travis.yml"
+        - "azure-pipelines.yml"
+        - "Jenkinsfile"
+      # Valid values: arrays of file/directory patterns
+      # Default: comprehensive list of common project indicators
+      # Purpose: Detect projects when Git repositories not available
       # Note: These patterns are embedded at compile-time for performance
 
   # Project naming and collection creation
@@ -501,19 +517,55 @@ lsp_integration:
   # Purpose: User maintains control over LSP server versions (never auto-install)
   # Philosophy: Respect user autonomy over development environment
 
-  # LSP server selection and configuration
-  # Note: LSP server definitions, features, and installation notes are embedded assets
-  # See: assets/internal_configuration.yaml and research/languages/ for complete details
+  # LSP server configuration
+  servers:
+    python:
+      primary: "ruff-lsp"
+      # Valid values: LSP server executable name
+      # Default: "ruff-lsp"
+      # Rationale: Fastest Python LSP, project-wide analysis, actively developed
+      # Features: symbols, definitions, references, hover, diagnostics
 
-  server_override:
-    # Optional: Override default LSP server for specific languages
-    # Format: language_name: "custom-lsp-server-executable"
-    # Default: {} (use embedded defaults from assets/internal_configuration.yaml)
-    # Examples:
-    # python: "pylsp"          # Override default ruff-lsp
-    # javascript: "flow-lsp"   # Override default typescript-language-server
-    enabled: false
-    overrides: {}
+    rust:
+      primary: "rust-analyzer"
+      # Valid values: LSP server executable name
+      # Default: "rust-analyzer"
+      # Rationale: Official Rust LSP, comprehensive analysis, excellent performance
+      # Features: symbols, definitions, references, hover, inlay_hints, call_hierarchy
+
+    javascript:
+      primary: "typescript-language-server"
+      # Valid values: LSP server executable name
+      # Default: "typescript-language-server"
+      # Rationale: Official TypeScript LSP, works for JS/TS, project-wide intelligence
+      # Features: symbols, definitions, references, hover, refactoring
+
+    typescript:
+      primary: "typescript-language-server"
+      # Valid values: LSP server executable name
+      # Default: "typescript-language-server"
+      # Rationale: Official TypeScript LSP, works for JS/TS, project-wide intelligence
+
+    java:
+      primary: "eclipse.jdt.ls"
+      # Valid values: LSP server executable name
+      # Default: "eclipse.jdt.ls"
+      # Rationale: Most mature Java LSP, excellent project analysis
+      # Features: symbols, definitions, references, hover, workspace_symbols
+
+    c_cpp:
+      primary: "clangd"
+      # Valid values: LSP server executable name
+      # Default: "clangd"
+      # Rationale: LLVM-based, fast, comprehensive C/C++ support
+      # Features: symbols, definitions, references, hover, completion
+
+    go:
+      primary: "gopls"
+      # Valid values: LSP server executable name
+      # Default: "gopls"
+      # Rationale: Official Go LSP, excellent performance and features
+      # Features: symbols, definitions, references, hover, workspace_symbols
 
   # Health monitoring and graceful degradation
   health_monitoring:
@@ -1204,11 +1256,36 @@ platform:
       # Note: Embedded at compile-time for performance
 
     exclusion_patterns:
-      # Note: Global exclusion patterns are embedded at compile-time
-      # Complete patterns available in: assets/internal_configuration.yaml
-      # Includes: version_control, build_outputs, cache_directories, virtual_environments,
-      #           ide_files, temporary_files, binary_files, media_files, archive_files
-      # Coverage: Research-backed patterns for optimal performance
+      global:
+        version_control:
+          - ".git/"
+          - ".hg/"
+          - ".svn/"
+        build_artifacts:
+          - "build/"
+          - "dist/"
+          - "target/"        # Rust
+          - "__pycache__/"   # Python
+          - "node_modules/"  # Node.js
+          - ".next/"         # Next.js
+          - ".nuxt/"         # Nuxt.js
+        ide_files:
+          - ".vscode/"
+          - ".idea/"
+          - "*.swp"
+          - "*.swo"
+          - ".DS_Store"
+          - "thumbs.db"
+        dependencies:
+          - "venv/"
+          - ".venv/"
+          - "env/"
+          - ".tox/"
+          - "vendor/"        # Go, Ruby
+          - "deps/"          # Elixir
+      # Valid values: hierarchical object of exclusion patterns
+      # Purpose: Comprehensive exclusion patterns embedded at compile-time
+      # Note: Research-backed patterns for optimal performance
 
     include_patterns:
       # Custom include patterns can be added by user
@@ -2301,21 +2378,27 @@ document_types:
 - **CPU**: Configurable priority management for background vs. interactive operations
 
 **Intelligent File Filtering**:
+```yaml
+language_ecosystems:
+  python:
+    include_patterns: ["*.py", "*.pyi", "pyproject.toml", "requirements*.txt"]
+    exclude_patterns: ["__pycache__/", ".venv/", "venv/", ".tox/", "build/", "dist/"]
 
-The system uses comprehensive embedded file filtering patterns based on extensive language ecosystem research:
+  rust:
+    include_patterns: ["*.rs", "Cargo.toml", "Cargo.lock"]
+    exclude_patterns: ["target/", "Cargo.lock"]
 
-- **Language-Specific Patterns**: 500+ file extension mappings and ecosystem patterns
-- **Build System Detection**: Automatic recognition of Maven, Gradle, Cargo, npm, etc.
-- **Exclusion Patterns**: Research-backed exclusions for build artifacts, cache directories, etc.
-- **Performance Optimized**: Patterns embedded at compile-time for fastest filtering
+  javascript:
+    include_patterns: ["*.js", "*.ts", "*.jsx", "*.tsx", "package.json"]
+    exclude_patterns: ["node_modules/", "dist/", "build/", ".next/"]
 
-**Complete Pattern Definitions**: See `assets/internal_configuration.yaml` for the complete catalog of:
-- File extension → language mappings (500+ languages)
-- Include/exclude patterns per language ecosystem
-- Build system and dependency detection patterns
-- Global exclusion patterns for common artifacts
-
-**Research Foundation**: All patterns derived from comprehensive analysis in `research/languages/` covering A-Z language ecosystems, LSP servers, and industry-standard build patterns.
+  global_exclusions:
+    - ".git/"
+    - ".DS_Store"
+    - "*.log"
+    - "*.tmp"
+    - "thumbs.db"
+```
 
 ### 5.5 Projects and Nested projects
 
@@ -2607,21 +2690,37 @@ selection_criteria:
   4. active_development: "Regular updates and community support"
   5. platform_compatibility: "Works on target OS or compilable"
 
-**Primary LSP Server Selection** (from `assets/internal_configuration.yaml`):
+selected_lsp_servers:
+  python:
+    primary: "ruff-lsp"
+    rationale: "Fastest Python LSP, project-wide analysis, actively developed"
+    features: ["symbols", "definitions", "references", "hover", "diagnostics"]
 
-The system includes comprehensive LSP server configurations for 40+ languages with full evaluation criteria. Selected primary servers include:
+  rust:
+    primary: "rust-analyzer"
+    rationale: "Official Rust LSP, comprehensive analysis, excellent performance"
+    features: ["symbols", "definitions", "references", "hover", "inlay_hints", "call_hierarchy"]
 
-- **Python**: `ruff-lsp` - Fastest Python LSP with project-wide analysis
-- **Rust**: `rust-analyzer` - Official Rust LSP with comprehensive features
-- **JavaScript/TypeScript**: `typescript-language-server` - Official LSP with refactoring
-- **Java**: `eclipse.jdt.ls` - Most mature Java LSP with workspace analysis
-- **C/C++**: `clangd` - LLVM-based with fast, comprehensive support
+  javascript_typescript:
+    primary: "typescript-language-server"
+    rationale: "Official TypeScript LSP, works for JS/TS, project-wide intelligence"
+    features: ["symbols", "definitions", "references", "hover", "refactoring"]
 
-Complete LSP configurations, alternatives, installation notes, and evaluation criteria are available in `assets/internal_configuration.yaml`.
+  java:
+    primary: "eclipse.jdt.ls"
+    rationale: "Most mature Java LSP, excellent project analysis"
+    features: ["symbols", "definitions", "references", "hover", "workspace_symbols"]
 
-- **Go**: `gopls` - Official Go LSP with excellent performance and features
+  c_cpp:
+    primary: "clangd"
+    rationale: "LLVM-based, fast, comprehensive C/C++ support"
+    features: ["symbols", "definitions", "references", "hover", "completion"]
 
-Complete LSP configurations for all 40+ supported languages are available in `assets/internal_configuration.yaml`.
+  go:
+    primary: "gopls"
+    rationale: "Official Go LSP, excellent performance and features"
+    features: ["symbols", "definitions", "references", "hover", "workspace_symbols"]
+```
 
 ### 8.2 Code Intelligence Extraction
 
@@ -2758,27 +2857,97 @@ removal:
 
 ### 9.3 Hardcoded Pattern System
 
-**Comprehensive Pattern System**:
+**Research-Backed Project Indicators**:
+```yaml
+# Embedded at compile-time: patterns/project_indicators.yaml
+project_indicators:
+  version_control:
+    - ".git"
+    - ".hg"
+    - ".svn"
 
-All language detection, project indicators, LSP configurations, and exclusion patterns are consolidated in the comprehensive internal configuration file:
+  language_ecosystems:
+    - "package.json"        # Node.js
+    - "pyproject.toml"      # Python
+    - "Cargo.toml"          # Rust
+    - "pom.xml"             # Java Maven
+    - "build.gradle"        # Java Gradle
+    - "go.mod"              # Go
+    - "composer.json"       # PHP
+    - "Gemfile"             # Ruby
+    - "mix.exs"             # Elixir
+    - "dune-project"        # OCaml
 
-- **File Location**: `assets/internal_configuration.yaml`
-- **Coverage**: 500+ languages analyzed, 215+ with full signatures
-- **LSP Servers**: 80+ evaluated and documented servers
-- **Tree-sitter**: 180+ grammars analyzed
-- **Project Detection**: 200+ build system and ecosystem patterns
-- **Exclusion Patterns**: Comprehensive coverage of build artifacts, cache directories, IDE files
+  build_systems:
+    - "Makefile"
+    - "CMakeLists.txt"
+    - "meson.build"
+    - "BUILD.bazel"
 
-**Key Configuration Sections**:
-- `project_indicators`: Version control, language ecosystems, build systems, CI/CD
-- `file_extensions`: Comprehensive mapping of 200+ file extensions to languages
-- `lsp_servers`: Full LSP server configurations with evaluation criteria
-- `exclusion_patterns`: Global exclusion patterns for efficient processing
-- `tree_sitter_grammars`: Available grammars with quality tiers
-- `content_signatures`: Shebang patterns and keyword-based detection
-- `build_systems`: Build system detection with associated commands
+  ci_cd:
+    - ".github/"
+    - ".gitlab-ci.yml"
+    - ".travis.yml"
+    - "azure-pipelines.yml"
+    - "Jenkinsfile"
+```
 
-This consolidated approach ensures all language detection and project analysis patterns are maintained in a single, authoritative source derived from comprehensive A-Z language research.
+**LSP-Derived Language Patterns**:
+```yaml
+# Automatically generated from available LSP servers
+# Embedded: patterns/language_extensions.yaml
+language_patterns:
+  python:
+    extensions: [".py", ".pyi", ".pyx"]
+    config_files: ["pyproject.toml", "setup.py", "requirements*.txt", "Pipfile"]
+
+  rust:
+    extensions: [".rs"]
+    config_files: ["Cargo.toml", "Cargo.lock"]
+
+  javascript:
+    extensions: [".js", ".mjs", ".cjs"]
+    config_files: ["package.json", "package-lock.json"]
+
+  typescript:
+    extensions: [".ts", ".tsx", ".d.ts"]
+    config_files: ["tsconfig.json", "package.json"]
+```
+
+**Comprehensive Exclusion Patterns**:
+```yaml
+# Embedded: patterns/exclude_patterns.yaml
+global_exclusions:
+  version_control:
+    - ".git/"
+    - ".hg/"
+    - ".svn/"
+
+  build_artifacts:
+    - "build/"
+    - "dist/"
+    - "target/"  # Rust
+    - "__pycache__/"  # Python
+    - "node_modules/"  # Node.js
+    - ".next/"  # Next.js
+    - ".nuxt/"  # Nuxt.js
+
+  ide_files:
+    - ".vscode/"
+    - ".idea/"
+    - "*.swp"
+    - "*.swo"
+    - ".DS_Store"
+    - "thumbs.db"
+
+  dependencies:
+    - "venv/"
+    - ".venv/"
+    - "env/"
+    - ".tox/"
+    - "vendor/"  # Go, Ruby
+    - "deps/"    # Elixir
+```
 
 ## 10. Technical Specifications and Dependencies
 
@@ -3032,365 +3201,9 @@ The project has not been released to the public, there is no need to consider ba
 - [ ] Memory usage scales predictably with content volume
 - [ ] Processing performance meets or exceeds target benchmarks
 
-## 13. Comprehensive Testing Strategy
+## 13. Risk Assessment and Mitigation Strategies
 
-### 13.1 Testing Philosophy and Coverage Requirements
-
-**100% Code Coverage Mandate**: Every coding element must be covered with systematic testing across all four components, ensuring comprehensive validation of functionality, interconnections, and edge cases.
-
-**Testing Framework Standards**:
-- **Python Components** (3): pytest with 100% coverage requirement
-- **Rust Component** (1): Rust standard test framework with comprehensive coverage
-- **Inter-Component Simulation**: Dummy data simulation for component communication testing
-
-### 13.2 Component-Level Testing (100% Coverage)
-
-**Three-Tier Testing Structure**:
-
-1. **Function-Level Unit Tests**:
-   - Every function has dedicated unit tests including edge cases
-   - Input validation, boundary conditions, error scenarios
-   - Isolated testing with mocked dependencies
-   - Performance testing for critical functions
-
-2. **Module-Level Functional Tests**:
-   - Partial functional tests covering module interactions
-   - Edge case scenarios specific to module functionality
-   - Integration testing within component boundaries
-   - State management and error propagation testing
-
-3. **Component-Level Integration Tests**:
-   - Full functional tests of complete component behavior
-   - End-to-end testing within component scope
-   - Inter-component communication with dummy data simulation
-   - Load testing and resource management validation
-
-**Dummy Data Simulation Strategy**:
-```yaml
-inter_component_testing:
-  mcp_server_to_daemon:
-    - simulate_grpc_responses
-    - mock_qdrant_operations
-    - dummy_project_detection_data
-
-  daemon_to_mcp:
-    - simulate_file_processing_results
-    - mock_lsp_server_responses
-    - dummy_search_results
-
-  cli_to_daemon:
-    - simulate_daemon_status_responses
-    - mock_collection_management_operations
-    - dummy_configuration_validation
-```
-
-### 13.3 CLI Tool Systematic Testing
-
-**Help System Validation**:
-
-1. **Progressive Help Display**:
-   - `wqm` → displays primary domains help
-   - `wqm memory` → displays memory-specific help
-   - `wqm memory add` → displays add command help
-   - All commands support `--help` and `-h` flags
-   - Incomplete commands automatically trigger appropriate help level
-
-2. **Help System Test Matrix**:
-```yaml
-cli_help_testing:
-  primary_commands: ["memory", "ingest", "admin", "library"]
-  subcommands_per_primary: ["add", "remove", "list", "status", "config"]
-  help_triggers: ["incomplete_command", "--help", "-h", "invalid_syntax"]
-  expected_behavior: "context_appropriate_help_display"
-```
-
-**Functional Testing Framework**:
-
-1. **Deterministic Result Testing**:
-   - Predefined test datasets with known expected outputs
-   - Command execution with result validation against benchmarks
-   - Configuration changes with predictable system responses
-   - Database operations with verifiable state changes
-
-2. **Stress Testing Protocol**:
-   - **Forbidden Transaction Testing**: Verify unauthorized operations are blocked
-   - **Error Scenario Testing**: Validate graceful error handling with helpful messages
-   - **Resource Exhaustion Testing**: Test behavior under memory/disk constraints
-   - **Concurrent Operation Testing**: Multiple simultaneous CLI operations
-
-### 13.4 Daemon Testing via Python Interface
-
-**Simplified Test Interface Design**:
-```python
-# Test interface for systematic daemon validation
-class DaemonTestInterface:
-    def test_file_processing_pipeline(self, test_files: List[Path]) -> TestResults
-    def test_grpc_communication(self, mock_requests: List[GrpcRequest]) -> TestResults
-    def test_qdrant_operations(self, mock_collections: List[Collection]) -> TestResults
-    def test_lsp_integration(self, mock_lsp_servers: Dict[str, LSPConfig]) -> TestResults
-    def stress_test_concurrent_operations(self, operation_count: int) -> TestResults
-```
-
-**Systematic Testing Coverage**:
-- **File Processing**: All supported file types and edge cases
-- **gRPC Communication**: All message types, error conditions, timeouts
-- **Qdrant Operations**: Collection management, search operations, data integrity
-- **LSP Integration**: Symbol extraction, project analysis, error recovery
-- **State Management**: SQLite operations, configuration persistence, recovery
-
-### 13.5 MCP Server Testing Strategy
-
-**MCP Testing Framework Research and Implementation**:
-
-1. **Available MCP Testing Tools** (Research Completed):
-
-**Production-Ready Testing Ecosystem Available**:
-   - **MCP Inspector**: Official React-based debugging tool with JSON-RPC message inspection
-   - **FastMCP Built-in Testing**: In-memory testing patterns with direct server-client connection
-   - **pytest-mcp**: AI-powered evaluation framework with automatic metrics collection
-   - **MCP Testing Framework**: Comprehensive automated testing with coverage analysis
-   - **Python Testing MCP Server**: AI-generated test cases with intelligent mutation testing
-
-2. **Selected Testing Stack for workspace-qdrant-mcp**:
-```yaml
-primary_testing_stack:
-  foundation_testing:
-    - FastMCP in-memory testing patterns
-    - MCP Inspector for interactive debugging
-    - Direct server-client connection without separate processes
-
-  comprehensive_testing:
-    - pytest-mcp for AI-powered evaluation
-    - Docker-based integration testing for Qdrant validation
-    - TypeScript schemas with Zod runtime validation
-
-  performance_testing:
-    - k6 for load testing (<200ms response time targets)
-    - Real-world benchmarks (20.5% faster task completion validation)
-    - Concurrent client simulation
-
-  ci_cd_integration:
-    - GitHub Actions workflows for automated testing
-    - Pre-commit hooks for protocol compliance
-    - Docker-based testing environments
-```
-
-3. **Implementation Strategy** (No Custom Development Required):
-   - **Week 1-2**: Foundation testing with FastMCP + MCP Inspector
-   - **Week 3-4**: Comprehensive testing with pytest-mcp + Docker integration
-   - **Week 5-6**: Advanced AI-powered testing + production monitoring
-   - Full protocol compliance validation without custom framework development
-
-### 13.6 Context Injector Testing
-
-**Output Validation Framework**:
-```yaml
-context_injector_testing:
-  rule_extraction:
-    - complete_collection_rule_retrieval
-    - rule_priority_ordering_validation
-    - memory_rule_formatting_verification
-
-  output_validation:
-    - memory_rule_syntax_correctness
-    - token_count_compliance_testing
-    - rule_conflict_resolution_verification
-
-  edge_case_testing:
-    - empty_collection_handling
-    - corrupted_rule_data_recovery
-    - large_ruleset_performance_testing
-```
-
-**Testing Deliverables**:
-- [ ] All rules from target collection successfully extracted
-- [ ] Output format compliance with Claude Code expectations
-- [ ] Token count optimization and validation
-- [ ] Error handling for edge cases and data corruption
-
-### 13.7 Testing Infrastructure and CI/CD Integration
-
-**Multi-Language Testing Strategy**:
-- **Python Components**: pytest orchestration with comprehensive framework integration
-- **Rust Component**: Cargo test with standard Rust testing tools and benchmarks
-- **Cross-Platform**: Matrix testing across all supported platforms
-- **Integration**: Coordinated testing between Python and Rust components
-
-**Automated Testing Pipeline**:
-```yaml
-testing_pipeline:
-  unit_tests:
-    trigger: "every_commit"
-    coverage_requirement: "100%"
-    failure_action: "block_merge"
-
-  integration_tests:
-    trigger: "pull_request"
-    components: ["all_four_components"]
-    timeout: "30_minutes"
-
-  stress_tests:
-    trigger: "nightly"
-    duration: "2_hours"
-    resource_monitoring: "enabled"
-
-  mcp_protocol_tests:
-    trigger: "version_change"
-    compliance_validation: "full"
-    regression_testing: "enabled"
-```
-
-**Quality Gates**:
-- [ ] 100% unit test coverage across all components
-- [ ] All integration tests pass with dummy data simulation
-- [ ] CLI help system provides appropriate guidance for all scenarios
-- [ ] Daemon functionality verified through Python test interface
-- [ ] MCP server protocol compliance validated
-- [ ] Context injector output accuracy confirmed
-- [ ] Stress testing passes without critical failures
-- [ ] Performance benchmarks met under load testing
-
-### 13.8 GitHub Workflows and CI/CD Implementation
-
-**Platform Compilation Targets**:
-```yaml
-supported_platforms:
-  tier_1_precompiled:
-    - "Apple Intel (x86_64-apple-darwin)"
-    - "Apple Silicon (aarch64-apple-darwin)"
-    - "Linux x86_64 (x86_64-unknown-linux-gnu)"
-    - "Windows Intel (x86_64-pc-windows-msvc)"
-    - "Windows ARM (aarch64-pc-windows-msvc)"
-
-  source_compilation:
-    - "Other platforms via cargo build from source"
-    - "Custom Linux distributions"
-    - "BSD variants"
-```
-
-**GitHub Actions Workflows**:
-
-1. **Testing Workflow** (`.github/workflows/test.yml`):
-```yaml
-testing_matrix:
-  python_versions: ["3.9", "3.10", "3.11", "3.12"]
-  rust_versions: ["stable", "1.70.0"]  # MSRV
-  platforms:
-    - "ubuntu-latest"
-    - "macos-latest"
-    - "macos-13"      # Intel
-    - "windows-latest"
-
-  test_stages:
-    - name: "Python Unit Tests"
-      command: "pytest tests/unit/ --cov=100%"
-
-    - name: "Rust Unit Tests"
-      command: "cargo test --all-features"
-
-    - name: "Integration Tests"
-      command: "pytest tests/integration/"
-
-    - name: "MCP Protocol Tests"
-      command: "pytest tests/mcp/ --mcp-compliance"
-```
-
-2. **Compilation Workflow** (`.github/workflows/build.yml`):
-```yaml
-compilation_matrix:
-  targets:
-    - target: "x86_64-apple-darwin"
-      runner: "macos-13"          # Intel Mac
-
-    - target: "aarch64-apple-darwin"
-      runner: "macos-latest"      # Apple Silicon
-
-    - target: "x86_64-unknown-linux-gnu"
-      runner: "ubuntu-latest"
-
-    - target: "x86_64-pc-windows-msvc"
-      runner: "windows-latest"
-
-    - target: "aarch64-pc-windows-msvc"
-      runner: "windows-latest"
-      cross_compile: true
-
-  build_steps:
-    - name: "Rust Daemon Compilation"
-      command: "cargo build --release --target ${{ matrix.target }}"
-
-    - name: "Python Package Build"
-      command: "uv build --wheel"
-
-    - name: "Artifact Upload"
-      path: "target/${{ matrix.target }}/release/"
-```
-
-3. **Documentation Workflow** (`.github/workflows/docs.yml`):
-```yaml
-documentation_generation:
-  rust_docs:
-    command: "cargo doc --all-features --no-deps"
-    output: "docs/rust/"
-
-  python_docs:
-    command: "sphinx-build -b html docs/ docs/_build/"
-    output: "docs/python/"
-
-  api_docs:
-    command: "fastmcp docs generate"
-    output: "docs/api/"
-
-  deployment:
-    target: "GitHub Pages"
-    branch: "gh-pages"
-    domain: "workspace-qdrant-mcp.docs"
-```
-
-4. **Release Workflow** (`.github/workflows/release.yml`):
-```yaml
-release_automation:
-  trigger: "tags/v*"
-
-  pre_release_validation:
-    - "All tests pass on all platforms"
-    - "Documentation builds successfully"
-    - "Version numbers consistent across components"
-    - "Changelog updated"
-
-  asset_generation:
-    - "Rust daemon binaries for all 5 platforms"
-    - "Python wheel distributions"
-    - "Source code archives"
-    - "Documentation static sites"
-    - "Installation scripts per platform"
-
-  distribution:
-    - "GitHub Releases with platform-specific assets"
-    - "PyPI package publication"
-    - "Crates.io publication"
-    - "Documentation deployment"
-```
-
-**Quality Gates**:
-- [ ] All tests pass on all 5 compilation targets
-- [ ] Rust daemon compiles successfully for all platforms
-- [ ] Python components install and run on all platforms
-- [ ] Documentation generates without errors
-- [ ] Performance benchmarks meet targets across platforms
-- [ ] Release artifacts are correctly generated and signed
-- [ ] Cross-platform integration testing validates component communication
-
-**Development Workflow Integration**:
-- **Pull Request Triggers**: Full testing matrix on PR creation
-- **Main Branch Protection**: Requires all checks to pass before merge
-- **Release Triggers**: Automated release process on version tags
-- **Documentation Updates**: Automatic docs deployment on main branch changes
-- **Dependency Updates**: Automated security and dependency update PRs
-
-## 14. Risk Assessment and Mitigation Strategies
-
-### 14.1 Technical Risks
+### 13.1 Technical Risks
 
 **Multi-Process Architecture Complexity**:
 - **Risk**: Coordination between Python MCP and Rust daemon creates reliability issues

@@ -279,7 +279,7 @@ class ServiceDiscoveryClient:
             except socket.timeout:
                 logger.debug(f"Network discovery timeout for project {project_id}")
             except json.JSONDecodeError as e:
-                logger.warning(f"Invalid discovery response {error=str(e)"))
+                logger.warning(f"Invalid discovery response {error=str(e)}")
             
             sock.close()
             
