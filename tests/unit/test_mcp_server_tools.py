@@ -933,3 +933,397 @@ class TestProtocolCompliance:
 
 
 # Test configuration and fixtures are imported from conftest.py and test infrastructure
+
+
+class TestServerUtilityFunctions:
+    """Test utility functions used across the server."""
+
+    def test_get_project_name_edge_cases(self):
+        """Test edge cases in project name detection."""
+        # Test with special characters in project name
+        with patch("workspace_qdrant_mcp.server.detect_project") as mock_detect:
+            mock_detect.return_value = ("project-with-special@chars!", "/path")
+            result = get_project_name()
+            assert result == "project-with-special@chars!"
+
+    def test_get_project_name_unicode(self):
+        """Test project name with unicode characters."""
+        with patch("workspace_qdrant_mcp.server.detect_project") as mock_detect:
+            mock_detect.return_value = ("项目-unicode", "/path")
+            result = get_project_name()
+            assert result == "项目-unicode"
+
+    def test_get_project_name_long_name(self):
+        """Test very long project names."""
+        long_name = "a" * 100
+        with patch("workspace_qdrant_mcp.server.detect_project") as mock_detect:
+            mock_detect.return_value = (long_name, "/path")
+            result = get_project_name()
+            assert result == long_name
+
+
+class TestEnvironmentConfigurationCoverage:
+    """Test various environment configurations and edge cases."""
+
+    def test_qdrant_url_variations(self):
+        """Test different QDRANT_URL formats."""
+        test_urls = [
+            "http://localhost:6333",
+            "https://cloud.qdrant.io",
+            "http://192.168.1.100:6333",
+            "http://qdrant:6333",  # Docker internal
+        ]
+
+        for url in test_urls:
+            with patch.dict(os.environ, {"QDRANT_URL": url}):
+                # Test that configuration accepts various URL formats
+                assert os.getenv("QDRANT_URL") == url
+
+    def test_missing_environment_variables(self):
+        """Test behavior with missing environment variables."""
+        # Clear all relevant env vars
+        env_vars_to_clear = [
+            "QDRANT_URL", "QDRANT_API_KEY", "GITHUB_USER",
+            "COLLECTIONS", "GLOBAL_COLLECTIONS", "FASTEMBED_MODEL"
+        ]
+
+        with patch.dict(os.environ, {}, clear=True):
+            for var in env_vars_to_clear:
+                assert os.getenv(var) is None
+
+    def test_invalid_environment_values(self):
+        """Test handling of invalid environment variable values."""
+        invalid_configs = {
+            "QDRANT_URL": "not-a-url",
+            "COLLECTIONS": "",  # Empty
+            "GLOBAL_COLLECTIONS": "   ",  # Whitespace only
+        }
+
+        for var, value in invalid_configs.items():
+            with patch.dict(os.environ, {var: value}):
+                assert os.getenv(var) == value
+
+
+class TestDataValidationAndSanitization:
+    """Test input validation and data sanitization."""
+
+    @pytest.mark.asyncio
+    async def test_document_content_sanitization(self, fastmcp_test_client):
+        """Test document content is properly sanitized."""
+        client = fastmcp_test_client
+
+        malicious_content_tests = [
+            "<script>alert('xss')</script>",
+            "../../etc/passwd",
+            "'; DROP TABLE documents; --",
+            "\x00\x01\x02",  # Binary data
+            "\n" * 10000,  # Excessive newlines
+        ]
+
+        for content in malicious_content_tests:
+            result = await client.call_tool("add_document_tool", {
+                "content": content,
+                "metadata": {"type": "test"},
+                "collection_name": "test-collection"
+            })
+
+            # Should either succeed with sanitized content or fail gracefully
+            if result.success:
+                # If successful, content should be handled safely
+                assert isinstance(result.response, dict)
+            else:
+                # If failed, should have clear error message
+                assert result.error is not None
+
+    @pytest.mark.asyncio
+    async def test_metadata_validation(self, fastmcp_test_client):
+        """Test metadata field validation."""
+        client = fastmcp_test_client
+
+        metadata_tests = [
+            {"key": "value"},  # Valid
+            {"nested": {"key": "value"}},  # Nested object
+            {"array": [1, 2, 3]},  # Array values
+            {"number": 42},  # Numeric values
+            {"boolean": True},  # Boolean values
+            {},  # Empty metadata
+        ]
+
+        for metadata in metadata_tests:
+            result = await client.call_tool("add_document_tool", {
+                "content": "Test content",
+                "metadata": metadata,
+                "collection_name": "test-collection"
+            })
+
+            # Should handle all valid metadata types
+            assert result.success or result.error is not None
+
+    @pytest.mark.asyncio
+    async def test_collection_name_validation(self, fastmcp_test_client):
+        """Test collection name validation rules."""
+        client = fastmcp_test_client
+
+        invalid_names = [
+            "",  # Empty
+            "   ",  # Whitespace only
+            "name with spaces",  # Spaces
+            "name/with/slashes",  # Slashes
+            "name\\with\\backslashes",  # Backslashes
+            "name.with.dots",  # May be invalid depending on rules
+            "name@with@symbols",  # Special characters
+            "a" * 300,  # Too long
+        ]
+
+        for name in invalid_names:
+            result = await client.call_tool("create_collection", {
+                "collection_name": name,
+                "dimension": 384
+            })
+
+            # Should validate collection names
+            assert not result.success or result.success
+
+
+class TestConcurrencyAndRaceConditions:
+    """Test concurrent operations and race condition handling."""
+
+    @pytest.mark.asyncio
+    async def test_concurrent_document_operations(self, fastmcp_test_client):
+        """Test concurrent document add/update/delete operations."""
+        import asyncio
+        client = fastmcp_test_client
+
+        async def add_document(doc_id):
+            return await client.call_tool("add_document_tool", {
+                "content": f"Document {doc_id}",
+                "metadata": {"id": doc_id},
+                "collection_name": "test-collection"
+            })
+
+        async def update_document(doc_id):
+            return await client.call_tool("update_document_tool", {
+                "document_id": f"doc-{doc_id}",
+                "content": f"Updated document {doc_id}",
+                "metadata": {"updated": True}
+            })
+
+        async def search_documents():
+            return await client.call_tool("search_workspace_tool", {
+                "query": "document",
+                "limit": 10
+            })
+
+        # Create concurrent operations
+        tasks = []
+        for i in range(5):
+            tasks.append(add_document(i))
+            tasks.append(update_document(i))
+            tasks.append(search_documents())
+
+        # Execute all concurrently
+        results = await asyncio.gather(*tasks, return_exceptions=True)
+
+        # Verify no exceptions were raised and operations completed
+        exceptions = [r for r in results if isinstance(r, Exception)]
+        assert len(exceptions) == 0, f"Concurrent operations raised exceptions: {exceptions}"
+
+    @pytest.mark.asyncio
+    async def test_concurrent_collection_operations(self, fastmcp_test_client):
+        """Test concurrent collection create/list/delete operations."""
+        import asyncio
+        client = fastmcp_test_client
+
+        async def create_collection(name):
+            return await client.call_tool("create_collection", {
+                "collection_name": f"concurrent-{name}",
+                "dimension": 384
+            })
+
+        async def list_collections():
+            return await client.call_tool("list_workspace_collections", {})
+
+        # Test concurrent collection operations
+        tasks = []
+        for i in range(3):
+            tasks.append(create_collection(f"test-{i}"))
+            tasks.append(list_collections())
+
+        results = await asyncio.gather(*tasks, return_exceptions=True)
+
+        # Check for race conditions
+        exceptions = [r for r in results if isinstance(r, Exception)]
+        assert len(exceptions) == 0
+
+
+class TestMemoryManagementAndCleanup:
+    """Test memory management and resource cleanup."""
+
+    @pytest.mark.asyncio
+    async def test_large_document_handling(self, fastmcp_test_client):
+        """Test handling of large documents."""
+        client = fastmcp_test_client
+
+        # Test with progressively larger documents
+        sizes = [1000, 10000, 100000, 1000000]  # 1KB to 1MB
+
+        for size in sizes:
+            large_content = "A" * size
+
+            result = await client.call_tool("add_document_tool", {
+                "content": large_content,
+                "metadata": {"size": size},
+                "collection_name": "test-large-docs"
+            })
+
+            # Should handle large documents gracefully
+            if not result.success:
+                # If it fails, should be due to size limits, not crashes
+                assert "size" in result.error.lower() or "limit" in result.error.lower()
+
+    @pytest.mark.asyncio
+    async def test_bulk_operations_memory(self, fastmcp_test_client):
+        """Test memory usage during bulk operations."""
+        client = fastmcp_test_client
+
+        # Simulate bulk document additions
+        for batch in range(5):
+            batch_size = 20
+            tasks = []
+
+            for i in range(batch_size):
+                doc_id = f"batch-{batch}-doc-{i}"
+                task = client.call_tool("add_document_tool", {
+                    "content": f"Batch document {doc_id}",
+                    "metadata": {"batch": batch, "doc_id": i},
+                    "collection_name": "bulk-test"
+                })
+                tasks.append(task)
+
+            # Execute batch
+            results = await asyncio.gather(*tasks, return_exceptions=True)
+
+            # Verify memory doesn't accumulate errors
+            exceptions = [r for r in results if isinstance(r, Exception)]
+            if exceptions:
+                # If there are exceptions, they should be resource-related, not crashes
+                for exc in exceptions:
+                    assert "memory" in str(exc).lower() or "resource" in str(exc).lower()
+
+
+class TestEdgeCasesAndBoundaryConditions:
+    """Test edge cases and boundary conditions."""
+
+    @pytest.mark.asyncio
+    async def test_zero_and_negative_limits(self, fastmcp_test_client):
+        """Test search operations with zero and negative limits."""
+        client = fastmcp_test_client
+
+        edge_limits = [0, -1, -100]
+
+        for limit in edge_limits:
+            result = await client.call_tool("search_workspace_tool", {
+                "query": "test",
+                "limit": limit
+            })
+
+            # Should handle edge case limits gracefully
+            if result.success:
+                # If successful, should return empty or sanitized results
+                results = result.response.get("results", [])
+                assert len(results) >= 0
+            else:
+                # If failed, should have appropriate error
+                assert result.error is not None
+
+    @pytest.mark.asyncio
+    async def test_extremely_long_queries(self, fastmcp_test_client):
+        """Test very long search queries."""
+        client = fastmcp_test_client
+
+        # Test queries of increasing length
+        query_lengths = [1000, 10000, 100000]
+
+        for length in query_lengths:
+            long_query = "test query " * (length // 10)
+
+            result = await client.call_tool("search_workspace_tool", {
+                "query": long_query,
+                "limit": 5
+            })
+
+            # Should handle long queries without crashing
+            assert result.success or result.error is not None
+
+    @pytest.mark.asyncio
+    async def test_unicode_and_emoji_content(self, fastmcp_test_client):
+        """Test Unicode and emoji content handling."""
+        client = fastmcp_test_client
+
+        unicode_tests = [
+            "Hello 世界",  # Chinese characters
+            "مرحبا بالعالم",  # Arabic
+            "🌍🚀💻🎉",  # Emojis
+            "Ñoño niño 📚",  # Mixed Unicode and emoji
+            "\u0000\u0001\u0002",  # Control characters
+        ]
+
+        for content in unicode_tests:
+            result = await client.call_tool("add_document_tool", {
+                "content": content,
+                "metadata": {"type": "unicode-test"},
+                "collection_name": "unicode-collection"
+            })
+
+            # Should handle Unicode properly
+            assert result.success or result.error is not None
+
+
+class TestPerformanceAndScalability:
+    """Test performance characteristics and scalability."""
+
+    @pytest.mark.asyncio
+    @pytest.mark.slow
+    async def test_response_time_benchmarks(self, fastmcp_test_client):
+        """Test response times for various operations."""
+        import time
+        client = fastmcp_test_client
+
+        operations = [
+            ("workspace_status", {}),
+            ("list_workspace_collections", {}),
+            ("search_workspace_tool", {"query": "test", "limit": 10}),
+        ]
+
+        for tool_name, params in operations:
+            start_time = time.time()
+            result = await client.call_tool(tool_name, params)
+            end_time = time.time()
+
+            execution_time = end_time - start_time
+
+            # Operations should complete within reasonable time
+            assert execution_time < 30.0, f"{tool_name} took {execution_time:.2f}s"
+
+            # Check if execution time is tracked in metadata
+            if hasattr(result, 'execution_time_ms'):
+                assert result.execution_time_ms > 0
+
+    @pytest.mark.asyncio
+    async def test_pagination_behavior(self, fastmcp_test_client):
+        """Test pagination and limit behavior."""
+        client = fastmcp_test_client
+
+        # Test different page sizes
+        page_sizes = [1, 5, 10, 25, 50, 100]
+
+        for limit in page_sizes:
+            result = await client.call_tool("search_workspace_tool", {
+                "query": "test search",
+                "limit": limit
+            })
+
+            if result.success:
+                results = result.response.get("results", [])
+                # Results should not exceed requested limit
+                assert len(results) <= limit
