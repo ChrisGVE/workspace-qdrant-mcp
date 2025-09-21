@@ -12,6 +12,7 @@ pub mod manager;
 pub mod comprehensive;
 pub mod detection;
 pub mod project;
+pub mod exclusion;
 
 pub use manager::PatternManager;
 pub use comprehensive::{
@@ -26,6 +27,10 @@ pub use detection::{
 pub use project::{
     ProjectDetector, ProjectInfo, BuildSystemInfo, ProjectType, ProjectConfidence,
     DetectionDetails, PatternMatch, analyze_project_from_files
+};
+pub use exclusion::{
+    ExclusionEngine, ExclusionRule, ExclusionCategory, ExclusionResult,
+    ExclusionStats, should_exclude_file, should_exclude_file_with_context
 };
 
 /// Errors that can occur during pattern operations
