@@ -11,12 +11,12 @@ from unittest.mock import Mock, patch
 
 import pytest
 
-from workspace_qdrant_mcp.cli.parsers.base import ParsedDocument
-from workspace_qdrant_mcp.cli.parsers.html_parser import HtmlParser
-from workspace_qdrant_mcp.cli.parsers.markdown_parser import MarkdownParser
-from workspace_qdrant_mcp.cli.parsers.pdf_parser import PDFParser
-from workspace_qdrant_mcp.cli.parsers.pptx_parser import PptxParser
-from workspace_qdrant_mcp.cli.parsers.text_parser import TextParser
+from wqm_cli.cli.parsers.base import ParsedDocument
+from wqm_cli.cli.parsers.html_parser import HtmlParser
+from wqm_cli.cli.parsers.markdown_parser import MarkdownParser
+from wqm_cli.cli.parsers.pdf_parser import PDFParser
+from wqm_cli.cli.parsers.pptx_parser import PptxParser
+from wqm_cli.cli.parsers.text_parser import TextParser
 
 
 class TestDocumentParserBase:
@@ -104,7 +104,7 @@ class TestTextParser:
     async def test_parse_with_encoding_detection(self, parser):
         """Test automatic encoding detection."""
         with patch(
-            "workspace_qdrant_mcp.cli.parsers.text_parser.chardet.detect"
+            "wqm_cli.cli.parsers.text_parser.chardet.detect"
         ) as mock_detect:
             mock_detect.return_value = {"encoding": "utf-8", "confidence": 0.9}
 
@@ -344,19 +344,19 @@ class TestPDFParser:
         """Test format name."""
         assert parser.format_name == "PDF Document"
 
-    @patch("workspace_qdrant_mcp.cli.parsers.pdf_parser.HAS_PYPDF2", False)
+    @patch("wqm_cli.cli.parsers.pdf_parser.HAS_PYPDF2", False)
     def test_can_parse_without_pypdf2(self, parser):
         """Test parser availability check without PyPDF2."""
         assert not parser.can_parse("test.pdf")
 
-    @patch("workspace_qdrant_mcp.cli.parsers.pdf_parser.HAS_PYPDF2", True)
+    @patch("wqm_cli.cli.parsers.pdf_parser.HAS_PYPDF2", True)
     def test_can_parse_with_pypdf2(self, parser):
         """Test parser availability with PyPDF2."""
         assert parser.can_parse("test.pdf")
         assert not parser.can_parse("test.txt")
 
     @pytest.mark.asyncio
-    @patch("workspace_qdrant_mcp.cli.parsers.pdf_parser.HAS_PYPDF2", False)
+    @patch("wqm_cli.cli.parsers.pdf_parser.HAS_PYPDF2", False)
     async def test_parse_without_pypdf2_raises_error(self, parser):
         """Test that parsing without PyPDF2 raises ImportError."""
         with tempfile.NamedTemporaryFile(suffix=".pdf") as f:
@@ -364,8 +364,8 @@ class TestPDFParser:
                 await parser.parse(f.name)
 
     @pytest.mark.asyncio
-    @patch("workspace_qdrant_mcp.cli.parsers.pdf_parser.HAS_PYPDF2", True)
-    @patch("workspace_qdrant_mcp.cli.parsers.pdf_parser.PyPDF2")
+    @patch("wqm_cli.cli.parsers.pdf_parser.HAS_PYPDF2", True)
+    @patch("wqm_cli.cli.parsers.pdf_parser.PyPDF2")
     async def test_parse_simple_pdf(self, mock_pypdf2, parser):
         """Test parsing a simple PDF."""
         # Mock PyPDF2 components
@@ -395,8 +395,8 @@ class TestPDFParser:
             assert result.parsing_info["total_pages"] == 1
 
     @pytest.mark.asyncio
-    @patch("workspace_qdrant_mcp.cli.parsers.pdf_parser.HAS_PYPDF2", True)
-    @patch("workspace_qdrant_mcp.cli.parsers.pdf_parser.PyPDF2")
+    @patch("wqm_cli.cli.parsers.pdf_parser.HAS_PYPDF2", True)
+    @patch("wqm_cli.cli.parsers.pdf_parser.PyPDF2")
     async def test_parse_encrypted_pdf_with_password(self, mock_pypdf2, parser):
         """Test parsing an encrypted PDF with password."""
         mock_reader = Mock()
@@ -418,8 +418,8 @@ class TestPDFParser:
             mock_reader.decrypt.assert_called_once_with("test123")
 
     @pytest.mark.asyncio
-    @patch("workspace_qdrant_mcp.cli.parsers.pdf_parser.HAS_PYPDF2", True)
-    @patch("workspace_qdrant_mcp.cli.parsers.pdf_parser.PyPDF2")
+    @patch("wqm_cli.cli.parsers.pdf_parser.HAS_PYPDF2", True)
+    @patch("wqm_cli.cli.parsers.pdf_parser.PyPDF2")
     async def test_parse_encrypted_pdf_without_password_raises_error(
         self, mock_pypdf2, parser
     ):
@@ -715,7 +715,7 @@ class TestHtmlParser:
     @pytest.mark.asyncio
     async def test_availability_check_with_mock(self, parser):
         """Test that missing libraries are properly detected."""
-        with patch('workspace_qdrant_mcp.cli.parsers.html_parser.BS4_AVAILABLE', False):
+        with patch('wqm_cli.cli.parsers.html_parser.BS4_AVAILABLE', False):
             with pytest.raises(RuntimeError, match="HTML parsing requires"):
                 await parser.parse("test.html")
 
@@ -737,7 +737,7 @@ class TestPptxParser:
     @pytest.mark.asyncio
     async def test_file_not_found_error(self, parser):
         """Test error handling for missing files."""
-        with patch('workspace_qdrant_mcp.cli.parsers.pptx_parser.PPTX_AVAILABLE', True):
+        with patch('wqm_cli.cli.parsers.pptx_parser.PPTX_AVAILABLE', True):
             with pytest.raises(FileNotFoundError):
                 await parser.parse("/nonexistent/file.pptx")
 
@@ -747,14 +747,14 @@ class TestPptxParser:
         test_file = tmp_path / "test.unsupported"
         test_file.write_text("test content")
 
-        with patch('workspace_qdrant_mcp.cli.parsers.pptx_parser.PPTX_AVAILABLE', True):
+        with patch('wqm_cli.cli.parsers.pptx_parser.PPTX_AVAILABLE', True):
             with pytest.raises(ValueError, match="File format not supported"):
                 await parser.parse(str(test_file))
 
     @pytest.mark.asyncio
     async def test_availability_check_with_mock(self, parser):
         """Test that missing libraries are properly detected."""
-        with patch('workspace_qdrant_mcp.cli.parsers.pptx_parser.PPTX_AVAILABLE', False):
+        with patch('wqm_cli.cli.parsers.pptx_parser.PPTX_AVAILABLE', False):
             with pytest.raises(RuntimeError, match="PPTX parsing requires"):
                 await parser.parse("test.pptx")
 

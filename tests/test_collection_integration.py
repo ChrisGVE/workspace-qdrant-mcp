@@ -10,9 +10,9 @@ from unittest.mock import AsyncMock, MagicMock, Mock
 
 import pytest
 
-from workspace_qdrant_mcp.core.collection_naming import CollectionPermissionError
-from workspace_qdrant_mcp.core.collections import WorkspaceCollectionManager
-from workspace_qdrant_mcp.core.config import Config
+from common.core.collection_naming import CollectionPermissionError
+from common.core.collections import WorkspaceCollectionManager
+from common.core.config import Config
 
 
 class TestCollectionManagerIntegration:

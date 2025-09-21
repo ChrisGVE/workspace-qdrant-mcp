@@ -16,7 +16,7 @@ import time
 from unittest.mock import AsyncMock, MagicMock, Mock, patch
 from typing import Dict, Any, List
 
-from workspace_qdrant_mcp.core.lsp_health_monitor import (
+from common.core.lsp_health_monitor import (
     LspHealthMonitor,
     HealthCheckConfig,
     HealthStatus,
@@ -26,7 +26,7 @@ from workspace_qdrant_mcp.core.lsp_health_monitor import (
     ServerHealthInfo,
     UserNotification,
 )
-from workspace_qdrant_mcp.core.lsp_client import (
+from common.core.lsp_client import (
     AsyncioLspClient,
     ConnectionState,
     CircuitBreakerState,
@@ -34,7 +34,7 @@ from workspace_qdrant_mcp.core.lsp_client import (
     LspTimeoutError,
     ServerCapabilities,
 )
-from workspace_qdrant_mcp.core.error_handling import ErrorCategory, ErrorSeverity
+from common.core.error_handling import ErrorCategory, ErrorSeverity
 
 
 @pytest.fixture

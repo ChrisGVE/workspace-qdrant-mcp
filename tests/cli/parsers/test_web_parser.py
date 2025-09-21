@@ -12,7 +12,7 @@ from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock, patch
 from urllib.parse import urlparse
 
-from common.cli.parsers import (
+from wqm_cli.cli.parsers import (
     WebParser,
     WebIngestionInterface, 
     SecureWebCrawler,
@@ -20,7 +20,7 @@ from common.cli.parsers import (
     CrawlResult,
     create_secure_web_parser
 )
-from common.cli.parsers.exceptions import ParsingError
+from wqm_cli.cli.parsers.exceptions import ParsingError
 
 
 class TestSecurityConfig:
@@ -263,7 +263,7 @@ class TestWebParser:
             await parser.parse("/local/file.html")
     
     @pytest.mark.asyncio
-    @patch('src.workspace_qdrant_mcp.cli.parsers.web_crawler.SecureWebCrawler')
+    @patch('src.wqm_cli.cli.parsers.web_crawler.SecureWebCrawler')
     async def test_parse_single_page(self, mock_crawler_class, parser):
         """Test single page parsing."""
         # Mock successful crawl result
@@ -287,7 +287,7 @@ class TestWebParser:
         assert result.additional_metadata['source_url'] == "https://example.com/test"
     
     @pytest.mark.asyncio
-    @patch('src.workspace_qdrant_mcp.cli.parsers.web_crawler.SecureWebCrawler')
+    @patch('src.wqm_cli.cli.parsers.web_crawler.SecureWebCrawler')
     async def test_parse_recursive_crawl(self, mock_crawler_class, parser):
         """Test recursive crawling."""
         # Mock multiple crawl results
@@ -315,7 +315,7 @@ class TestWebParser:
         assert result.additional_metadata['pages_crawled'] == 3
     
     @pytest.mark.asyncio
-    @patch('src.workspace_qdrant_mcp.cli.parsers.web_crawler.SecureWebCrawler')
+    @patch('src.wqm_cli.cli.parsers.web_crawler.SecureWebCrawler')
     async def test_parse_no_successful_results(self, mock_crawler_class, parser):
         """Test parsing when all crawl attempts fail."""
         mock_result = CrawlResult("https://example.com/test")
@@ -352,7 +352,7 @@ class TestWebIngestionInterface:
         return WebIngestionInterface(config)
     
     @pytest.mark.asyncio
-    @patch('src.workspace_qdrant_mcp.cli.parsers.web_parser.WebParser.parse')
+    @patch('src.wqm_cli.cli.parsers.web_parser.WebParser.parse')
     async def test_ingest_url(self, mock_parse, interface):
         """Test single URL ingestion."""
         mock_doc = MagicMock()
@@ -365,7 +365,7 @@ class TestWebIngestionInterface:
         mock_parse.assert_called_once_with("https://example.com/test")
     
     @pytest.mark.asyncio
-    @patch('src.workspace_qdrant_mcp.cli.parsers.web_parser.WebParser.parse')
+    @patch('src.wqm_cli.cli.parsers.web_parser.WebParser.parse')
     async def test_ingest_site(self, mock_parse, interface):
         """Test multi-page site ingestion."""
         mock_doc = MagicMock()
@@ -386,7 +386,7 @@ class TestWebIngestionInterface:
         )
     
     @pytest.mark.asyncio
-    @patch('src.workspace_qdrant_mcp.cli.parsers.web_parser.WebParser.parse')
+    @patch('src.wqm_cli.cli.parsers.web_parser.WebParser.parse')
     async def test_ingest_with_allowlist(self, mock_parse, interface):
         """Test ingestion with domain allowlist."""
         mock_doc = MagicMock()

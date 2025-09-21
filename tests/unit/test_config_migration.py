@@ -13,7 +13,7 @@ from pathlib import Path
 test_dir = Path(__file__).parent.parent
 sys.path.insert(0, str(test_dir.parent / "src" / "python"))
 
-from workspace_qdrant_mcp.utils.migration import ConfigMigrator, ConfigVersion
+from common.utils.migration import ConfigMigrator, ConfigVersion
 
 class TestCollectionConfigMigration:
     """Test collection configuration migration functionality."""

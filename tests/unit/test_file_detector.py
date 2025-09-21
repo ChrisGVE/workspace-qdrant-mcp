@@ -9,7 +9,7 @@ from unittest.mock import Mock, patch
 
 import pytest
 
-from workspace_qdrant_mcp.cli.parsers.file_detector import (
+from wqm_cli.cli.parsers.file_detector import (
     FileDetector,
     FileTypeDetectionError,
     UnsupportedFileTypeError,
@@ -210,7 +210,7 @@ class TestFileDetector:
         
         assert is_supported_file(image_file) is False
 
-    @patch('workspace_qdrant_mcp.cli.parsers.file_detector.HAS_MAGIC', False)
+    @patch('wqm_cli.cli.parsers.file_detector.HAS_MAGIC', False)
     def test_without_magic_library(self, tmp_path):
         """Test detection when python-magic is not available."""
         detector = FileDetector()

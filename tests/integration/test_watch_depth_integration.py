@@ -15,8 +15,8 @@ from typing import Any, Dict
 
 import pytest
 
-from workspace_qdrant_mcp.core.daemon_client import DaemonClient
-from workspace_qdrant_mcp.core.depth_validation import validate_recursive_depth
+from common.core.daemon_client import DaemonClient
+from common.core.depth_validation import validate_recursive_depth
 from workspace_qdrant_mcp.tools.watch_management import WatchToolsManager
 
 
@@ -311,7 +311,7 @@ class TestDepthValidationWithRealDirectories:
             "directory_count": directory_count
         }
         
-        from workspace_qdrant_mcp.core.depth_validation import get_depth_recommendations
+        from common.core.depth_validation import get_depth_recommendations
         recommendations = get_depth_recommendations(structure_info)
         
         # Should provide reasonable recommendations

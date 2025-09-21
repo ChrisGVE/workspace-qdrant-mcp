@@ -20,7 +20,7 @@ from unittest.mock import AsyncMock, MagicMock, Mock, patch
 
 import pytest
 
-from common.cli.commands.service import ServiceManager
+from wqm_cli.cli.commands.service import ServiceManager
 
 
 class ServiceTestHelper:

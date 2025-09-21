@@ -11,7 +11,7 @@ from unittest.mock import Mock
 
 import pytest
 
-from workspace_qdrant_mcp.cli.parsers import (
+from wqm_cli.cli.parsers import (
     TextParser,
     detect_file_type,
     create_progress_tracker,
@@ -178,7 +178,7 @@ class TestParserInfrastructureIntegration:
     @pytest.mark.asyncio
     async def test_batch_file_processing_simulation(self, tmp_path):
         """Test processing multiple files with batch progress tracking."""
-        from workspace_qdrant_mcp.cli.parsers import BatchProgressTracker
+        from wqm_cli.cli.parsers import BatchProgressTracker
         
         # Create multiple test files
         test_files = []
@@ -227,7 +227,7 @@ class TestParserInfrastructureIntegration:
     @pytest.mark.asyncio
     async def test_error_recovery_and_statistics(self, tmp_path):
         """Test error recovery mechanisms and statistics tracking."""
-        from workspace_qdrant_mcp.cli.parsers import get_error_statistics, reset_error_statistics
+        from wqm_cli.cli.parsers import get_error_statistics, reset_error_statistics
         
         # Reset statistics for clean test
         reset_error_statistics()
@@ -374,7 +374,7 @@ class TestInfrastructurePerformance:
     def test_memory_efficiency(self, tmp_path):
         """Test memory usage of infrastructure components."""
         # This is a basic test - in practice would use memory profiling tools
-        from workspace_qdrant_mcp.cli.parsers import FileDetector, ErrorHandler
+        from wqm_cli.cli.parsers import FileDetector, ErrorHandler
         
         # Create multiple instances to test for memory leaks
         detectors = [FileDetector() for _ in range(100)]

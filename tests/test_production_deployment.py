@@ -32,7 +32,7 @@ from unittest.mock import AsyncMock, MagicMock, mock_open, patch
 import pytest
 import psutil
 
-from common.cli.commands.service import ServiceManager
+from wqm_cli.cli.commands.service import ServiceManager
 from common.observability import (
     health_checker_instance,
     metrics_instance,

@@ -8,7 +8,7 @@ from unittest.mock import Mock, patch
 
 import pytest
 
-from workspace_qdrant_mcp.cli.parsers.progress import (
+from wqm_cli.cli.parsers.progress import (
     BatchProgressTracker,
     ConsoleProgressCallback,
     LoggingProgressCallback,

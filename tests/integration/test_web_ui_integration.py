@@ -22,7 +22,7 @@ import pytest
 from playwright.async_api import async_playwright, Browser, Page, expect
 from typer.testing import CliRunner
 
-from workspace_qdrant_mcp.cli.main import app
+from wqm_cli.cli.main import app
 
 
 class DevServerManager:
@@ -147,13 +147,13 @@ class TestWebCLIIntegration:
         """Set up test runner."""
         self.runner = CliRunner()
     
-    @patch('workspace_qdrant_mcp.cli.commands.web.get_web_ui_path')
+    @patch('wqm_cli.cli.commands.web.get_web_ui_path')
     def test_cli_to_web_workflow(self, mock_get_web_ui_path, test_web_ui_path):
         """Test complete workflow: install -> build -> status -> start."""
         mock_get_web_ui_path.return_value = test_web_ui_path
         
         # 1. Install dependencies
-        with patch('workspace_qdrant_mcp.cli.commands.web.subprocess.run') as mock_subprocess:
+        with patch('wqm_cli.cli.commands.web.subprocess.run') as mock_subprocess:
             mock_subprocess.return_value.returncode = 0
             
             result = self.runner.invoke(app, ["web", "install"])
@@ -161,7 +161,7 @@ class TestWebCLIIntegration:
             assert "Installing Node.js dependencies..." in result.stdout
     
         # 2. Build the project
-        with patch('workspace_qdrant_mcp.cli.commands.web.subprocess.run') as mock_subprocess:
+        with patch('wqm_cli.cli.commands.web.subprocess.run') as mock_subprocess:
             mock_subprocess.return_value.returncode = 0
             
             result = self.runner.invoke(app, ["web", "build"])
@@ -174,13 +174,13 @@ class TestWebCLIIntegration:
         assert "Web UI Status:" in result.stdout
         assert str(test_web_ui_path) in result.stdout
     
-    @patch('workspace_qdrant_mcp.cli.commands.web.get_web_ui_path')
+    @patch('wqm_cli.cli.commands.web.get_web_ui_path')
     def test_build_creates_dist_directory(self, mock_get_web_ui_path, test_web_ui_path):
         """Test that build command creates dist directory."""
         mock_get_web_ui_path.return_value = test_web_ui_path
         
         # Build should create dist directory
-        with patch('workspace_qdrant_mcp.cli.commands.web.subprocess.run') as mock_subprocess:
+        with patch('wqm_cli.cli.commands.web.subprocess.run') as mock_subprocess:
             def create_dist(*args, **kwargs):
                 dist_dir = test_web_ui_path / "dist"
                 dist_dir.mkdir(exist_ok=True)
@@ -212,10 +212,10 @@ class TestCLIWebUIIntegration:
         runner = CliRunner()
         
         # Build via CLI
-        with patch('workspace_qdrant_mcp.cli.commands.web.get_web_ui_path') as mock_get_path:
+        with patch('wqm_cli.cli.commands.web.get_web_ui_path') as mock_get_path:
             mock_get_path.return_value = test_web_ui_path
             
-            with patch('workspace_qdrant_mcp.cli.commands.web.subprocess.run') as mock_subprocess:
+            with patch('wqm_cli.cli.commands.web.subprocess.run') as mock_subprocess:
                 def mock_build(*args, **kwargs):
                     # Simulate build process
                     dist_dir = test_web_ui_path / "dist"
@@ -253,11 +253,11 @@ class TestCLIWebUIIntegration:
         
         runner = CliRunner()
         
-        with patch('workspace_qdrant_mcp.cli.commands.web.get_web_ui_path') as mock_get_path:
+        with patch('wqm_cli.cli.commands.web.get_web_ui_path') as mock_get_path:
             mock_get_path.return_value = test_web_ui_path
             
             # 1. Prepare environment
-            with patch('workspace_qdrant_mcp.cli.commands.web.subprocess.run') as mock_subprocess:
+            with patch('wqm_cli.cli.commands.web.subprocess.run') as mock_subprocess:
                 mock_subprocess.return_value = MagicMock(returncode=0)
                 
                 # Install dependencies
@@ -283,10 +283,10 @@ class TestCLIWebUIIntegration:
         """Test production build and serve workflow."""
         runner = CliRunner()
         
-        with patch('workspace_qdrant_mcp.cli.commands.web.get_web_ui_path') as mock_get_path:
+        with patch('wqm_cli.cli.commands.web.get_web_ui_path') as mock_get_path:
             mock_get_path.return_value = test_web_ui_path
             
-            with patch('workspace_qdrant_mcp.cli.commands.web.subprocess.run') as mock_subprocess:
+            with patch('wqm_cli.cli.commands.web.subprocess.run') as mock_subprocess:
                 def mock_commands(*args, **kwargs):
                     # First call: build
                     # Second call: serve
@@ -333,7 +333,7 @@ class TestFullStackIntegration:
         # Should work regardless of web UI state
         
         # Web status should be independent
-        with patch('workspace_qdrant_mcp.cli.commands.web.get_web_ui_path') as mock_path:
+        with patch('wqm_cli.cli.commands.web.get_web_ui_path') as mock_path:
             mock_path.return_value = Path("/tmp/test-web-ui")
             result = runner.invoke(app, ["web", "status"])
             # Should handle missing web UI gracefully
@@ -355,7 +355,7 @@ class TestFullStackIntegration:
         result = runner.invoke(app, ["--help"])
         assert result.exit_code == 0
         
-        with patch('workspace_qdrant_mcp.cli.commands.web.get_web_ui_path'):
+        with patch('wqm_cli.cli.commands.web.get_web_ui_path'):
             result = runner.invoke(app, ["web", "--help"])
             assert result.exit_code == 0
     
@@ -371,7 +371,7 @@ class TestFullStackIntegration:
         # In a real implementation, this would check config paths
         
         # Web UI should use compatible configuration
-        with patch('workspace_qdrant_mcp.cli.commands.web.get_web_ui_path'):
+        with patch('wqm_cli.cli.commands.web.get_web_ui_path'):
             result = runner.invoke(app, ["web", "status"])
             # Should show compatible status information
 
@@ -384,7 +384,7 @@ class TestWebUIErrorIntegration:
     
     def test_web_ui_missing_graceful_degradation(self):
         """Test CLI handles missing web UI gracefully."""
-        with patch('workspace_qdrant_mcp.cli.commands.web.get_web_ui_path') as mock_path:
+        with patch('wqm_cli.cli.commands.web.get_web_ui_path') as mock_path:
             # Mock missing web UI directory
             mock_path.side_effect = Exception("Web UI not found")
             
@@ -397,10 +397,10 @@ class TestWebUIErrorIntegration:
     
     def test_npm_missing_error_handling(self):
         """Test handling when npm is not available."""
-        with patch('workspace_qdrant_mcp.cli.commands.web.get_web_ui_path') as mock_path:
+        with patch('wqm_cli.cli.commands.web.get_web_ui_path') as mock_path:
             mock_path.return_value = Path("/tmp/test-web")
             
-            with patch('workspace_qdrant_mcp.cli.commands.web.subprocess.run') as mock_subprocess:
+            with patch('wqm_cli.cli.commands.web.subprocess.run') as mock_subprocess:
                 # Mock npm not found
                 mock_subprocess.side_effect = FileNotFoundError("npm not found")
                 
@@ -411,10 +411,10 @@ class TestWebUIErrorIntegration:
     
     def test_build_failure_handling(self):
         """Test handling of build process failures."""
-        with patch('workspace_qdrant_mcp.cli.commands.web.get_web_ui_path') as mock_path:
+        with patch('wqm_cli.cli.commands.web.get_web_ui_path') as mock_path:
             mock_path.return_value = Path("/tmp/test-web")
             
-            with patch('workspace_qdrant_mcp.cli.commands.web.subprocess.run') as mock_subprocess:
+            with patch('wqm_cli.cli.commands.web.subprocess.run') as mock_subprocess:
                 # Mock build failure
                 mock_subprocess.side_effect = subprocess.CalledProcessError(1, "npm run build")
                 

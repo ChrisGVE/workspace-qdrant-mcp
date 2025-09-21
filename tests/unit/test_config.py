@@ -11,7 +11,7 @@ from unittest.mock import patch
 
 import pytest
 
-from workspace_qdrant_mcp.core.config import (
+from common.core.config import (
     Config,
     EmbeddingConfig,
     QdrantConfig,

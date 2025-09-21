@@ -8,8 +8,8 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from workspace_qdrant_mcp.core.config import Config, EmbeddingConfig
-from workspace_qdrant_mcp.core.embeddings import EmbeddingService
+from common.core.config import Config, EmbeddingConfig
+from common.core.embeddings import EmbeddingService
 
 
 class TestEmbeddingService:

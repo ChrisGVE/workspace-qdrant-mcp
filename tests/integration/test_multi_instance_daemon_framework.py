@@ -33,7 +33,7 @@ from dataclasses import dataclass, field
 
 from testcontainers.compose import DockerCompose
 
-from workspace_qdrant_mcp.core.daemon_manager import (
+from common.core.daemon_manager import (
     DaemonManager,
     DaemonInstance, 
     DaemonConfig,
@@ -42,22 +42,22 @@ from workspace_qdrant_mcp.core.daemon_manager import (
     get_daemon_for_project,
     shutdown_all_daemons
 )
-from workspace_qdrant_mcp.core.resource_manager import (
+from common.core.resource_manager import (
     ResourceManager,
     ResourceMonitor,
     ResourceLimits,
     SharedResourcePool,
     get_resource_manager
 )
-from workspace_qdrant_mcp.core.service_discovery.client import (
+from common.core.service_discovery.client import (
     ServiceDiscoveryClient,
     ServiceEndpoint
 )
-from workspace_qdrant_mcp.core.project_config_manager import (
+from common.core.project_config_manager import (
     ProjectConfigManager,
     DaemonProjectConfig
 )
-from workspace_qdrant_mcp.core.config import Config
+from common.core.config import Config
 from workspace_qdrant_mcp.tools.grpc_tools import test_grpc_connection
 
 

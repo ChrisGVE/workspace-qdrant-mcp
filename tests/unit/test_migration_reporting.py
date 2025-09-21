@@ -9,7 +9,7 @@ from unittest.mock import MagicMock, mock_open, patch
 
 import pytest
 
-from workspace_qdrant_mcp.utils.migration import (
+from common.utils.migration import (
     ChangeEntry,
     ChangeType,
     ConfigMigrator,

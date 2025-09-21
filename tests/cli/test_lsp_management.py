@@ -11,7 +11,7 @@ from pathlib import Path
 from typer.testing import CliRunner
 from unittest.mock import AsyncMock, MagicMock, patch
 
-from workspace_qdrant_mcp.cli.commands.lsp_management import (
+from wqm_cli.cli.commands.lsp_management import (
     lsp_app,
     KNOWN_LSP_SERVERS,
     _check_server_installation,
@@ -46,7 +46,7 @@ class TestLspStatusCommand:
         assert result.exit_code == 0
         assert "LSP server health and capability overview" in result.stdout
 
-    @patch('workspace_qdrant_mcp.cli.commands.lsp_management._show_lsp_status')
+    @patch('wqm_cli.cli.commands.lsp_management._show_lsp_status')
     def test_status_all_servers(self, mock_show_status, cli_runner):
         """Test showing status for all servers."""
         mock_show_status.return_value = asyncio.Future()
@@ -56,7 +56,7 @@ class TestLspStatusCommand:
         assert result.exit_code == 0
         mock_show_status.assert_called_once()
 
-    @patch('workspace_qdrant_mcp.cli.commands.lsp_management._show_lsp_status')
+    @patch('wqm_cli.cli.commands.lsp_management._show_lsp_status')
     def test_status_specific_server(self, mock_show_status, cli_runner):
         """Test showing status for a specific server."""
         mock_show_status.return_value = asyncio.Future()
@@ -66,7 +66,7 @@ class TestLspStatusCommand:
         assert result.exit_code == 0
         mock_show_status.assert_called_once()
 
-    @patch('workspace_qdrant_mcp.cli.commands.lsp_management._show_lsp_status')
+    @patch('wqm_cli.cli.commands.lsp_management._show_lsp_status')
     def test_status_json_output(self, mock_show_status, cli_runner):
         """Test JSON output for status command."""
         mock_show_status.return_value = asyncio.Future()
@@ -76,7 +76,7 @@ class TestLspStatusCommand:
         assert result.exit_code == 0
         mock_show_status.assert_called_once()
 
-    @patch('workspace_qdrant_mcp.cli.commands.lsp_management._watch_lsp_status')
+    @patch('wqm_cli.cli.commands.lsp_management._watch_lsp_status')
     def test_status_watch_mode(self, mock_watch_status, cli_runner):
         """Test watch mode for status command."""
         mock_watch_status.return_value = asyncio.Future()
@@ -96,7 +96,7 @@ class TestLspInstallCommand:
         assert result.exit_code == 0
         assert "Guided LSP server installation" in result.stdout
 
-    @patch('workspace_qdrant_mcp.cli.commands.lsp_management._install_lsp_server')
+    @patch('wqm_cli.cli.commands.lsp_management._install_lsp_server')
     def test_install_python_server(self, mock_install, cli_runner):
         """Test installing Python LSP server."""
         mock_install.return_value = asyncio.Future()
@@ -106,7 +106,7 @@ class TestLspInstallCommand:
         assert result.exit_code == 0
         mock_install.assert_called_once_with("python", False, False, False)
 
-    @patch('workspace_qdrant_mcp.cli.commands.lsp_management._install_lsp_server')
+    @patch('wqm_cli.cli.commands.lsp_management._install_lsp_server')
     def test_install_with_force_flag(self, mock_install, cli_runner):
         """Test installing with force flag."""
         mock_install.return_value = asyncio.Future()
@@ -116,7 +116,7 @@ class TestLspInstallCommand:
         assert result.exit_code == 0
         mock_install.assert_called_once_with("typescript", True, False, False)
 
-    @patch('workspace_qdrant_mcp.cli.commands.lsp_management._install_lsp_server')
+    @patch('wqm_cli.cli.commands.lsp_management._install_lsp_server')
     def test_install_system_wide(self, mock_install, cli_runner):
         """Test installing system-wide."""
         mock_install.return_value = asyncio.Future()
@@ -136,7 +136,7 @@ class TestLspRestartCommand:
         assert result.exit_code == 0
         assert "Restart specific LSP server" in result.stdout
 
-    @patch('workspace_qdrant_mcp.cli.commands.lsp_management._restart_lsp_server')
+    @patch('wqm_cli.cli.commands.lsp_management._restart_lsp_server')
     def test_restart_server(self, mock_restart, cli_runner):
         """Test restarting an LSP server."""
         mock_restart.return_value = asyncio.Future()
@@ -146,7 +146,7 @@ class TestLspRestartCommand:
         assert result.exit_code == 0
         mock_restart.assert_called_once_with("python", 30, False)
 
-    @patch('workspace_qdrant_mcp.cli.commands.lsp_management._restart_lsp_server')
+    @patch('wqm_cli.cli.commands.lsp_management._restart_lsp_server')
     def test_restart_with_timeout(self, mock_restart, cli_runner):
         """Test restarting with custom timeout."""
         mock_restart.return_value = asyncio.Future()
@@ -166,7 +166,7 @@ class TestLspConfigCommand:
         assert result.exit_code == 0
         assert "LSP server configuration management" in result.stdout
 
-    @patch('workspace_qdrant_mcp.cli.commands.lsp_management._manage_lsp_config')
+    @patch('wqm_cli.cli.commands.lsp_management._manage_lsp_config')
     def test_config_show(self, mock_manage_config, cli_runner):
         """Test showing LSP configuration."""
         mock_manage_config.return_value = asyncio.Future()
@@ -176,7 +176,7 @@ class TestLspConfigCommand:
         assert result.exit_code == 0
         mock_manage_config.assert_called_once_with(None, True, False, False, False)
 
-    @patch('workspace_qdrant_mcp.cli.commands.lsp_management._manage_lsp_config')
+    @patch('wqm_cli.cli.commands.lsp_management._manage_lsp_config')
     def test_config_validate(self, mock_manage_config, cli_runner):
         """Test validating LSP configuration."""
         mock_manage_config.return_value = asyncio.Future()
@@ -186,7 +186,7 @@ class TestLspConfigCommand:
         assert result.exit_code == 0
         mock_manage_config.assert_called_once_with("python", False, True, False, False)
 
-    @patch('workspace_qdrant_mcp.cli.commands.lsp_management._manage_lsp_config')
+    @patch('wqm_cli.cli.commands.lsp_management._manage_lsp_config')
     def test_config_edit(self, mock_manage_config, cli_runner):
         """Test editing LSP configuration."""
         mock_manage_config.return_value = asyncio.Future()
@@ -206,7 +206,7 @@ class TestLspDiagnoseCommand:
         assert result.exit_code == 0
         assert "Run comprehensive troubleshooting" in result.stdout
 
-    @patch('workspace_qdrant_mcp.cli.commands.lsp_management._diagnose_lsp_server')
+    @patch('wqm_cli.cli.commands.lsp_management._diagnose_lsp_server')
     def test_diagnose_server(self, mock_diagnose, cli_runner):
         """Test diagnosing an LSP server."""
         mock_diagnose.return_value = asyncio.Future()
@@ -216,7 +216,7 @@ class TestLspDiagnoseCommand:
         assert result.exit_code == 0
         mock_diagnose.assert_called_once_with("python", False, False, False)
 
-    @patch('workspace_qdrant_mcp.cli.commands.lsp_management._diagnose_lsp_server')
+    @patch('wqm_cli.cli.commands.lsp_management._diagnose_lsp_server')
     def test_diagnose_comprehensive(self, mock_diagnose, cli_runner):
         """Test comprehensive diagnostics."""
         mock_diagnose.return_value = asyncio.Future()
@@ -226,7 +226,7 @@ class TestLspDiagnoseCommand:
         assert result.exit_code == 0
         mock_diagnose.assert_called_once_with("rust", True, False, False)
 
-    @patch('workspace_qdrant_mcp.cli.commands.lsp_management._diagnose_lsp_server')
+    @patch('wqm_cli.cli.commands.lsp_management._diagnose_lsp_server')
     def test_diagnose_with_fix(self, mock_diagnose, cli_runner):
         """Test diagnostics with automatic fix."""
         mock_diagnose.return_value = asyncio.Future()
@@ -246,7 +246,7 @@ class TestLspSetupCommand:
         assert result.exit_code == 0
         assert "Interactive setup wizard" in result.stdout
 
-    @patch('workspace_qdrant_mcp.cli.commands.lsp_management._interactive_lsp_setup')
+    @patch('wqm_cli.cli.commands.lsp_management._interactive_lsp_setup')
     def test_setup_interactive(self, mock_setup, cli_runner):
         """Test interactive setup wizard."""
         mock_setup.return_value = asyncio.Future()
@@ -256,7 +256,7 @@ class TestLspSetupCommand:
         assert result.exit_code == 0
         mock_setup.assert_called_once_with(True, None, False)
 
-    @patch('workspace_qdrant_mcp.cli.commands.lsp_management._interactive_lsp_setup')
+    @patch('wqm_cli.cli.commands.lsp_management._interactive_lsp_setup')
     def test_setup_with_language(self, mock_setup, cli_runner):
         """Test setup with pre-selected language."""
         mock_setup.return_value = asyncio.Future()
@@ -276,7 +276,7 @@ class TestLspListCommand:
         assert result.exit_code == 0
         assert "List available and installed LSP servers" in result.stdout
 
-    @patch('workspace_qdrant_mcp.cli.commands.lsp_management._list_lsp_servers')
+    @patch('wqm_cli.cli.commands.lsp_management._list_lsp_servers')
     def test_list_all_servers(self, mock_list, cli_runner):
         """Test listing all available servers."""
         mock_list.return_value = asyncio.Future()
@@ -286,7 +286,7 @@ class TestLspListCommand:
         assert result.exit_code == 0
         mock_list.assert_called_once_with(False, False)
 
-    @patch('workspace_qdrant_mcp.cli.commands.lsp_management._list_lsp_servers')
+    @patch('wqm_cli.cli.commands.lsp_management._list_lsp_servers')
     def test_list_installed_only(self, mock_list, cli_runner):
         """Test listing only installed servers."""
         mock_list.return_value = asyncio.Future()
@@ -296,7 +296,7 @@ class TestLspListCommand:
         assert result.exit_code == 0
         mock_list.assert_called_once_with(True, False)
 
-    @patch('workspace_qdrant_mcp.cli.commands.lsp_management._list_lsp_servers')
+    @patch('wqm_cli.cli.commands.lsp_management._list_lsp_servers')
     def test_list_json_output(self, mock_list, cli_runner):
         """Test listing with JSON output."""
         mock_list.return_value = asyncio.Future()
@@ -316,7 +316,7 @@ class TestLspPerformanceCommand:
         assert result.exit_code == 0
         assert "Monitor LSP server performance" in result.stdout
 
-    @patch('workspace_qdrant_mcp.cli.commands.lsp_management._monitor_lsp_performance')
+    @patch('wqm_cli.cli.commands.lsp_management._monitor_lsp_performance')
     def test_performance_monitoring(self, mock_monitor, cli_runner):
         """Test performance monitoring."""
         mock_monitor.return_value = asyncio.Future()
@@ -326,7 +326,7 @@ class TestLspPerformanceCommand:
         assert result.exit_code == 0
         mock_monitor.assert_called_once_with(None, 60, 5, False)
 
-    @patch('workspace_qdrant_mcp.cli.commands.lsp_management._monitor_lsp_performance')
+    @patch('wqm_cli.cli.commands.lsp_management._monitor_lsp_performance')
     def test_performance_custom_duration(self, mock_monitor, cli_runner):
         """Test performance monitoring with custom duration."""
         mock_monitor.return_value = asyncio.Future()
@@ -336,7 +336,7 @@ class TestLspPerformanceCommand:
         assert result.exit_code == 0
         mock_monitor.assert_called_once_with(None, 120, 5, False)
 
-    @patch('workspace_qdrant_mcp.cli.commands.lsp_management._monitor_lsp_performance')
+    @patch('wqm_cli.cli.commands.lsp_management._monitor_lsp_performance')
     def test_performance_specific_server(self, mock_monitor, cli_runner):
         """Test monitoring specific server performance."""
         mock_monitor.return_value = asyncio.Future()
@@ -386,7 +386,7 @@ class TestLspUtilityFunctions:
     @pytest.mark.asyncio
     async def test_get_server_status_known_server(self, mock_health_monitor):
         """Test getting status for a known server."""
-        with patch('workspace_qdrant_mcp.cli.commands.lsp_management._check_server_installation', return_value=True):
+        with patch('wqm_cli.cli.commands.lsp_management._check_server_installation', return_value=True):
             result = await _get_server_status("python", mock_health_monitor)
             
             assert result["server_name"] == "python"
@@ -403,7 +403,7 @@ class TestLspUtilityFunctions:
     @pytest.mark.asyncio
     async def test_get_all_servers_status(self, mock_health_monitor):
         """Test getting status for all servers."""
-        with patch('workspace_qdrant_mcp.cli.commands.lsp_management._get_server_status') as mock_get_status:
+        with patch('wqm_cli.cli.commands.lsp_management._get_server_status') as mock_get_status:
             mock_get_status.return_value = {
                 "server_name": "python",
                 "status": "healthy",
@@ -517,7 +517,7 @@ class TestLspIntegration:
         # Should not crash, though specific behavior depends on implementation
         assert isinstance(result.exit_code, int)
 
-    @patch('workspace_qdrant_mcp.cli.commands.lsp_management.handle_async')
+    @patch('wqm_cli.cli.commands.lsp_management.handle_async')
     def test_async_command_wrapper(self, mock_handle_async, cli_runner):
         """Test that async commands are properly wrapped."""
         # Mock handle_async to avoid actual async execution

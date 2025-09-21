@@ -21,7 +21,7 @@ except ImportError:
         PatternManager = None
 
 try:
-    from workspace_qdrant_mcp.core.config import WorkspaceConfig
+    from common.core.config import WorkspaceConfig
 except ImportError:
     try:
         from src.python.workspace_qdrant_mcp.core.config import WorkspaceConfig

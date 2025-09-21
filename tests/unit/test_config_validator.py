@@ -6,7 +6,7 @@ Tests configuration validation logic and error reporting.
 
 from unittest.mock import MagicMock, patch
 
-from workspace_qdrant_mcp.utils.config_validator import ConfigValidator
+from common.utils.config_validator import ConfigValidator
 
 
 class TestConfigValidator:

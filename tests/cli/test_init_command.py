@@ -3,7 +3,7 @@
 import pytest
 from typer.testing import CliRunner
 
-from workspace_qdrant_mcp.cli.commands.init import init_app
+from wqm_cli.cli.commands.init import init_app
 
 
 class TestInitCommand:

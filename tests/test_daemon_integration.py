@@ -12,9 +12,9 @@ import tempfile
 from pathlib import Path
 from unittest.mock import AsyncMock, Mock, patch
 
-from workspace_qdrant_mcp.core.daemon_manager import DaemonManager, ensure_daemon_running
-from workspace_qdrant_mcp.core.grpc_client import GrpcWorkspaceClient
-from workspace_qdrant_mcp.core.config import Config
+from common.core.daemon_manager import DaemonManager, ensure_daemon_running
+from common.core.grpc_client import GrpcWorkspaceClient
+from common.core.config import Config
 
 
 @pytest.fixture
@@ -99,7 +99,7 @@ class TestDaemonGrpcIntegration:
                         assert client.is_grpc_available() is True
         
         # Cleanup
-        from workspace_qdrant_mcp.core.daemon_manager import shutdown_all_daemons
+        from common.core.daemon_manager import shutdown_all_daemons
         await shutdown_all_daemons()
     
     @pytest.mark.asyncio
@@ -164,7 +164,7 @@ class TestDaemonGrpcIntegration:
                     mock_daemon.health_check.assert_called()
         
         # Cleanup
-        from workspace_qdrant_mcp.core.daemon_manager import shutdown_all_daemons
+        from common.core.daemon_manager import shutdown_all_daemons
         await shutdown_all_daemons()
     
     @pytest.mark.asyncio
@@ -285,7 +285,7 @@ class TestDaemonGrpcIntegration:
                         assert client2.get_operation_mode() == "grpc"
         
         # Cleanup
-        from workspace_qdrant_mcp.core.daemon_manager import shutdown_all_daemons
+        from common.core.daemon_manager import shutdown_all_daemons
         await shutdown_all_daemons()
     
     @pytest.mark.asyncio
@@ -325,7 +325,7 @@ class TestDaemonGrpcIntegration:
         # This is handled by the daemon manager's signal handlers
         
         # Cleanup
-        from workspace_qdrant_mcp.core.daemon_manager import shutdown_all_daemons
+        from common.core.daemon_manager import shutdown_all_daemons
         await shutdown_all_daemons()
 
 
@@ -408,7 +408,7 @@ class TestDaemonManagerIntegration:
         
         # Cleanup
         daemon._cleanup()
-        from workspace_qdrant_mcp.core.daemon_manager import shutdown_all_daemons
+        from common.core.daemon_manager import shutdown_all_daemons
         await shutdown_all_daemons()
     
     @pytest.mark.asyncio
@@ -438,7 +438,7 @@ class TestDaemonManagerIntegration:
             assert project in str(daemons[i].temp_dir)
         
         # Cleanup
-        from workspace_qdrant_mcp.core.daemon_manager import shutdown_all_daemons
+        from common.core.daemon_manager import shutdown_all_daemons
         await shutdown_all_daemons()
 
 
@@ -497,10 +497,10 @@ class TestEndToEndIntegration:
                     mock_grpc_instance.stop.assert_called()
         
         # Phase 6: Global daemon cleanup (simulating process exit)
-        from workspace_qdrant_mcp.core.daemon_manager import shutdown_all_daemons
+        from common.core.daemon_manager import shutdown_all_daemons
         await shutdown_all_daemons()
         
         # Verify final cleanup
-        from workspace_qdrant_mcp.core.daemon_manager import get_daemon_for_project
+        from common.core.daemon_manager import get_daemon_for_project
         final_daemon = await get_daemon_for_project(project_name, temp_project_dir)
         assert final_daemon is None

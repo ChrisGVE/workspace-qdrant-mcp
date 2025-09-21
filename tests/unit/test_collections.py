@@ -11,11 +11,11 @@ from qdrant_client import QdrantClient
 from qdrant_client.http import models
 from qdrant_client.http.exceptions import ResponseHandlingException
 
-from workspace_qdrant_mcp.core.collections import (
+from common.core.collections import (
     CollectionConfig,
     WorkspaceCollectionManager,
 )
-from workspace_qdrant_mcp.core.config import Config, EmbeddingConfig, WorkspaceConfig
+from common.core.config import Config, EmbeddingConfig, WorkspaceConfig
 
 
 class TestCollectionConfig:

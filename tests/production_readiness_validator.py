@@ -28,7 +28,7 @@ import yaml
 
 # Import local modules
 try:
-    from common.cli.commands.service import ServiceManager
+    from wqm_cli.cli.commands.service import ServiceManager
     from common.observability import (
         health_checker_instance,
         metrics_instance,

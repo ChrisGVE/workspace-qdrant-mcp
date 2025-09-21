@@ -19,7 +19,7 @@ from pathlib import Path
 from unittest.mock import AsyncMock, Mock, patch
 from datetime import datetime
 
-from workspace_qdrant_mcp.core.daemon_manager import (
+from common.core.daemon_manager import (
     DaemonManager, 
     DaemonInstance, 
     DaemonConfig, 

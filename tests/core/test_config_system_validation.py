@@ -24,8 +24,8 @@ import pytest
 import yaml
 from pydantic import ValidationError
 
-from workspace_qdrant_mcp.core.config import Config, EmbeddingConfig, QdrantConfig, WorkspaceConfig
-from workspace_qdrant_mcp.core.yaml_config import (
+from common.core.config import Config, EmbeddingConfig, QdrantConfig, WorkspaceConfig
+from common.core.yaml_config import (
     ConfigLoader,
     WorkspaceConfig as YAMLWorkspaceConfig,
     YAMLConfigLoader,
@@ -33,8 +33,8 @@ from workspace_qdrant_mcp.core.yaml_config import (
     save_config,
     create_default_config,
 )
-from workspace_qdrant_mcp.core.enhanced_config import EnhancedConfig
-from workspace_qdrant_mcp.utils.config_validator import ConfigValidator
+from common.core.enhanced_config import EnhancedConfig
+from common.utils.config_validator import ConfigValidator
 
 
 class TestConfigurationPrecedence:

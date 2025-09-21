@@ -20,7 +20,7 @@ try:
 except ImportError:
     YAML_AVAILABLE = False
 
-from workspace_qdrant_mcp.core.enhanced_config import (
+from common.core.enhanced_config import (
     EnhancedConfig,
     EmbeddingConfig,
     QdrantConfig,

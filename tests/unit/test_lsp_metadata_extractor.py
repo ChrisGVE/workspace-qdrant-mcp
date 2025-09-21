@@ -18,7 +18,7 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional
 from unittest.mock import AsyncMock, MagicMock, patch
 
-from workspace_qdrant_mcp.core.lsp_metadata_extractor import (
+from common.core.lsp_metadata_extractor import (
     LspMetadataExtractor,
     CodeSymbol,
     Documentation,
@@ -34,8 +34,8 @@ from workspace_qdrant_mcp.core.lsp_metadata_extractor import (
     SymbolRelationship,
     TypeInformation,
 )
-from workspace_qdrant_mcp.core.language_filters import LanguageAwareFilter
-from workspace_qdrant_mcp.core.lsp_client import AsyncioLspClient
+from common.core.language_filters import LanguageAwareFilter
+from common.core.lsp_client import AsyncioLspClient
 
 
 @pytest.fixture

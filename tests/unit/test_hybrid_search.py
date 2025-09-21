@@ -9,7 +9,7 @@ from unittest.mock import MagicMock
 import pytest
 from qdrant_client.http import models
 
-from workspace_qdrant_mcp.core.hybrid_search import HybridSearchEngine, RRFFusionRanker
+from common.core.hybrid_search import HybridSearchEngine, RRFFusionRanker
 
 
 class TestRRFFusionRanker:

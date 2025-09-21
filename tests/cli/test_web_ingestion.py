@@ -11,7 +11,7 @@ from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock, patch
 from typer.testing import CliRunner
 
-from common.cli.ingest import app
+from wqm_cli.cli.ingest import app
 
 
 class TestWebIngestionCLI:
@@ -25,7 +25,7 @@ class TestWebIngestionCLI:
     @pytest.fixture
     def mock_successful_ingestion(self):
         """Mock successful web ingestion."""
-        with patch('src.workspace_qdrant_mcp.cli.ingest._run_web_ingestion') as mock:
+        with patch('src.wqm_cli.cli.ingest._run_web_ingestion') as mock:
             mock.return_value = None  # Successful completion
             yield mock
     
@@ -140,7 +140,7 @@ class TestWebIngestionWorkflow:
     @pytest.fixture  
     def mock_add_document(self):
         """Mock document addition function."""
-        with patch('src.workspace_qdrant_mcp.cli.ingest.add_document') as mock:
+        with patch('src.wqm_cli.cli.ingest.add_document') as mock:
             mock.return_value = {
                 'success': True,
                 'document_id': 'doc123',
@@ -149,9 +149,9 @@ class TestWebIngestionWorkflow:
             yield mock
     
     @pytest.mark.asyncio
-    @patch('src.workspace_qdrant_mcp.cli.ingest.QdrantWorkspaceClient')
-    @patch('src.workspace_qdrant_mcp.cli.ingest.Config')
-    @patch('src.workspace_qdrant_mcp.cli.ingest.WebIngestionInterface')
+    @patch('src.wqm_cli.cli.ingest.QdrantWorkspaceClient')
+    @patch('src.wqm_cli.cli.ingest.Config')
+    @patch('src.wqm_cli.cli.ingest.WebIngestionInterface')
     async def test_successful_single_page_ingestion(
         self, 
         mock_interface_class,
@@ -163,7 +163,7 @@ class TestWebIngestionWorkflow:
         mock_add_document
     ):
         """Test successful single page web ingestion."""
-        from common.cli.ingest import _run_web_ingestion
+        from wqm_cli.cli.ingest import _run_web_ingestion
         
         # Setup mocks
         mock_config_class.return_value = mock_config
@@ -195,9 +195,9 @@ class TestWebIngestionWorkflow:
         mock_client.close.assert_called_once()
     
     @pytest.mark.asyncio
-    @patch('src.workspace_qdrant_mcp.cli.ingest.QdrantWorkspaceClient')
-    @patch('src.workspace_qdrant_mcp.cli.ingest.Config')
-    @patch('src.workspace_qdrant_mcp.cli.ingest.WebIngestionInterface')
+    @patch('src.wqm_cli.cli.ingest.QdrantWorkspaceClient')
+    @patch('src.wqm_cli.cli.ingest.Config')
+    @patch('src.wqm_cli.cli.ingest.WebIngestionInterface')
     async def test_successful_multi_page_ingestion(
         self,
         mock_interface_class,
@@ -209,7 +209,7 @@ class TestWebIngestionWorkflow:
         mock_add_document
     ):
         """Test successful multi-page web ingestion."""
-        from common.cli.ingest import _run_web_ingestion
+        from wqm_cli.cli.ingest import _run_web_ingestion
         
         # Setup mocks
         mock_config_class.return_value = mock_config
@@ -244,9 +244,9 @@ class TestWebIngestionWorkflow:
         mock_add_document.assert_called_once()
     
     @pytest.mark.asyncio
-    @patch('src.workspace_qdrant_mcp.cli.ingest.QdrantWorkspaceClient')
-    @patch('src.workspace_qdrant_mcp.cli.ingest.Config')
-    @patch('src.workspace_qdrant_mcp.cli.ingest.WebIngestionInterface')
+    @patch('src.wqm_cli.cli.ingest.QdrantWorkspaceClient')
+    @patch('src.wqm_cli.cli.ingest.Config')
+    @patch('src.wqm_cli.cli.ingest.WebIngestionInterface')
     async def test_dry_run_workflow(
         self,
         mock_interface_class,
@@ -257,7 +257,7 @@ class TestWebIngestionWorkflow:
         mock_web_interface
     ):
         """Test dry run workflow (no actual ingestion)."""
-        from common.cli.ingest import _run_web_ingestion
+        from wqm_cli.cli.ingest import _run_web_ingestion
         
         # Setup mocks
         mock_config_class.return_value = mock_config
@@ -266,7 +266,7 @@ class TestWebIngestionWorkflow:
         interface, parsed_doc = mock_web_interface
         mock_interface_class.return_value = interface
         
-        with patch('src.workspace_qdrant_mcp.cli.ingest.add_document') as mock_add:
+        with patch('src.wqm_cli.cli.ingest.add_document') as mock_add:
             # Run dry run
             await _run_web_ingestion(
                 url="https://example.com/test",
@@ -288,9 +288,9 @@ class TestWebIngestionWorkflow:
             mock_add.assert_not_called()  # Should not be called in dry run
     
     @pytest.mark.asyncio
-    @patch('src.workspace_qdrant_mcp.cli.ingest.QdrantWorkspaceClient')
-    @patch('src.workspace_qdrant_mcp.cli.ingest.Config')
-    @patch('src.workspace_qdrant_mcp.cli.ingest.WebIngestionInterface')
+    @patch('src.wqm_cli.cli.ingest.QdrantWorkspaceClient')
+    @patch('src.wqm_cli.cli.ingest.Config')
+    @patch('src.wqm_cli.cli.ingest.WebIngestionInterface')
     async def test_security_warnings_display(
         self,
         mock_interface_class,
@@ -301,7 +301,7 @@ class TestWebIngestionWorkflow:
         mock_add_document
     ):
         """Test that security warnings are properly displayed."""
-        from common.cli.ingest import _run_web_ingestion
+        from wqm_cli.cli.ingest import _run_web_ingestion
         
         # Setup mocks
         mock_config_class.return_value = mock_config
@@ -342,10 +342,10 @@ class TestWebIngestionWorkflow:
         interface.ingest_url.assert_called_once()
     
     @pytest.mark.asyncio
-    @patch('src.workspace_qdrant_mcp.cli.ingest.typer.confirm')
+    @patch('src.wqm_cli.cli.ingest.typer.confirm')
     async def test_security_confirmation_prompts(self, mock_confirm):
         """Test that security-related confirmation prompts work."""
-        from common.cli.ingest import _run_web_ingestion
+        from wqm_cli.cli.ingest import _run_web_ingestion
         
         # Test with security disabled - should prompt for confirmation
         mock_confirm.return_value = False  # User cancels
@@ -369,9 +369,9 @@ class TestWebIngestionWorkflow:
         mock_confirm.assert_called_with("Continue with disabled security?")
     
     @pytest.mark.asyncio
-    @patch('src.workspace_qdrant_mcp.cli.ingest.QdrantWorkspaceClient')
-    @patch('src.workspace_qdrant_mcp.cli.ingest.Config')
-    @patch('src.workspace_qdrant_mcp.cli.ingest.WebIngestionInterface')
+    @patch('src.wqm_cli.cli.ingest.QdrantWorkspaceClient')
+    @patch('src.wqm_cli.cli.ingest.Config')
+    @patch('src.wqm_cli.cli.ingest.WebIngestionInterface')
     async def test_ingestion_error_handling(
         self,
         mock_interface_class,
@@ -381,7 +381,7 @@ class TestWebIngestionWorkflow:
         mock_config
     ):
         """Test error handling during ingestion."""
-        from common.cli.ingest import _run_web_ingestion
+        from wqm_cli.cli.ingest import _run_web_ingestion
         import sys
         
         # Setup mocks

@@ -8,7 +8,7 @@ including edge cases, performance impact analysis, and recommendation systems.
 import pytest
 from typing import Dict, Any
 
-from workspace_qdrant_mcp.core.depth_validation import (
+from common.core.depth_validation import (
     validate_recursive_depth,
     get_depth_recommendations,
     format_depth_display,

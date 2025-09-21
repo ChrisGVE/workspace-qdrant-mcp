@@ -8,7 +8,7 @@ from unittest.mock import Mock
 
 import pytest
 
-from workspace_qdrant_mcp.cli.parsers.exceptions import (
+from wqm_cli.cli.parsers.exceptions import (
     ErrorCategory,
     ErrorHandler,
     ErrorSeverity,

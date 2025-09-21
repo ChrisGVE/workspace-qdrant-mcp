@@ -8,7 +8,7 @@ This module tests that MCP tools properly enforce access control for readonly co
 import pytest
 from unittest.mock import Mock, patch, AsyncMock
 
-from workspace_qdrant_mcp.core.collection_naming import CollectionPermissionError
+from common.core.collection_naming import CollectionPermissionError
 from workspace_qdrant_mcp.tools.documents import add_document, delete_document
 from workspace_qdrant_mcp.tools.scratchbook import ScratchbookManager
 
@@ -258,8 +258,8 @@ class TestCollectionManagerAccessControl:
 
     def test_validate_mcp_write_access_blocks_library_collections(self):
         """Test that validate_mcp_write_access blocks library collections."""
-        from workspace_qdrant_mcp.core.collections import WorkspaceCollectionManager
-        from workspace_qdrant_mcp.core.collection_naming import CollectionType, CollectionNameInfo
+        from common.core.collections import WorkspaceCollectionManager
+        from common.core.collection_naming import CollectionType, CollectionNameInfo
         
         # Create a mock collection manager
         mock_config = Mock()
@@ -287,7 +287,7 @@ class TestCollectionManagerAccessControl:
 
     def test_validate_mcp_write_access_allows_writable_collections(self):
         """Test that validate_mcp_write_access allows writable collections."""
-        from workspace_qdrant_mcp.core.collections import WorkspaceCollectionManager
+        from common.core.collections import WorkspaceCollectionManager
         
         # Create a mock collection manager
         mock_config = Mock()

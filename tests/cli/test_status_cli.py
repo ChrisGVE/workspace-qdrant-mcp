@@ -11,7 +11,7 @@ from unittest.mock import Mock, patch, AsyncMock
 from pathlib import Path
 import json
 
-from workspace_qdrant_mcp.cli.status import (
+from wqm_cli.cli.status import (
     status_app,
     get_comprehensive_status,
     format_timestamp,
@@ -241,11 +241,11 @@ class TestStatusCLI:
         assert "failed" in content
 
     @pytest.mark.asyncio
-    @patch('workspace_qdrant_mcp.cli.status.get_grpc_engine_stats')
-    @patch('workspace_qdrant_mcp.cli.status.get_processing_status')
-    @patch('workspace_qdrant_mcp.cli.status.get_queue_stats')
-    @patch('workspace_qdrant_mcp.cli.status.get_watch_folder_configs')
-    @patch('workspace_qdrant_mcp.cli.status.get_database_stats')
+    @patch('wqm_cli.cli.status.get_grpc_engine_stats')
+    @patch('wqm_cli.cli.status.get_processing_status')
+    @patch('wqm_cli.cli.status.get_queue_stats')
+    @patch('wqm_cli.cli.status.get_watch_folder_configs')
+    @patch('wqm_cli.cli.status.get_database_stats')
     async def test_get_comprehensive_status(
         self,
         mock_db_stats,
@@ -292,7 +292,7 @@ class TestStatusCLI:
         assert "timestamp" in status_data
 
     @pytest.mark.asyncio
-    @patch('workspace_qdrant_mcp.cli.status.get_comprehensive_status')
+    @patch('wqm_cli.cli.status.get_comprehensive_status')
     async def test_get_comprehensive_status_error_handling(self, mock_get_status):
         """Test error handling in comprehensive status gathering."""
         # Simulate an exception
@@ -310,7 +310,7 @@ class TestStatusCLIIntegration:
     """Integration tests for the status CLI system."""
     
     @pytest.mark.asyncio
-    @patch('workspace_qdrant_mcp.cli.status.test_grpc_connection')
+    @patch('wqm_cli.cli.status.test_grpc_connection')
     async def test_grpc_fallback_mechanism(self, mock_grpc_test):
         """Test that status CLI falls back gracefully when gRPC is unavailable."""
         # Mock failed gRPC connection

@@ -28,7 +28,7 @@ from pathlib import Path
 from typer.testing import CliRunner
 from unittest.mock import Mock, patch, MagicMock
 
-from workspace_qdrant_mcp.cli.main import app, cli
+from wqm_cli.cli.main import app, cli
 
 
 class TestCLIComprehensive:
@@ -97,7 +97,7 @@ class TestVersionAndBasicCommands(TestCLIComprehensive):
 
     def test_debug_flag_enables_logging(self):
         """Test --debug flag enables debug logging."""
-        with patch('workspace_qdrant_mcp.cli.main.configure_logging') as mock_logging:
+        with patch('wqm_cli.cli.main.configure_logging') as mock_logging:
             result = self.runner.invoke(app, ["--debug", "admin", "status"])
             mock_logging.assert_called_with(level="DEBUG", json_format=True, console_output=True)
 
@@ -150,7 +150,7 @@ class TestHelpSystemConsistency(TestCLIComprehensive):
 class TestMemoryCommands(TestCLIComprehensive):
     """Test memory command domain (list|add|remove|search|config)."""
 
-    @patch('workspace_qdrant_mcp.cli.commands.memory.get_daemon_client')
+    @patch('wqm_cli.cli.commands.memory.get_daemon_client')
     def test_memory_list(self, mock_get_client):
         """Test memory list command."""
         mock_client = MagicMock()
@@ -161,7 +161,7 @@ class TestMemoryCommands(TestCLIComprehensive):
         assert result.exit_code == 0
         mock_client.list_memory_rules.assert_called_once()
 
-    @patch('workspace_qdrant_mcp.cli.commands.memory.get_daemon_client')
+    @patch('wqm_cli.cli.commands.memory.get_daemon_client')
     def test_memory_add_success(self, mock_get_client):
         """Test memory add command success."""
         mock_client = MagicMock()
@@ -172,7 +172,7 @@ class TestMemoryCommands(TestCLIComprehensive):
         assert result.exit_code == 0
         mock_client.add_memory_rule.assert_called_once()
 
-    @patch('workspace_qdrant_mcp.cli.commands.memory.get_daemon_client')
+    @patch('wqm_cli.cli.commands.memory.get_daemon_client')
     def test_memory_remove(self, mock_get_client):
         """Test memory remove command."""
         mock_client = MagicMock()
@@ -183,7 +183,7 @@ class TestMemoryCommands(TestCLIComprehensive):
         assert result.exit_code == 0
         mock_client.remove_memory_rule.assert_called_once_with("rule-1")
 
-    @patch('workspace_qdrant_mcp.cli.commands.memory.get_daemon_client')
+    @patch('wqm_cli.cli.commands.memory.get_daemon_client')
     def test_memory_search(self, mock_get_client):
         """Test memory search command."""
         mock_client = MagicMock()
@@ -200,7 +200,7 @@ class TestMemoryCommands(TestCLIComprehensive):
         assert result.exit_code != 0
         assert "No such command" in result.stdout
 
-    @patch('workspace_qdrant_mcp.cli.commands.memory.get_daemon_client')
+    @patch('wqm_cli.cli.commands.memory.get_daemon_client')
     def test_memory_connection_error(self, mock_get_client):
         """Test memory command with connection error."""
         mock_get_client.side_effect = ConnectionError("Cannot connect to daemon")
@@ -213,7 +213,7 @@ class TestMemoryCommands(TestCLIComprehensive):
 class TestAdminCommands(TestCLIComprehensive):
     """Test admin command domain (status|health|config|reset)."""
 
-    @patch('workspace_qdrant_mcp.cli.commands.admin.get_daemon_client')
+    @patch('wqm_cli.cli.commands.admin.get_daemon_client')
     def test_admin_status(self, mock_get_client):
         """Test admin status command."""
         mock_client = MagicMock()
@@ -224,7 +224,7 @@ class TestAdminCommands(TestCLIComprehensive):
         assert result.exit_code == 0
         mock_client.get_status.assert_called_once()
 
-    @patch('workspace_qdrant_mcp.cli.commands.admin.get_daemon_client')
+    @patch('wqm_cli.cli.commands.admin.get_daemon_client')
     def test_admin_health(self, mock_get_client):
         """Test admin health command."""
         mock_client = MagicMock()
@@ -235,7 +235,7 @@ class TestAdminCommands(TestCLIComprehensive):
         assert result.exit_code == 0
         mock_client.health_check.assert_called_once()
 
-    @patch('workspace_qdrant_mcp.cli.commands.admin.get_daemon_client')
+    @patch('wqm_cli.cli.commands.admin.get_daemon_client')
     def test_admin_config_show(self, mock_get_client):
         """Test admin config show command."""
         mock_client = MagicMock()
@@ -246,7 +246,7 @@ class TestAdminCommands(TestCLIComprehensive):
         assert result.exit_code == 0
         mock_client.get_config.assert_called_once()
 
-    @patch('workspace_qdrant_mcp.cli.commands.admin.get_daemon_client')
+    @patch('wqm_cli.cli.commands.admin.get_daemon_client')
     def test_admin_reset(self, mock_get_client):
         """Test admin reset command."""
         mock_client = MagicMock()
@@ -266,7 +266,7 @@ class TestAdminCommands(TestCLIComprehensive):
 class TestIngestCommands(TestCLIComprehensive):
     """Test ingest command domain (file|folder|watch)."""
 
-    @patch('workspace_qdrant_mcp.cli.commands.ingest.get_daemon_client')
+    @patch('wqm_cli.cli.commands.ingest.get_daemon_client')
     def test_ingest_file(self, mock_get_client):
         """Test ingest file command."""
         mock_client = MagicMock()
@@ -281,7 +281,7 @@ class TestIngestCommands(TestCLIComprehensive):
         assert result.exit_code == 0
         mock_client.ingest_file.assert_called_once()
 
-    @patch('workspace_qdrant_mcp.cli.commands.ingest.get_daemon_client')
+    @patch('wqm_cli.cli.commands.ingest.get_daemon_client')
     def test_ingest_folder(self, mock_get_client):
         """Test ingest folder command."""
         mock_client = MagicMock()
@@ -298,7 +298,7 @@ class TestIngestCommands(TestCLIComprehensive):
         assert result.exit_code != 0
         assert "Error" in result.stdout
 
-    @patch('workspace_qdrant_mcp.cli.commands.ingest.get_daemon_client')
+    @patch('wqm_cli.cli.commands.ingest.get_daemon_client')
     def test_ingest_watch_start(self, mock_get_client):
         """Test ingest watch start command."""
         mock_client = MagicMock()
@@ -313,7 +313,7 @@ class TestIngestCommands(TestCLIComprehensive):
 class TestSearchCommands(TestCLIComprehensive):
     """Test search command domain (query|collection|global)."""
 
-    @patch('workspace_qdrant_mcp.cli.commands.search.get_daemon_client')
+    @patch('wqm_cli.cli.commands.search.get_daemon_client')
     def test_search_project(self, mock_get_client):
         """Test search project command."""
         mock_client = MagicMock()
@@ -324,7 +324,7 @@ class TestSearchCommands(TestCLIComprehensive):
         assert result.exit_code == 0
         mock_client.search.assert_called_once()
 
-    @patch('workspace_qdrant_mcp.cli.commands.search.get_daemon_client')
+    @patch('wqm_cli.cli.commands.search.get_daemon_client')
     def test_search_collection(self, mock_get_client):
         """Test search in specific collection."""
         mock_client = MagicMock()
@@ -335,7 +335,7 @@ class TestSearchCommands(TestCLIComprehensive):
         assert result.exit_code == 0
         mock_client.search.assert_called_once()
 
-    @patch('workspace_qdrant_mcp.cli.commands.search.get_daemon_client')
+    @patch('wqm_cli.cli.commands.search.get_daemon_client')
     def test_search_global(self, mock_get_client):
         """Test global search command."""
         mock_client = MagicMock()
@@ -355,7 +355,7 @@ class TestSearchCommands(TestCLIComprehensive):
 class TestLibraryCommands(TestCLIComprehensive):
     """Test library command domain (add|list|manage)."""
 
-    @patch('workspace_qdrant_mcp.cli.commands.library.get_daemon_client')
+    @patch('wqm_cli.cli.commands.library.get_daemon_client')
     def test_library_create(self, mock_get_client):
         """Test library create command."""
         mock_client = MagicMock()
@@ -366,7 +366,7 @@ class TestLibraryCommands(TestCLIComprehensive):
         assert result.exit_code == 0
         mock_client.create_library.assert_called_once()
 
-    @patch('workspace_qdrant_mcp.cli.commands.library.get_daemon_client')
+    @patch('wqm_cli.cli.commands.library.get_daemon_client')
     def test_library_list(self, mock_get_client):
         """Test library list command."""
         mock_client = MagicMock()
@@ -377,7 +377,7 @@ class TestLibraryCommands(TestCLIComprehensive):
         assert result.exit_code == 0
         mock_client.list_libraries.assert_called_once()
 
-    @patch('workspace_qdrant_mcp.cli.commands.library.get_daemon_client')
+    @patch('wqm_cli.cli.commands.library.get_daemon_client')
     def test_library_manage(self, mock_get_client):
         """Test library manage command."""
         mock_client = MagicMock()
@@ -392,7 +392,7 @@ class TestLibraryCommands(TestCLIComprehensive):
 class TestServiceCommands(TestCLIComprehensive):
     """Test service command domain (install|start|stop|status)."""
 
-    @patch('workspace_qdrant_mcp.cli.commands.service.ServiceManager')
+    @patch('wqm_cli.cli.commands.service.ServiceManager')
     def test_service_status(self, mock_service_manager):
         """Test service status command."""
         mock_manager = MagicMock()
@@ -403,7 +403,7 @@ class TestServiceCommands(TestCLIComprehensive):
         assert result.exit_code == 0
         mock_manager.get_status.assert_called_once()
 
-    @patch('workspace_qdrant_mcp.cli.commands.service.ServiceManager')
+    @patch('wqm_cli.cli.commands.service.ServiceManager')
     def test_service_start(self, mock_service_manager):
         """Test service start command."""
         mock_manager = MagicMock()
@@ -414,7 +414,7 @@ class TestServiceCommands(TestCLIComprehensive):
         assert result.exit_code == 0
         mock_manager.start.assert_called_once()
 
-    @patch('workspace_qdrant_mcp.cli.commands.service.ServiceManager')
+    @patch('wqm_cli.cli.commands.service.ServiceManager')
     def test_service_stop(self, mock_service_manager):
         """Test service stop command."""
         mock_manager = MagicMock()
@@ -425,7 +425,7 @@ class TestServiceCommands(TestCLIComprehensive):
         assert result.exit_code == 0
         mock_manager.stop.assert_called_once()
 
-    @patch('workspace_qdrant_mcp.cli.commands.service.ServiceManager')
+    @patch('wqm_cli.cli.commands.service.ServiceManager')
     def test_service_install(self, mock_service_manager):
         """Test service install command."""
         mock_manager = MagicMock()
@@ -440,7 +440,7 @@ class TestServiceCommands(TestCLIComprehensive):
 class TestWatchCommands(TestCLIComprehensive):
     """Test watch command domain (start|stop|list|config)."""
 
-    @patch('workspace_qdrant_mcp.cli.commands.watch.get_daemon_client')
+    @patch('wqm_cli.cli.commands.watch.get_daemon_client')
     def test_watch_start(self, mock_get_client):
         """Test watch start command."""
         mock_client = MagicMock()
@@ -451,7 +451,7 @@ class TestWatchCommands(TestCLIComprehensive):
         assert result.exit_code == 0
         mock_client.start_watch.assert_called_once()
 
-    @patch('workspace_qdrant_mcp.cli.commands.watch.get_daemon_client')
+    @patch('wqm_cli.cli.commands.watch.get_daemon_client')
     def test_watch_stop(self, mock_get_client):
         """Test watch stop command."""
         mock_client = MagicMock()
@@ -462,7 +462,7 @@ class TestWatchCommands(TestCLIComprehensive):
         assert result.exit_code == 0
         mock_client.stop_watch.assert_called_once()
 
-    @patch('workspace_qdrant_mcp.cli.commands.watch.get_daemon_client')
+    @patch('wqm_cli.cli.commands.watch.get_daemon_client')
     def test_watch_list(self, mock_get_client):
         """Test watch list command."""
         mock_client = MagicMock()
@@ -473,7 +473,7 @@ class TestWatchCommands(TestCLIComprehensive):
         assert result.exit_code == 0
         mock_client.list_watches.assert_called_once()
 
-    @patch('workspace_qdrant_mcp.cli.commands.watch.get_daemon_client')
+    @patch('wqm_cli.cli.commands.watch.get_daemon_client')
     def test_watch_config(self, mock_get_client):
         """Test watch config command."""
         mock_client = MagicMock()
@@ -488,7 +488,7 @@ class TestWatchCommands(TestCLIComprehensive):
 class TestWebCommands(TestCLIComprehensive):
     """Test web command domain (start|dev|build|status)."""
 
-    @patch('workspace_qdrant_mcp.cli.commands.web.WebServerManager')
+    @patch('wqm_cli.cli.commands.web.WebServerManager')
     def test_web_start(self, mock_web_manager):
         """Test web start command."""
         mock_manager = MagicMock()
@@ -499,7 +499,7 @@ class TestWebCommands(TestCLIComprehensive):
         assert result.exit_code == 0
         mock_manager.start.assert_called_once()
 
-    @patch('workspace_qdrant_mcp.cli.commands.web.WebServerManager')
+    @patch('wqm_cli.cli.commands.web.WebServerManager')
     def test_web_dev(self, mock_web_manager):
         """Test web dev command."""
         mock_manager = MagicMock()
@@ -510,7 +510,7 @@ class TestWebCommands(TestCLIComprehensive):
         assert result.exit_code == 0
         mock_manager.start_dev.assert_called_once()
 
-    @patch('workspace_qdrant_mcp.cli.commands.web.WebServerManager')
+    @patch('wqm_cli.cli.commands.web.WebServerManager')
     def test_web_status(self, mock_web_manager):
         """Test web status command."""
         mock_manager = MagicMock()
@@ -521,7 +521,7 @@ class TestWebCommands(TestCLIComprehensive):
         assert result.exit_code == 0
         mock_manager.get_status.assert_called_once()
 
-    @patch('workspace_qdrant_mcp.cli.commands.web.WebServerManager')
+    @patch('wqm_cli.cli.commands.web.WebServerManager')
     def test_web_build(self, mock_web_manager):
         """Test web build command."""
         mock_manager = MagicMock()
@@ -565,7 +565,7 @@ class TestInitCommand(TestCLIComprehensive):
 class TestStatusCommands(TestCLIComprehensive):
     """Test status command domain."""
 
-    @patch('workspace_qdrant_mcp.cli.status.get_daemon_client')
+    @patch('wqm_cli.cli.status.get_daemon_client')
     def test_status_basic(self, mock_get_client):
         """Test basic status command."""
         mock_client = MagicMock()
@@ -576,7 +576,7 @@ class TestStatusCommands(TestCLIComprehensive):
         assert result.exit_code == 0
         mock_client.get_status.assert_called_once()
 
-    @patch('workspace_qdrant_mcp.cli.status.get_daemon_client')
+    @patch('wqm_cli.cli.status.get_daemon_client')
     def test_status_live(self, mock_get_client):
         """Test status with live monitoring."""
         mock_client = MagicMock()
@@ -593,7 +593,7 @@ class TestStatusCommands(TestCLIComprehensive):
 class TestObservabilityCommands(TestCLIComprehensive):
     """Test observability command domain."""
 
-    @patch('workspace_qdrant_mcp.cli.observability.get_daemon_client')
+    @patch('wqm_cli.cli.observability.get_daemon_client')
     def test_observability_health(self, mock_get_client):
         """Test observability health command."""
         mock_client = MagicMock()
@@ -604,7 +604,7 @@ class TestObservabilityCommands(TestCLIComprehensive):
         assert result.exit_code == 0
         mock_client.health_check.assert_called_once()
 
-    @patch('workspace_qdrant_mcp.cli.observability.get_daemon_client')
+    @patch('wqm_cli.cli.observability.get_daemon_client')
     def test_observability_metrics(self, mock_get_client):
         """Test observability metrics command."""
         mock_client = MagicMock()
@@ -648,7 +648,7 @@ class TestErrorHandlingAndExitCodes(TestCLIComprehensive):
 
     def test_connection_error_exit_code(self):
         """Test connection errors return proper exit code."""
-        with patch('workspace_qdrant_mcp.cli.commands.admin.get_daemon_client', 
+        with patch('wqm_cli.cli.commands.admin.get_daemon_client', 
                    side_effect=ConnectionError("Connection failed")):
             result = self.runner.invoke(app, ["admin", "status"])
             assert result.exit_code == 1
@@ -666,7 +666,7 @@ class TestErrorHandlingAndExitCodes(TestCLIComprehensive):
 
     def test_keyboard_interrupt_handling(self):
         """Test keyboard interrupt is handled gracefully."""
-        with patch('workspace_qdrant_mcp.cli.main.handle_async_command', 
+        with patch('wqm_cli.cli.main.handle_async_command', 
                    side_effect=KeyboardInterrupt):
             result = self.runner.invoke(app, ["admin", "status"])
             assert result.exit_code == 1
@@ -674,7 +674,7 @@ class TestErrorHandlingAndExitCodes(TestCLIComprehensive):
 
     def test_unexpected_exception_handling(self):
         """Test unexpected exceptions are handled gracefully."""
-        with patch('workspace_qdrant_mcp.cli.commands.admin.get_daemon_client', 
+        with patch('wqm_cli.cli.commands.admin.get_daemon_client', 
                    side_effect=RuntimeError("Unexpected error")):
             result = self.runner.invoke(app, ["admin", "status"])
             assert result.exit_code == 1
@@ -686,7 +686,7 @@ class TestOutputFormatting(TestCLIComprehensive):
 
     def test_json_output_format(self):
         """Test JSON output format where supported."""
-        with patch('workspace_qdrant_mcp.cli.commands.admin.get_daemon_client') as mock_client:
+        with patch('wqm_cli.cli.commands.admin.get_daemon_client') as mock_client:
             mock_client.return_value.get_status.return_value = {"status": "running"}
             
             result = self.runner.invoke(app, ["admin", "status", "--json"])
@@ -701,7 +701,7 @@ class TestOutputFormatting(TestCLIComprehensive):
 
     def test_table_output_format(self):
         """Test table output format consistency."""
-        with patch('workspace_qdrant_mcp.cli.commands.memory.get_daemon_client') as mock_client:
+        with patch('wqm_cli.cli.commands.memory.get_daemon_client') as mock_client:
             mock_client.return_value.list_memory_rules.return_value = [
                 {"id": "1", "rule": "Test rule 1"},
                 {"id": "2", "rule": "Test rule 2"}
@@ -726,7 +726,7 @@ class TestEdgeCasesAndBoundaryConditions(TestCLIComprehensive):
     def test_very_long_command_line(self):
         """Test very long command line arguments."""
         long_query = "x" * 1000
-        with patch('workspace_qdrant_mcp.cli.commands.search.get_daemon_client') as mock_client:
+        with patch('wqm_cli.cli.commands.search.get_daemon_client') as mock_client:
             mock_client.return_value.search.return_value = {"results": []}
             
             result = self.runner.invoke(app, ["search", "project", long_query])
@@ -738,7 +738,7 @@ class TestEdgeCasesAndBoundaryConditions(TestCLIComprehensive):
         special_dir = Path(self.temp_dir) / "special-dir with spaces & symbols!"
         special_dir.mkdir(exist_ok=True)
         
-        with patch('workspace_qdrant_mcp.cli.commands.ingest.get_daemon_client') as mock_client:
+        with patch('wqm_cli.cli.commands.ingest.get_daemon_client') as mock_client:
             mock_client.return_value.ingest_folder.return_value = {"status": "processed"}
             
             result = self.runner.invoke(app, ["ingest", "folder", str(special_dir)])
@@ -747,7 +747,7 @@ class TestEdgeCasesAndBoundaryConditions(TestCLIComprehensive):
     def test_unicode_characters_in_commands(self):
         """Test unicode characters in command arguments."""
         unicode_query = "测试 query with émojis 🚀"
-        with patch('workspace_qdrant_mcp.cli.commands.search.get_daemon_client') as mock_client:
+        with patch('wqm_cli.cli.commands.search.get_daemon_client') as mock_client:
             mock_client.return_value.search.return_value = {"results": []}
             
             result = self.runner.invoke(app, ["search", "project", unicode_query])
