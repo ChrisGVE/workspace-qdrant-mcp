@@ -1,0 +1,86 @@
+{
+  "clangd": {
+    "access_count": 0,
+    "binary_path": "/usr/bin/clangd",
+    "capabilities": [
+      "hover",
+      "diagnostics",
+      "completion",
+      "semantic_tokens"
+    ],
+    "detection_time": 1758451136.11476,
+    "last_accessed": 1758451136.11476,
+    "lsp_name": "clangd",
+    "priority": 10,
+    "supported_extensions": [
+      ".c",
+      ".cpp",
+      ".cc",
+      ".cxx",
+      ".c++",
+      ".h",
+      ".hpp",
+      ".hxx",
+      ".h++"
+    ],
+    "version": "Apple clangd version 17.0.0 (clang-1700.0.13.5)"
+  },
+  "gopls": {
+    "access_count": 0,
+    "binary_path": "/usr/local/bin/gopls",
+    "capabilities": [
+      "diagnostics",
+      "formatting",
+      "completion",
+      "semantic_tokens",
+      "hover"
+    ],
+    "detection_time": 1758451135.8821278,
+    "last_accessed": 1758451135.882129,
+    "lsp_name": "gopls",
+    "priority": 10,
+    "supported_extensions": [
+      ".go",
+      ".mod",
+      ".sum"
+    ],
+    "version": "golang.org/x/tools/gopls v0.20.0"
+  },
+  "ruff": {
+    "access_count": 0,
+    "binary_path": "/Users/chris/.local/bin/ruff",
+    "capabilities": [
+      "diagnostics",
+      "code_actions",
+      "formatting"
+    ],
+    "detection_time": 1758451135.6083589,
+    "last_accessed": 1758451135.6083589,
+    "lsp_name": "ruff",
+    "priority": 8,
+    "supported_extensions": [
+      ".py",
+      ".pyi"
+    ],
+    "version": "ruff 0.12.11"
+  },
+  "rust-analyzer": {
+    "access_count": 0,
+    "binary_path": "/usr/local/bin/rust-analyzer",
+    "capabilities": [
+      "hover",
+      "diagnostics",
+      "completion",
+      "semantic_tokens"
+    ],
+    "detection_time": 1758451135.552599,
+    "last_accessed": 1758451135.5526001,
+    "lsp_name": "rust-analyzer",
+    "priority": 10,
+    "supported_extensions": [
+      ".rs",
+      ".toml"
+    ],
+    "version": "rust-analyzer 0.0.0 (6b2e677795 2025-08-25)"
+  }
+}

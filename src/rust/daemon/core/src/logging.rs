@@ -806,27 +806,59 @@ impl ErrorMonitor for LoggingErrorMonitor {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use serde_json::Value;
+    use serial_test::serial;
+    use std::path::PathBuf;
     use tempfile::NamedTempFile;
 
+    #[serial]
     #[test]
     fn test_logging_config_from_environment() {
+        let keys = [
+            "RUST_LOG",
+            "WQM_LOG_JSON",
+            "WQM_LOG_CONSOLE",
+            "WQM_LOG_FILE",
+            "WQM_LOG_FILE_PATH",
+            "WQM_LOG_METRICS",
+            "WQM_LOG_ERROR_TRACKING",
+            "WQM_LOG_FIELD_TEAM",
+        ];
+
+        let previous: Vec<Option<String>> = keys
+            .iter()
+            .map(|key| env::var(key).ok())
+            .collect();
+
         env::set_var("RUST_LOG", "debug");
         env::set_var("WQM_LOG_JSON", "true");
-        env::set_var("WQM_LOG_FIELD_SERVICE", "test-service");
+        env::set_var("WQM_LOG_CONSOLE", "0");
+        env::set_var("WQM_LOG_FILE", "1");
+        env::set_var("WQM_LOG_FILE_PATH", "/tmp/wqm.log");
+        env::set_var("WQM_LOG_METRICS", "false");
+        env::set_var("WQM_LOG_ERROR_TRACKING", "false");
+        env::set_var("WQM_LOG_FIELD_TEAM", "core");
 
         let config = LoggingConfig::from_environment();
 
         assert_eq!(config.level, Level::DEBUG);
         assert!(config.json_format);
+        assert!(!config.console_output);
+        assert!(config.file_logging);
         assert_eq!(
-            config.global_fields.get("service"),
-            Some(&"test-service".to_string())
+            config.log_file_path.as_ref().map(PathBuf::from),
+            Some(PathBuf::from("/tmp/wqm.log"))
         );
+        assert!(!config.performance_metrics);
+        assert!(!config.error_tracking);
+        assert_eq!(config.global_fields.get("team"), Some(&"core".to_string()));
 
-        // Clean up
-        env::remove_var("RUST_LOG");
-        env::remove_var("WQM_LOG_JSON");
-        env::remove_var("WQM_LOG_FIELD_SERVICE");
+        for (key, value) in keys.iter().zip(previous) {
+            match value {
+                Some(v) => env::set_var(key, v),
+                None => env::remove_var(key),
+            }
+        }
     }
 
     #[test]
@@ -835,12 +867,44 @@ mod tests {
 
         metrics.record_operation("test_op", 100.0);
         metrics.record_operation("test_op", 200.0);
+        metrics.record_operation("index", 50.0);
         metrics.record_error("test_error");
 
         let summary = metrics.get_summary();
-        assert!(summary.contains_key("operation_counts"));
-        assert!(summary.contains_key("operation_stats"));
-        assert!(summary.contains_key("error_counts"));
+
+        let counts = summary
+            .get("operation_counts")
+            .and_then(Value::as_object)
+            .expect("operation counts available");
+        assert_eq!(counts.get("test_op").and_then(Value::as_u64), Some(2));
+        assert_eq!(counts.get("index").and_then(Value::as_u64), Some(1));
+
+        let stats = summary
+            .get("operation_stats")
+            .and_then(Value::as_object)
+            .expect("operation stats available");
+        let ingest_stats = stats
+            .get("test_op")
+            .and_then(Value::as_object)
+            .expect("test_op stats available");
+
+        let avg = ingest_stats.get("avg_ms").and_then(Value::as_f64).unwrap();
+        assert!((avg - 150.0).abs() < 1e-6);
+        assert_eq!(
+            ingest_stats.get("count").and_then(Value::as_f64),
+            Some(2.0)
+        );
+
+        let error_counts = summary
+            .get("error_counts")
+            .and_then(Value::as_object)
+            .expect("error counts available");
+        assert_eq!(
+            error_counts
+                .get("test_error")
+                .and_then(Value::as_u64),
+            Some(1)
+        );
     }
 
     #[tokio::test]
