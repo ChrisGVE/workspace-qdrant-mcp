@@ -5,6 +5,12 @@ Tests complete workflow: LSP detection -> extension mapping -> watch configurati
 -> file monitoring -> notification system integration with performance validation.
 """
 
+import sys
+from pathlib import Path
+
+# Add src/python to path for common module imports
+sys.path.insert(0, str(Path(__file__).parent.parent.parent / "src" / "python"))
+
 import asyncio
 import json
 import os
@@ -20,7 +26,7 @@ import pytest
 from common.core.lsp_detector import LSPDetector, LSPDetectionResult, LSPServerInfo
 from common.core.lsp_notifications import LSPNotificationManager, NotificationLevel
 from common.core.lsp_fallback import BuildToolDetector, FallbackExtensionProvider
-from common.core.watch_config import WatchConfiguration
+from common.core.watch_config import WatchConfigurationPersistent as WatchConfig
 from common.core.config import WorkspaceConfig
 
 

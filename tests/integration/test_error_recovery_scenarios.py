@@ -15,6 +15,7 @@ Tests system behavior under various failure conditions including:
 import asyncio
 import json
 import os
+import sys
 import pytest
 import tempfile
 import time
@@ -23,6 +24,9 @@ from typing import Dict, Any, List, Optional
 from unittest.mock import AsyncMock, patch, MagicMock
 import signal
 import psutil
+
+# Add src/python to path for common module imports
+sys.path.insert(0, str(Path(__file__).parent.parent.parent / "src" / "python"))
 
 from testcontainers.compose import DockerCompose
 
@@ -34,7 +38,7 @@ from workspace_qdrant_mcp.tools.grpc_tools import (
     process_document_via_grpc,
     search_via_grpc
 )
-from common.core.exceptions import (
+from common.core.service_discovery.exceptions import (
     WorkspaceQdrantError,
     ConnectionError,
     ConfigurationError,

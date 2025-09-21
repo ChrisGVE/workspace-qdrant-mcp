@@ -15,6 +15,12 @@ Test coverage includes all MCP tools from:
 - watch_management.py, research.py, grpc_tools.py
 """
 
+import sys
+from pathlib import Path
+
+# Add src/python to path for common module imports
+sys.path.insert(0, str(Path(__file__).parent.parent.parent / "src" / "python"))
+
 import asyncio
 import json
 import time
@@ -34,8 +40,8 @@ from common.core.client import QdrantWorkspaceClient
 from common.core.config import Config
 from workspace_qdrant_mcp.server import app, initialize_workspace
 from workspace_qdrant_mcp.tools.memory import register_memory_tools
-from workspace_qdrant_mcp.grpc.client import GRPCClient
-from workspace_qdrant_mcp.grpc.connection_manager import ConnectionManager
+from common.grpc.client import AsyncIngestClient as GRPCClient
+from common.grpc.connection_manager import ConnectionManager
 from common.core.yaml_config import load_config, WorkspaceConfig
 
 
