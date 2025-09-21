@@ -11,7 +11,7 @@ function/class definitions, and language-specific metadata.
 import logging
 import re
 from pathlib import Path
-from typing import Any
+from typing import Any, Optional
 
 try:
     from pygments import highlight
@@ -23,18 +23,37 @@ try:
 except ImportError:
     PYGMENTS_AVAILABLE = False
 
+try:
+    from ...common.core.lsp_metadata_extractor import LspMetadataExtractor, FileMetadata
+    LSP_AVAILABLE = True
+except ImportError:
+    LSP_AVAILABLE = False
+    FileMetadata = None
+
 from .base import DocumentParser, ParsedDocument
+from .progress import ProgressTracker
 
 # logger imported from loguru
 
 
 class CodeParser(DocumentParser):
     """
-    Parser for source code files across multiple programming languages.
+    Enhanced parser for source code files with LSP integration.
 
     Extracts code content with syntax analysis, function/class detection,
-    and language-specific metadata extraction.
+    language-specific metadata extraction, and optional LSP-based code intelligence
+    including symbols, relationships, and type information.
     """
+
+    def __init__(self, lsp_extractor: Optional[LspMetadataExtractor] = None):
+        """
+        Initialize code parser with optional LSP integration.
+
+        Args:
+            lsp_extractor: Optional LSP metadata extractor for enhanced code analysis
+        """
+        self.lsp_extractor = lsp_extractor
+        self._check_lsp_availability()
 
     # Comprehensive mapping of file extensions to languages
     LANGUAGE_EXTENSIONS = {
@@ -142,18 +161,28 @@ class CodeParser(DocumentParser):
         if not PYGMENTS_AVAILABLE:
             logger.warning("Pygments not available - basic code parsing only")
 
-    async def parse(self, file_path: str | Path, **options: Any) -> ParsedDocument:
+    def _check_lsp_availability(self) -> None:
+        """Check if LSP integration is available."""
+        if not LSP_AVAILABLE:
+            logger.debug("LSP metadata extractor not available - basic code parsing only")
+        elif self.lsp_extractor is None:
+            logger.debug("No LSP extractor provided - enhanced analysis disabled")
+
+    async def parse(self, file_path: str | Path, progress_tracker: Optional[ProgressTracker] = None, **options: Any) -> ParsedDocument:
         """
-        Parse source code file and extract content with metadata.
+        Parse source code file and extract content with enhanced LSP metadata.
 
         Args:
             file_path: Path to source code file
+            progress_tracker: Optional progress tracker for monitoring
             **options: Parsing options
                 - detect_functions: bool = True - Detect function/class definitions
                 - include_comments: bool = True - Include comment extraction
                 - syntax_highlighting: bool = False - Add syntax highlighting markers
                 - max_line_length: int = 10000 - Skip files with extremely long lines
                 - encoding: str = 'utf-8' - File encoding
+                - enable_lsp: bool = True - Enable LSP-based analysis if available
+                - lsp_timeout: float = 30.0 - LSP operation timeout
 
         Returns:
             ParsedDocument with extracted code and metadata
@@ -175,11 +204,21 @@ class CodeParser(DocumentParser):
             syntax_highlighting = options.get("syntax_highlighting", False)
             max_line_length = options.get("max_line_length", 10000)
             encoding = options.get("encoding", "utf-8")
+            enable_lsp = options.get("enable_lsp", True)
+            lsp_timeout = options.get("lsp_timeout", 30.0)
+
+            # Update progress
+            if progress_tracker:
+                progress_tracker.update_phase("initializing", "Setting up code parsing")
 
             # Detect language
+            if progress_tracker:
+                progress_tracker.update_phase("analyzing", "Detecting programming language")
             language = await self._detect_language(file_path)
 
             # Read file content
+            if progress_tracker:
+                progress_tracker.update_phase("reading", "Reading source file")
             try:
                 with open(file_path, "r", encoding=encoding) as f:
                     content = f.read()
@@ -205,10 +244,14 @@ class CodeParser(DocumentParser):
                     f"File contains lines longer than {max_line_length} characters - likely binary"
                 )
 
-            # Extract metadata
+            # Extract basic metadata
+            if progress_tracker:
+                progress_tracker.update_phase("extracting", "Extracting basic metadata")
             metadata = await self._extract_metadata(content, language, file_path)
 
             # Enhanced content processing
+            if progress_tracker:
+                progress_tracker.update_phase("processing", "Processing code content")
             processed_content = content
             if syntax_highlighting and PYGMENTS_AVAILABLE:
                 processed_content = await self._add_syntax_info(content, language)
@@ -223,6 +266,24 @@ class CodeParser(DocumentParser):
                 comment_info = await self._extract_comments(content, language)
                 metadata.update(comment_info)
 
+            # LSP-enhanced analysis if available and enabled
+            lsp_metadata = None
+            if enable_lsp and self.lsp_extractor and LSP_AVAILABLE:
+                if progress_tracker:
+                    progress_tracker.update_phase("lsp_analysis", "Performing LSP-based code analysis")
+                try:
+                    lsp_metadata = await self._extract_lsp_metadata(file_path, lsp_timeout)
+                    if lsp_metadata:
+                        metadata.update(await self._integrate_lsp_metadata(lsp_metadata, metadata))
+                        logger.debug(
+                            f"LSP analysis completed for {file_path.name}: "
+                            f"{len(lsp_metadata.symbols)} symbols, "
+                            f"{len(lsp_metadata.relationships)} relationships"
+                        )
+                except Exception as e:
+                    logger.warning(f"LSP analysis failed for {file_path}: {e}")
+                    metadata["lsp_error"] = str(e)
+
             # Parsing information
             parsing_info = {
                 "detected_language": language,
@@ -232,7 +293,12 @@ class CodeParser(DocumentParser):
                 "detect_functions": detect_functions,
                 "include_comments": include_comments,
                 "syntax_highlighting": syntax_highlighting,
+                "lsp_enabled": enable_lsp and self.lsp_extractor is not None,
+                "lsp_analysis_success": lsp_metadata is not None,
             }
+
+            if progress_tracker:
+                progress_tracker.update_phase("finalizing", "Creating parsed document")
 
             logger.info(
                 f"Successfully parsed {language} code: {file_path.name} "
@@ -495,6 +561,114 @@ class CodeParser(DocumentParser):
         except ClassNotFound:
             return content
 
+    async def _extract_lsp_metadata(self, file_path: Path, timeout: float = 30.0) -> Optional[FileMetadata]:
+        """
+        Extract LSP-based metadata from the source file.
+
+        Args:
+            file_path: Path to the source file
+            timeout: LSP operation timeout
+
+        Returns:
+            FileMetadata object with LSP analysis results or None if failed
+        """
+        if not self.lsp_extractor or not LSP_AVAILABLE:
+            return None
+
+        try:
+            # Ensure LSP extractor is initialized
+            if not self.lsp_extractor._initialized:
+                await self.lsp_extractor.initialize(file_path.parent)
+
+            # Extract metadata with timeout
+            return await self.lsp_extractor.extract_file_metadata(file_path)
+
+        except Exception as e:
+            logger.debug(f"LSP metadata extraction failed: {e}")
+            return None
+
+    async def _integrate_lsp_metadata(self, lsp_metadata: FileMetadata, basic_metadata: dict) -> dict:
+        """
+        Integrate LSP metadata with basic parsing metadata.
+
+        Args:
+            lsp_metadata: LSP-extracted metadata
+            basic_metadata: Basic parsing metadata
+
+        Returns:
+            Enhanced metadata dictionary
+        """
+        enhanced_metadata = basic_metadata.copy()
+
+        # Add LSP symbol information
+        if lsp_metadata.symbols:
+            symbol_info = {
+                "lsp_symbols_count": len(lsp_metadata.symbols),
+                "lsp_functions": [],
+                "lsp_classes": [],
+                "lsp_variables": [],
+                "lsp_imports": lsp_metadata.imports,
+                "lsp_exports": lsp_metadata.exports,
+            }
+
+            # Categorize symbols by type
+            for symbol in lsp_metadata.symbols:
+                symbol_data = {
+                    "name": symbol.name,
+                    "kind": symbol.kind.name,
+                    "line": symbol.range.start.line + 1,  # Convert to 1-based
+                    "signature": symbol.get_signature(),
+                }
+
+                # Add documentation if available
+                if symbol.documentation and symbol.documentation.docstring:
+                    symbol_data["documentation"] = symbol.documentation.docstring
+
+                # Add type information if available
+                if symbol.type_info:
+                    if symbol.type_info.type_name:
+                        symbol_data["type"] = symbol.type_info.type_name
+                    if symbol.type_info.return_type:
+                        symbol_data["return_type"] = symbol.type_info.return_type
+
+                # Categorize by symbol kind
+                if symbol.kind.name in ["FUNCTION", "METHOD", "CONSTRUCTOR"]:
+                    symbol_info["lsp_functions"].append(symbol_data)
+                elif symbol.kind.name in ["CLASS", "INTERFACE", "STRUCT"]:
+                    symbol_info["lsp_classes"].append(symbol_data)
+                elif symbol.kind.name in ["VARIABLE", "CONSTANT", "FIELD", "PROPERTY"]:
+                    symbol_info["lsp_variables"].append(symbol_data)
+
+            enhanced_metadata.update(symbol_info)
+
+        # Add relationship information
+        if lsp_metadata.relationships:
+            enhanced_metadata["lsp_relationships_count"] = len(lsp_metadata.relationships)
+            enhanced_metadata["lsp_relationships"] = [
+                {
+                    "from": rel.from_symbol,
+                    "to": rel.to_symbol,
+                    "type": rel.relationship_type.value,
+                }
+                for rel in lsp_metadata.relationships
+            ]
+
+        # Add file-level documentation
+        if lsp_metadata.file_docstring:
+            enhanced_metadata["file_docstring"] = lsp_metadata.file_docstring
+
+        if lsp_metadata.file_comments:
+            enhanced_metadata["file_comments"] = lsp_metadata.file_comments
+
+        # Add extraction statistics
+        if lsp_metadata.extraction_errors:
+            enhanced_metadata["lsp_extraction_errors"] = lsp_metadata.extraction_errors
+
+        enhanced_metadata["lsp_server"] = lsp_metadata.lsp_server
+        enhanced_metadata["lsp_extraction_timestamp"] = lsp_metadata.extraction_timestamp
+
+        return enhanced_metadata
+
     def get_parsing_options(self) -> dict[str, dict[str, Any]]:
         """Get available parsing options for code files."""
         return {
@@ -522,5 +696,15 @@ class CodeParser(DocumentParser):
                 "type": str,
                 "default": "utf-8",
                 "description": "File encoding (utf-8, latin1, etc.)",
+            },
+            "enable_lsp": {
+                "type": bool,
+                "default": True,
+                "description": "Enable LSP-based code analysis for enhanced metadata",
+            },
+            "lsp_timeout": {
+                "type": float,
+                "default": 30.0,
+                "description": "Timeout for LSP operations in seconds",
             },
         }
