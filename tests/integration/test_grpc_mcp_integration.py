@@ -15,7 +15,9 @@ Tests:
 """
 
 import asyncio
+import sys
 import time
+from pathlib import Path
 from typing import Dict, Any, List, Optional
 from unittest.mock import AsyncMock, MagicMock, patch
 from concurrent.futures import ThreadPoolExecutor
@@ -23,8 +25,11 @@ import threading
 
 import pytest
 
-from workspace_qdrant_mcp.grpc.client import GRPCClient
-from workspace_qdrant_mcp.grpc.connection_manager import ConnectionManager
+# Add src/python to path for common module imports
+sys.path.insert(0, str(Path(__file__).parent.parent.parent / "src" / "python"))
+
+from common.grpc.client import AsyncIngestClient as GRPCClient
+from common.grpc.connection_manager import GrpcConnectionManager as ConnectionManager
 from workspace_qdrant_mcp.tools.grpc_tools import (
     test_grpc_connection,
     get_grpc_engine_stats, 

@@ -1,5 +1,11 @@
 """Integration tests for migration reporting CLI commands."""
 
+import sys
+from pathlib import Path
+
+# Add src/python to path for common module imports
+sys.path.insert(0, str(Path(__file__).parent.parent.parent / "src" / "python"))
+
 import json
 import tempfile
 from pathlib import Path
@@ -8,7 +14,7 @@ from unittest.mock import MagicMock, patch
 import pytest
 from typer.testing import CliRunner
 
-from python.wqm_cli.cli.commands.admin import admin_app
+from wqm_cli.cli.commands.admin import admin_app
 from common.utils.migration import ConfigMigrator, MigrationReport, ChangeEntry, ChangeType
 
 
