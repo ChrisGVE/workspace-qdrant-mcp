@@ -10,7 +10,6 @@
 use std::process::{Command, Stdio};
 use std::path::PathBuf;
 use std::time::Duration;
-use std::env;
 use std::fs;
 use tempfile::TempDir;
 use serde::{Deserialize, Serialize};
@@ -510,7 +509,7 @@ impl ValgrindTestSuite {
     }
 
     /// Run command with timeout
-    async fn run_command_with_timeout(&self, mut cmd: Command) -> Result<std::process::Output, ValgrindError> {
+    async fn run_command_with_timeout(&self, cmd: Command) -> Result<std::process::Output, ValgrindError> {
         use tokio::process::Command as TokioCommand;
         use tokio::time::timeout;
 
@@ -527,7 +526,7 @@ impl ValgrindTestSuite {
 
     /// Parse Memcheck XML results
     fn parse_memcheck_results(&self, output_file: &PathBuf) -> Result<MemcheckResults, ValgrindError> {
-        let _content = fs::read_to_string(output_file)?;
+        let content = fs::read_to_string(output_file)?;
 
         // Simplified XML parsing - in practice, you'd use a proper XML parser
         let definitely_lost = extract_number(&content, "definitely_lost").unwrap_or(0);
@@ -558,7 +557,7 @@ impl ValgrindTestSuite {
 
     /// Parse Cachegrind results
     fn parse_cachegrind_results(&self, output_file: &PathBuf) -> Result<CachegrindResults, ValgrindError> {
-        let _content = fs::read_to_string(output_file)?;
+        let content = fs::read_to_string(output_file)?;
 
         // Simplified parsing - real implementation would parse the cachegrind format
         Ok(CachegrindResults {
@@ -575,7 +574,7 @@ impl ValgrindTestSuite {
 
     /// Parse Massif results
     fn parse_massif_results(&self, output_file: &PathBuf) -> Result<MassifResults, ValgrindError> {
-        let _content = fs::read_to_string(output_file)?;
+        let content = fs::read_to_string(output_file)?;
 
         // Simplified parsing - real implementation would parse the massif format
         Ok(MassifResults {
@@ -589,7 +588,7 @@ impl ValgrindTestSuite {
 
     /// Parse Helgrind XML results
     fn parse_helgrind_results(&self, output_file: &PathBuf) -> Result<HelgrindResults, ValgrindError> {
-        let _content = fs::read_to_string(output_file)?;
+        let content = fs::read_to_string(output_file)?;
 
         // Count race conditions and other thread errors
         let race_conditions_count = content.matches("race condition").count();
@@ -606,7 +605,7 @@ impl ValgrindTestSuite {
 
     /// Parse DRD XML results
     fn parse_drd_results(&self, output_file: &PathBuf) -> Result<DrdResults, ValgrindError> {
-        let _content = fs::read_to_string(output_file)?;
+        let content = fs::read_to_string(output_file)?;
 
         // Count data races and other errors
         let _data_races_count = _content.matches("data race").count();
@@ -695,7 +694,6 @@ fn leak_check_to_string(leak_check: &ValgrindLeakCheck) -> &'static str {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::path::Path;
 
     #[test]
     fn test_valgrind_availability() {
