@@ -3,13 +3,13 @@
     "access_count": 0,
     "binary_path": "/usr/bin/clangd",
     "capabilities": [
-      "hover",
-      "diagnostics",
       "completion",
-      "semantic_tokens"
+      "hover",
+      "semantic_tokens",
+      "diagnostics"
     ],
-    "detection_time": 1758451136.11476,
-    "last_accessed": 1758451136.11476,
+    "detection_time": 1758479933.225417,
+    "last_accessed": 1758479933.225417,
     "lsp_name": "clangd",
     "priority": 10,
     "supported_extensions": [
@@ -29,14 +29,14 @@
     "access_count": 0,
     "binary_path": "/usr/local/bin/gopls",
     "capabilities": [
-      "diagnostics",
+      "hover",
       "formatting",
-      "completion",
       "semantic_tokens",
-      "hover"
+      "completion",
+      "diagnostics"
     ],
-    "detection_time": 1758451135.8821278,
-    "last_accessed": 1758451135.882129,
+    "detection_time": 1758479933.037106,
+    "last_accessed": 1758479933.037106,
     "lsp_name": "gopls",
     "priority": 10,
     "supported_extensions": [
@@ -50,12 +50,12 @@
     "access_count": 0,
     "binary_path": "/Users/chris/.local/bin/ruff",
     "capabilities": [
-      "diagnostics",
       "code_actions",
-      "formatting"
+      "formatting",
+      "diagnostics"
     ],
-    "detection_time": 1758451135.6083589,
-    "last_accessed": 1758451135.6083589,
+    "detection_time": 1758479932.8387158,
+    "last_accessed": 1758479932.8387158,
     "lsp_name": "ruff",
     "priority": 8,
     "supported_extensions": [
@@ -66,21 +66,21 @@
   },
   "rust-analyzer": {
     "access_count": 0,
-    "binary_path": "/usr/local/bin/rust-analyzer",
+    "binary_path": "/usr/local/opt/rustup/bin/rust-analyzer",
     "capabilities": [
-      "hover",
-      "diagnostics",
       "completion",
-      "semantic_tokens"
+      "hover",
+      "semantic_tokens",
+      "diagnostics"
     ],
-    "detection_time": 1758451135.552599,
-    "last_accessed": 1758451135.5526001,
+    "detection_time": 1758479932.805152,
+    "last_accessed": 1758479932.805152,
     "lsp_name": "rust-analyzer",
     "priority": 10,
     "supported_extensions": [
       ".rs",
       ".toml"
     ],
-    "version": "rust-analyzer 0.0.0 (6b2e677795 2025-08-25)"
+    "version": "rust-analyzer 1.90.0 (1159e78c 2025-09-14)"
   }
 }
