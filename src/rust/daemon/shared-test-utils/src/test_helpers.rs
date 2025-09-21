@@ -11,7 +11,6 @@ use std::sync::Once;
 use tracing_subscriber::{fmt, EnvFilter};
 use tokio_test::{assert_pending, assert_ready, assert_ready_err, assert_ready_ok, task};
 use std::pin::Pin;
-use std::task::{Context, Poll};
 use std::future::Future;
 
 /// Execute an async operation with timeout
@@ -101,6 +100,7 @@ where
 pub fn assert_future_pending<F>(future: Pin<&mut F>) -> TestResult<()>
 where
     F: Future,
+    F::Output: std::fmt::Debug,
 {
     let mut task = task::spawn(future);
     assert_pending!(task.poll());
@@ -121,6 +121,8 @@ where
 pub fn assert_future_ready_err<F, T, E>(future: Pin<&mut F>) -> TestResult<E>
 where
     F: Future<Output = Result<T, E>>,
+    T: std::fmt::Debug,
+    E: std::fmt::Debug,
 {
     let mut task = task::spawn(future);
     let result = assert_ready_err!(task.poll());
@@ -131,6 +133,8 @@ where
 pub fn assert_future_ready_ok<F, T, E>(future: Pin<&mut F>) -> TestResult<T>
 where
     F: Future<Output = Result<T, E>>,
+    T: std::fmt::Debug,
+    E: std::fmt::Debug,
 {
     let mut task = task::spawn(future);
     let result = assert_ready_ok!(task.poll());
@@ -173,7 +177,8 @@ pub async fn test_concurrent_operations<F, T>(
     max_concurrent: usize,
 ) -> TestResult<Vec<T>>
 where
-    F: Future<Output = TestResult<T>>,
+    F: Future<Output = TestResult<T>> + Send + 'static,
+    T: Send + 'static,
 {
     let semaphore = std::sync::Arc::new(tokio::sync::Semaphore::new(max_concurrent));
     let mut handles = Vec::new();
