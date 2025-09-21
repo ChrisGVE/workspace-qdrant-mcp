@@ -8,9 +8,8 @@ use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 use std::thread;
 
-use tokio::test;
 use serde::{Deserialize, Serialize};
-use criterion::{black_box, Criterion, BatchSize, Throughput};
+use criterion::black_box;
 
 /// FFI performance test configuration
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -566,7 +565,7 @@ impl FfiPerformanceTester {
                         local_operations += 1;
                     }
 
-                    let thread_duration = thread_start.elapsed();
+                    let _thread_duration = thread_start.elapsed();
                     local_operations
                 })
             })
@@ -617,7 +616,7 @@ impl FfiPerformanceTester {
         function_calls: &FunctionCallBenchmarks,
         concurrency: &HashMap<usize, ConcurrencyBenchmark>,
     ) -> f64 {
-        let mut score = 100.0;
+        let mut score: f64 = 100.0;
 
         // Evaluate data transfer performance
         let avg_throughput: f64 = data_transfer.values()
