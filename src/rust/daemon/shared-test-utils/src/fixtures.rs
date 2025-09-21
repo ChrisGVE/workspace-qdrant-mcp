@@ -1,12 +1,12 @@
 //! Test fixtures and sample data generators
 
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 use tempfile::{NamedTempFile, TempDir};
 use tokio::fs;
 use tokio::io::AsyncWriteExt;
-use uuid::Uuid;
+// use uuid::Uuid; // Unused
 
-use crate::config::{TEST_EMBEDDING_DIM, TEST_PROJECT};
+use crate::config::TEST_EMBEDDING_DIM;
 use crate::TestResult;
 
 /// Test document content generator
@@ -556,7 +556,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_temp_project_creation() -> TestResult {
-        let (temp_dir, file_paths) = TempFileFixtures::create_temp_project().await?;
+        let (_temp_dir, file_paths) = TempFileFixtures::create_temp_project().await?;
 
         assert_eq!(file_paths.len(), 4);
 
