@@ -48,6 +48,8 @@ from enum import Enum
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional, Set, Tuple
 
+from ..utils.os_directories import OSDirectories
+
 # logger imported from loguru
 
 
@@ -235,14 +237,26 @@ class SQLiteStateManager:
     WAL_CHECKPOINT_INTERVAL = 300  # 5 minutes
     MAINTENANCE_INTERVAL = 3600  # 1 hour
 
-    def __init__(self, db_path: str = "workspace_state.db"):
+    def __init__(self, db_path: Optional[str] = None):
         """
-        Initialize SQLite state manager.
+        Initialize SQLite state manager with OS-standard state directory.
 
         Args:
-            db_path: Path to SQLite database file
+            db_path: Optional custom path to SQLite database file.
+                    If None, uses OS-standard state directory with default filename.
+                    For backward compatibility only - prefer OS-standard location.
         """
-        self.db_path = Path(db_path)
+        if db_path is None:
+            # Use OS-standard state directory
+            os_dirs = OSDirectories()
+            os_dirs.ensure_directories()
+            self.db_path = os_dirs.get_state_file("workspace_state.db")
+            logger.info(f"Using OS-standard state directory: {self.db_path}")
+        else:
+            # Legacy mode: use custom path (for backward compatibility)
+            self.db_path = Path(db_path)
+            logger.warning(f"Using legacy database path: {self.db_path}. Consider migrating to OS-standard location.")
+
         self.connection: Optional[sqlite3.Connection] = None
         self._lock = threading.RLock()
         self._shutdown_event = asyncio.Event()
@@ -3267,6 +3281,54 @@ class SQLiteStateManager:
         except Exception as e:
             logger.error(f"Failed to get LSP analysis stats: {e}")
             return {"error": str(e)}
+
+    @classmethod
+    def migrate_from_legacy_path(cls, legacy_db_path: str) -> bool:
+        """Migrate existing database from legacy path to OS-standard location.
+
+        Args:
+            legacy_db_path: Path to existing legacy database file
+
+        Returns:
+            bool: True if migration successful or not needed, False on error
+        """
+        try:
+            legacy_path = Path(legacy_db_path)
+            if not legacy_path.exists():
+                logger.info(f"Legacy database not found at {legacy_path}, no migration needed")
+                return True
+
+            # Get OS-standard location
+            os_dirs = OSDirectories()
+            os_dirs.ensure_directories()
+            new_path = os_dirs.get_state_file("workspace_state.db")
+
+            if new_path.exists():
+                logger.info(f"OS-standard database already exists at {new_path}, skipping migration")
+                return True
+
+            # Perform migration
+            logger.info(f"Migrating database from {legacy_path} to {new_path}")
+
+            # Copy the file
+            import shutil
+            shutil.copy2(legacy_path, new_path)
+
+            # Verify the migration
+            if new_path.exists() and new_path.stat().st_size == legacy_path.stat().st_size:
+                logger.info(f"Database migration successful. Legacy file remains at {legacy_path}")
+                logger.info("You can safely delete the legacy database file after verifying the new location works")
+                return True
+            else:
+                logger.error("Database migration verification failed")
+                # Clean up partial migration
+                if new_path.exists():
+                    new_path.unlink()
+                return False
+
+        except Exception as e:
+            logger.error(f"Database migration failed: {e}")
+            return False
 
 
 # Graceful shutdown handler
