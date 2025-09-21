@@ -34,7 +34,6 @@ pub use ffi_performance_tests::{
 #[cfg(test)]
 mod integration_tests {
     use super::*;
-    use tokio::test;
 
     /// Integration test to run all cross-platform test suites together
     #[tokio::test]
