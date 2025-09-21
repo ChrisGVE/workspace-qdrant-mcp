@@ -14,6 +14,7 @@ Tests use real browser automation to validate complete UI workflows.
 import asyncio
 import json
 import os
+import re
 import tempfile
 import time
 from pathlib import Path
@@ -234,7 +235,7 @@ class TestWebUINavigation:
         """Test that the homepage loads successfully."""
         try:
             await page.goto(TEST_BASE_URL)
-            await expect(page).to_have_title(/Qdrant|Workspace/)
+            await expect(page).to_have_title(re.compile(r"Qdrant|Workspace"))
             
             # Look for main navigation or content
             await expect(page.locator("body")).to_be_visible()

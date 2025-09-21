@@ -111,7 +111,7 @@ class TestMCPProtocolPurity:
         # Invalid messages
         invalid_messages = [
             "Plain text",
-            "{"invalid": "json"",  # Malformed JSON
+            "{\"invalid\": \"json\"",  # Malformed JSON
             '{"valid": "json", "but": "not jsonrpc"}',
             '{"jsonrpc": "1.0", "method": "test"}',  # Wrong version
             "Debug: Server starting",
