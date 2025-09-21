@@ -1,3 +1,11 @@
 //! gRPC service implementations
 
-pub mod document_processor;\npub mod search_service;\npub mod memory_service;\npub mod system_service;\n\npub use document_processor::DocumentProcessorImpl;\npub use search_service::SearchServiceImpl;\npub use memory_service::MemoryServiceImpl;\npub use system_service::SystemServiceImpl;"
+pub mod document_processor;
+pub mod search_service;
+pub mod memory_service;
+pub mod system_service;
+
+pub use document_processor::DocumentProcessorImpl;
+pub use search_service::SearchServiceImpl;
+pub use memory_service::MemoryServiceImpl;
+pub use system_service::SystemServiceImpl;
