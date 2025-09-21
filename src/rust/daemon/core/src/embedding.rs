@@ -214,6 +214,11 @@ impl BM25 {
             vocab_size: self.next_vocab_id as usize,
         }
     }
+
+    /// Get the current vocabulary size
+    pub fn vocab_size(&self) -> usize {
+        self.vocab.len()
+    }
 }
 
 /// Model manager for downloading and caching models
@@ -309,6 +314,11 @@ impl ModelManager {
             .map_err(|e| EmbeddingError::IoError { source: e })?;
         
         Ok(())
+    }
+
+    /// Get available model names
+    pub fn available_models(&self) -> Vec<String> {
+        self.models.keys().cloned().collect()
     }
 }
 

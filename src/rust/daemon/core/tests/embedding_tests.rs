@@ -114,14 +114,14 @@ fn test_bm25_vocabulary_building() {
     let doc2_tokens = vec!["cherry".to_string(), "date".to_string()];
     
     bm25.add_document(&doc1_tokens);
-    assert_eq!(bm25.vocab.len(), 2);
+    assert_eq!(bm25.vocab_size(), 2);
     
     bm25.add_document(&doc2_tokens);
-    assert_eq!(bm25.vocab.len(), 4);
+    assert_eq!(bm25.vocab_size(), 4);
     
     // Adding document with duplicate terms shouldn't increase vocab size
     bm25.add_document(&doc1_tokens);
-    assert_eq!(bm25.vocab.len(), 4);
+    assert_eq!(bm25.vocab_size(), 4);
 }
 
 #[tokio::test]
@@ -150,9 +150,9 @@ fn test_model_manager_creation() {
     let model_manager = ModelManager::new(config.clone());
     
     // Test that default model is available
-    let available_models = model_manager.models.keys().collect::<Vec<_>>();
+    let available_models = model_manager.available_models();
     assert!(!available_models.is_empty());
-    assert!(available_models.contains(&&"bge-small-en-v1.5".to_string()));
+    assert!(available_models.contains(&"bge-small-en-v1.5".to_string()));
 }
 
 #[test]
