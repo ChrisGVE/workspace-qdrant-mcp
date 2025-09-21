@@ -8,7 +8,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         .build_server(true)
         .build_client(true)
         .file_descriptor_set_path(out_dir.join("workspace_daemon_descriptor.bin"))
-        .compile(
+        .compile_protos(
             &["proto/workspace_daemon.proto"],
             &["proto"],
         )?;
