@@ -23,8 +23,11 @@ Collection Types Supported:
 
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
-from typing import Dict, List, Optional, Set, Union
+from typing import Dict, List, Optional, Set, Union, TYPE_CHECKING
 import hashlib
+
+if TYPE_CHECKING:
+    from ..utils.project_detection import ProjectDetector
 
 from loguru import logger
 from qdrant_client import QdrantClient
@@ -32,7 +35,6 @@ from qdrant_client.http import models
 
 from .collections import WorkspaceCollectionManager, CollectionConfig
 from .config import Config
-from ..utils.project_detection import ProjectDetector
 
 
 @dataclass
@@ -212,7 +214,7 @@ class WorkspaceCollectionRegistry:
 class ProjectIsolationManager:
     """Manager for project-based tenant isolation through metadata filtering."""
 
-    def __init__(self, project_detector: Optional[ProjectDetector] = None):
+    def __init__(self, project_detector: Optional["ProjectDetector"] = None):
         self.project_detector = project_detector
         self._tenant_metadata_cache = {}
 
