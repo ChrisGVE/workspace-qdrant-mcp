@@ -82,3 +82,4 @@ tracing-test = { workspace = true }
 # testcontainers = { workspace = true }
 # testcontainers-modules = { workspace = true }
 # wiremock = { workspace = true }
+futures = "0.3"
