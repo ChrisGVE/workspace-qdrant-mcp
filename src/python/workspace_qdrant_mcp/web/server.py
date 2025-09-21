@@ -13,16 +13,16 @@ from fastapi.responses import HTMLResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 
-from common.core.client import create_qdrant_client
-from common.core.collection_naming import create_naming_manager
-from common.core.config import Config
+from python.common.core.client import create_qdrant_client
+from python.common.core.collection_naming import create_naming_manager
+from python.common.core.config import Config
 from ..memory import (
     AuthorityLevel,
     MemoryCategory,
     MemoryManager,
     create_memory_manager,
 )
-from common.memory.types import MemoryRule
+from python.common.memory.types import MemoryRule
 
 
 class MemoryWebServer:

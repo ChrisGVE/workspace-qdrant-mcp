@@ -43,7 +43,7 @@ from dataclasses import dataclass
 from typing import Any, Awaitable, Callable, Dict, Optional, TypeVar, Union
 
 from loguru import logger
-from common.logging import LogContext
+from python.common.logging import LogContext
 from .metrics import metrics_instance, record_operation
 
 # logger imported from loguru

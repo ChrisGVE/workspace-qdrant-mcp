@@ -11,12 +11,12 @@ from typing import Any, Dict, List, Optional
 
 import typer
 
-from common.core.daemon_client import get_daemon_client, with_daemon_client
+from python.common.core.daemon_client import get_daemon_client, with_daemon_client
 from loguru import logger
 
 # Import PatternManager for default patterns
 try:
-    from common.core.pattern_manager import PatternManager
+    from python.common.core.pattern_manager import PatternManager
 
     def _get_cli_default_patterns() -> List[str]:
         """Get default patterns for CLI watch commands."""
@@ -280,7 +280,7 @@ async def _configure_watch(
             
             # Validate depth parameter if provided using comprehensive validation
             if depth is not None:
-                from common.core.depth_validation import validate_recursive_depth, format_depth_display
+                from python.common.core.depth_validation import validate_recursive_depth, format_depth_display
                 depth_result = validate_recursive_depth(depth)
                 
                 if not depth_result.is_valid:
@@ -393,7 +393,7 @@ async def _add_watch(
                 raise typer.Exit(1)
 
             # Validate depth parameter using comprehensive validation
-            from common.core.depth_validation import validate_recursive_depth, format_depth_display
+            from python.common.core.depth_validation import validate_recursive_depth, format_depth_display
             depth_result = validate_recursive_depth(depth)
             
             if not depth_result.is_valid:
@@ -452,7 +452,7 @@ async def _add_watch(
                     break
 
             # Show configuration
-            from common.core.depth_validation import format_depth_display
+            from python.common.core.depth_validation import format_depth_display
             config_text = f"Path: {watch_path}\n"
             config_text += f"Collection: {collection}\n"
             config_text += f"Watch ID: {watch_id}\n"
@@ -739,7 +739,7 @@ async def _pause_watches(path: str | None, collection: str | None, all: bool):
                 paused_count = 0
                 for watch in watches:
                     try:
-                        from common.grpc.ingestion_pb2 import WatchStatus
+                        from python.common.grpc.ingestion_pb2 import WatchStatus
                         response = await client.configure_watch(
                             watch_id=watch.watch_id,
                             status=WatchStatus.WATCH_STATUS_PAUSED
@@ -756,7 +756,7 @@ async def _pause_watches(path: str | None, collection: str | None, all: bool):
                 paused_count = 0
                 for watch in matching_watches:
                     try:
-                        from common.grpc.ingestion_pb2 import WatchStatus
+                        from python.common.grpc.ingestion_pb2 import WatchStatus
                         response = await client.configure_watch(
                             watch_id=watch.watch_id,
                             status=WatchStatus.WATCH_STATUS_PAUSED
@@ -782,7 +782,7 @@ async def _pause_watches(path: str | None, collection: str | None, all: bool):
 
                 for watch in matches:
                     try:
-                        from common.grpc.ingestion_pb2 import WatchStatus
+                        from python.common.grpc.ingestion_pb2 import WatchStatus
                         response = await client.configure_watch(
                             watch_id=watch.watch_id,
                             status=WatchStatus.WATCH_STATUS_PAUSED
@@ -823,7 +823,7 @@ async def _resume_watches(path: str | None, collection: str | None, all: bool):
                 resumed_count = 0
                 for watch in watches:
                     try:
-                        from common.grpc.ingestion_pb2 import WatchStatus
+                        from python.common.grpc.ingestion_pb2 import WatchStatus
                         response = await client.configure_watch(
                             watch_id=watch.watch_id,
                             status=WatchStatus.WATCH_STATUS_ACTIVE
@@ -840,7 +840,7 @@ async def _resume_watches(path: str | None, collection: str | None, all: bool):
                 resumed_count = 0
                 for watch in matching_watches:
                     try:
-                        from common.grpc.ingestion_pb2 import WatchStatus
+                        from python.common.grpc.ingestion_pb2 import WatchStatus
                         response = await client.configure_watch(
                             watch_id=watch.watch_id,
                             status=WatchStatus.WATCH_STATUS_ACTIVE
@@ -866,7 +866,7 @@ async def _resume_watches(path: str | None, collection: str | None, all: bool):
 
                 for watch in matches:
                     try:
-                        from common.grpc.ingestion_pb2 import WatchStatus
+                        from python.common.grpc.ingestion_pb2 import WatchStatus
                         response = await client.configure_watch(
                             watch_id=watch.watch_id,
                             status=WatchStatus.WATCH_STATUS_ACTIVE

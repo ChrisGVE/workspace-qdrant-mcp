@@ -17,8 +17,8 @@ from typing import Dict, List, Optional
 from fastmcp import FastMCP
 from loguru import logger
 
-from common.core.client import QdrantWorkspaceClient
-from common.core.multitenant_collections import (
+from python.common.core.client import QdrantWorkspaceClient
+from python.common.core.multitenant_collections import (
     MultiTenantWorkspaceCollectionManager,
     WorkspaceCollectionRegistry
 )

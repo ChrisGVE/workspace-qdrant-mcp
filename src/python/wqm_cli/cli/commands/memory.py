@@ -11,10 +11,10 @@ from typing import List, Optional
 
 import typer
 
-from common.core.collection_naming import create_naming_manager
-from common.core.config import Config
-from common.core.daemon_client import get_daemon_client, with_daemon_client
-from common.core.memory import (
+from python.common.core.collection_naming import create_naming_manager
+from python.common.core.config import Config
+from python.common.core.daemon_client import get_daemon_client, with_daemon_client
+from python.common.core.memory import (
     AuthorityLevel,
     MemoryCategory,
     MemoryManager,

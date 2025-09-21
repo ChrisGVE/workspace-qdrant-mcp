@@ -14,11 +14,32 @@ from typing import Any, Optional
 import psutil
 import typer
 
-from common.core.client import QdrantWorkspaceClient, create_qdrant_client
-from common.core.config import Config
+from python.common.core.client import QdrantWorkspaceClient, create_qdrant_client
+from python.common.core.config import Config
 from loguru import logger
-from common.utils.project_detection import ProjectDetector
-from workspace_qdrant_mcp.utils.migration import ConfigMigrator, ReportGenerator
+from python.common.utils.project_detection import ProjectDetector
+# Lazy import to avoid CLI startup issues
+# from workspace_qdrant_mcp.utils.migration import ConfigMigrator, ReportGenerator
+
+def _get_config_migrator():
+    """Lazy import ConfigMigrator to avoid CLI startup issues."""
+    try:
+        from workspace_qdrant_mcp.utils.migration import ConfigMigrator
+        return ConfigMigrator()
+    except ImportError as e:
+        logger.error(f"Failed to import ConfigMigrator: {e}")
+        error_message("Migration functionality requires MCP server components")
+        raise typer.Exit(1)
+
+def _get_report_generator():
+    """Lazy import ReportGenerator to avoid CLI startup issues."""
+    try:
+        from workspace_qdrant_mcp.utils.migration import ReportGenerator
+        return ReportGenerator()
+    except ImportError as e:
+        logger.error(f"Failed to import ReportGenerator: {e}")
+        error_message("Migration reporting requires MCP server components")
+        raise typer.Exit(1)
 from ..utils import (
     config_path_option,
     create_command_app,
@@ -649,7 +670,7 @@ async def _health_check(deep: bool, timeout: int) -> None:
 async def _migration_report(migration_id: Optional[str], format: str, export: Optional[str], latest: bool) -> None:
     """View detailed migration reports."""
     try:
-        migrator = ConfigMigrator()
+        migrator = _get_config_migrator()
 
         # Determine which report to show
         if latest:
@@ -694,7 +715,7 @@ async def _migration_history(limit: int, source_version: Optional[str], target_v
                             success_only: Optional[bool], days_back: Optional[int], format: str) -> None:
     """View migration history with filtering options."""
     try:
-        migrator = ConfigMigrator()
+        migrator = _get_config_migrator()
 
         # Get filtered migration history
         if any([source_version, target_version, success_only is not None, days_back]):
@@ -745,7 +766,7 @@ async def _migration_history(limit: int, source_version: Optional[str], target_v
 async def _validate_backup(backup_id: str) -> None:
     """Validate backup integrity using checksum verification."""
     try:
-        migrator = ConfigMigrator()
+        migrator = _get_config_migrator()
 
         print(f"Validating backup: {backup_id}")
         print("=" * 50)
@@ -775,7 +796,7 @@ async def _validate_backup(backup_id: str) -> None:
 async def _rollback_config(backup_id: str, force: bool) -> None:
     """Rollback configuration to a previous backup."""
     try:
-        migrator = ConfigMigrator()
+        migrator = _get_config_migrator()
 
         print(f"Rolling back configuration to backup: {backup_id}")
         print("=" * 50)
@@ -816,7 +837,7 @@ async def _rollback_config(backup_id: str, force: bool) -> None:
 async def _backup_info(backup_id: str) -> None:
     """Get detailed information about a specific backup."""
     try:
-        migrator = ConfigMigrator()
+        migrator = _get_config_migrator()
 
         backup_info = migrator.get_backup_info(backup_id)
         if not backup_info:
@@ -851,7 +872,7 @@ async def _backup_info(backup_id: str) -> None:
 async def _cleanup_migration_history(keep_count: int, force: bool) -> None:
     """Clean up old migration reports to save disk space."""
     try:
-        migrator = ConfigMigrator()
+        migrator = _get_config_migrator()
 
         # Get current count
         current_history = migrator.get_migration_history()

@@ -20,17 +20,17 @@ import re
 from enum import Enum
 from typing import Dict, List, Optional, Any, Union
 
-from common.core.error_handling import (
+from python.common.core.error_handling import (
     ErrorRecoveryStrategy,
     with_error_handling,
     error_context,
 )
-from common.observability import (
+from python.common.observability import (
     monitor_async,
     logger,
     record_operation,
 )
-from common.core.collection_naming import (
+from python.common.core.collection_naming import (
     CollectionRulesEnforcer,
     ValidationSource,
     OperationType,
@@ -210,9 +210,9 @@ def get_all_collections(client) -> List[str]:
 
 def get_memory_collections(client) -> List[str]:
     """Get both system and project memory collections using the new collection type system."""
-    from common.core.collections import MemoryCollectionManager
-    from common.core.config import Config
-    from common.core.collection_types import CollectionTypeClassifier
+    from python.common.core.collections import MemoryCollectionManager
+    from python.common.core.config import Config
+    from python.common.core.collection_types import CollectionTypeClassifier
     
     try:
         # Use the collection type classifier to identify memory collections

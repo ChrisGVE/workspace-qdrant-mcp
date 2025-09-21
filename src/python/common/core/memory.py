@@ -580,10 +580,10 @@ class MemoryManager:
             collections = self.client.get_collections()
             collection_names = {col.name for col in collections.collections}
 
-            if self.MEMORY_COLLECTION not in collection_names:
+            if self.memory_collection_name not in collection_names:
                 # Collection doesn't exist, rule cannot be deleted
                 logger.debug(
-                    f"Memory collection '{self.MEMORY_COLLECTION}' doesn't exist yet"
+                    f"Memory collection '{self.memory_collection_name}' doesn't exist yet"
                 )
                 return False
 
@@ -738,9 +738,9 @@ class MemoryManager:
                 [r for r in rules if r.authority == authority]
             )
 
-        # Estimate token count (rough approximation)
+        # Estimate token count using improved estimation
         total_text = " ".join([r.rule for r in rules])
-        estimated_tokens = len(total_text.split()) * 1.3  # Rough token estimation
+        estimated_tokens = estimate_token_count(total_text)
 
         return MemoryStats(
             total_rules=len(rules),
@@ -895,6 +895,12 @@ def parse_conversational_memory_update(message: str) -> dict[str, Any] | None:
     - "Note: call me Chris"
     - "For future reference, always use TypeScript strict mode"
     - "Remember that I prefer uv for Python package management"
+    - "I prefer using pytest over unittest"
+    - "Make sure to always commit after each change"
+    - "Please use atomic commits going forward"
+    - "From now on, use uv instead of pip"
+    - "My name is Chris"
+    - "Call me Chris"
 
     Args:
         message: The conversational message to parse
@@ -926,6 +932,39 @@ def parse_conversational_memory_update(message: str) -> dict[str, Any] | None:
             "authority": AuthorityLevel.DEFAULT,
         }
 
+    # Pattern: "From now on, <instruction>"
+    from_now_match = re.match(r"^from now on,?\s*(.+)$", message, re.IGNORECASE)
+    if from_now_match:
+        content = from_now_match.group(1).strip()
+        return {
+            "category": MemoryCategory.BEHAVIOR,
+            "rule": content,
+            "source": "conversational_directive",
+            "authority": AuthorityLevel.ABSOLUTE,
+        }
+
+    # Pattern: "Please <behavior> going forward"
+    please_match = re.match(r"^please (.+) (?:going forward|from now on)$", message, re.IGNORECASE)
+    if please_match:
+        content = please_match.group(1).strip()
+        return {
+            "category": MemoryCategory.BEHAVIOR,
+            "rule": content,
+            "source": "conversational_request",
+            "authority": AuthorityLevel.DEFAULT,
+        }
+
+    # Pattern: "Make sure to <behavior>"
+    make_sure_match = re.match(r"^make sure to (.+)$", message, re.IGNORECASE)
+    if make_sure_match:
+        content = make_sure_match.group(1).strip()
+        return {
+            "category": MemoryCategory.BEHAVIOR,
+            "rule": f"Always {content}",
+            "source": "conversational_instruction",
+            "authority": AuthorityLevel.ABSOLUTE,
+        }
+
     # Pattern: "Remember (that) I <preference>"
     remember_match = re.match(r"^remember (?:that )?i (.+)$", message, re.IGNORECASE)
     if remember_match:
@@ -934,6 +973,28 @@ def parse_conversational_memory_update(message: str) -> dict[str, Any] | None:
             "category": MemoryCategory.PREFERENCE,
             "rule": f"User {content}",
             "source": "conversational_remember",
+            "authority": AuthorityLevel.DEFAULT,
+        }
+
+    # Pattern: "I prefer <preference>"
+    prefer_match = re.match(r"^i prefer (.+)$", message, re.IGNORECASE)
+    if prefer_match:
+        content = prefer_match.group(1).strip()
+        return {
+            "category": MemoryCategory.PREFERENCE,
+            "rule": f"User prefers {content}",
+            "source": "conversational_preference",
+            "authority": AuthorityLevel.DEFAULT,
+        }
+
+    # Pattern: "My name is <name>" or "Call me <name>"
+    name_match = re.match(r"^(?:my name is|call me)\s+(.+)$", message, re.IGNORECASE)
+    if name_match:
+        name = name_match.group(1).strip()
+        return {
+            "category": MemoryCategory.PREFERENCE,
+            "rule": f"User's name is {name}",
+            "source": "conversational_identity",
             "authority": AuthorityLevel.DEFAULT,
         }
 
@@ -949,4 +1010,185 @@ def parse_conversational_memory_update(message: str) -> dict[str, Any] | None:
             "authority": AuthorityLevel.ABSOLUTE,
         }
 
+    # Pattern: "Use <tool> instead of <other_tool>"
+    instead_match = re.match(r"^use (.+) instead of (.+)$", message, re.IGNORECASE)
+    if instead_match:
+        preferred = instead_match.group(1).strip()
+        avoided = instead_match.group(2).strip()
+        return {
+            "category": MemoryCategory.PREFERENCE,
+            "rule": f"Use {preferred} instead of {avoided}",
+            "source": "conversational_substitution",
+            "authority": AuthorityLevel.DEFAULT,
+        }
+
+    # Pattern: "<tool> over <other_tool>" (e.g., "pytest over unittest")
+    over_match = re.match(r"^(.+) over (.+)$", message, re.IGNORECASE)
+    if over_match:
+        preferred = over_match.group(1).strip()
+        avoided = over_match.group(2).strip()
+        # Only match if both are recognizable tool/library names
+        if len(preferred.split()) <= 2 and len(avoided.split()) <= 2:
+            return {
+                "category": MemoryCategory.PREFERENCE,
+                "rule": f"Prefer {preferred} over {avoided}",
+                "source": "conversational_preference_comparison",
+                "authority": AuthorityLevel.DEFAULT,
+            }
+
     return None
+
+
+def estimate_token_count(text: str) -> int:
+    """
+    Estimate token count for text using simple heuristics.
+
+    This provides a rough approximation since we don't have access to
+    the exact tokenizer. More accurate counting would require integration
+    with the specific LLM's tokenizer.
+
+    Args:
+        text: Text to count tokens for
+
+    Returns:
+        Estimated token count
+    """
+    if not text:
+        return 0
+
+    # Simple approximation:
+    # - Split by whitespace and punctuation
+    # - Apply a multiplier for subword tokenization
+    words = len(text.split())
+
+    # Account for punctuation and subword tokens
+    # Most modern tokenizers split words into subwords
+    punctuation_chars = len([c for c in text if c in '.,!?;:()[]{}"\'-'])
+
+    # Rough approximation: 1.3x words + 0.5x punctuation
+    estimated_tokens = int(words * 1.3 + punctuation_chars * 0.5)
+
+    return max(1, estimated_tokens)  # Minimum 1 token for non-empty text
+
+
+def format_memory_rules_for_injection(rules: list[MemoryRule]) -> str:
+    """
+    Format memory rules for injection into Claude Code sessions.
+
+    Creates a formatted string of memory rules that can be injected
+    into system prompts or context.
+
+    Args:
+        rules: List of memory rules to format
+
+    Returns:
+        Formatted string ready for injection
+    """
+    if not rules:
+        return "No memory rules to apply."
+
+    # Separate by authority level
+    absolute_rules = [r for r in rules if r.authority == AuthorityLevel.ABSOLUTE]
+    default_rules = [r for r in rules if r.authority == AuthorityLevel.DEFAULT]
+
+    sections = []
+
+    if absolute_rules:
+        sections.append("## CRITICAL RULES (Always Follow)")
+        for rule in absolute_rules:
+            sections.append(f"- **{rule.name}**: {rule.rule}")
+            if rule.scope:
+                sections.append(f"  - Scope: {', '.join(rule.scope)}")
+        sections.append("")
+
+    if default_rules:
+        sections.append("## DEFAULT GUIDELINES (Unless Overridden)")
+
+        # Group by category
+        by_category = {}
+        for rule in default_rules:
+            category = rule.category.value.title()
+            if category not in by_category:
+                by_category[category] = []
+            by_category[category].append(rule)
+
+        for category, category_rules in by_category.items():
+            sections.append(f"### {category}")
+            for rule in category_rules:
+                sections.append(f"- **{rule.name}**: {rule.rule}")
+                if rule.scope:
+                    sections.append(f"  - Scope: {', '.join(rule.scope)}")
+            sections.append("")
+
+    return "\n".join(sections)
+
+
+def create_memory_session_context(
+    memory_manager: MemoryManager,
+    task_context: str | None = None
+) -> dict[str, Any]:
+    """
+    Create session context with memory rules for Claude Code integration.
+
+    Args:
+        memory_manager: The memory manager instance
+        task_context: Optional task context for relevance filtering
+
+    Returns:
+        Dictionary with session context and memory integration
+    """
+    async def _create_context():
+        try:
+            # Get all memory rules
+            all_rules = await memory_manager.list_memory_rules()
+
+            # Get memory statistics
+            stats = await memory_manager.get_memory_stats()
+
+            # Search for task-relevant rules if context provided
+            relevant_rules = []
+            if task_context:
+                search_results = await memory_manager.search_memory_rules(
+                    query=task_context, limit=10
+                )
+                relevant_rules = [rule for rule, score in search_results if score > 0.6]
+
+            # Detect conflicts
+            conflicts = await memory_manager.detect_conflicts(all_rules)
+
+            # Format rules for injection
+            injection_text = format_memory_rules_for_injection(all_rules)
+
+            return {
+                "status": "ready",
+                "total_rules": len(all_rules),
+                "estimated_tokens": stats.estimated_tokens,
+                "conflicts_detected": len(conflicts),
+                "relevant_rules": len(relevant_rules),
+                "memory_injection": injection_text,
+                "rules_by_authority": {
+                    k.value: v for k, v in stats.rules_by_authority.items()
+                },
+                "rules_by_category": {
+                    k.value: v for k, v in stats.rules_by_category.items()
+                },
+                "conflicts": [
+                    {
+                        "type": c.conflict_type,
+                        "description": c.description,
+                        "confidence": c.confidence
+                    } for c in conflicts
+                ] if conflicts else []
+            }
+
+        except Exception as e:
+            logger.error(f"Failed to create memory session context: {e}")
+            return {
+                "status": "error",
+                "error": str(e),
+                "total_rules": 0,
+                "memory_injection": "Memory system unavailable."
+            }
+
+    # For synchronous usage, this would need to be called with asyncio.run()
+    return _create_context

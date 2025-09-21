@@ -22,8 +22,8 @@ from typing import Any, Dict, List, Optional, Set, Tuple
 
 import typer
 
-from common.core.lsp_client import AsyncioLspClient, ConnectionState
-from common.core.lsp_health_monitor import (
+from python.common.core.lsp_client import AsyncioLspClient, ConnectionState
+from python.common.core.lsp_health_monitor import (
     LspHealthMonitor, 
     HealthCheckConfig, 
     HealthStatus,

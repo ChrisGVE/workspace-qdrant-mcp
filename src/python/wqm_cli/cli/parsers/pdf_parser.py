@@ -11,6 +11,23 @@ from typing import Any, Optional, Union
 
 from loguru import logger
 
+# Optional OCR detection dependencies
+try:
+    from PIL import Image
+    import fitz  # PyMuPDF for image extraction and OCR detection
+    HAS_OCR_DEPS = True
+except ImportError:
+    HAS_OCR_DEPS = False
+
+# State management import
+try:
+    from ...common.core.sqlite_state_manager import SQLiteStateManager, FileProcessingStatus
+    HAS_STATE_MANAGER = True
+except ImportError:
+    HAS_STATE_MANAGER = False
+    SQLiteStateManager = None
+    FileProcessingStatus = None
+
 try:
     import pypdf
 
@@ -27,13 +44,14 @@ except ImportError:
     HAS_PYPDF2 = False  # For backward compatibility with tests
 
 from .base import DocumentParser, ParsedDocument
+from .progress import ProgressTracker
 
 # logger imported from loguru
 
 
 class PDFParser(DocumentParser):
     """
-    Parser for PDF documents.
+    Enhanced parser for PDF documents with OCR detection.
 
     Handles PDF files with support for:
         - Multi-page text extraction
@@ -41,10 +59,30 @@ class PDFParser(DocumentParser):
         - Handling of encrypted PDFs (if possible)
         - Page-by-page processing for large documents
         - Content analysis and statistics
+        - OCR detection for image-based PDFs
+        - State management for OCR-required documents
+        - Automatic fallback to OCR recommendations
 
-    Uses PyPDF2 or pypdf for PDF processing. Falls back gracefully when
-    these libraries are not available.
+    Uses PyPDF2/pypdf for text extraction and PyMuPDF for OCR detection.
+    Integrates with state management for tracking OCR-required documents.
     """
+
+    def __init__(self, state_manager: Optional[SQLiteStateManager] = None):
+        """
+        Initialize PDF parser with optional state management.
+
+        Args:
+            state_manager: Optional SQLite state manager for OCR tracking
+        """
+        self.state_manager = state_manager
+        self._check_ocr_availability()
+
+    def _check_ocr_availability(self) -> None:
+        """Check if OCR detection dependencies are available."""
+        if not HAS_OCR_DEPS:
+            logger.debug("OCR detection dependencies not available (PIL, PyMuPDF)")
+        if not HAS_STATE_MANAGER:
+            logger.debug("State manager not available - OCR tracking disabled")
 
     @property
     def supported_extensions(self) -> list[str]:
@@ -66,21 +104,27 @@ class PDFParser(DocumentParser):
     async def parse(
         self,
         file_path: str | Path,
+        progress_tracker: Optional[ProgressTracker] = None,
         extract_metadata: bool = True,
         include_page_numbers: bool = False,
         max_pages: int | None = None,
         password: str | None = None,
+        detect_ocr_needed: bool = True,
+        ocr_confidence_threshold: float = 0.1,
         **options,
     ) -> ParsedDocument:
         """
-        Parse a PDF file.
+        Parse a PDF file with OCR detection and state management.
 
         Args:
             file_path: Path to the PDF file
+            progress_tracker: Optional progress tracker for monitoring
             extract_metadata: Whether to extract PDF metadata
             include_page_numbers: Whether to include page numbers in content
             max_pages: Maximum number of pages to process (None for all)
             password: Password for encrypted PDFs
+            detect_ocr_needed: Whether to detect if OCR is needed for image-based PDFs
+            ocr_confidence_threshold: Minimum text confidence to avoid OCR recommendation
             **options: Additional parsing options
 
         Returns:
@@ -98,11 +142,16 @@ class PDFParser(DocumentParser):
         file_path = Path(file_path)
         self.validate_file(file_path)
 
-        parsing_info: dict[str, str | int | float] = {}
+        parsing_info: dict[str, str | int | float | bool] = {}
+
+        if progress_tracker:
+            progress_tracker.update_phase("initializing", "Setting up PDF parsing")
 
         try:
             with open(file_path, "rb") as pdf_file:
                 # Create PDF reader
+                if progress_tracker:
+                    progress_tracker.update_phase("reading", "Opening PDF file")
                 pdf_reader = PyPDF2.PdfReader(pdf_file)
 
                 # Handle encrypted PDFs
@@ -129,8 +178,15 @@ class PDFParser(DocumentParser):
                     parsing_info["has_metadata"] = bool(pdf_metadata)
 
                 # Extract text content
+                if progress_tracker:
+                    progress_tracker.update_phase("extracting", "Extracting text from pages")
                 content_parts = []
                 pages_processed = 0
+                text_extraction_stats = {
+                    "pages_with_text": 0,
+                    "pages_with_minimal_text": 0,
+                    "total_extracted_chars": 0,
+                }
 
                 for page_num, page in enumerate(pdf_reader.pages):
                     if max_pages and page_num >= max_pages:
@@ -138,8 +194,15 @@ class PDFParser(DocumentParser):
 
                     try:
                         page_text = page.extract_text()
+                        text_length = len(page_text.strip())
+                        text_extraction_stats["total_extracted_chars"] += text_length
 
                         if page_text.strip():  # Only include non-empty pages
+                            if text_length > 50:  # Substantial text
+                                text_extraction_stats["pages_with_text"] += 1
+                            else:  # Minimal text (might be image-based)
+                                text_extraction_stats["pages_with_minimal_text"] += 1
+
                             if include_page_numbers:
                                 content_parts.append(f"\n--- Page {page_num + 1} ---\n")
                                 content_parts.append(page_text)
@@ -159,13 +222,41 @@ class PDFParser(DocumentParser):
                 content = "\n\n".join(content_parts).strip()
 
                 # Clean and normalize content
+                if progress_tracker:
+                    progress_tracker.update_phase("cleaning", "Cleaning extracted text")
                 content = self._clean_pdf_text(content)
+
+                # OCR detection and state management
+                ocr_needed = False
+                ocr_confidence = 1.0
+                if detect_ocr_needed and content:
+                    if progress_tracker:
+                        progress_tracker.update_phase("ocr_detection", "Analyzing OCR requirements")
+                    ocr_needed, ocr_confidence = await self._detect_ocr_needed(
+                        file_path, content, text_extraction_stats, ocr_confidence_threshold
+                    )
+                    parsing_info["ocr_needed"] = ocr_needed
+                    parsing_info["text_confidence"] = ocr_confidence
+
+                    # Store OCR requirement in state database if needed
+                    if ocr_needed and self.state_manager and HAS_STATE_MANAGER:
+                        await self._record_ocr_requirement(file_path, ocr_confidence)
+                elif not content:
+                    # No text extracted - likely needs OCR
+                    ocr_needed = True
+                    ocr_confidence = 0.0
+                    parsing_info["ocr_needed"] = True
+                    parsing_info["text_confidence"] = 0.0
+                    if self.state_manager and HAS_STATE_MANAGER:
+                        await self._record_ocr_requirement(file_path, 0.0)
 
                 # Generate text analysis
                 text_stats = self._analyze_pdf_content(content, pages_processed)
                 parsing_info.update(text_stats)
 
                 # Create comprehensive metadata
+                if progress_tracker:
+                    progress_tracker.update_phase("finalizing", "Creating metadata")
                 additional_metadata: dict[str, str | int | float | bool] = {
                     "parser": self.format_name,
                     "page_count": pages_processed,
@@ -175,6 +266,10 @@ class PDFParser(DocumentParser):
                     "avg_words_per_page": len(content.split()) / pages_processed
                     if pages_processed > 0 and content
                     else 0.0,
+                    "ocr_needed": ocr_needed,
+                    "text_confidence": ocr_confidence,
+                    "pages_with_text": text_extraction_stats["pages_with_text"],
+                    "pages_with_minimal_text": text_extraction_stats["pages_with_minimal_text"],
                 }
 
                 # Add PDF metadata
@@ -183,6 +278,12 @@ class PDFParser(DocumentParser):
                 # Add parsing statistics
                 if parsing_info.get("empty_pages", 0) > 0:
                     additional_metadata["empty_pages"] = parsing_info["empty_pages"]
+
+                # Add OCR recommendation to content if needed
+                if ocr_needed and content:
+                    content = f"[OCR RECOMMENDED: This PDF appears to contain image-based text with low confidence ({ocr_confidence:.2f}). Consider using OCR for better text extraction.]\n\n{content}"
+                elif ocr_needed and not content:
+                    content = "[OCR REQUIRED: This PDF contains no extractable text and likely consists of scanned images. OCR processing is required to extract text content.]"
 
                 return ParsedDocument.create(
                     content=content,
@@ -366,5 +467,15 @@ class PDFParser(DocumentParser):
                 "type": str,
                 "default": None,
                 "description": "Password for encrypted PDFs",
+            },
+            "detect_ocr_needed": {
+                "type": bool,
+                "default": True,
+                "description": "Whether to detect if OCR is needed for image-based PDFs",
+            },
+            "ocr_confidence_threshold": {
+                "type": float,
+                "default": 0.1,
+                "description": "Minimum text confidence to avoid OCR recommendation",
             },
         }

@@ -59,7 +59,7 @@ from typing import Any, Dict, List, Optional, Set, Tuple
 from loguru import logger
 
 # Import base SQLite state manager
-from common.core.sqlite_state_manager import SQLiteStateManager, DatabaseTransaction
+from python.common.core.sqlite_state_manager import SQLiteStateManager, DatabaseTransaction
 
 
 class ComponentType(Enum):

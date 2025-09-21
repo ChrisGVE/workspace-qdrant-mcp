@@ -52,13 +52,13 @@ from loguru import logger
 
 # Import existing components
 try:
-    from ....common.core.lsp_health_monitor import (
+    from python.common.core.lsp_health_monitor import (
         LspHealthMonitor, HealthStatus, RecoveryStrategy, NotificationLevel,
         HealthCheckConfig, ServerHealthInfo, UserNotification
     )
-    from ....common.core.lsp_detector import LSPDetector, LSPServerInfo
-    from ....common.core.lsp_client import AsyncioLspClient, ConnectionState
-    from ....common.core.pattern_manager import PatternManager
+    from python.common.core.lsp_detector import LSPDetector, LSPServerInfo
+    from python.common.core.lsp_client import AsyncioLspClient, ConnectionState
+    from python.common.core.pattern_manager import PatternManager
 except ImportError as e:
     logger.warning(f"Failed to import health monitoring components: {e}")
     # Fallback for development

@@ -20,9 +20,9 @@ from rich.panel import Panel
 from rich.table import Table
 from rich.text import Text
 
-from common.core.config import Config
-from common.core.unified_config import UnifiedConfigManager, ConfigFormat, ConfigValidationError, ConfigFormatError
-from common.core.ingestion_config import IngestionConfigManager, IngestionConfig
+from python.common.core.config import Config
+from python.common.core.unified_config import UnifiedConfigManager, ConfigFormat, ConfigValidationError, ConfigFormatError
+from python.common.core.ingestion_config import IngestionConfigManager, IngestionConfig
 from loguru import logger
 from ..utils import (
     create_command_app,

@@ -25,9 +25,9 @@ from typing import Any, Dict, List, Optional
 
 from loguru import logger
 
-from common.core.client import QdrantWorkspaceClient
-from common.core.sqlite_state_manager import FileProcessingStatus, ProcessingPriority
-from common.core.state_aware_ingestion import get_ingestion_manager
+from python.common.core.client import QdrantWorkspaceClient
+from python.common.core.sqlite_state_manager import FileProcessingStatus, ProcessingPriority
+from python.common.core.state_aware_ingestion import get_ingestion_manager
 from ..tools.watch_management import WatchToolsManager
 
 # logger imported from loguru

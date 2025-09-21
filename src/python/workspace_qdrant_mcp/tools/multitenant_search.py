@@ -20,13 +20,13 @@ from qdrant_client import QdrantClient
 from qdrant_client.http import models
 from qdrant_client.http.exceptions import ResponseHandlingException
 
-from common.core.client import QdrantWorkspaceClient
-from common.core.multitenant_collections import (
+from python.common.core.client import QdrantWorkspaceClient
+from python.common.core.multitenant_collections import (
     MultiTenantWorkspaceCollectionManager,
     ProjectIsolationManager,
     WorkspaceCollectionRegistry
 )
-from common.core.hybrid_search import HybridSearchEngine
+from python.common.core.hybrid_search import HybridSearchEngine
 from .search import search_workspace as base_search_workspace
 
 
@@ -289,7 +289,7 @@ class MultiTenantSearchEngine:
 
         try:
             # Use enhanced collection selector for better multi-tenant support
-            from common.core.collections import CollectionSelector
+            from python.common.core.collections import CollectionSelector
 
             project_detector = getattr(self.client, 'project_detector', None)
             collection_selector = CollectionSelector(
