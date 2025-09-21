@@ -608,7 +608,7 @@ impl ValgrindTestSuite {
         let content = fs::read_to_string(output_file)?;
 
         // Count data races and other errors
-        let _data_races_count = _content.matches("data race").count();
+        let _data_races_count = content.matches("data race").count();
 
         Ok(DrdResults {
             data_races: Vec::new(), // Would be populated with actual parsing
