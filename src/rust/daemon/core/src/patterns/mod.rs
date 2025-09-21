@@ -10,12 +10,17 @@ use thiserror::Error;
 
 pub mod manager;
 pub mod comprehensive;
+pub mod detection;
 
 pub use manager::PatternManager;
 pub use comprehensive::{
     ComprehensivePatternManager, ComprehensiveStats, ComprehensiveResult,
     ComprehensivePatternError, InternalConfiguration, LspServerConfig,
     TreeSitterConfig, BuildSystemConfig, ContentSignaturesConfig
+};
+pub use detection::{
+    LanguageDetector, DetectionResult, DetectionConfidence, DetectionMethod,
+    DetectorStats, detect_language_from_path, detect_language_from_content
 };
 
 /// Errors that can occur during pattern operations
