@@ -53,6 +53,8 @@ async def base_state_manager(temp_db):
 async def enhanced_manager(base_state_manager):
     """Create an enhanced state manager for testing."""
     manager = EnhancedStateManager(base_state_manager)
+    # Ensure enhanced tables are created for testing
+    await manager.ensure_enhanced_tables()
     yield manager
     
 

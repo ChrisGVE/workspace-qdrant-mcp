@@ -74,9 +74,29 @@ class EnhancedStateManager:
         self.performance_metrics: List[PerformanceMetric] = []
         self.backup_path = Path(base_manager.db_path).parent / "backups"
         self.backup_path.mkdir(exist_ok=True)
-        
+
         # Register built-in migrations
         self._register_migrations()
+
+    async def ensure_enhanced_tables(self):
+        """Ensure enhanced tables exist by applying necessary migrations."""
+        try:
+            # Check if enhanced tables exist
+            async with self.base_manager.transaction() as conn:
+                cursor = conn.execute(
+                    "SELECT name FROM sqlite_master WHERE type='table' AND name IN ('performance_logs', 'backup_registry', 'transaction_audit')"
+                )
+                existing_tables = {row[0] for row in cursor.fetchall()}
+
+            # Apply migrations if needed
+            if 'performance_logs' not in existing_tables or 'backup_registry' not in existing_tables:
+                await self.apply_migration(4, create_backup=False)
+
+            if 'transaction_audit' not in existing_tables:
+                await self.apply_migration(5, create_backup=False)
+
+        except Exception as e:
+            logger.warning(f"Could not ensure enhanced tables: {e}")
     
     def _register_migrations(self):
         """Register available migration steps."""
@@ -170,32 +190,39 @@ class EnhancedStateManager:
         
         try:
             async with self.base_manager.transaction() as conn:
-                # Start transaction audit
-                conn.execute(
-                    """
-                    INSERT INTO transaction_audit 
-                    (transaction_id, operation_type, table_name, timestamp, user_context)
-                    VALUES (?, 'BEGIN', 'transaction', CURRENT_TIMESTAMP, 'system')
-                    """,
-                    (transaction_id,)
-                )
-                
+                # Start transaction audit (if table exists)
+                try:
+                    conn.execute(
+                        """
+                        INSERT INTO transaction_audit
+                        (transaction_id, operation_type, table_name, timestamp, user_context)
+                        VALUES (?, 'BEGIN', 'transaction', CURRENT_TIMESTAMP, 'system')
+                        """,
+                        (transaction_id,)
+                    )
+                    audit_enabled = True
+                except sqlite3.OperationalError:
+                    # Audit table doesn't exist yet
+                    audit_enabled = False
+
                 yield conn, transaction_id
-                
+
                 # Transaction completed successfully
                 duration_ms = (time.time() - start_time) * 1000
                 await self._record_performance_metric(
                     operation_name, duration_ms, rows_affected
                 )
-                
-                conn.execute(
-                    """
-                    INSERT INTO transaction_audit 
-                    (transaction_id, operation_type, table_name, timestamp, user_context)
-                    VALUES (?, 'COMMIT', 'transaction', CURRENT_TIMESTAMP, 'system')
-                    """,
-                    (transaction_id,)
-                )
+
+                # Log commit if audit is enabled
+                if audit_enabled:
+                    conn.execute(
+                        """
+                        INSERT INTO transaction_audit
+                        (transaction_id, operation_type, table_name, timestamp, user_context)
+                        VALUES (?, 'COMMIT', 'transaction', CURRENT_TIMESTAMP, 'system')
+                        """,
+                        (transaction_id,)
+                    )
                 
         except Exception as e:
             # Transaction failed
@@ -205,14 +232,17 @@ class EnhancedStateManager:
             # Record rollback in audit if possible
             try:
                 async with self.base_manager.transaction() as conn:
-                    conn.execute(
-                        """
-                        INSERT INTO transaction_audit 
-                        (transaction_id, operation_type, table_name, timestamp, user_context, old_values)
-                        VALUES (?, 'ROLLBACK', 'transaction', CURRENT_TIMESTAMP, 'system', ?)
-                        """,
-                        (transaction_id, str(e))
-                    )
+                    try:
+                        conn.execute(
+                            """
+                            INSERT INTO transaction_audit
+                            (transaction_id, operation_type, table_name, timestamp, user_context, old_values)
+                            VALUES (?, 'ROLLBACK', 'transaction', CURRENT_TIMESTAMP, 'system', ?)
+                            """,
+                            (transaction_id, str(e))
+                        )
+                    except sqlite3.OperationalError:
+                        pass  # Audit table doesn't exist
             except:
                 pass  # Don't fail the original exception
             
@@ -222,14 +252,18 @@ class EnhancedStateManager:
         """Record performance metric."""
         try:
             async with self.base_manager.transaction() as conn:
-                conn.execute(
-                    """
-                    INSERT INTO performance_logs 
-                    (operation, duration_ms, rows_affected, timestamp)
-                    VALUES (?, ?, ?, CURRENT_TIMESTAMP)
-                    """,
-                    (operation, duration_ms, rows_affected)
-                )
+                try:
+                    conn.execute(
+                        """
+                        INSERT INTO performance_logs
+                        (operation, duration_ms, rows_affected, timestamp)
+                        VALUES (?, ?, ?, CURRENT_TIMESTAMP)
+                        """,
+                        (operation, duration_ms, rows_affected)
+                    )
+                except sqlite3.OperationalError:
+                    # Performance logs table doesn't exist yet
+                    pass
         except Exception as e:
             logger.warning(f"Failed to record performance metric: {e}")
     
@@ -479,15 +513,18 @@ class EnhancedStateManager:
                     else:
                         raise ValueError(f"Unknown operation type: {op_type}")
                     
-                    # Log operation in audit trail
-                    conn.execute(
-                        """
-                        INSERT INTO transaction_audit 
-                        (transaction_id, operation_type, table_name, row_id, new_values, timestamp)
-                        VALUES (?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
-                        """,
-                        (txn_id, op_type.upper(), table, str(i), json.dumps(data))
-                    )
+                    # Log operation in audit trail (if audit table exists)
+                    try:
+                        conn.execute(
+                            """
+                            INSERT INTO transaction_audit
+                            (transaction_id, operation_type, table_name, row_id, new_values, timestamp)
+                            VALUES (?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+                            """,
+                            (txn_id, op_type.upper(), table, str(i), json.dumps(data))
+                        )
+                    except sqlite3.OperationalError:
+                        pass  # Audit table doesn't exist
                 
                 logger.info(f"Atomic bulk operation completed: {len(operations)} operations, {total_rows} rows affected")
                 return True

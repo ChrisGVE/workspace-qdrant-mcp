@@ -10,6 +10,7 @@ use super::{
 };
 use once_cell::sync::Lazy;
 use std::sync::Arc;
+use std::collections::HashMap;
 
 /// Embedded YAML content - loaded at compile time
 struct EmbeddedPatterns {
