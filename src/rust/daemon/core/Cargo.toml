@@ -58,6 +58,12 @@ libc = "0.2"
 
 [target.'cfg(windows)'.dependencies]
 winapi = { version = "0.3", features = ["processthreadsapi", "winnt", "handleapi", "minwinbase"] }
+windows = { version = "0.52", features = [
+    "Win32_Foundation",
+    "Win32_Storage_FileSystem",
+    "Win32_System_IO",
+    "Win32_System_Threading"
+] }
 
 [features]
 default = ["ml", "embeddings"]
@@ -67,6 +73,10 @@ embeddings = ["ort", "tokenizers"]
 [[bin]]
 name = "memexd"
 path = "src/bin/memexd.rs"
+
+[[bench]]
+name = "cross_platform_benchmarks"
+harness = false
 
 [dev-dependencies]
 # Shared test utilities
@@ -83,3 +93,6 @@ testcontainers = { workspace = true }
 testcontainers-modules = { workspace = true }
 # wiremock = { workspace = true }
 futures = "0.3"
+criterion = { version = "0.5", features = ["html_reports"] }
+dirs = "5.0"
+libc = "0.2"
