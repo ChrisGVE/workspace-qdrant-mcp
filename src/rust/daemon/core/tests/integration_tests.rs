@@ -68,16 +68,16 @@ This demonstrates that the DocumentProcessor can handle markdown files with embe
             
             // The data should contain document processing results
             match data {
-                workspace_qdrant_core::processing::TaskResultData::DocumentProcessing { 
-                    document_id, 
-                    collection, 
+                workspace_qdrant_core::processing::TaskResultData::DocumentProcessing {
+                    document_id,
+                    collection,
                     chunks_created,
-                    processing_time_ms 
+                    checkpoint_id: _
                 } => {
                     assert!(!document_id.is_empty(), "Document ID should not be empty");
                     assert_eq!(collection, "integration_test_collection");
                     assert!(chunks_created > 0, "Should have created at least one chunk");
-                    assert!(processing_time_ms >= 0, "Processing time should be non-negative");
+                    // Processing time validation removed since it's not part of DocumentProcessing variant
                 },
                 other => panic!("Expected DocumentProcessed result, got: {:?}", other),
             }
@@ -245,7 +245,7 @@ mod tests {
     assert!(result.is_ok(), "Rust code processing failed: {:?}", result);
     
     if let Ok(workspace_qdrant_core::processing::TaskResult::Success { data, .. }) = result {
-        if let workspace_qdrant_core::processing::TaskResultData::DocumentProcessed { chunks_created, .. } = data {
+        if let workspace_qdrant_core::processing::TaskResultData::DocumentProcessing { chunks_created, .. } = data {
             // Rust code with tree-sitter should create multiple chunks due to enhanced content
             assert!(chunks_created > 0, "Should have created chunks from Rust code");
         }
