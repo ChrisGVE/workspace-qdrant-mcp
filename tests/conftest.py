@@ -18,7 +18,32 @@ import pytest
 from qdrant_client import QdrantClient
 from qdrant_client.http import models
 
-from common.core.config import Config
+try:
+    from common.core.config import Config
+except ImportError:
+    # Fallback for when running tests without proper PYTHONPATH
+    try:
+        import sys
+        sys.path.append('src/python')
+        from common.core.config import Config
+    except ImportError:
+        # Mock config for testing purposes
+        class Config:
+            def __init__(self):
+                self.host = "127.0.0.1"
+                self.port = 8000
+                self.debug = True
+                self.qdrant = type('obj', (object,), {'url': 'http://localhost:6333', 'api_key': None})()
+                self.embedding = type('obj', (object,), {
+                    'model': 'sentence-transformers/all-MiniLM-L6-v2',
+                    'chunk_size': 500,
+                    'chunk_overlap': 50
+                })()
+                self.workspace = type('obj', (object,), {
+                    'github_user': 'testuser',
+                    'collections': ['project'],
+                    'global_collections': ['docs']
+                })()
 from tests.utils.fastmcp_test_infrastructure import (
     FastMCPTestServer,
     FastMCPTestClient,
@@ -90,6 +115,9 @@ def environment_variables():
             os.environ[key] = original_value
 
 
+# Import enhanced mocking infrastructure
+from tests.mocks.fixtures import *
+
 @pytest.fixture
 def mock_config():
     """Mock configuration for testing."""
@@ -110,13 +138,13 @@ def mock_config():
 
 @pytest.fixture
 def mock_qdrant_client():
-    """Mock Qdrant client for testing."""
+    """Legacy mock Qdrant client for backward compatibility."""
     client = Mock(spec=QdrantClient)
-    
+
     # Mock basic operations
     client.search = AsyncMock(return_value=[])
     client.upsert = AsyncMock(return_value=models.UpdateResult(
-        operation_id=123, 
+        operation_id=123,
         status=models.UpdateStatus.COMPLETED
     ))
     client.delete = AsyncMock(return_value=models.UpdateResult(
@@ -126,7 +154,7 @@ def mock_qdrant_client():
     client.retrieve = AsyncMock(return_value=[])
     client.scroll = AsyncMock(return_value=([], None))
     client.count = AsyncMock(return_value=models.CountResult(count=0))
-    
+
     # Mock collection operations
     client.get_collection = AsyncMock(return_value=models.CollectionInfo(
         status=models.CollectionStatus.GREEN,
@@ -141,16 +169,16 @@ def mock_qdrant_client():
     client.get_collections = AsyncMock(return_value=models.CollectionsResponse(
         collections=[]
     ))
-    
+
     # Mock client lifecycle
     client.close = Mock()
-    
+
     return client
 
 
 @pytest.fixture
 def mock_embedding_service():
-    """Mock embedding service for testing."""
+    """Legacy mock embedding service for backward compatibility."""
     service = Mock()
     service.initialize = AsyncMock()
     service.close = AsyncMock()
