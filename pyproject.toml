@@ -245,6 +245,7 @@ dev = [
     "rich>=14.1.0",
     "scikit-learn>=1.7.1",
     "typer>=0.16.1",
+    "respx>=0.20.0",
 ]
 
 # Maturin configuration for Rust integration

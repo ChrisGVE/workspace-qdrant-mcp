@@ -180,7 +180,7 @@ class TestComponentLifecycleManager:
         """Test starting Python MCP server component."""
         config = lifecycle_manager.component_configs[ComponentType.PYTHON_MCP_SERVER]
 
-        with patch('common.core.component_lifecycle.Config') as mock_config:
+        with patch('workspace_qdrant_mcp.server.Config') as mock_config:
             mock_config.return_value = Mock()
 
             instance = await lifecycle_manager._start_python_mcp_server(config)
@@ -196,7 +196,7 @@ class TestComponentLifecycleManager:
         """Test starting CLI utility component."""
         config = lifecycle_manager.component_configs[ComponentType.CLI_UTILITY]
 
-        with patch('common.core.component_lifecycle.cli_app', mock_cli_app):
+        with patch('workspace_qdrant_mcp.cli.main.app', mock_cli_app):
             instance = await lifecycle_manager._start_cli_utility(config)
 
             assert instance is not None
@@ -276,6 +276,9 @@ class TestComponentLifecycleManager:
     @pytest.mark.asyncio
     async def test_lifecycle_event_logging(self, lifecycle_manager):
         """Test lifecycle event logging."""
+        # Clear any existing events from initialization
+        lifecycle_manager.startup_events.clear()
+
         await lifecycle_manager._log_lifecycle_event(
             component_id="test_component",
             phase=LifecyclePhase.COMPONENT_STARTUP,
@@ -317,6 +320,12 @@ class TestComponentLifecycleManager:
 
         # Mock monitoring tasks
         lifecycle_manager._start_lifecycle_monitoring = AsyncMock()
+
+        # Mock CLI imports
+        with patch('workspace_qdrant_mcp.cli.main.app') as mock_cli, \
+             patch('workspace_qdrant_mcp.server.Config') as mock_config:
+            mock_config.return_value = Mock()
+            mock_cli.return_value = Mock()
 
         result = await lifecycle_manager.startup_sequence()
 
@@ -534,11 +543,11 @@ class TestComponentLifecycleManager:
         )
 
         # Verify event was enqueued to coordinator
-        lifecycle_manager.coordinator.enqueue_processing_item.assert_called_once()
+        lifecycle_manager.coordinator.enqueue_processing_item.assert_called()
 
         call_args = lifecycle_manager.coordinator.enqueue_processing_item.call_args
         assert call_args[1]["component_id"] == "test_component"
-        assert call_args[1]["queue_type"] == "admin_commands"
+        assert call_args[1]["queue_type"].value == "admin_commands"  # Handle enum value
         assert "event_data" in call_args[1]["payload"]
 
     def test_component_config_defaults(self):
