@@ -2,7 +2,7 @@
 //! 
 //! Tests for cross-platform file watching functionality
 
-use std::path::Path;
+// use std::path::Path; // Unused import
 use std::time::Duration;
 use tempfile::TempDir;
 
@@ -130,8 +130,12 @@ async fn test_memory_usage_patterns() {
     // - Cleanup and garbage collection behavior
     
     // For now, just verify files were created
-    let entries: Vec<_> = tokio::fs::read_dir(temp_path).await.unwrap().collect::<Vec<_>>().await;
-    assert!(entries.len() >= 1000);
+    let mut read_dir = tokio::fs::read_dir(temp_path).await.unwrap();
+    let mut entry_count = 0;
+    while let Some(_entry) = read_dir.next_entry().await.unwrap() {
+        entry_count += 1;
+    }
+    assert!(entry_count >= 1000);
 }
 
 #[tokio::test]
