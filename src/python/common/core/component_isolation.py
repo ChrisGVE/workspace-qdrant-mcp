@@ -803,7 +803,8 @@ class ComponentIsolationManager:
         expired_calls = []
 
         for call_id, timeout_handle in list(self.call_timeouts.items()):
-            if timeout_handle.cancelled() or timeout_handle.done():
+            # Check if handle is cancelled or has fired
+            if timeout_handle.cancelled():
                 expired_calls.append(call_id)
 
         for call_id in expired_calls:
@@ -898,31 +899,30 @@ class ComponentIsolationManager:
                 self.active_calls[component_id] = set()
             self.active_calls[component_id].add(call_id)
 
-            # Set up timeout
-            timeout_handle = asyncio.get_event_loop().call_later(
-                timeout,
-                self._handle_call_timeout,
-                call_id,
-                component_id,
-                operation_name
-            )
-            self.call_timeouts[call_id] = timeout_handle
-
             start_time = time.time()
 
             try:
-                # Create boundary context
-                yield ComponentBoundaryContext(
-                    component_type=component_type,
-                    component_id=component_id,
-                    call_id=call_id,
-                    operation_name=operation_name,
-                    start_time=start_time,
-                    isolation_manager=self
-                )
+                # Create boundary context and execute with timeout
+                async with asyncio.timeout(timeout):
+                    # Create boundary context
+                    context = ComponentBoundaryContext(
+                        component_type=component_type,
+                        component_id=component_id,
+                        call_id=call_id,
+                        operation_name=operation_name,
+                        start_time=start_time,
+                        isolation_manager=self
+                    )
+
+                    yield context
 
                 # Record successful operation
                 await self._record_successful_operation(component_type, operation_name, time.time() - start_time)
+
+            except asyncio.TimeoutError:
+                # Operation timeout
+                await self._record_operation_error(component_type, operation_name, asyncio.TimeoutError("Operation timeout"))
+                raise
 
             except Exception as e:
                 # Record error
@@ -943,11 +943,7 @@ class ComponentIsolationManager:
             raise TimeoutError(f"Queue timeout for {component_type.value}")
 
         finally:
-            # Clean up
-            if call_id in self.call_timeouts:
-                self.call_timeouts[call_id].cancel()
-                del self.call_timeouts[call_id]
-
+            # Clean up active calls
             if component_id in self.active_calls:
                 self.active_calls[component_id].discard(call_id)
 
