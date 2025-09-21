@@ -35,3 +35,14 @@ uuid = { version = "1.0", features = ["v4"] }
 [build-dependencies]
 tonic-build = { version = "0.12", features = ["prost"] }
 prost-build = "0.13"
+
+[dev-dependencies]
+# Shared test utilities
+shared-test-utils = { path = "../shared-test-utils" }
+
+# Testing framework
+tokio-test = { workspace = true }
+tonic-build = { workspace = true }
+# Complex dependencies disabled:
+# testcontainers = { workspace = true }
+# wiremock = { workspace = true }

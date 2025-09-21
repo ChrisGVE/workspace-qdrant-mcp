@@ -1,0 +1,55 @@
+# Cargo Tarpaulin configuration for workspace coverage reporting
+
+[coverage]
+# Coverage engine configuration
+engine = "llvm"
+
+# Workspace configuration
+workspace = true
+exclude = [
+    "shared-test-utils",  # Test utilities don't need coverage
+    "python-bindings",    # Python bindings have build complexity
+]
+
+# Output configuration
+out = ["Html", "Xml", "Lcov"]
+output-dir = "coverage/"
+
+# Test configuration
+all-features = false
+features = []
+exclude-files = [
+    "*/tests/*",
+    "*/benches/*",
+    "*/examples/*",
+    "*/target/*",
+    "*/.cargo/*",
+]
+
+# Execution configuration
+timeout = 120
+run-types = ["Tests", "Doctests"]
+
+# Advanced options
+follow-exec = true
+post-test-delay = 1
+
+# Ignore patterns for coverage
+ignore-panics = true
+ignore-tests = true
+
+# Coverage thresholds
+fail-under = 80
+
+# Reporting options
+branch = true
+forward = true
+count = true
+
+[html]
+# HTML report configuration
+title = "Workspace Qdrant MCP - Coverage Report"
+
+[xml]
+# XML report configuration for CI integration
+schema = "cobertura"

@@ -67,3 +67,18 @@ embeddings = ["ort", "tokenizers"]
 [[bin]]
 name = "memexd"
 path = "src/bin/memexd.rs"
+
+[dev-dependencies]
+# Shared test utilities
+shared-test-utils = { path = "../shared-test-utils" }
+
+# Testing framework
+tokio-test = { workspace = true }
+proptest = { workspace = true }
+serial_test = { workspace = true }
+test-log = { workspace = true }
+tracing-test = { workspace = true }
+# Complex dependencies disabled:
+# testcontainers = { workspace = true }
+# testcontainers-modules = { workspace = true }
+# wiremock = { workspace = true }
