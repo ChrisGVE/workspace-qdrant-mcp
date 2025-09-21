@@ -15,8 +15,8 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from workspace_qdrant_mcp.core.watch_config import WatchConfigurationPersistent
-from workspace_qdrant_mcp.core.watch_sync import SynchronizedWatchConfigManager
+from common.core.watch_config import WatchConfigurationPersistent
+from common.core.watch_sync import SynchronizedWatchConfigManager
 from workspace_qdrant_mcp.tools.watch_management import WatchToolsManager
 
 
@@ -319,7 +319,7 @@ class TestAdvancedPersistenceScenarios:
         # This would be more meaningful with actual network paths
         # For now, test the validation and recovery mechanisms
         
-        from workspace_qdrant_mcp.core.watch_validation import WatchPathValidator
+        from common.core.watch_validation import WatchPathValidator
         
         # Simulate network path validation
         fake_network_path = Path("//server/share/folder")

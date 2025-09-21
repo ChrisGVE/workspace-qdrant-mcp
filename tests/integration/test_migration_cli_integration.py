@@ -9,7 +9,7 @@ import pytest
 from typer.testing import CliRunner
 
 from python.wqm_cli.cli.commands.admin import admin_app
-from workspace_qdrant_mcp.utils.migration import ConfigMigrator, MigrationReport, ChangeEntry, ChangeType
+from common.utils.migration import ConfigMigrator, MigrationReport, ChangeEntry, ChangeType
 
 
 class TestMigrationReportingCLI:

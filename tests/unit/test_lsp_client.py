@@ -14,7 +14,7 @@ from pathlib import Path
 from typing import AsyncIterator, Dict, List, Optional
 from unittest.mock import AsyncMock, Mock, patch
 
-from workspace_qdrant_mcp.core.lsp_client import (
+from common.core.lsp_client import (
     AsyncioLspClient,
     LspError,
     LspTimeoutError,

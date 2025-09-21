@@ -10,9 +10,9 @@ from unittest.mock import AsyncMock, Mock, patch
 
 import pytest
 
-from workspace_qdrant_mcp.core.claude_integration import ClaudeIntegrationManager
-from workspace_qdrant_mcp.core.collection_naming import CollectionNamingManager
-from workspace_qdrant_mcp.core.memory import (
+from common.core.claude_integration import ClaudeIntegrationManager
+from common.core.collection_naming import CollectionNamingManager
+from common.core.memory import (
     AuthorityLevel,
     MemoryCategory,
     MemoryConflict,

@@ -14,8 +14,8 @@ from unittest.mock import AsyncMock, Mock, patch
 import pytest
 import yaml
 
-from workspace_qdrant_mcp.cli.parsers.base import ParsedDocument
-from workspace_qdrant_mcp.core.yaml_metadata import (
+from wqm_cli.cli.parsers.base import ParsedDocument
+from common.core.yaml_metadata import (
     DOCUMENT_SCHEMAS,
     DocumentTypeDetector,
     DocumentTypeSchema,

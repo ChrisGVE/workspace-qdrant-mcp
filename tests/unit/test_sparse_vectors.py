@@ -10,7 +10,7 @@ import numpy as np
 import pytest
 from qdrant_client.http import models
 
-from workspace_qdrant_mcp.core.sparse_vectors import (
+from common.core.sparse_vectors import (
     BM25SparseEncoder,
     create_named_sparse_vector,
     create_qdrant_sparse_vector,

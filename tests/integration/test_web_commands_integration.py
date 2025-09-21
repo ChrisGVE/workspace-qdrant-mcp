@@ -21,7 +21,7 @@ from unittest.mock import MagicMock, patch
 import pytest
 from typer.testing import CliRunner
 
-from workspace_qdrant_mcp.cli.main import app
+from wqm_cli.cli.main import app
 
 
 class TestWebCommandsIntegration:
@@ -67,7 +67,7 @@ class TestWebCommandsIntegration:
         
         return web_ui_path
 
-    @patch('workspace_qdrant_mcp.cli.commands.web.get_web_ui_path')
+    @patch('wqm_cli.cli.commands.web.get_web_ui_path')
     def test_web_status_command(self, mock_get_web_ui_path):
         """Test web status command shows correct information."""
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -87,7 +87,7 @@ class TestWebCommandsIntegration:
             assert "Version: 1.0.0" in output
             assert "License: MIT" in output
 
-    @patch('workspace_qdrant_mcp.cli.commands.web.get_web_ui_path')
+    @patch('wqm_cli.cli.commands.web.get_web_ui_path')
     def test_web_status_missing_files(self, mock_get_web_ui_path):
         """Test web status command with missing dependencies."""
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -111,8 +111,8 @@ class TestWebCommandsIntegration:
             assert "✗ (run: wqm web install)" in output
             assert "✗ (run: wqm web build)" in output
 
-    @patch('workspace_qdrant_mcp.cli.commands.web.get_web_ui_path')
-    @patch('workspace_qdrant_mcp.cli.commands.web.subprocess.run')
+    @patch('wqm_cli.cli.commands.web.get_web_ui_path')
+    @patch('wqm_cli.cli.commands.web.subprocess.run')
     def test_web_install_command(self, mock_subprocess, mock_get_web_ui_path):
         """Test web install command runs npm install."""
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -138,8 +138,8 @@ class TestWebCommandsIntegration:
             assert "Installing Node.js dependencies..." in result.stdout
             assert "Dependencies installed successfully!" in result.stdout
 
-    @patch('workspace_qdrant_mcp.cli.commands.web.get_web_ui_path')
-    @patch('workspace_qdrant_mcp.cli.commands.web.subprocess.run')
+    @patch('wqm_cli.cli.commands.web.get_web_ui_path')
+    @patch('wqm_cli.cli.commands.web.subprocess.run')
     def test_web_install_npm_not_found(self, mock_subprocess, mock_get_web_ui_path):
         """Test web install command when npm is not found."""
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -156,9 +156,9 @@ class TestWebCommandsIntegration:
             assert "npm not found" in result.stdout
             assert "https://nodejs.org/" in result.stdout
 
-    @patch('workspace_qdrant_mcp.cli.commands.web.get_web_ui_path')
-    @patch('workspace_qdrant_mcp.cli.commands.web.subprocess.run')
-    @patch('workspace_qdrant_mcp.cli.commands.web.ensure_dependencies')
+    @patch('wqm_cli.cli.commands.web.get_web_ui_path')
+    @patch('wqm_cli.cli.commands.web.subprocess.run')
+    @patch('wqm_cli.cli.commands.web.ensure_dependencies')
     def test_web_build_command(self, mock_ensure_deps, mock_subprocess, mock_get_web_ui_path):
         """Test web build command runs npm build."""
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -188,9 +188,9 @@ class TestWebCommandsIntegration:
             assert "Building web UI for production..." in result.stdout
             assert "Build completed successfully!" in result.stdout
 
-    @patch('workspace_qdrant_mcp.cli.commands.web.get_web_ui_path')
-    @patch('workspace_qdrant_mcp.cli.commands.web.subprocess.run')
-    @patch('workspace_qdrant_mcp.cli.commands.web.ensure_dependencies')
+    @patch('wqm_cli.cli.commands.web.get_web_ui_path')
+    @patch('wqm_cli.cli.commands.web.subprocess.run')
+    @patch('wqm_cli.cli.commands.web.ensure_dependencies')
     def test_web_build_with_custom_output(self, mock_ensure_deps, mock_subprocess, mock_get_web_ui_path):
         """Test web build command with custom output directory."""
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -213,9 +213,9 @@ class TestWebCommandsIntegration:
             
             assert custom_output in result.stdout
 
-    @patch('workspace_qdrant_mcp.cli.commands.web.get_web_ui_path')
-    @patch('workspace_qdrant_mcp.cli.commands.web.subprocess.run')
-    @patch('workspace_qdrant_mcp.cli.commands.web.ensure_dependencies')
+    @patch('wqm_cli.cli.commands.web.get_web_ui_path')
+    @patch('wqm_cli.cli.commands.web.subprocess.run')
+    @patch('wqm_cli.cli.commands.web.ensure_dependencies')
     def test_web_dev_command(self, mock_ensure_deps, mock_subprocess, mock_get_web_ui_path):
         """Test web dev command starts development server."""
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -239,9 +239,9 @@ class TestWebCommandsIntegration:
             assert "Starting development server on 0.0.0.0:3001" in result.stdout
             assert "Hot reloading enabled" in result.stdout
 
-    @patch('workspace_qdrant_mcp.cli.commands.web.get_web_ui_path')
-    @patch('workspace_qdrant_mcp.cli.commands.web.subprocess.run')
-    @patch('workspace_qdrant_mcp.cli.commands.web.ensure_dependencies')
+    @patch('wqm_cli.cli.commands.web.get_web_ui_path')
+    @patch('wqm_cli.cli.commands.web.subprocess.run')
+    @patch('wqm_cli.cli.commands.web.ensure_dependencies')
     def test_web_start_command(self, mock_ensure_deps, mock_subprocess, mock_get_web_ui_path):
         """Test web start command builds and serves production."""
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -277,7 +277,7 @@ class TestWebCommandsIntegration:
 
     def test_web_ui_path_not_found(self):
         """Test behavior when web-ui directory doesn't exist."""
-        with patch('workspace_qdrant_mcp.cli.commands.web.get_web_ui_path') as mock_get_path:
+        with patch('wqm_cli.cli.commands.web.get_web_ui_path') as mock_get_path:
             # Mock a path that doesn't exist
             mock_get_path.side_effect = Exception("Web UI not found")
             
@@ -286,8 +286,8 @@ class TestWebCommandsIntegration:
             assert result.exit_code == 1
 
     @pytest.mark.parametrize("command", ["install", "build", "dev", "start"])
-    @patch('workspace_qdrant_mcp.cli.commands.web.get_web_ui_path')
-    @patch('workspace_qdrant_mcp.cli.commands.web.subprocess.run')
+    @patch('wqm_cli.cli.commands.web.get_web_ui_path')
+    @patch('wqm_cli.cli.commands.web.subprocess.run')
     def test_web_commands_handle_npm_failures(self, mock_subprocess, mock_get_web_ui_path, command):
         """Test that web commands handle npm process failures gracefully."""
         with tempfile.TemporaryDirectory() as temp_dir:

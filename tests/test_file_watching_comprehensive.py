@@ -30,7 +30,7 @@ from typing import Any, Dict, List
 
 import pytest
 
-from workspace_qdrant_mcp.core.file_watcher import (
+from common.core.file_watcher import (
     FileWatcher, 
     WatchConfiguration, 
     WatchEvent, 

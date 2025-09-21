@@ -27,7 +27,7 @@ import subprocess
 
 from testcontainers.compose import DockerCompose
 
-from workspace_qdrant_mcp.core.daemon_manager import (
+from common.core.daemon_manager import (
     DaemonManager,
     DaemonInstance, 
     DaemonConfig,
@@ -36,7 +36,7 @@ from workspace_qdrant_mcp.core.daemon_manager import (
     get_daemon_for_project,
     shutdown_all_daemons
 )
-from workspace_qdrant_mcp.core.config import Config
+from common.core.config import Config
 from workspace_qdrant_mcp.tools.grpc_tools import test_grpc_connection
 
 

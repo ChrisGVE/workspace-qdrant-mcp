@@ -12,9 +12,9 @@ import pytest
 from qdrant_client import QdrantClient
 from qdrant_client.http.exceptions import UnexpectedResponse
 
-from workspace_qdrant_mcp.core.ssl_config import get_ssl_manager
-from workspace_qdrant_mcp.core.client import QdrantWorkspaceClient
-from workspace_qdrant_mcp.core.config import Config
+from common.core.ssl_config import get_ssl_manager
+from common.core.client import QdrantWorkspaceClient
+from common.core.config import Config
 
 
 class TestSSLOptimizationIntegration:

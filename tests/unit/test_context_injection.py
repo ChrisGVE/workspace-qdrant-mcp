@@ -575,7 +575,7 @@ class TestContextInjectionErrorHandling:
         """Test handling of parser initialization failures."""
         injector = MockContextInjector(embedding_service_mock)
 
-        with patch('workspace_qdrant_mcp.cli.parsers.file_detector.detect_file_type') as mock_detect:
+        with patch('wqm_cli.cli.parsers.file_detector.detect_file_type') as mock_detect:
             mock_detect.side_effect = Exception("Parser detection failed")
 
             with pytest.raises(Exception, match="Parser detection failed"):
@@ -586,7 +586,7 @@ class TestContextInjectionErrorHandling:
         """Test handling of document creation failures."""
         injector = MockContextInjector(embedding_service_mock)
 
-        with patch('workspace_qdrant_mcp.cli.parsers.base.ParsedDocument.create') as mock_create:
+        with patch('wqm_cli.cli.parsers.base.ParsedDocument.create') as mock_create:
             mock_create.side_effect = ValueError("Document creation failed")
 
             with pytest.raises(ValueError, match="Document creation failed"):

@@ -26,15 +26,15 @@ import psutil
 
 from testcontainers.compose import DockerCompose
 
-from workspace_qdrant_mcp.core.client import QdrantWorkspaceClient
-from workspace_qdrant_mcp.core.config import Config
-from workspace_qdrant_mcp.core.daemon_manager import DaemonManager, DaemonConfig
+from common.core.client import QdrantWorkspaceClient
+from common.core.config import Config
+from common.core.daemon_manager import DaemonManager, DaemonConfig
 from workspace_qdrant_mcp.tools.grpc_tools import (
     test_grpc_connection,
     process_document_via_grpc,
     search_via_grpc
 )
-from workspace_qdrant_mcp.core.exceptions import (
+from common.core.exceptions import (
     WorkspaceQdrantError,
     ConnectionError,
     ConfigurationError,

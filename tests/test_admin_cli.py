@@ -8,8 +8,8 @@ from unittest.mock import Mock, patch
 
 import pytest
 
-from workspace_qdrant_mcp.core.config import Config
-from workspace_qdrant_mcp.utils.admin_cli import WorkspaceQdrantAdmin
+from common.core.config import Config
+from common.utils.admin_cli import WorkspaceQdrantAdmin
 
 
 @pytest.fixture

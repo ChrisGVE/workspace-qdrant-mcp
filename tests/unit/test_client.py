@@ -9,7 +9,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 from qdrant_client.http import models
 
-from workspace_qdrant_mcp.core.client import QdrantWorkspaceClient
+from common.core.client import QdrantWorkspaceClient
 
 
 class TestQdrantWorkspaceClient:

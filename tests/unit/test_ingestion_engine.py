@@ -12,12 +12,12 @@ from unittest.mock import AsyncMock, patch
 
 import pytest
 
-from workspace_qdrant_mcp.cli.ingestion_engine import (
+from wqm_cli.cli.ingestion_engine import (
     DocumentIngestionEngine,
     IngestionResult,
     IngestionStats,
 )
-from workspace_qdrant_mcp.core.client import QdrantWorkspaceClient
+from common.core.client import QdrantWorkspaceClient
 
 
 class TestIngestionStats:
@@ -237,7 +237,7 @@ class TestDocumentIngestionEngine:
         """Test successful directory processing."""
         # Mock add_document function
         with patch(
-            "workspace_qdrant_mcp.cli.ingestion_engine.add_document"
+            "wqm_cli.cli.ingestion_engine.add_document"
         ) as mock_add:
             mock_add.return_value = {"points_added": 1, "document_id": "test-doc"}
 
@@ -276,7 +276,7 @@ class TestDocumentIngestionEngine:
     async def test_deduplication(self, engine):
         """Test content deduplication."""
         with patch(
-            "workspace_qdrant_mcp.cli.ingestion_engine.add_document"
+            "wqm_cli.cli.ingestion_engine.add_document"
         ) as mock_add:
             mock_add.return_value = {"points_added": 1}
 
@@ -333,7 +333,7 @@ class TestDocumentIngestionEngine:
             progress_calls.append((completed, total, stats))
 
         with patch(
-            "workspace_qdrant_mcp.cli.ingestion_engine.add_document"
+            "wqm_cli.cli.ingestion_engine.add_document"
         ) as mock_add:
             mock_add.return_value = {"points_added": 1}
 
@@ -472,7 +472,7 @@ class TestIngestionEngineIntegration:
 
             # Mock the add_document function
             with patch(
-                "workspace_qdrant_mcp.cli.ingestion_engine.add_document"
+                "wqm_cli.cli.ingestion_engine.add_document"
             ) as mock_add:
                 mock_add.return_value = {"points_added": 1, "document_id": "test"}
 

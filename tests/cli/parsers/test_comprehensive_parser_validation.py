@@ -30,7 +30,7 @@ from unittest.mock import patch
 
 import pytest
 
-from workspace_qdrant_mcp.cli.parsers import (
+from wqm_cli.cli.parsers import (
     CodeParser,
     DocxParser,
     EpubParser,
@@ -40,8 +40,8 @@ from workspace_qdrant_mcp.cli.parsers import (
     PptxParser,
     TextParser,
 )
-from workspace_qdrant_mcp.cli.parsers.base import ParsedDocument
-from workspace_qdrant_mcp.cli.parsers.exceptions import ParsingError
+from wqm_cli.cli.parsers.base import ParsedDocument
+from wqm_cli.cli.parsers.exceptions import ParsingError
 
 
 @pytest.fixture

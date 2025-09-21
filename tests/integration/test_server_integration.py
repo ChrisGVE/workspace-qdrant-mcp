@@ -9,7 +9,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 
 from workspace_qdrant_mcp import server
-from workspace_qdrant_mcp.core.config import Config
+from common.core.config import Config
 
 
 class TestServerIntegration:

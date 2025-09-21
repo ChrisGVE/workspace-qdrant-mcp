@@ -14,9 +14,9 @@ from unittest.mock import AsyncMock, Mock, patch
 
 import pytest
 
-from workspace_qdrant_mcp.cli.watch_service import WatchService
-from workspace_qdrant_mcp.core.client import QdrantWorkspaceClient
-from workspace_qdrant_mcp.core.file_watcher import (
+from wqm_cli.cli.watch_service import WatchService
+from common.core.client import QdrantWorkspaceClient
+from common.core.file_watcher import (
     FileWatcher,
     WatchConfiguration,
     WatchEvent,
@@ -397,7 +397,7 @@ class TestFileIngestionIntegration:
         await service.initialize()
 
         # Try to ingest non-existent file
-        with patch('workspace_qdrant_mcp.cli.watch_service.logger') as mock_logger:
+        with patch('wqm_cli.cli.watch_service.logger') as mock_logger:
             await service._handle_file_ingestion("/nonexistent/file.txt", "_test_library")
 
             # Should log a warning and return without error
@@ -455,7 +455,7 @@ class TestCLIIntegration:
 
     def test_watch_commands_exist(self):
         """Test that watch CLI commands are properly registered."""
-        from workspace_qdrant_mcp.cli.commands.watch import watch_app
+        from wqm_cli.cli.commands.watch import watch_app
 
         # Get command names
         command_names = [cmd.name for cmd in watch_app.registered_commands.values()]
@@ -466,7 +466,7 @@ class TestCLIIntegration:
 
     def test_async_helper(self):
         """Test the async helper function."""
-        from workspace_qdrant_mcp.cli.commands.watch import handle_async
+        from wqm_cli.cli.commands.watch import handle_async
 
         async def dummy_coro():
             return "success"

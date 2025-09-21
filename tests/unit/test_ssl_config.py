@@ -16,7 +16,7 @@ from urllib.parse import urlparse
 
 import pytest
 
-from workspace_qdrant_mcp.core.ssl_config import (
+from common.core.ssl_config import (
     SSLConfiguration,
     SSLContextManager,
     get_ssl_manager,

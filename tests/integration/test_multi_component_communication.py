@@ -27,9 +27,9 @@ import aiohttp
 from playwright.async_api import async_playwright
 import sqlite3
 
-from workspace_qdrant_mcp.core.config import Config
-from workspace_qdrant_mcp.core.sqlite_state_manager import SQLiteStateManager
-from workspace_qdrant_mcp.core.yaml_config import YAMLConfigLoader
+from common.core.config import Config
+from common.core.sqlite_state_manager import SQLiteStateManager
+from common.core.yaml_config import YAMLConfigLoader
 from workspace_qdrant_mcp.grpc.daemon_client import get_daemon_client
 
 

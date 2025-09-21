@@ -15,7 +15,7 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from workspace_qdrant_mcp.core.watch_sync import SynchronizedWatchConfigManager, FileLockManager
+from common.core.watch_sync import SynchronizedWatchConfigManager, FileLockManager
 from workspace_qdrant_mcp.tools.watch_management import WatchToolsManager
 
 

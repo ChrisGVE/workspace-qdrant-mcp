@@ -31,9 +31,9 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 from qdrant_client.http import models
 
-from workspace_qdrant_mcp.core.client import QdrantWorkspaceClient
-from workspace_qdrant_mcp.core.collections import WorkspaceCollectionManager
-from workspace_qdrant_mcp.core.config import Config
+from common.core.client import QdrantWorkspaceClient
+from common.core.collections import WorkspaceCollectionManager
+from common.core.config import Config
 from workspace_qdrant_mcp.tools.scratchbook import ScratchbookManager
 from workspace_qdrant_mcp.tools.search import search_workspace
 
@@ -414,7 +414,7 @@ class TestAutoIngestionFixes:
         This addresses Issue #5 where auto-ingestion wasn't processing files
         due to configuration mismatch.
         """
-        from workspace_qdrant_mcp.core.auto_ingestion import AutoIngestionManager
+        from common.core.auto_ingestion import AutoIngestionManager
         
         # Mock workspace client
         mock_client = MagicMock()
@@ -466,7 +466,7 @@ class TestAutoIngestionFixes:
     @pytest.mark.asyncio
     async def test_auto_ingestion_respects_ignore_patterns(self, mock_config_with_auto_ingestion, temp_project_dir):
         """Test that auto-ingestion correctly ignores specified patterns."""
-        from workspace_qdrant_mcp.core.auto_ingestion import AutoIngestionManager
+        from common.core.auto_ingestion import AutoIngestionManager
         
         mock_client = MagicMock()
         mock_client.get_project_info.return_value = {
@@ -502,7 +502,7 @@ class TestAutoIngestionFixes:
     @pytest.mark.asyncio
     async def test_auto_ingestion_creates_target_collections(self, mock_config_with_auto_ingestion):
         """Test that auto-ingestion creates or finds target collections."""  
-        from workspace_qdrant_mcp.core.auto_ingestion import AutoIngestionManager
+        from common.core.auto_ingestion import AutoIngestionManager
         
         mock_client = MagicMock()
         mock_client.get_project_info.return_value = {
@@ -657,9 +657,9 @@ class TestIntegratedBugFixes:
         # This test would run a complete workflow to ensure all fixes work together
         # For now, just verify we can import and instantiate main components
         
-        from workspace_qdrant_mcp.core.client import QdrantWorkspaceClient
+        from common.core.client import QdrantWorkspaceClient
         from workspace_qdrant_mcp.tools.scratchbook import ScratchbookManager
-        from workspace_qdrant_mcp.core.auto_ingestion import AutoIngestionManager
+        from common.core.auto_ingestion import AutoIngestionManager
         
         # If we can import without errors, the basic structure is sound
         assert QdrantWorkspaceClient is not None

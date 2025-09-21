@@ -33,8 +33,8 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from workspace_qdrant_mcp.cli.ingestion_engine import DocumentIngestionEngine, IngestionResult
-from workspace_qdrant_mcp.cli.parsers import (
+from wqm_cli.cli.ingestion_engine import DocumentIngestionEngine, IngestionResult
+from wqm_cli.cli.parsers import (
     CodeParser,
     DocxParser,
     EpubParser,
@@ -43,8 +43,8 @@ from workspace_qdrant_mcp.cli.parsers import (
     PptxParser,
     TextParser,
 )
-from workspace_qdrant_mcp.core.client import QdrantWorkspaceClient
-from workspace_qdrant_mcp.core.sqlite_state_manager import SQLiteStateManager
+from common.core.client import QdrantWorkspaceClient
+from common.core.sqlite_state_manager import SQLiteStateManager
 
 
 @pytest.fixture

@@ -17,7 +17,7 @@ from typing import Dict, List, Optional
 from unittest.mock import MagicMock, Mock, call, patch
 import pytest
 
-from workspace_qdrant_mcp.core.lsp_detector import (
+from common.core.lsp_detector import (
     LSPDetector,
     LSPDetectionResult,
     LSPServerInfo,
@@ -25,7 +25,7 @@ from workspace_qdrant_mcp.core.lsp_detector import (
     scan_lsps,
     get_supported_extensions
 )
-from workspace_qdrant_mcp.core.lsp_notifications import (
+from common.core.lsp_notifications import (
     LSPNotificationManager,
     NotificationEntry,
     NotificationLevel,
@@ -34,7 +34,7 @@ from workspace_qdrant_mcp.core.lsp_notifications import (
     get_default_notification_manager,
     notify_missing_lsp
 )
-from workspace_qdrant_mcp.core.lsp_fallback import (
+from common.core.lsp_fallback import (
     BuildToolDetector,
     FallbackExtensionProvider,
     BuildToolInfo,
