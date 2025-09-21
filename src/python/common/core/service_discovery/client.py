@@ -279,12 +279,12 @@ class ServiceDiscoveryClient:
             except socket.timeout:
                 logger.debug(f"Network discovery timeout for project {project_id}")
             except json.JSONDecodeError as e:
-                logger.warning(f"Invalid discovery response {error=str(e}"))
+                logger.warning(f"Invalid discovery response {error=str(e)"))
             
             sock.close()
             
         except Exception as e:
-            logger.warning(f"Network discovery failed {project_id=project_id, error=str(e}"))
+            logger.warning(f"Network discovery failed {project_id=project_id, error=str(e)"))
         
         return None
     
@@ -307,7 +307,7 @@ class ServiceDiscoveryClient:
             sock.close()
             
         except Exception as e:
-            logger.debug(f"Network discovery scan failed {error=str(e}"))
+            logger.debug(f"Network discovery scan failed {error=str(e)"))
     
     async def _verify_endpoint_health(self, endpoint: ServiceEndpoint) -> bool:
         """Verify that an endpoint is healthy and reachable."""
@@ -327,7 +327,7 @@ class ServiceDiscoveryClient:
             return True
             
         except (asyncio.TimeoutError, ConnectionRefusedError, OSError) as e:
-            logger.debug(f"Health check failed {endpoint=endpoint.address, error=str(e}"))
+            logger.debug(f"Health check failed {endpoint=endpoint.address, error=str(e)"))
             endpoint.health_status = "unhealthy"
             return False
     
@@ -358,10 +358,10 @@ class ServiceDiscoveryClient:
                 )
                 self.endpoints_cache[project_id] = endpoint
             
-            logger.debug(f"Loaded registry {count=len(self.endpoints_cache}"))
+            logger.debug(f"Loaded registry {count=len(self.endpoints_cache)}"))
             
         except (json.JSONDecodeError, KeyError, FileNotFoundError) as e:
-            logger.warning(f"Failed to load service registry {error=str(e}"))
+            logger.warning(f"Failed to load service registry {error=str(e)"))
     
     async def _save_registry(self) -> None:
         """Save endpoints to persistent registry."""
@@ -391,10 +391,10 @@ class ServiceDiscoveryClient:
                 json.dump(data, f, indent=2)
             
             temp_path.replace(self.config.registry_path)
-            logger.debug(f"Saved registry {count=len(data}"))
+            logger.debug(f"Saved registry {count=len(data)}"))
             
         except Exception as e:
-            logger.warning(f"Failed to save service registry {error=str(e}"))
+            logger.warning(f"Failed to save service registry {error=str(e)"))
     
     async def _cleanup_stale_endpoints(self) -> None:
         """Remove stale endpoints from cache."""
