@@ -1,8 +1,9 @@
 [workspace]
 members = [
     "core",
-    "grpc", 
+    "grpc",
     "python-bindings",
+    "shared-test-utils",
 ]
 resolver = "2"
 
@@ -52,7 +53,7 @@ tokio-util = { version = "0.7", features = ["codec", "time"] }
 tokio-stream = "0.1"
 
 # gRPC and networking
-tonic = { version = "0.12", features = ["tls", "tls-roots", "compression"] }
+tonic = { version = "0.12", features = ["tls", "tls-roots"] }
 prost = "0.13"
 prost-types = "0.13"
 
@@ -75,6 +76,23 @@ pyo3-asyncio = { version = "0.21", features = ["tokio-runtime"] }
 
 # Platform-specific file watching
 notify = { version = "6.1", features = ["serde"] }
+
+# Testing dependencies (shared across workspace)
+# Simplified to avoid dependency conflicts
+tokio-test = "0.4"
+tonic-build = { version = "0.12", features = ["prost"] }
+proptest = "1.4"
+tempfile = "3.8"
+serial_test = "3.0"
+test-log = { version = "0.2", features = ["trace"] }
+tracing-test = "0.2"
+once_cell = "1.19"
+regex = "1.10"
+# Complex dependencies disabled for now:
+# testcontainers = "0.15"
+# testcontainers-modules = { version = "0.3" }
+# wiremock = "0.5"
+# hyper = { version = "0.14", features = ["server", "http1", "http2"] }
 
 [workspace.metadata.docs.rs]
 all-features = true

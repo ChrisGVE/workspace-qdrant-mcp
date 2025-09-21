@@ -1,0 +1,150 @@
+# Justfile for workspace-qdrant-mcp Rust workspace
+# Provides convenient commands for common development tasks
+
+# Default recipe - show available commands
+default:
+    @just --list
+
+# Build the entire workspace
+build:
+    cargo build --workspace
+
+# Build with release optimizations
+build-release:
+    cargo build --workspace --release
+
+# Run all tests
+test:
+    ./test-runner.sh
+
+# Run only unit tests
+test-unit:
+    ./test-runner.sh --unit
+
+# Run only integration tests
+test-integration:
+    ./test-runner.sh --integration
+
+# Run benchmarks
+bench:
+    ./test-runner.sh --benchmarks
+
+# Generate coverage report
+coverage:
+    ./test-runner.sh --coverage
+
+# Run clippy lints
+clippy:
+    cargo clippy --workspace --all-targets -- -D warnings
+
+# Format code
+fmt:
+    cargo fmt --all
+
+# Check formatting
+fmt-check:
+    cargo fmt --all --check
+
+# Clean build artifacts
+clean:
+    cargo clean
+    rm -rf coverage/
+    rm -rf benchmark-results/
+
+# Update dependencies
+update:
+    cargo update
+
+# Install development tools
+install-tools:
+    cargo install cargo-tarpaulin
+    cargo install cargo-criterion
+    cargo install cargo-audit
+    cargo install cargo-outdated
+
+# Security audit
+audit:
+    cargo audit
+
+# Check for outdated dependencies
+outdated:
+    cargo outdated
+
+# Run the complete CI-like workflow
+ci:
+    ./test-runner.sh --all
+
+# Quick development checks
+dev-check:
+    cargo check --workspace
+    cargo clippy --workspace --all-targets -- -D warnings
+    cargo fmt --all --check
+
+# Watch for changes and run tests
+watch:
+    cargo watch -x "test --workspace"
+
+# Generate documentation
+docs:
+    cargo doc --workspace --open
+
+# Profile a specific test or benchmark
+profile TEST:
+    cargo test --release {{TEST}} -- --nocapture
+
+# Run a specific workspace member's tests
+test-member MEMBER:
+    cargo test -p {{MEMBER}}
+
+# Build documentation for a specific member
+docs-member MEMBER:
+    cargo doc -p {{MEMBER}} --open
+
+# Example targets for different scenarios
+example-basic:
+    cargo run --bin memexd --features "default"
+
+# Performance testing
+perf-test:
+    cargo test --release --workspace -- --ignored benchmark
+
+# Memory testing with valgrind (if available)
+memory-test:
+    @if command -v valgrind >/dev/null 2>&1; then \
+        cargo test --workspace --target-dir target/valgrind && \
+        valgrind --tool=memcheck --leak-check=full target/valgrind/debug/deps/workspace_qdrant_core-*; \
+    else \
+        echo "Valgrind not available, skipping memory test"; \
+    fi
+
+# Container-based testing
+test-containers:
+    @echo "Running tests that require containers..."
+    TEST_CONTAINERS=1 cargo test --workspace -- --include-ignored
+
+# Cross-compilation check for different targets
+cross-check:
+    @echo "Checking cross-compilation for common targets..."
+    cargo check --target x86_64-unknown-linux-gnu
+    cargo check --target aarch64-apple-darwin
+
+# Package all workspace members
+package:
+    cargo package --workspace
+
+# Install locally from workspace
+install-local:
+    cargo install --path core
+
+# Print workspace dependency tree
+deps:
+    cargo tree --workspace
+
+# Generate dependency graph (requires cargo-deps)
+deps-graph:
+    @if command -v cargo-deps >/dev/null 2>&1; then \
+        cargo deps --all-deps | dot -Tpng > dependency-graph.png && \
+        echo "Dependency graph saved to dependency-graph.png"; \
+    else \
+        echo "cargo-deps not installed. Install with: cargo install cargo-deps"; \
+    fi

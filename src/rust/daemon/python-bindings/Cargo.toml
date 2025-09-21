@@ -34,3 +34,9 @@ tracing = "0.1"
 
 [build-dependencies]
 pyo3-build-config = "0.24"
+
+[dev-dependencies]
+# Shared test utilities (excluding Python-specific tests due to build complexity)
+# Note: Python bindings tests may need special handling
+tokio-test = { workspace = true }
+test-log = { workspace = true }
