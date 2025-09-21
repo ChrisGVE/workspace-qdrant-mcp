@@ -51,11 +51,11 @@ from loguru import logger
 
 # Import existing LSP components
 try:
-    from ....common.core.lsp_metadata_extractor import (
+    from python.common.core.lsp_metadata_extractor import (
         LspMetadataExtractor, SymbolRelationship, RelationshipType, CodeSymbol
     )
-    from ....common.core.lsp_client import AsyncioLspClient
-    from ....common.core.lsp_detector import LSPDetector
+    from python.common.core.lsp_client import AsyncioLspClient
+    from python.common.core.lsp_detector import LSPDetector
 except ImportError as e:
     logger.warning(f"Failed to import LSP components: {e}")
     # Fallback for development
