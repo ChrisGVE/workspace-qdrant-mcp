@@ -30,8 +30,11 @@ use crate::storage::StorageClient;
 use crate::config::{Config, DaemonConfig};
 use crate::unified_config::{UnifiedConfigManager, UnifiedConfigError, ConfigFormat};
 pub use crate::embedding::{
-    EmbeddingGenerator, EmbeddingConfig, EmbeddingResult, 
+    EmbeddingGenerator, EmbeddingConfig, EmbeddingResult,
     DenseEmbedding, SparseEmbedding, EmbeddingError
+};
+pub use crate::processing::{
+    TaskPriority
 };
 pub use crate::error::{
     WorkspaceError, ErrorSeverity, ErrorRecoveryStrategy, 
