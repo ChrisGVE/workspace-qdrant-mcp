@@ -68,14 +68,34 @@ from .lsp_health_monitor import LspHealthMonitor, HealthStatus, NotificationLeve
 class DegradationMode(Enum):
     """System degradation modes with increasing severity."""
 
-    NORMAL = "normal"                    # Full functionality available
-    PERFORMANCE_REDUCED = "perf_reduced" # Reduced performance, all features available
-    FEATURES_LIMITED = "features_limited"# Some non-essential features disabled
-    READ_ONLY = "read_only"             # Read operations only, no modifications
-    CACHED_ONLY = "cached_only"         # Serve cached responses only
-    OFFLINE_CLI = "offline_cli"         # CLI operations only, no network/daemon
-    EMERGENCY = "emergency"             # Minimal critical functionality only
-    UNAVAILABLE = "unavailable"         # System completely unavailable
+    NORMAL = 0                    # Full functionality available
+    PERFORMANCE_REDUCED = 1       # Reduced performance, all features available
+    FEATURES_LIMITED = 2          # Some non-essential features disabled
+    READ_ONLY = 3                 # Read operations only, no modifications
+    CACHED_ONLY = 4               # Serve cached responses only
+    OFFLINE_CLI = 5               # CLI operations only, no network/daemon
+    EMERGENCY = 6                 # Minimal critical functionality only
+    UNAVAILABLE = 7               # System completely unavailable
+
+    def __lt__(self, other):
+        if self.__class__ is other.__class__:
+            return self.value < other.value
+        return NotImplemented
+
+    def __le__(self, other):
+        if self.__class__ is other.__class__:
+            return self.value <= other.value
+        return NotImplemented
+
+    def __gt__(self, other):
+        if self.__class__ is other.__class__:
+            return self.value > other.value
+        return NotImplemented
+
+    def __ge__(self, other):
+        if self.__class__ is other.__class__:
+            return self.value >= other.value
+        return NotImplemented
 
 
 class FeatureType(Enum):
@@ -602,9 +622,9 @@ class DegradationManager:
 
         # Log mode change
         logger.warning(
-            f"Degradation mode changed: {previous_mode.value} -> {new_mode.value}",
+            f"Degradation mode changed: {previous_mode.name.lower()} -> {new_mode.name.lower()}",
             reason=reason,
-            disabled_features=[f.value for f in self.disabled_features]
+            disabled_features=[f.name.lower() for f in self.disabled_features]
         )
 
         # Send notification
@@ -861,19 +881,19 @@ class DegradationManager:
                 "results": [],
                 "message": "Search service temporarily unavailable. Please try again later.",
                 "fallback": True,
-                "degradation_mode": self.current_mode.value
+                "degradation_mode": self.current_mode.name.lower()
             }
         elif request_type == "document_ingestion":
             return {
                 "success": False,
                 "message": "Document ingestion temporarily disabled due to system degradation.",
                 "fallback": True,
-                "degradation_mode": self.current_mode.value
+                "degradation_mode": self.current_mode.name.lower()
             }
         elif request_type == "health_check":
             return {
                 "status": "degraded",
-                "mode": self.current_mode.value,
+                "mode": self.current_mode.name.lower(),
                 "available_features": [f.value for f in self.get_available_features()],
                 "message": "System operating in degraded mode",
                 "fallback": True
@@ -962,12 +982,12 @@ class DegradationManager:
         else:
             level = NotificationLevel.INFO
 
-        title = f"System Degradation: {event.degradation_mode.value.replace('_', ' ').title()}"
+        title = f"System Degradation: {event.degradation_mode.name.replace('_', ' ').title()}"
 
         if event.degradation_mode > event.previous_mode:
-            message = f"System degraded from {event.previous_mode.value} to {event.degradation_mode.value} mode. {event.trigger_reason}"
+            message = f"System degraded from {event.previous_mode.name.lower()} to {event.degradation_mode.name.lower()} mode. {event.trigger_reason}"
         else:
-            message = f"System recovered from {event.previous_mode.value} to {event.degradation_mode.value} mode. {event.trigger_reason}"
+            message = f"System recovered from {event.previous_mode.name.lower()} to {event.degradation_mode.name.lower()} mode. {event.trigger_reason}"
 
         notification = UserNotification(
             timestamp=time.time(),
@@ -1017,20 +1037,20 @@ class DegradationManager:
         uptime = time.time() - self.start_time
 
         return {
-            "current_mode": self.current_mode.value,
-            "previous_mode": self.previous_mode.value,
+            "current_mode": self.current_mode.name.lower(),
+            "previous_mode": self.previous_mode.name.lower(),
             "uptime_seconds": uptime,
             "degradation_count": self.degradation_count,
             "recovery_count": self.recovery_count,
-            "available_features": [f.value for f in self.get_available_features()],
-            "unavailable_features": [f.value for f in self.get_unavailable_features()],
+            "available_features": [f.name.lower() for f in self.get_available_features()],
+            "unavailable_features": [f.name.lower() for f in self.get_unavailable_features()],
             "circuit_breakers": {
-                comp_id: cb.state.value
+                comp_id: cb.state.name.lower()
                 for comp_id, cb in self.circuit_breakers.items()
             },
             "resource_throttle": {
                 "active": self.resource_throttle.is_active,
-                "strategy": self.resource_throttle.strategy.value,
+                "strategy": self.resource_throttle.strategy.name.lower(),
                 "throttle_factor": self.resource_throttle.throttle_factor
             },
             "cache_statistics": {
@@ -1042,11 +1062,11 @@ class DegradationManager:
             "recent_events": [
                 {
                     "event_id": event.event_id,
-                    "mode": event.degradation_mode.value,
-                    "previous_mode": event.previous_mode.value,
+                    "mode": event.degradation_mode.name.lower(),
+                    "previous_mode": event.previous_mode.name.lower(),
                     "reason": event.trigger_reason,
                     "timestamp": event.timestamp.isoformat(),
-                    "affected_features": [f.value for f in event.affected_features]
+                    "affected_features": [f.name.lower() for f in event.affected_features]
                 }
                 for event in self.degradation_events[-10:]  # Last 10 events
             ]
@@ -1065,7 +1085,7 @@ class DegradationManager:
             reason: Reason for the change
         """
         await self._change_degradation_mode(mode, reason)
-        logger.warning(f"Degradation mode manually set to: {mode.value}")
+        logger.warning(f"Degradation mode manually set to: {mode.name.lower()}")
 
     async def shutdown(self):
         """Shutdown the degradation manager."""
