@@ -60,6 +60,6 @@ test-threads = 1  # Single-threaded for consistent benchmarking
 slow-timeout = { period = "300s", terminate-after = 1 }
 filter = 'test(bench) or test(performance)'
 
-[experimental]
-# Enable experimental features
-tool-config-file = true
+# Experimental features (see nextest documentation for current options)
+# [experimental]
+# tool-config-file = true
