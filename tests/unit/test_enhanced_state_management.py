@@ -328,9 +328,9 @@ class TestPerformanceMonitoring:
     
     async def test_performance_metric_recording(self, enhanced_manager):
         """Test recording performance metrics."""
-        # Apply migration to ensure performance_logs table exists
-        await enhanced_manager.apply_migration(4, create_backup=False)
-        
+        # Ensure enhanced tables exist
+        await enhanced_manager.ensure_enhanced_tables()
+
         # Record a performance metric
         await enhanced_manager._record_performance_metric("test_operation", 150.5, 10)
         
@@ -348,8 +348,8 @@ class TestPerformanceMonitoring:
     
     async def test_performance_stats_collection(self, enhanced_manager):
         """Test collecting performance statistics."""
-        # Apply migration to ensure performance_logs table exists
-        await enhanced_manager.apply_migration(4, create_backup=False)
+        # Ensure enhanced tables exist
+        await enhanced_manager.ensure_enhanced_tables()
         
         # Record multiple metrics
         await enhanced_manager._record_performance_metric("operation_a", 100.0, 5)
@@ -373,8 +373,8 @@ class TestPerformanceMonitoring:
     
     async def test_performance_logs_cleanup(self, enhanced_manager):
         """Test cleaning up old performance logs."""
-        # Apply migration to ensure performance_logs table exists
-        await enhanced_manager.apply_migration(4, create_backup=False)
+        # Ensure enhanced tables exist
+        await enhanced_manager.ensure_enhanced_tables()
         
         # Insert old performance log entry manually
         old_timestamp = datetime.now(timezone.utc) - timedelta(days=35)
@@ -467,11 +467,13 @@ class TestConcurrentAccess:
     
     async def test_concurrent_backup_operations(self, enhanced_manager):
         """Test concurrent backup operations."""
-        
+
         async def create_backup_task(backup_num: int):
             """Task to create a backup."""
+            # Add small delay to avoid timestamp collisions
+            await asyncio.sleep(backup_num * 0.01)
             return await enhanced_manager.create_backup(f"Concurrent backup {backup_num}")
-        
+
         # Create multiple backups concurrently
         backup_tasks = [create_backup_task(i) for i in range(3)]
         backup_ids = await asyncio.gather(*backup_tasks)
@@ -520,8 +522,8 @@ class TestStateRecovery:
     
     async def test_transaction_recovery(self, enhanced_manager):
         """Test recovery from incomplete transactions."""
-        # Apply migration to ensure audit table exists
-        await enhanced_manager.apply_migration(5, create_backup=False)
+        # Ensure enhanced tables exist
+        await enhanced_manager.ensure_enhanced_tables()
         
         # Start transaction but don't complete it (simulate interruption)
         async with enhanced_manager.base_manager.transaction() as conn:

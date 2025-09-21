@@ -270,7 +270,8 @@ class EnhancedStateManager:
     async def create_backup(self, description: Optional[str] = None) -> str:
         """Create a database backup with metadata."""
         try:
-            backup_id = f"backup_{int(time.time())}"
+            import uuid
+            backup_id = f"backup_{int(time.time() * 1000)}_{uuid.uuid4().hex[:8]}"
             backup_file = self.backup_path / f"{backup_id}.db"
             
             # Get current schema version
