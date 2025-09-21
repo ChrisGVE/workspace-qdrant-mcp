@@ -24,11 +24,12 @@ except ImportError:
     PYGMENTS_AVAILABLE = False
 
 try:
-    from ...common.core.lsp_metadata_extractor import LspMetadataExtractor, FileMetadata
+    from common.core.lsp_metadata_extractor import LspMetadataExtractor, FileMetadata
     LSP_AVAILABLE = True
 except ImportError:
     LSP_AVAILABLE = False
     FileMetadata = None
+    LspMetadataExtractor = None
 
 from .base import DocumentParser, ParsedDocument
 from .progress import ProgressTracker
@@ -45,7 +46,7 @@ class CodeParser(DocumentParser):
     including symbols, relationships, and type information.
     """
 
-    def __init__(self, lsp_extractor: Optional[LspMetadataExtractor] = None):
+    def __init__(self, lsp_extractor: Optional['LspMetadataExtractor'] = None):
         """
         Initialize code parser with optional LSP integration.
 
@@ -561,7 +562,7 @@ class CodeParser(DocumentParser):
         except ClassNotFound:
             return content
 
-    async def _extract_lsp_metadata(self, file_path: Path, timeout: float = 30.0) -> Optional[FileMetadata]:
+    async def _extract_lsp_metadata(self, file_path: Path, timeout: float = 30.0) -> Optional['FileMetadata']:
         """
         Extract LSP-based metadata from the source file.
 
@@ -587,7 +588,7 @@ class CodeParser(DocumentParser):
             logger.debug(f"LSP metadata extraction failed: {e}")
             return None
 
-    async def _integrate_lsp_metadata(self, lsp_metadata: FileMetadata, basic_metadata: dict) -> dict:
+    async def _integrate_lsp_metadata(self, lsp_metadata: 'FileMetadata', basic_metadata: dict) -> dict:
         """
         Integrate LSP metadata with basic parsing metadata.
 
