@@ -24,7 +24,7 @@ pub struct ConnectionManager {
     rate_limiter: Arc<RwLock<RateLimiter>>,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug)]
 pub struct ConnectionInfo {
     pub client_id: String,
     pub connected_at: Instant,
@@ -32,6 +32,19 @@ pub struct ConnectionInfo {
     pub request_count: AtomicU64,
     pub bytes_sent: AtomicU64,
     pub bytes_received: AtomicU64,
+}
+
+impl Clone for ConnectionInfo {
+    fn clone(&self) -> Self {
+        Self {
+            client_id: self.client_id.clone(),
+            connected_at: self.connected_at,
+            last_activity: self.last_activity,
+            request_count: AtomicU64::new(self.request_count.load(Ordering::SeqCst)),
+            bytes_sent: AtomicU64::new(self.bytes_sent.load(Ordering::SeqCst)),
+            bytes_received: AtomicU64::new(self.bytes_received.load(Ordering::SeqCst)),
+        }
+    }
 }
 
 #[derive(Debug)]
@@ -202,10 +215,17 @@ pub struct ConnectionStats {
 }
 
 /// Connection pool for outbound connections (to Qdrant, etc.)
-#[derive(Debug)]
-pub struct ConnectionPool<T> {
+pub struct ConnectionPool<T: deadpool::managed::Manager> {
     pool: deadpool::managed::Pool<T>,
     config: PoolConfig,
+}
+
+impl<T: deadpool::managed::Manager> std::fmt::Debug for ConnectionPool<T> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("ConnectionPool")
+            .field("config", &self.config)
+            .finish_non_exhaustive()
+    }
 }
 
 #[derive(Debug, Clone)]

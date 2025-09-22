@@ -1,7 +1,6 @@
 //! Main gRPC server implementation with all service registrations
 
 use crate::daemon::WorkspaceDaemon;
-use crate::error::DaemonError;
 use crate::grpc::middleware::{ConnectionManager, ConnectionInterceptor};
 use crate::grpc::services::{
     DocumentProcessorImpl,
@@ -22,7 +21,7 @@ use std::sync::Arc;
 use std::time::Duration;
 use tokio::signal;
 use tonic::transport::Server;
-use tracing::{error, info, warn};
+use tracing::info;
 
 /// Main gRPC server coordinating all daemon services
 pub struct GrpcServer {
@@ -49,11 +48,10 @@ impl GrpcServer {
 
     /// Start the gRPC server in foreground mode
     pub async fn serve(self) -> Result<()> {
-        info!("Starting gRPC server on {}", self.address);
+        let address = self.address;
+        info!("Starting gRPC server on {}", address);
         info!("Connection manager initialized with max connections: {}",
               self.daemon.config().server.max_connections);
-
-        let server = self.build_server().await?;
 
         // Start connection cleanup task
         let connection_manager_clone = Arc::clone(&self.connection_manager);
@@ -65,6 +63,8 @@ impl GrpcServer {
             }
         });
 
+        let server = self.build_server().await?;
+
         // Graceful shutdown
         let shutdown_signal = async {
             signal::ctrl_c()
@@ -75,7 +75,7 @@ impl GrpcServer {
         };
 
         server
-            .serve_with_shutdown(self.address, shutdown_signal)
+            .serve_with_shutdown(address, shutdown_signal)
             .await
             .map_err(|e| anyhow::anyhow!("gRPC server error: {}", e))?;
 
@@ -85,11 +85,10 @@ impl GrpcServer {
 
     /// Start the gRPC server in daemon mode
     pub async fn serve_daemon(self) -> Result<()> {
-        info!("Starting gRPC server in daemon mode on {}", self.address);
+        let address = self.address;
+        info!("Starting gRPC server in daemon mode on {}", address);
         info!("Connection manager initialized with max connections: {}",
               self.daemon.config().server.max_connections);
-
-        let server = self.build_server().await?;
 
         // Start connection cleanup task
         let connection_manager_clone = Arc::clone(&self.connection_manager);
@@ -101,8 +100,10 @@ impl GrpcServer {
             }
         });
 
+        let server = self.build_server().await?;
+
         server
-            .serve(self.address)
+            .serve(address)
             .await
             .map_err(|e| anyhow::anyhow!("gRPC server error: {}", e))?;
 
@@ -113,7 +114,7 @@ impl GrpcServer {
     async fn build_server(self) -> Result<tonic::transport::server::Router> {
         let reflection_service = tonic_reflection::server::Builder::configure()
             .register_encoded_file_descriptor_set(include_bytes!(concat!(env!("OUT_DIR"), "/workspace_daemon_descriptor.bin")))
-            .build()
+            .build_v1()
             .map_err(|e| anyhow::anyhow!("Failed to build reflection service: {}", e))?;
 
         // Create connection interceptor
@@ -128,43 +129,17 @@ impl GrpcServer {
         let config = self.daemon.config();
 
         let server = Server::builder()
-            // Add compression support
-            .accept_compressed(tonic::codec::CompressionEncoding::Gzip)
-            .send_compressed(tonic::codec::CompressionEncoding::Gzip)
-            // Set message size limits (16MB)
-            .max_decoding_message_size(16 * 1024 * 1024)
-            .max_encoding_message_size(16 * 1024 * 1024)
             // Add connection timeout from config
             .timeout(Duration::from_secs(config.server.connection_timeout_secs))
             // Set concurrency limits
             .concurrency_limit_per_connection(256)
             // Add keep-alive settings
             .tcp_keepalive(Some(Duration::from_secs(60)))
-            // Register all services with interceptors
-            .add_service(
-                tonic::service::interceptor(
-                    DocumentProcessorServer::new(document_processor),
-                    move |req| interceptor.intercept(req)
-                )
-            )
-            .add_service(
-                tonic::service::interceptor(
-                    SearchServiceServer::new(search_service),
-                    move |req| interceptor.intercept(req)
-                )
-            )
-            .add_service(
-                tonic::service::interceptor(
-                    MemoryServiceServer::new(memory_service),
-                    move |req| interceptor.intercept(req)
-                )
-            )
-            .add_service(
-                tonic::service::interceptor(
-                    SystemServiceServer::new(system_service),
-                    move |req| interceptor.intercept(req)
-                )
-            )
+            // Register all services
+            .add_service(DocumentProcessorServer::new(document_processor))
+            .add_service(SearchServiceServer::new(search_service))
+            .add_service(MemoryServiceServer::new(memory_service))
+            .add_service(SystemServiceServer::new(system_service))
             // Add reflection for debugging
             .add_service(reflection_service);
 
