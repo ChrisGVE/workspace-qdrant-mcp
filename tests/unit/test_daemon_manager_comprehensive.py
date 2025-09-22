@@ -1273,10 +1273,13 @@ class TestModuleFunctions:
         mock_manager.daemons = test_daemons
         mock_manager._get_daemon_key.return_value = "test_key"
 
-        with patch('src.python.common.core.daemon_manager.get_daemon_manager', return_value=mock_manager):
+        with patch('src.python.common.core.daemon_manager.get_daemon_manager') as mock_get_manager:
+            mock_get_manager.return_value = mock_manager
+
             result = await get_daemon_for_project("test_project", "/test/path")
 
             assert result is mock_daemon
+            mock_get_manager.assert_called_once()
 
     @pytest.mark.asyncio
     async def test_get_daemon_for_project_not_exists(self):
