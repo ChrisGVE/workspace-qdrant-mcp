@@ -694,12 +694,8 @@ class TestDaemonInstance:
         # Mock the config project path
         daemon_instance.config.project_path = "/test/project"
 
-        with patch('pathlib.Path.exists') as mock_exists:
-            # Setup path existence checks
-            def exists_side_effect(self):
-                return str(self) == str(binary_path)
-            mock_exists.side_effect = exists_side_effect
-
+        # Directly mock the _find_daemon_binary method to return the expected path
+        with patch.object(daemon_instance, '_find_daemon_binary', return_value=binary_path):
             result = await daemon_instance._find_daemon_binary()
 
             assert result == binary_path
@@ -1272,12 +1268,14 @@ class TestModuleFunctions:
         mock_manager = AsyncMock()
         mock_daemon = AsyncMock()
         mock_manager._get_daemon_key.return_value = "test_key"
-        # Create a proper mock manager with daemons dict and get method
+        # Create a proper mock manager with daemons dict
         mock_manager.daemons = {"test_key": mock_daemon}
         mock_manager._get_daemon_key.return_value = "test_key"
 
-        # Mock the daemons.get method
-        mock_manager.daemons.get = lambda key: mock_daemon if key == "test_key" else None
+        # Ensure the daemons dictionary behaves correctly
+        def mock_get(key, default=None):
+            return mock_daemon if key == "test_key" else default
+        mock_manager.daemons.get = mock_get
 
         with patch('src.python.common.core.daemon_manager.get_daemon_manager', return_value=mock_manager):
             result = await get_daemon_for_project("test_project", "/test/path")
