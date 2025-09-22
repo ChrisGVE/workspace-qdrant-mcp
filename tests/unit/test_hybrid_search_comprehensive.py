@@ -32,7 +32,7 @@ from qdrant_client.http import models
 from qdrant_client import QdrantClient
 
 # Import hybrid search components
-from workspace_qdrant_mcp.core.hybrid_search import (
+from common.core.hybrid_search import (
     TenantAwareResult,
     TenantAwareResultDeduplicator,
     MultiTenantResultAggregator,
@@ -875,7 +875,7 @@ class TestHybridSearchEngine:
     def mock_dependencies(self):
         """Mock all dependencies for HybridSearchEngine."""
         with patch.multiple(
-            'workspace_qdrant_mcp.core.hybrid_search',
+            'common.core.hybrid_search',
             ProjectIsolationManager=MockProjectIsolationManager,
             WorkspaceCollectionRegistry=MockWorkspaceCollectionRegistry,
             MetadataFilterManager=MockMetadataFilterManager,
@@ -966,7 +966,7 @@ class TestHybridSearchEngine:
 
         query_embeddings = {"sparse": {"indices": [1, 5, 10], "values": [0.8, 0.6, 0.4]}}
 
-        with patch('workspace_qdrant_mcp.core.hybrid_search.create_named_sparse_vector') as mock_sparse:
+        with patch('common.core.hybrid_search.create_named_sparse_vector') as mock_sparse:
             mock_sparse_vector = MagicMock()
             mock_sparse.return_value = mock_sparse_vector
 
@@ -1000,7 +1000,7 @@ class TestHybridSearchEngine:
             "sparse": {"indices": [1, 5], "values": [0.8, 0.6]}
         }
 
-        with patch('workspace_qdrant_mcp.core.hybrid_search.create_named_sparse_vector'):
+        with patch('common.core.hybrid_search.create_named_sparse_vector'):
             result = await hybrid_engine.hybrid_search(
                 collection_name="test_collection",
                 query_embeddings=query_embeddings,
@@ -1028,7 +1028,7 @@ class TestHybridSearchEngine:
             "sparse": {"indices": [1], "values": [0.8]}
         }
 
-        with patch('workspace_qdrant_mcp.core.hybrid_search.create_named_sparse_vector'):
+        with patch('common.core.hybrid_search.create_named_sparse_vector'):
             result = await hybrid_engine.hybrid_search(
                 collection_name="test_collection",
                 query_embeddings=query_embeddings,
@@ -1056,7 +1056,7 @@ class TestHybridSearchEngine:
             "sparse": {"indices": [1], "values": [0.8]}
         }
 
-        with patch('workspace_qdrant_mcp.core.hybrid_search.create_named_sparse_vector'):
+        with patch('common.core.hybrid_search.create_named_sparse_vector'):
             result = await hybrid_engine.hybrid_search(
                 collection_name="test_collection",
                 query_embeddings=query_embeddings,
@@ -1141,7 +1141,7 @@ class TestHybridSearchEngine:
             "sparse": {"indices": [1], "values": [0.8]}
         }
 
-        with patch('workspace_qdrant_mcp.core.hybrid_search.create_named_sparse_vector'):
+        with patch('common.core.hybrid_search.create_named_sparse_vector'):
             with pytest.raises(Exception) as exc_info:
                 await hybrid_engine.hybrid_search(
                     collection_name="test_collection",
@@ -1669,7 +1669,7 @@ class TestHybridSearchEdgeCases:
         """Create engine for edge case testing."""
         mock_client = MagicMock()
         with patch.multiple(
-            'workspace_qdrant_mcp.core.hybrid_search',
+            'common.core.hybrid_search',
             ProjectIsolationManager=MockProjectIsolationManager,
             WorkspaceCollectionRegistry=MockWorkspaceCollectionRegistry,
             MetadataFilterManager=MockMetadataFilterManager,
