@@ -3,7 +3,7 @@
 use crate::config::FileWatcherConfig;
 use crate::daemon::processing::DocumentProcessor;
 use crate::error::{DaemonError, DaemonResult};
-use notify::{Watcher, RecommendedWatcher, RecursiveMode, Event};
+use notify::{RecommendedWatcher, RecursiveMode, Event};
 use std::sync::Arc;
 use std::path::Path;
 use tokio::sync::{mpsc, Mutex};

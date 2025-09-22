@@ -699,12 +699,13 @@ mod tests {
             backoff_multiplier: 2.0,
         };
 
-        let mut attempt = 0;
+        let attempt = Arc::new(AtomicU64::new(0));
+        let attempt_clone = Arc::clone(&attempt);
         let result = with_retry(
-            || {
-                attempt += 1;
+            move || {
+                let current_attempt = attempt_clone.fetch_add(1, Ordering::SeqCst) + 1;
                 Box::pin(async move {
-                    if attempt < 3 {
+                    if current_attempt < 3 {
                         Err("temporary failure")
                     } else {
                         Ok::<i32, &'static str>(42)
