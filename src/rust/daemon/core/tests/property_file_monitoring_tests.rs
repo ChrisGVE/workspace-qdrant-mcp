@@ -144,6 +144,7 @@ proptest! {
             let processor = DocumentProcessor::new();
             let mut successful_operations = 0;
             let mut processed_files = 0;
+            let total_operations = operations.len();
 
             // Execute file operations rapidly
             for operation in operations {
@@ -208,7 +209,7 @@ proptest! {
 
             tracing::debug!(
                 "Rapid file operations test: {} operations, {} successful, {} processed",
-                operations.len(), successful_operations, processed_files
+                total_operations, successful_operations, processed_files
             );
 
             // Should handle at least some operations successfully
@@ -332,7 +333,7 @@ proptest! {
                 language_extensions: Default::default(),
             };
 
-            let pattern_manager = PatternManager::with_patterns(patterns);
+            let pattern_manager = PatternManager::new().expect("Failed to create PatternManager");
 
             // Test pattern matching consistency
             for filename in test_filenames {
@@ -430,7 +431,6 @@ proptest! {
             let mut handles = Vec::new();
             for file_path in file_paths {
                 let processor_clone = Arc::new(processor.clone());
-                let processor_clone: Arc<DocumentProcessor> = processor_clone;
                 let semaphore_clone = semaphore.clone();
 
                 let handle = tokio::spawn(async move {
@@ -606,9 +606,10 @@ proptest! {
 
                                 if tokio::fs::write(&file_path, &content).await.is_ok() {
                                     // Process with timeout
+                                    let collection_name = format!("async_test_{}", i);
                                     let process_future = processor_clone.process_file(
                                         &file_path,
-                                        &format!("async_test_{}", i)
+                                        &collection_name
                                     );
 
                                     match tokio::time::timeout(

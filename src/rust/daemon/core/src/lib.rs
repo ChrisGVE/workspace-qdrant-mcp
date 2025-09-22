@@ -143,6 +143,7 @@ impl Default for ChunkingConfig {
 }
 
 /// Comprehensive document processor with format-specific parsing
+#[derive(Clone)]
 pub struct DocumentProcessor {
     chunking_config: ChunkingConfig,
 }

@@ -194,7 +194,7 @@ mod functional_tests {
         let tasks: Vec<_> = test_files
             .iter()
             .map(|file_path| {
-                let processor = Arc::clone(&processor);
+                let processor: Arc<DocumentProcessor> = Arc::clone(&processor);
                 let path = file_path.clone();
                 tokio::spawn(async move { processor.process_file(&path, "test_collection").await })
             })
@@ -388,7 +388,7 @@ mod functional_tests {
                 );
                 std::fs::write(&file_path, content).expect("Failed to write test file");
 
-                let processor_clone = Arc::clone(&processor);
+                let processor_clone: Arc<DocumentProcessor> = Arc::clone(&processor);
                 let task = tokio::spawn(async move {
                     processor_clone.process_file(&file_path, "test_collection").await
                 });
