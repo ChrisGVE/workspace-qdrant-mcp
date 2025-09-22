@@ -381,21 +381,18 @@ class TestProjectDetectorComprehensive:
 
         assert detector.pattern_manager == custom_manager
 
-    @patch('common.utils.project_detection.os.path.basename')
-    @patch('common.utils.project_detection.os.path.abspath')
-    def test_get_project_name_non_git_fallback(self, mock_abspath, mock_basename):
+    def test_get_project_name_non_git_fallback(self):
         """Test project name detection fallback for non-Git directory."""
-        mock_abspath.return_value = "/absolute/path/to/project"
-        mock_basename.return_value = "project"
-
         detector = ProjectDetector()
 
         with patch.object(detector, '_find_git_root', return_value=None):
-            result = detector.get_project_name("/some/path")
+            with patch('common.utils.project_detection.os.path.basename', return_value="project") as mock_basename:
+                with patch('common.utils.project_detection.os.path.abspath', return_value="/absolute/path") as mock_abspath:
+                    result = detector.get_project_name("/some/path")
 
-            assert result == "project"
-            mock_abspath.assert_called_once_with("/some/path")
-            mock_basename.assert_called_once_with("/absolute/path/to/project")
+                    assert result == "project"
+                    mock_abspath.assert_called_once_with("/some/path")
+                    mock_basename.assert_called_once_with("/absolute/path")
 
     def test_get_project_name_git_with_user_owned_repo(self):
         """Test project name detection for user-owned Git repository."""
@@ -744,15 +741,31 @@ class TestProjectDetectorComprehensive:
         detector = ProjectDetector()
 
         mock_repo = Mock()
-        # Configure remotes to not have origin but have upstream
-        type(mock_repo.remotes).origin = PropertyMock(side_effect=AttributeError("No origin"))
         mock_upstream = Mock()
         mock_upstream.url = "https://github.com/upstream/repo.git"
-        mock_repo.remotes.upstream = mock_upstream
+
+        # Mock the remotes to not have origin but have upstream
+        mock_remotes = Mock()
+        mock_remotes.upstream = mock_upstream
+
+        # Mock hasattr for remotes object
+        def remotes_hasattr(attr):
+            return attr == "upstream"
+
+        mock_remotes.__hasattr__ = remotes_hasattr
+        mock_repo.remotes = mock_remotes
         mock_repo_class.return_value = mock_repo
 
-        result = detector._get_git_remote_url("/git/root")
-        assert result == "https://github.com/upstream/repo.git"
+        # Patch hasattr to check for attributes on remotes
+        original_hasattr = hasattr
+        def mock_hasattr(obj, name):
+            if obj is mock_remotes:
+                return name == "upstream"
+            return original_hasattr(obj, name)
+
+        with patch('builtins.hasattr', side_effect=mock_hasattr):
+            result = detector._get_git_remote_url("/git/root")
+            assert result == "https://github.com/upstream/repo.git"
 
     @patch('common.utils.project_detection.git.Repo')
     def test_get_git_remote_url_first_available(self, mock_repo_class):
