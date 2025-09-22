@@ -21,10 +21,9 @@ from unittest.mock import Mock, patch, MagicMock, call
 import pytest
 
 # Ensure proper imports from the project structure
+import sys
 project_root = Path(__file__).parent.parent.parent
 sys.path.insert(0, str(project_root / "src" / "python"))
-
-import sys
 from common.utils.os_directories import OSDirectories
 
 
