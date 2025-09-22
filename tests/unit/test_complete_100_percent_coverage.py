@@ -31,43 +31,43 @@ class Test100PercentCoverage:
         # ALL modules that need coverage based on the coverage report
         all_modules = [
             # Core modules still at 0%
-            "common.core.backward_compatibility",
-            "common.core.depth_validation",
-            "common.core.enhanced_config",
-            "common.core.ingestion_config",
-            "common.core.logging_config",
-            "common.core.lsp_fallback",
-            "common.core.lsp_notifications",
-            "common.core.performance_analytics",
-            "common.core.performance_metrics",
-            "common.core.performance_monitor",
-            "common.core.performance_storage",
-            "common.core.pure_daemon_client",
-            "common.core.schema_documentation",
-            "common.core.service_discovery_integration",
-            "common.core.smart_ingestion_router",
-            "common.core.unified_config",
-            "common.core.yaml_metadata",
+            "workspace_qdrant_mcp.core.backward_compatibility",
+            "workspace_qdrant_mcp.core.depth_validation",
+            "workspace_qdrant_mcp.core.enhanced_config",
+            "workspace_qdrant_mcp.core.ingestion_config",
+            "workspace_qdrant_mcp.core.logging_config",
+            "workspace_qdrant_mcp.core.lsp_fallback",
+            "workspace_qdrant_mcp.core.lsp_notifications",
+            "workspace_qdrant_mcp.core.performance_analytics",
+            "workspace_qdrant_mcp.core.performance_metrics",
+            "workspace_qdrant_mcp.core.performance_monitor",
+            "workspace_qdrant_mcp.core.performance_storage",
+            "workspace_qdrant_mcp.core.pure_daemon_client",
+            "workspace_qdrant_mcp.core.schema_documentation",
+            "workspace_qdrant_mcp.core.service_discovery_integration",
+            "workspace_qdrant_mcp.core.smart_ingestion_router",
+            "workspace_qdrant_mcp.core.unified_config",
+            "workspace_qdrant_mcp.core.yaml_metadata",
 
             # Dashboard modules
-            "common.dashboard.performance_dashboard",
+            "workspace_qdrant_mcp.dashboard.performance_dashboard",
 
             # Memory modules
-            "common.memory.migration_utils",
+            "workspace_qdrant_mcp.memory.migration_utils",
 
             # Observability modules
-            "common.observability.endpoints",
-            "common.observability.enhanced_alerting",
-            "common.observability.grpc_health",
-            "common.observability.health_coordinator",
-            "common.observability.health_dashboard",
+            "workspace_qdrant_mcp.observability.endpoints",
+            "workspace_qdrant_mcp.observability.enhanced_alerting",
+            "workspace_qdrant_mcp.observability.grpc_health",
+            "workspace_qdrant_mcp.observability.health_coordinator",
+            "workspace_qdrant_mcp.observability.health_dashboard",
 
             # Optimization modules
-            "common.optimization.complete_fastmcp_optimization",
+            "workspace_qdrant_mcp.optimization.complete_fastmcp_optimization",
 
             # Utils modules
-            "common.utils.admin_cli",
-            "common.utils.config_validator",
+            "workspace_qdrant_mcp.utils.admin_cli",
+            "workspace_qdrant_mcp.utils.config_validator",
 
             # Launcher
             "elegant_launcher",
@@ -359,10 +359,10 @@ class Test100PercentCoverage:
         """Test all async functions comprehensively."""
 
         async_modules = [
-            "common.core.auto_ingestion",
-            "common.core.automatic_recovery",
-            "common.core.component_coordination",
-            "common.core.daemon_client",
+            "workspace_qdrant_mcp.core.auto_ingestion",
+            "workspace_qdrant_mcp.core.automatic_recovery",
+            "workspace_qdrant_mcp.core.component_coordination",
+            "workspace_qdrant_mcp.core.daemon_client",
             "workspace_qdrant_mcp.elegant_server",
             "workspace_qdrant_mcp.stdio_server",
         ]
@@ -560,13 +560,13 @@ class Test100PercentCoverage:
         ]
 
         config_modules = [
-            "common.core.config",
-            "common.core.enhanced_config",
-            "common.core.unified_config",
-            "common.core.yaml_config",
-            "common.core.ingestion_config",
             "workspace_qdrant_mcp.core.config",
-            "common.utils.config_validator",
+            "workspace_qdrant_mcp.core.enhanced_config",
+            "workspace_qdrant_mcp.core.unified_config",
+            "workspace_qdrant_mcp.core.yaml_config",
+            "workspace_qdrant_mcp.core.ingestion_config",
+            "workspace_qdrant_mcp.core.config",
+            "workspace_qdrant_mcp.utils.config_validator",
         ]
 
         for module_name in config_modules:
@@ -619,8 +619,8 @@ class Test100PercentCoverage:
         """Test all memory and storage modules exhaustively."""
 
         memory_modules = [
-            "common.memory.types",
-            "common.memory.migration_utils",
+            "workspace_qdrant_mcp.memory.types",
+            "workspace_qdrant_mcp.memory.migration_utils",
             "workspace_qdrant_mcp.core.sqlite_state_manager",
         ]
 
@@ -674,16 +674,16 @@ class Test100PercentCoverage:
         """Test all performance and monitoring modules exhaustively."""
 
         performance_modules = [
-            "common.core.performance_monitor",
-            "common.core.performance_metrics",
-            "common.core.performance_analytics",
-            "common.core.performance_storage",
-            "common.dashboard.performance_dashboard",
-            "common.observability.endpoints",
-            "common.observability.enhanced_alerting",
-            "common.observability.grpc_health",
-            "common.observability.health_coordinator",
-            "common.observability.health_dashboard",
+            "workspace_qdrant_mcp.core.performance_monitor",
+            "workspace_qdrant_mcp.core.performance_metrics",
+            "workspace_qdrant_mcp.core.performance_analytics",
+            "workspace_qdrant_mcp.core.performance_storage",
+            "workspace_qdrant_mcp.dashboard.performance_dashboard",
+            "workspace_qdrant_mcp.observability.endpoints",
+            "workspace_qdrant_mcp.observability.enhanced_alerting",
+            "workspace_qdrant_mcp.observability.grpc_health",
+            "workspace_qdrant_mcp.observability.health_coordinator",
+            "workspace_qdrant_mcp.observability.health_dashboard",
         ]
 
         for module_name in performance_modules:
