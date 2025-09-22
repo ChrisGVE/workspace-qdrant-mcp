@@ -347,7 +347,22 @@ mod tests {
             collection_name: "test_collection".to_string(),
             content: Some(DocumentContent {
                 text: "Test document with metadata".to_string(),
-                chunks: vec!["chunk1".to_string(), "chunk2".to_string()],
+                chunks: vec![
+                    crate::proto::DocumentChunk {
+                        id: "chunk1".to_string(),
+                        content: "First chunk content".to_string(),
+                        start_offset: 0,
+                        end_offset: 50,
+                        metadata: HashMap::new(),
+                    },
+                    crate::proto::DocumentChunk {
+                        id: "chunk2".to_string(),
+                        content: "Second chunk content".to_string(),
+                        start_offset: 51,
+                        end_offset: 100,
+                        metadata: HashMap::new(),
+                    },
+                ],
                 extracted_metadata,
             }),
             metadata,
@@ -404,7 +419,6 @@ mod tests {
 
         let request = Request::new(UpdateDocumentRequest {
             document_id: "test_doc_123".to_string(),
-            collection_name: "test_collection".to_string(),
             content: Some(DocumentContent {
                 text: "Updated document content".to_string(),
                 chunks: vec![],
@@ -431,7 +445,6 @@ mod tests {
 
         let request = Request::new(UpdateDocumentRequest {
             document_id: "timestamp_test_doc".to_string(),
-            collection_name: "test_collection".to_string(),
             content: Some(DocumentContent {
                 text: "Timestamp test content".to_string(),
                 chunks: vec![],
@@ -526,6 +539,7 @@ mod tests {
 
         let request = Request::new(ListDocumentsRequest {
             collection_name: "test_collection".to_string(),
+            project_id: "test_project".to_string(),
             limit: 10,
             offset: 0,
             filter: None,
@@ -563,6 +577,7 @@ mod tests {
         for (limit, offset) in pagination_params {
             let request = Request::new(ListDocumentsRequest {
                 collection_name: "test_collection".to_string(),
+                project_id: "test_project".to_string(),
                 limit,
                 offset,
                 filter: None,
@@ -755,6 +770,7 @@ mod tests {
                 // List documents
                 let list_request = Request::new(ListDocumentsRequest {
                     collection_name: "test_collection".to_string(),
+                    project_id: "test_project".to_string(),
                     limit: 10,
                     offset: 0,
                     filter: None,

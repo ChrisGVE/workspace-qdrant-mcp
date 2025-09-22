@@ -226,6 +226,90 @@ mod tests {
         Arc::new(WorkspaceDaemon::new(config).await.expect("Failed to create daemon"))
     }
 
+    // Helper function to create proper HybridSearchRequest
+    fn create_hybrid_search_request(
+        query: &str,
+        semantic_weight: f32,
+        keyword_weight: f32,
+        limit: i32,
+        collection_names: Vec<String>
+    ) -> HybridSearchRequest {
+        HybridSearchRequest {
+            query: query.to_string(),
+            context: crate::proto::SearchContext::Project as i32,
+            options: Some(crate::proto::SearchOptions {
+                limit,
+                score_threshold: 0.0,
+                include_metadata: true,
+                include_content: true,
+                ranking: Some(crate::proto::RankingOptions {
+                    semantic_weight,
+                    keyword_weight,
+                    rrf_constant: 60.0,
+                }),
+            }),
+            project_id: "test_project".to_string(),
+            collection_names,
+        }
+    }
+
+    // Helper function to create SemanticSearchRequest
+    fn create_semantic_search_request(
+        query: &str,
+        similarity_threshold: f32,
+        limit: i32,
+        collection_names: Vec<String>
+    ) -> SemanticSearchRequest {
+        SemanticSearchRequest {
+            query: query.to_string(),
+            context: crate::proto::SearchContext::Project as i32,
+            options: Some(crate::proto::SearchOptions {
+                limit,
+                score_threshold: similarity_threshold,
+                include_metadata: true,
+                include_content: true,
+                ranking: None,
+            }),
+            project_id: "test_project".to_string(),
+            collection_names,
+        }
+    }
+
+    // Helper function to create KeywordSearchRequest
+    fn create_keyword_search_request(
+        query: &str,
+        limit: i32,
+        collection_names: Vec<String>
+    ) -> KeywordSearchRequest {
+        KeywordSearchRequest {
+            query: query.to_string(),
+            context: crate::proto::SearchContext::Project as i32,
+            options: Some(crate::proto::SearchOptions {
+                limit,
+                score_threshold: 0.0,
+                include_metadata: true,
+                include_content: true,
+                ranking: None,
+            }),
+            project_id: "test_project".to_string(),
+            collection_names,
+        }
+    }
+
+    // Helper function to create SuggestionsRequest
+    fn create_suggestions_request(
+        partial_query: &str,
+        limit: i32,
+        collection_names: Vec<String>
+    ) -> SuggestionsRequest {
+        SuggestionsRequest {
+            partial_query: partial_query.to_string(),
+            context: crate::proto::SearchContext::Project as i32,
+            max_suggestions: limit,
+            project_id: "test_project".to_string(),
+        }
+    }
+
     #[tokio::test]
     async fn test_search_service_impl_new() {
         let daemon = create_test_daemon().await;
@@ -251,12 +335,20 @@ mod tests {
 
         let request = Request::new(HybridSearchRequest {
             query: "test query".to_string(),
+            context: crate::proto::SearchContext::Collection as i32,
+            options: Some(crate::proto::SearchOptions {
+                limit: 10,
+                score_threshold: 0.0,
+                include_metadata: true,
+                include_content: true,
+                ranking: Some(crate::proto::RankingOptions {
+                    semantic_weight: 0.7,
+                    keyword_weight: 0.3,
+                    rrf_constant: 60.0,
+                }),
+            }),
+            project_id: "test_project".to_string(),
             collection_names: vec!["test_collection".to_string()],
-            limit: 10,
-            offset: 0,
-            filters: HashMap::new(),
-            semantic_weight: 0.7,
-            keyword_weight: 0.3,
         });
 
         let result = service.hybrid_search(request).await;
@@ -288,15 +380,13 @@ mod tests {
         ];
 
         for query in queries {
-            let request = Request::new(HybridSearchRequest {
-                query: query.to_string(),
-                collection_names: vec!["test_collection".to_string()],
-                limit: 5,
-                offset: 0,
-                filters: HashMap::new(),
-                semantic_weight: 0.6,
-                keyword_weight: 0.4,
-            });
+            let request = Request::new(create_hybrid_search_request(
+                query,
+                0.6,
+                0.4,
+                5,
+                vec!["test_collection".to_string()]
+            ));
 
             let result = service.hybrid_search(request).await;
             assert!(result.is_ok(), "Failed for query: {}", query);
@@ -320,15 +410,13 @@ mod tests {
         ];
 
         for (semantic, keyword) in weight_combinations {
-            let request = Request::new(HybridSearchRequest {
-                query: "test query".to_string(),
-                collection_names: vec!["test_collection".to_string()],
-                limit: 10,
-                offset: 0,
-                filters: HashMap::new(),
-                semantic_weight: semantic,
-                keyword_weight: keyword,
-            });
+            let request = Request::new(create_hybrid_search_request(
+                "test query",
+                semantic,
+                keyword,
+                10,
+                vec!["test_collection".to_string()]
+            ));
 
             let result = service.hybrid_search(request).await;
             assert!(result.is_ok(), "Failed for weights: semantic={}, keyword={}", semantic, keyword);
@@ -336,24 +424,17 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_hybrid_search_with_filters() {
+    async fn test_hybrid_search_metadata_validation() {
         let daemon = create_test_daemon().await;
         let service = SearchServiceImpl::new(daemon);
 
-        let mut filters = HashMap::new();
-        filters.insert("author".to_string(), "John Doe".to_string());
-        filters.insert("category".to_string(), "documentation".to_string());
-        filters.insert("year".to_string(), "2023".to_string());
-
-        let request = Request::new(HybridSearchRequest {
-            query: "test query with filters".to_string(),
-            collection_names: vec!["test_collection".to_string()],
-            limit: 10,
-            offset: 0,
-            filters,
-            semantic_weight: 0.7,
-            keyword_weight: 0.3,
-        });
+        let request = Request::new(create_hybrid_search_request(
+            "test query with metadata",
+            0.7,
+            0.3,
+            10,
+            vec!["test_collection".to_string()]
+        ));
 
         let result = service.hybrid_search(request).await;
         assert!(result.is_ok());
@@ -376,19 +457,17 @@ mod tests {
             (1, 0),    // Single result
         ];
 
-        for (limit, offset) in pagination_params {
-            let request = Request::new(HybridSearchRequest {
-                query: "pagination test".to_string(),
-                collection_names: vec!["test_collection".to_string()],
+        for (limit, _offset) in pagination_params {
+            let request = Request::new(create_hybrid_search_request(
+                "pagination test",
+                0.7,
+                0.3,
                 limit,
-                offset,
-                filters: HashMap::new(),
-                semantic_weight: 0.7,
-                keyword_weight: 0.3,
-            });
+                vec!["test_collection".to_string()]
+            ));
 
             let result = service.hybrid_search(request).await;
-            assert!(result.is_ok(), "Failed for limit={}, offset={}", limit, offset);
+            assert!(result.is_ok(), "Failed for limit={}", limit);
         }
     }
 
@@ -397,14 +476,12 @@ mod tests {
         let daemon = create_test_daemon().await;
         let service = SearchServiceImpl::new(daemon);
 
-        let request = Request::new(SemanticSearchRequest {
-            query: "semantic search query".to_string(),
-            collection_names: vec!["test_collection".to_string()],
-            limit: 10,
-            offset: 0,
-            filters: HashMap::new(),
-            similarity_threshold: 0.7,
-        });
+        let request = Request::new(create_semantic_search_request(
+            "semantic search query",
+            0.7,
+            10,
+            vec!["test_collection".to_string()]
+        ));
 
         let result = service.semantic_search(request).await;
         assert!(result.is_ok());
@@ -426,14 +503,12 @@ mod tests {
         let thresholds = [0.1, 0.3, 0.5, 0.7, 0.9];
 
         for threshold in thresholds {
-            let request = Request::new(SemanticSearchRequest {
-                query: "threshold test".to_string(),
-                collection_names: vec!["test_collection".to_string()],
-                limit: 10,
-                offset: 0,
-                filters: HashMap::new(),
-                similarity_threshold: threshold,
-            });
+            let request = Request::new(create_semantic_search_request(
+                "threshold test",
+                threshold,
+                10,
+                vec!["test_collection".to_string()]
+            ));
 
             let result = service.semantic_search(request).await;
             assert!(result.is_ok(), "Failed for threshold: {}", threshold);
@@ -445,15 +520,11 @@ mod tests {
         let daemon = create_test_daemon().await;
         let service = SearchServiceImpl::new(daemon);
 
-        let request = Request::new(KeywordSearchRequest {
-            query: "keyword search".to_string(),
-            collection_names: vec!["test_collection".to_string()],
-            limit: 10,
-            offset: 0,
-            filters: HashMap::new(),
-            fuzzy: false,
-            boost_fields: HashMap::new(),
-        });
+        let request = Request::new(create_keyword_search_request(
+            "keyword search",
+            10,
+            vec!["test_collection".to_string()]
+        ));
 
         let result = service.keyword_search(request).await;
         assert!(result.is_ok());
@@ -468,50 +539,43 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_keyword_search_with_boost_fields() {
+    async fn test_keyword_search_with_different_limits() {
         let daemon = create_test_daemon().await;
         let service = SearchServiceImpl::new(daemon);
 
-        let mut boost_fields = HashMap::new();
-        boost_fields.insert("title".to_string(), 2.0);
-        boost_fields.insert("content".to_string(), 1.0);
-        boost_fields.insert("tags".to_string(), 1.5);
+        let limits = [1, 5, 10, 20, 50];
 
-        let request = Request::new(KeywordSearchRequest {
-            query: "boosted search".to_string(),
-            collection_names: vec!["test_collection".to_string()],
-            limit: 10,
-            offset: 0,
-            filters: HashMap::new(),
-            fuzzy: false,
-            boost_fields,
-        });
+        for limit in limits {
+            let request = Request::new(create_keyword_search_request(
+                "limit test search",
+                limit,
+                vec!["test_collection".to_string()]
+            ));
 
-        let result = service.keyword_search(request).await;
-        assert!(result.is_ok());
+            let result = service.keyword_search(request).await;
+            assert!(result.is_ok(), "Failed for limit: {}", limit);
 
-        let response = result.unwrap().into_inner();
-        assert!(!response.query_id.is_empty());
+            let response = result.unwrap().into_inner();
+            assert!(!response.query_id.is_empty());
+        }
     }
 
     #[tokio::test]
-    async fn test_keyword_search_fuzzy_modes() {
+    async fn test_keyword_search_different_queries() {
         let daemon = create_test_daemon().await;
         let service = SearchServiceImpl::new(daemon);
 
-        for fuzzy in [true, false] {
-            let request = Request::new(KeywordSearchRequest {
-                query: "fuzzy test".to_string(),
-                collection_names: vec!["test_collection".to_string()],
-                limit: 10,
-                offset: 0,
-                filters: HashMap::new(),
-                fuzzy,
-                boost_fields: HashMap::new(),
-            });
+        let queries = ["simple", "complex search terms", "special!@#$%", "numbers123"];
+
+        for query in queries {
+            let request = Request::new(create_keyword_search_request(
+                query,
+                10,
+                vec!["test_collection".to_string()]
+            ));
 
             let result = service.keyword_search(request).await;
-            assert!(result.is_ok(), "Failed for fuzzy: {}", fuzzy);
+            assert!(result.is_ok(), "Failed for query: {}", query);
         }
     }
 
@@ -520,12 +584,11 @@ mod tests {
         let daemon = create_test_daemon().await;
         let service = SearchServiceImpl::new(daemon);
 
-        let request = Request::new(SuggestionsRequest {
-            partial_query: "test".to_string(),
-            collection_names: vec!["test_collection".to_string()],
-            limit: 5,
-            min_score: 0.5,
-        });
+        let request = Request::new(create_suggestions_request(
+            "test",
+            5,
+            vec!["test_collection".to_string()]
+        ));
 
         let result = service.get_suggestions(request).await;
         assert!(result.is_ok());
@@ -556,12 +619,11 @@ mod tests {
         ];
 
         for partial in partial_queries {
-            let request = Request::new(SuggestionsRequest {
-                partial_query: partial.to_string(),
-                collection_names: vec!["test_collection".to_string()],
-                limit: 5,
-                min_score: 0.3,
-            });
+            let request = Request::new(create_suggestions_request(
+                partial,
+                5,
+                vec!["test_collection".to_string()]
+            ));
 
             let result = service.get_suggestions(request).await;
             assert!(result.is_ok(), "Failed for partial query: {}", partial);
@@ -582,12 +644,11 @@ mod tests {
         let limits = [1, 3, 5, 10, 20];
 
         for limit in limits {
-            let request = Request::new(SuggestionsRequest {
-                partial_query: "suggestion".to_string(),
-                collection_names: vec!["test_collection".to_string()],
+            let request = Request::new(create_suggestions_request(
+                "suggestion",
                 limit,
-                min_score: 0.1,
-            });
+                vec!["test_collection".to_string()]
+            ));
 
             let result = service.get_suggestions(request).await;
             assert!(result.is_ok(), "Failed for limit: {}", limit);
@@ -610,15 +671,13 @@ mod tests {
             "code".to_string(),
         ];
 
-        let request = Request::new(HybridSearchRequest {
-            query: "multi-collection search".to_string(),
-            collection_names: collections.clone(),
-            limit: 10,
-            offset: 0,
-            filters: HashMap::new(),
-            semantic_weight: 0.7,
-            keyword_weight: 0.3,
-        });
+        let request = Request::new(create_hybrid_search_request(
+            "multi-collection search",
+            0.7,
+            0.3,
+            10,
+            collections.clone()
+        ));
 
         let result = service.hybrid_search(request).await;
         assert!(result.is_ok());
@@ -634,15 +693,13 @@ mod tests {
 
         let before_search = chrono::Utc::now().timestamp();
 
-        let request = Request::new(HybridSearchRequest {
-            query: "timestamp test".to_string(),
-            collection_names: vec!["test_collection".to_string()],
-            limit: 10,
-            offset: 0,
-            filters: HashMap::new(),
-            semantic_weight: 0.7,
-            keyword_weight: 0.3,
-        });
+        let request = Request::new(create_hybrid_search_request(
+            "timestamp test",
+            0.7,
+            0.3,
+            10,
+            vec!["test_collection".to_string()]
+        ));
 
         let result = service.hybrid_search(request).await;
         assert!(result.is_ok());
@@ -670,15 +727,13 @@ mod tests {
         for i in 0..5 {
             let service_clone = Arc::clone(&service);
             let handle = tokio::spawn(async move {
-                let request = Request::new(HybridSearchRequest {
-                    query: format!("concurrent search {}", i),
-                    collection_names: vec!["test_collection".to_string()],
-                    limit: 10,
-                    offset: 0,
-                    filters: HashMap::new(),
-                    semantic_weight: 0.7,
-                    keyword_weight: 0.3,
-                });
+                let request = Request::new(create_hybrid_search_request(
+                    &format!("concurrent search {}", i),
+                    0.7,
+                    0.3,
+                    10,
+                    vec!["test_collection".to_string()]
+                ));
 
                 service_clone.hybrid_search(request).await
             });
@@ -703,15 +758,13 @@ mod tests {
         let daemon = create_test_daemon().await;
         let service = SearchServiceImpl::new(daemon);
 
-        let request = Request::new(HybridSearchRequest {
-            query: "structure test".to_string(),
-            collection_names: vec!["test_collection".to_string()],
-            limit: 10,
-            offset: 0,
-            filters: HashMap::new(),
-            semantic_weight: 0.7,
-            keyword_weight: 0.3,
-        });
+        let request = Request::new(create_hybrid_search_request(
+            "structure test",
+            0.7,
+            0.3,
+            10,
+            vec!["test_collection".to_string()]
+        ));
 
         let result = service.hybrid_search(request).await;
         assert!(result.is_ok());
