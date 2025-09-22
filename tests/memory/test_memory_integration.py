@@ -4,17 +4,23 @@ Integration tests for memory system.
 These tests verify that the memory system components work together correctly.
 """
 
+import sys
+from pathlib import Path
+
+# Add src/python to path for common module imports
+sys.path.insert(0, str(Path(__file__).parent.parent.parent / "src" / "python"))
+
 import asyncio
 from datetime import datetime
 from unittest.mock import AsyncMock, Mock, patch
 
 import pytest
 
-from common.core.config import Config
-from common.memory.conflict_detector import ConflictDetector
-from common.memory.manager import MemoryManager
-from common.memory.token_counter import TokenCounter, TokenUsage
-from common.memory.types import (
+from workspace_qdrant_mcp.core.config import Config
+from workspace_qdrant_mcp.memory.conflict_detector import ConflictDetector
+from workspace_qdrant_mcp.memory.manager import MemoryManager
+from workspace_qdrant_mcp.memory.token_counter import TokenCounter, TokenUsage
+from workspace_qdrant_mcp.memory.types import (
     AuthorityLevel,
     ClaudeCodeSession,
     MemoryCategory,

@@ -6,6 +6,12 @@ error recovery scenarios, concurrent access handling, and integration
 with the file watcher system.
 """
 
+import sys
+from pathlib import Path
+
+# Add src/python to path for common module imports
+sys.path.insert(0, str(Path(__file__).parent.parent.parent / "src" / "python"))
+
 import asyncio
 import json
 import os
@@ -18,20 +24,20 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from common.core.watch_config import (
+from workspace_qdrant_mcp.core.watch_config import (
     PersistentWatchConfigManager,
     WatchConfigurationPersistent,
 )
-from common.core.persistent_file_watcher import (
+from workspace_qdrant_mcp.core.persistent_file_watcher import (
     PersistentFileWatcher,
     PersistentWatchManager,
 )
-from common.core.watch_validation import (
+from workspace_qdrant_mcp.core.watch_validation import (
     WatchPathValidator,
     WatchErrorRecovery,
     WatchHealthMonitor,
 )
-from common.core.watch_sync import (
+from workspace_qdrant_mcp.core.watch_sync import (
     SynchronizedWatchConfigManager,
     ConfigChangeEvent,
     FileLockManager,
@@ -675,7 +681,7 @@ class TestAdvancedConfiguration:
     
     def test_recursive_depth_configuration(self):
         """Test recursive depth limit configuration."""
-        from common.core.advanced_watch_config import RecursiveConfig
+        from workspace_qdrant_mcp.core.advanced_watch_config import RecursiveConfig
         
         # Test valid configurations
         config = RecursiveConfig(enabled=True, max_depth=5)
@@ -692,7 +698,7 @@ class TestAdvancedConfiguration:
     
     def test_file_filter_configuration(self):
         """Test file filtering configuration."""
-        from common.core.advanced_watch_config import FileFilterConfig
+        from workspace_qdrant_mcp.core.advanced_watch_config import FileFilterConfig
         
         # Test valid filter config
         config = FileFilterConfig(
@@ -713,7 +719,7 @@ class TestAdvancedConfiguration:
     
     def test_performance_configuration(self):
         """Test performance configuration options."""
-        from common.core.advanced_watch_config import PerformanceConfig
+        from workspace_qdrant_mcp.core.advanced_watch_config import PerformanceConfig
         
         config = PerformanceConfig(
             update_frequency_ms=2000,
@@ -736,7 +742,7 @@ class TestAdvancedConfiguration:
     
     def test_collection_targeting(self):
         """Test collection targeting and routing."""
-        from common.core.advanced_watch_config import CollectionTargeting
+        from workspace_qdrant_mcp.core.advanced_watch_config import CollectionTargeting
         
         config = CollectionTargeting(
             default_collection="main-docs",

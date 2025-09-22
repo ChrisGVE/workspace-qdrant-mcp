@@ -23,7 +23,7 @@ from typing import Dict, List, Optional, Any
 from unittest.mock import Mock, patch
 
 # Migration components
-from src.python.common.memory.migration_utils import (
+from workspace_qdrant_mcp.memory.migration_utils import (
     CollectionMigrationManager,
     MigrationStrategy,
     MigrationPlan,
@@ -31,27 +31,27 @@ from src.python.common.memory.migration_utils import (
     LegacyCollectionAnalyzer,
     SchemaVersionManager
 )
-from src.python.common.core.backward_compatibility import (
+from workspace_qdrant_mcp.core.backward_compatibility import (
     BackwardCompatibilityManager,
     CompatibilityLevel,
     DeprecationHandler
 )
 
 # Multi-tenant components
-from src.python.common.core.metadata_schema import (
+from workspace_qdrant_mcp.core.metadata_schema import (
     MultiTenantMetadataSchema,
     CollectionCategory,
     WorkspaceScope,
     AccessLevel
 )
-from src.python.common.core.multitenant_collections import (
+from workspace_qdrant_mcp.core.multitenant_collections import (
     MultiTenantWorkspaceCollectionManager,
     WorkspaceCollectionRegistry
 )
 
 # Test infrastructure
 import testcontainers
-from src.python.common.core.client import QdrantWorkspaceClient
+from workspace_qdrant_mcp.core.client import QdrantWorkspaceClient
 from tests.integration.conftest import test_data_factory
 
 

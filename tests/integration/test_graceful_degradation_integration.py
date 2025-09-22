@@ -12,15 +12,15 @@ import asyncio
 import pytest
 from unittest.mock import AsyncMock, MagicMock, patch
 
-from src.python.common.core.graceful_degradation import (
+from workspace_qdrant_mcp.core.graceful_degradation import (
     DegradationManager,
     DegradationMode,
     FeatureType,
 )
-from src.python.common.core.component_coordination import ComponentType
-from src.python.common.core.component_lifecycle import ComponentLifecycleManager
-from src.python.common.core.lsp_health_monitor import LspHealthMonitor
-from src.python.workspace_qdrant_mcp.tools.degradation_aware import (
+from workspace_qdrant_mcp.core.component_coordination import ComponentType
+from workspace_qdrant_mcp.core.component_lifecycle import ComponentLifecycleManager
+from workspace_qdrant_mcp.core.lsp_health_monitor import LspHealthMonitor
+from workspace_qdrant_mcp.tools.degradation_aware import (
     DegradationAwareMCPTools,
     CLIDegradationHandler,
     create_degradation_aware_tools,

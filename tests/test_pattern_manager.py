@@ -5,6 +5,12 @@ This module tests the PatternManager class which provides centralized pattern
 management for file filtering and ecosystem detection using embedded YAML patterns.
 """
 
+import sys
+from pathlib import Path
+
+# Add src/python to path for common module imports
+sys.path.insert(0, str(Path(__file__).parent.parent.parent / "src" / "python"))
+
 import os
 import tempfile
 from pathlib import Path
@@ -15,9 +21,9 @@ import pytest
 import yaml
 
 try:
-    from src.python.common.core.pattern_manager import PatternManager
+    from workspace_qdrant_mcp.core.pattern_manager import PatternManager
 except ImportError:
-    from common.core.pattern_manager import PatternManager
+    from workspace_qdrant_mcp.core.pattern_manager import PatternManager
 
 
 # Shared fixtures for all test classes

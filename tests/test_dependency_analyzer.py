@@ -10,20 +10,26 @@ This test suite validates all functionality of the dependency analyzer including
 - Integration with existing symbol resolver and search infrastructure
 """
 
+import sys
+from pathlib import Path
+
+# Add src/python to path for common module imports
+sys.path.insert(0, str(Path(__file__).parent.parent.parent / "src" / "python"))
+
 import asyncio
 import pytest
 from unittest.mock import AsyncMock, MagicMock, patch
 from typing import Dict, List, Any
 
-from common.tools.dependency_analyzer import (
+from workspace_qdrant_mcp.tools.dependency_analyzer import (
     DependencyAnalyzer, CallGraph, ImportGraph, InheritanceGraph,
     ImpactAnalyzer, DependencyQueryEngine,
     DependencyNode, DependencyEdge, CircularDependency, RefactoringImpact,
     DependencyType, ImpactLevel, CircularDependencyType
 )
-from common.core.lsp_metadata_extractor import SymbolKind
-from common.tools.symbol_resolver import SymbolLocation
-from common.core.error_handling import WorkspaceError
+from workspace_qdrant_mcp.core.lsp_metadata_extractor import SymbolKind
+from workspace_qdrant_mcp.tools.symbol_resolver import SymbolLocation
+from workspace_qdrant_mcp.core.error_handling import WorkspaceError
 
 
 class TestDependencyNode:
@@ -819,7 +825,7 @@ class TestDependencyQueryEngine:
     
     async def test_analyze_circular_dependencies(self, query_engine, mock_dependency_analyzer):
         """Test analyzing circular dependencies"""
-        from common.tools.dependency_analyzer import CircularDependency, CircularDependencyType
+        from workspace_qdrant_mcp.tools.dependency_analyzer import CircularDependency, CircularDependencyType
         
         # Mock circular import dependencies
         location = SymbolLocation("", "", 0, 0, 0, 0, "test")

@@ -16,7 +16,7 @@ import time
 from pathlib import Path
 from unittest.mock import Mock, AsyncMock, patch
 
-from src.python.common.core.component_isolation import (
+from workspace_qdrant_mcp.core.component_isolation import (
     ComponentIsolationManager,
     ComponentBoundary,
     ComponentBoundaryContext,
@@ -28,16 +28,16 @@ from src.python.common.core.component_isolation import (
     FailureImpact,
     ResourceType,
 )
-from src.python.common.core.component_coordination import (
+from workspace_qdrant_mcp.core.component_coordination import (
     ComponentCoordinator,
     ComponentType,
     ComponentStatus,
     ComponentHealth,
 )
-from src.python.common.core.component_lifecycle import ComponentLifecycleManager
-from src.python.common.core.graceful_degradation import DegradationManager
-from src.python.common.core.automatic_recovery import RecoveryManager
-from src.python.common.core.lsp_health_monitor import LspHealthMonitor
+from workspace_qdrant_mcp.core.component_lifecycle import ComponentLifecycleManager
+from workspace_qdrant_mcp.core.graceful_degradation import DegradationManager
+from workspace_qdrant_mcp.core.automatic_recovery import RecoveryManager
+from workspace_qdrant_mcp.core.lsp_health_monitor import LspHealthMonitor
 
 
 class MockProcess:

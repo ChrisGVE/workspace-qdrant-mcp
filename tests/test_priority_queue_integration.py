@@ -5,6 +5,12 @@ Tests the integration between PriorityQueueManager, SQLiteStateManager,
 and IncrementalProcessor to ensure proper end-to-end functionality.
 """
 
+import sys
+from pathlib import Path
+
+# Add src/python to path for common module imports
+sys.path.insert(0, str(Path(__file__).parent.parent.parent / "src" / "python"))
+
 import asyncio
 import os
 import tempfile
@@ -13,18 +19,18 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-from common.core.priority_queue_manager import (
+from workspace_qdrant_mcp.core.priority_queue_manager import (
     PriorityQueueManager,
     ProcessingMode,
     MCPActivityLevel,
     ResourceConfiguration,
 )
-from common.core.sqlite_state_manager import (
+from workspace_qdrant_mcp.core.sqlite_state_manager import (
     SQLiteStateManager,
     ProcessingPriority,
     FileProcessingStatus,
 )
-from common.core.incremental_processor import (
+from workspace_qdrant_mcp.core.incremental_processor import (
     IncrementalProcessor,
     FileChangeInfo,
     ChangeType,

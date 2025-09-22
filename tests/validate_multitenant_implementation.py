@@ -22,12 +22,12 @@ from pathlib import Path
 from typing import Dict, List, Any, Optional
 
 # Import validation utilities
-from src.python.common.core.collision_detection import CollisionDetector
-from src.python.common.core.metadata_filtering import MetadataFilterManager
-from src.python.common.core.multitenant_collections import MultiTenantWorkspaceCollectionManager
-from src.python.common.memory.migration_utils import CollectionMigrationManager
-from src.python.workspace_qdrant_mcp.tools.multitenant_tools import register_multitenant_tools
-from src.python.workspace_qdrant_mcp.server import create_mcp_server
+from workspace_qdrant_mcp.core.collision_detection import CollisionDetector
+from workspace_qdrant_mcp.core.metadata_filtering import MetadataFilterManager
+from workspace_qdrant_mcp.core.multitenant_collections import MultiTenantWorkspaceCollectionManager
+from workspace_qdrant_mcp.memory.migration_utils import CollectionMigrationManager
+from workspace_qdrant_mcp.tools.multitenant_tools import register_multitenant_tools
+from workspace_qdrant_mcp.server import create_mcp_server
 
 try:
     from fastmcp.testing import create_test_client
@@ -162,7 +162,7 @@ class MultiTenantValidationSuite:
         # Test component interactions
         try:
             # Test that components can work together
-            from src.python.common.core.metadata_filtering import FilterCriteria
+            from workspace_qdrant_mcp.core.metadata_filtering import FilterCriteria
 
             criteria = FilterCriteria(project_name="validation-test")
             filter_result = filter_manager.create_project_isolation_filter(criteria)
@@ -215,7 +215,7 @@ class MultiTenantValidationSuite:
 
         try:
             # Test response format consistency
-            from src.python.workspace_qdrant_mcp.tools.multitenant_search import (
+            from workspace_qdrant_mcp.tools.multitenant_search import (
                 search_workspace_with_project_context
             )
 
@@ -227,7 +227,7 @@ class MultiTenantValidationSuite:
 
         # Test error handling patterns
         try:
-            from src.python.common.core.collision_detection import CollisionResult
+            from workspace_qdrant_mcp.core.collision_detection import CollisionResult
 
             # Validate error result structure
             error_result = CollisionResult(
@@ -291,7 +291,7 @@ class MultiTenantValidationSuite:
 
             start_time = time.time()
             for i in range(50):
-                from src.python.common.core.metadata_filtering import FilterCriteria
+                from workspace_qdrant_mcp.core.metadata_filtering import FilterCriteria
                 criteria = FilterCriteria(project_name=f"perf-test-{i}")
                 filter_manager.create_project_isolation_filter(criteria)
             filtering_time = time.time() - start_time
@@ -345,7 +345,7 @@ class MultiTenantValidationSuite:
 
         try:
             # Test project isolation
-            from src.python.common.core.metadata_filtering import FilterCriteria, MetadataFilterManager
+            from workspace_qdrant_mcp.core.metadata_filtering import FilterCriteria, MetadataFilterManager
             from unittest.mock import Mock
 
             mock_client = Mock()
@@ -362,7 +362,7 @@ class MultiTenantValidationSuite:
 
         try:
             # Test access level filtering
-            from src.python.common.core.metadata_schema import AccessLevel
+            from workspace_qdrant_mcp.core.metadata_schema import AccessLevel
 
             criteria = FilterCriteria(
                 project_name="test-project",
@@ -379,7 +379,7 @@ class MultiTenantValidationSuite:
 
         try:
             # Test metadata validation
-            from src.python.common.core.metadata_schema import MultiTenantMetadataSchema
+            from workspace_qdrant_mcp.core.metadata_schema import MultiTenantMetadataSchema
 
             schema = MultiTenantMetadataSchema.create_for_project(
                 project_name="validation-project",
@@ -393,7 +393,7 @@ class MultiTenantValidationSuite:
 
         try:
             # Test naming collision prevention
-            from src.python.common.core.collection_naming_validation import CollectionNamingValidator
+            from workspace_qdrant_mcp.core.collection_naming_validation import CollectionNamingValidator
 
             validator = CollectionNamingValidator()
             validation_result = validator.validate_name(
@@ -438,7 +438,7 @@ class MultiTenantValidationSuite:
 
         try:
             # Test migration plan creation (mock)
-            from src.python.common.memory.migration_utils import MigrationStrategy
+            from workspace_qdrant_mcp.memory.migration_utils import MigrationStrategy
 
             # Simulate migration plan creation
             migration_checks["migration_plan_creation"] = MigrationStrategy.COPY_AND_PRESERVE is not None
@@ -448,7 +448,7 @@ class MultiTenantValidationSuite:
 
         try:
             # Test legacy analysis capabilities
-            from src.python.common.memory.migration_utils import LegacyCollectionAnalyzer
+            from workspace_qdrant_mcp.memory.migration_utils import LegacyCollectionAnalyzer
 
             analyzer = LegacyCollectionAnalyzer(mock_client)
             migration_checks["legacy_analysis"] = True
@@ -458,7 +458,7 @@ class MultiTenantValidationSuite:
 
         try:
             # Test schema migration utilities
-            from src.python.common.memory.migration_utils import SchemaVersionManager
+            from workspace_qdrant_mcp.memory.migration_utils import SchemaVersionManager
 
             schema_manager = SchemaVersionManager(mock_client)
             migration_checks["schema_migration"] = True
@@ -487,7 +487,7 @@ class MultiTenantValidationSuite:
 
         try:
             # Test that existing APIs are preserved
-            from src.python.workspace_qdrant_mcp.tools.documents import add_document
+            from workspace_qdrant_mcp.tools.documents import add_document
 
             # Verify the function signature is preserved
             compatibility_checks["existing_apis_preserved"] = callable(add_document)
@@ -497,7 +497,7 @@ class MultiTenantValidationSuite:
 
         try:
             # Test legacy metadata support
-            from src.python.common.core.backward_compatibility import BackwardCompatibilityManager
+            from workspace_qdrant_mcp.core.backward_compatibility import BackwardCompatibilityManager
 
             compat_manager = BackwardCompatibilityManager()
             compatibility_checks["legacy_metadata_support"] = True
@@ -507,7 +507,7 @@ class MultiTenantValidationSuite:
 
         try:
             # Test graceful degradation
-            from src.python.common.core.metadata_schema import MultiTenantMetadataSchema
+            from workspace_qdrant_mcp.core.metadata_schema import MultiTenantMetadataSchema
 
             # Should handle missing optional fields gracefully
             minimal_schema = MultiTenantMetadataSchema.create_for_project(
@@ -522,7 +522,7 @@ class MultiTenantValidationSuite:
 
         try:
             # Test version detection
-            from src.python.common.memory.migration_utils import SchemaVersionManager
+            from workspace_qdrant_mcp.memory.migration_utils import SchemaVersionManager
             from unittest.mock import Mock
 
             version_manager = SchemaVersionManager(Mock())

@@ -5,13 +5,19 @@ This module provides integration tests that verify the complete
 component coordination system works end-to-end with real scenarios.
 """
 
+import sys
+from pathlib import Path
+
+# Add src/python to path for common module imports
+sys.path.insert(0, str(Path(__file__).parent.parent.parent / "src" / "python"))
+
 import asyncio
 import tempfile
 from pathlib import Path
 
 import pytest
 
-from common.core.component_coordination import (
+from workspace_qdrant_mcp.core.component_coordination import (
     ComponentCoordinator,
     ComponentType,
     ComponentStatus,
@@ -20,7 +26,7 @@ from common.core.component_coordination import (
     get_component_coordinator,
     shutdown_component_coordinator
 )
-from common.core.component_migration import ComponentMigrator
+from workspace_qdrant_mcp.core.component_migration import ComponentMigrator
 
 
 class TestComponentIntegration:
@@ -291,7 +297,7 @@ class TestComponentIntegration:
 
         try:
             # First create a base SQLite state manager
-            from common.core.sqlite_state_manager import SQLiteStateManager
+            from workspace_qdrant_mcp.core.sqlite_state_manager import SQLiteStateManager
 
             base_manager = SQLiteStateManager(db_path)
             await base_manager.initialize()

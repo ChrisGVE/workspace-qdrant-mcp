@@ -23,14 +23,14 @@ from datetime import datetime, timedelta
 from typing import Dict, List, Optional, Tuple
 from unittest.mock import Mock, AsyncMock
 
-from src.python.common.core.performance_monitoring import (
+from workspace_qdrant_mcp.core.performance_monitoring import (
     MetadataFilteringPerformanceMonitor,
     PerformanceBaseline,
     SearchAccuracyTracker,
     PerformanceBenchmarkSuite
 )
-from src.python.common.core.hybrid_search import HybridSearchEngine
-from src.python.common.core.metadata_optimization import FilterOptimizer
+from workspace_qdrant_mcp.core.hybrid_search import HybridSearchEngine
+from workspace_qdrant_mcp.core.metadata_optimization import FilterOptimizer
 
 
 class TestDataGenerator:

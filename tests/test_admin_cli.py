@@ -4,12 +4,18 @@ Tests for workspace-qdrant administrative CLI.
 Tests the safety features, project scoping, and collection management.
 """
 
+import sys
+from pathlib import Path
+
+# Add src/python to path for common module imports
+sys.path.insert(0, str(Path(__file__).parent.parent.parent / "src" / "python"))
+
 from unittest.mock import Mock, patch
 
 import pytest
 
-from common.core.config import Config
-from common.utils.admin_cli import WorkspaceQdrantAdmin
+from workspace_qdrant_mcp.core.config import Config
+from workspace_qdrant_mcp.utils.admin_cli import WorkspaceQdrantAdmin
 
 
 @pytest.fixture

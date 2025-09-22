@@ -5,14 +5,20 @@ Comprehensive tests for memory rule conflict detection including semantic analys
 rule-based conflicts, authority conflicts, and AI-powered conflict detection.
 """
 
+import sys
+from pathlib import Path
+
+# Add src/python to path for common module imports
+sys.path.insert(0, str(Path(__file__).parent.parent.parent / "src" / "python"))
+
 import asyncio
 from unittest.mock import AsyncMock, Mock, patch
 from datetime import datetime
 
 import pytest
 
-from common.memory.conflict_detector import ConflictDetector
-from common.memory.types import (
+from workspace_qdrant_mcp.memory.conflict_detector import ConflictDetector
+from workspace_qdrant_mcp.memory.types import (
     AuthorityLevel,
     MemoryCategory,
     MemoryRule,

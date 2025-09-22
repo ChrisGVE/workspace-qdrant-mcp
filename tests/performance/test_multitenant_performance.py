@@ -29,16 +29,16 @@ import testcontainers
 from tests.utils.metrics import PerformanceMetrics, ResourceMonitor
 
 # Multi-tenant components
-from src.python.common.core.collision_detection import CollisionDetector
-from src.python.common.core.metadata_filtering import (
+from workspace_qdrant_mcp.core.collision_detection import CollisionDetector
+from workspace_qdrant_mcp.core.metadata_filtering import (
     MetadataFilterManager,
     FilterCriteria,
     FilterPerformanceLevel
 )
-from src.python.common.core.multitenant_collections import (
+from workspace_qdrant_mcp.core.multitenant_collections import (
     MultiTenantWorkspaceCollectionManager
 )
-from src.python.common.core.client import QdrantWorkspaceClient
+from workspace_qdrant_mcp.core.client import QdrantWorkspaceClient
 
 # Test data and configuration
 from tests.integration.conftest import TEST_ENVIRONMENT_CONFIG

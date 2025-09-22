@@ -12,6 +12,12 @@ Tests cover both yaml_config.py and enhanced_config.py systems to ensure complet
 coverage of the configuration infrastructure.
 """
 
+import sys
+from pathlib import Path
+
+# Add src/python to path for common module imports
+sys.path.insert(0, str(Path(__file__).parent.parent.parent / "src" / "python"))
+
 import json
 import os
 import tempfile
@@ -24,8 +30,8 @@ import pytest
 import yaml
 from pydantic import ValidationError
 
-from common.core.config import Config, EmbeddingConfig, QdrantConfig, WorkspaceConfig
-from common.core.yaml_config import (
+from workspace_qdrant_mcp.core.config import Config, EmbeddingConfig, QdrantConfig, WorkspaceConfig
+from workspace_qdrant_mcp.core.yaml_config import (
     ConfigLoader,
     WorkspaceConfig as YAMLWorkspaceConfig,
     YAMLConfigLoader,
@@ -33,8 +39,8 @@ from common.core.yaml_config import (
     save_config,
     create_default_config,
 )
-from common.core.enhanced_config import EnhancedConfig
-from common.utils.config_validator import ConfigValidator
+from workspace_qdrant_mcp.core.enhanced_config import EnhancedConfig
+from workspace_qdrant_mcp.utils.config_validator import ConfigValidator
 
 
 class TestConfigurationPrecedence:

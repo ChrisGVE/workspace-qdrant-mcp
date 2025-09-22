@@ -5,6 +5,12 @@ This module tests the integration between Python structured error handling
 and logging systems, circuit breaker patterns, and recovery strategies.
 """
 
+import sys
+from pathlib import Path
+
+# Add src/python to path for common module imports
+sys.path.insert(0, str(Path(__file__).parent.parent.parent / "src" / "python"))
+
 import asyncio
 import json
 import logging
@@ -17,7 +23,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 import structlog
 
-from common.core.error_handling import (
+from workspace_qdrant_mcp.core.error_handling import (
     WorkspaceError,
     ConfigurationError,
     NetworkError,
@@ -453,7 +459,7 @@ class TestErrorStatistics:
         reset_error_stats()
         
         # Create some errors to generate stats
-        from common.core.error_handling import error_monitor
+        from workspace_qdrant_mcp.core.error_handling import error_monitor
         
         error1 = NetworkError("Network error 1")
         error2 = DatabaseError("Database error 1")
@@ -477,7 +483,7 @@ class TestErrorStatistics:
     def test_circuit_breaker_stats(self):
         """Test circuit breaker statistics in error monitor."""
         reset_error_stats()
-        from common.core.error_handling import error_monitor
+        from workspace_qdrant_mcp.core.error_handling import error_monitor
         
         # Get circuit breaker and trigger it
         cb = error_monitor.get_circuit_breaker("test_service", threshold=2)
@@ -505,7 +511,7 @@ class TestStructuredLogging:
 
     def test_error_logging_with_context(self):
         """Test error logging with structured context."""
-        from common.core.error_handling import error_monitor
+        from workspace_qdrant_mcp.core.error_handling import error_monitor
         
         error = NetworkError(
             "Connection timeout",
@@ -607,7 +613,7 @@ class TestErrorHandlingIntegration:
         # This test would verify that logging is properly configured
         # for production environments with structured output
         
-        from common.core.error_handling import error_monitor
+        from workspace_qdrant_mcp.core.error_handling import error_monitor
         
         error = ConfigurationError(
             "Invalid API key format",

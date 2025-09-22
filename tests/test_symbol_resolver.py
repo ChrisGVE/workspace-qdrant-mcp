@@ -19,22 +19,28 @@ Test Categories:
 7. Edge case and error handling tests
 """
 
+import sys
+from pathlib import Path
+
+# Add src/python to path for common module imports
+sys.path.insert(0, str(Path(__file__).parent.parent.parent / "src" / "python"))
+
 import asyncio
 import pytest
 import time
 from typing import Dict, List, Optional
 from unittest.mock import Mock, AsyncMock, patch
 
-from common.tools.symbol_resolver import (
+from workspace_qdrant_mcp.tools.symbol_resolver import (
     SymbolResolver, SymbolIndex, SymbolEntry, SymbolLocation,
     DisambiguationEngine, CrossReferenceTracker, SymbolResolutionResult,
     SymbolKind, SymbolScope, find_symbol_definition, resolve_function_overload,
     analyze_symbol_usage
 )
-from common.core.lsp_metadata_extractor import (
+from workspace_qdrant_mcp.core.lsp_metadata_extractor import (
     CodeSymbol, Range, Position, TypeInformation
 )
-from common.core.client import QdrantWorkspaceClient
+from workspace_qdrant_mcp.core.client import QdrantWorkspaceClient
 
 
 class TestSymbolIndex:

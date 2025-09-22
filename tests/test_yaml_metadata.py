@@ -6,6 +6,12 @@ system, including document type detection, metadata extraction, YAML generation,
 and processing workflows.
 """
 
+import sys
+from pathlib import Path
+
+# Add src/python to path for common module imports
+sys.path.insert(0, str(Path(__file__).parent.parent.parent / "src" / "python"))
+
 import asyncio
 import tempfile
 from pathlib import Path
@@ -15,7 +21,7 @@ import pytest
 import yaml
 
 from wqm_cli.cli.parsers.base import ParsedDocument
-from common.core.yaml_metadata import (
+from workspace_qdrant_mcp.core.yaml_metadata import (
     DOCUMENT_SCHEMAS,
     DocumentTypeDetector,
     DocumentTypeSchema,

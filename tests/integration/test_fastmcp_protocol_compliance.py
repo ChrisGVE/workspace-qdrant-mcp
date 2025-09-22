@@ -13,6 +13,12 @@ Validates:
 - Error handling in FastMCP layer
 """
 
+import sys
+from pathlib import Path
+
+# Add src/python to path for common module imports
+sys.path.insert(0, str(Path(__file__).parent.parent.parent / "src" / "python"))
+
 import asyncio
 import inspect
 from typing import Dict, Any, List
@@ -23,7 +29,7 @@ from fastmcp import FastMCP
 from fastmcp.tools import FunctionTool
 
 from workspace_qdrant_mcp.server import app
-from common.core.client import QdrantWorkspaceClient
+from workspace_qdrant_mcp.core.client import QdrantWorkspaceClient
 
 
 class TestFastMCPProtocolCompliance:

@@ -28,8 +28,8 @@ import pytest
 # Add src/python to path for common module imports
 sys.path.insert(0, str(Path(__file__).parent.parent.parent / "src" / "python"))
 
-from common.grpc.client import AsyncIngestClient as GRPCClient
-from common.grpc.connection_manager import GrpcConnectionManager as ConnectionManager
+from workspace_qdrant_mcp.grpc.client import AsyncIngestClient as GRPCClient
+from workspace_qdrant_mcp.grpc.connection_manager import GrpcConnectionManager as ConnectionManager
 from workspace_qdrant_mcp.tools.grpc_tools import (
     test_grpc_connection,
     get_grpc_engine_stats, 

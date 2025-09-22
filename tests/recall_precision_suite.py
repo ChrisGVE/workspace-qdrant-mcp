@@ -26,6 +26,12 @@ SUCCESS CRITERIA:
 - Documented baseline for search quality
 """
 
+import sys
+from pathlib import Path
+
+# Add src/python to path for common module imports
+sys.path.insert(0, str(Path(__file__).parent.parent.parent / "src" / "python"))
+
 import asyncio
 import json
 import logging
@@ -46,8 +52,8 @@ from qdrant_client.http.models import (
 )
 from qdrant_client.models import NamedVector, PointStruct
 
-from common.core.client import QdrantWorkspaceClient
-from common.core.ingestion_engine import IngestionEngine
+from workspace_qdrant_mcp.core.client import QdrantWorkspaceClient
+from workspace_qdrant_mcp.core.ingestion_engine import IngestionEngine
 from workspace_qdrant_mcp.tools.search import search_workspace
 
 logger = logging.getLogger(__name__)

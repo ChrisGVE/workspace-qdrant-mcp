@@ -6,6 +6,12 @@ the SQLite State Manager, including component registration, health monitoring,
 inter-component communication, and processing queue coordination.
 """
 
+import sys
+from pathlib import Path
+
+# Add src/python to path for common module imports
+sys.path.insert(0, str(Path(__file__).parent.parent.parent / "src" / "python"))
+
 import asyncio
 import json
 import pytest
@@ -16,7 +22,7 @@ from datetime import datetime, timezone, timedelta
 from pathlib import Path
 from unittest.mock import AsyncMock, Mock, patch
 
-from common.core.component_coordination import (
+from workspace_qdrant_mcp.core.component_coordination import (
     ComponentCoordinator,
     ComponentType,
     ComponentStatus,

@@ -30,41 +30,41 @@ import testcontainers
 from testcontainers.compose import DockerCompose
 
 # Multi-tenant components under test
-from src.python.common.core.collision_detection import (
+from workspace_qdrant_mcp.core.collision_detection import (
     CollisionDetector,
     CollisionResult,
     CollisionSeverity,
     CollisionCategory
 )
-from src.python.common.core.metadata_filtering import (
+from workspace_qdrant_mcp.core.metadata_filtering import (
     MetadataFilterManager,
     FilterCriteria,
     FilterResult
 )
-from src.python.common.core.metadata_schema import (
+from workspace_qdrant_mcp.core.metadata_schema import (
     MultiTenantMetadataSchema,
     CollectionCategory,
     WorkspaceScope,
     AccessLevel
 )
-from src.python.common.core.collection_naming_validation import (
+from workspace_qdrant_mcp.core.collection_naming_validation import (
     CollectionNamingValidator,
     ValidationResult
 )
-from src.python.common.core.multitenant_collections import (
+from workspace_qdrant_mcp.core.multitenant_collections import (
     MultiTenantWorkspaceCollectionManager,
     WorkspaceCollectionRegistry
 )
-from src.python.common.memory.migration_utils import (
+from workspace_qdrant_mcp.memory.migration_utils import (
     CollectionMigrationManager,
     MigrationStrategy
 )
 
 # Existing system components
-from src.python.common.core.client import QdrantWorkspaceClient
-from src.python.common.core.hybrid_search import HybridSearchEngine
-from src.python.workspace_qdrant_mcp.server import create_mcp_server
-from src.python.workspace_qdrant_mcp.tools.multitenant_tools import (
+from workspace_qdrant_mcp.core.client import QdrantWorkspaceClient
+from workspace_qdrant_mcp.core.hybrid_search import HybridSearchEngine
+from workspace_qdrant_mcp.server import create_mcp_server
+from workspace_qdrant_mcp.tools.multitenant_tools import (
     register_multitenant_tools
 )
 

@@ -5,6 +5,12 @@ Comprehensive tests for memory rule storage schema including Qdrant collection
 management, rule serialization/deserialization, search operations, and versioning.
 """
 
+import sys
+from pathlib import Path
+
+# Add src/python to path for common module imports
+sys.path.insert(0, str(Path(__file__).parent.parent.parent / "src" / "python"))
+
 import asyncio
 from datetime import datetime
 from unittest.mock import AsyncMock, Mock, patch
@@ -12,8 +18,8 @@ from uuid import uuid4
 
 import pytest
 
-from common.memory.schema import MemoryCollectionSchema
-from common.memory.types import (
+from workspace_qdrant_mcp.memory.schema import MemoryCollectionSchema
+from workspace_qdrant_mcp.memory.types import (
     AuthorityLevel,
     MemoryCategory,
     MemoryRule,

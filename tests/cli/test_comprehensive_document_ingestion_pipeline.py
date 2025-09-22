@@ -21,6 +21,12 @@ Integration Points:
 - File watching system
 """
 
+import sys
+from pathlib import Path
+
+# Add src/python to path for common module imports
+sys.path.insert(0, str(Path(__file__).parent.parent.parent / "src" / "python"))
+
 import asyncio
 import json
 import os
@@ -43,8 +49,8 @@ from wqm_cli.cli.parsers import (
     PptxParser,
     TextParser,
 )
-from common.core.client import QdrantWorkspaceClient
-from common.core.sqlite_state_manager import SQLiteStateManager
+from workspace_qdrant_mcp.core.client import QdrantWorkspaceClient
+from workspace_qdrant_mcp.core.sqlite_state_manager import SQLiteStateManager
 
 
 @pytest.fixture
