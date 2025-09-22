@@ -11,7 +11,7 @@ import time
 from datetime import datetime, timezone, timedelta
 from unittest.mock import AsyncMock, MagicMock, patch
 
-from src.python.common.core.graceful_degradation import (
+from workspace_qdrant_mcp.core.graceful_degradation import (
     DegradationManager,
     DegradationMode,
     FeatureType,
@@ -22,9 +22,9 @@ from src.python.common.core.graceful_degradation import (
     ResourceThrottle,
     FeatureConfig,
 )
-from src.python.common.core.component_coordination import ComponentType
-from src.python.common.core.component_lifecycle import ComponentLifecycleManager, ComponentState
-from src.python.common.core.lsp_health_monitor import LspHealthMonitor, NotificationLevel
+from workspace_qdrant_mcp.core.component_coordination import ComponentType
+from workspace_qdrant_mcp.core.component_lifecycle import ComponentLifecycleManager, ComponentState
+from workspace_qdrant_mcp.core.lsp_health_monitor import LspHealthMonitor, NotificationLevel
 
 
 class TestCircuitBreaker:

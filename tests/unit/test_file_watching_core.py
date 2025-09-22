@@ -11,6 +11,12 @@ Tests the core file monitoring system including:
 - Event callbacks and ingestion coordination
 """
 
+import sys
+from pathlib import Path
+
+# Add src/python to path for common module imports
+sys.path.insert(0, str(Path(__file__).parent.parent.parent / "src" / "python"))
+
 import asyncio
 import json
 import time
@@ -19,7 +25,7 @@ from pathlib import Path
 from unittest.mock import AsyncMock, Mock, patch, MagicMock, call
 import pytest
 
-from common.core.file_watcher import (
+from workspace_qdrant_mcp.core.file_watcher import (
     FileWatcher,
     WatchConfiguration,
     WatchEvent

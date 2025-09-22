@@ -10,6 +10,12 @@ Tests the core processing queue system including:
 - Queue statistics and health monitoring
 """
 
+import sys
+from pathlib import Path
+
+# Add src/python to path for common module imports
+sys.path.insert(0, str(Path(__file__).parent.parent.parent / "src" / "python"))
+
 import asyncio
 import time
 from datetime import datetime, timezone, timedelta
@@ -18,7 +24,7 @@ from unittest.mock import AsyncMock, Mock, patch, MagicMock
 from concurrent.futures import ThreadPoolExecutor, ProcessPoolExecutor
 import pytest
 
-from common.core.priority_queue_manager import (
+from workspace_qdrant_mcp.core.priority_queue_manager import (
     PriorityQueueManager,
     ResourceConfiguration,
     MCPActivityMetrics,
@@ -30,7 +36,7 @@ from common.core.priority_queue_manager import (
     PriorityCalculationContext,
     ProcessingContextManager
 )
-from common.core.sqlite_state_manager import (
+from workspace_qdrant_mcp.core.sqlite_state_manager import (
     ProcessingPriority,
     FileProcessingStatus,
     ProcessingQueueItem

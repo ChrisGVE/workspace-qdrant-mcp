@@ -5,14 +5,20 @@ This module tests the comprehensive memory collection system including
 memory rules, authority levels, conflict detection, and Claude Code integration.
 """
 
+import sys
+from pathlib import Path
+
+# Add src/python to path for common module imports
+sys.path.insert(0, str(Path(__file__).parent.parent.parent / "src" / "python"))
+
 from datetime import datetime
 from unittest.mock import AsyncMock, Mock, patch
 
 import pytest
 
-from common.core.claude_integration import ClaudeIntegrationManager
-from common.core.collection_naming import CollectionNamingManager
-from common.core.memory import (
+from workspace_qdrant_mcp.core.claude_integration import ClaudeIntegrationManager
+from workspace_qdrant_mcp.core.collection_naming import CollectionNamingManager
+from workspace_qdrant_mcp.core.memory import (
     AuthorityLevel,
     MemoryCategory,
     MemoryConflict,

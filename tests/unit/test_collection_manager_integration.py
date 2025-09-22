@@ -19,7 +19,7 @@ src_path = Path(__file__).parent.parent.parent / "src" / "python"
 sys.path.insert(0, str(src_path))
 
 try:
-    from common.core.collection_manager_integration import (
+    from workspace_qdrant_mcp.core.collection_manager_integration import (
         CollisionAwareCollectionManager,
         CollectionCreationResult,
         CollectionManagementError,
@@ -27,7 +27,7 @@ try:
         CollectionCategory,
         SafeCollectionConfig
     )
-    from common.core.collision_detection import (
+    from workspace_qdrant_mcp.core.collision_detection import (
         CollisionDetector,
         CollisionResult,
         CollectionAnalysis,

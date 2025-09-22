@@ -4,6 +4,12 @@ Unit tests for configuration management.
 Tests configuration loading, validation, and environment variable handling.
 """
 
+import sys
+from pathlib import Path
+
+# Add src/python to path for common module imports
+sys.path.insert(0, str(Path(__file__).parent.parent.parent / "src" / "python"))
+
 import os
 import tempfile
 from pathlib import Path
@@ -11,7 +17,7 @@ from unittest.mock import patch
 
 import pytest
 
-from common.core.config import (
+from workspace_qdrant_mcp.core.config import (
     Config,
     EmbeddingConfig,
     QdrantConfig,

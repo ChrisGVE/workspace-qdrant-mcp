@@ -25,16 +25,16 @@ sys.path.insert(0, str(Path(__file__).parent.parent.parent / "src" / "python"))
 
 # Import largest uncovered modules
 try:
-    from common.core.sqlite_state_manager import SQLiteStateManager
-    from common.core.hybrid_search import SearchService, HybridSearchEngine
-    from common.core.lsp_metadata_extractor import (
+    from workspace_qdrant_mcp.core.sqlite_state_manager import SQLiteStateManager
+    from workspace_qdrant_mcp.core.hybrid_search import SearchService, HybridSearchEngine
+    from workspace_qdrant_mcp.core.lsp_metadata_extractor import (
         LspMetadataExtractor, SymbolKind, CodeSymbol, FileMetadata,
         Position, Range, TypeInformation, Documentation, SymbolRelationship
     )
-    from common.core.client import BaseClient, AsyncClient
-    from common.core.collections import CollectionManager, Collection
-    from common.core.config import Configuration, ConfigManager
-    from common.core.memory import MemorySystem, DocumentMemory
+    from workspace_qdrant_mcp.core.client import BaseClient, AsyncClient
+    from workspace_qdrant_mcp.core.collections import CollectionManager, Collection
+    from workspace_qdrant_mcp.core.config import Configuration, ConfigManager
+    from workspace_qdrant_mcp.core.memory import MemorySystem, DocumentMemory
     MODULES_AVAILABLE = True
 except ImportError as e:
     MODULES_AVAILABLE = False
@@ -701,7 +701,7 @@ class TestClass:
 
     def test_symbol_relationship_creation(self):
         """Test SymbolRelationship creation"""
-        from common.core.lsp_metadata_extractor import RelationshipType
+        from workspace_qdrant_mcp.core.lsp_metadata_extractor import RelationshipType
 
         relationship = SymbolRelationship(
             from_symbol="ClassA",

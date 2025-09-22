@@ -22,7 +22,7 @@ src_path = Path(__file__).parent.parent.parent / "src" / "python"
 sys.path.insert(0, str(src_path))
 
 try:
-    from common.core.auto_ingestion import (
+    from workspace_qdrant_mcp.core.auto_ingestion import (
         AutoIngestionManager,
         ProjectPatterns,
         IngestionProgress,

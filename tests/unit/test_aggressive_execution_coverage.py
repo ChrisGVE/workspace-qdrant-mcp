@@ -263,7 +263,7 @@ class TestAggressiveExecutionCoverage:
             mock_tfidf.return_value = Mock(fit_transform=Mock(return_value=Mock(toarray=Mock(return_value=[[0.1] * 100]))))
 
             try:
-                from python.workspace_qdrant_mcp.core.hybrid_search import HybridSearchEngine
+                from workspace_qdrant_mcp.core.hybrid_search import HybridSearchEngine
 
                 # Test hybrid search engine
                 engine = HybridSearchEngine(
@@ -311,7 +311,7 @@ class TestAggressiveExecutionCoverage:
 
             # Test main CLI commands
             try:
-                from python.workspace_qdrant_mcp.cli.main import main, status, health, collections, ingest
+                from workspace_qdrant_mcp.cli.main import main, status, health, collections, ingest
                 from click.testing import CliRunner
 
                 runner = CliRunner()
@@ -328,7 +328,7 @@ class TestAggressiveExecutionCoverage:
 
             # Test service commands
             try:
-                from python.workspace_qdrant_mcp.cli.service import install, start, stop, restart, status
+                from workspace_qdrant_mcp.cli.service import install, start, stop, restart, status
                 from click.testing import CliRunner
 
                 runner = CliRunner()
@@ -357,11 +357,11 @@ class TestAggressiveExecutionCoverage:
             mock_excel.return_value = Mock(worksheets=[Mock(title="Sheet1")])
 
             try:
-                from python.workspace_qdrant_mcp.cli.parsers.pdf_parser import PDFParser
-                from python.workspace_qdrant_mcp.cli.parsers.docx_parser import DOCXParser
-                from python.workspace_qdrant_mcp.cli.parsers.excel_parser import ExcelParser
-                from python.workspace_qdrant_mcp.cli.parsers.text_parser import TextParser
-                from python.workspace_qdrant_mcp.cli.parsers.markdown_parser import MarkdownParser
+                from workspace_qdrant_mcp.cli.parsers.pdf_parser import PDFParser
+                from workspace_qdrant_mcp.cli.parsers.docx_parser import DOCXParser
+                from workspace_qdrant_mcp.cli.parsers.excel_parser import ExcelParser
+                from workspace_qdrant_mcp.cli.parsers.text_parser import TextParser
+                from workspace_qdrant_mcp.cli.parsers.markdown_parser import MarkdownParser
 
                 parsers = [PDFParser(), DOCXParser(), ExcelParser(), TextParser(), MarkdownParser()]
 
@@ -478,7 +478,7 @@ class TestAggressiveExecutionCoverage:
             mock_async_client.return_value = AsyncMock()
 
             try:
-                from python.workspace_qdrant_mcp.core.async_client import AsyncQdrantManager
+                from workspace_qdrant_mcp.core.async_client import AsyncQdrantManager
 
                 # Test async client
                 manager = AsyncQdrantManager()

@@ -5,10 +5,16 @@ This module tests the depth validation logic for folder watching operations,
 including edge cases, performance impact analysis, and recommendation systems.
 """
 
+import sys
+from pathlib import Path
+
+# Add src/python to path for common module imports
+sys.path.insert(0, str(Path(__file__).parent.parent.parent / "src" / "python"))
+
 import pytest
 from typing import Dict, Any
 
-from common.core.depth_validation import (
+from workspace_qdrant_mcp.core.depth_validation import (
     validate_recursive_depth,
     get_depth_recommendations,
     format_depth_display,

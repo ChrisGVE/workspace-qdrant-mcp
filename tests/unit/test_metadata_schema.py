@@ -18,7 +18,7 @@ import pytest
 from datetime import datetime, timezone
 from unittest.mock import patch
 
-from src.python.common.core.metadata_schema import (
+from workspace_qdrant_mcp.core.metadata_schema import (
     MultiTenantMetadataSchema,
     CollectionCategory,
     WorkspaceScope,

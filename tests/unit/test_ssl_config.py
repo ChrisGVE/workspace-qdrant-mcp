@@ -8,6 +8,12 @@ This module tests the SSL/TLS configuration functionality including:
 - Development vs production environment behavior
 """
 
+import sys
+from pathlib import Path
+
+# Add src/python to path for common module imports
+sys.path.insert(0, str(Path(__file__).parent.parent.parent / "src" / "python"))
+
 import warnings
 import ssl
 from unittest.mock import patch, MagicMock
@@ -16,7 +22,7 @@ from urllib.parse import urlparse
 
 import pytest
 
-from common.core.ssl_config import (
+from workspace_qdrant_mcp.core.ssl_config import (
     SSLConfiguration,
     SSLContextManager,
     get_ssl_manager,

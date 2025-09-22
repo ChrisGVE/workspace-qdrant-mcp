@@ -4,12 +4,18 @@ Unit tests for QdrantWorkspaceClient.
 Tests client initialization, project detection, and workspace operations.
 """
 
+import sys
+from pathlib import Path
+
+# Add src/python to path for common module imports
+sys.path.insert(0, str(Path(__file__).parent.parent.parent / "src" / "python"))
+
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 from qdrant_client.http import models
 
-from common.core.client import QdrantWorkspaceClient
+from workspace_qdrant_mcp.core.client import QdrantWorkspaceClient
 
 
 class TestQdrantWorkspaceClient:

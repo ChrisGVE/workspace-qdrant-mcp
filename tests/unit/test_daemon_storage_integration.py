@@ -12,6 +12,12 @@ Tests the daemon's storage integration capabilities including:
 - Crash recovery and data consistency mechanisms
 """
 
+import sys
+from pathlib import Path
+
+# Add src/python to path for common module imports
+sys.path.insert(0, str(Path(__file__).parent.parent.parent / "src" / "python"))
+
 import asyncio
 import json
 import os
@@ -26,15 +32,15 @@ import pytest
 from qdrant_client import QdrantClient
 from qdrant_client.models import Distance, VectorParams, PointStruct, Filter
 
-from common.core.daemon_manager import (
+from workspace_qdrant_mcp.core.daemon_manager import (
     DaemonManager,
     DaemonInstance,
     DaemonConfig
 )
-from common.core.client import QdrantWorkspaceClient
-from common.core.sqlite_state_manager import SQLiteStateManager
-from common.core.collections import WorkspaceCollectionManager
-from common.core.embeddings import EmbeddingService
+from workspace_qdrant_mcp.core.client import QdrantWorkspaceClient
+from workspace_qdrant_mcp.core.sqlite_state_manager import SQLiteStateManager
+from workspace_qdrant_mcp.core.collections import WorkspaceCollectionManager
+from workspace_qdrant_mcp.core.embeddings import EmbeddingService
 
 from .conftest_daemon import (
     mock_daemon_config,

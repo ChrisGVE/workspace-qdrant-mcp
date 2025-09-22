@@ -23,10 +23,10 @@ class TestZeroCoverageModules:
     def test_auto_ingestion_modules_import(self):
         """Test importing auto ingestion modules."""
         try:
-            from common.auto_ingestion import scheduler
-            from common.auto_ingestion import daemon_integration
-            from common.auto_ingestion import pattern_matching
-            from common.auto_ingestion import performance_monitoring
+            from workspace_qdrant_mcp.auto_ingestion import scheduler
+            from workspace_qdrant_mcp.auto_ingestion import daemon_integration
+            from workspace_qdrant_mcp.auto_ingestion import pattern_matching
+            from workspace_qdrant_mcp.auto_ingestion import performance_monitoring
             # Basic function/class access to increase coverage
             if hasattr(scheduler, 'IngestionScheduler'):
                 scheduler.IngestionScheduler
@@ -42,9 +42,9 @@ class TestZeroCoverageModules:
     def test_automatic_recovery_modules_import(self):
         """Test importing automatic recovery modules."""
         try:
-            from common.automatic_recovery import health_monitoring
-            from common.automatic_recovery import recovery_strategies
-            from common.automatic_recovery import incident_response
+            from workspace_qdrant_mcp.automatic_recovery import health_monitoring
+            from workspace_qdrant_mcp.automatic_recovery import recovery_strategies
+            from workspace_qdrant_mcp.automatic_recovery import incident_response
             # Access classes/functions to increase coverage
             if hasattr(health_monitoring, 'HealthMonitor'):
                 health_monitoring.HealthMonitor
@@ -58,9 +58,9 @@ class TestZeroCoverageModules:
     def test_claude_integration_modules_import(self):
         """Test importing claude integration modules."""
         try:
-            from common.core.claude_integration import claude_api
-            from common.core.claude_integration import session_management
-            from common.core.claude_integration import tool_integration
+            from workspace_qdrant_mcp.core.claude_integration import claude_api
+            from workspace_qdrant_mcp.core.claude_integration import session_management
+            from workspace_qdrant_mcp.core.claude_integration import tool_integration
             # Access classes/functions to increase coverage
             if hasattr(claude_api, 'ClaudeAPI'):
                 claude_api.ClaudeAPI
@@ -74,7 +74,7 @@ class TestZeroCoverageModules:
     def test_collection_manager_integration_import(self):
         """Test importing collection manager integration."""
         try:
-            from common.core import collection_manager_integration
+            from workspace_qdrant_mcp.core import collection_manager_integration
             # Access main classes to increase coverage
             if hasattr(collection_manager_integration, 'CollectionManager'):
                 collection_manager_integration.CollectionManager
@@ -86,7 +86,7 @@ class TestZeroCoverageModules:
     def test_collision_detection_import(self):
         """Test importing collision detection module."""
         try:
-            from common.core import collision_detection
+            from workspace_qdrant_mcp.core import collision_detection
             # Access classes to increase coverage
             if hasattr(collision_detection, 'CollisionDetector'):
                 collision_detection.CollisionDetector
@@ -98,7 +98,7 @@ class TestZeroCoverageModules:
     def test_component_isolation_import(self):
         """Test importing component isolation module."""
         try:
-            from common.core import component_isolation
+            from workspace_qdrant_mcp.core import component_isolation
             # Access classes to increase coverage
             if hasattr(component_isolation, 'ComponentIsolator'):
                 component_isolation.ComponentIsolator
@@ -110,7 +110,7 @@ class TestZeroCoverageModules:
     def test_component_migration_import(self):
         """Test importing component migration module."""
         try:
-            from common.core import component_migration
+            from workspace_qdrant_mcp.core import component_migration
             # Access classes to increase coverage
             if hasattr(component_migration, 'MigrationManager'):
                 component_migration.MigrationManager
@@ -122,7 +122,7 @@ class TestZeroCoverageModules:
     def test_daemon_client_import(self):
         """Test importing daemon client module."""
         try:
-            from common.core import daemon_client
+            from workspace_qdrant_mcp.core import daemon_client
             # Access classes to increase coverage
             if hasattr(daemon_client, 'DaemonClient'):
                 daemon_client.DaemonClient
@@ -134,7 +134,7 @@ class TestZeroCoverageModules:
     def test_degradation_integration_import(self):
         """Test importing degradation integration module."""
         try:
-            from common.core import degradation_integration
+            from workspace_qdrant_mcp.core import degradation_integration
             # Access classes to increase coverage
             if hasattr(degradation_integration, 'DegradationManager'):
                 degradation_integration.DegradationManager
@@ -150,7 +150,7 @@ class TestLargeCoverageGaps:
     def test_collection_naming_validation_functions(self):
         """Test collection naming validation functions."""
         try:
-            from common.core import collection_naming_validation
+            from workspace_qdrant_mcp.core import collection_naming_validation
 
             # Test basic validation functions with common inputs
             test_names = [
@@ -180,7 +180,7 @@ class TestLargeCoverageGaps:
     def test_component_coordination_functions(self):
         """Test component coordination functions."""
         try:
-            from common.core import component_coordination
+            from workspace_qdrant_mcp.core import component_coordination
 
             # Test basic coordinator functions
             if hasattr(component_coordination, 'ComponentCoordinator'):
@@ -203,7 +203,7 @@ class TestLargeCoverageGaps:
     def test_error_handling_functions(self):
         """Test error handling functions."""
         try:
-            from common.core import error_handling
+            from workspace_qdrant_mcp.core import error_handling
 
             # Test error handler classes and functions
             if hasattr(error_handling, 'ErrorHandler'):
@@ -227,7 +227,7 @@ class TestLargeCoverageGaps:
     def test_metadata_schema_functions(self):
         """Test metadata schema functions."""
         try:
-            from common.core import metadata_schema
+            from workspace_qdrant_mcp.core import metadata_schema
 
             # Test schema validation functions
             test_metadata = {
@@ -257,7 +257,7 @@ class TestLargeCoverageGaps:
     def test_multitenant_collections_functions(self):
         """Test multitenant collections functions."""
         try:
-            from common.core import multitenant_collections
+            from workspace_qdrant_mcp.core import multitenant_collections
 
             # Test multitenant collection manager
             if hasattr(multitenant_collections, 'MultitenantCollectionManager'):
@@ -288,9 +288,9 @@ class TestDirectFunctionExecution:
     def test_grpc_function_execution(self):
         """Test gRPC function execution."""
         try:
-            from common.grpc import ingestion_pb2
-            from common.grpc import ingestion_pb2_grpc
-            from common.grpc import types
+            from workspace_qdrant_mcp.grpc import ingestion_pb2
+            from workspace_qdrant_mcp.grpc import ingestion_pb2_grpc
+            from workspace_qdrant_mcp.grpc import types
 
             # Access protobuf classes to increase coverage
             if hasattr(ingestion_pb2, 'DocumentRequest'):
@@ -312,7 +312,7 @@ class TestDirectFunctionExecution:
     def test_logging_configuration_execution(self):
         """Test logging configuration execution."""
         try:
-            from common.logging import loguru_config
+            from workspace_qdrant_mcp.logging import loguru_config
 
             # Test logging configuration functions
             if hasattr(loguru_config, 'configure_logging'):
@@ -333,7 +333,7 @@ class TestDirectFunctionExecution:
     def test_memory_types_execution(self):
         """Test memory types execution."""
         try:
-            from common.memory import types
+            from workspace_qdrant_mcp.memory import types
 
             # Test memory type classes
             if hasattr(types, 'MemoryStore'):
@@ -360,9 +360,9 @@ class TestDirectFunctionExecution:
     def test_service_discovery_execution(self):
         """Test service discovery execution."""
         try:
-            from common.core.service_discovery import client
-            from common.core.service_discovery import health
-            from common.core.service_discovery import registry
+            from workspace_qdrant_mcp.core.service_discovery import client
+            from workspace_qdrant_mcp.core.service_discovery import health
+            from workspace_qdrant_mcp.core.service_discovery import registry
 
             # Test service discovery client functions
             if hasattr(client, 'ServiceDiscoveryClient'):
@@ -400,7 +400,7 @@ class TestAsyncFunctionExecution:
     async def test_async_service_discovery(self):
         """Test async service discovery functions."""
         try:
-            from common.core.service_discovery import client
+            from workspace_qdrant_mcp.core.service_discovery import client
 
             if hasattr(client, 'discover_daemon_endpoint'):
                 try:
@@ -422,7 +422,7 @@ class TestAsyncFunctionExecution:
     async def test_async_daemon_operations(self):
         """Test async daemon operations."""
         try:
-            from common.core import daemon_client
+            from workspace_qdrant_mcp.core import daemon_client
 
             if hasattr(daemon_client, 'DaemonClient'):
                 client = daemon_client.DaemonClient()
@@ -537,7 +537,7 @@ class TestConfigurationModules:
     def test_yaml_config_functions(self):
         """Test YAML configuration functions."""
         try:
-            from common.core import yaml_config
+            from workspace_qdrant_mcp.core import yaml_config
 
             # Test configuration loading and validation
             test_config = {
@@ -584,7 +584,7 @@ class TestConfigurationModules:
     def test_collection_types_functions(self):
         """Test collection types functions."""
         try:
-            from common.core import collection_types
+            from workspace_qdrant_mcp.core import collection_types
 
             # Test collection type definitions and validation
             if hasattr(collection_types, 'CollectionType'):

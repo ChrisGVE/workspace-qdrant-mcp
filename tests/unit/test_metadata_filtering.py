@@ -13,14 +13,14 @@ from typing import List, Dict, Any
 from qdrant_client.http import models
 
 # Import the modules under test
-from src.python.common.core.metadata_filtering import (
+from workspace_qdrant_mcp.core.metadata_filtering import (
     MetadataFilterManager,
     FilterCriteria,
     FilterResult,
     FilterStrategy,
     FilterPerformanceLevel
 )
-from src.python.common.core.metadata_schema import (
+from workspace_qdrant_mcp.core.metadata_schema import (
     MultiTenantMetadataSchema,
     CollectionCategory,
     WorkspaceScope,

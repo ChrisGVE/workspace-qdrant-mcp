@@ -5,6 +5,12 @@ This module tests the component lifecycle orchestration capabilities including
 startup sequences, dependency management, health monitoring, and graceful shutdown.
 """
 
+import sys
+from pathlib import Path
+
+# Add src/python to path for common module imports
+sys.path.insert(0, str(Path(__file__).parent.parent.parent / "src" / "python"))
+
 import asyncio
 import pytest
 import tempfile
@@ -13,7 +19,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from unittest.mock import AsyncMock, Mock, patch, MagicMock
 
-from common.core.component_lifecycle import (
+from workspace_qdrant_mcp.core.component_lifecycle import (
     ComponentLifecycleManager,
     ComponentConfig,
     ComponentState,
@@ -23,7 +29,7 @@ from common.core.component_lifecycle import (
     get_lifecycle_manager,
     shutdown_lifecycle_manager,
 )
-from common.core.component_coordination import (
+from workspace_qdrant_mcp.core.component_coordination import (
     ComponentType,
     ComponentStatus,
     ComponentHealth,
@@ -637,7 +643,7 @@ class TestGlobalLifecycleManager:
             manager.shutdown_sequence.assert_called_once()
 
             # Verify global instance is cleared
-            from common.core.component_lifecycle import _lifecycle_manager
+            from workspace_qdrant_mcp.core.component_lifecycle import _lifecycle_manager
             assert _lifecycle_manager is None
 
 

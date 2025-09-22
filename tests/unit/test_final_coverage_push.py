@@ -26,38 +26,38 @@ class TestAllZeroCoverageModules:
         """Import all modules with 0% coverage to get basic import coverage."""
         zero_coverage_modules = [
             # Core modules with 0% coverage
-            "common.core.backward_compatibility",
-            "common.core.depth_validation",
-            "common.core.enhanced_config",
-            "common.core.ingestion_config",
-            "common.core.logging_config",
-            "common.core.lsp_fallback",
-            "common.core.lsp_notifications",
-            "common.core.performance_analytics",
-            "common.core.performance_metrics",
-            "common.core.performance_monitor",
-            "common.core.performance_storage",
-            "common.core.pure_daemon_client",
-            "common.core.schema_documentation",
-            "common.core.service_discovery_integration",
-            "common.core.smart_ingestion_router",
-            "common.core.unified_config",
-            "common.core.yaml_metadata",
+            "workspace_qdrant_mcp.core.backward_compatibility",
+            "workspace_qdrant_mcp.core.depth_validation",
+            "workspace_qdrant_mcp.core.enhanced_config",
+            "workspace_qdrant_mcp.core.ingestion_config",
+            "workspace_qdrant_mcp.core.logging_config",
+            "workspace_qdrant_mcp.core.lsp_fallback",
+            "workspace_qdrant_mcp.core.lsp_notifications",
+            "workspace_qdrant_mcp.core.performance_analytics",
+            "workspace_qdrant_mcp.core.performance_metrics",
+            "workspace_qdrant_mcp.core.performance_monitor",
+            "workspace_qdrant_mcp.core.performance_storage",
+            "workspace_qdrant_mcp.core.pure_daemon_client",
+            "workspace_qdrant_mcp.core.schema_documentation",
+            "workspace_qdrant_mcp.core.service_discovery_integration",
+            "workspace_qdrant_mcp.core.smart_ingestion_router",
+            "workspace_qdrant_mcp.core.unified_config",
+            "workspace_qdrant_mcp.core.yaml_metadata",
             # Dashboard modules
-            "common.dashboard.performance_dashboard",
+            "workspace_qdrant_mcp.dashboard.performance_dashboard",
             # Memory modules
-            "common.memory.migration_utils",
+            "workspace_qdrant_mcp.memory.migration_utils",
             # Observability modules
-            "common.observability.endpoints",
-            "common.observability.enhanced_alerting",
-            "common.observability.grpc_health",
-            "common.observability.health_coordinator",
-            "common.observability.health_dashboard",
+            "workspace_qdrant_mcp.observability.endpoints",
+            "workspace_qdrant_mcp.observability.enhanced_alerting",
+            "workspace_qdrant_mcp.observability.grpc_health",
+            "workspace_qdrant_mcp.observability.health_coordinator",
+            "workspace_qdrant_mcp.observability.health_dashboard",
             # Optimization modules
-            "common.optimization.complete_fastmcp_optimization",
+            "workspace_qdrant_mcp.optimization.complete_fastmcp_optimization",
             # Utils modules
-            "common.utils.admin_cli",
-            "common.utils.config_validator",
+            "workspace_qdrant_mcp.utils.admin_cli",
+            "workspace_qdrant_mcp.utils.config_validator",
             # Elegant launcher
             "elegant_launcher",
             # All workspace_qdrant_mcp stub modules with 0% coverage
@@ -249,11 +249,11 @@ class TestAllZeroCoverageModules:
     def test_access_all_module_constants(self):
         """Access all constants and class attributes in zero-coverage modules."""
         modules_to_check = [
-            "common.core.backward_compatibility",
-            "common.core.enhanced_config",
-            "common.core.smart_ingestion_router",
-            "common.memory.migration_utils",
-            "common.observability.health_coordinator",
+            "workspace_qdrant_mcp.core.backward_compatibility",
+            "workspace_qdrant_mcp.core.enhanced_config",
+            "workspace_qdrant_mcp.core.smart_ingestion_router",
+            "workspace_qdrant_mcp.memory.migration_utils",
+            "workspace_qdrant_mcp.observability.health_coordinator",
             "workspace_qdrant_mcp.tools.dependency_analyzer",
             "workspace_qdrant_mcp.tools.symbol_resolver",
             "wqm_cli.cli.commands.admin",
@@ -289,7 +289,7 @@ class TestAllZeroCoverageModules:
     def test_protobuf_message_comprehensive(self):
         """Comprehensive test of protobuf messages to maximize coverage."""
         try:
-            from common.grpc import ingestion_pb2
+            from workspace_qdrant_mcp.grpc import ingestion_pb2
 
             # Try to access all protobuf classes and their methods
             for attr_name in dir(ingestion_pb2):
@@ -427,7 +427,7 @@ class TestAllZeroCoverageModules:
         async_modules = [
             "workspace_qdrant_mcp.elegant_server",
             "workspace_qdrant_mcp.stdio_server",
-            "common.core.smart_ingestion_router",
+            "workspace_qdrant_mcp.core.smart_ingestion_router",
         ]
 
         for module_name in async_modules:
@@ -467,9 +467,9 @@ class TestAllZeroCoverageModules:
     def test_config_and_validation_comprehensive(self):
         """Test configuration and validation modules comprehensively."""
         config_modules = [
-            "common.core.enhanced_config",
-            "common.core.unified_config",
-            "common.utils.config_validator",
+            "workspace_qdrant_mcp.core.enhanced_config",
+            "workspace_qdrant_mcp.core.unified_config",
+            "workspace_qdrant_mcp.utils.config_validator",
             "workspace_qdrant_mcp.validation.decorators",
         ]
 

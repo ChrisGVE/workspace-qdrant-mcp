@@ -4,13 +4,19 @@ Unit tests for sparse vector utilities.
 Tests BM25 sparse encoding and Qdrant sparse vector creation.
 """
 
+import sys
+from pathlib import Path
+
+# Add src/python to path for common module imports
+sys.path.insert(0, str(Path(__file__).parent.parent.parent / "src" / "python"))
+
 from unittest.mock import MagicMock, patch
 
 import numpy as np
 import pytest
 from qdrant_client.http import models
 
-from common.core.sparse_vectors import (
+from workspace_qdrant_mcp.core.sparse_vectors import (
     BM25SparseEncoder,
     create_named_sparse_vector,
     create_qdrant_sparse_vector,

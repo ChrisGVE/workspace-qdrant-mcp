@@ -4,9 +4,15 @@ Unit tests for configuration validator.
 Tests configuration validation logic and error reporting.
 """
 
+import sys
+from pathlib import Path
+
+# Add src/python to path for common module imports
+sys.path.insert(0, str(Path(__file__).parent.parent.parent / "src" / "python"))
+
 from unittest.mock import MagicMock, patch
 
-from common.utils.config_validator import ConfigValidator
+from workspace_qdrant_mcp.utils.config_validator import ConfigValidator
 
 
 class TestConfigValidator:

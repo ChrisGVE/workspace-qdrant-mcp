@@ -6,6 +6,12 @@ content extraction, embedding generation, and context injection for LLM workflow
 Validates integration with project detection and workspace management components.
 """
 
+import sys
+from pathlib import Path
+
+# Add src/python to path for common module imports
+sys.path.insert(0, str(Path(__file__).parent.parent.parent / "src" / "python"))
+
 import asyncio
 import hashlib
 import json
@@ -16,8 +22,8 @@ from unittest.mock import AsyncMock, MagicMock, Mock, patch
 
 import pytest
 
-from common.core.config import Config, EmbeddingConfig
-from common.core.embeddings import EmbeddingService
+from workspace_qdrant_mcp.core.config import Config, EmbeddingConfig
+from workspace_qdrant_mcp.core.embeddings import EmbeddingService
 from wqm_cli.cli.parsers.base import DocumentParser, ParsedDocument
 from wqm_cli.cli.parsers.text_parser import TextParser
 from wqm_cli.cli.parsers.markdown_parser import MarkdownParser
