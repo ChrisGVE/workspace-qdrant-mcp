@@ -2,9 +2,15 @@
 
 from __future__ import annotations
 
+import sys
+from pathlib import Path
+
+# Add src/python to path for common module imports
+sys.path.insert(0, str(Path(__file__).parent.parent.parent / "src" / "python"))
+
 import pytest
 
-from common.core.collection_naming import (
+from workspace_qdrant_mcp.core.collection_naming import (
     CollectionNamingManager,
     CollectionType,
 )
