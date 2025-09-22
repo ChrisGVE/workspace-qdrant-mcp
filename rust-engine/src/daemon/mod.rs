@@ -119,37 +119,65 @@ mod tests {
 
     fn create_test_config() -> DaemonConfig {
         let temp_dir = TempDir::new().expect("Failed to create temp dir");
-        let db_path = temp_dir.path().join("test.db");
+        let db_path = temp_dir.path().join("test.db").to_string_lossy().to_string();
 
         DaemonConfig {
-            database: DatabaseConfig {
-                path: db_path,
-                pool_size: 5,
+            server: ServerConfig {
+                host: "127.0.0.1".to_string(),
+                port: 50051,
+                max_connections: 1000,
                 connection_timeout_secs: 30,
+                request_timeout_secs: 300,
+                enable_tls: false,
+            },
+            database: DatabaseConfig {
+                sqlite_path: db_path,
+                max_connections: 5,
+                connection_timeout_secs: 30,
+                enable_wal: true,
             },
             qdrant: QdrantConfig {
                 url: "http://localhost:6333".to_string(),
                 api_key: None,
                 timeout_secs: 30,
-                collection_prefix: "test".to_string(),
+                max_retries: 3,
+                default_collection: crate::config::CollectionConfig {
+                    vector_size: 384,
+                    distance_metric: "Cosine".to_string(),
+                    enable_indexing: true,
+                    replication_factor: 1,
+                    shard_number: 1,
+                },
             },
             processing: ProcessingConfig {
-                max_concurrent_jobs: 4,
-                chunk_size: 1000,
-                overlap_size: 100,
+                max_concurrent_tasks: 4,
+                default_chunk_size: 1000,
+                default_chunk_overlap: 100,
+                max_file_size_bytes: 1000000,
                 supported_extensions: vec!["txt".to_string(), "md".to_string()],
+                enable_lsp: false,
+                lsp_timeout_secs: 10,
             },
             file_watcher: FileWatcherConfig {
                 enabled: false,
-                watch_paths: vec![],
-                ignore_patterns: vec![],
                 debounce_ms: 500,
+                max_watched_dirs: 100,
+                ignore_patterns: vec![],
+                recursive: true,
             },
-            server: ServerConfig {
-                bind_address: "127.0.0.1".to_string(),
-                port: 50051,
-                max_connections: 1000,
-                connection_timeout_secs: 300,
+            metrics: crate::config::MetricsConfig {
+                enabled: false,
+                collection_interval_secs: 60,
+                retention_days: 30,
+                enable_prometheus: false,
+                prometheus_port: 9090,
+            },
+            logging: crate::config::LoggingConfig {
+                level: "info".to_string(),
+                file_path: None,
+                json_format: false,
+                max_file_size_mb: 100,
+                max_files: 5,
             },
         }
     }
@@ -157,7 +185,6 @@ mod tests {
     fn create_test_config_with_watcher() -> DaemonConfig {
         let mut config = create_test_config();
         config.file_watcher.enabled = true;
-        config.file_watcher.watch_paths = vec![PathBuf::from("/tmp")];
         config
     }
 
@@ -168,7 +195,7 @@ mod tests {
 
         assert!(result.is_ok());
         let daemon = result.unwrap();
-        assert_eq!(daemon.config().database.pool_size, 5);
+        assert_eq!(daemon.config().database.max_connections, 5);
         assert_eq!(daemon.config().qdrant.url, "http://localhost:6333");
         assert!(daemon.watcher().is_none());
     }
@@ -195,10 +222,10 @@ mod tests {
     #[tokio::test]
     async fn test_daemon_config_access() {
         let config = create_test_config();
-        let original_pool_size = config.database.pool_size;
+        let original_max_connections = config.database.max_connections;
         let daemon = WorkspaceDaemon::new(config).await.unwrap();
 
-        assert_eq!(daemon.config().database.pool_size, original_pool_size);
+        assert_eq!(daemon.config().database.max_connections, original_max_connections);
     }
 
     #[tokio::test]
@@ -210,7 +237,7 @@ mod tests {
         // Test that we can access state
         drop(state);
 
-        let mut state_mut = daemon.state_mut().await;
+        let state_mut = daemon.state_mut().await;
         // Test that we can access mutable state
         drop(state_mut);
     }

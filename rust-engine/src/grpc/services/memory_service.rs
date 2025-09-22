@@ -528,7 +528,7 @@ mod tests {
             collection_name: "test_collection".to_string(),
             limit: 10,
             offset: 0,
-            filter: HashMap::new(),
+            filter: None,
         });
 
         let result = service.list_documents(request).await;
@@ -565,7 +565,7 @@ mod tests {
                 collection_name: "test_collection".to_string(),
                 limit,
                 offset,
-                filter: HashMap::new(),
+                filter: None,
             });
 
             let result = service.list_documents(request).await;
@@ -757,7 +757,7 @@ mod tests {
                     collection_name: "test_collection".to_string(),
                     limit: 10,
                     offset: 0,
-                    filter: HashMap::new(),
+                    filter: None,
                 });
 
                 let list_result = service_clone.list_documents(list_request).await;
