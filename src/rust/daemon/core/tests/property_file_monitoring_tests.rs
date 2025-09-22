@@ -147,7 +147,7 @@ proptest! {
             let total_operations = operations.len();
 
             // Execute file operations rapidly
-            for operation in operations {
+            for operation in &operations {
                 match operation {
                     FileOperation::Create(filename, content) => {
                         if !filename.is_empty() {
@@ -213,7 +213,7 @@ proptest! {
             );
 
             // Should handle at least some operations successfully
-            assert!(successful_operations > 0 || operations.is_empty());
+            assert!(successful_operations > 0 || total_operations == 0);
         });
     }
 }
@@ -342,7 +342,7 @@ proptest! {
                 // Check pattern matching multiple times for consistency
                 let should_include_1 = pattern_manager.should_include_file(path);
                 let should_include_2 = pattern_manager.should_include_file(path);
-                let should_include_3 = pattern_manager.should_include_file(path);
+                let should_include_3 = pattern_manager.should_include(path);
 
                 // Results should be consistent
                 assert_eq!(should_include_1, should_include_2);
