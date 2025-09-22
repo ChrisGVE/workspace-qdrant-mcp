@@ -131,8 +131,8 @@ class TestProjectCollectionValidator:
     def test_validate_collection_name_valid_project_collection(self):
         """Test validation of valid project collection."""
         result = self.validator.validate_collection_name(
-            "my-project-docs",
-            project_name="my-project",
+            "myproject-docs",
+            project_name="myproject",
             collection_type="docs"
         )
 
@@ -158,8 +158,8 @@ class TestProjectCollectionValidator:
     def test_validate_collection_name_project_mismatch(self):
         """Test validation with project name mismatch."""
         result = self.validator.validate_collection_name(
-            "wrong-project-docs",
-            project_name="correct-project",
+            "wrongproject-docs",
+            project_name="correctproject",
             collection_type="docs"
         )
 
@@ -169,8 +169,8 @@ class TestProjectCollectionValidator:
     def test_validate_collection_name_type_mismatch(self):
         """Test validation with collection type mismatch."""
         result = self.validator.validate_collection_name(
-            "my-project-notes",
-            project_name="my-project",
+            "myproject-notes",
+            project_name="myproject",
             collection_type="docs"
         )
 

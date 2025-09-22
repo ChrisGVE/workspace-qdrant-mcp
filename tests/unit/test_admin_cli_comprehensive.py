@@ -20,10 +20,9 @@ from unittest.mock import Mock, patch, MagicMock, AsyncMock, call
 import pytest
 
 # Ensure proper imports from the project structure
+import sys
 project_root = Path(__file__).parent.parent.parent
 sys.path.insert(0, str(project_root / "src" / "python"))
-
-import sys
 from common.utils.admin_cli import WorkspaceQdrantAdmin
 from common.core.config import Config
 from common.core.client import QdrantWorkspaceClient
