@@ -221,7 +221,7 @@ mod tests {
         DaemonConfig {
             server: ServerConfig {
                 host: "127.0.0.1".to_string(),
-                port: 0,
+                port: 50053,
                 max_connections: 100,
                 connection_timeout_secs: 30,
                 request_timeout_secs: 60,
