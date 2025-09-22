@@ -5,6 +5,12 @@ Tests all MCP server tools end-to-end with realistic data to ensure
 proper integration between FastMCP server and Qdrant operations.
 """
 
+import sys
+from pathlib import Path
+
+# Add src/python to path for common module imports
+sys.path.insert(0, str(Path(__file__).parent.parent.parent / "src" / "python"))
+
 import asyncio
 import json
 from unittest.mock import AsyncMock, MagicMock, patch
@@ -13,7 +19,7 @@ import pytest
 
 from tests.fixtures.test_data_collector import DataCollector
 from tests.utils.metrics import AsyncTimedOperation, PerformanceBenchmarker
-from common.core.client import QdrantWorkspaceClient
+from workspace_qdrant_mcp.core.client import QdrantWorkspaceClient
 from workspace_qdrant_mcp.server import (
     add_document_tool,
     delete_scratchbook_note_tool,

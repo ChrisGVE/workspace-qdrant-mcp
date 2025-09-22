@@ -4,6 +4,12 @@ This module provides integration tests to verify that SSL warning optimization
 works correctly with real Qdrant connections, both localhost and remote.
 """
 
+import sys
+from pathlib import Path
+
+# Add src/python to path for common module imports
+sys.path.insert(0, str(Path(__file__).parent.parent.parent / "src" / "python"))
+
 import asyncio
 import warnings
 from unittest.mock import patch, MagicMock
@@ -12,9 +18,9 @@ import pytest
 from qdrant_client import QdrantClient
 from qdrant_client.http.exceptions import UnexpectedResponse
 
-from common.core.ssl_config import get_ssl_manager
-from common.core.client import QdrantWorkspaceClient
-from common.core.config import Config
+from workspace_qdrant_mcp.core.ssl_config import get_ssl_manager
+from workspace_qdrant_mcp.core.client import QdrantWorkspaceClient
+from workspace_qdrant_mcp.core.config import Config
 
 
 class TestSSLOptimizationIntegration:

@@ -2,12 +2,18 @@
 Tests for memory system types and data structures.
 """
 
+import sys
+from pathlib import Path
+
+# Add src/python to path for common module imports
+sys.path.insert(0, str(Path(__file__).parent.parent.parent / "src" / "python"))
+
 from datetime import datetime
 from uuid import uuid4
 
 import pytest
 
-from common.memory.types import (
+from workspace_qdrant_mcp.memory.types import (
     AgentCapability,
     AgentDefinition,
     AuthorityLevel,

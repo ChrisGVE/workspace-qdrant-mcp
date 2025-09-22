@@ -6,6 +6,12 @@ change detection accuracy, incremental update correctness, transaction safety,
 batch processing efficiency, priority handling, and conflict resolution.
 """
 
+import sys
+from pathlib import Path
+
+# Add src/python to path for common module imports
+sys.path.insert(0, str(Path(__file__).parent.parent.parent / "src" / "python"))
+
 import asyncio
 import hashlib
 import json
@@ -19,7 +25,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from common.core.incremental_processor import (
+from workspace_qdrant_mcp.core.incremental_processor import (
     ChangeDetector,
     ChangeType,
     ConflictResolution,
@@ -31,7 +37,7 @@ from common.core.incremental_processor import (
     TransactionManager,
     create_incremental_processor,
 )
-from common.core.sqlite_state_manager import (
+from workspace_qdrant_mcp.core.sqlite_state_manager import (
     FileProcessingRecord,
     FileProcessingStatus,
     SQLiteStateManager,
@@ -359,7 +365,7 @@ class TestConflictResolver:
         state_manager = MagicMock()
         
         # Add stored record with metadata
-        from common.core.sqlite_state_manager import FileProcessingRecord
+        from workspace_qdrant_mcp.core.sqlite_state_manager import FileProcessingRecord
         conflicted_change.stored_record = FileProcessingRecord(
             file_path="/test/conflicted.txt",
             collection="test_collection",

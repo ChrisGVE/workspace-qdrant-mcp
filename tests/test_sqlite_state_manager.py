@@ -5,6 +5,12 @@ This module tests the bulletproof state persistence using SQLite with WAL mode,
 ACID transactions, crash recovery, and comprehensive state management.
 """
 
+import sys
+from pathlib import Path
+
+# Add src/python to path for common module imports
+sys.path.insert(0, str(Path(__file__).parent.parent.parent / "src" / "python"))
+
 import asyncio
 import os
 import sqlite3
@@ -15,7 +21,7 @@ from pathlib import Path
 from typing import Dict, Any
 import pytest
 
-from common.core.sqlite_state_manager import (
+from workspace_qdrant_mcp.core.sqlite_state_manager import (
     SQLiteStateManager, FileProcessingStatus, ProcessingPriority,
     FileProcessingRecord, WatchFolderConfig, ProcessingQueueItem,
     DatabaseTransaction

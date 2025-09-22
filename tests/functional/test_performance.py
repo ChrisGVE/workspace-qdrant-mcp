@@ -5,6 +5,12 @@ Comprehensive performance testing including search response times, index build p
 memory usage profiling, and concurrent operation benchmarking.
 """
 
+import sys
+from pathlib import Path
+
+# Add src/python to path for common module imports
+sys.path.insert(0, str(Path(__file__).parent.parent.parent / "src" / "python"))
+
 import asyncio
 import json
 import os
@@ -18,7 +24,7 @@ import pytest
 
 from tests.fixtures.test_data_collector import DataCollector
 from tests.utils.metrics import PerformanceBenchmarker
-from common.core.client import QdrantWorkspaceClient
+from workspace_qdrant_mcp.core.client import QdrantWorkspaceClient
 from workspace_qdrant_mcp.tools.documents import add_document
 from workspace_qdrant_mcp.tools.search import search_workspace
 

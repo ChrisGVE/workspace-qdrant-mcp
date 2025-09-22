@@ -5,6 +5,12 @@ Provides clean, isolated Qdrant container instances for testing that prevent
 data contamination between tests and ensure reliable test results.
 """
 
+import sys
+from pathlib import Path
+
+# Add src/python to path for common module imports
+sys.path.insert(0, str(Path(__file__).parent.parent.parent / "src" / "python"))
+
 import asyncio
 import logging
 import time
@@ -17,7 +23,7 @@ from qdrant_client import QdrantClient
 from qdrant_client.http import models
 import requests
 
-from common.core.config import Config
+from workspace_qdrant_mcp.core.config import Config
 
 logger = logging.getLogger(__name__)
 
@@ -277,7 +283,7 @@ def create_test_config(container: IsolatedQdrantContainer) -> Config:
         Config object pointing to the container
     """
     import os
-    from common.core.config import Config
+    from workspace_qdrant_mcp.core.config import Config
 
     # Override environment variables to use container URL
     original_url = os.environ.get("WORKSPACE_QDRANT_QDRANT__URL")
@@ -307,7 +313,7 @@ async def create_test_workspace_client(container: IsolatedQdrantContainer) -> "Q
     Returns:
         Initialized workspace client
     """
-    from common.core.client import QdrantWorkspaceClient
+    from workspace_qdrant_mcp.core.client import QdrantWorkspaceClient
 
     config = create_test_config(container)
     client = QdrantWorkspaceClient(config)

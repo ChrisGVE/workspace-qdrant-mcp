@@ -23,11 +23,11 @@ from unittest.mock import Mock, patch, AsyncMock
 import pytest
 
 # Import the components we're testing
-from common.core.lsp_detector import LSPDetector, LSPDetectionResult, LSPServerInfo
-from common.core.lsp_notifications import LSPNotificationManager, NotificationLevel
-from common.core.lsp_fallback import BuildToolDetector, FallbackExtensionProvider
-from common.core.watch_config import WatchConfigurationPersistent as WatchConfig
-from common.core.config import WorkspaceConfig
+from workspace_qdrant_mcp.core.lsp_detector import LSPDetector, LSPDetectionResult, LSPServerInfo
+from workspace_qdrant_mcp.core.lsp_notifications import LSPNotificationManager, NotificationLevel
+from workspace_qdrant_mcp.core.lsp_fallback import BuildToolDetector, FallbackExtensionProvider
+from workspace_qdrant_mcp.core.watch_config import WatchConfigurationPersistent as WatchConfig
+from workspace_qdrant_mcp.core.config import WorkspaceConfig
 
 
 class MockProjectStructure:

@@ -8,6 +8,12 @@ Tests run against isolated Qdrant instances using testcontainers to ensure
 consistent performance measurement environments.
 """
 
+import sys
+from pathlib import Path
+
+# Add src/python to path for common module imports
+sys.path.insert(0, str(Path(__file__).parent.parent.parent / "src" / "python"))
+
 import asyncio
 import json
 import pytest
@@ -24,9 +30,9 @@ from workspace_qdrant_mcp.tools.grpc_tools import (
     process_document_via_grpc,
     search_via_grpc
 )
-from common.core.config import Config
-from common.core.client import QdrantWorkspaceClient
-from common.core.daemon_manager import DaemonManager, DaemonConfig
+from workspace_qdrant_mcp.core.config import Config
+from workspace_qdrant_mcp.core.client import QdrantWorkspaceClient
+from workspace_qdrant_mcp.core.daemon_manager import DaemonManager, DaemonConfig
 
 
 @pytest.fixture(scope="module")

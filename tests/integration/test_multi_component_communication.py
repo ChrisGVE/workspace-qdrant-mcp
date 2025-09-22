@@ -11,6 +11,12 @@ Test Categories:
 4. Error coordination testing
 5. Performance monitoring
 """
+import sys
+from pathlib import Path
+
+# Add src/python to path for common module imports
+sys.path.insert(0, str(Path(__file__).parent.parent.parent / "src" / "python"))
+
 import asyncio
 import json
 import os
@@ -27,9 +33,9 @@ import aiohttp
 from playwright.async_api import async_playwright
 import sqlite3
 
-from common.core.config import Config
-from common.core.sqlite_state_manager import SQLiteStateManager
-from common.core.yaml_config import YAMLConfigLoader
+from workspace_qdrant_mcp.core.config import Config
+from workspace_qdrant_mcp.core.sqlite_state_manager import SQLiteStateManager
+from workspace_qdrant_mcp.core.yaml_config import YAMLConfigLoader
 from workspace_qdrant_mcp.grpc.daemon_client import get_daemon_client
 
 

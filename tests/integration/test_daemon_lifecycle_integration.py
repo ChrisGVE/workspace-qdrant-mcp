@@ -12,6 +12,12 @@ Tests comprehensive daemon process management including:
 - Error recovery scenarios
 """
 
+import sys
+from pathlib import Path
+
+# Add src/python to path for common module imports
+sys.path.insert(0, str(Path(__file__).parent.parent.parent / "src" / "python"))
+
 import asyncio
 import json
 import os
@@ -27,7 +33,7 @@ import subprocess
 
 from testcontainers.compose import DockerCompose
 
-from common.core.daemon_manager import (
+from workspace_qdrant_mcp.core.daemon_manager import (
     DaemonManager,
     DaemonInstance, 
     DaemonConfig,
@@ -36,7 +42,7 @@ from common.core.daemon_manager import (
     get_daemon_for_project,
     shutdown_all_daemons
 )
-from common.core.config import Config
+from workspace_qdrant_mcp.core.config import Config
 from workspace_qdrant_mcp.tools.grpc_tools import test_grpc_connection
 
 

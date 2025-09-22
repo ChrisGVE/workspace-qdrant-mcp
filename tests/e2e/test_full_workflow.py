@@ -5,6 +5,12 @@ Tests complete workflows including project detection, collection management,
 document operations, and search functionality.
 """
 
+import sys
+from pathlib import Path
+
+# Add src/python to path for common module imports
+sys.path.insert(0, str(Path(__file__).parent.parent.parent / "src" / "python"))
+
 import asyncio
 import tempfile
 from pathlib import Path
@@ -12,9 +18,9 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from common.core.client import QdrantWorkspaceClient
-from common.core.config import Config
-from common.utils.project_detection import ProjectDetector
+from workspace_qdrant_mcp.core.client import QdrantWorkspaceClient
+from workspace_qdrant_mcp.core.config import Config
+from workspace_qdrant_mcp.utils.project_detection import ProjectDetector
 
 
 class TestFullWorkflowE2E:
@@ -134,7 +140,7 @@ class TestFullWorkflowE2E:
     @pytest.mark.e2e
     async def test_hybrid_search_workflow(self, mock_config, mock_qdrant_client):
         """Test complete hybrid search workflow."""
-        from common.core.hybrid_search import HybridSearchEngine
+        from workspace_qdrant_mcp.core.hybrid_search import HybridSearchEngine
 
         # Setup mock search results
         dense_results = [
@@ -357,7 +363,7 @@ class TestFullWorkflowE2E:
     @pytest.mark.e2e
     async def test_configuration_and_validation_workflow(self, environment_variables):
         """Test configuration loading and validation workflow."""
-        from common.utils.config_validator import ConfigValidator
+        from workspace_qdrant_mcp.utils.config_validator import ConfigValidator
 
         # Test configuration loading from environment
         config = Config()
@@ -625,7 +631,7 @@ class TestFullWorkflowE2E:
     @pytest.mark.benchmark
     async def test_search_performance_workflow(self, mock_config, mock_qdrant_client):
         """Test search performance with various fusion methods."""
-        from common.core.hybrid_search import HybridSearchEngine
+        from workspace_qdrant_mcp.core.hybrid_search import HybridSearchEngine
 
         engine = HybridSearchEngine(mock_qdrant_client)
 

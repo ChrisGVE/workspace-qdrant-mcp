@@ -10,6 +10,12 @@ This test module verifies the daemon lifecycle management capabilities including
 - Error recovery and restart logic
 """
 
+import sys
+from pathlib import Path
+
+# Add src/python to path for common module imports
+sys.path.insert(0, str(Path(__file__).parent.parent.parent / "src" / "python"))
+
 import asyncio
 import os
 import pytest
@@ -19,7 +25,7 @@ from pathlib import Path
 from unittest.mock import AsyncMock, Mock, patch
 from datetime import datetime
 
-from common.core.daemon_manager import (
+from workspace_qdrant_mcp.core.daemon_manager import (
     DaemonManager, 
     DaemonInstance, 
     DaemonConfig, 

@@ -17,6 +17,12 @@ Test Areas:
 - Watch service management and persistence across system restarts
 """
 
+import sys
+from pathlib import Path
+
+# Add src/python to path for common module imports
+sys.path.insert(0, str(Path(__file__).parent.parent.parent / "src" / "python"))
+
 import asyncio
 import json
 import logging
@@ -30,7 +36,7 @@ from typing import Any, Dict, List
 
 import pytest
 
-from common.core.file_watcher import (
+from workspace_qdrant_mcp.core.file_watcher import (
     FileWatcher, 
     WatchConfiguration, 
     WatchEvent, 

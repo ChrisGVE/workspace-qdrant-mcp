@@ -5,6 +5,12 @@ This module tests how PatternManager integrates with WorkspaceConfig and
 other configuration components to provide custom pattern functionality.
 """
 
+import sys
+from pathlib import Path
+
+# Add src/python to path for common module imports
+sys.path.insert(0, str(Path(__file__).parent.parent.parent / "src" / "python"))
+
 import tempfile
 from pathlib import Path
 from unittest.mock import patch, MagicMock
@@ -13,18 +19,18 @@ import pytest
 import yaml
 
 try:
-    from common.core.pattern_manager import PatternManager
+    from workspace_qdrant_mcp.core.pattern_manager import PatternManager
 except ImportError:
     try:
-        from src.python.common.core.pattern_manager import PatternManager
+        from workspace_qdrant_mcp.core.pattern_manager import PatternManager
     except ImportError:
         PatternManager = None
 
 try:
-    from common.core.config import WorkspaceConfig
+    from workspace_qdrant_mcp.core.config import WorkspaceConfig
 except ImportError:
     try:
-        from src.python.workspace_qdrant_mcp.core.config import WorkspaceConfig
+        from workspace_qdrant_mcp.core.config import WorkspaceConfig
     except ImportError:
         WorkspaceConfig = None
 

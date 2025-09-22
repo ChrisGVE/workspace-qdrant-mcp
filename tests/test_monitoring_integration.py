@@ -19,6 +19,12 @@ Usage:
     pytest tests/test_monitoring_integration.py::TestHealthCheckEndpoints -v
 """
 
+import sys
+from pathlib import Path
+
+# Add src/python to path for common module imports
+sys.path.insert(0, str(Path(__file__).parent.parent.parent / "src" / "python"))
+
 import asyncio
 import json
 import re
@@ -31,11 +37,11 @@ import pytest
 import requests
 import yaml
 
-from common.observability import (
+from workspace_qdrant_mcp.observability import (
     health_checker_instance,
     metrics_instance,
 )
-from common.observability.endpoints import (
+from workspace_qdrant_mcp.observability.endpoints import (
     add_observability_routes,
     health_check_basic,
     health_check_detailed,
@@ -43,8 +49,8 @@ from common.observability.endpoints import (
     metrics_json,
     system_diagnostics,
 )
-from common.observability.health import HealthStatus
-from common.observability.metrics import MetricsCollector
+from workspace_qdrant_mcp.observability.health import HealthStatus
+from workspace_qdrant_mcp.observability.metrics import MetricsCollector
 from tests.utils.deployment_helpers import MonitoringTestHelper
 
 
@@ -735,7 +741,7 @@ class TestLogAggregationIntegration:
     
     def test_structured_logging_format(self):
         """Test structured logging format compatibility."""
-        from common.observability.logger import get_logger
+        from workspace_qdrant_mcp.observability.logger import get_logger
         
         logger = get_logger("test_structured_logging")
         

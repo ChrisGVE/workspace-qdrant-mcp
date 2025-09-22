@@ -4,12 +4,18 @@ Integration tests for the FastMCP server.
 Tests server initialization, MCP tool endpoints, and workflow integration.
 """
 
+import sys
+from pathlib import Path
+
+# Add src/python to path for common module imports
+sys.path.insert(0, str(Path(__file__).parent.parent.parent / "src" / "python"))
+
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
 from workspace_qdrant_mcp import server
-from common.core.config import Config
+from workspace_qdrant_mcp.core.config import Config
 
 
 class TestServerIntegration:

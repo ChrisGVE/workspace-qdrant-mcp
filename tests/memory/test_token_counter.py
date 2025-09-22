@@ -5,18 +5,24 @@ Comprehensive tests for memory rule token counting, context optimization,
 and rule selection algorithms for managing Claude context window usage.
 """
 
+import sys
+from pathlib import Path
+
+# Add src/python to path for common module imports
+sys.path.insert(0, str(Path(__file__).parent.parent.parent / "src" / "python"))
+
 import json
 from unittest.mock import Mock, patch
 
 import pytest
 
-from common.memory.token_counter import (
+from workspace_qdrant_mcp.memory.token_counter import (
     TokenCounter,
     TokenUsage,
     TokenizationMethod,
     RuleTokenInfo,
 )
-from common.memory.types import (
+from workspace_qdrant_mcp.memory.types import (
     AuthorityLevel,
     MemoryCategory,
     MemoryRule,

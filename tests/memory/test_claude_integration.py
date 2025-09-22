@@ -5,6 +5,12 @@ Comprehensive tests for Claude Code SDK integration including session initializa
 memory rule injection, conversational updates, and context management.
 """
 
+import sys
+from pathlib import Path
+
+# Add src/python to path for common module imports
+sys.path.insert(0, str(Path(__file__).parent.parent.parent / "src" / "python"))
+
 import json
 import os
 import tempfile
@@ -14,9 +20,9 @@ from unittest.mock import AsyncMock, Mock, patch, mock_open
 
 import pytest
 
-from common.memory.claude_integration import ClaudeCodeIntegration
-from common.memory.token_counter import TokenCounter, TokenUsage
-from common.memory.types import (
+from workspace_qdrant_mcp.memory.claude_integration import ClaudeCodeIntegration
+from workspace_qdrant_mcp.memory.token_counter import TokenCounter, TokenUsage
+from workspace_qdrant_mcp.memory.types import (
     AuthorityLevel,
     ClaudeCodeSession,
     ConversationalUpdate,

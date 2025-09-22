@@ -15,6 +15,12 @@ Test Categories:
 7. Stress Testing under Load
 """
 
+import sys
+from pathlib import Path
+
+# Add src/python to path for common module imports
+sys.path.insert(0, str(Path(__file__).parent.parent.parent / "src" / "python"))
+
 import asyncio
 import json
 import os
@@ -33,7 +39,7 @@ from dataclasses import dataclass, field
 
 from testcontainers.compose import DockerCompose
 
-from common.core.daemon_manager import (
+from workspace_qdrant_mcp.core.daemon_manager import (
     DaemonManager,
     DaemonInstance, 
     DaemonConfig,
@@ -42,22 +48,22 @@ from common.core.daemon_manager import (
     get_daemon_for_project,
     shutdown_all_daemons
 )
-from common.core.resource_manager import (
+from workspace_qdrant_mcp.core.resource_manager import (
     ResourceManager,
     ResourceMonitor,
     ResourceLimits,
     SharedResourcePool,
     get_resource_manager
 )
-from common.core.service_discovery.client import (
+from workspace_qdrant_mcp.core.service_discovery.client import (
     ServiceDiscoveryClient,
     ServiceEndpoint
 )
-from common.core.project_config_manager import (
+from workspace_qdrant_mcp.core.project_config_manager import (
     ProjectConfigManager,
     DaemonProjectConfig
 )
-from common.core.config import Config
+from workspace_qdrant_mcp.core.config import Config
 from workspace_qdrant_mcp.tools.grpc_tools import test_grpc_connection
 
 

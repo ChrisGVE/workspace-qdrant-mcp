@@ -18,6 +18,12 @@ Usage:
     pytest tests/test_production_deployment.py::TestMonitoringIntegration -v
 """
 
+import sys
+from pathlib import Path
+
+# Add src/python to path for common module imports
+sys.path.insert(0, str(Path(__file__).parent.parent.parent / "src" / "python"))
+
 import asyncio
 import json
 import os
@@ -33,11 +39,11 @@ import pytest
 import psutil
 
 from wqm_cli.cli.commands.service import ServiceManager
-from common.observability import (
+from workspace_qdrant_mcp.observability import (
     health_checker_instance,
     metrics_instance,
 )
-from common.observability.endpoints import (
+from workspace_qdrant_mcp.observability.endpoints import (
     add_observability_routes,
     health_check_basic,
     health_check_detailed,
@@ -45,8 +51,8 @@ from common.observability.endpoints import (
     metrics_json,
     system_diagnostics,
 )
-from common.observability.health import HealthStatus
-from common.observability.logger import get_logger
+from workspace_qdrant_mcp.observability.health import HealthStatus
+from workspace_qdrant_mcp.observability.logger import get_logger
 
 logger = get_logger(__name__)
 

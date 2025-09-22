@@ -30,15 +30,15 @@ sys.path.insert(0, str(Path(__file__).parent.parent.parent / "src" / "python"))
 
 from testcontainers.compose import DockerCompose
 
-from common.core.client import QdrantWorkspaceClient
-from common.core.config import Config
-from common.core.daemon_manager import DaemonManager, DaemonConfig
+from workspace_qdrant_mcp.core.client import QdrantWorkspaceClient
+from workspace_qdrant_mcp.core.config import Config
+from workspace_qdrant_mcp.core.daemon_manager import DaemonManager, DaemonConfig
 from workspace_qdrant_mcp.tools.grpc_tools import (
     test_grpc_connection,
     process_document_via_grpc,
     search_via_grpc
 )
-from common.core.service_discovery.exceptions import (
+from workspace_qdrant_mcp.core.service_discovery.exceptions import (
     WorkspaceQdrantError,
     ConnectionError,
     ConfigurationError,

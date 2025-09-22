@@ -6,6 +6,12 @@ system including YAML file loading, environment variable overrides, validation,
 hot-reload functionality, and security features.
 """
 
+import sys
+from pathlib import Path
+
+# Add src/python to path for common module imports
+sys.path.insert(0, str(Path(__file__).parent.parent.parent / "src" / "python"))
+
 import os
 import tempfile
 import pytest
@@ -20,7 +26,7 @@ try:
 except ImportError:
     YAML_AVAILABLE = False
 
-from common.core.enhanced_config import (
+from workspace_qdrant_mcp.core.enhanced_config import (
     EnhancedConfig,
     EmbeddingConfig,
     QdrantConfig,

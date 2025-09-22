@@ -6,6 +6,12 @@ MCP activity detection, backpressure handling, and integration with
 SQLite state management and incremental processing.
 """
 
+import sys
+from pathlib import Path
+
+# Add src/python to path for common module imports
+sys.path.insert(0, str(Path(__file__).parent.parent.parent / "src" / "python"))
+
 import asyncio
 import logging
 import os
@@ -18,7 +24,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 import psutil
 
-from common.core.priority_queue_manager import (
+from workspace_qdrant_mcp.core.priority_queue_manager import (
     PriorityQueueManager,
     MCPActivityLevel,
     ProcessingMode,
@@ -30,14 +36,14 @@ from common.core.priority_queue_manager import (
     ResourceConfiguration,
     ProcessingContextManager,
 )
-from common.core.sqlite_state_manager import (
+from workspace_qdrant_mcp.core.sqlite_state_manager import (
     SQLiteStateManager,
     ProcessingPriority,
     FileProcessingStatus,
     FileProcessingRecord,
     ProcessingQueueItem,
 )
-from common.core.incremental_processor import (
+from workspace_qdrant_mcp.core.incremental_processor import (
     IncrementalProcessor,
     FileChangeInfo,
     ChangeType,

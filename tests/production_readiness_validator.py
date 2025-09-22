@@ -12,6 +12,12 @@ Usage:
     python tests/production_readiness_validator.py --strict --output report.json
 """
 
+import sys
+from pathlib import Path
+
+# Add src/python to path for common module imports
+sys.path.insert(0, str(Path(__file__).parent.parent.parent / "src" / "python"))
+
 import argparse
 import asyncio
 import json
@@ -29,11 +35,11 @@ import yaml
 # Import local modules
 try:
     from wqm_cli.cli.commands.service import ServiceManager
-    from common.observability import (
+    from workspace_qdrant_mcp.observability import (
         health_checker_instance,
         metrics_instance,
     )
-    from common.observability.endpoints import (
+    from workspace_qdrant_mcp.observability.endpoints import (
         health_check_basic,
         health_check_detailed,
         metrics_prometheus,

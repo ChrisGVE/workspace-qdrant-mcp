@@ -5,6 +5,12 @@ This module provides common test fixtures and configuration
 for all test modules in the project.
 """
 
+import sys
+from pathlib import Path
+
+# Add src/python to path for common module imports
+sys.path.insert(0, str(Path(__file__).parent.parent.parent / "src" / "python"))
+
 import asyncio
 import logging
 import os
@@ -19,13 +25,13 @@ from qdrant_client import QdrantClient
 from qdrant_client.http import models
 
 try:
-    from common.core.config import Config
+    from workspace_qdrant_mcp.core.config import Config
 except ImportError:
     # Fallback for when running tests without proper PYTHONPATH
     try:
         import sys
         sys.path.append('src/python')
-        from common.core.config import Config
+        from workspace_qdrant_mcp.core.config import Config
     except ImportError:
         # Mock config for testing purposes
         class Config:
@@ -195,7 +201,7 @@ def mock_embedding_service():
 @pytest.fixture
 async def mock_workspace_client(mock_config, mock_qdrant_client, mock_embedding_service):
     """Mock workspace client for testing."""
-    from common.core.client import QdrantWorkspaceClient
+    from workspace_qdrant_mcp.core.client import QdrantWorkspaceClient
     
     client = Mock(spec=QdrantWorkspaceClient)
     client.initialized = True

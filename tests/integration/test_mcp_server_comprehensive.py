@@ -36,13 +36,13 @@ import pytest
 from fastmcp import FastMCP
 from pydantic import BaseModel
 
-from common.core.client import QdrantWorkspaceClient
-from common.core.config import Config
+from workspace_qdrant_mcp.core.client import QdrantWorkspaceClient
+from workspace_qdrant_mcp.core.config import Config
 from workspace_qdrant_mcp.server import app, initialize_workspace
 from workspace_qdrant_mcp.tools.memory import register_memory_tools
-from common.grpc.client import AsyncIngestClient as GRPCClient
-from common.grpc.connection_manager import ConnectionManager
-from common.core.yaml_config import load_config, WorkspaceConfig
+from workspace_qdrant_mcp.grpc.client import AsyncIngestClient as GRPCClient
+from workspace_qdrant_mcp.grpc.connection_manager import ConnectionManager
+from workspace_qdrant_mcp.core.yaml_config import load_config, WorkspaceConfig
 
 
 class MCPTestResult(BaseModel):

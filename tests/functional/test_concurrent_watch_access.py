@@ -5,6 +5,12 @@ These tests verify that the system handles concurrent MCP tool usage,
 configuration updates, and file locking correctly under various scenarios.
 """
 
+import sys
+from pathlib import Path
+
+# Add src/python to path for common module imports
+sys.path.insert(0, str(Path(__file__).parent.parent.parent / "src" / "python"))
+
 import asyncio
 import json
 import shutil
@@ -15,7 +21,7 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from common.core.watch_sync import SynchronizedWatchConfigManager, FileLockManager
+from workspace_qdrant_mcp.core.watch_sync import SynchronizedWatchConfigManager, FileLockManager
 from workspace_qdrant_mcp.tools.watch_management import WatchToolsManager
 
 

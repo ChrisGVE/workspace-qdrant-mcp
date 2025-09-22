@@ -6,13 +6,19 @@ WorkspaceCollectionManager to ensure the reserved naming system works
 correctly with collection management operations.
 """
 
+import sys
+from pathlib import Path
+
+# Add src/python to path for common module imports
+sys.path.insert(0, str(Path(__file__).parent.parent.parent / "src" / "python"))
+
 from unittest.mock import AsyncMock, MagicMock, Mock
 
 import pytest
 
-from common.core.collection_naming import CollectionPermissionError
-from common.core.collections import WorkspaceCollectionManager
-from common.core.config import Config
+from workspace_qdrant_mcp.core.collection_naming import CollectionPermissionError
+from workspace_qdrant_mcp.core.collections import WorkspaceCollectionManager
+from workspace_qdrant_mcp.core.config import Config
 
 
 class TestCollectionManagerIntegration:

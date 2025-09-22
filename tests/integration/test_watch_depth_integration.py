@@ -5,6 +5,12 @@ This module tests depth configuration in the context of the complete watch syste
 including CLI commands, daemon client integration, and MCP server tools.
 """
 
+import sys
+from pathlib import Path
+
+# Add src/python to path for common module imports
+sys.path.insert(0, str(Path(__file__).parent.parent.parent / "src" / "python"))
+
 import asyncio
 import os
 import tempfile
@@ -15,8 +21,8 @@ from typing import Any, Dict
 
 import pytest
 
-from common.core.daemon_client import DaemonClient
-from common.core.depth_validation import validate_recursive_depth
+from workspace_qdrant_mcp.core.daemon_client import DaemonClient
+from workspace_qdrant_mcp.core.depth_validation import validate_recursive_depth
 from workspace_qdrant_mcp.tools.watch_management import WatchToolsManager
 
 
@@ -311,7 +317,7 @@ class TestDepthValidationWithRealDirectories:
             "directory_count": directory_count
         }
         
-        from common.core.depth_validation import get_depth_recommendations
+        from workspace_qdrant_mcp.core.depth_validation import get_depth_recommendations
         recommendations = get_depth_recommendations(structure_info)
         
         # Should provide reasonable recommendations

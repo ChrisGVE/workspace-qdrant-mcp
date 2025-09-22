@@ -5,6 +5,12 @@ This module tests the UnifiedConfigManager class and its integration with
 both Python MCP server and Rust daemon configuration formats.
 """
 
+import sys
+from pathlib import Path
+
+# Add src/python to path for common module imports
+sys.path.insert(0, str(Path(__file__).parent.parent.parent / "src" / "python"))
+
 import pytest
 import tempfile
 import yaml
@@ -14,13 +20,13 @@ import os
 from pathlib import Path
 from unittest.mock import patch, MagicMock
 
-from common.core.unified_config import (
+from workspace_qdrant_mcp.core.unified_config import (
     UnifiedConfigManager,
     ConfigFormat,
     ConfigValidationError,
     ConfigFormatError,
 )
-from common.core.config import Config
+from workspace_qdrant_mcp.core.config import Config
 
 
 class TestUnifiedConfigManager:
