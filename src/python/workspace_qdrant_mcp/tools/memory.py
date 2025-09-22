@@ -6,6 +6,7 @@ including session initialization, conversational updates, and memory queries.
 """
 
 import asyncio
+from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
 
 from loguru import logger
