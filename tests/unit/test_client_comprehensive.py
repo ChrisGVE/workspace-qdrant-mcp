@@ -23,15 +23,56 @@ from qdrant_client.http import models
 from workspace_qdrant_mcp.core.client import QdrantWorkspaceClient, create_qdrant_client
 
 
+@pytest.fixture
+def comprehensive_mock_config():
+    """Mock configuration with all required attributes for comprehensive testing."""
+    config = MagicMock()
+
+    # Basic attributes
+    config.host = "127.0.0.1"
+    config.port = 8000
+    config.debug = True
+    config.environment = "development"
+
+    # Qdrant configuration
+    config.qdrant = MagicMock()
+    config.qdrant.url = "http://localhost:6333"
+    config.qdrant.api_key = None
+    config.qdrant_client_config = {"url": "http://localhost:6333"}
+
+    # Embedding configuration
+    config.embedding = MagicMock()
+    config.embedding.model = "sentence-transformers/all-MiniLM-L6-v2"
+    config.embedding.chunk_size = 500
+    config.embedding.chunk_overlap = 50
+    config.embedding.enable_sparse_vectors = True
+
+    # Workspace configuration
+    config.workspace = MagicMock()
+    config.workspace.github_user = "testuser"
+    config.workspace.collections = ["project"]
+    config.workspace.global_collections = ["docs"]
+
+    # Security configuration (optional)
+    config.security = MagicMock()
+    config.security.qdrant_auth_token = None
+    config.security.qdrant_api_key = None
+
+    return config
+
+
 class TestQdrantWorkspaceClientComprehensive:
     """Comprehensive test suite for QdrantWorkspaceClient achieving 100% coverage."""
 
-    def test_init_comprehensive(self, mock_config):
+    def test_init_comprehensive(self, comprehensive_mock_config):
         """Test comprehensive client initialization with all attributes."""
-        client = QdrantWorkspaceClient(mock_config)
+        client = QdrantWorkspaceClient(comprehensive_mock_config)
 
         # Verify all attributes are properly initialized
-        assert client.config == mock_config
+        assert client.config == comprehensive_mock_config
+
+        # Verify all attributes are properly initialized
+        assert client.config == comprehensive_mock_config
         assert client.client is None
         assert client.collection_manager is None
         assert client.memory_collection_manager is None
@@ -41,15 +82,13 @@ class TestQdrantWorkspaceClientComprehensive:
         assert client.initialized is False
 
     @pytest.mark.asyncio
-    async def test_initialize_comprehensive_ssl_config(self, mock_config):
+    async def test_initialize_comprehensive_ssl_config(self, comprehensive_mock_config):
         """Test initialization with comprehensive SSL configuration."""
-        client = QdrantWorkspaceClient(mock_config)
+        client = QdrantWorkspaceClient(comprehensive_mock_config)
 
         # Mock security configuration
-        mock_security = MagicMock()
-        mock_security.qdrant_auth_token = "test_token"
-        mock_security.qdrant_api_key = "test_api_key"
-        mock_config.security = mock_security
+        comprehensive_mock_config.security.qdrant_auth_token = "test_token"
+        comprehensive_mock_config.security.qdrant_api_key = "test_api_key"
 
         with (
             patch("workspace_qdrant_mcp.core.client.get_ssl_manager") as mock_ssl_manager,
@@ -103,8 +142,8 @@ class TestQdrantWorkspaceClientComprehensive:
 
             # Verify SSL configuration was called with correct parameters
             mock_secure_config.assert_called_once_with(
-                base_config=mock_config.qdrant_client_config,
-                url=mock_config.qdrant.url,
+                base_config=comprehensive_mock_config.qdrant_client_config,
+                url=comprehensive_mock_config.qdrant.url,
                 environment="development",
                 auth_token="test_token",
                 api_key="test_api_key",
@@ -117,12 +156,12 @@ class TestQdrantWorkspaceClientComprehensive:
             assert client.memory_collection_manager == mock_memory_manager
 
     @pytest.mark.asyncio
-    async def test_initialize_no_security_config(self, mock_config):
+    async def test_initialize_no_security_config(self, comprehensive_mock_config):
         """Test initialization without security configuration."""
-        client = QdrantWorkspaceClient(mock_config)
+        client = QdrantWorkspaceClient(comprehensive_mock_config)
         # Ensure no security attribute exists
-        if hasattr(mock_config, 'security'):
-            delattr(mock_config, 'security')
+        if hasattr(comprehensive_mock_config, 'security'):
+            delattr(comprehensive_mock_config, 'security')
 
         with (
             patch("workspace_qdrant_mcp.core.client.get_ssl_manager") as mock_ssl_manager,
@@ -173,17 +212,17 @@ class TestQdrantWorkspaceClientComprehensive:
 
             # Verify secure config was called with None auth parameters
             mock_secure_config.assert_called_once_with(
-                base_config=mock_config.qdrant_client_config,
-                url=mock_config.qdrant.url,
+                base_config=comprehensive_mock_config.qdrant_client_config,
+                url=comprehensive_mock_config.qdrant.url,
                 environment="development",
                 auth_token=None,
                 api_key=None,
             )
 
     @pytest.mark.asyncio
-    async def test_initialize_no_main_project(self, mock_config):
+    async def test_initialize_no_main_project(self, comprehensive_mock_config):
         """Test initialization when no main project is detected."""
-        client = QdrantWorkspaceClient(mock_config)
+        client = QdrantWorkspaceClient(comprehensive_mock_config)
 
         with (
             patch("workspace_qdrant_mcp.core.client.get_ssl_manager") as mock_ssl_manager,
@@ -234,10 +273,10 @@ class TestQdrantWorkspaceClientComprehensive:
             mock_memory_manager.ensure_memory_collections_exist.assert_not_called()
 
     @pytest.mark.asyncio
-    async def test_initialize_with_custom_environment(self, mock_config):
+    async def test_initialize_with_custom_environment(self, comprehensive_mock_config):
         """Test initialization with custom environment setting."""
-        client = QdrantWorkspaceClient(mock_config)
-        mock_config.environment = "production"
+        client = QdrantWorkspaceClient(comprehensive_mock_config)
+        comprehensive_mock_config.environment = "production"
 
         with (
             patch("workspace_qdrant_mcp.core.client.get_ssl_manager") as mock_ssl_manager,
@@ -288,17 +327,17 @@ class TestQdrantWorkspaceClientComprehensive:
 
             # Verify environment was passed correctly
             mock_secure_config.assert_called_once_with(
-                base_config=mock_config.qdrant_client_config,
-                url=mock_config.qdrant.url,
+                base_config=comprehensive_mock_config.qdrant_client_config,
+                url=comprehensive_mock_config.qdrant.url,
                 environment="production",
                 auth_token=None,
                 api_key=None,
             )
 
     @pytest.mark.asyncio
-    async def test_initialize_ssl_warnings_suppression(self, mock_config):
+    async def test_initialize_ssl_warnings_suppression(self, comprehensive_mock_config):
         """Test that SSL warnings are properly suppressed during initialization."""
-        client = QdrantWorkspaceClient(mock_config)
+        client = QdrantWorkspaceClient(comprehensive_mock_config)
 
         with (
             patch("workspace_qdrant_mcp.core.client.get_ssl_manager") as mock_ssl_manager,
@@ -360,33 +399,33 @@ class TestQdrantWorkspaceClientComprehensive:
             mock_suppress_ssl.assert_called_once()
             mock_catch_warnings.assert_called()
 
-    def test_get_project_context_no_project_info(self, mock_config):
+    def test_get_project_context_no_project_info(self, comprehensive_mock_config):
         """Test get_project_context when no project info is available."""
-        client = QdrantWorkspaceClient(mock_config)
+        client = QdrantWorkspaceClient(comprehensive_mock_config)
         client.project_info = None
 
         result = client.get_project_context()
         assert result is None
 
-    def test_get_project_context_no_main_project(self, mock_config):
+    def test_get_project_context_no_main_project(self, comprehensive_mock_config):
         """Test get_project_context when main project is None."""
-        client = QdrantWorkspaceClient(mock_config)
+        client = QdrantWorkspaceClient(comprehensive_mock_config)
         client.project_info = {"main_project": None}
 
         result = client.get_project_context()
         assert result is None
 
-    def test_get_project_context_empty_main_project(self, mock_config):
+    def test_get_project_context_empty_main_project(self, comprehensive_mock_config):
         """Test get_project_context when main project is empty string."""
-        client = QdrantWorkspaceClient(mock_config)
+        client = QdrantWorkspaceClient(comprehensive_mock_config)
         client.project_info = {"main_project": ""}
 
         result = client.get_project_context()
         assert result is None
 
-    def test_get_project_context_with_custom_collection_type(self, mock_config):
+    def test_get_project_context_with_custom_collection_type(self, comprehensive_mock_config):
         """Test get_project_context with custom collection type."""
-        client = QdrantWorkspaceClient(mock_config)
+        client = QdrantWorkspaceClient(comprehensive_mock_config)
         client.project_info = {"main_project": "test-project"}
 
         result = client.get_project_context("docs")
@@ -398,9 +437,9 @@ class TestQdrantWorkspaceClientComprehensive:
         assert result["workspace_scope"] == "project"
         assert "project_id" in result
 
-    def test_generate_project_id(self, mock_config):
+    def test_generate_project_id(self, comprehensive_mock_config):
         """Test project ID generation."""
-        client = QdrantWorkspaceClient(mock_config)
+        client = QdrantWorkspaceClient(comprehensive_mock_config)
 
         # Test that same project name generates same ID
         project_id1 = client._generate_project_id("test-project")
@@ -412,9 +451,9 @@ class TestQdrantWorkspaceClientComprehensive:
         project_id3 = client._generate_project_id("different-project")
         assert project_id1 != project_id3
 
-    def test_refresh_project_detection_lazy_initialization(self, mock_config):
+    def test_refresh_project_detection_lazy_initialization(self, comprehensive_mock_config):
         """Test refresh_project_detection when project_detector is None."""
-        client = QdrantWorkspaceClient(mock_config)
+        client = QdrantWorkspaceClient(comprehensive_mock_config)
         client.project_detector = None
 
         with patch("workspace_qdrant_mcp.core.client.ProjectDetector") as mock_project_detector_class:
@@ -429,14 +468,14 @@ class TestQdrantWorkspaceClientComprehensive:
 
             # Verify project detector was created and used
             mock_project_detector_class.assert_called_once_with(
-                github_user=mock_config.workspace.github_user
+                github_user=comprehensive_mock_config.workspace.github_user
             )
             assert result == {"main_project": "new-project", "subprojects": []}
             assert client.project_info == result
 
-    def test_list_collections_with_project_context(self, mock_config):
+    def test_list_collections_with_project_context(self, comprehensive_mock_config):
         """Test list_collections when project context is available."""
-        client = QdrantWorkspaceClient(mock_config)
+        client = QdrantWorkspaceClient(comprehensive_mock_config)
         client.initialized = True
         client.project_info = {"main_project": "test-project"}
 
@@ -453,9 +492,9 @@ class TestQdrantWorkspaceClientComprehensive:
             assert collections == ["test-project-docs", "test-project-scratchbook"]
             mock_collection_manager.list_collections_for_project.assert_called_once_with("test-project")
 
-    def test_list_collections_fallback_to_workspace_collections(self, mock_config):
+    def test_list_collections_fallback_to_workspace_collections(self, comprehensive_mock_config):
         """Test list_collections fallback when project filtering is not available."""
-        client = QdrantWorkspaceClient(mock_config)
+        client = QdrantWorkspaceClient(comprehensive_mock_config)
         client.initialized = True
         client.project_info = {"main_project": "test-project"}
 
@@ -475,9 +514,9 @@ class TestQdrantWorkspaceClientComprehensive:
             assert collections == ["all-collections"]
             mock_collection_manager.list_workspace_collections.assert_called_once()
 
-    def test_list_collections_no_project_context(self, mock_config):
+    def test_list_collections_no_project_context(self, comprehensive_mock_config):
         """Test list_collections when no project context is available."""
-        client = QdrantWorkspaceClient(mock_config)
+        client = QdrantWorkspaceClient(comprehensive_mock_config)
         client.initialized = True
 
         # Mock collection manager
@@ -494,9 +533,9 @@ class TestQdrantWorkspaceClientComprehensive:
             mock_collection_manager.list_workspace_collections.assert_called_once()
 
     @pytest.mark.asyncio
-    async def test_ensure_collection_exists_with_validation_components(self, mock_config):
+    async def test_ensure_collection_exists_with_validation_components(self, comprehensive_mock_config):
         """Test ensure_collection_exists with validation components available."""
-        client = QdrantWorkspaceClient(mock_config)
+        client = QdrantWorkspaceClient(comprehensive_mock_config)
         client.initialized = True
 
         # Mock collection manager
@@ -527,9 +566,9 @@ class TestQdrantWorkspaceClientComprehensive:
             )
 
     @pytest.mark.asyncio
-    async def test_ensure_collection_exists_validation_failure(self, mock_config):
+    async def test_ensure_collection_exists_validation_failure(self, comprehensive_mock_config):
         """Test ensure_collection_exists when validation fails."""
-        client = QdrantWorkspaceClient(mock_config)
+        client = QdrantWorkspaceClient(comprehensive_mock_config)
         client.initialized = True
 
         with (
@@ -549,9 +588,9 @@ class TestQdrantWorkspaceClientComprehensive:
                 await client.ensure_collection_exists("invalid-name")
 
     @pytest.mark.asyncio
-    async def test_ensure_collection_exists_fallback_validation(self, mock_config):
+    async def test_ensure_collection_exists_fallback_validation(self, comprehensive_mock_config):
         """Test ensure_collection_exists fallback when validation components are not available."""
-        client = QdrantWorkspaceClient(mock_config)
+        client = QdrantWorkspaceClient(comprehensive_mock_config)
         client.initialized = True
 
         # Mock collection manager
@@ -571,9 +610,9 @@ class TestQdrantWorkspaceClientComprehensive:
             mock_collection_manager._ensure_collection_exists.assert_called_once()
 
     @pytest.mark.asyncio
-    async def test_search_with_project_context_comprehensive(self, mock_config, mock_qdrant_client):
+    async def test_search_with_project_context_comprehensive(self, comprehensive_mock_config, mock_qdrant_client):
         """Test search_with_project_context with comprehensive scenarios."""
-        client = QdrantWorkspaceClient(mock_config)
+        client = QdrantWorkspaceClient(comprehensive_mock_config)
         client.initialized = True
         client.client = mock_qdrant_client
 
@@ -641,9 +680,9 @@ class TestQdrantWorkspaceClientComprehensive:
             assert result["include_shared"] is True
 
     @pytest.mark.asyncio
-    async def test_search_with_project_context_not_initialized(self, mock_config):
+    async def test_search_with_project_context_not_initialized(self, comprehensive_mock_config):
         """Test search_with_project_context when client is not initialized."""
-        client = QdrantWorkspaceClient(mock_config)
+        client = QdrantWorkspaceClient(comprehensive_mock_config)
 
         result = await client.search_with_project_context(
             collection_name="test",
@@ -654,9 +693,9 @@ class TestQdrantWorkspaceClientComprehensive:
         assert result["error"] == "Workspace client not initialized"
 
     @pytest.mark.asyncio
-    async def test_search_with_project_context_search_failure(self, mock_config, mock_qdrant_client):
+    async def test_search_with_project_context_search_failure(self, comprehensive_mock_config, mock_qdrant_client):
         """Test search_with_project_context when search fails."""
-        client = QdrantWorkspaceClient(mock_config)
+        client = QdrantWorkspaceClient(comprehensive_mock_config)
         client.initialized = True
         client.client = mock_qdrant_client
 
@@ -677,16 +716,16 @@ class TestQdrantWorkspaceClientComprehensive:
             assert "error" in result
             assert "Project context search failed" in result["error"]
 
-    def test_get_enhanced_collection_selector_not_initialized(self, mock_config):
+    def test_get_enhanced_collection_selector_not_initialized(self, comprehensive_mock_config):
         """Test get_enhanced_collection_selector when client not initialized."""
-        client = QdrantWorkspaceClient(mock_config)
+        client = QdrantWorkspaceClient(comprehensive_mock_config)
 
         with pytest.raises(RuntimeError, match="Client must be initialized before using collection selector"):
             client.get_enhanced_collection_selector()
 
-    def test_get_enhanced_collection_selector_lazy_project_detector(self, mock_config, mock_qdrant_client):
+    def test_get_enhanced_collection_selector_lazy_project_detector(self, comprehensive_mock_config, mock_qdrant_client):
         """Test get_enhanced_collection_selector with lazy project detector initialization."""
-        client = QdrantWorkspaceClient(mock_config)
+        client = QdrantWorkspaceClient(comprehensive_mock_config)
         client.initialized = True
         client.client = mock_qdrant_client
         client.project_detector = None
@@ -705,17 +744,17 @@ class TestQdrantWorkspaceClientComprehensive:
 
             # Verify project detector was created
             mock_project_detector_class.assert_called_once_with(
-                github_user=mock_config.workspace.github_user
+                github_user=comprehensive_mock_config.workspace.github_user
             )
             # Verify selector was created with correct parameters
             mock_selector_class.assert_called_once_with(
-                mock_qdrant_client, mock_config, mock_project_detector
+                mock_qdrant_client, comprehensive_mock_config, mock_project_detector
             )
             assert result == mock_selector
 
-    def test_select_collections_by_type_not_initialized(self, mock_config):
+    def test_select_collections_by_type_not_initialized(self, comprehensive_mock_config):
         """Test select_collections_by_type when client not initialized."""
-        client = QdrantWorkspaceClient(mock_config)
+        client = QdrantWorkspaceClient(comprehensive_mock_config)
 
         result = client.select_collections_by_type("memory_collection")
 
@@ -728,9 +767,9 @@ class TestQdrantWorkspaceClientComprehensive:
         }
         assert result == expected_empty_result
 
-    def test_select_collections_by_type_with_exception(self, mock_config, mock_qdrant_client):
+    def test_select_collections_by_type_with_exception(self, comprehensive_mock_config, mock_qdrant_client):
         """Test select_collections_by_type when selector raises exception."""
-        client = QdrantWorkspaceClient(mock_config)
+        client = QdrantWorkspaceClient(comprehensive_mock_config)
         client.initialized = True
         client.client = mock_qdrant_client
 
@@ -746,16 +785,16 @@ class TestQdrantWorkspaceClientComprehensive:
             }
             assert result == expected_empty_result
 
-    def test_get_searchable_collections_not_initialized(self, mock_config):
+    def test_get_searchable_collections_not_initialized(self, comprehensive_mock_config):
         """Test get_searchable_collections when client not initialized."""
-        client = QdrantWorkspaceClient(mock_config)
+        client = QdrantWorkspaceClient(comprehensive_mock_config)
 
         result = client.get_searchable_collections()
         assert result == []
 
-    def test_get_searchable_collections_with_exception(self, mock_config, mock_qdrant_client):
+    def test_get_searchable_collections_with_exception(self, comprehensive_mock_config, mock_qdrant_client):
         """Test get_searchable_collections when selector raises exception."""
-        client = QdrantWorkspaceClient(mock_config)
+        client = QdrantWorkspaceClient(comprehensive_mock_config)
         client.initialized = True
         client.client = mock_qdrant_client
 
@@ -766,17 +805,17 @@ class TestQdrantWorkspaceClientComprehensive:
             result = client.get_searchable_collections()
             assert result == ["fallback-collection"]
 
-    def test_validate_collection_access_not_initialized(self, mock_config):
+    def test_validate_collection_access_not_initialized(self, comprehensive_mock_config):
         """Test validate_collection_access when client not initialized."""
-        client = QdrantWorkspaceClient(mock_config)
+        client = QdrantWorkspaceClient(comprehensive_mock_config)
 
         is_allowed, reason = client.validate_collection_access("test", "read")
         assert is_allowed is False
         assert reason == "Client not initialized"
 
-    def test_validate_collection_access_with_exception(self, mock_config, mock_qdrant_client):
+    def test_validate_collection_access_with_exception(self, comprehensive_mock_config, mock_qdrant_client):
         """Test validate_collection_access when selector raises exception."""
-        client = QdrantWorkspaceClient(mock_config)
+        client = QdrantWorkspaceClient(comprehensive_mock_config)
         client.initialized = True
         client.client = mock_qdrant_client
 
@@ -787,18 +826,18 @@ class TestQdrantWorkspaceClientComprehensive:
             assert "Validation error: Validation error" in reason
 
     @pytest.mark.asyncio
-    async def test_create_collection_not_initialized(self, mock_config):
+    async def test_create_collection_not_initialized(self, comprehensive_mock_config):
         """Test create_collection when client not initialized."""
-        client = QdrantWorkspaceClient(mock_config)
+        client = QdrantWorkspaceClient(comprehensive_mock_config)
 
         result = await client.create_collection("test-collection")
         assert "error" in result
         assert result["error"] == "Client not initialized"
 
     @pytest.mark.asyncio
-    async def test_create_collection_with_multitenant_components(self, mock_config, mock_qdrant_client):
+    async def test_create_collection_with_multitenant_components(self, comprehensive_mock_config, mock_qdrant_client):
         """Test create_collection with multi-tenant components available."""
-        client = QdrantWorkspaceClient(mock_config)
+        client = QdrantWorkspaceClient(comprehensive_mock_config)
         client.initialized = True
         client.client = mock_qdrant_client
         client.project_info = {"main_project": "test-project"}
@@ -839,9 +878,9 @@ class TestQdrantWorkspaceClientComprehensive:
             )
 
     @pytest.mark.asyncio
-    async def test_create_collection_validation_failure(self, mock_config, mock_qdrant_client):
+    async def test_create_collection_validation_failure(self, comprehensive_mock_config, mock_qdrant_client):
         """Test create_collection when name validation fails."""
-        client = QdrantWorkspaceClient(mock_config)
+        client = QdrantWorkspaceClient(comprehensive_mock_config)
         client.initialized = True
         client.client = mock_qdrant_client
 
@@ -865,9 +904,9 @@ class TestQdrantWorkspaceClientComprehensive:
             assert result["suggestions"] == ["suggested-name"]
 
     @pytest.mark.asyncio
-    async def test_create_collection_no_project_context(self, mock_config, mock_qdrant_client):
+    async def test_create_collection_no_project_context(self, comprehensive_mock_config, mock_qdrant_client):
         """Test create_collection when no project context is available."""
-        client = QdrantWorkspaceClient(mock_config)
+        client = QdrantWorkspaceClient(comprehensive_mock_config)
         client.initialized = True
         client.client = mock_qdrant_client
         client.project_info = None
@@ -891,9 +930,9 @@ class TestQdrantWorkspaceClientComprehensive:
             assert "No project context available" in result["error"]
 
     @pytest.mark.asyncio
-    async def test_create_collection_legacy_fallback(self, mock_config, mock_qdrant_client):
+    async def test_create_collection_legacy_fallback(self, comprehensive_mock_config, mock_qdrant_client):
         """Test create_collection fallback to legacy creation."""
-        client = QdrantWorkspaceClient(mock_config)
+        client = QdrantWorkspaceClient(comprehensive_mock_config)
         client.initialized = True
         client.client = mock_qdrant_client
 
@@ -918,9 +957,9 @@ class TestQdrantWorkspaceClientComprehensive:
             mock_collection_manager._ensure_collection_exists.assert_called_once()
 
     @pytest.mark.asyncio
-    async def test_create_collection_exception_handling(self, mock_config, mock_qdrant_client):
+    async def test_create_collection_exception_handling(self, comprehensive_mock_config, mock_qdrant_client):
         """Test create_collection exception handling."""
-        client = QdrantWorkspaceClient(mock_config)
+        client = QdrantWorkspaceClient(comprehensive_mock_config)
         client.initialized = True
         client.client = mock_qdrant_client
 
@@ -931,9 +970,9 @@ class TestQdrantWorkspaceClientComprehensive:
             assert "Collection creation failed" in result["error"]
 
     @pytest.mark.asyncio
-    async def test_close_comprehensive(self, mock_config, mock_qdrant_client):
+    async def test_close_comprehensive(self, comprehensive_mock_config, mock_qdrant_client):
         """Test comprehensive client cleanup."""
-        client = QdrantWorkspaceClient(mock_config)
+        client = QdrantWorkspaceClient(comprehensive_mock_config)
         client.client = mock_qdrant_client
         client.initialized = True
 
@@ -951,9 +990,9 @@ class TestQdrantWorkspaceClientComprehensive:
         assert client.initialized is False
 
     @pytest.mark.asyncio
-    async def test_close_no_embedding_service(self, mock_config, mock_qdrant_client):
+    async def test_close_no_embedding_service(self, comprehensive_mock_config, mock_qdrant_client):
         """Test close when embedding service is None."""
-        client = QdrantWorkspaceClient(mock_config)
+        client = QdrantWorkspaceClient(comprehensive_mock_config)
         client.client = mock_qdrant_client
         client.initialized = True
         client.embedding_service = None
@@ -973,29 +1012,29 @@ class TestCreateQdrantClient:
         """Test basic client creation from config data."""
         config_data = {"url": "http://localhost:6333"}
 
-        with patch("workspace_qdrant_mcp.core.client.Config") as mock_config_class:
-            mock_config = MagicMock()
-            mock_config_class.return_value = mock_config
+        with patch("workspace_qdrant_mcp.core.client.Config") as comprehensive_mock_config_class:
+            comprehensive_mock_config = MagicMock()
+            comprehensive_mock_config_class.return_value = comprehensive_mock_config
 
             client = create_qdrant_client(config_data)
 
             assert isinstance(client, QdrantWorkspaceClient)
-            assert client.config == mock_config
-            mock_config_class.assert_called_once()
+            assert client.config == comprehensive_mock_config
+            comprehensive_mock_config_class.assert_called_once()
 
     def test_create_qdrant_client_with_config_integration(self):
         """Test client creation integrates properly with Config class."""
         config_data = {"url": "http://test:6333", "api_key": "test_key"}
 
         # Use real Config import path but mock the Config class
-        with patch("workspace_qdrant_mcp.core.config.Config") as mock_config_class:
-            mock_config = MagicMock()
-            mock_config_class.return_value = mock_config
+        with patch("workspace_qdrant_mcp.core.config.Config") as comprehensive_mock_config_class:
+            comprehensive_mock_config = MagicMock()
+            comprehensive_mock_config_class.return_value = comprehensive_mock_config
 
             client = create_qdrant_client(config_data)
 
             # Verify client was created with mocked config
-            assert client.config == mock_config
+            assert client.config == comprehensive_mock_config
             assert isinstance(client, QdrantWorkspaceClient)
 
 
@@ -1003,9 +1042,9 @@ class TestEdgeCasesAndErrorHandling:
     """Test edge cases and comprehensive error handling scenarios."""
 
     @pytest.mark.asyncio
-    async def test_get_status_with_invalid_collections_response(self, mock_config, mock_qdrant_client):
+    async def test_get_status_with_invalid_collections_response(self, comprehensive_mock_config, mock_qdrant_client):
         """Test get_status when Qdrant returns invalid collections response."""
-        client = QdrantWorkspaceClient(mock_config)
+        client = QdrantWorkspaceClient(comprehensive_mock_config)
         client.initialized = True
         client.client = mock_qdrant_client
         client.project_info = {"main_project": "test-project"}
@@ -1035,9 +1074,9 @@ class TestEdgeCasesAndErrorHandling:
             assert "Failed to get status" in status["error"]
 
     @pytest.mark.asyncio
-    async def test_initialize_project_detector_import_error(self, mock_config):
+    async def test_initialize_project_detector_import_error(self, comprehensive_mock_config):
         """Test initialization when ProjectDetector import fails."""
-        client = QdrantWorkspaceClient(mock_config)
+        client = QdrantWorkspaceClient(comprehensive_mock_config)
 
         with (
             patch("workspace_qdrant_mcp.core.client.get_ssl_manager") as mock_ssl_manager,
@@ -1078,9 +1117,9 @@ class TestEdgeCasesAndErrorHandling:
             with pytest.raises(ImportError, match="Cannot import ProjectDetector"):
                 await client.initialize()
 
-    def test_list_collections_sync_method(self, mock_config):
+    def test_list_collections_sync_method(self, comprehensive_mock_config):
         """Test that list_collections is a synchronous method."""
-        client = QdrantWorkspaceClient(mock_config)
+        client = QdrantWorkspaceClient(comprehensive_mock_config)
         client.initialized = True
 
         # Mock collection manager
@@ -1093,9 +1132,9 @@ class TestEdgeCasesAndErrorHandling:
         assert collections == ["test"]
 
     @pytest.mark.asyncio
-    async def test_ensure_collection_exists_complex_project_context(self, mock_config):
+    async def test_ensure_collection_exists_complex_project_context(self, comprehensive_mock_config):
         """Test ensure_collection_exists with complex project context."""
-        client = QdrantWorkspaceClient(mock_config)
+        client = QdrantWorkspaceClient(comprehensive_mock_config)
         client.initialized = True
 
         # Mock collection manager
