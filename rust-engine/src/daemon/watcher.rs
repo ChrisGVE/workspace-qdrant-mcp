@@ -6,7 +6,7 @@ use crate::error::{DaemonError, DaemonResult};
 use notify::{Watcher, RecommendedWatcher, RecursiveMode, Event};
 use std::sync::Arc;
 use std::path::Path;
-use tokio::sync::mpsc;
+use tokio::sync::{mpsc, Mutex};
 use tracing::{info, debug, warn, error};
 
 /// File watcher
@@ -14,7 +14,7 @@ use tracing::{info, debug, warn, error};
 pub struct FileWatcher {
     config: FileWatcherConfig,
     processor: Arc<DocumentProcessor>,
-    watcher: Option<RecommendedWatcher>,
+    watcher: Arc<Mutex<Option<RecommendedWatcher>>>,
 }
 
 impl FileWatcher {
@@ -25,12 +25,12 @@ impl FileWatcher {
         Ok(Self {
             config: config.clone(),
             processor,
-            watcher: None,
+            watcher: Arc::new(Mutex::new(None)),
         })
     }
 
     /// Start watching for file changes
-    pub async fn start(&mut self) -> DaemonResult<()> {
+    pub async fn start(&self) -> DaemonResult<()> {
         if !self.config.enabled {
             info!("File watcher is disabled");
             return Ok(());
@@ -45,7 +45,7 @@ impl FileWatcher {
     }
 
     /// Stop watching for file changes
-    pub async fn stop(&mut self) -> DaemonResult<()> {
+    pub async fn stop(&self) -> DaemonResult<()> {
         info!("Stopping file watcher");
 
         // TODO: Implement actual stop logic

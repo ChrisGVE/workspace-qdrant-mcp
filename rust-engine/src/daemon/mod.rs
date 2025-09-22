@@ -12,6 +12,7 @@ use tokio::sync::RwLock;
 use tracing::{info, warn};
 
 /// Main daemon coordinator
+#[derive(Debug)]
 pub struct WorkspaceDaemon {
     config: DaemonConfig,
     state: Arc<RwLock<state::DaemonState>>,
