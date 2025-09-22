@@ -150,7 +150,7 @@ mod tests {
         DaemonConfig {
             server: ServerConfig {
                 host: "127.0.0.1".to_string(),
-                port: 0,
+                port: 50051,
                 max_connections: 100,
                 connection_timeout_secs: 30,
                 request_timeout_secs: 60,
@@ -237,10 +237,12 @@ mod tests {
         let processor = DocumentProcessorImpl::new(daemon);
 
         let request = Request::new(ProcessDocumentRequest {
+            project_id: "test_project".to_string(),
+            document_type: crate::proto::DocumentType::Text as i32,
             file_path: "/test/document.txt".to_string(),
             collection_name: "test_collection".to_string(),
             metadata: HashMap::new(),
-            processing_options: None,
+            options: None,
         });
 
         let result = processor.process_document(request).await;
@@ -264,10 +266,12 @@ mod tests {
         metadata.insert("version".to_string(), "1.0".to_string());
 
         let request = Request::new(ProcessDocumentRequest {
+            project_id: "test_project".to_string(),
+            document_type: crate::proto::DocumentType::Text as i32,
             file_path: "/test/document_with_metadata.txt".to_string(),
             collection_name: "test_collection".to_string(),
             metadata,
-            processing_options: None,
+            options: None,
         });
 
         let result = processor.process_document(request).await;
@@ -294,10 +298,12 @@ mod tests {
 
         for file_name in file_types {
             let request = Request::new(ProcessDocumentRequest {
+                project_id: "test_project".to_string(),
+                document_type: crate::proto::DocumentType::Text as i32,
                 file_path: format!("/test/{}", file_name),
                 collection_name: "test_collection".to_string(),
                 metadata: HashMap::new(),
-                processing_options: None,
+                options: None,
             });
 
             let result = processor.process_document(request).await;
@@ -405,10 +411,12 @@ mod tests {
         // Process multiple documents and verify unique IDs
         for i in 0..5 {
             let request = Request::new(ProcessDocumentRequest {
+                project_id: "test_project".to_string(),
+                document_type: crate::proto::DocumentType::Text as i32,
                 file_path: format!("/test/document_{}.txt", i),
                 collection_name: "test_collection".to_string(),
                 metadata: HashMap::new(),
-                processing_options: None,
+                options: None,
             });
 
             let result = processor.process_document(request).await;
@@ -430,10 +438,12 @@ mod tests {
         let before_processing = chrono::Utc::now().timestamp();
 
         let request = Request::new(ProcessDocumentRequest {
+            project_id: "test_project".to_string(),
+            document_type: crate::proto::DocumentType::Text as i32,
             file_path: "/test/timestamp_test.txt".to_string(),
             collection_name: "test_collection".to_string(),
             metadata: HashMap::new(),
-            processing_options: None,
+            options: None,
         });
 
         let result = processor.process_document(request).await;
@@ -483,10 +493,12 @@ mod tests {
             let processor_clone = Arc::clone(&processor);
             let handle = tokio::spawn(async move {
                 let request = Request::new(ProcessDocumentRequest {
+                    project_id: "test_project".to_string(),
+                    document_type: crate::proto::DocumentType::Text as i32,
                     file_path: format!("/test/concurrent_doc_{}.txt", i),
                     collection_name: "test_collection".to_string(),
                     metadata: HashMap::new(),
-                    processing_options: None,
+                    options: None,
                 });
 
                 processor_clone.process_document(request).await
