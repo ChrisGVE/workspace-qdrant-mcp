@@ -146,3 +146,597 @@ impl SearchService for SearchServiceImpl {
         Ok(Response::new(response))
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::config::*;
+    use tempfile::TempDir;
+    use tonic::Request;
+    use tokio_test;
+    use std::collections::HashMap;
+
+    fn create_test_daemon_config() -> DaemonConfig {
+        let temp_dir = TempDir::new().expect("Failed to create temp dir");
+        let db_path = temp_dir.path().join("test.db");
+
+        DaemonConfig {
+            server: ServerConfig {
+                host: "127.0.0.1".to_string(),
+                port: 0,
+                max_connections: 100,
+                connection_timeout_secs: 30,
+                request_timeout_secs: 60,
+                enable_tls: false,
+            },
+            database: DatabaseConfig {
+                sqlite_path: db_path.to_string_lossy().to_string(),
+                max_connections: 5,
+                connection_timeout_secs: 30,
+                enable_wal: true,
+            },
+            qdrant: QdrantConfig {
+                url: "http://localhost:6333".to_string(),
+                api_key: None,
+                timeout_secs: 30,
+                max_retries: 3,
+                default_collection: CollectionConfig {
+                    vector_size: 384,
+                    distance_metric: "Cosine".to_string(),
+                    enable_indexing: true,
+                    replication_factor: 1,
+                    shard_number: 1,
+                },
+            },
+            processing: ProcessingConfig {
+                max_concurrent_tasks: 2,
+                default_chunk_size: 1000,
+                default_chunk_overlap: 200,
+                max_file_size_bytes: 1024 * 1024,
+                supported_extensions: vec!["txt".to_string(), "md".to_string()],
+                enable_lsp: false,
+                lsp_timeout_secs: 10,
+            },
+            file_watcher: FileWatcherConfig {
+                enabled: false,
+                debounce_ms: 500,
+                max_watched_dirs: 10,
+                ignore_patterns: vec![],
+                recursive: true,
+            },
+            metrics: MetricsConfig {
+                enabled: false,
+                collection_interval_secs: 60,
+                retention_days: 30,
+                enable_prometheus: false,
+                prometheus_port: 9090,
+            },
+            logging: LoggingConfig {
+                level: "info".to_string(),
+                file_path: None,
+                json_format: false,
+                max_file_size_mb: 100,
+                max_files: 5,
+            },
+        }
+    }
+
+    async fn create_test_daemon() -> Arc<WorkspaceDaemon> {
+        let config = create_test_daemon_config();
+        Arc::new(WorkspaceDaemon::new(config).await.expect("Failed to create daemon"))
+    }
+
+    #[tokio::test]
+    async fn test_search_service_impl_new() {
+        let daemon = create_test_daemon().await;
+        let service = SearchServiceImpl::new(daemon.clone());
+
+        assert!(Arc::ptr_eq(&service.daemon, &daemon));
+    }
+
+    #[tokio::test]
+    async fn test_search_service_impl_debug() {
+        let daemon = create_test_daemon().await;
+        let service = SearchServiceImpl::new(daemon);
+
+        let debug_str = format!("{:?}", service);
+        assert!(debug_str.contains("SearchServiceImpl"));
+        assert!(debug_str.contains("daemon"));
+    }
+
+    #[tokio::test]
+    async fn test_hybrid_search_basic() {
+        let daemon = create_test_daemon().await;
+        let service = SearchServiceImpl::new(daemon);
+
+        let request = Request::new(HybridSearchRequest {
+            query: "test query".to_string(),
+            collection_names: vec!["test_collection".to_string()],
+            limit: 10,
+            offset: 0,
+            filters: HashMap::new(),
+            semantic_weight: 0.7,
+            keyword_weight: 0.3,
+        });
+
+        let result = service.hybrid_search(request).await;
+        assert!(result.is_ok());
+
+        let response = result.unwrap().into_inner();
+        assert!(!response.query_id.is_empty());
+        assert_eq!(response.results.len(), 1);
+        assert!(response.metadata.is_some());
+
+        let metadata = response.metadata.unwrap();
+        assert_eq!(metadata.total_results, 1);
+        assert_eq!(metadata.max_score, 0.95);
+        assert!(metadata.search_time.is_some());
+        assert_eq!(metadata.search_duration_ms, 25);
+    }
+
+    #[tokio::test]
+    async fn test_hybrid_search_different_queries() {
+        let daemon = create_test_daemon().await;
+        let service = SearchServiceImpl::new(daemon);
+
+        let queries = [
+            "simple query",
+            "complex search with multiple terms",
+            "特殊字符查询", // Unicode characters
+            "query with symbols !@#$%",
+            "12345 numeric query",
+        ];
+
+        for query in queries {
+            let request = Request::new(HybridSearchRequest {
+                query: query.to_string(),
+                collection_names: vec!["test_collection".to_string()],
+                limit: 5,
+                offset: 0,
+                filters: HashMap::new(),
+                semantic_weight: 0.6,
+                keyword_weight: 0.4,
+            });
+
+            let result = service.hybrid_search(request).await;
+            assert!(result.is_ok(), "Failed for query: {}", query);
+
+            let response = result.unwrap().into_inner();
+            assert!(!response.query_id.is_empty());
+        }
+    }
+
+    #[tokio::test]
+    async fn test_hybrid_search_different_weights() {
+        let daemon = create_test_daemon().await;
+        let service = SearchServiceImpl::new(daemon);
+
+        let weight_combinations = [
+            (1.0, 0.0), // Pure semantic
+            (0.0, 1.0), // Pure keyword
+            (0.5, 0.5), // Equal weights
+            (0.8, 0.2), // Semantic-heavy
+            (0.3, 0.7), // Keyword-heavy
+        ];
+
+        for (semantic, keyword) in weight_combinations {
+            let request = Request::new(HybridSearchRequest {
+                query: "test query".to_string(),
+                collection_names: vec!["test_collection".to_string()],
+                limit: 10,
+                offset: 0,
+                filters: HashMap::new(),
+                semantic_weight: semantic,
+                keyword_weight: keyword,
+            });
+
+            let result = service.hybrid_search(request).await;
+            assert!(result.is_ok(), "Failed for weights: semantic={}, keyword={}", semantic, keyword);
+        }
+    }
+
+    #[tokio::test]
+    async fn test_hybrid_search_with_filters() {
+        let daemon = create_test_daemon().await;
+        let service = SearchServiceImpl::new(daemon);
+
+        let mut filters = HashMap::new();
+        filters.insert("author".to_string(), "John Doe".to_string());
+        filters.insert("category".to_string(), "documentation".to_string());
+        filters.insert("year".to_string(), "2023".to_string());
+
+        let request = Request::new(HybridSearchRequest {
+            query: "test query with filters".to_string(),
+            collection_names: vec!["test_collection".to_string()],
+            limit: 10,
+            offset: 0,
+            filters,
+            semantic_weight: 0.7,
+            keyword_weight: 0.3,
+        });
+
+        let result = service.hybrid_search(request).await;
+        assert!(result.is_ok());
+
+        let response = result.unwrap().into_inner();
+        assert!(!response.query_id.is_empty());
+        assert!(response.metadata.is_some());
+    }
+
+    #[tokio::test]
+    async fn test_hybrid_search_pagination() {
+        let daemon = create_test_daemon().await;
+        let service = SearchServiceImpl::new(daemon);
+
+        let pagination_params = [
+            (10, 0),   // First page
+            (10, 10),  // Second page
+            (5, 0),    // Smaller page size
+            (20, 40),  // Larger offset
+            (1, 0),    // Single result
+        ];
+
+        for (limit, offset) in pagination_params {
+            let request = Request::new(HybridSearchRequest {
+                query: "pagination test".to_string(),
+                collection_names: vec!["test_collection".to_string()],
+                limit,
+                offset,
+                filters: HashMap::new(),
+                semantic_weight: 0.7,
+                keyword_weight: 0.3,
+            });
+
+            let result = service.hybrid_search(request).await;
+            assert!(result.is_ok(), "Failed for limit={}, offset={}", limit, offset);
+        }
+    }
+
+    #[tokio::test]
+    async fn test_semantic_search_basic() {
+        let daemon = create_test_daemon().await;
+        let service = SearchServiceImpl::new(daemon);
+
+        let request = Request::new(SemanticSearchRequest {
+            query: "semantic search query".to_string(),
+            collection_names: vec!["test_collection".to_string()],
+            limit: 10,
+            offset: 0,
+            filters: HashMap::new(),
+            similarity_threshold: 0.7,
+        });
+
+        let result = service.semantic_search(request).await;
+        assert!(result.is_ok());
+
+        let response = result.unwrap().into_inner();
+        assert!(!response.query_id.is_empty());
+        assert!(response.metadata.is_some());
+
+        let metadata = response.metadata.unwrap();
+        assert!(metadata.search_time.is_some());
+        assert_eq!(metadata.search_duration_ms, 15);
+    }
+
+    #[tokio::test]
+    async fn test_semantic_search_different_thresholds() {
+        let daemon = create_test_daemon().await;
+        let service = SearchServiceImpl::new(daemon);
+
+        let thresholds = [0.1, 0.3, 0.5, 0.7, 0.9];
+
+        for threshold in thresholds {
+            let request = Request::new(SemanticSearchRequest {
+                query: "threshold test".to_string(),
+                collection_names: vec!["test_collection".to_string()],
+                limit: 10,
+                offset: 0,
+                filters: HashMap::new(),
+                similarity_threshold: threshold,
+            });
+
+            let result = service.semantic_search(request).await;
+            assert!(result.is_ok(), "Failed for threshold: {}", threshold);
+        }
+    }
+
+    #[tokio::test]
+    async fn test_keyword_search_basic() {
+        let daemon = create_test_daemon().await;
+        let service = SearchServiceImpl::new(daemon);
+
+        let request = Request::new(KeywordSearchRequest {
+            query: "keyword search".to_string(),
+            collection_names: vec!["test_collection".to_string()],
+            limit: 10,
+            offset: 0,
+            filters: HashMap::new(),
+            fuzzy: false,
+            boost_fields: HashMap::new(),
+        });
+
+        let result = service.keyword_search(request).await;
+        assert!(result.is_ok());
+
+        let response = result.unwrap().into_inner();
+        assert!(!response.query_id.is_empty());
+        assert!(response.metadata.is_some());
+
+        let metadata = response.metadata.unwrap();
+        assert!(metadata.search_time.is_some());
+        assert_eq!(metadata.search_duration_ms, 10);
+    }
+
+    #[tokio::test]
+    async fn test_keyword_search_with_boost_fields() {
+        let daemon = create_test_daemon().await;
+        let service = SearchServiceImpl::new(daemon);
+
+        let mut boost_fields = HashMap::new();
+        boost_fields.insert("title".to_string(), 2.0);
+        boost_fields.insert("content".to_string(), 1.0);
+        boost_fields.insert("tags".to_string(), 1.5);
+
+        let request = Request::new(KeywordSearchRequest {
+            query: "boosted search".to_string(),
+            collection_names: vec!["test_collection".to_string()],
+            limit: 10,
+            offset: 0,
+            filters: HashMap::new(),
+            fuzzy: false,
+            boost_fields,
+        });
+
+        let result = service.keyword_search(request).await;
+        assert!(result.is_ok());
+
+        let response = result.unwrap().into_inner();
+        assert!(!response.query_id.is_empty());
+    }
+
+    #[tokio::test]
+    async fn test_keyword_search_fuzzy_modes() {
+        let daemon = create_test_daemon().await;
+        let service = SearchServiceImpl::new(daemon);
+
+        for fuzzy in [true, false] {
+            let request = Request::new(KeywordSearchRequest {
+                query: "fuzzy test".to_string(),
+                collection_names: vec!["test_collection".to_string()],
+                limit: 10,
+                offset: 0,
+                filters: HashMap::new(),
+                fuzzy,
+                boost_fields: HashMap::new(),
+            });
+
+            let result = service.keyword_search(request).await;
+            assert!(result.is_ok(), "Failed for fuzzy: {}", fuzzy);
+        }
+    }
+
+    #[tokio::test]
+    async fn test_get_suggestions_basic() {
+        let daemon = create_test_daemon().await;
+        let service = SearchServiceImpl::new(daemon);
+
+        let request = Request::new(SuggestionsRequest {
+            partial_query: "test".to_string(),
+            collection_names: vec!["test_collection".to_string()],
+            limit: 5,
+            min_score: 0.5,
+        });
+
+        let result = service.get_suggestions(request).await;
+        assert!(result.is_ok());
+
+        let response = result.unwrap().into_inner();
+        assert_eq!(response.suggestions.len(), 2);
+        assert!(response.suggestions[0].contains("test"));
+        assert!(response.suggestions[1].contains("test"));
+        assert!(response.metadata.is_some());
+
+        let metadata = response.metadata.unwrap();
+        assert_eq!(metadata.total_results, 2);
+        assert_eq!(metadata.search_duration_ms, 5);
+    }
+
+    #[tokio::test]
+    async fn test_get_suggestions_different_queries() {
+        let daemon = create_test_daemon().await;
+        let service = SearchServiceImpl::new(daemon);
+
+        let partial_queries = [
+            "t",
+            "te",
+            "test",
+            "testing",
+            "query",
+            "search",
+        ];
+
+        for partial in partial_queries {
+            let request = Request::new(SuggestionsRequest {
+                partial_query: partial.to_string(),
+                collection_names: vec!["test_collection".to_string()],
+                limit: 5,
+                min_score: 0.3,
+            });
+
+            let result = service.get_suggestions(request).await;
+            assert!(result.is_ok(), "Failed for partial query: {}", partial);
+
+            let response = result.unwrap().into_inner();
+            assert_eq!(response.suggestions.len(), 2);
+            for suggestion in &response.suggestions {
+                assert!(suggestion.contains(partial));
+            }
+        }
+    }
+
+    #[tokio::test]
+    async fn test_get_suggestions_different_limits() {
+        let daemon = create_test_daemon().await;
+        let service = SearchServiceImpl::new(daemon);
+
+        let limits = [1, 3, 5, 10, 20];
+
+        for limit in limits {
+            let request = Request::new(SuggestionsRequest {
+                partial_query: "suggestion".to_string(),
+                collection_names: vec!["test_collection".to_string()],
+                limit,
+                min_score: 0.1,
+            });
+
+            let result = service.get_suggestions(request).await;
+            assert!(result.is_ok(), "Failed for limit: {}", limit);
+
+            let response = result.unwrap().into_inner();
+            // Current implementation returns 2 suggestions regardless of limit
+            assert_eq!(response.suggestions.len(), 2);
+        }
+    }
+
+    #[tokio::test]
+    async fn test_search_service_multiple_collections() {
+        let daemon = create_test_daemon().await;
+        let service = SearchServiceImpl::new(daemon);
+
+        let collections = vec![
+            "collection1".to_string(),
+            "collection2".to_string(),
+            "documents".to_string(),
+            "code".to_string(),
+        ];
+
+        let request = Request::new(HybridSearchRequest {
+            query: "multi-collection search".to_string(),
+            collection_names: collections.clone(),
+            limit: 10,
+            offset: 0,
+            filters: HashMap::new(),
+            semantic_weight: 0.7,
+            keyword_weight: 0.3,
+        });
+
+        let result = service.hybrid_search(request).await;
+        assert!(result.is_ok());
+
+        let response = result.unwrap().into_inner();
+        assert!(!response.query_id.is_empty());
+    }
+
+    #[tokio::test]
+    async fn test_search_timestamps() {
+        let daemon = create_test_daemon().await;
+        let service = SearchServiceImpl::new(daemon);
+
+        let before_search = chrono::Utc::now().timestamp();
+
+        let request = Request::new(HybridSearchRequest {
+            query: "timestamp test".to_string(),
+            collection_names: vec!["test_collection".to_string()],
+            limit: 10,
+            offset: 0,
+            filters: HashMap::new(),
+            semantic_weight: 0.7,
+            keyword_weight: 0.3,
+        });
+
+        let result = service.hybrid_search(request).await;
+        assert!(result.is_ok());
+
+        let after_search = chrono::Utc::now().timestamp();
+        let response = result.unwrap().into_inner();
+
+        assert!(response.metadata.is_some());
+        let metadata = response.metadata.unwrap();
+        assert!(metadata.search_time.is_some());
+
+        let search_timestamp = metadata.search_time.unwrap().seconds;
+        assert!(search_timestamp >= before_search);
+        assert!(search_timestamp <= after_search);
+    }
+
+    #[tokio::test]
+    async fn test_concurrent_searches() {
+        let daemon = create_test_daemon().await;
+        let service = Arc::new(SearchServiceImpl::new(daemon));
+
+        let mut handles = vec![];
+
+        // Perform multiple concurrent searches
+        for i in 0..5 {
+            let service_clone = Arc::clone(&service);
+            let handle = tokio::spawn(async move {
+                let request = Request::new(HybridSearchRequest {
+                    query: format!("concurrent search {}", i),
+                    collection_names: vec!["test_collection".to_string()],
+                    limit: 10,
+                    offset: 0,
+                    filters: HashMap::new(),
+                    semantic_weight: 0.7,
+                    keyword_weight: 0.3,
+                });
+
+                service_clone.hybrid_search(request).await
+            });
+            handles.push(handle);
+        }
+
+        // Wait for all searches to complete
+        let results: Vec<_> = futures_util::future::join_all(handles).await;
+
+        // All searches should complete successfully
+        for (i, result) in results.into_iter().enumerate() {
+            let task_result = result.unwrap();
+            assert!(task_result.is_ok(), "Search {} failed", i);
+
+            let response = task_result.unwrap().into_inner();
+            assert!(!response.query_id.is_empty());
+        }
+    }
+
+    #[tokio::test]
+    async fn test_search_result_structure() {
+        let daemon = create_test_daemon().await;
+        let service = SearchServiceImpl::new(daemon);
+
+        let request = Request::new(HybridSearchRequest {
+            query: "structure test".to_string(),
+            collection_names: vec!["test_collection".to_string()],
+            limit: 10,
+            offset: 0,
+            filters: HashMap::new(),
+            semantic_weight: 0.7,
+            keyword_weight: 0.3,
+        });
+
+        let result = service.hybrid_search(request).await;
+        assert!(result.is_ok());
+
+        let response = result.unwrap().into_inner();
+        assert_eq!(response.results.len(), 1);
+
+        let search_result = &response.results[0];
+        assert!(!search_result.document_id.is_empty());
+        assert_eq!(search_result.collection_name, "example");
+        assert_eq!(search_result.score, 0.95);
+        assert_eq!(search_result.semantic_score, 0.9);
+        assert_eq!(search_result.keyword_score, 0.85);
+        assert_eq!(search_result.title, "Example Document");
+        assert!(!search_result.content_snippet.is_empty());
+        assert!(!search_result.file_path.is_empty());
+        assert_eq!(search_result.matched_terms.len(), 1);
+    }
+
+    #[test]
+    fn test_search_service_impl_send_sync() {
+        fn assert_send<T: Send>() {}
+        fn assert_sync<T: Sync>() {}
+
+        assert_send::<SearchServiceImpl>();
+        assert_sync::<SearchServiceImpl>();
+    }
+}
