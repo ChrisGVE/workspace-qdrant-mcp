@@ -2,20 +2,26 @@
 
 from __future__ import annotations
 
+import sys
+from pathlib import Path
+
+# Add src/python to path for common module imports
+sys.path.insert(0, str(Path(__file__).parent.parent.parent / "src" / "python"))
+
 import hashlib
 from pathlib import Path
 from unittest.mock import MagicMock
 
 import pytest
 
-from common.utils.project_detection import DaemonIdentifier
+from workspace_qdrant_mcp.utils.project_detection import DaemonIdentifier
 
 
 @pytest.fixture(autouse=True)
 def stub_project_detection_logger(monkeypatch: pytest.MonkeyPatch) -> None:
     """Replace the module logger with a mock that accepts structured kwargs."""
     monkeypatch.setattr(
-        "common.utils.project_detection.logger",
+        "workspace_qdrant_mcp.utils.project_detection.logger",
         MagicMock(),
         raising=True,
     )
