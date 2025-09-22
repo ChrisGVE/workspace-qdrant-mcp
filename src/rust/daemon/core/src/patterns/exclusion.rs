@@ -510,11 +510,11 @@ mod tests {
 
         // Test prefix pattern
         classify_and_store_pattern("prefix*", &rule, &mut exact, &mut prefix, &mut suffix, &mut contains);
-        assert!(prefix.contains("prefix"));
+        assert!(prefix.contains(&"prefix".to_string()));
 
         // Test suffix pattern
         classify_and_store_pattern("*.suffix", &rule, &mut exact, &mut prefix, &mut suffix, &mut contains);
-        assert!(suffix.contains(".suffix"));
+        assert!(suffix.contains(&".suffix".to_string()));
     }
 
     #[test]
