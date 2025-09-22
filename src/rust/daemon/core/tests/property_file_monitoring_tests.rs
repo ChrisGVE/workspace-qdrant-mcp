@@ -430,6 +430,7 @@ proptest! {
             let mut handles = Vec::new();
             for file_path in file_paths {
                 let processor_clone = Arc::new(processor.clone());
+                let processor_clone: Arc<DocumentProcessor> = processor_clone;
                 let semaphore_clone = semaphore.clone();
 
                 let handle = tokio::spawn(async move {
