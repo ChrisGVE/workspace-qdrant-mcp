@@ -7,6 +7,7 @@ use std::sync::Arc;
 use tempfile::TempDir;
 
 use workspace_qdrant_core::*;
+use workspace_qdrant_core::lsp::lifecycle::ServerStatus;
 
 #[tokio::test]
 async fn test_document_processor_all_methods() {
@@ -231,23 +232,23 @@ async fn test_exclusion_rule_all_methods() {
     // Test construction
     let rule = ExclusionRule {
         pattern: "*.tmp".to_string(),
-        description: "Temporary files".to_string(),
-        category: ExclusionCategory::Temporary,
-        impact: ExclusionImpact::Medium,
-        context: ExclusionContext::Global,
+        category: ExclusionCategory::Cache,
+        reason: "Temporary files".to_string(),
+        is_regex: false,
+        case_sensitive: false,
     };
 
     // Test field access
     assert_eq!(rule.pattern, "*.tmp");
-    assert_eq!(rule.description, "Temporary files");
-    assert!(matches!(rule.category, ExclusionCategory::Temporary));
-    assert!(matches!(rule.impact, ExclusionImpact::Medium));
-    assert!(matches!(rule.context, ExclusionContext::Global));
+    assert_eq!(rule.reason, "Temporary files");
+    assert!(matches!(rule.category, ExclusionCategory::Cache));
+    assert!(!rule.is_regex);
+    assert!(!rule.case_sensitive);
 
     // Test clone
     let cloned_rule = rule.clone();
     assert_eq!(rule.pattern, cloned_rule.pattern);
-    assert_eq!(rule.description, cloned_rule.description);
+    assert_eq!(rule.reason, cloned_rule.reason);
 
     // Test debug formatting
     let debug_str = format!("{:?}", rule);
@@ -256,61 +257,36 @@ async fn test_exclusion_rule_all_methods() {
 
     // Test all enum variants
     let categories = vec![
-        ExclusionCategory::Temporary,
-        ExclusionCategory::Generated,
-        ExclusionCategory::Binary,
-        ExclusionCategory::System,
+        ExclusionCategory::Critical,
+        ExclusionCategory::BuildArtifacts,
         ExclusionCategory::Cache,
-        ExclusionCategory::Backup,
+        ExclusionCategory::VersionControl,
+        ExclusionCategory::IdeFiles,
+        ExclusionCategory::Media,
         ExclusionCategory::Security,
     ];
 
     for category in categories {
         let test_rule = ExclusionRule {
             pattern: "test".to_string(),
-            description: "test".to_string(),
+            reason: "test".to_string(),
             category,
-            impact: ExclusionImpact::Low,
-            context: ExclusionContext::Global,
+            is_regex: false,
+            case_sensitive: false,
         };
         assert!(format!("{:?}", test_rule).contains("ExclusionRule"));
     }
 
-    let impacts = vec![
-        ExclusionImpact::Low,
-        ExclusionImpact::Medium,
-        ExclusionImpact::High,
-        ExclusionImpact::Critical,
-    ];
-
-    for impact in impacts {
-        let test_rule = ExclusionRule {
-            pattern: "test".to_string(),
-            description: "test".to_string(),
-            category: ExclusionCategory::Temporary,
-            impact,
-            context: ExclusionContext::Global,
-        };
-        assert!(format!("{:?}", test_rule).contains("ExclusionRule"));
-    }
-
-    let contexts = vec![
-        ExclusionContext::Global,
-        ExclusionContext::Project,
-        ExclusionContext::Language,
-        ExclusionContext::Framework,
-    ];
-
-    for context in contexts {
-        let test_rule = ExclusionRule {
-            pattern: "test".to_string(),
-            description: "test".to_string(),
-            category: ExclusionCategory::Temporary,
-            impact: ExclusionImpact::Low,
-            context,
-        };
-        assert!(format!("{:?}", test_rule).contains("ExclusionRule"));
-    }
+    // Test boolean flags
+    let test_rule_regex = ExclusionRule {
+        pattern: "test.*".to_string(),
+        reason: "test regex".to_string(),
+        category: ExclusionCategory::Cache,
+        is_regex: true,
+        case_sensitive: true,
+    };
+    assert!(test_rule_regex.is_regex);
+    assert!(test_rule_regex.case_sensitive);
 }
 
 #[tokio::test]
@@ -662,26 +638,27 @@ async fn test_all_enum_variants() {
         assert!(!debug_str.is_empty());
     }
 
-    // Test all ProcessStatus variants
-    let process_statuses = vec![
-        ProcessStatus::Starting,
-        ProcessStatus::Running,
-        ProcessStatus::Completed,
-        ProcessStatus::Failed,
-        ProcessStatus::Killed,
+    // Test all ServerStatus variants
+    let server_statuses = vec![
+        ServerStatus::Initializing,
+        ServerStatus::Running,
+        ServerStatus::Degraded,
+        ServerStatus::Failed,
+        ServerStatus::Stopping,
+        ServerStatus::Stopped,
     ];
 
-    for status in process_statuses {
+    for status in server_statuses {
         let debug_str = format!("{:?}", status);
         assert!(!debug_str.is_empty());
     }
 
     // Test all ServiceStatus variants
     let service_statuses = vec![
+        ServiceStatus::Starting,
         ServiceStatus::Healthy,
         ServiceStatus::Unhealthy,
-        ServiceStatus::Unknown,
-        ServiceStatus::Degraded,
+        ServiceStatus::Stopping,
     ];
 
     for status in service_statuses {
@@ -689,12 +666,12 @@ async fn test_all_enum_variants() {
         assert!(!debug_str.is_empty());
     }
 
-    // Test all DistanceMetric variants
+    // Test all distance metric strings (using String instead of DistanceMetric enum)
     let distance_metrics = vec![
-        DistanceMetric::Cosine,
-        DistanceMetric::Euclidean,
-        DistanceMetric::Manhattan,
-        DistanceMetric::Dot,
+        "Cosine".to_string(),
+        "Euclidean".to_string(),
+        "Manhattan".to_string(),
+        "Dot".to_string(),
     ];
 
     for metric in distance_metrics {
