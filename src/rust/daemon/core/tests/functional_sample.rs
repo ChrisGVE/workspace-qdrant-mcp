@@ -131,7 +131,7 @@ mod functional_tests {
             {
                 if let Some(event) = file_event {
                     // Process the file
-                    let result = processor.process_file(&event.path).await;
+                    let result = processor.process_file(&event.path, "test_collection").await;
                     assert!(result.is_ok(), "File processing failed: {:?}", result);
 
                     processed_files.push(event.path);
@@ -196,7 +196,7 @@ mod functional_tests {
             .map(|file_path| {
                 let processor = Arc::clone(&processor);
                 let path = file_path.clone();
-                tokio::spawn(async move { processor.process_file(&path).await })
+                tokio::spawn(async move { processor.process_file(&path, "test_collection").await })
             })
             .collect();
 
@@ -243,7 +243,7 @@ mod functional_tests {
 
         // Test processing of non-existent file
         let non_existent_file = workspace_path.join("does_not_exist.rs");
-        let result = processor.process_file(&non_existent_file).await;
+        let result = processor.process_file(&non_existent_file, "test_collection").await;
         assert!(result.is_err(), "Should fail for non-existent file");
 
         // Test processing of invalid file
@@ -251,7 +251,7 @@ mod functional_tests {
         std::fs::write(&invalid_file, vec![0xFF, 0xFE, 0xFD])
             .expect("Failed to write invalid file");
 
-        let result = processor.process_file(&invalid_file).await;
+        let result = processor.process_file(&invalid_file, "test_collection").await;
         // Should handle invalid content gracefully
         assert!(
             result.is_err() || result.is_ok(),
@@ -263,7 +263,7 @@ mod functional_tests {
         let valid_content = "fn valid_function() {}\n";
         std::fs::write(&valid_file, valid_content).expect("Failed to write valid file");
 
-        let result = processor.process_file(&valid_file).await;
+        let result = processor.process_file(&valid_file, "test_collection").await;
         assert!(result.is_ok(), "Should process valid file after errors");
     }
 
@@ -289,7 +289,7 @@ mod functional_tests {
             let content = format!("fn test_function_{}() {{}}\n", i);
             std::fs::write(&file_path, content).expect("Failed to write test file");
 
-            let result = processors[i].process_file(&file_path).await;
+            let result = processors[i].process_file(&file_path, "test_collection").await;
             assert!(result.is_ok(), "Processing failed for processor {}", i);
         }
 
@@ -308,7 +308,7 @@ mod functional_tests {
         std::fs::write(&final_test_file, "fn final_test() {}")
             .expect("Failed to write final test file");
 
-        let result = new_processor.process_file(&final_test_file).await;
+        let result = new_processor.process_file(&final_test_file, "test_collection").await;
         assert!(
             result.is_ok(),
             "System should be functional after resource cleanup"
@@ -338,7 +338,7 @@ mod functional_tests {
             std::fs::write(&test_file, "fn external_test() {}")
                 .expect("Failed to write test file");
 
-            let result = processor.process_file(&test_file).await;
+            let result = processor.process_file(&test_file, "test_collection").await;
             assert!(result.is_ok(), "External service integration failed");
         } else {
             // Test graceful degradation when external service unavailable
@@ -348,7 +348,7 @@ mod functional_tests {
             std::fs::write(&test_file, "fn fallback_test() {}")
                 .expect("Failed to write test file");
 
-            let result = processor.process_file(&test_file).await;
+            let result = processor.process_file(&test_file, "test_collection").await;
             // Should still work in degraded mode
             assert!(result.is_ok(), "Graceful degradation failed");
         }
@@ -390,7 +390,7 @@ mod functional_tests {
 
                 let processor_clone = Arc::clone(&processor);
                 let task = tokio::spawn(async move {
-                    processor_clone.process_file(&file_path).await
+                    processor_clone.process_file(&file_path, "test_collection").await
                 });
                 batch_tasks.push(task);
             }
@@ -498,10 +498,14 @@ mod test_utilities {
 
     #[tokio::test]
     async fn test_wait_for_condition() {
-        let mut counter = 0;
-        let condition = || async {
-            counter += 1;
-            counter >= 3
+        let counter = std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0));
+        let counter_clone = counter.clone();
+        let condition = move || {
+            let counter = counter_clone.clone();
+            async move {
+                let count = counter.fetch_add(1, std::sync::atomic::Ordering::SeqCst) + 1;
+                count >= 3
+            }
         };
 
         let start = std::time::Instant::now();
