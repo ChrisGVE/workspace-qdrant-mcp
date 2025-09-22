@@ -340,9 +340,9 @@ proptest! {
                 let path = Path::new(&filename);
 
                 // Check pattern matching multiple times for consistency
-                let should_include_1 = pattern_manager.should_include_file(path);
-                let should_include_2 = pattern_manager.should_include_file(path);
-                let should_include_3 = pattern_manager.should_include(path);
+                let should_include_1 = pattern_manager.should_include(path.to_str().unwrap_or(""));
+                let should_include_2 = pattern_manager.should_include(path.to_str().unwrap_or(""));
+                let should_include_3 = pattern_manager.should_include(path.to_str().unwrap_or(""));
 
                 // Results should be consistent
                 assert_eq!(should_include_1, should_include_2);
