@@ -144,8 +144,8 @@ mod tests {
     use std::collections::HashMap;
 
     fn create_test_daemon_config() -> DaemonConfig {
-        let temp_dir = TempDir::new().expect("Failed to create temp dir");
-        let db_path = temp_dir.path().join("test.db");
+        // Use in-memory SQLite database for tests
+        let db_path = ":memory:";
 
         DaemonConfig {
             server: ServerConfig {
@@ -157,7 +157,7 @@ mod tests {
                 enable_tls: false,
             },
             database: DatabaseConfig {
-                sqlite_path: db_path.to_string_lossy().to_string(),
+                sqlite_path: db_path.to_string(),
                 max_connections: 5,
                 connection_timeout_secs: 30,
                 enable_wal: true,
