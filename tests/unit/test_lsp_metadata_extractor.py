@@ -11,6 +11,12 @@ Tests the comprehensive code metadata extraction pipeline including:
 - Error handling and recovery
 """
 
+import sys
+from pathlib import Path
+
+# Add src/python to path for common module imports
+sys.path.insert(0, str(Path(__file__).parent.parent.parent / "src" / "python"))
+
 import asyncio
 import json
 import pytest
@@ -18,7 +24,7 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional
 from unittest.mock import AsyncMock, MagicMock, patch
 
-from common.core.lsp_metadata_extractor import (
+from workspace_qdrant_mcp.core.lsp_metadata_extractor import (
     LspMetadataExtractor,
     CodeSymbol,
     Documentation,
@@ -34,8 +40,8 @@ from common.core.lsp_metadata_extractor import (
     SymbolRelationship,
     TypeInformation,
 )
-from common.core.language_filters import LanguageAwareFilter
-from common.core.lsp_client import AsyncioLspClient
+from workspace_qdrant_mcp.core.language_filters import LanguageAwareFilter
+from workspace_qdrant_mcp.core.lsp_client import AsyncioLspClient
 
 
 @pytest.fixture

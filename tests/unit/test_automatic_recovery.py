@@ -25,7 +25,7 @@ from unittest.mock import AsyncMock, MagicMock, Mock, patch
 
 import pytest
 
-from src.python.common.core.automatic_recovery import (
+from workspace_qdrant_mcp.core.automatic_recovery import (
     RecoveryManager,
     RecoveryStrategy,
     RecoveryPhase,
@@ -38,9 +38,9 @@ from src.python.common.core.automatic_recovery import (
     get_recovery_manager,
     shutdown_recovery_manager,
 )
-from src.python.common.core.component_coordination import ComponentType, ComponentHealth, ComponentStatus
-from src.python.common.core.graceful_degradation import DegradationMode, CircuitBreakerState
-from src.python.common.core.lsp_health_monitor import HealthStatus, NotificationLevel, UserNotification
+from workspace_qdrant_mcp.core.component_coordination import ComponentType, ComponentHealth, ComponentStatus
+from workspace_qdrant_mcp.core.graceful_degradation import DegradationMode, CircuitBreakerState
+from workspace_qdrant_mcp.core.lsp_health_monitor import HealthStatus, NotificationLevel, UserNotification
 
 
 class TestRecoveryManager:

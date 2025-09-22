@@ -61,9 +61,9 @@ except ImportError as e:
 
 # Common utilities
 try:
-    from common.utils.project_detection import GitProjectDetector
-    from common.utils.file_operations import FileOperations
-    from common.utils.os_directories import DirectoryManager
+    from workspace_qdrant_mcp.utils.project_detection import GitProjectDetector
+    from workspace_qdrant_mcp.utils.file_operations import FileOperations
+    from workspace_qdrant_mcp.utils.os_directories import DirectoryManager
     UTILS_AVAILABLE = True
 except ImportError as e:
     UTILS_AVAILABLE = False
@@ -721,7 +721,7 @@ if __name__ == "__main__":
                 await engine.connect()
 
 
-@pytest.mark.skipif(not UTILS_AVAILABLE, reason="common.utils modules not available")
+@pytest.mark.skipif(not UTILS_AVAILABLE, reason="workspace_qdrant_mcp.utils modules not available")
 class TestCommonUtils:
     """Comprehensive tests for common.utils modules"""
 

@@ -16,7 +16,7 @@ from unittest.mock import Mock, AsyncMock, patch, MagicMock
 from qdrant_client.http import models
 from qdrant_client.http.exceptions import ResponseHandlingException
 
-from src.python.common.memory.migration_utils import (
+from workspace_qdrant_mcp.memory.migration_utils import (
     CollectionStructureAnalyzer,
     MigrationPlanner,
     BatchMigrator,

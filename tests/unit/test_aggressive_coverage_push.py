@@ -40,44 +40,44 @@ except ImportError:
 
 # Test common.core imports
 try:
-    from common.core.memory import DocumentMemory, MemoryManager, MemorySystem
-    importable_modules.append("common.core.memory")
+    from workspace_qdrant_mcp.core.memory import DocumentMemory, MemoryManager, MemorySystem
+    importable_modules.append("workspace_qdrant_mcp.core.memory")
 except ImportError:
     pass
 
 try:
-    from common.core.client import BaseClient, AsyncClient, ClientManager
-    importable_modules.append("common.core.client")
+    from workspace_qdrant_mcp.core.client import BaseClient, AsyncClient, ClientManager
+    importable_modules.append("workspace_qdrant_mcp.core.client")
 except ImportError:
     pass
 
 try:
-    from common.core.lsp_detector import LspDetector, LspServerDetector
-    importable_modules.append("common.core.lsp_detector")
+    from workspace_qdrant_mcp.core.lsp_detector import LspDetector, LspServerDetector
+    importable_modules.append("workspace_qdrant_mcp.core.lsp_detector")
 except ImportError:
     pass
 
 try:
-    from common.core.multitenant_collections import MultitenantCollectionManager
-    importable_modules.append("common.core.multitenant_collections")
+    from workspace_qdrant_mcp.core.multitenant_collections import MultitenantCollectionManager
+    importable_modules.append("workspace_qdrant_mcp.core.multitenant_collections")
 except ImportError:
     pass
 
 try:
-    from common.core.pattern_manager import PatternManager
-    importable_modules.append("common.core.pattern_manager")
+    from workspace_qdrant_mcp.core.pattern_manager import PatternManager
+    importable_modules.append("workspace_qdrant_mcp.core.pattern_manager")
 except ImportError:
     pass
 
 try:
-    from common.core.metadata_validator import MetadataValidator
-    importable_modules.append("common.core.metadata_validator")
+    from workspace_qdrant_mcp.core.metadata_validator import MetadataValidator
+    importable_modules.append("workspace_qdrant_mcp.core.metadata_validator")
 except ImportError:
     pass
 
 try:
-    from common.core.metadata_schema import MetadataSchema
-    importable_modules.append("common.core.metadata_schema")
+    from workspace_qdrant_mcp.core.metadata_schema import MetadataSchema
+    importable_modules.append("workspace_qdrant_mcp.core.metadata_schema")
 except ImportError:
     pass
 
@@ -103,14 +103,14 @@ except ImportError:
 
 # Test common.utils imports
 try:
-    from common.utils.os_directories import DirectoryManager, get_os_specific_directories
-    importable_modules.append("common.utils.os_directories")
+    from workspace_qdrant_mcp.utils.os_directories import DirectoryManager, get_os_specific_directories
+    importable_modules.append("workspace_qdrant_mcp.utils.os_directories")
 except ImportError:
     pass
 
 try:
-    from common.grpc.types import DocumentMessage, SearchRequest, SearchResponse
-    importable_modules.append("common.grpc.types")
+    from workspace_qdrant_mcp.grpc.types import DocumentMessage, SearchRequest, SearchResponse
+    importable_modules.append("workspace_qdrant_mcp.grpc.types")
 except ImportError:
     pass
 
@@ -168,7 +168,7 @@ class TestCommonCoreMemory:
 
     def test_memory_module_attributes(self):
         """Test that memory module has expected attributes"""
-        from common.core import memory
+        from workspace_qdrant_mcp.core import memory
         assert hasattr(memory, 'DocumentMemory')
 
         # Test class instantiation
@@ -631,31 +631,31 @@ class TestModuleExercise:
     def test_import_all_submodules(self):
         """Test importing all submodules to exercise import code"""
         import_attempts = [
-            "common.core.memory",
-            "common.core.client",
-            "common.core.collections",
-            "common.core.config",
-            "common.core.embeddings",
-            "common.core.error_handling",
-            "common.core.hybrid_search",
-            "common.core.lsp_client",
-            "common.core.lsp_config",
-            "common.core.lsp_detector",
-            "common.core.lsp_metadata_extractor",
-            "common.core.metadata_filtering",
-            "common.core.metadata_optimization",
-            "common.core.metadata_schema",
-            "common.core.metadata_validator",
-            "common.core.multitenant_collections",
-            "common.core.pattern_manager",
-            "common.core.performance_analytics",
-            "common.core.performance_metrics",
-            "common.core.performance_monitor",
-            "common.core.performance_monitoring",
-            "common.core.sparse_vectors",
-            "common.core.sqlite_state_manager",
-            "common.utils.os_directories",
-            "common.grpc.types",
+            "workspace_qdrant_mcp.core.memory",
+            "workspace_qdrant_mcp.core.client",
+            "workspace_qdrant_mcp.core.collections",
+            "workspace_qdrant_mcp.core.config",
+            "workspace_qdrant_mcp.core.embeddings",
+            "workspace_qdrant_mcp.core.error_handling",
+            "workspace_qdrant_mcp.core.hybrid_search",
+            "workspace_qdrant_mcp.core.lsp_client",
+            "workspace_qdrant_mcp.core.lsp_config",
+            "workspace_qdrant_mcp.core.lsp_detector",
+            "workspace_qdrant_mcp.core.lsp_metadata_extractor",
+            "workspace_qdrant_mcp.core.metadata_filtering",
+            "workspace_qdrant_mcp.core.metadata_optimization",
+            "workspace_qdrant_mcp.core.metadata_schema",
+            "workspace_qdrant_mcp.core.metadata_validator",
+            "workspace_qdrant_mcp.core.multitenant_collections",
+            "workspace_qdrant_mcp.core.pattern_manager",
+            "workspace_qdrant_mcp.core.performance_analytics",
+            "workspace_qdrant_mcp.core.performance_metrics",
+            "workspace_qdrant_mcp.core.performance_monitor",
+            "workspace_qdrant_mcp.core.performance_monitoring",
+            "workspace_qdrant_mcp.core.sparse_vectors",
+            "workspace_qdrant_mcp.core.sqlite_state_manager",
+            "workspace_qdrant_mcp.utils.os_directories",
+            "workspace_qdrant_mcp.grpc.types",
             "workspace_qdrant_mcp.cli_wrapper",
             "workspace_qdrant_mcp.server",
             "wqm_cli.cli.parsers.text_parser",
@@ -685,13 +685,13 @@ class TestModuleExercise:
     def test_exercise_constants_and_globals(self):
         """Test accessing constants and globals to exercise module-level code"""
         modules_to_exercise = [
-            "common.core.memory",
-            "common.core.client",
-            "common.core.lsp_detector",
-            "common.core.multitenant_collections",
-            "common.core.pattern_manager",
-            "common.core.metadata_validator",
-            "common.core.metadata_schema"
+            "workspace_qdrant_mcp.core.memory",
+            "workspace_qdrant_mcp.core.client",
+            "workspace_qdrant_mcp.core.lsp_detector",
+            "workspace_qdrant_mcp.core.multitenant_collections",
+            "workspace_qdrant_mcp.core.pattern_manager",
+            "workspace_qdrant_mcp.core.metadata_validator",
+            "workspace_qdrant_mcp.core.metadata_schema"
         ]
 
         for module_name in modules_to_exercise:
@@ -724,19 +724,19 @@ class TestModuleExercise:
     def test_exercise_class_creation(self):
         """Test creating instances of classes to exercise __init__ methods"""
         class_creation_tests = [
-            ("common.core.memory", "DocumentMemory"),
-            ("common.core.memory", "MemoryManager"),
-            ("common.core.memory", "MemorySystem"),
-            ("common.core.client", "BaseClient"),
-            ("common.core.client", "AsyncClient"),
-            ("common.core.lsp_detector", "LspDetector"),
-            ("common.core.multitenant_collections", "MultitenantCollectionManager"),
-            ("common.core.pattern_manager", "PatternManager"),
-            ("common.core.metadata_validator", "MetadataValidator"),
-            ("common.core.metadata_schema", "MetadataSchema"),
+            ("workspace_qdrant_mcp.core.memory", "DocumentMemory"),
+            ("workspace_qdrant_mcp.core.memory", "MemoryManager"),
+            ("workspace_qdrant_mcp.core.memory", "MemorySystem"),
+            ("workspace_qdrant_mcp.core.client", "BaseClient"),
+            ("workspace_qdrant_mcp.core.client", "AsyncClient"),
+            ("workspace_qdrant_mcp.core.lsp_detector", "LspDetector"),
+            ("workspace_qdrant_mcp.core.multitenant_collections", "MultitenantCollectionManager"),
+            ("workspace_qdrant_mcp.core.pattern_manager", "PatternManager"),
+            ("workspace_qdrant_mcp.core.metadata_validator", "MetadataValidator"),
+            ("workspace_qdrant_mcp.core.metadata_schema", "MetadataSchema"),
             ("wqm_cli.cli.parsers.text_parser", "TextParser"),
             ("wqm_cli.cli.parsers.pdf_parser", "PDFParser"),
-            ("common.utils.os_directories", "DirectoryManager")
+            ("workspace_qdrant_mcp.utils.os_directories", "DirectoryManager")
         ]
 
         created_instances = 0
@@ -774,10 +774,10 @@ class TestModuleExercise:
     async def test_exercise_async_methods(self):
         """Test calling async methods to exercise async code paths"""
         async_method_tests = [
-            ("common.core.client", "AsyncClient", "connect"),
-            ("common.core.client", "AsyncClient", "disconnect"),
-            ("common.core.memory", "DocumentMemory", "store_document"),
-            ("common.core.memory", "DocumentMemory", "retrieve_documents"),
+            ("workspace_qdrant_mcp.core.client", "AsyncClient", "connect"),
+            ("workspace_qdrant_mcp.core.client", "AsyncClient", "disconnect"),
+            ("workspace_qdrant_mcp.core.memory", "DocumentMemory", "store_document"),
+            ("workspace_qdrant_mcp.core.memory", "DocumentMemory", "retrieve_documents"),
             ("wqm_cli.cli.parsers.text_parser", "TextParser", "parse"),
             ("wqm_cli.cli.parsers.pdf_parser", "PDFParser", "parse")
         ]

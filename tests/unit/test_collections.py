@@ -4,6 +4,12 @@ Unit tests for collection management.
 Tests workspace collection creation, configuration, and management.
 """
 
+import sys
+from pathlib import Path
+
+# Add src/python to path for common module imports
+sys.path.insert(0, str(Path(__file__).parent.parent.parent / "src" / "python"))
+
 from unittest.mock import MagicMock
 
 import pytest
@@ -11,11 +17,11 @@ from qdrant_client import QdrantClient
 from qdrant_client.http import models
 from qdrant_client.http.exceptions import ResponseHandlingException
 
-from common.core.collections import (
+from workspace_qdrant_mcp.core.collections import (
     CollectionConfig,
     WorkspaceCollectionManager,
 )
-from common.core.config import Config, EmbeddingConfig, WorkspaceConfig
+from workspace_qdrant_mcp.core.config import Config, EmbeddingConfig, WorkspaceConfig
 
 
 class TestCollectionConfig:

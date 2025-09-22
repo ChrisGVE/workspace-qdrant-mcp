@@ -37,46 +37,46 @@ zero_coverage_modules = [
     "workspace_qdrant_mcp.tools.memory",
     "workspace_qdrant_mcp.tools.state_management",
     "workspace_qdrant_mcp.server",
-    "common.core.automatic_recovery",
-    "common.core.backward_compatibility",
-    "common.core.collection_naming_validation",
-    "common.core.collections",
-    "common.core.collision_detection",
-    "common.core.component_coordination",
-    "common.core.component_isolation",
-    "common.core.component_lifecycle",
-    "common.core.component_migration",
-    "common.core.config",
-    "common.core.daemon_client",
-    "common.core.daemon_manager",
-    "common.core.degradation_integration",
-    "common.core.embeddings",
-    "common.core.enhanced_config",
-    "common.core.file_watcher",
-    "common.core.graceful_degradation",
-    "common.core.grpc_client",
-    "common.core.incremental_processor",
-    "common.core.ingestion_config",
-    "common.core.language_filters",
-    "common.core.llm_access_control",
-    "common.core.logging_config",
-    "common.core.lsp_client",
-    "common.core.lsp_fallback",
-    "common.core.lsp_health_monitor",
-    "common.core.lsp_notifications",
-    "common.core.persistent_file_watcher",
-    "common.core.priority_queue_manager",
-    "common.core.project_config_manager",
-    "common.core.pure_daemon_client",
-    "common.core.schema_documentation",
-    "common.core.service_discovery_integration",
-    "common.core.smart_ingestion_router",
-    "common.core.ssl_config",
-    "common.core.state_aware_ingestion",
-    "common.core.unified_config",
-    "common.core.watch_sync",
-    "common.core.watch_validation",
-    "common.core.yaml_metadata"
+    "workspace_qdrant_mcp.core.automatic_recovery",
+    "workspace_qdrant_mcp.core.backward_compatibility",
+    "workspace_qdrant_mcp.core.collection_naming_validation",
+    "workspace_qdrant_mcp.core.collections",
+    "workspace_qdrant_mcp.core.collision_detection",
+    "workspace_qdrant_mcp.core.component_coordination",
+    "workspace_qdrant_mcp.core.component_isolation",
+    "workspace_qdrant_mcp.core.component_lifecycle",
+    "workspace_qdrant_mcp.core.component_migration",
+    "workspace_qdrant_mcp.core.config",
+    "workspace_qdrant_mcp.core.daemon_client",
+    "workspace_qdrant_mcp.core.daemon_manager",
+    "workspace_qdrant_mcp.core.degradation_integration",
+    "workspace_qdrant_mcp.core.embeddings",
+    "workspace_qdrant_mcp.core.enhanced_config",
+    "workspace_qdrant_mcp.core.file_watcher",
+    "workspace_qdrant_mcp.core.graceful_degradation",
+    "workspace_qdrant_mcp.core.grpc_client",
+    "workspace_qdrant_mcp.core.incremental_processor",
+    "workspace_qdrant_mcp.core.ingestion_config",
+    "workspace_qdrant_mcp.core.language_filters",
+    "workspace_qdrant_mcp.core.llm_access_control",
+    "workspace_qdrant_mcp.core.logging_config",
+    "workspace_qdrant_mcp.core.lsp_client",
+    "workspace_qdrant_mcp.core.lsp_fallback",
+    "workspace_qdrant_mcp.core.lsp_health_monitor",
+    "workspace_qdrant_mcp.core.lsp_notifications",
+    "workspace_qdrant_mcp.core.persistent_file_watcher",
+    "workspace_qdrant_mcp.core.priority_queue_manager",
+    "workspace_qdrant_mcp.core.project_config_manager",
+    "workspace_qdrant_mcp.core.pure_daemon_client",
+    "workspace_qdrant_mcp.core.schema_documentation",
+    "workspace_qdrant_mcp.core.service_discovery_integration",
+    "workspace_qdrant_mcp.core.smart_ingestion_router",
+    "workspace_qdrant_mcp.core.ssl_config",
+    "workspace_qdrant_mcp.core.state_aware_ingestion",
+    "workspace_qdrant_mcp.core.unified_config",
+    "workspace_qdrant_mcp.core.watch_sync",
+    "workspace_qdrant_mcp.core.watch_validation",
+    "workspace_qdrant_mcp.core.yaml_metadata"
 ]
 
 # Import all possible modules
@@ -278,7 +278,7 @@ class TestCommonCoreModules:
     def test_automatic_recovery_import(self):
         """Test automatic_recovery module"""
         try:
-            from common.core import automatic_recovery
+            from workspace_qdrant_mcp.core import automatic_recovery
             self._exercise_module(automatic_recovery)
         except ImportError:
             pass
@@ -286,7 +286,7 @@ class TestCommonCoreModules:
     def test_backward_compatibility_import(self):
         """Test backward_compatibility module"""
         try:
-            from common.core import backward_compatibility
+            from workspace_qdrant_mcp.core import backward_compatibility
             self._exercise_module(backward_compatibility)
         except ImportError:
             pass
@@ -294,7 +294,7 @@ class TestCommonCoreModules:
     def test_collections_import(self):
         """Test collections module"""
         try:
-            from common.core import collections
+            from workspace_qdrant_mcp.core import collections
             self._exercise_module(collections)
 
             # Try to create collection manager
@@ -313,7 +313,7 @@ class TestCommonCoreModules:
     def test_config_import(self):
         """Test config module"""
         try:
-            from common.core import config
+            from workspace_qdrant_mcp.core import config
             self._exercise_module(config)
 
             # Try to create configuration
@@ -339,7 +339,7 @@ class TestCommonCoreModules:
     def test_embeddings_import(self):
         """Test embeddings module"""
         try:
-            from common.core import embeddings
+            from workspace_qdrant_mcp.core import embeddings
             self._exercise_module(embeddings)
 
             # Try to create embedding service
@@ -358,7 +358,7 @@ class TestCommonCoreModules:
     def test_file_watcher_import(self):
         """Test file_watcher module"""
         try:
-            from common.core import file_watcher
+            from workspace_qdrant_mcp.core import file_watcher
             self._exercise_module(file_watcher)
 
             # Try to create file watcher
@@ -376,7 +376,7 @@ class TestCommonCoreModules:
     def test_lsp_client_import(self):
         """Test lsp_client module"""
         try:
-            from common.core import lsp_client
+            from workspace_qdrant_mcp.core import lsp_client
             self._exercise_module(lsp_client)
 
             # Try to create LSP client
@@ -394,7 +394,7 @@ class TestCommonCoreModules:
     def test_sqlite_state_manager_import(self):
         """Test sqlite_state_manager module"""
         try:
-            from common.core import sqlite_state_manager
+            from workspace_qdrant_mcp.core import sqlite_state_manager
             self._exercise_module(sqlite_state_manager)
 
             # Try to create SQLite state manager
@@ -478,7 +478,7 @@ class TestAsyncExercise:
     async def test_async_sqlite_operations(self):
         """Test async SQLite operations"""
         try:
-            from common.core.sqlite_state_manager import SQLiteStateManager
+            from workspace_qdrant_mcp.core.sqlite_state_manager import SQLiteStateManager
 
             with tempfile.NamedTemporaryFile(suffix='.db', delete=False) as tmp:
                 manager = SQLiteStateManager(db_path=tmp.name)
@@ -577,7 +577,7 @@ class TestAsyncExercise:
     async def test_async_lsp_operations(self):
         """Test async LSP operations"""
         try:
-            from common.core.lsp_client import AsyncioLspClient
+            from workspace_qdrant_mcp.core.lsp_client import AsyncioLspClient
 
             client = AsyncioLspClient(server_cmd=['echo'])
 
@@ -607,7 +607,7 @@ class TestErrorPathExercise:
     def test_error_handling_import(self):
         """Test error handling module"""
         try:
-            from common.core import error_handling
+            from workspace_qdrant_mcp.core import error_handling
 
             # Try to create various error types
             if hasattr(error_handling, 'WorkspaceError'):
@@ -642,7 +642,7 @@ class TestErrorPathExercise:
 
         # Test invalid configuration scenarios
         try:
-            from common.core.config import Configuration
+            from workspace_qdrant_mcp.core.config import Configuration
             config = Configuration()
 
             # Try to load invalid config
@@ -695,7 +695,7 @@ class TestEdgeCaseExercise:
     def test_empty_inputs(self):
         """Test handling of empty inputs"""
         try:
-            from common.core.metadata_validator import MetadataValidator
+            from workspace_qdrant_mcp.core.metadata_validator import MetadataValidator
             validator = MetadataValidator()
 
             # Test empty data
@@ -713,7 +713,7 @@ class TestEdgeCaseExercise:
     def test_large_inputs(self):
         """Test handling of large inputs"""
         try:
-            from common.core.pattern_manager import PatternManager
+            from workspace_qdrant_mcp.core.pattern_manager import PatternManager
             manager = PatternManager()
 
             if hasattr(manager, 'add_pattern'):
@@ -741,7 +741,7 @@ class TestEdgeCaseExercise:
         ]
 
         try:
-            from common.core.metadata_validator import MetadataValidator
+            from workspace_qdrant_mcp.core.metadata_validator import MetadataValidator
             validator = MetadataValidator()
 
             if hasattr(validator, 'validate_type'):

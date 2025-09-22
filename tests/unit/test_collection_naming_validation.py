@@ -17,7 +17,7 @@ Test Categories:
 import pytest
 from typing import List, Optional
 
-from src.python.common.core.collection_naming_validation import (
+from workspace_qdrant_mcp.core.collection_naming_validation import (
     CollectionNamingValidator,
     ValidationResult,
     NamingConfiguration,
@@ -30,7 +30,7 @@ from src.python.common.core.collection_naming_validation import (
     check_collection_conflicts
 )
 
-from src.python.common.core.metadata_schema import (
+from workspace_qdrant_mcp.core.metadata_schema import (
     CollectionCategory,
     WorkspaceScope,
     AccessLevel

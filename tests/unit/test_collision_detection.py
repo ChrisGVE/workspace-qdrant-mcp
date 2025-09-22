@@ -23,7 +23,7 @@ import threading
 from typing import List, Set
 from unittest.mock import Mock, AsyncMock, patch
 
-from src.python.common.core.collision_detection import (
+from workspace_qdrant_mcp.core.collision_detection import (
     BloomFilter,
     CollisionRegistry,
     NameSuggestionEngine,
@@ -35,7 +35,7 @@ from src.python.common.core.collision_detection import (
     CollisionRegistryEntry
 )
 
-from src.python.common.core.collection_naming_validation import (
+from workspace_qdrant_mcp.core.collection_naming_validation import (
     CollectionNamingValidator,
     ValidationResult,
     NamingConfiguration,
@@ -43,7 +43,7 @@ from src.python.common.core.collection_naming_validation import (
     ConflictType
 )
 
-from src.python.common.core.metadata_schema import CollectionCategory
+from workspace_qdrant_mcp.core.metadata_schema import CollectionCategory
 
 
 class TestBloomFilter:

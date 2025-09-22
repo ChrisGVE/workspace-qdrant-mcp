@@ -10,6 +10,12 @@ Tests the core functionality of daemon lifecycle management including:
 - Graceful shutdown and cleanup
 """
 
+import sys
+from pathlib import Path
+
+# Add src/python to path for common module imports
+sys.path.insert(0, str(Path(__file__).parent.parent.parent / "src" / "python"))
+
 import asyncio
 import json
 import os
@@ -21,7 +27,7 @@ from unittest.mock import AsyncMock, Mock, patch, MagicMock
 from unittest import mock
 import pytest
 
-from common.core.daemon_manager import (
+from workspace_qdrant_mcp.core.daemon_manager import (
     DaemonManager,
     DaemonInstance,
     DaemonConfig,
@@ -31,8 +37,8 @@ from common.core.daemon_manager import (
     get_daemon_for_project,
     shutdown_all_daemons
 )
-from common.core.resource_manager import ResourceLimits
-from common.utils.project_detection import DaemonIdentifier, ProjectDetector
+from workspace_qdrant_mcp.core.resource_manager import ResourceLimits
+from workspace_qdrant_mcp.utils.project_detection import DaemonIdentifier, ProjectDetector
 
 from .conftest_daemon import (
     mock_daemon_config,

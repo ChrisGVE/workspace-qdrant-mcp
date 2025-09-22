@@ -35,7 +35,7 @@ class TestAutoIngestion:
     def test_auto_ingestion_classes(self):
         """Test auto_ingestion classes."""
         try:
-            from common.core.auto_ingestion import AutoIngestionEngine
+            from workspace_qdrant_mcp.core.auto_ingestion import AutoIngestionEngine
             assert AutoIngestionEngine is not None
             assert isinstance(AutoIngestionEngine, type)
 
@@ -88,14 +88,14 @@ class TestAutomaticRecovery:
     def test_recovery_classes(self):
         """Test recovery classes."""
         try:
-            from common.core.automatic_recovery import RecoveryManager
+            from workspace_qdrant_mcp.core.automatic_recovery import RecoveryManager
             assert RecoveryManager is not None
             assert isinstance(RecoveryManager, type)
 
         except (ImportError, AttributeError):
             # Try alternative class names
             try:
-                from common.core.automatic_recovery import AutomaticRecovery
+                from workspace_qdrant_mcp.core.automatic_recovery import AutomaticRecovery
                 assert AutomaticRecovery is not None
             except (ImportError, AttributeError):
                 pytest.skip("Recovery classes not available")
@@ -180,7 +180,7 @@ class TestConfigMigration:
     def test_migration_classes(self):
         """Test migration classes."""
         try:
-            from common.core.config_migration import ConfigMigrator
+            from workspace_qdrant_mcp.core.config_migration import ConfigMigrator
             assert ConfigMigrator is not None
             assert isinstance(ConfigMigrator, type)
 
@@ -228,14 +228,14 @@ class TestLSPClient:
     def test_lsp_client_classes(self):
         """Test LSP client classes."""
         try:
-            from common.core.lsp_client import LspClient
+            from workspace_qdrant_mcp.core.lsp_client import LspClient
             assert LspClient is not None
             assert isinstance(LspClient, type)
 
         except (ImportError, AttributeError):
             # Try alternative names
             try:
-                from common.core.lsp_client import LSPClient
+                from workspace_qdrant_mcp.core.lsp_client import LSPClient
                 assert LSPClient is not None
             except (ImportError, AttributeError):
                 pytest.skip("LSP client classes not available")
@@ -275,14 +275,14 @@ class TestServiceDiscovery:
     def test_service_discovery_classes(self):
         """Test service discovery classes."""
         try:
-            from common.core.service_discovery import ServiceDiscovery
+            from workspace_qdrant_mcp.core.service_discovery import ServiceDiscovery
             assert ServiceDiscovery is not None
             assert isinstance(ServiceDiscovery, type)
 
         except (ImportError, AttributeError):
             # Try alternative names
             try:
-                from common.core.service_discovery import DiscoveryService
+                from workspace_qdrant_mcp.core.service_discovery import DiscoveryService
                 assert DiscoveryService is not None
             except (ImportError, AttributeError):
                 pytest.skip("Service discovery classes not available")
@@ -319,13 +319,13 @@ class TestWorkflowOrchestration:
     def test_orchestration_classes(self):
         """Test orchestration classes."""
         try:
-            from common.core.workflow_orchestration import WorkflowOrchestrator
+            from workspace_qdrant_mcp.core.workflow_orchestration import WorkflowOrchestrator
             assert WorkflowOrchestrator is not None
             assert isinstance(WorkflowOrchestrator, type)
 
         except (ImportError, AttributeError):
             try:
-                from common.core.workflow_orchestration import Orchestrator
+                from workspace_qdrant_mcp.core.workflow_orchestration import Orchestrator
                 assert Orchestrator is not None
             except (ImportError, AttributeError):
                 pytest.skip("Orchestration classes not available")
@@ -419,7 +419,7 @@ class TestPerformanceModules:
     def test_performance_classes(self):
         """Test performance monitoring classes."""
         try:
-            from common.core.performance_monitoring import PerformanceMonitor
+            from workspace_qdrant_mcp.core.performance_monitoring import PerformanceMonitor
             assert PerformanceMonitor is not None
             assert isinstance(PerformanceMonitor, type)
 

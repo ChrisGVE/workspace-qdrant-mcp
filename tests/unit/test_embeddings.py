@@ -4,12 +4,18 @@ Unit tests for embedding service.
 Tests FastEmbed integration, dense/sparse embeddings, and text processing.
 """
 
+import sys
+from pathlib import Path
+
+# Add src/python to path for common module imports
+sys.path.insert(0, str(Path(__file__).parent.parent.parent / "src" / "python"))
+
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from common.core.config import Config, EmbeddingConfig
-from common.core.embeddings import EmbeddingService
+from workspace_qdrant_mcp.core.config import Config, EmbeddingConfig
+from workspace_qdrant_mcp.core.embeddings import EmbeddingService
 
 
 class TestEmbeddingService:

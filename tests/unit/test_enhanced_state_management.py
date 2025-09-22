@@ -11,6 +11,12 @@ This module tests the enhanced state management features including:
 - State recovery scenarios
 """
 
+import sys
+from pathlib import Path
+
+# Add src/python to path for common module imports
+sys.path.insert(0, str(Path(__file__).parent.parent.parent / "src" / "python"))
+
 import asyncio
 import json
 import pytest
@@ -21,7 +27,7 @@ from pathlib import Path
 from datetime import datetime, timezone, timedelta
 from unittest.mock import AsyncMock, patch, MagicMock
 
-from common.core.sqlite_state_manager import SQLiteStateManager, FileProcessingStatus, ProcessingPriority
+from workspace_qdrant_mcp.core.sqlite_state_manager import SQLiteStateManager, FileProcessingStatus, ProcessingPriority
 from workspace_qdrant_mcp.core.state_enhancements import (
     EnhancedStateManager, 
     MigrationStep, 

@@ -10,13 +10,19 @@ Tests cover:
 - Error handling and edge cases
 """
 
+import sys
+from pathlib import Path
+
+# Add src/python to path for common module imports
+sys.path.insert(0, str(Path(__file__).parent.parent.parent / "src" / "python"))
+
 import asyncio
 import pytest
 import time
 from unittest.mock import AsyncMock, MagicMock, Mock, patch
 from typing import Dict, Any, List
 
-from common.core.lsp_health_monitor import (
+from workspace_qdrant_mcp.core.lsp_health_monitor import (
     LspHealthMonitor,
     HealthCheckConfig,
     HealthStatus,
@@ -26,7 +32,7 @@ from common.core.lsp_health_monitor import (
     ServerHealthInfo,
     UserNotification,
 )
-from common.core.lsp_client import (
+from workspace_qdrant_mcp.core.lsp_client import (
     AsyncioLspClient,
     ConnectionState,
     CircuitBreakerState,
@@ -34,7 +40,7 @@ from common.core.lsp_client import (
     LspTimeoutError,
     ServerCapabilities,
 )
-from common.core.error_handling import ErrorCategory, ErrorSeverity
+from workspace_qdrant_mcp.core.error_handling import ErrorCategory, ErrorSeverity
 
 
 @pytest.fixture

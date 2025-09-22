@@ -5,6 +5,12 @@ This module provides specialized fixtures for testing daemon core functionality
 including DaemonManager, PriorityQueueManager, ProcessingEngine, and file watching.
 """
 
+import sys
+from pathlib import Path
+
+# Add src/python to path for common module imports
+sys.path.insert(0, str(Path(__file__).parent.parent.parent / "src" / "python"))
+
 import asyncio
 import os
 import tempfile
@@ -15,14 +21,14 @@ from typing import AsyncGenerator, Dict, List, Optional
 from unittest.mock import AsyncMock, Mock, patch, MagicMock
 import pytest
 
-from common.core.daemon_manager import (
+from workspace_qdrant_mcp.core.daemon_manager import (
     DaemonConfig, 
     DaemonStatus, 
     DaemonInstance, 
     DaemonManager,
     PortManager
 )
-from common.core.priority_queue_manager import (
+from workspace_qdrant_mcp.core.priority_queue_manager import (
     PriorityQueueManager,
     ResourceConfiguration,
     MCPActivityMetrics,
@@ -32,7 +38,7 @@ from common.core.priority_queue_manager import (
     ProcessingJob,
     PriorityCalculationContext
 )
-from common.core.sqlite_state_manager import (
+from workspace_qdrant_mcp.core.sqlite_state_manager import (
     SQLiteStateManager,
     ProcessingPriority,
     FileProcessingStatus

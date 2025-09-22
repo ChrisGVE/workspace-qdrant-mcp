@@ -26,36 +26,36 @@ class TestAllUncoveredModules:
         """Import all common modules to get basic coverage."""
         modules_to_import = [
             # Common core modules
-            "common.core.auto_ingestion",
-            "common.core.automatic_recovery",
-            "common.core.claude_integration",
-            "common.core.collection_manager_integration",
-            "common.core.collection_naming_validation",
-            "common.core.collision_detection",
-            "common.core.component_coordination",
-            "common.core.component_isolation",
-            "common.core.component_migration",
-            "common.core.config",
-            "common.core.daemon_client",
-            "common.core.degradation_integration",
-            "common.core.error_handling",
-            "common.core.lsp_config",
-            "common.core.metadata_schema",
-            "common.core.multitenant_collections",
-            "common.core.performance_monitoring",
-            "common.core.state_aware_ingestion",
-            "common.core.workflow_orchestration",
-            "common.core.yaml_config",
+            "workspace_qdrant_mcp.core.auto_ingestion",
+            "workspace_qdrant_mcp.core.automatic_recovery",
+            "workspace_qdrant_mcp.core.claude_integration",
+            "workspace_qdrant_mcp.core.collection_manager_integration",
+            "workspace_qdrant_mcp.core.collection_naming_validation",
+            "workspace_qdrant_mcp.core.collision_detection",
+            "workspace_qdrant_mcp.core.component_coordination",
+            "workspace_qdrant_mcp.core.component_isolation",
+            "workspace_qdrant_mcp.core.component_migration",
+            "workspace_qdrant_mcp.core.config",
+            "workspace_qdrant_mcp.core.daemon_client",
+            "workspace_qdrant_mcp.core.degradation_integration",
+            "workspace_qdrant_mcp.core.error_handling",
+            "workspace_qdrant_mcp.core.lsp_config",
+            "workspace_qdrant_mcp.core.metadata_schema",
+            "workspace_qdrant_mcp.core.multitenant_collections",
+            "workspace_qdrant_mcp.core.performance_monitoring",
+            "workspace_qdrant_mcp.core.state_aware_ingestion",
+            "workspace_qdrant_mcp.core.workflow_orchestration",
+            "workspace_qdrant_mcp.core.yaml_config",
             # Common grpc modules
-            "common.grpc.ingestion_pb2",
-            "common.grpc.ingestion_pb2_grpc",
-            "common.grpc.types",
+            "workspace_qdrant_mcp.grpc.ingestion_pb2",
+            "workspace_qdrant_mcp.grpc.ingestion_pb2_grpc",
+            "workspace_qdrant_mcp.grpc.types",
             # Common memory modules
-            "common.memory.types",
+            "workspace_qdrant_mcp.memory.types",
             # Common logging modules
-            "common.logging.loguru_config",
+            "workspace_qdrant_mcp.logging.loguru_config",
             # Common utils modules
-            "common.utils.project_detection",
+            "workspace_qdrant_mcp.utils.project_detection",
             # Workspace modules
             "workspace_qdrant_mcp.core.client",
             "workspace_qdrant_mcp.core.embeddings",
@@ -97,7 +97,7 @@ class TestAllUncoveredModules:
     def test_function_calls_with_mock_data(self):
         """Test function calls with mock data to maximize coverage."""
         try:
-            from common.core import collection_naming_validation
+            from workspace_qdrant_mcp.core import collection_naming_validation
 
             # Test validation functions
             test_names = [
@@ -132,7 +132,7 @@ class TestAllUncoveredModules:
     def test_error_handling_comprehensive(self):
         """Test error handling comprehensively."""
         try:
-            from common.core import error_handling
+            from workspace_qdrant_mcp.core import error_handling
 
             # Test with various error types
             test_errors = [
@@ -182,7 +182,7 @@ class TestAllUncoveredModules:
     def test_metadata_schema_comprehensive(self):
         """Test metadata schema comprehensively."""
         try:
-            from common.core import metadata_schema
+            from workspace_qdrant_mcp.core import metadata_schema
 
             # Test with various metadata structures
             test_metadata = [
@@ -229,7 +229,7 @@ class TestAllUncoveredModules:
     def test_component_coordination_comprehensive(self):
         """Test component coordination comprehensively."""
         try:
-            from common.core import component_coordination
+            from workspace_qdrant_mcp.core import component_coordination
 
             # Test coordinator classes and functions
             classes_to_test = [
@@ -277,7 +277,7 @@ class TestAllUncoveredModules:
     def test_config_module_comprehensive(self):
         """Test config module comprehensively."""
         try:
-            from common.core import config
+            from workspace_qdrant_mcp.core import config
 
             # Test config with various configurations
             test_configs = [
@@ -326,7 +326,7 @@ class TestAllUncoveredModules:
     def test_lsp_config_comprehensive(self):
         """Test LSP config comprehensively."""
         try:
-            from common.core import lsp_config
+            from workspace_qdrant_mcp.core import lsp_config
 
             # Test LSP configuration functions
             languages = ["python", "javascript", "typescript", "rust", "go", "java", "cpp"]
@@ -371,7 +371,7 @@ class TestAsyncModulesComprehensive:
     async def test_daemon_client_async(self):
         """Test daemon client async operations."""
         try:
-            from common.core import daemon_client
+            from workspace_qdrant_mcp.core import daemon_client
 
             # Test daemon client classes
             classes_to_test = ['DaemonClient', 'AsyncDaemonClient', 'Client']
@@ -409,7 +409,7 @@ class TestAsyncModulesComprehensive:
     async def test_auto_ingestion_async(self):
         """Test auto ingestion async operations."""
         try:
-            from common.core import auto_ingestion
+            from workspace_qdrant_mcp.core import auto_ingestion
 
             # Test auto ingestion functions
             for attr_name in dir(auto_ingestion):
@@ -442,7 +442,7 @@ class TestAsyncModulesComprehensive:
     async def test_workflow_orchestration_async(self):
         """Test workflow orchestration async operations."""
         try:
-            from common.core import workflow_orchestration
+            from workspace_qdrant_mcp.core import workflow_orchestration
 
             # Test orchestration classes
             for attr_name in dir(workflow_orchestration):
@@ -478,7 +478,7 @@ class TestProtobufModulesComprehensive:
     def test_ingestion_pb2_comprehensive(self):
         """Test ingestion protobuf comprehensively."""
         try:
-            from common.grpc import ingestion_pb2
+            from workspace_qdrant_mcp.grpc import ingestion_pb2
 
             # Get all message classes from the protobuf module
             for attr_name in dir(ingestion_pb2):
@@ -526,7 +526,7 @@ class TestProtobufModulesComprehensive:
     def test_ingestion_grpc_comprehensive(self):
         """Test ingestion gRPC comprehensively."""
         try:
-            from common.grpc import ingestion_pb2_grpc
+            from workspace_qdrant_mcp.grpc import ingestion_pb2_grpc
 
             # Test service classes
             for attr_name in dir(ingestion_pb2_grpc):
@@ -557,7 +557,7 @@ class TestProtobufModulesComprehensive:
     def test_grpc_types_comprehensive(self):
         """Test gRPC types comprehensively."""
         try:
-            from common.grpc import types
+            from workspace_qdrant_mcp.grpc import types
 
             # Test all type classes
             for attr_name in dir(types):
@@ -587,7 +587,7 @@ class TestUtilityModulesComprehensive:
     def test_project_detection_comprehensive(self):
         """Test project detection comprehensively."""
         try:
-            from common.utils import project_detection
+            from workspace_qdrant_mcp.utils import project_detection
 
             # Test with various project paths
             test_paths = [
@@ -628,7 +628,7 @@ class TestUtilityModulesComprehensive:
     def test_logging_config_comprehensive(self):
         """Test logging config comprehensively."""
         try:
-            from common.logging import loguru_config
+            from workspace_qdrant_mcp.logging import loguru_config
 
             # Test logging configuration
             log_levels = ["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"]
@@ -657,7 +657,7 @@ class TestUtilityModulesComprehensive:
     def test_memory_types_comprehensive(self):
         """Test memory types comprehensively."""
         try:
-            from common.memory import types
+            from workspace_qdrant_mcp.memory import types
 
             # Test memory type classes with various data
             test_data = [

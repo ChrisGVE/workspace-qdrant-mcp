@@ -6,6 +6,12 @@ injection workflow including unsupported file types, memory constraints,
 processing failures, and recovery mechanisms.
 """
 
+import sys
+from pathlib import Path
+
+# Add src/python to path for common module imports
+sys.path.insert(0, str(Path(__file__).parent.parent.parent / "src" / "python"))
+
 import asyncio
 import os
 import tempfile
@@ -15,8 +21,8 @@ from unittest.mock import AsyncMock, MagicMock, Mock, patch
 
 import pytest
 
-from common.core.config import Config, EmbeddingConfig
-from common.core.embeddings import EmbeddingService
+from workspace_qdrant_mcp.core.config import Config, EmbeddingConfig
+from workspace_qdrant_mcp.core.embeddings import EmbeddingService
 from wqm_cli.cli.parsers.base import DocumentParser, ParsedDocument
 from wqm_cli.cli.parsers.exceptions import ParsingError, ParsingTimeout, FileFormatError
 from wqm_cli.cli.parsers.file_detector import detect_file_type

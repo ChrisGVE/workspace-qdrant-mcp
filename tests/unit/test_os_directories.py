@@ -12,7 +12,7 @@ from unittest.mock import patch
 
 import pytest
 
-from src.python.common.utils.os_directories import OSDirectories
+from workspace_qdrant_mcp.utils.os_directories import OSDirectories
 
 
 class TestOSDirectories:

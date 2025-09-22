@@ -4,6 +4,12 @@ Unit tests for project detection functionality.
 Tests Git repository detection, project naming, and submodule handling.
 """
 
+import sys
+from pathlib import Path
+
+# Add src/python to path for common module imports
+sys.path.insert(0, str(Path(__file__).parent.parent.parent / "src" / "python"))
+
 import os
 import tempfile
 from pathlib import Path
@@ -13,7 +19,7 @@ import git
 import pytest
 from git.exc import GitError
 
-from common.utils.project_detection import ProjectDetector
+from workspace_qdrant_mcp.utils.project_detection import ProjectDetector
 
 
 class TestProjectDetector:

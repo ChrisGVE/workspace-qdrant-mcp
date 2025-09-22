@@ -12,6 +12,12 @@ Tests the inter-process communication capabilities including:
 - Service registry operations for multi-daemon coordination
 """
 
+import sys
+from pathlib import Path
+
+# Add src/python to path for common module imports
+sys.path.insert(0, str(Path(__file__).parent.parent.parent / "src" / "python"))
+
 import asyncio
 import json
 import os
@@ -26,12 +32,12 @@ import grpc
 from grpc import StatusCode
 from google.protobuf.empty_pb2 import Empty
 
-from common.core.daemon_client import (
+from workspace_qdrant_mcp.core.daemon_client import (
     DaemonClient,
     DaemonConnectionError
 )
-from common.core.grpc_client import GrpcWorkspaceClient
-from common.core.daemon_manager import (
+from workspace_qdrant_mcp.core.grpc_client import GrpcWorkspaceClient
+from workspace_qdrant_mcp.core.daemon_manager import (
     DaemonManager,
     DaemonInstance,
     DaemonConfig

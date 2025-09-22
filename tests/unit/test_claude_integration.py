@@ -19,8 +19,8 @@ src_path = Path(__file__).parent.parent.parent / "src" / "python"
 sys.path.insert(0, str(src_path))
 
 try:
-    from common.core.claude_integration import ClaudeIntegrationManager
-    from common.core.memory import (
+    from workspace_qdrant_mcp.core.claude_integration import ClaudeIntegrationManager
+    from workspace_qdrant_mcp.core.memory import (
         AuthorityLevel,
         MemoryCategory,
         MemoryConflict,

@@ -5,6 +5,12 @@ Tests JSON-RPC protocol compliance, communication modes, error handling,
 timeout behavior, and integration with mock LSP servers.
 """
 
+import sys
+from pathlib import Path
+
+# Add src/python to path for common module imports
+sys.path.insert(0, str(Path(__file__).parent.parent.parent / "src" / "python"))
+
 import asyncio
 import json
 import pytest
@@ -14,7 +20,7 @@ from pathlib import Path
 from typing import AsyncIterator, Dict, List, Optional
 from unittest.mock import AsyncMock, Mock, patch
 
-from common.core.lsp_client import (
+from workspace_qdrant_mcp.core.lsp_client import (
     AsyncioLspClient,
     LspError,
     LspTimeoutError,

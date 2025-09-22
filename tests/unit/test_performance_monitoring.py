@@ -5,6 +5,12 @@ This module contains comprehensive tests for the performance metrics collection,
 analytics, storage, and optimization recommendation components.
 """
 
+import sys
+from pathlib import Path
+
+# Add src/python to path for common module imports
+sys.path.insert(0, str(Path(__file__).parent.parent.parent / "src" / "python"))
+
 import asyncio
 import pytest
 import tempfile
@@ -12,15 +18,15 @@ from datetime import datetime, timedelta
 from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock, patch
 
-from common.core.performance_metrics import (
+from workspace_qdrant_mcp.core.performance_metrics import (
     MetricType, PerformanceMetric, PerformanceMetricsCollector,
     OperationTrace, PerformanceLevel
 )
-from common.core.performance_analytics import (
+from workspace_qdrant_mcp.core.performance_analytics import (
     PerformanceAnalyzer, OptimizationType, Priority
 )
-from common.core.performance_storage import PerformanceStorage
-from common.core.performance_monitor import PerformanceMonitor
+from workspace_qdrant_mcp.core.performance_storage import PerformanceStorage
+from workspace_qdrant_mcp.core.performance_monitor import PerformanceMonitor
 
 
 class TestPerformanceMetrics:
@@ -128,7 +134,7 @@ class TestPerformanceAnalytics:
     @pytest.mark.asyncio
     async def test_performance_analysis(self, analyzer, mock_metrics_collector):
         """Test performance analysis report generation."""
-        from common.core.performance_metrics import MetricSummary
+        from workspace_qdrant_mcp.core.performance_metrics import MetricSummary
         
         # Mock metric summaries
         mock_summary = MetricSummary(
@@ -158,7 +164,7 @@ class TestPerformanceAnalytics:
     @pytest.mark.asyncio
     async def test_optimization_recommendations(self, analyzer, mock_metrics_collector):
         """Test optimization recommendation generation."""
-        from common.core.performance_metrics import MetricSummary
+        from workspace_qdrant_mcp.core.performance_metrics import MetricSummary
         
         # Mock high latency scenario
         high_latency_summary = MetricSummary(
@@ -371,7 +377,7 @@ class TestPerformanceMonitor:
     async def test_performance_summary(self, performance_monitor):
         """Test performance summary generation."""
         with patch.object(performance_monitor.analyzer, 'analyze_performance') as mock_analyze:
-            from common.core.performance_analytics import PerformanceReport
+            from workspace_qdrant_mcp.core.performance_analytics import PerformanceReport
             
             mock_report = PerformanceReport(
                 project_id="test_project",
@@ -393,7 +399,7 @@ class TestPerformanceMonitor:
 @pytest.mark.asyncio
 async def test_performance_monitor_integration():
     """Test integration between all performance monitoring components."""
-    from common.core.performance_monitor import get_performance_monitor
+    from workspace_qdrant_mcp.core.performance_monitor import get_performance_monitor
     
     # Get performance monitor
     monitor = await get_performance_monitor("integration_test_project")

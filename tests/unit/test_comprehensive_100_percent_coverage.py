@@ -34,16 +34,16 @@ except ImportError:
 
 # Common core imports
 try:
-    from common.core.client import BaseClient
-    from common.core.config import Configuration
-    from common.core.collections import CollectionManager
-    from common.core.error_handling import WorkspaceError, ErrorCategory
-    from common.core.hybrid_search import SearchService
-    from common.core.memory import MemorySystem
-    from common.core.metadata_schema import MetadataSchema
-    from common.core.metadata_validator import MetadataValidator
-    from common.core.multitenant_collections import MultitenantCollectionManager
-    from common.core.pattern_manager import PatternManager
+    from workspace_qdrant_mcp.core.client import BaseClient
+    from workspace_qdrant_mcp.core.config import Configuration
+    from workspace_qdrant_mcp.core.collections import CollectionManager
+    from workspace_qdrant_mcp.core.error_handling import WorkspaceError, ErrorCategory
+    from workspace_qdrant_mcp.core.hybrid_search import SearchService
+    from workspace_qdrant_mcp.core.memory import MemorySystem
+    from workspace_qdrant_mcp.core.metadata_schema import MetadataSchema
+    from workspace_qdrant_mcp.core.metadata_validator import MetadataValidator
+    from workspace_qdrant_mcp.core.multitenant_collections import MultitenantCollectionManager
+    from workspace_qdrant_mcp.core.pattern_manager import PatternManager
     COMMON_AVAILABLE = True
 except ImportError:
     COMMON_AVAILABLE = False
@@ -350,7 +350,7 @@ class TestWorkspaceQdrantMCPCore:
             assert stats["points_count"] == 100
 
 
-@pytest.mark.skipif(not COMMON_AVAILABLE, reason="common.core modules not available")
+@pytest.mark.skipif(not COMMON_AVAILABLE, reason="workspace_qdrant_mcp.core modules not available")
 class TestCommonCore:
     """Comprehensive tests for common.core modules"""
 

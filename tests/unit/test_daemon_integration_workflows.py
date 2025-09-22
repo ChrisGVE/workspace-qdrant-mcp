@@ -12,6 +12,12 @@ Tests complete daemon integration workflows including:
 - End-to-end workflow validation with comprehensive error condition matrices
 """
 
+import sys
+from pathlib import Path
+
+# Add src/python to path for common module imports
+sys.path.insert(0, str(Path(__file__).parent.parent.parent / "src" / "python"))
+
 import asyncio
 import json
 import os
@@ -26,13 +32,13 @@ from unittest.mock import AsyncMock, Mock, patch, MagicMock, call
 from unittest import mock
 import pytest
 
-from common.core.daemon_manager import (
+from workspace_qdrant_mcp.core.daemon_manager import (
     DaemonManager,
     DaemonInstance,
     DaemonConfig
 )
-from common.core.grpc_client import GrpcWorkspaceClient
-from common.core.client import QdrantWorkspaceClient
+from workspace_qdrant_mcp.core.grpc_client import GrpcWorkspaceClient
+from workspace_qdrant_mcp.core.client import QdrantWorkspaceClient
 
 from .conftest_daemon import (
     mock_daemon_config,

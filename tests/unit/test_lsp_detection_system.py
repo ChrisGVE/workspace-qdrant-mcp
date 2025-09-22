@@ -5,6 +5,12 @@ Tests LSP detection across different platforms, notification system,
 fallback mechanisms, and integration scenarios.
 """
 
+import sys
+from pathlib import Path
+
+# Add src/python to path for common module imports
+sys.path.insert(0, str(Path(__file__).parent.parent.parent / "src" / "python"))
+
 import json
 import os
 import platform
@@ -17,7 +23,7 @@ from typing import Dict, List, Optional
 from unittest.mock import MagicMock, Mock, call, patch
 import pytest
 
-from common.core.lsp_detector import (
+from workspace_qdrant_mcp.core.lsp_detector import (
     LSPDetector,
     LSPDetectionResult,
     LSPServerInfo,
@@ -25,7 +31,7 @@ from common.core.lsp_detector import (
     scan_lsps,
     get_supported_extensions
 )
-from common.core.lsp_notifications import (
+from workspace_qdrant_mcp.core.lsp_notifications import (
     LSPNotificationManager,
     NotificationEntry,
     NotificationLevel,
@@ -34,7 +40,7 @@ from common.core.lsp_notifications import (
     get_default_notification_manager,
     notify_missing_lsp
 )
-from common.core.lsp_fallback import (
+from workspace_qdrant_mcp.core.lsp_fallback import (
     BuildToolDetector,
     FallbackExtensionProvider,
     BuildToolInfo,

@@ -22,7 +22,7 @@ src_path = Path(__file__).parent.parent.parent / "src" / "python"
 sys.path.insert(0, str(src_path))
 
 try:
-    from common.core.component_coordination import (
+    from workspace_qdrant_mcp.core.component_coordination import (
         ComponentCoordinator,
         ComponentType,
         ComponentHealth,

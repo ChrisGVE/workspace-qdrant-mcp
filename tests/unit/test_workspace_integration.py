@@ -6,6 +6,12 @@ including project detection, multi-tenant architecture support, and workspace co
 extraction for LLM rule injection.
 """
 
+import sys
+from pathlib import Path
+
+# Add src/python to path for common module imports
+sys.path.insert(0, str(Path(__file__).parent.parent.parent / "src" / "python"))
+
 import asyncio
 import json
 import tempfile
@@ -15,8 +21,8 @@ from unittest.mock import AsyncMock, MagicMock, Mock, patch, call
 
 import pytest
 
-from common.core.config import Config
-from common.utils.project_detection import ProjectDetector
+from workspace_qdrant_mcp.core.config import Config
+from workspace_qdrant_mcp.utils.project_detection import ProjectDetector
 from wqm_cli.cli.parsers.base import ParsedDocument
 
 
