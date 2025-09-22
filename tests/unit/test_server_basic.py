@@ -15,7 +15,7 @@ src_path = Path(__file__).parent.parent.parent / "src"
 sys.path.insert(0, str(src_path))
 
 try:
-    from python.workspace_qdrant_mcp.server import app
+    from workspace_qdrant_mcp.server import app
     SERVER_AVAILABLE = True
 except ImportError:
     SERVER_AVAILABLE = False
@@ -50,7 +50,7 @@ class TestProjectDetectionUtility:
     def test_detect_project_import(self):
         """Test that project detection utility can be imported."""
         try:
-            from python.workspace_qdrant_mcp.utils.project_detection import detect_project
+            from workspace_qdrant_mcp.utils.project_detection import detect_project
             assert callable(detect_project)
         except ImportError:
             pytest.skip("Project detection utility not available")
@@ -73,7 +73,7 @@ class TestServerInitialization:
         """Test that all server imports work correctly."""
         # Test critical imports
         try:
-            from python.workspace_qdrant_mcp.server import app
+            from workspace_qdrant_mcp.server import app
             assert app is not None or not SERVER_AVAILABLE
         except ImportError as e:
             pytest.skip(f"Failed to import server components: {e}")
