@@ -172,7 +172,7 @@ mod tests {
         DaemonConfig {
             server: ServerConfig {
                 host: "127.0.0.1".to_string(),
-                port: 0, // Use port 0 for testing
+                port: 50052, // Use different port for testing
                 max_connections: 100,
                 connection_timeout_secs: 30,
                 request_timeout_secs: 60,
@@ -320,7 +320,8 @@ mod tests {
         let stats = connection_manager.get_stats();
         assert_eq!(stats.active_connections, 0);
         assert_eq!(stats.total_requests, 0);
-        assert_eq!(stats.failed_requests, 0);
+        assert_eq!(stats.total_bytes_sent, 0);
+        assert_eq!(stats.total_bytes_received, 0);
     }
 
     #[tokio::test]
