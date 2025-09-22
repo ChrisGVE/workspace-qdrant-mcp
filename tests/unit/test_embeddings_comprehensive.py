@@ -452,10 +452,12 @@ class TestDenseEmbeddingGeneration:
         mock_embedding2.tolist.return_value = [0.4, 0.5, 0.6]
         mock_embeddings = [mock_embedding1, mock_embedding2]
 
+        service.dense_model.embed.return_value = mock_embeddings
+
         with patch("asyncio.get_event_loop") as mock_get_loop:
             mock_loop = MagicMock()
             mock_get_loop.return_value = mock_loop
-            mock_loop.run_in_executor.return_value = mock_embeddings
+            mock_loop.run_in_executor = AsyncMock(side_effect=lambda executor, func: func())
 
             result = await service._generate_dense_embeddings(["text1", "text2"])
 
@@ -471,11 +473,12 @@ class TestDenseEmbeddingGeneration:
 
         # Mock embedding generation returning plain lists (no tolist method)
         mock_embeddings = [[0.1, 0.2, 0.3], [0.4, 0.5, 0.6]]
+        service.dense_model.embed.return_value = mock_embeddings
 
         with patch("asyncio.get_event_loop") as mock_get_loop:
             mock_loop = MagicMock()
             mock_get_loop.return_value = mock_loop
-            mock_loop.run_in_executor.return_value = mock_embeddings
+            mock_loop.run_in_executor = AsyncMock(side_effect=lambda executor, func: func())
 
             result = await service._generate_dense_embeddings(["text1", "text2"])
 
