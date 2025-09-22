@@ -116,10 +116,11 @@ mod tests {
     use tempfile::TempDir;
     use tokio_test;
     use std::path::PathBuf;
+    use uuid::Uuid;
 
     fn create_test_config() -> DaemonConfig {
-        let temp_dir = TempDir::new().expect("Failed to create temp dir");
-        let db_path = temp_dir.path().join("test.db").to_string_lossy().to_string();
+        // Use in-memory SQLite database for tests
+        let db_path = ":memory:".to_string();
 
         DaemonConfig {
             server: ServerConfig {
@@ -247,8 +248,9 @@ mod tests {
         let config = create_test_config();
         let daemon = WorkspaceDaemon::new(config).await.unwrap();
 
-        let processor = daemon.processor();
-        assert!(!Arc::ptr_eq(processor, processor)); // Different references
+        let processor1 = daemon.processor();
+        let processor2 = daemon.processor();
+        assert!(Arc::ptr_eq(&processor1, &processor2)); // Should be same Arc
     }
 
     #[tokio::test]
