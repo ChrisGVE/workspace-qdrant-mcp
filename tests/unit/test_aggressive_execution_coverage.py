@@ -39,7 +39,7 @@ class TestAggressiveExecutionCoverage:
             mock_grpc.return_value = Mock()
 
             try:
-                from python.common.core.auto_ingestion import AutoIngestionManager
+                from workspace_qdrant_mcp.core.auto_ingestion import AutoIngestionManager
 
                 # Create and test auto ingestion manager
                 manager = AutoIngestionManager()
@@ -84,7 +84,7 @@ class TestAggressiveExecutionCoverage:
             mock_thread.return_value = Mock()
 
             try:
-                from python.common.core.service_discovery.client import ServiceDiscoveryClient
+                from workspace_qdrant_mcp.core.service_discovery.client import ServiceDiscoveryClient
 
                 # Test client initialization
                 client = ServiceDiscoveryClient(port=50051)
@@ -130,7 +130,7 @@ class TestAggressiveExecutionCoverage:
             mock_process.return_value = Mock(memory_info=Mock(rss=500000000))
 
             try:
-                from python.common.core.memory_management import MemoryManager
+                from workspace_qdrant_mcp.core.memory_management import MemoryManager
 
                 # Test memory manager
                 manager = MemoryManager(max_memory_percent=80.0)
@@ -172,7 +172,7 @@ class TestAggressiveExecutionCoverage:
             mock_disk.return_value = Mock(total=1000000000, used=500000000, free=500000000)
 
             try:
-                from python.common.core.performance_monitoring import PerformanceMonitor
+                from workspace_qdrant_mcp.core.performance_monitoring import PerformanceMonitor
 
                 # Test performance monitor
                 monitor = PerformanceMonitor()
@@ -218,7 +218,7 @@ class TestAggressiveExecutionCoverage:
             mock_distance.COSINE = "Cosine"
 
             try:
-                from python.common.core.collection_management import CollectionManager
+                from workspace_qdrant_mcp.core.collection_management import CollectionManager
 
                 # Test collection manager
                 manager = CollectionManager(client=mock_client.return_value)
@@ -391,7 +391,7 @@ class TestAggressiveExecutionCoverage:
             mock_logger.return_value = Mock()
 
             try:
-                from python.common.core.error_handling import ErrorHandler, ErrorContext
+                from workspace_qdrant_mcp.core.error_handling import ErrorHandler, ErrorContext
 
                 # Test error handler
                 handler = ErrorHandler()
@@ -444,8 +444,8 @@ class TestAggressiveExecutionCoverage:
                  patch('pathlib.Path.exists', return_value=True):
 
                 try:
-                    from python.common.core.config_loader import ConfigLoader
-                    from python.common.core.config_validator import ConfigValidator
+                    from workspace_qdrant_mcp.core.config_loader import ConfigLoader
+                    from workspace_qdrant_mcp.core.config_validator import ConfigValidator
 
                     # Test config loading
                     loader = ConfigLoader()
