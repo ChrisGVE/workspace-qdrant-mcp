@@ -3,13 +3,13 @@
     "access_count": 0,
     "binary_path": "/usr/bin/clangd",
     "capabilities": [
-      "completion",
-      "hover",
       "semantic_tokens",
-      "diagnostics"
+      "hover",
+      "diagnostics",
+      "completion"
     ],
-    "detection_time": 1758479933.225417,
-    "last_accessed": 1758479933.225417,
+    "detection_time": 1758526748.819088,
+    "last_accessed": 1758526748.819089,
     "lsp_name": "clangd",
     "priority": 10,
     "supported_extensions": [
@@ -29,14 +29,14 @@
     "access_count": 0,
     "binary_path": "/usr/local/bin/gopls",
     "capabilities": [
-      "hover",
       "formatting",
-      "semantic_tokens",
+      "hover",
       "completion",
+      "semantic_tokens",
       "diagnostics"
     ],
-    "detection_time": 1758479933.037106,
-    "last_accessed": 1758479933.037106,
+    "detection_time": 1758526748.7366998,
+    "last_accessed": 1758526748.7366998,
     "lsp_name": "gopls",
     "priority": 10,
     "supported_extensions": [
@@ -50,12 +50,12 @@
     "access_count": 0,
     "binary_path": "/Users/chris/.local/bin/ruff",
     "capabilities": [
-      "code_actions",
       "formatting",
-      "diagnostics"
+      "diagnostics",
+      "code_actions"
     ],
-    "detection_time": 1758479932.8387158,
-    "last_accessed": 1758479932.8387158,
+    "detection_time": 1758526748.165663,
+    "last_accessed": 1758526748.165663,
     "lsp_name": "ruff",
     "priority": 8,
     "supported_extensions": [
@@ -68,13 +68,13 @@
     "access_count": 0,
     "binary_path": "/usr/local/opt/rustup/bin/rust-analyzer",
     "capabilities": [
-      "completion",
-      "hover",
       "semantic_tokens",
-      "diagnostics"
+      "hover",
+      "diagnostics",
+      "completion"
     ],
-    "detection_time": 1758479932.805152,
-    "last_accessed": 1758479932.805152,
+    "detection_time": 1758526748.11796,
+    "last_accessed": 1758526748.117961,
     "lsp_name": "rust-analyzer",
     "priority": 10,
     "supported_extensions": [
