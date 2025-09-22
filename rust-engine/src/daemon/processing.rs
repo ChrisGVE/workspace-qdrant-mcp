@@ -46,6 +46,42 @@ impl DocumentProcessor {
     pub fn config(&self) -> &ProcessingConfig {
         &self.config
     }
+
+    /// Create a test instance for testing purposes
+    #[cfg(test)]
+    pub fn test_instance() -> Self {
+        let config = ProcessingConfig {
+            max_concurrent_tasks: 2,
+            default_chunk_size: 1000,
+            default_chunk_overlap: 200,
+            max_file_size_bytes: 1024 * 1024,
+            supported_extensions: vec!["txt".to_string(), "md".to_string()],
+            enable_lsp: false,
+            lsp_timeout_secs: 10,
+        };
+
+        let qdrant_config = QdrantConfig {
+            url: "http://localhost:6333".to_string(),
+            api_key: None,
+            timeout_secs: 30,
+            max_retries: 3,
+            default_collection: crate::config::CollectionConfig {
+                vector_size: 384,
+                distance_metric: "Cosine".to_string(),
+                enable_indexing: true,
+                replication_factor: 1,
+                shard_number: 1,
+            },
+        };
+
+        let semaphore = Arc::new(Semaphore::new(config.max_concurrent_tasks));
+
+        Self {
+            config,
+            qdrant_config,
+            semaphore,
+        }
+    }
 }
 
 #[cfg(test)]

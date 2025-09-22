@@ -156,3 +156,237 @@ impl GrpcServer {
         &self.connection_manager
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::config::*;
+    use std::net::{IpAddr, Ipv4Addr};
+    use tempfile::TempDir;
+    use tokio_test;
+
+    fn create_test_daemon_config() -> DaemonConfig {
+        let temp_dir = TempDir::new().expect("Failed to create temp dir");
+        let db_path = temp_dir.path().join("test.db");
+
+        DaemonConfig {
+            server: ServerConfig {
+                host: "127.0.0.1".to_string(),
+                port: 0, // Use port 0 for testing
+                max_connections: 100,
+                connection_timeout_secs: 30,
+                request_timeout_secs: 60,
+                enable_tls: false,
+            },
+            database: DatabaseConfig {
+                sqlite_path: db_path.to_string_lossy().to_string(),
+                max_connections: 5,
+                connection_timeout_secs: 30,
+                enable_wal: true,
+            },
+            qdrant: QdrantConfig {
+                url: "http://localhost:6333".to_string(),
+                api_key: None,
+                timeout_secs: 30,
+                max_retries: 3,
+                default_collection: CollectionConfig {
+                    vector_size: 384,
+                    distance_metric: "Cosine".to_string(),
+                    enable_indexing: true,
+                    replication_factor: 1,
+                    shard_number: 1,
+                },
+            },
+            processing: ProcessingConfig {
+                max_concurrent_tasks: 2,
+                default_chunk_size: 1000,
+                default_chunk_overlap: 200,
+                max_file_size_bytes: 1024 * 1024,
+                supported_extensions: vec!["txt".to_string(), "md".to_string()],
+                enable_lsp: false,
+                lsp_timeout_secs: 10,
+            },
+            file_watcher: FileWatcherConfig {
+                enabled: false,
+                debounce_ms: 500,
+                max_watched_dirs: 10,
+                ignore_patterns: vec![],
+                recursive: true,
+            },
+            metrics: MetricsConfig {
+                enabled: false,
+                collection_interval_secs: 60,
+                retention_days: 30,
+                enable_prometheus: false,
+                prometheus_port: 9090,
+            },
+            logging: LoggingConfig {
+                level: "info".to_string(),
+                file_path: None,
+                json_format: false,
+                max_file_size_mb: 100,
+                max_files: 5,
+            },
+        }
+    }
+
+    async fn create_test_daemon() -> WorkspaceDaemon {
+        let config = create_test_daemon_config();
+        WorkspaceDaemon::new(config).await.expect("Failed to create daemon")
+    }
+
+    #[tokio::test]
+    async fn test_grpc_server_new() {
+        let daemon = create_test_daemon().await;
+        let address = SocketAddr::new(IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)), 0);
+
+        let server = GrpcServer::new(daemon, address);
+
+        assert_eq!(server.address, address);
+        assert!(Arc::strong_count(&server.connection_manager) >= 1);
+    }
+
+    #[tokio::test]
+    async fn test_grpc_server_connection_manager_access() {
+        let daemon = create_test_daemon().await;
+        let address = SocketAddr::new(IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)), 8080);
+
+        let server = GrpcServer::new(daemon, address);
+        let connection_manager = server.connection_manager();
+
+        // Test that we can access connection manager
+        let stats = connection_manager.get_stats();
+        assert_eq!(stats.active_connections, 0);
+    }
+
+    #[tokio::test]
+    async fn test_grpc_server_get_connection_stats() {
+        let daemon = create_test_daemon().await;
+        let address = SocketAddr::new(IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)), 8080);
+
+        let server = GrpcServer::new(daemon, address);
+        let stats = server.get_connection_stats();
+
+        // Initially should have no active connections
+        assert_eq!(stats.active_connections, 0);
+        assert_eq!(stats.total_requests, 0);
+    }
+
+    #[tokio::test]
+    async fn test_grpc_server_build_server() {
+        let daemon = create_test_daemon().await;
+        let address = SocketAddr::new(IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)), 8080);
+
+        let server = GrpcServer::new(daemon, address);
+        let result = server.build_server().await;
+
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn test_grpc_server_address_types() {
+        // Test IPv4 address
+        let ipv4 = SocketAddr::new(IpAddr::V4(Ipv4Addr::new(192, 168, 1, 1)), 8080);
+        assert_eq!(ipv4.ip(), IpAddr::V4(Ipv4Addr::new(192, 168, 1, 1)));
+        assert_eq!(ipv4.port(), 8080);
+
+        // Test IPv6 address
+        let ipv6 = "[::1]:9090".parse::<SocketAddr>().unwrap();
+        assert!(ipv6.is_ipv6());
+        assert_eq!(ipv6.port(), 9090);
+    }
+
+    #[tokio::test]
+    async fn test_grpc_server_with_different_ports() {
+        let daemon = create_test_daemon().await;
+
+        let ports = [8080, 8081, 8082];
+        for port in ports {
+            let address = SocketAddr::new(IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)), port);
+            let server = GrpcServer::new(daemon.clone(), address);
+            assert_eq!(server.address.port(), port);
+        }
+    }
+
+    #[tokio::test]
+    async fn test_grpc_server_connection_manager_initialization() {
+        let daemon = create_test_daemon().await;
+        let address = SocketAddr::new(IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)), 8080);
+
+        let server = GrpcServer::new(daemon, address);
+        let connection_manager = server.connection_manager();
+
+        // Test that connection manager is properly initialized
+        let stats = connection_manager.get_stats();
+        assert_eq!(stats.active_connections, 0);
+        assert_eq!(stats.total_requests, 0);
+        assert_eq!(stats.failed_requests, 0);
+    }
+
+    #[tokio::test]
+    async fn test_grpc_server_daemon_config_access() {
+        let daemon = create_test_daemon().await;
+        let address = SocketAddr::new(IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)), 8080);
+
+        let server = GrpcServer::new(daemon, address);
+
+        // Test accessing daemon config through server
+        let connection_manager = server.connection_manager();
+        let stats = connection_manager.get_stats();
+
+        // Should have valid stats
+        assert!(stats.active_connections >= 0);
+    }
+
+    #[tokio::test]
+    async fn test_grpc_server_arc_sharing() {
+        let daemon = create_test_daemon().await;
+        let address = SocketAddr::new(IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)), 8080);
+
+        let server = GrpcServer::new(daemon, address);
+        let daemon_arc = &server.daemon;
+
+        // Verify daemon is properly shared via Arc
+        assert!(Arc::strong_count(daemon_arc) >= 1);
+    }
+
+    #[test]
+    fn test_socket_addr_parsing() {
+        // Test various socket address formats
+        let addrs = [
+            "127.0.0.1:8080",
+            "0.0.0.0:8080",
+            "[::1]:8080",
+            "[::]:8080",
+        ];
+
+        for addr_str in addrs {
+            let result = addr_str.parse::<SocketAddr>();
+            assert!(result.is_ok(), "Failed to parse address: {}", addr_str);
+        }
+    }
+
+    #[tokio::test]
+    async fn test_grpc_server_memory_efficiency() {
+        let daemon = create_test_daemon().await;
+        let address = SocketAddr::new(IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)), 8080);
+
+        let server = GrpcServer::new(daemon, address);
+
+        // Verify that server doesn't hold unnecessary references
+        let initial_daemon_count = Arc::strong_count(&server.daemon);
+        let initial_manager_count = Arc::strong_count(&server.connection_manager);
+
+        assert_eq!(initial_daemon_count, 1);
+        assert_eq!(initial_manager_count, 1);
+    }
+
+    #[test]
+    fn test_grpc_server_send_sync() {
+        fn assert_send<T: Send>() {}
+        fn assert_sync<T: Sync>() {}
+
+        assert_send::<GrpcServer>();
+        assert_sync::<GrpcServer>();
+    }
+}

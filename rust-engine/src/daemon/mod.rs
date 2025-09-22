@@ -108,3 +108,236 @@ impl WorkspaceDaemon {
         self.watcher.as_ref()
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::config::*;
+    use tempfile::TempDir;
+    use tokio_test;
+    use std::path::PathBuf;
+
+    fn create_test_config() -> DaemonConfig {
+        let temp_dir = TempDir::new().expect("Failed to create temp dir");
+        let db_path = temp_dir.path().join("test.db");
+
+        DaemonConfig {
+            database: DatabaseConfig {
+                path: db_path,
+                pool_size: 5,
+                connection_timeout_secs: 30,
+            },
+            qdrant: QdrantConfig {
+                url: "http://localhost:6333".to_string(),
+                api_key: None,
+                timeout_secs: 30,
+                collection_prefix: "test".to_string(),
+            },
+            processing: ProcessingConfig {
+                max_concurrent_jobs: 4,
+                chunk_size: 1000,
+                overlap_size: 100,
+                supported_extensions: vec!["txt".to_string(), "md".to_string()],
+            },
+            file_watcher: FileWatcherConfig {
+                enabled: false,
+                watch_paths: vec![],
+                ignore_patterns: vec![],
+                debounce_ms: 500,
+            },
+            server: ServerConfig {
+                bind_address: "127.0.0.1".to_string(),
+                port: 50051,
+                max_connections: 1000,
+                connection_timeout_secs: 300,
+            },
+        }
+    }
+
+    fn create_test_config_with_watcher() -> DaemonConfig {
+        let mut config = create_test_config();
+        config.file_watcher.enabled = true;
+        config.file_watcher.watch_paths = vec![PathBuf::from("/tmp")];
+        config
+    }
+
+    #[tokio::test]
+    async fn test_workspace_daemon_new_success() {
+        let config = create_test_config();
+        let result = WorkspaceDaemon::new(config).await;
+
+        assert!(result.is_ok());
+        let daemon = result.unwrap();
+        assert_eq!(daemon.config().database.pool_size, 5);
+        assert_eq!(daemon.config().qdrant.url, "http://localhost:6333");
+        assert!(daemon.watcher().is_none());
+    }
+
+    #[tokio::test]
+    async fn test_workspace_daemon_new_with_watcher() {
+        let config = create_test_config_with_watcher();
+        let result = WorkspaceDaemon::new(config).await;
+
+        assert!(result.is_ok());
+        let daemon = result.unwrap();
+        assert!(daemon.watcher().is_some());
+    }
+
+    #[tokio::test]
+    async fn test_workspace_daemon_debug_format() {
+        let config = create_test_config();
+        let daemon = WorkspaceDaemon::new(config).await.unwrap();
+
+        let debug_str = format!("{:?}", daemon);
+        assert!(debug_str.contains("WorkspaceDaemon"));
+    }
+
+    #[tokio::test]
+    async fn test_daemon_config_access() {
+        let config = create_test_config();
+        let original_pool_size = config.database.pool_size;
+        let daemon = WorkspaceDaemon::new(config).await.unwrap();
+
+        assert_eq!(daemon.config().database.pool_size, original_pool_size);
+    }
+
+    #[tokio::test]
+    async fn test_daemon_state_access() {
+        let config = create_test_config();
+        let daemon = WorkspaceDaemon::new(config).await.unwrap();
+
+        let state = daemon.state().await;
+        // Test that we can access state
+        drop(state);
+
+        let mut state_mut = daemon.state_mut().await;
+        // Test that we can access mutable state
+        drop(state_mut);
+    }
+
+    #[tokio::test]
+    async fn test_daemon_processor_access() {
+        let config = create_test_config();
+        let daemon = WorkspaceDaemon::new(config).await.unwrap();
+
+        let processor = daemon.processor();
+        assert!(!Arc::ptr_eq(processor, processor)); // Different references
+    }
+
+    #[tokio::test]
+    async fn test_daemon_start_stop_cycle() {
+        let config = create_test_config();
+        let mut daemon = WorkspaceDaemon::new(config).await.unwrap();
+
+        // Test start
+        let start_result = daemon.start().await;
+        assert!(start_result.is_ok());
+
+        // Test stop
+        let stop_result = daemon.stop().await;
+        assert!(stop_result.is_ok());
+    }
+
+    #[tokio::test]
+    async fn test_daemon_start_stop_with_watcher() {
+        let config = create_test_config_with_watcher();
+        let mut daemon = WorkspaceDaemon::new(config).await.unwrap();
+
+        // Test start with watcher
+        let start_result = daemon.start().await;
+        assert!(start_result.is_ok());
+
+        // Test stop with watcher
+        let stop_result = daemon.stop().await;
+        assert!(stop_result.is_ok());
+    }
+
+    #[tokio::test]
+    async fn test_daemon_start_disabled_watcher() {
+        let config = create_test_config(); // watcher disabled
+        let mut daemon = WorkspaceDaemon::new(config).await.unwrap();
+
+        let start_result = daemon.start().await;
+        assert!(start_result.is_ok());
+    }
+
+    #[tokio::test]
+    async fn test_daemon_multiple_start_stop_cycles() {
+        let config = create_test_config();
+        let mut daemon = WorkspaceDaemon::new(config).await.unwrap();
+
+        // Multiple start/stop cycles
+        for _ in 0..3 {
+            assert!(daemon.start().await.is_ok());
+            assert!(daemon.stop().await.is_ok());
+        }
+    }
+
+    #[tokio::test]
+    async fn test_daemon_watcher_option_handling() {
+        // Test with watcher disabled
+        let config_disabled = create_test_config();
+        let daemon_disabled = WorkspaceDaemon::new(config_disabled).await.unwrap();
+        assert!(daemon_disabled.watcher().is_none());
+
+        // Test with watcher enabled
+        let config_enabled = create_test_config_with_watcher();
+        let daemon_enabled = WorkspaceDaemon::new(config_enabled).await.unwrap();
+        assert!(daemon_enabled.watcher().is_some());
+    }
+
+    #[tokio::test]
+    async fn test_daemon_concurrent_state_access() {
+        let config = create_test_config();
+        let daemon = Arc::new(WorkspaceDaemon::new(config).await.unwrap());
+
+        let daemon1 = Arc::clone(&daemon);
+        let daemon2 = Arc::clone(&daemon);
+
+        let handle1 = tokio::spawn(async move {
+            let _state = daemon1.state().await;
+            tokio::time::sleep(tokio::time::Duration::from_millis(10)).await;
+        });
+
+        let handle2 = tokio::spawn(async move {
+            let _state = daemon2.state().await;
+            tokio::time::sleep(tokio::time::Duration::from_millis(10)).await;
+        });
+
+        let (r1, r2) = tokio::join!(handle1, handle2);
+        assert!(r1.is_ok());
+        assert!(r2.is_ok());
+    }
+
+    #[tokio::test]
+    async fn test_daemon_processor_arc_sharing() {
+        let config = create_test_config();
+        let daemon = WorkspaceDaemon::new(config).await.unwrap();
+
+        let processor1 = daemon.processor();
+        let processor2 = daemon.processor();
+
+        // Both should point to the same Arc<DocumentProcessor>
+        assert!(Arc::ptr_eq(processor1, processor2));
+    }
+
+    #[tokio::test]
+    async fn test_daemon_error_handling_invalid_config() {
+        let mut config = create_test_config();
+
+        // Make config invalid by setting empty URL
+        config.qdrant.url = String::new();
+
+        let result = WorkspaceDaemon::new(config).await;
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_daemon_struct_send_sync() {
+        fn assert_send<T: Send>() {}
+        fn assert_sync<T: Sync>() {}
+
+        assert_send::<WorkspaceDaemon>();
+        assert_sync::<WorkspaceDaemon>();
+    }
+}
