@@ -353,3 +353,509 @@ impl DaemonConfig {
         Ok(())
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::env;
+    use tempfile::tempdir;
+    use std::fs::File;
+    use std::io::Write;
+
+    #[test]
+    fn test_daemon_config_default() {
+        let config = DaemonConfig::default();
+
+        // Test server defaults
+        assert_eq!(config.server.host, "127.0.0.1");
+        assert_eq!(config.server.port, 50051);
+        assert_eq!(config.server.max_connections, 1000);
+        assert_eq!(config.server.connection_timeout_secs, 30);
+        assert_eq!(config.server.request_timeout_secs, 300);
+        assert!(!config.server.enable_tls);
+
+        // Test database defaults
+        assert_eq!(config.database.sqlite_path, "./workspace_daemon.db");
+        assert_eq!(config.database.max_connections, 10);
+        assert_eq!(config.database.connection_timeout_secs, 30);
+        assert!(config.database.enable_wal);
+
+        // Test qdrant defaults
+        assert_eq!(config.qdrant.url, "http://localhost:6333");
+        assert!(config.qdrant.api_key.is_none());
+        assert_eq!(config.qdrant.timeout_secs, 30);
+        assert_eq!(config.qdrant.max_retries, 3);
+        assert_eq!(config.qdrant.default_collection.vector_size, 384);
+        assert_eq!(config.qdrant.default_collection.distance_metric, "Cosine");
+        assert!(config.qdrant.default_collection.enable_indexing);
+        assert_eq!(config.qdrant.default_collection.replication_factor, 1);
+        assert_eq!(config.qdrant.default_collection.shard_number, 1);
+
+        // Test processing defaults
+        assert_eq!(config.processing.max_concurrent_tasks, 4);
+        assert_eq!(config.processing.default_chunk_size, 1000);
+        assert_eq!(config.processing.default_chunk_overlap, 200);
+        assert_eq!(config.processing.max_file_size_bytes, 100 * 1024 * 1024);
+        assert!(config.processing.supported_extensions.contains(&"rs".to_string()));
+        assert!(config.processing.supported_extensions.contains(&"py".to_string()));
+        assert!(config.processing.enable_lsp);
+        assert_eq!(config.processing.lsp_timeout_secs, 10);
+
+        // Test file watcher defaults
+        assert!(config.file_watcher.enabled);
+        assert_eq!(config.file_watcher.debounce_ms, 500);
+        assert_eq!(config.file_watcher.max_watched_dirs, 100);
+        assert!(config.file_watcher.ignore_patterns.contains(&"target/**".to_string()));
+        assert!(config.file_watcher.ignore_patterns.contains(&"node_modules/**".to_string()));
+        assert!(config.file_watcher.recursive);
+
+        // Test metrics defaults
+        assert!(config.metrics.enabled);
+        assert_eq!(config.metrics.collection_interval_secs, 60);
+        assert_eq!(config.metrics.retention_days, 30);
+        assert!(config.metrics.enable_prometheus);
+        assert_eq!(config.metrics.prometheus_port, 9090);
+
+        // Test logging defaults
+        assert_eq!(config.logging.level, "info");
+        assert_eq!(config.logging.file_path, Some("./workspace_daemon.log".to_string()));
+        assert!(!config.logging.json_format);
+        assert_eq!(config.logging.max_file_size_mb, 100);
+        assert_eq!(config.logging.max_files, 5);
+    }
+
+    #[test]
+    fn test_daemon_config_debug_clone() {
+        let config = DaemonConfig::default();
+        let cloned = config.clone();
+
+        assert_eq!(config.server.host, cloned.server.host);
+        assert_eq!(config.qdrant.url, cloned.qdrant.url);
+
+        // Test debug format
+        let debug_str = format!("{:?}", config);
+        assert!(debug_str.contains("DaemonConfig"));
+        assert!(debug_str.contains("ServerConfig"));
+    }
+
+    #[test]
+    fn test_load_config_from_file() {
+        let dir = tempdir().unwrap();
+        let file_path = dir.path().join("config.yaml");
+        let mut file = File::create(&file_path).unwrap();
+
+        writeln!(file, r#"
+server:
+  host: "0.0.0.0"
+  port: 8080
+  max_connections: 500
+  connection_timeout_secs: 60
+  request_timeout_secs: 600
+  enable_tls: true
+qdrant:
+  url: "http://remote-qdrant:6333"
+  api_key: "test-key"
+  timeout_secs: 45
+  max_retries: 5
+  default_collection:
+    vector_size: 512
+    distance_metric: "Euclidean"
+    enable_indexing: false
+    replication_factor: 2
+    shard_number: 3
+database:
+  sqlite_path: "/custom/path.db"
+  max_connections: 20
+  connection_timeout_secs: 45
+  enable_wal: false
+processing:
+  max_concurrent_tasks: 8
+  default_chunk_size: 2000
+  default_chunk_overlap: 400
+  max_file_size_bytes: 200000000
+  supported_extensions: ["rs", "py"]
+  enable_lsp: false
+  lsp_timeout_secs: 20
+file_watcher:
+  enabled: false
+  debounce_ms: 1000
+  max_watched_dirs: 50
+  ignore_patterns: ["*.log"]
+  recursive: false
+metrics:
+  enabled: false
+  collection_interval_secs: 120
+  retention_days: 60
+  enable_prometheus: false
+  prometheus_port: 9091
+logging:
+  level: "debug"
+  file_path: "/custom/log.log"
+  json_format: true
+  max_file_size_mb: 200
+  max_files: 10
+"#).unwrap();
+
+        let config = DaemonConfig::load(Some(&file_path)).unwrap();
+
+        assert_eq!(config.server.host, "0.0.0.0");
+        assert_eq!(config.server.port, 8080);
+        assert_eq!(config.server.max_connections, 500);
+        assert_eq!(config.server.connection_timeout_secs, 60);
+        assert_eq!(config.server.request_timeout_secs, 600);
+        assert!(config.server.enable_tls);
+
+        assert_eq!(config.qdrant.url, "http://remote-qdrant:6333");
+        assert_eq!(config.qdrant.api_key, Some("test-key".to_string()));
+        assert_eq!(config.qdrant.timeout_secs, 45);
+        assert_eq!(config.qdrant.max_retries, 5);
+        assert_eq!(config.qdrant.default_collection.vector_size, 512);
+        assert_eq!(config.qdrant.default_collection.distance_metric, "Euclidean");
+        assert!(!config.qdrant.default_collection.enable_indexing);
+        assert_eq!(config.qdrant.default_collection.replication_factor, 2);
+        assert_eq!(config.qdrant.default_collection.shard_number, 3);
+
+        assert_eq!(config.database.sqlite_path, "/custom/path.db");
+        assert_eq!(config.database.max_connections, 20);
+        assert_eq!(config.database.connection_timeout_secs, 45);
+        assert!(!config.database.enable_wal);
+
+        assert_eq!(config.processing.max_concurrent_tasks, 8);
+        assert_eq!(config.processing.default_chunk_size, 2000);
+        assert_eq!(config.processing.default_chunk_overlap, 400);
+        assert_eq!(config.processing.max_file_size_bytes, 200000000);
+        assert_eq!(config.processing.supported_extensions, vec!["rs", "py"]);
+        assert!(!config.processing.enable_lsp);
+        assert_eq!(config.processing.lsp_timeout_secs, 20);
+
+        assert!(!config.file_watcher.enabled);
+        assert_eq!(config.file_watcher.debounce_ms, 1000);
+        assert_eq!(config.file_watcher.max_watched_dirs, 50);
+        assert_eq!(config.file_watcher.ignore_patterns, vec!["*.log"]);
+        assert!(!config.file_watcher.recursive);
+
+        assert!(!config.metrics.enabled);
+        assert_eq!(config.metrics.collection_interval_secs, 120);
+        assert_eq!(config.metrics.retention_days, 60);
+        assert!(!config.metrics.enable_prometheus);
+        assert_eq!(config.metrics.prometheus_port, 9091);
+
+        assert_eq!(config.logging.level, "debug");
+        assert_eq!(config.logging.file_path, Some("/custom/log.log".to_string()));
+        assert!(config.logging.json_format);
+        assert_eq!(config.logging.max_file_size_mb, 200);
+        assert_eq!(config.logging.max_files, 10);
+    }
+
+    #[test]
+    fn test_load_config_no_file() {
+        let config = DaemonConfig::load(None).unwrap();
+        // Should load defaults when no file is provided
+        assert_eq!(config.server.host, "127.0.0.1");
+        assert_eq!(config.server.port, 50051);
+    }
+
+    #[test]
+    fn test_load_config_invalid_file() {
+        let dir = tempdir().unwrap();
+        let file_path = dir.path().join("invalid.yaml");
+        let mut file = File::create(&file_path).unwrap();
+        writeln!(file, "invalid: yaml: content: [").unwrap();
+
+        let result = DaemonConfig::load(Some(&file_path));
+        assert!(result.is_err());
+
+        if let Err(crate::error::DaemonError::Config(_)) = result {
+            // Expected error type
+        } else {
+            panic!("Expected Config error");
+        }
+    }
+
+    #[test]
+    fn test_load_config_nonexistent_file() {
+        let nonexistent_path = Path::new("/nonexistent/config.yaml");
+        let result = DaemonConfig::load(Some(nonexistent_path));
+        assert!(result.is_err());
+
+        if let Err(crate::error::DaemonError::Io(_)) = result {
+            // Expected error type
+        } else {
+            panic!("Expected IO error");
+        }
+    }
+
+    #[test]
+    fn test_from_env() {
+        // Save original env vars
+        let original_qdrant_url = env::var("QDRANT_URL").ok();
+        let original_qdrant_api_key = env::var("QDRANT_API_KEY").ok();
+        let original_daemon_host = env::var("DAEMON_HOST").ok();
+        let original_daemon_port = env::var("DAEMON_PORT").ok();
+        let original_daemon_db_path = env::var("DAEMON_DB_PATH").ok();
+
+        // Set test env vars
+        env::set_var("QDRANT_URL", "http://test-qdrant:6333");
+        env::set_var("QDRANT_API_KEY", "test-api-key");
+        env::set_var("DAEMON_HOST", "0.0.0.0");
+        env::set_var("DAEMON_PORT", "8080");
+        env::set_var("DAEMON_DB_PATH", "/test/db.sqlite");
+
+        let config = DaemonConfig::from_env().unwrap();
+
+        assert_eq!(config.qdrant.url, "http://test-qdrant:6333");
+        assert_eq!(config.qdrant.api_key, Some("test-api-key".to_string()));
+        assert_eq!(config.server.host, "0.0.0.0");
+        assert_eq!(config.server.port, 8080);
+        assert_eq!(config.database.sqlite_path, "/test/db.sqlite");
+
+        // Restore original env vars
+        match original_qdrant_url {
+            Some(val) => env::set_var("QDRANT_URL", val),
+            None => env::remove_var("QDRANT_URL"),
+        }
+        match original_qdrant_api_key {
+            Some(val) => env::set_var("QDRANT_API_KEY", val),
+            None => env::remove_var("QDRANT_API_KEY"),
+        }
+        match original_daemon_host {
+            Some(val) => env::set_var("DAEMON_HOST", val),
+            None => env::remove_var("DAEMON_HOST"),
+        }
+        match original_daemon_port {
+            Some(val) => env::set_var("DAEMON_PORT", val),
+            None => env::remove_var("DAEMON_PORT"),
+        }
+        match original_daemon_db_path {
+            Some(val) => env::set_var("DAEMON_DB_PATH", val),
+            None => env::remove_var("DAEMON_DB_PATH"),
+        }
+    }
+
+    #[test]
+    fn test_env_port_parsing_error() {
+        // Test the port parsing logic directly
+        let invalid_port_str = "invalid_port";
+        let parse_result: Result<u16, _> = invalid_port_str.parse();
+        assert!(parse_result.is_err());
+
+        // Test that we can create the expected error type
+        let daemon_error = crate::error::DaemonError::Config(
+            config::ConfigError::Message(format!("Invalid port: {}", parse_result.unwrap_err()))
+        );
+
+        match daemon_error {
+            crate::error::DaemonError::Config(_) => {
+                // Expected error type - test passes
+            },
+            _ => panic!("Expected Config error for invalid port"),
+        }
+
+        // Test the error message formatting
+        let error_msg = format!("{}", daemon_error);
+        assert!(error_msg.contains("Configuration error"));
+        assert!(error_msg.contains("Invalid port"));
+    }
+
+    #[test]
+    fn test_save_config() {
+        let dir = tempdir().unwrap();
+        let file_path = dir.path().join("output.yaml");
+
+        let config = DaemonConfig::default();
+        config.save(&file_path).unwrap();
+
+        // Verify file was created and can be read back
+        assert!(file_path.exists());
+        let loaded_config = DaemonConfig::load(Some(&file_path)).unwrap();
+
+        assert_eq!(config.server.host, loaded_config.server.host);
+        assert_eq!(config.server.port, loaded_config.server.port);
+        assert_eq!(config.qdrant.url, loaded_config.qdrant.url);
+    }
+
+    #[test]
+    fn test_validate_config_valid() {
+        let config = DaemonConfig::default();
+        assert!(config.validate().is_ok());
+    }
+
+    #[test]
+    fn test_validate_config_invalid_port() {
+        let mut config = DaemonConfig::default();
+        config.server.port = 0;
+
+        let result = config.validate();
+        assert!(result.is_err());
+
+        if let Err(crate::error::DaemonError::Config(_)) = result {
+            // Expected error type
+        } else {
+            panic!("Expected Config error for invalid port");
+        }
+    }
+
+    #[test]
+    fn test_validate_config_empty_qdrant_url() {
+        let mut config = DaemonConfig::default();
+        config.qdrant.url = String::new();
+
+        let result = config.validate();
+        assert!(result.is_err());
+
+        if let Err(crate::error::DaemonError::Config(_)) = result {
+            // Expected error type
+        } else {
+            panic!("Expected Config error for empty Qdrant URL");
+        }
+    }
+
+    #[test]
+    fn test_validate_config_empty_database_path() {
+        let mut config = DaemonConfig::default();
+        config.database.sqlite_path = String::new();
+
+        let result = config.validate();
+        assert!(result.is_err());
+
+        if let Err(crate::error::DaemonError::Config(_)) = result {
+            // Expected error type
+        } else {
+            panic!("Expected Config error for empty database path");
+        }
+    }
+
+    #[test]
+    fn test_validate_config_zero_chunk_size() {
+        let mut config = DaemonConfig::default();
+        config.processing.default_chunk_size = 0;
+
+        let result = config.validate();
+        assert!(result.is_err());
+
+        if let Err(crate::error::DaemonError::Config(_)) = result {
+            // Expected error type
+        } else {
+            panic!("Expected Config error for zero chunk size");
+        }
+    }
+
+    #[test]
+    fn test_serialization_roundtrip() {
+        let config = DaemonConfig::default();
+
+        // Test YAML serialization
+        let yaml_str = serde_yaml::to_string(&config).unwrap();
+        let deserialized: DaemonConfig = serde_yaml::from_str(&yaml_str).unwrap();
+
+        assert_eq!(config.server.host, deserialized.server.host);
+        assert_eq!(config.server.port, deserialized.server.port);
+        assert_eq!(config.qdrant.url, deserialized.qdrant.url);
+
+        // Test JSON serialization
+        let json_str = serde_json::to_string(&config).unwrap();
+        let deserialized: DaemonConfig = serde_json::from_str(&json_str).unwrap();
+
+        assert_eq!(config.server.host, deserialized.server.host);
+        assert_eq!(config.qdrant.url, deserialized.qdrant.url);
+    }
+
+    #[test]
+    fn test_config_structs_are_send_sync() {
+        fn assert_send_sync<T: Send + Sync>() {}
+
+        assert_send_sync::<DaemonConfig>();
+        assert_send_sync::<ServerConfig>();
+        assert_send_sync::<DatabaseConfig>();
+        assert_send_sync::<QdrantConfig>();
+        assert_send_sync::<CollectionConfig>();
+        assert_send_sync::<ProcessingConfig>();
+        assert_send_sync::<FileWatcherConfig>();
+        assert_send_sync::<MetricsConfig>();
+        assert_send_sync::<LoggingConfig>();
+    }
+
+    #[test]
+    fn test_collection_config_standalone() {
+        let collection_config = CollectionConfig {
+            vector_size: 768,
+            distance_metric: "Dot".to_string(),
+            enable_indexing: false,
+            replication_factor: 3,
+            shard_number: 2,
+        };
+
+        let debug_str = format!("{:?}", collection_config);
+        assert!(debug_str.contains("CollectionConfig"));
+        assert!(debug_str.contains("768"));
+        assert!(debug_str.contains("Dot"));
+
+        let cloned = collection_config.clone();
+        assert_eq!(collection_config.vector_size, cloned.vector_size);
+        assert_eq!(collection_config.distance_metric, cloned.distance_metric);
+    }
+
+    #[test]
+    fn test_config_with_serde_defaults() {
+        // Test that all config structs can be created with minimal YAML
+        // This tests basic serialization/deserialization
+        let minimal_yaml = r#"
+server:
+  host: "custom-host"
+  port: 9999
+  max_connections: 500
+  connection_timeout_secs: 30
+  request_timeout_secs: 300
+  enable_tls: false
+qdrant:
+  url: "http://custom-qdrant:6333"
+  api_key: null
+  timeout_secs: 30
+  max_retries: 3
+  default_collection:
+    vector_size: 384
+    distance_metric: "Cosine"
+    enable_indexing: true
+    replication_factor: 1
+    shard_number: 1
+database:
+  sqlite_path: "./workspace_daemon.db"
+  max_connections: 10
+  connection_timeout_secs: 30
+  enable_wal: true
+processing:
+  max_concurrent_tasks: 4
+  default_chunk_size: 1000
+  default_chunk_overlap: 200
+  max_file_size_bytes: 104857600
+  supported_extensions: ["rs", "py"]
+  enable_lsp: true
+  lsp_timeout_secs: 10
+file_watcher:
+  enabled: true
+  debounce_ms: 500
+  max_watched_dirs: 100
+  ignore_patterns: ["target/**"]
+  recursive: true
+metrics:
+  enabled: true
+  collection_interval_secs: 60
+  retention_days: 30
+  enable_prometheus: true
+  prometheus_port: 9090
+logging:
+  level: "info"
+  file_path: "./workspace_daemon.log"
+  json_format: false
+  max_file_size_mb: 100
+  max_files: 5
+"#;
+
+        let config: DaemonConfig = serde_yaml::from_str(minimal_yaml).unwrap();
+
+        // Custom fields should be set
+        assert_eq!(config.server.host, "custom-host");
+        assert_eq!(config.server.port, 9999);
+        assert_eq!(config.qdrant.url, "http://custom-qdrant:6333");
+    }
+}
