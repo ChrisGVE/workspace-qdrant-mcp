@@ -83,7 +83,7 @@ prop_compose! {
         pattern_type in prop_oneof!["glob", "extension", "directory", "exact"],
         pattern in "[a-zA-Z0-9*?._/-]{1,20}",
     ) -> String {
-        match pattern_type {
+        match pattern_type.as_str() {
             "glob" => format!("*.{}", pattern.replace("*", "").replace("?", "")),
             "extension" => format!(".{}", pattern.replace(".", "")),
             "directory" => format!("{}/", pattern.replace("/", "")),
