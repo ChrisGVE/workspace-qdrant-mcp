@@ -83,3 +83,216 @@ impl From<DaemonError> for Status {
 
 /// Result type alias for daemon operations
 pub type DaemonResult<T> = Result<T, DaemonError>;
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::io::{Error, ErrorKind};
+
+    #[test]
+    fn test_daemon_error_display() {
+        let err = DaemonError::DocumentProcessing {
+            message: "Test error".to_string(),
+        };
+        assert_eq!(format!("{}", err), "Document processing error: Test error");
+
+        let err = DaemonError::Search {
+            message: "Search failed".to_string(),
+        };
+        assert_eq!(format!("{}", err), "Search error: Search failed");
+
+        let err = DaemonError::Memory {
+            message: "Memory allocation failed".to_string(),
+        };
+        assert_eq!(format!("{}", err), "Memory management error: Memory allocation failed");
+
+        let err = DaemonError::System {
+            message: "System call failed".to_string(),
+        };
+        assert_eq!(format!("{}", err), "System error: System call failed");
+
+        let err = DaemonError::ProjectDetection {
+            message: "No git repository found".to_string(),
+        };
+        assert_eq!(format!("{}", err), "Project detection error: No git repository found");
+
+        let err = DaemonError::ConnectionPool {
+            message: "Pool exhausted".to_string(),
+        };
+        assert_eq!(format!("{}", err), "Connection pool error: Pool exhausted");
+
+        let err = DaemonError::Timeout { seconds: 30 };
+        assert_eq!(format!("{}", err), "Timeout error: operation timed out after 30s");
+
+        let err = DaemonError::NotFound {
+            resource: "document".to_string(),
+        };
+        assert_eq!(format!("{}", err), "Resource not found: document");
+
+        let err = DaemonError::InvalidInput {
+            message: "Invalid format".to_string(),
+        };
+        assert_eq!(format!("{}", err), "Invalid input: Invalid format");
+
+        let err = DaemonError::Internal {
+            message: "Unexpected state".to_string(),
+        };
+        assert_eq!(format!("{}", err), "Internal error: Unexpected state");
+    }
+
+    #[test]
+    fn test_daemon_error_debug() {
+        let err = DaemonError::DocumentProcessing {
+            message: "Test error".to_string(),
+        };
+        let debug_str = format!("{:?}", err);
+        assert!(debug_str.contains("DocumentProcessing"));
+        assert!(debug_str.contains("Test error"));
+    }
+
+    #[test]
+    fn test_daemon_error_from_io_error() {
+        let io_error = Error::new(ErrorKind::NotFound, "File not found");
+        let daemon_error: DaemonError = io_error.into();
+
+        match daemon_error {
+            DaemonError::Io(ref e) => {
+                assert_eq!(e.kind(), ErrorKind::NotFound);
+                assert_eq!(e.to_string(), "File not found");
+            },
+            _ => panic!("Expected DaemonError::Io"),
+        }
+    }
+
+    #[test]
+    fn test_daemon_error_from_serde_json_error() {
+        let json_error = serde_json::from_str::<serde_json::Value>("invalid json")
+            .unwrap_err();
+        let daemon_error: DaemonError = json_error.into();
+
+        match daemon_error {
+            DaemonError::Serialization(_) => {
+                // Success - correct variant
+            },
+            _ => panic!("Expected DaemonError::Serialization"),
+        }
+    }
+
+    #[test]
+    fn test_status_conversion_invalid_argument() {
+        let err = DaemonError::InvalidInput {
+            message: "Bad request".to_string(),
+        };
+        let status: Status = err.into();
+        assert_eq!(status.code(), Code::InvalidArgument);
+        assert!(status.message().contains("Invalid input: Bad request"));
+
+        let err = DaemonError::Config(config::ConfigError::Message("Config parse error".to_string()));
+        let status: Status = err.into();
+        assert_eq!(status.code(), Code::InvalidArgument);
+    }
+
+    #[test]
+    fn test_status_conversion_not_found() {
+        let err = DaemonError::NotFound {
+            resource: "user".to_string(),
+        };
+        let status: Status = err.into();
+        assert_eq!(status.code(), Code::NotFound);
+        assert!(status.message().contains("Resource not found: user"));
+    }
+
+    #[test]
+    fn test_status_conversion_deadline_exceeded() {
+        let err = DaemonError::Timeout { seconds: 60 };
+        let status: Status = err.into();
+        assert_eq!(status.code(), Code::DeadlineExceeded);
+        assert!(status.message().contains("operation timed out after 60s"));
+    }
+
+    #[test]
+    fn test_status_conversion_internal_error() {
+        let io_error = Error::new(ErrorKind::PermissionDenied, "Access denied");
+        let err = DaemonError::Io(io_error);
+        let status: Status = err.into();
+        assert_eq!(status.code(), Code::Internal);
+        assert_eq!(status.message(), "Internal server error");
+
+        let err = DaemonError::Database(sqlx::Error::PoolClosed);
+        let status: Status = err.into();
+        assert_eq!(status.code(), Code::Internal);
+        assert_eq!(status.message(), "Internal server error");
+
+        let err = DaemonError::DocumentProcessing {
+            message: "Processing failed".to_string(),
+        };
+        let status: Status = err.into();
+        assert_eq!(status.code(), Code::Internal);
+        assert_eq!(status.message(), "Internal server error");
+    }
+
+    #[test]
+    fn test_daemon_result_type() {
+        let success: DaemonResult<i32> = Ok(42);
+        assert_eq!(success.unwrap(), 42);
+
+        let error: DaemonResult<i32> = Err(DaemonError::Internal {
+            message: "Test error".to_string(),
+        });
+        assert!(error.is_err());
+    }
+
+    #[test]
+    fn test_error_chain() {
+        let io_error = Error::new(ErrorKind::NotFound, "File not found");
+        let daemon_error = DaemonError::Io(io_error);
+
+        let error_string = format!("{}", daemon_error);
+        assert!(error_string.contains("I/O error:"));
+        assert!(error_string.contains("File not found"));
+    }
+
+    #[test]
+    fn test_all_error_variants_are_testable() {
+        // Test that we can create all error variants
+        let errors = vec![
+            DaemonError::DocumentProcessing { message: "test".to_string() },
+            DaemonError::Search { message: "test".to_string() },
+            DaemonError::Memory { message: "test".to_string() },
+            DaemonError::System { message: "test".to_string() },
+            DaemonError::ProjectDetection { message: "test".to_string() },
+            DaemonError::ConnectionPool { message: "test".to_string() },
+            DaemonError::Timeout { seconds: 10 },
+            DaemonError::NotFound { resource: "test".to_string() },
+            DaemonError::InvalidInput { message: "test".to_string() },
+            DaemonError::Internal { message: "test".to_string() },
+        ];
+
+        for error in errors {
+            // Each error should be debuggable
+            let debug_str = format!("{:?}", error);
+            assert!(!debug_str.is_empty());
+
+            // Each error should be displayable
+            let display_str = format!("{}", error);
+            assert!(!display_str.is_empty());
+
+            // Each error should convert to Status
+            let _status: Status = error.into();
+        }
+    }
+
+    #[test]
+    fn test_error_source_chain() {
+        let io_error = Error::new(ErrorKind::NotFound, "File not found");
+        let daemon_error = DaemonError::Io(io_error);
+
+        // Test that the source chain is preserved
+        let source = std::error::Error::source(&daemon_error);
+        assert!(source.is_some());
+
+        if let Some(source) = source {
+            assert_eq!(source.to_string(), "File not found");
+        }
+    }
+}
