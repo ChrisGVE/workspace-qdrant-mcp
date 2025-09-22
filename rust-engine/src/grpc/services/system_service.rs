@@ -449,9 +449,8 @@ mod tests {
         let service = SystemServiceImpl::new(daemon);
 
         let request = Request::new(MetricsRequest {
+            since: None,
             metric_names: vec!["grpc_requests_total".to_string()],
-            start_time: None,
-            end_time: None,
         });
 
         let result = service.get_metrics(request).await;
@@ -493,9 +492,8 @@ mod tests {
 
         for metrics in metric_requests {
             let request = Request::new(MetricsRequest {
+                since: None,
                 metric_names: metrics.clone(),
-                start_time: None,
-                end_time: None,
             });
 
             let result = service.get_metrics(request).await;
@@ -514,15 +512,11 @@ mod tests {
 
         let before_request = chrono::Utc::now().timestamp();
         let request = Request::new(MetricsRequest {
-            metric_names: vec!["test_metric".to_string()],
-            start_time: Some(prost_types::Timestamp {
+            since: Some(prost_types::Timestamp {
                 seconds: before_request - 3600,
                 nanos: 0,
             }),
-            end_time: Some(prost_types::Timestamp {
-                seconds: before_request,
-                nanos: 0,
-            }),
+            metric_names: vec!["test_metric".to_string()],
         });
 
         let result = service.get_metrics(request).await;
@@ -816,9 +810,8 @@ mod tests {
         let service = SystemServiceImpl::new(daemon);
 
         let request = Request::new(MetricsRequest {
+            since: None,
             metric_names: vec!["test_metric".to_string()],
-            start_time: None,
-            end_time: None,
         });
 
         let result = service.get_metrics(request).await;
