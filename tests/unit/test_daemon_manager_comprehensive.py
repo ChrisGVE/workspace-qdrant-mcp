@@ -1267,15 +1267,11 @@ class TestModuleFunctions:
         """Test getting daemon for project when it exists."""
         mock_manager = AsyncMock()
         mock_daemon = AsyncMock()
-        mock_manager._get_daemon_key.return_value = "test_key"
-        # Create a proper mock manager with daemons dict
-        mock_manager.daemons = {"test_key": mock_daemon}
-        mock_manager._get_daemon_key.return_value = "test_key"
 
-        # Ensure the daemons dictionary behaves correctly
-        def mock_get(key, default=None):
-            return mock_daemon if key == "test_key" else default
-        mock_manager.daemons.get = mock_get
+        # Create a proper dict that supports .get() method
+        test_daemons = {"test_key": mock_daemon}
+        mock_manager.daemons = test_daemons
+        mock_manager._get_daemon_key.return_value = "test_key"
 
         with patch('src.python.common.core.daemon_manager.get_daemon_manager', return_value=mock_manager):
             result = await get_daemon_for_project("test_project", "/test/path")
