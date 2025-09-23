@@ -313,8 +313,8 @@ impl TestDataFactory {
                 DocumentChunk {
                     id: format!("chunk_{}", i),
                     content: text[start..end].to_string(),
-                    start_offset: start as u64,
-                    end_offset: end as u64,
+                    start_offset: start as i32,
+                    end_offset: end as i32,
                     metadata: HashMap::from([
                         ("chunk_index".to_string(), i.to_string()),
                         ("chunk_type".to_string(), "test".to_string()),
@@ -506,11 +506,11 @@ impl ProtocolTestSuite {
     /// Test metadata propagation through the protocol stack
     pub async fn test_metadata_propagation(
         clients: &mut GrpcClients,
-        metadata_pairs: Vec<(&str, &str)>,
+        metadata_pairs: Vec<(String, String)>,
     ) -> Result<bool, Box<dyn std::error::Error>> {
         let mut request = Request::new(());
         for (key, value) in metadata_pairs {
-            request.metadata_mut().insert(key, MetadataValue::from_static(value));
+            request.metadata_mut().insert(key.as_str(), MetadataValue::try_from(value).unwrap());
         }
 
         let response = timeout(
