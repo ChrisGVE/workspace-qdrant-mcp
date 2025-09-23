@@ -3,4 +3,4 @@ Advanced Watch Config module proxy for backward compatibility.
 """
 
 # Import all modules from common.core.advanced_watch_config
-from python.common.core.advanced_watch_config import *
+from ...common.core.advanced_watch_config import *
