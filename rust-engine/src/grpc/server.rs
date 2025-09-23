@@ -2,6 +2,7 @@
 
 use crate::daemon::WorkspaceDaemon;
 use crate::grpc::middleware::{ConnectionManager, ConnectionInterceptor};
+use crate::grpc::message_validation::MessageValidator;
 use crate::grpc::services::{
     DocumentProcessorImpl,
     SearchServiceImpl,
@@ -28,6 +29,7 @@ pub struct GrpcServer {
     daemon: Arc<WorkspaceDaemon>,
     address: SocketAddr,
     connection_manager: Arc<ConnectionManager>,
+    message_validator: Arc<MessageValidator>,
 }
 
 impl GrpcServer {
@@ -39,10 +41,18 @@ impl GrpcServer {
             100, // 100 requests per second per client
         ));
 
+        // Initialize message validator with configuration
+        let message_validator = Arc::new(MessageValidator::new(
+            config.server.message.clone(),
+            config.server.compression.clone(),
+            config.server.streaming.clone(),
+        ));
+
         Self {
             daemon: Arc::new(daemon),
             address,
             connection_manager,
+            message_validator,
         }
     }
 
@@ -131,10 +141,20 @@ impl GrpcServer {
         let server = Server::builder()
             // Add connection timeout from config
             .timeout(Duration::from_secs(config.server.connection_timeout_secs))
-            // Set concurrency limits
-            .concurrency_limit_per_connection(256)
-            // Add keep-alive settings
+            // Message size limits from configuration
+            .max_decoding_message_size(config.server.message.max_incoming_message_size)
+            .max_encoding_message_size(config.server.message.max_outgoing_message_size)
+            // HTTP/2 frame configuration
+            .max_frame_size(Some(config.server.message.max_frame_size))
+            .initial_stream_window_size(Some(config.server.message.initial_window_size))
+            .initial_connection_window_size(Some(config.server.message.initial_window_size * 2))
+            // Streaming configuration
+            .max_concurrent_streams(Some(config.server.streaming.max_concurrent_streams))
+            // Connection limits and keep-alive
+            .concurrency_limit_per_connection(config.server.streaming.max_concurrent_streams as usize)
             .tcp_keepalive(Some(Duration::from_secs(60)))
+            // Request timeout for streaming operations
+            .tcp_nodelay(true)
             // Register all services
             .add_service(DocumentProcessorServer::new(document_processor))
             .add_service(SearchServiceServer::new(search_service))
@@ -154,6 +174,16 @@ impl GrpcServer {
     /// Get connection manager for external access
     pub fn connection_manager(&self) -> &Arc<ConnectionManager> {
         &self.connection_manager
+    }
+
+    /// Get message validator for external access
+    pub fn message_validator(&self) -> &Arc<MessageValidator> {
+        &self.message_validator
+    }
+
+    /// Get message processing statistics
+    pub fn get_message_stats(&self) -> crate::grpc::message_validation::MessageStats {
+        self.message_validator.get_stats()
     }
 }
 
