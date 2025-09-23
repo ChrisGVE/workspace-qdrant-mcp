@@ -229,26 +229,27 @@ class PDFParser(DocumentParser):
                 # OCR detection and state management
                 ocr_needed = False
                 ocr_confidence = 1.0
-                if detect_ocr_needed and content:
-                    if progress_tracker:
-                        progress_tracker.update_phase("ocr_detection", "Analyzing OCR requirements")
-                    ocr_needed, ocr_confidence = await self._detect_ocr_needed(
-                        file_path, content, text_extraction_stats, ocr_confidence_threshold
-                    )
-                    parsing_info["ocr_needed"] = ocr_needed
-                    parsing_info["text_confidence"] = ocr_confidence
+                if detect_ocr_needed:
+                    if content:
+                        if progress_tracker:
+                            progress_tracker.update_phase("ocr_detection", "Analyzing OCR requirements")
+                        ocr_needed, ocr_confidence = await self._detect_ocr_needed(
+                            file_path, content, text_extraction_stats, ocr_confidence_threshold
+                        )
+                        parsing_info["ocr_needed"] = ocr_needed
+                        parsing_info["text_confidence"] = ocr_confidence
 
-                    # Store OCR requirement in state database if needed
-                    if ocr_needed and self.state_manager and HAS_STATE_MANAGER:
-                        await self._record_ocr_requirement(file_path, ocr_confidence)
-                elif not content:
-                    # No text extracted - likely needs OCR
-                    ocr_needed = True
-                    ocr_confidence = 0.0
-                    parsing_info["ocr_needed"] = True
-                    parsing_info["text_confidence"] = 0.0
-                    if self.state_manager and HAS_STATE_MANAGER:
-                        await self._record_ocr_requirement(file_path, 0.0)
+                        # Store OCR requirement in state database if needed
+                        if ocr_needed and self.state_manager and HAS_STATE_MANAGER:
+                            await self._record_ocr_requirement(file_path, ocr_confidence)
+                    elif not content:
+                        # No text extracted - likely needs OCR
+                        ocr_needed = True
+                        ocr_confidence = 0.0
+                        parsing_info["ocr_needed"] = True
+                        parsing_info["text_confidence"] = 0.0
+                        if self.state_manager and HAS_STATE_MANAGER:
+                            await self._record_ocr_requirement(file_path, 0.0)
 
                 # Generate text analysis
                 text_stats = self._analyze_pdf_content(content, pages_processed)
@@ -266,11 +267,14 @@ class PDFParser(DocumentParser):
                     "avg_words_per_page": len(content.split()) / pages_processed
                     if pages_processed > 0 and content
                     else 0.0,
-                    "ocr_needed": ocr_needed,
-                    "text_confidence": ocr_confidence,
                     "pages_with_text": text_extraction_stats["pages_with_text"],
                     "pages_with_minimal_text": text_extraction_stats["pages_with_minimal_text"],
                 }
+
+                # Add OCR metadata only if detection was enabled
+                if detect_ocr_needed:
+                    additional_metadata["ocr_needed"] = ocr_needed
+                    additional_metadata["text_confidence"] = ocr_confidence
 
                 # Add PDF metadata
                 additional_metadata.update(pdf_metadata)
@@ -279,11 +283,12 @@ class PDFParser(DocumentParser):
                 if parsing_info.get("empty_pages", 0) > 0:
                     additional_metadata["empty_pages"] = parsing_info["empty_pages"]
 
-                # Add OCR recommendation to content if needed
-                if ocr_needed and content:
-                    content = f"[OCR RECOMMENDED: This PDF appears to contain image-based text with low confidence ({ocr_confidence:.2f}). Consider using OCR for better text extraction.]\n\n{content}"
-                elif ocr_needed and not content:
-                    content = "[OCR REQUIRED: This PDF contains no extractable text and likely consists of scanned images. OCR processing is required to extract text content.]"
+                # Add OCR recommendation to content if needed (only when detection is enabled)
+                if detect_ocr_needed and ocr_needed:
+                    if content:
+                        content = f"[OCR RECOMMENDED: This PDF appears to contain image-based text with low confidence ({ocr_confidence:.2f}). Consider using OCR for better text extraction.]\n\n{content}"
+                    else:
+                        content = "[OCR REQUIRED: This PDF contains no extractable text and likely consists of scanned images. OCR processing is required to extract text content.]"
 
                 return ParsedDocument.create(
                     content=content,
