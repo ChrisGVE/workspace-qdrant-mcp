@@ -48,6 +48,75 @@ pub struct ServerConfig {
 
     /// Enable TLS (for future use)
     pub enable_tls: bool,
+
+    /// Message configuration
+    pub message: MessageConfig,
+
+    /// Compression configuration
+    pub compression: CompressionConfig,
+
+    /// Streaming configuration
+    pub streaming: StreamingConfig,
+}
+
+/// Message size and validation configuration
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct MessageConfig {
+    /// Maximum message size for incoming requests (bytes)
+    pub max_incoming_message_size: usize,
+
+    /// Maximum message size for outgoing responses (bytes)
+    pub max_outgoing_message_size: usize,
+
+    /// Enable message size validation
+    pub enable_size_validation: bool,
+
+    /// Maximum frame size for HTTP/2
+    pub max_frame_size: u32,
+
+    /// Initial window size for HTTP/2
+    pub initial_window_size: u32,
+}
+
+/// Compression configuration for gRPC messages
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CompressionConfig {
+    /// Enable gzip compression
+    pub enable_gzip: bool,
+
+    /// Minimum message size to trigger compression (bytes)
+    pub compression_threshold: usize,
+
+    /// Compression level (1-9, where 9 is maximum compression)
+    pub compression_level: u32,
+
+    /// Enable compression for streaming responses
+    pub enable_streaming_compression: bool,
+
+    /// Monitor compression efficiency
+    pub enable_compression_monitoring: bool,
+}
+
+/// Streaming configuration for large operations
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct StreamingConfig {
+    /// Enable server-side streaming
+    pub enable_server_streaming: bool,
+
+    /// Enable client-side streaming
+    pub enable_client_streaming: bool,
+
+    /// Maximum concurrent streams per connection
+    pub max_concurrent_streams: u32,
+
+    /// Stream buffer size (number of items)
+    pub stream_buffer_size: usize,
+
+    /// Stream timeout in seconds
+    pub stream_timeout_secs: u64,
+
+    /// Enable stream flow control
+    pub enable_flow_control: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -189,6 +258,9 @@ impl Default for DaemonConfig {
                 connection_timeout_secs: 30,
                 request_timeout_secs: 300,
                 enable_tls: false,
+                message: MessageConfig::default(),
+                compression: CompressionConfig::default(),
+                streaming: StreamingConfig::default(),
             },
             database: DatabaseConfig {
                 sqlite_path: "./workspace_daemon.db".to_string(),
@@ -354,6 +426,51 @@ impl DaemonConfig {
     }
 }
 
+impl Default for MessageConfig {
+    fn default() -> Self {
+        Self {
+            // 16MB default limit (existing baseline mentioned in requirements)
+            max_incoming_message_size: 16 * 1024 * 1024,
+            max_outgoing_message_size: 16 * 1024 * 1024,
+            enable_size_validation: true,
+            // 16KB frame size for HTTP/2
+            max_frame_size: 16 * 1024,
+            // 64KB initial window for HTTP/2
+            initial_window_size: 64 * 1024,
+        }
+    }
+}
+
+impl Default for CompressionConfig {
+    fn default() -> Self {
+        Self {
+            enable_gzip: true,
+            // Compress messages larger than 1KB
+            compression_threshold: 1024,
+            // Medium compression level (6) for balance of speed/size
+            compression_level: 6,
+            enable_streaming_compression: true,
+            enable_compression_monitoring: true,
+        }
+    }
+}
+
+impl Default for StreamingConfig {
+    fn default() -> Self {
+        Self {
+            enable_server_streaming: true,
+            enable_client_streaming: true,
+            // 128 concurrent streams per connection
+            max_concurrent_streams: 128,
+            // Buffer 1000 items for streaming
+            stream_buffer_size: 1000,
+            // 5 minute stream timeout
+            stream_timeout_secs: 300,
+            enable_flow_control: true,
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -373,6 +490,28 @@ mod tests {
         assert_eq!(config.server.connection_timeout_secs, 30);
         assert_eq!(config.server.request_timeout_secs, 300);
         assert!(!config.server.enable_tls);
+
+        // Test message configuration defaults
+        assert_eq!(config.server.message.max_incoming_message_size, 16 * 1024 * 1024);
+        assert_eq!(config.server.message.max_outgoing_message_size, 16 * 1024 * 1024);
+        assert!(config.server.message.enable_size_validation);
+        assert_eq!(config.server.message.max_frame_size, 16 * 1024);
+        assert_eq!(config.server.message.initial_window_size, 64 * 1024);
+
+        // Test compression configuration defaults
+        assert!(config.server.compression.enable_gzip);
+        assert_eq!(config.server.compression.compression_threshold, 1024);
+        assert_eq!(config.server.compression.compression_level, 6);
+        assert!(config.server.compression.enable_streaming_compression);
+        assert!(config.server.compression.enable_compression_monitoring);
+
+        // Test streaming configuration defaults
+        assert!(config.server.streaming.enable_server_streaming);
+        assert!(config.server.streaming.enable_client_streaming);
+        assert_eq!(config.server.streaming.max_concurrent_streams, 128);
+        assert_eq!(config.server.streaming.stream_buffer_size, 1000);
+        assert_eq!(config.server.streaming.stream_timeout_secs, 300);
+        assert!(config.server.streaming.enable_flow_control);
 
         // Test database defaults
         assert_eq!(config.database.sqlite_path, "./workspace_daemon.db");
@@ -452,6 +591,25 @@ server:
   connection_timeout_secs: 60
   request_timeout_secs: 600
   enable_tls: true
+  message:
+    max_incoming_message_size: 33554432
+    max_outgoing_message_size: 33554432
+    enable_size_validation: false
+    max_frame_size: 32768
+    initial_window_size: 131072
+  compression:
+    enable_gzip: false
+    compression_threshold: 2048
+    compression_level: 9
+    enable_streaming_compression: false
+    enable_compression_monitoring: false
+  streaming:
+    enable_server_streaming: false
+    enable_client_streaming: false
+    max_concurrent_streams: 64
+    stream_buffer_size: 500
+    stream_timeout_secs: 120
+    enable_flow_control: false
 qdrant:
   url: "http://remote-qdrant:6333"
   api_key: "test-key"
@@ -504,6 +662,28 @@ logging:
         assert_eq!(config.server.connection_timeout_secs, 60);
         assert_eq!(config.server.request_timeout_secs, 600);
         assert!(config.server.enable_tls);
+
+        // Test message configuration from YAML
+        assert_eq!(config.server.message.max_incoming_message_size, 33554432);
+        assert_eq!(config.server.message.max_outgoing_message_size, 33554432);
+        assert!(!config.server.message.enable_size_validation);
+        assert_eq!(config.server.message.max_frame_size, 32768);
+        assert_eq!(config.server.message.initial_window_size, 131072);
+
+        // Test compression configuration from YAML
+        assert!(!config.server.compression.enable_gzip);
+        assert_eq!(config.server.compression.compression_threshold, 2048);
+        assert_eq!(config.server.compression.compression_level, 9);
+        assert!(!config.server.compression.enable_streaming_compression);
+        assert!(!config.server.compression.enable_compression_monitoring);
+
+        // Test streaming configuration from YAML
+        assert!(!config.server.streaming.enable_server_streaming);
+        assert!(!config.server.streaming.enable_client_streaming);
+        assert_eq!(config.server.streaming.max_concurrent_streams, 64);
+        assert_eq!(config.server.streaming.stream_buffer_size, 500);
+        assert_eq!(config.server.streaming.stream_timeout_secs, 120);
+        assert!(!config.server.streaming.enable_flow_control);
 
         assert_eq!(config.qdrant.url, "http://remote-qdrant:6333");
         assert_eq!(config.qdrant.api_key, Some("test-key".to_string()));
@@ -773,6 +953,9 @@ logging:
         assert_send_sync::<FileWatcherConfig>();
         assert_send_sync::<MetricsConfig>();
         assert_send_sync::<LoggingConfig>();
+        assert_send_sync::<MessageConfig>();
+        assert_send_sync::<CompressionConfig>();
+        assert_send_sync::<StreamingConfig>();
     }
 
     #[test]
@@ -807,6 +990,25 @@ server:
   connection_timeout_secs: 30
   request_timeout_secs: 300
   enable_tls: false
+  message:
+    max_incoming_message_size: 16777216
+    max_outgoing_message_size: 16777216
+    enable_size_validation: true
+    max_frame_size: 16384
+    initial_window_size: 65536
+  compression:
+    enable_gzip: true
+    compression_threshold: 1024
+    compression_level: 6
+    enable_streaming_compression: true
+    enable_compression_monitoring: true
+  streaming:
+    enable_server_streaming: true
+    enable_client_streaming: true
+    max_concurrent_streams: 128
+    stream_buffer_size: 1000
+    stream_timeout_secs: 300
+    enable_flow_control: true
 qdrant:
   url: "http://custom-qdrant:6333"
   api_key: null
