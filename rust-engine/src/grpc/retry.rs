@@ -559,6 +559,7 @@ mod tests {
 
     #[test]
     fn test_custom_retry_predicate() {
+        #[derive(Debug)]
         struct CustomPredicate;
 
         impl RetryPredicate for CustomPredicate {
