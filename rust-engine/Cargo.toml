@@ -54,6 +54,7 @@ chrono = { version = "0.4", features = ["serde"] }
 # File system watching
 notify = "6.0"
 walkdir = "2.0"
+glob = "0.3"
 
 # HTTP client for health checks
 reqwest = { version = "0.12", features = ["json"] }

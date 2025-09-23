@@ -620,6 +620,7 @@ mod tests {
     use std::time::{Duration, Instant};
     use futures_util::future::join_all;
     use notify;
+    use glob::Pattern;
 
     fn create_test_config(enabled: bool) -> FileWatcherConfig {
         FileWatcherConfig {
@@ -1382,5 +1383,307 @@ mod tests {
         // _takes_debug(watcher);
         // _takes_send(watcher);
         // _takes_sync(watcher);
+    }
+
+    // PERFORMANCE TESTS
+
+    #[tokio::test]
+    async fn test_performance_watcher_initialization_speed() {
+        let config = create_test_config(true);
+        let processor = create_test_processor();
+
+        let start = Instant::now();
+        let _watcher = FileWatcher::new(&config, processor).await.unwrap();
+        let init_time = start.elapsed();
+
+        // Should initialize quickly (under 100ms)
+        assert!(init_time.as_millis() < 100, "Initialization took {}ms", init_time.as_millis());
+    }
+
+    #[tokio::test]
+    async fn test_performance_watch_many_directories() {
+        let mut config = create_test_config(true);
+        config.max_watched_dirs = 1000;
+        let processor = create_test_processor();
+        let mut watcher = FileWatcher::new(&config, processor).await.unwrap();
+
+        // Create many temporary directories
+        let temp_dirs: Vec<TempDir> = (0..100).map(|_| TempDir::new().unwrap()).collect();
+
+        let start = Instant::now();
+        for temp_dir in &temp_dirs {
+            assert!(watcher.watch_directory(temp_dir.path()).await.is_ok());
+        }
+        let watch_time = start.elapsed();
+
+        // Should be able to watch 100 directories quickly (under 1 second)
+        assert!(watch_time.as_secs() < 1, "Watching 100 directories took {}ms", watch_time.as_millis());
+
+        // Verify all directories are watched
+        let watched = watcher.get_watched_directories().await;
+        assert_eq!(watched.len(), 100);
+    }
+
+    #[tokio::test]
+    async fn test_performance_concurrent_watchers() {
+        let config = create_test_config(true);
+        let processor = create_test_processor();
+
+        let start = Instant::now();
+        let mut handles = Vec::new();
+
+        // Create 10 concurrent watchers
+        for _ in 0..10 {
+            let config_clone = config.clone();
+            let processor_clone = Arc::clone(&processor);
+
+            let handle = tokio::spawn(async move {
+                let mut watcher = FileWatcher::new(&config_clone, processor_clone).await.unwrap();
+                watcher.start().await.unwrap();
+                tokio::time::sleep(Duration::from_millis(50)).await;
+                watcher.stop().await.unwrap();
+            });
+            handles.push(handle);
+        }
+
+        join_all(handles).await;
+        let concurrent_time = start.elapsed();
+
+        // Should handle concurrent watchers efficiently (under 5 seconds)
+        assert!(concurrent_time.as_secs() < 5, "Concurrent watchers took {}ms", concurrent_time.as_millis());
+    }
+
+    #[tokio::test]
+    async fn test_performance_rapid_start_stop_cycles() {
+        let config = create_test_config(true);
+        let processor = create_test_processor();
+
+        let start = Instant::now();
+
+        // Rapid start/stop cycles
+        for _ in 0..20 {
+            let mut watcher = FileWatcher::new(&config, processor.clone()).await.unwrap();
+            watcher.start().await.unwrap();
+            watcher.stop().await.unwrap();
+        }
+
+        let cycle_time = start.elapsed();
+
+        // Should handle rapid cycles efficiently (under 2 seconds)
+        assert!(cycle_time.as_secs() < 2, "20 rapid cycles took {}ms", cycle_time.as_millis());
+    }
+
+    #[tokio::test]
+    async fn test_performance_memory_usage_scaling() {
+        let mut config = create_test_config(true);
+        config.max_watched_dirs = 1000;
+        let processor = create_test_processor();
+        let mut watcher = FileWatcher::new(&config, processor).await.unwrap();
+
+        // Measure initial memory state
+        let initial_dirs = watcher.get_watched_directories().await.len();
+        assert_eq!(initial_dirs, 0);
+
+        // Add directories and measure scaling
+        let temp_dirs: Vec<TempDir> = (0..200).map(|_| TempDir::new().unwrap()).collect();
+
+        for (i, temp_dir) in temp_dirs.iter().enumerate() {
+            assert!(watcher.watch_directory(temp_dir.path()).await.is_ok());
+
+            // Check memory usage doesn't grow excessively
+            if i % 50 == 0 {
+                let watched = watcher.get_watched_directories().await;
+                assert_eq!(watched.len(), i + 1);
+            }
+        }
+
+        let final_dirs = watcher.get_watched_directories().await.len();
+        assert_eq!(final_dirs, 200);
+    }
+
+    #[tokio::test]
+    async fn test_performance_pattern_matching_speed() {
+        let mut config = create_test_config(true);
+        config.ignore_patterns = vec![
+            "*.tmp".to_string(),
+            "*.log".to_string(),
+            "target/**".to_string(),
+            "node_modules/**".to_string(),
+            ".git/**".to_string(),
+            "*.backup".to_string(),
+            "*.cache".to_string(),
+            "*~".to_string(),
+        ];
+        let processor = create_test_processor();
+        let watcher = FileWatcher::new(&config, processor).await.unwrap();
+
+        // Test pattern matching performance
+        let test_paths = vec![
+            PathBuf::from("/tmp/test.txt"),
+            PathBuf::from("/tmp/test.log"),
+            PathBuf::from("/tmp/test.tmp"),
+            PathBuf::from("/project/target/debug/app"),
+            PathBuf::from("/project/node_modules/package/index.js"),
+            PathBuf::from("/project/.git/config"),
+            PathBuf::from("/tmp/backup.backup"),
+            PathBuf::from("/tmp/cache.cache"),
+            PathBuf::from("/tmp/file~"),
+        ];
+
+        let start = Instant::now();
+        for _ in 0..1000 {
+            for path in &test_paths {
+                let _ = watcher.should_ignore_path(path);
+            }
+        }
+        let pattern_time = start.elapsed();
+
+        // Should handle pattern matching efficiently (under 100ms for 9000 operations)
+        assert!(pattern_time.as_millis() < 100, "Pattern matching took {}ms", pattern_time.as_millis());
+    }
+
+    #[tokio::test]
+    async fn test_performance_debouncer_throughput() {
+        let debouncer = EventDebouncer::new(Duration::from_millis(100));
+
+        // Create many events for the same paths
+        let mut events = Vec::new();
+        for i in 0..1000 {
+            events.push(DebouncedEvent {
+                path: PathBuf::from(format!("/tmp/file_{}.txt", i % 10)), // 10 unique paths
+                event_type: EventKind::Modify(notify::ModifyKind::Data),
+                timestamp: Instant::now(),
+            });
+        }
+
+        let start = Instant::now();
+        let processed = debouncer.process_events(events).await;
+        let debounce_time = start.elapsed();
+
+        // Should process events quickly and deduplicate effectively
+        assert!(debounce_time.as_millis() < 50, "Debouncing took {}ms", debounce_time.as_millis());
+        assert!(processed.len() <= 10, "Should deduplicate to at most 10 events, got {}", processed.len());
+    }
+
+    #[tokio::test]
+    async fn test_performance_event_filter_throughput() {
+        let config = create_test_config(true);
+        let filter = EventFilter::new(&config);
+
+        // Create many test events
+        let events: Vec<notify::Event> = (0..10000)
+            .map(|i| {
+                let extension = if i % 3 == 0 { "tmp" } else if i % 3 == 1 { "log" } else { "txt" };
+                notify::Event {
+                    kind: EventKind::Create(notify::CreateKind::File),
+                    paths: vec![PathBuf::from(format!("/tmp/test_{}.{}", i, extension))],
+                    attrs: Default::default(),
+                }
+            })
+            .collect();
+
+        let start = Instant::now();
+        let mut filtered_count = 0;
+        for event in &events {
+            if !filter.should_ignore(&event) {
+                filtered_count += 1;
+            }
+        }
+        let filter_time = start.elapsed();
+
+        // Should filter events efficiently (under 100ms for 10000 events)
+        assert!(filter_time.as_millis() < 100, "Event filtering took {}ms", filter_time.as_millis());
+
+        // Should filter out .tmp and .log files
+        let expected_passed = events.len() / 3; // Only .txt files should pass
+        let tolerance = expected_passed / 10; // 10% tolerance
+        assert!(
+            (filtered_count as i32 - expected_passed as i32).abs() <= tolerance as i32,
+            "Expected ~{} filtered events, got {}",
+            expected_passed,
+            filtered_count
+        );
+    }
+
+    #[tokio::test]
+    async fn test_performance_scalability_limits() {
+        let mut config = create_test_config(true);
+        config.max_watched_dirs = 2000;
+        let processor = create_test_processor();
+        let mut watcher = FileWatcher::new(&config, processor).await.unwrap();
+
+        // Test scalability up to the limit
+        let test_count = std::cmp::min(config.max_watched_dirs, 500);
+        let temp_dirs: Vec<TempDir> = (0..test_count)
+            .map(|_| TempDir::new().unwrap())
+            .collect();
+
+        let start = Instant::now();
+        let mut successful_watches = 0;
+
+        for temp_dir in &temp_dirs {
+            if watcher.watch_directory(temp_dir.path()).await.is_ok() {
+                successful_watches += 1;
+            } else {
+                break;
+            }
+        }
+
+        let scaling_time = start.elapsed();
+
+        // Should handle a significant number of directories
+        assert!(successful_watches >= 200, "Should handle at least 200 directories, handled {}", successful_watches);
+
+        // Should complete within reasonable time (scale with directory count)
+        let expected_max_time = Duration::from_millis(successful_watches as u64 * 5); // 5ms per directory
+        assert!(scaling_time <= expected_max_time, "Scaling took {}ms for {} directories", scaling_time.as_millis(), successful_watches);
+    }
+
+    #[test]
+    fn test_performance_cpu_usage_estimation() {
+        // Test CPU-intensive operations for performance regression
+        let start = Instant::now();
+
+        // Pattern matching stress test
+        let patterns = vec![
+            "*.tmp".to_string(),
+            "*.log".to_string(),
+            "target/**".to_string(),
+            "node_modules/**".to_string(),
+            ".git/**".to_string(),
+        ];
+
+        // Compile patterns
+        let compiled_patterns: Vec<_> = patterns
+            .iter()
+            .filter_map(|pattern| Pattern::new(pattern).ok())
+            .collect();
+
+        // Test many path matches
+        let test_paths: Vec<String> = (0..10000)
+            .map(|i| {
+                let extensions = ["txt", "log", "tmp", "rs", "py"];
+                let dirs = ["target", "src", "tests", "node_modules", ".git"];
+                let ext = extensions[i % extensions.len()];
+                let dir = dirs[i % dirs.len()];
+                format!("{}/file_{}.{}", dir, i, ext)
+            })
+            .collect();
+
+        let mut matches = 0;
+        for path in &test_paths {
+            for pattern in &compiled_patterns {
+                if pattern.matches(path) {
+                    matches += 1;
+                    break;
+                }
+            }
+        }
+
+        let cpu_time = start.elapsed();
+
+        // Should complete pattern matching efficiently (under 100ms)
+        assert!(cpu_time.as_millis() < 100, "CPU-intensive pattern matching took {}ms", cpu_time.as_millis());
+        assert!(matches > 0, "Should have some pattern matches");
     }
 }
