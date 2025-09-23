@@ -89,6 +89,7 @@ mod tests {
     use super::*;
     use crate::config::{ProcessingConfig, QdrantConfig, CollectionConfig};
     use std::sync::Arc;
+    use tracing_subscriber;
 
     fn create_test_processing_config() -> ProcessingConfig {
         ProcessingConfig {
@@ -292,5 +293,388 @@ mod tests {
             let uuid_str = result.unwrap();
             assert_eq!(uuid_str.len(), 36);
         }
+    }
+
+    #[test]
+    fn test_instance_creation() {
+        let processor = DocumentProcessor::test_instance();
+
+        // Test that test_instance creates processor with expected config
+        assert_eq!(processor.config().max_concurrent_tasks, 2);
+        assert_eq!(processor.config().default_chunk_size, 1000);
+        assert_eq!(processor.config().default_chunk_overlap, 200);
+        assert_eq!(processor.config().max_file_size_bytes, 1024 * 1024);
+        assert_eq!(processor.config().supported_extensions, vec!["txt", "md"]);
+        assert!(!processor.config().enable_lsp);
+        assert_eq!(processor.config().lsp_timeout_secs, 10);
+
+        // Test that qdrant_config is properly set
+        assert_eq!(processor.qdrant_config.url, "http://localhost:6333");
+        assert_eq!(processor.qdrant_config.api_key, None);
+        assert_eq!(processor.qdrant_config.timeout_secs, 30);
+        assert_eq!(processor.qdrant_config.max_retries, 3);
+        assert_eq!(processor.qdrant_config.default_collection.vector_size, 384);
+        assert_eq!(processor.qdrant_config.default_collection.distance_metric, "Cosine");
+        assert!(processor.qdrant_config.default_collection.enable_indexing);
+        assert_eq!(processor.qdrant_config.default_collection.replication_factor, 1);
+        assert_eq!(processor.qdrant_config.default_collection.shard_number, 1);
+    }
+
+    #[tokio::test]
+    async fn test_semaphore_error_handling() {
+        let processing_config = create_test_processing_config();
+        let qdrant_config = create_test_qdrant_config();
+
+        let processor = DocumentProcessor::new(&processing_config, &qdrant_config)
+            .await
+            .unwrap();
+
+        // Close the semaphore to force an error condition
+        processor.semaphore.close();
+
+        let result = processor.process_document("test_file.rs").await;
+        assert!(result.is_err());
+
+        match result {
+            Err(DaemonError::Internal { message }) => {
+                assert!(message.contains("Semaphore error"));
+            }
+            _ => panic!("Expected Internal error with semaphore message"),
+        }
+    }
+
+    #[tokio::test]
+    async fn test_process_document_uuid_generation() {
+        let processing_config = create_test_processing_config();
+        let qdrant_config = create_test_qdrant_config();
+
+        let processor = DocumentProcessor::new(&processing_config, &qdrant_config)
+            .await
+            .unwrap();
+
+        // Process multiple documents and ensure UUIDs are unique
+        let mut uuids = std::collections::HashSet::new();
+
+        for i in 0..10 {
+            let result = processor.process_document(&format!("test_{}.rs", i)).await.unwrap();
+            assert_eq!(result.len(), 36);
+            assert!(result.contains('-'));
+
+            // Parse as UUID to ensure validity
+            let uuid = uuid::Uuid::parse_str(&result).unwrap();
+            assert_eq!(uuid.get_version_num(), 4); // UUID v4
+
+            // Ensure uniqueness
+            assert!(uuids.insert(result), "UUID should be unique");
+        }
+    }
+
+    #[tokio::test]
+    async fn test_processor_configuration_variants() {
+        // Test with minimal configuration
+        let minimal_config = ProcessingConfig {
+            max_concurrent_tasks: 1,
+            default_chunk_size: 100,
+            default_chunk_overlap: 0,
+            max_file_size_bytes: 1024,
+            supported_extensions: vec![],
+            enable_lsp: false,
+            lsp_timeout_secs: 1,
+        };
+
+        let qdrant_config = create_test_qdrant_config();
+
+        let processor = DocumentProcessor::new(&minimal_config, &qdrant_config)
+            .await
+            .unwrap();
+
+        assert_eq!(processor.config().max_concurrent_tasks, 1);
+        assert_eq!(processor.config().default_chunk_size, 100);
+        assert_eq!(processor.config().default_chunk_overlap, 0);
+        assert_eq!(processor.config().max_file_size_bytes, 1024);
+        assert!(processor.config().supported_extensions.is_empty());
+        assert!(!processor.config().enable_lsp);
+        assert_eq!(processor.config().lsp_timeout_secs, 1);
+
+        // Test processing with minimal config
+        let result = processor.process_document("minimal_test.txt").await;
+        assert!(result.is_ok());
+    }
+
+    #[tokio::test]
+    async fn test_processor_configuration_maximal() {
+        // Test with maximal configuration
+        let maximal_config = ProcessingConfig {
+            max_concurrent_tasks: 100,
+            default_chunk_size: 10000,
+            default_chunk_overlap: 2000,
+            max_file_size_bytes: 100 * 1024 * 1024, // 100MB
+            supported_extensions: vec![
+                "rs".to_string(), "py".to_string(), "js".to_string(),
+                "ts".to_string(), "java".to_string(), "cpp".to_string(),
+                "c".to_string(), "h".to_string(), "hpp".to_string(),
+                "md".to_string(), "txt".to_string(), "json".to_string(),
+            ],
+            enable_lsp: true,
+            lsp_timeout_secs: 60,
+        };
+
+        let qdrant_config = create_test_qdrant_config();
+
+        let processor = DocumentProcessor::new(&maximal_config, &qdrant_config)
+            .await
+            .unwrap();
+
+        assert_eq!(processor.config().max_concurrent_tasks, 100);
+        assert_eq!(processor.config().default_chunk_size, 10000);
+        assert_eq!(processor.config().default_chunk_overlap, 2000);
+        assert_eq!(processor.config().max_file_size_bytes, 100 * 1024 * 1024);
+        assert_eq!(processor.config().supported_extensions.len(), 12);
+        assert!(processor.config().enable_lsp);
+        assert_eq!(processor.config().lsp_timeout_secs, 60);
+
+        // Test processing with maximal config
+        let result = processor.process_document("maximal_test.cpp").await;
+        assert!(result.is_ok());
+    }
+
+    #[tokio::test]
+    async fn test_qdrant_config_variants() {
+        let processing_config = create_test_processing_config();
+
+        // Test with API key
+        let qdrant_with_key = QdrantConfig {
+            url: "https://cloud.qdrant.io".to_string(),
+            api_key: Some("test-api-key".to_string()),
+            timeout_secs: 60,
+            max_retries: 5,
+            default_collection: CollectionConfig {
+                vector_size: 768,
+                distance_metric: "Dot".to_string(),
+                enable_indexing: false,
+                replication_factor: 2,
+                shard_number: 4,
+            },
+        };
+
+        let processor = DocumentProcessor::new(&processing_config, &qdrant_with_key)
+            .await
+            .unwrap();
+
+        assert_eq!(processor.qdrant_config.url, "https://cloud.qdrant.io");
+        assert_eq!(processor.qdrant_config.api_key, Some("test-api-key".to_string()));
+        assert_eq!(processor.qdrant_config.timeout_secs, 60);
+        assert_eq!(processor.qdrant_config.max_retries, 5);
+        assert_eq!(processor.qdrant_config.default_collection.vector_size, 768);
+        assert_eq!(processor.qdrant_config.default_collection.distance_metric, "Dot");
+        assert!(!processor.qdrant_config.default_collection.enable_indexing);
+        assert_eq!(processor.qdrant_config.default_collection.replication_factor, 2);
+        assert_eq!(processor.qdrant_config.default_collection.shard_number, 4);
+    }
+
+    #[tokio::test]
+    async fn test_debug_implementation() {
+        let processor = DocumentProcessor::test_instance();
+
+        let debug_str = format!("{:?}", processor);
+        assert!(debug_str.contains("DocumentProcessor"));
+        assert!(debug_str.contains("config"));
+        assert!(debug_str.contains("qdrant_config"));
+        assert!(debug_str.contains("semaphore"));
+    }
+
+    #[tokio::test]
+    async fn test_empty_file_path() {
+        let processing_config = create_test_processing_config();
+        let qdrant_config = create_test_qdrant_config();
+
+        let processor = DocumentProcessor::new(&processing_config, &qdrant_config)
+            .await
+            .unwrap();
+
+        let result = processor.process_document("").await;
+        assert!(result.is_ok()); // Should handle empty path gracefully
+        let uuid_str = result.unwrap();
+        assert_eq!(uuid_str.len(), 36);
+    }
+
+    #[tokio::test]
+    async fn test_very_long_file_path() {
+        let processing_config = create_test_processing_config();
+        let qdrant_config = create_test_qdrant_config();
+
+        let processor = DocumentProcessor::new(&processing_config, &qdrant_config)
+            .await
+            .unwrap();
+
+        // Create a very long file path
+        let long_path = "a".repeat(1000) + ".rs";
+        let result = processor.process_document(&long_path).await;
+        assert!(result.is_ok()); // Should handle long paths gracefully
+        let uuid_str = result.unwrap();
+        assert_eq!(uuid_str.len(), 36);
+    }
+
+    #[tokio::test]
+    async fn test_special_characters_in_file_path() {
+        let processing_config = create_test_processing_config();
+        let qdrant_config = create_test_qdrant_config();
+
+        let processor = DocumentProcessor::new(&processing_config, &qdrant_config)
+            .await
+            .unwrap();
+
+        let special_paths = vec![
+            "file with spaces.rs",
+            "file-with-dashes.py",
+            "file_with_underscores.md",
+            "file.with.dots.txt",
+            "file@with#special$chars%.json",
+            "file(with)parentheses.rs",
+            "file[with]brackets.py",
+            "file{with}braces.md",
+        ];
+
+        for path in special_paths {
+            let result = processor.process_document(path).await;
+            assert!(result.is_ok(), "Failed to process file: {}", path);
+            let uuid_str = result.unwrap();
+            assert_eq!(uuid_str.len(), 36);
+        }
+    }
+
+    #[tokio::test]
+    async fn test_unicode_file_paths() {
+        let processing_config = create_test_processing_config();
+        let qdrant_config = create_test_qdrant_config();
+
+        let processor = DocumentProcessor::new(&processing_config, &qdrant_config)
+            .await
+            .unwrap();
+
+        let unicode_paths = vec![
+            "файл.rs", // Russian
+            "文件.py", // Chinese
+            "ファイル.md", // Japanese
+            "파일.txt", // Korean
+            "αρχείο.json", // Greek
+            "फ़ाइल.rs", // Hindi
+            "🚀rocket.py", // Emoji
+        ];
+
+        for path in unicode_paths {
+            let result = processor.process_document(path).await;
+            assert!(result.is_ok(), "Failed to process unicode file: {}", path);
+            let uuid_str = result.unwrap();
+            assert_eq!(uuid_str.len(), 36);
+        }
+    }
+
+    #[tokio::test]
+    async fn test_debug_logging_coverage() {
+        // This test ensures the debug! logging line is executed
+        // Initialize tracing subscriber to capture debug logs
+        let _ = tracing_subscriber::fmt()
+            .with_max_level(tracing::Level::DEBUG)
+            .try_init();
+
+        let processing_config = create_test_processing_config();
+        let qdrant_config = create_test_qdrant_config();
+
+        let processor = DocumentProcessor::new(&processing_config, &qdrant_config)
+            .await
+            .unwrap();
+
+        // This call will trigger the debug! statement on line 36
+        let result = processor.process_document("debug_test.rs").await;
+        assert!(result.is_ok());
+    }
+
+    #[tokio::test]
+    async fn test_info_logging_coverage() {
+        // This test ensures the info! logging line is executed
+        // Initialize tracing subscriber to capture info logs
+        let _ = tracing_subscriber::fmt()
+            .with_max_level(tracing::Level::INFO)
+            .try_init();
+
+        let processing_config = create_test_processing_config();
+        let qdrant_config = create_test_qdrant_config();
+
+        // This call will trigger the info! statement on line 20
+        let processor = DocumentProcessor::new(&processing_config, &qdrant_config)
+            .await
+            .unwrap();
+
+        assert_eq!(processor.config().max_concurrent_tasks, 2);
+    }
+
+    #[tokio::test]
+    async fn test_complete_processing_pipeline() {
+        // Comprehensive test that exercises the complete processing pipeline
+        let processing_config = create_test_processing_config();
+        let qdrant_config = create_test_qdrant_config();
+
+        // Test processor creation (covers info! logging)
+        let processor = DocumentProcessor::new(&processing_config, &qdrant_config)
+            .await
+            .unwrap();
+
+        // Test configuration access
+        let config = processor.config();
+        assert!(config.enable_lsp);
+        assert_eq!(config.supported_extensions, vec!["rs", "py"]);
+
+        // Test document processing with various scenarios
+        let test_scenarios = vec![
+            ("simple.rs", "Simple Rust file"),
+            ("", "Empty path"),
+            ("very/deep/nested/path/file.py", "Deeply nested path"),
+            ("file with spaces.md", "Path with spaces"),
+            ("αβγ.txt", "Unicode filename"),
+        ];
+
+        for (path, description) in test_scenarios {
+            let result = processor.process_document(path).await;
+            assert!(result.is_ok(), "Failed to process {}: {}", description, path);
+
+            let uuid_str = result.unwrap();
+            assert_eq!(uuid_str.len(), 36, "Invalid UUID length for {}", description);
+
+            // Verify it's a valid UUID v4
+            let uuid = uuid::Uuid::parse_str(&uuid_str)
+                .expect(&format!("Invalid UUID format for {}", description));
+            assert_eq!(uuid.get_version_num(), 4, "Expected UUID v4 for {}", description);
+        }
+    }
+
+    #[tokio::test]
+    async fn test_processor_struct_fields() {
+        // Test to ensure all struct fields are properly initialized and accessible
+        let processor = DocumentProcessor::test_instance();
+
+        // Test config field
+        assert_eq!(processor.config.max_concurrent_tasks, 2);
+        assert_eq!(processor.config.default_chunk_size, 1000);
+        assert_eq!(processor.config.default_chunk_overlap, 200);
+        assert_eq!(processor.config.max_file_size_bytes, 1024 * 1024);
+        assert_eq!(processor.config.supported_extensions, vec!["txt", "md"]);
+        assert!(!processor.config.enable_lsp);
+        assert_eq!(processor.config.lsp_timeout_secs, 10);
+
+        // Test qdrant_config field
+        assert_eq!(processor.qdrant_config.url, "http://localhost:6333");
+        assert_eq!(processor.qdrant_config.api_key, None);
+        assert_eq!(processor.qdrant_config.timeout_secs, 30);
+        assert_eq!(processor.qdrant_config.max_retries, 3);
+        assert_eq!(processor.qdrant_config.default_collection.vector_size, 384);
+        assert_eq!(processor.qdrant_config.default_collection.distance_metric, "Cosine");
+        assert!(processor.qdrant_config.default_collection.enable_indexing);
+        assert_eq!(processor.qdrant_config.default_collection.replication_factor, 1);
+        assert_eq!(processor.qdrant_config.default_collection.shard_number, 1);
+
+        // Test semaphore field by verifying it works
+        let permit = processor.semaphore.acquire().await.unwrap();
+        drop(permit); // Release permit
     }
 }
