@@ -62,6 +62,7 @@ class FileProcessingStatus(Enum):
     FAILED = "failed"
     SKIPPED = "skipped"
     RETRYING = "retrying"
+    OCR_REQUIRED = "ocr_required"  # Added for PDF processing with OCR detection
 
 
 class ProcessingPriority(Enum):
