@@ -118,4 +118,51 @@ mod tests {
         );
         assert_eq!(std::mem::size_of::<DaemonCore>(), 0);
     }
+
+    #[test]
+    fn test_system_info_memory_operations() {
+        let result = DaemonCore::get_system_info();
+        assert!(result.is_ok());
+        let info = result.unwrap();
+        assert!(info.memory_total > 0);
+        assert!(info.cpu_count > 0);
+        assert!(!info.hostname.is_empty());
+    }
+
+    #[test]
+    fn test_system_info_edge_cases() {
+        let info = SystemInfo {
+            cpu_count: 0,
+            memory_total: 0,
+            hostname: String::new(),
+        };
+
+        let debug_str = format!("{:?}", info);
+        assert!(debug_str.contains("SystemInfo"));
+        assert!(debug_str.contains("cpu_count: 0"));
+        assert!(debug_str.contains("memory_total: 0"));
+
+        let cloned = info.clone();
+        assert_eq!(info.cpu_count, cloned.cpu_count);
+        assert_eq!(info.memory_total, cloned.memory_total);
+        assert_eq!(info.hostname, cloned.hostname);
+    }
+
+    #[test]
+    fn test_system_info_with_large_values() {
+        let info = SystemInfo {
+            cpu_count: usize::MAX,
+            memory_total: u64::MAX,
+            hostname: "a".repeat(1000),
+        };
+
+        let debug_str = format!("{:?}", info);
+        assert!(debug_str.contains("SystemInfo"));
+        assert!(debug_str.len() > 1000);
+
+        let cloned = info.clone();
+        assert_eq!(info.cpu_count, cloned.cpu_count);
+        assert_eq!(info.memory_total, cloned.memory_total);
+        assert_eq!(info.hostname.len(), cloned.hostname.len());
+    }
 }
