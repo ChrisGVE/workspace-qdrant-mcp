@@ -3,11 +3,15 @@
 use crate::config::FileWatcherConfig;
 use crate::daemon::processing::DocumentProcessor;
 use crate::error::{DaemonError, DaemonResult};
-use notify::{RecommendedWatcher, RecursiveMode, Event};
+use notify::{RecommendedWatcher, RecursiveMode, Event, EventKind, Watcher};
 use std::sync::Arc;
-use std::path::Path;
-use tokio::sync::{mpsc, Mutex};
+use std::path::{Path, PathBuf};
+use std::collections::{HashMap, HashSet};
+use std::time::{Duration, Instant};
+use tokio::sync::{mpsc, Mutex, RwLock};
 use tracing::{info, debug, warn, error};
+use glob::Pattern;
+use tokio::time::{sleep, interval};
 
 /// File watcher
 #[derive(Debug)]
@@ -15,6 +19,10 @@ pub struct FileWatcher {
     config: FileWatcherConfig,
     processor: Arc<DocumentProcessor>,
     watcher: Arc<Mutex<Option<RecommendedWatcher>>>,
+    watched_dirs: Arc<RwLock<HashSet<PathBuf>>>,
+    event_sender: Arc<Mutex<Option<mpsc::Sender<notify::Result<Event>>>>>,
+    shutdown_sender: Arc<Mutex<Option<tokio::sync::oneshot::Sender<()>>>>,
+    ignore_patterns: Vec<Pattern>,
 }
 
 impl FileWatcher {
@@ -22,10 +30,28 @@ impl FileWatcher {
     pub async fn new(config: &FileWatcherConfig, processor: Arc<DocumentProcessor>) -> DaemonResult<Self> {
         info!("Initializing file watcher (enabled: {})", config.enabled);
 
+        // Compile ignore patterns
+        let ignore_patterns = config.ignore_patterns
+            .iter()
+            .filter_map(|pattern| {
+                match Pattern::new(pattern) {
+                    Ok(p) => Some(p),
+                    Err(e) => {
+                        warn!("Invalid ignore pattern '{}': {}", pattern, e);
+                        None
+                    }
+                }
+            })
+            .collect();
+
         Ok(Self {
             config: config.clone(),
             processor,
             watcher: Arc::new(Mutex::new(None)),
+            watched_dirs: Arc::new(RwLock::new(HashSet::new())),
+            event_sender: Arc::new(Mutex::new(None)),
+            shutdown_sender: Arc::new(Mutex::new(None)),
+            ignore_patterns,
         })
     }
 
@@ -38,9 +64,65 @@ impl FileWatcher {
 
         info!("Starting file watcher");
 
-        // TODO: Implement actual file watching
-        // This is a placeholder implementation
+        let mut watcher_guard = self.watcher.lock().await;
+        if watcher_guard.is_some() {
+            debug!("File watcher is already running");
+            return Ok(());
+        }
 
+        // Create event channel
+        let (event_tx, mut event_rx) = mpsc::channel::<notify::Result<Event>>(1000);
+        let (shutdown_tx, mut shutdown_rx) = tokio::sync::oneshot::channel::<()>();
+
+        // Store senders for later use
+        *self.event_sender.lock().await = Some(event_tx.clone());
+        *self.shutdown_sender.lock().await = Some(shutdown_tx);
+
+        // Create notify watcher
+        let mut notify_watcher = notify::recommended_watcher(move |res| {
+            if let Err(e) = event_tx.blocking_send(res) {
+                error!("Failed to send file system event: {}", e);
+            }
+        })
+        .map_err(|e| DaemonError::Internal {
+            message: format!("Failed to create file watcher: {}", e),
+        })?;
+
+        // Watch existing directories
+        let watched_dirs = self.watched_dirs.read().await.clone();
+        for dir in watched_dirs {
+            let recursive_mode = if self.config.recursive {
+                RecursiveMode::Recursive
+            } else {
+                RecursiveMode::NonRecursive
+            };
+
+            if let Err(e) = notify_watcher.watch(&dir, recursive_mode) {
+                error!("Failed to watch directory {}: {}", dir.display(), e);
+            } else {
+                debug!("Watching directory: {}", dir.display());
+            }
+        }
+
+        *watcher_guard = Some(notify_watcher);
+        drop(watcher_guard); // Release the lock
+
+        // Start event processing task
+        let processor = Arc::clone(&self.processor);
+        let config = self.config.clone();
+        let ignore_patterns = self.ignore_patterns.clone();
+
+        tokio::spawn(async move {
+            Self::process_events(
+                event_rx,
+                shutdown_rx,
+                processor,
+                config,
+                ignore_patterns,
+            ).await;
+        });
+
+        info!("File watcher started successfully");
         Ok(())
     }
 
@@ -48,30 +130,483 @@ impl FileWatcher {
     pub async fn stop(&self) -> DaemonResult<()> {
         info!("Stopping file watcher");
 
-        // TODO: Implement actual stop logic
+        // Send shutdown signal
+        if let Some(shutdown_tx) = self.shutdown_sender.lock().await.take() {
+            let _ = shutdown_tx.send(());
+        }
 
+        // Clear the watcher
+        *self.watcher.lock().await = None;
+        *self.event_sender.lock().await = None;
+
+        info!("File watcher stopped");
         Ok(())
     }
 
     /// Add a directory to watch
     pub async fn watch_directory<P: AsRef<Path>>(&mut self, path: P) -> DaemonResult<()> {
-        let path = path.as_ref();
+        let path = path.as_ref().to_path_buf();
         info!("Adding directory to watch: {}", path.display());
 
-        // TODO: Implement actual directory watching
+        // Add to watched directories set
+        let mut watched_dirs = self.watched_dirs.write().await;
+        if watched_dirs.len() >= self.config.max_watched_dirs && self.config.max_watched_dirs > 0 {
+            return Err(DaemonError::Internal {
+                message: format!(
+                    "Maximum watched directories limit reached: {}",
+                    self.config.max_watched_dirs
+                ),
+            });
+        }
+
+        let already_watched = !watched_dirs.insert(path.clone());
+        drop(watched_dirs);
+
+        if already_watched {
+            debug!("Directory already being watched: {}", path.display());
+            return Ok(());
+        }
+
+        // If watcher is running, add this directory to it
+        let mut watcher_guard = self.watcher.lock().await;
+        if let Some(ref mut watcher) = *watcher_guard {
+            let recursive_mode = if self.config.recursive {
+                RecursiveMode::Recursive
+            } else {
+                RecursiveMode::NonRecursive
+            };
+
+            watcher.watch(&path, recursive_mode)
+                .map_err(|e| DaemonError::Internal {
+                    message: format!("Failed to watch directory {}: {}", path.display(), e),
+                })?;
+
+            debug!("Started watching directory: {}", path.display());
+        }
 
         Ok(())
     }
 
     /// Remove a directory from watching
     pub async fn unwatch_directory<P: AsRef<Path>>(&mut self, path: P) -> DaemonResult<()> {
-        let path = path.as_ref();
+        let path = path.as_ref().to_path_buf();
         info!("Removing directory from watch: {}", path.display());
 
-        // TODO: Implement actual directory unwatching
+        // Remove from watched directories set
+        let mut watched_dirs = self.watched_dirs.write().await;
+        let was_watched = watched_dirs.remove(&path);
+        drop(watched_dirs);
+
+        if !was_watched {
+            debug!("Directory was not being watched: {}", path.display());
+            return Ok(());
+        }
+
+        // If watcher is running, remove this directory from it
+        let mut watcher_guard = self.watcher.lock().await;
+        if let Some(ref mut watcher) = *watcher_guard {
+            if let Err(e) = watcher.unwatch(&path) {
+                warn!("Failed to unwatch directory {}: {}", path.display(), e);
+            } else {
+                debug!("Stopped watching directory: {}", path.display());
+            }
+        }
 
         Ok(())
     }
+
+    /// Get list of currently watched directories
+    pub async fn get_watched_directories(&self) -> Vec<PathBuf> {
+        self.watched_dirs.read().await.iter().cloned().collect()
+    }
+
+    /// Check if a path should be ignored based on ignore patterns
+    pub fn should_ignore_path(&self, path: &Path) -> bool {
+        let path_str = path.to_string_lossy();
+
+        for pattern in &self.ignore_patterns {
+            if pattern.matches(&path_str) {
+                return true;
+            }
+        }
+
+        // Also check file name only
+        if let Some(file_name) = path.file_name() {
+            let file_name_str = file_name.to_string_lossy();
+            for pattern in &self.ignore_patterns {
+                if pattern.matches(&file_name_str) {
+                    return true;
+                }
+            }
+        }
+
+        false
+    }
+
+    /// Check if watcher is currently running
+    pub async fn is_running(&self) -> bool {
+        self.watcher.lock().await.is_some()
+    }
+
+    /// Get current configuration
+    pub fn config(&self) -> &FileWatcherConfig {
+        &self.config
+    }
+
+    /// Get count of watched directories
+    pub async fn watched_directory_count(&self) -> usize {
+        self.watched_dirs.read().await.len()
+    }
+
+    /// Process file system events with debouncing
+    async fn process_events(
+        mut event_rx: mpsc::Receiver<notify::Result<Event>>,
+        mut shutdown_rx: tokio::sync::oneshot::Receiver<()>,
+        processor: Arc<DocumentProcessor>,
+        config: FileWatcherConfig,
+        ignore_patterns: Vec<Pattern>,
+    ) {
+        let mut debounced_events = HashMap::new();
+        let debounce_duration = Duration::from_millis(config.debounce_ms);
+
+        // Create a ticker for periodic flushing
+        let mut flush_interval = interval(debounce_duration.max(Duration::from_millis(100)));
+
+        loop {
+            tokio::select! {
+                // Handle shutdown signal
+                _ = &mut shutdown_rx => {
+                    info!("File watcher event processing shutting down");
+                    break;
+                }
+
+                // Handle periodic flush
+                _ = flush_interval.tick() => {
+                    Self::flush_debounced_events(&mut debounced_events, debounce_duration, &processor, &ignore_patterns).await;
+                }
+
+                // Handle file system events
+                event_result = event_rx.recv() => {
+                    match event_result {
+                        Some(Ok(event)) => {
+                            debug!("Received file system event: {:?}", event);
+
+                            // Convert notify event to our internal format
+                            for path in event.paths {
+                                debounced_events.insert(path.clone(), (Instant::now(), event.kind));
+                            }
+                        }
+                        Some(Err(e)) => {
+                            error!("File system event error: {}", e);
+                        }
+                        None => {
+                            debug!("File system event channel closed");
+                            break;
+                        }
+                    }
+                }
+            }
+        }
+
+        // Process any remaining debounced events on shutdown
+        for (path, (_, kind)) in debounced_events {
+            Self::handle_file_system_event(path, kind, &processor, &ignore_patterns).await;
+        }
+
+        info!("File watcher event processing stopped");
+    }
+
+    /// Flush debounced events that are ready for processing
+    async fn flush_debounced_events(
+        debounced_events: &mut HashMap<PathBuf, (Instant, EventKind)>,
+        debounce_duration: Duration,
+        processor: &Arc<DocumentProcessor>,
+        ignore_patterns: &[Pattern],
+    ) {
+        let now = Instant::now();
+        let mut events_to_process = Vec::new();
+
+        debounced_events.retain(|path, (timestamp, kind)| {
+            if now.duration_since(*timestamp) >= debounce_duration {
+                events_to_process.push((path.clone(), *kind));
+                false // Remove from debounced events
+            } else {
+                true // Keep in debounced events
+            }
+        });
+
+        for (path, kind) in events_to_process {
+            Self::handle_file_system_event(path, kind, processor, ignore_patterns).await;
+        }
+    }
+
+    /// Handle a single file system event
+    async fn handle_file_system_event(
+        path: PathBuf,
+        kind: EventKind,
+        processor: &Arc<DocumentProcessor>,
+        ignore_patterns: &[Pattern],
+    ) {
+        // Check if path should be ignored
+        let path_str = path.to_string_lossy();
+        for pattern in ignore_patterns {
+            if pattern.matches(&path_str) {
+                debug!("Ignoring file due to pattern match: {}", path.display());
+                return;
+            }
+        }
+
+        // Check file name patterns
+        if let Some(file_name) = path.file_name() {
+            let file_name_str = file_name.to_string_lossy();
+            for pattern in ignore_patterns {
+                if pattern.matches(&file_name_str) {
+                    debug!("Ignoring file due to filename pattern match: {}", path.display());
+                    return;
+                }
+            }
+        }
+
+        match kind {
+            EventKind::Create(_) => {
+                info!("File created: {}", path.display());
+                if path.is_file() {
+                    if let Err(e) = processor.process_document(path.to_string_lossy().as_ref()).await {
+                        error!("Failed to process created file {}: {}", path.display(), e);
+                    }
+                }
+            }
+            EventKind::Modify(_) => {
+                info!("File modified: {}", path.display());
+                if path.is_file() {
+                    if let Err(e) = processor.process_document(path.to_string_lossy().as_ref()).await {
+                        error!("Failed to process modified file {}: {}", path.display(), e);
+                    }
+                }
+            }
+            EventKind::Remove(_) => {
+                info!("File removed: {}", path.display());
+                // TODO: Implement document removal from vector database
+            }
+            _ => {
+                debug!("Unhandled event kind: {:?} for {}", kind, path.display());
+            }
+        }
+    }
+}
+
+/// Event debouncer for handling rapid file system events
+#[derive(Debug)]
+pub struct EventDebouncer {
+    debounce_duration: Duration,
+    pending_events: Arc<RwLock<HashMap<PathBuf, (Instant, EventKind)>>>,
+}
+
+impl EventDebouncer {
+    /// Create a new event debouncer
+    pub fn new(debounce_duration: Duration) -> Self {
+        Self {
+            debounce_duration,
+            pending_events: Arc::new(RwLock::new(HashMap::new())),
+        }
+    }
+
+    /// Process a batch of events, applying debouncing logic
+    pub async fn process_events(&self, events: Vec<DebouncedEvent>) -> Vec<DebouncedEvent> {
+        let mut debounced = Vec::new();
+        let mut event_map: HashMap<PathBuf, DebouncedEvent> = HashMap::new();
+
+        // Group events by path and keep only the latest
+        for event in events {
+            match event_map.get(&event.path) {
+                Some(existing) => {
+                    // Keep the more recent event
+                    if event.timestamp > existing.timestamp {
+                        event_map.insert(event.path.clone(), event);
+                    }
+                }
+                None => {
+                    event_map.insert(event.path.clone(), event);
+                }
+            }
+        }
+
+        let now = Instant::now();
+        for (_, event) in event_map {
+            // Only include events that are old enough (past debounce period)
+            if now.duration_since(event.timestamp) >= self.debounce_duration {
+                debounced.push(event);
+            }
+        }
+
+        debounced
+    }
+
+    /// Add an event to the debouncer
+    pub async fn add_event(&self, path: PathBuf, event_type: EventKind) {
+        let now = Instant::now();
+        let mut pending = self.pending_events.write().await;
+        pending.insert(path, (now, event_type));
+    }
+
+    /// Get debounced events that are ready for processing
+    pub async fn get_ready_events(&self) -> Vec<(PathBuf, EventKind)> {
+        let now = Instant::now();
+        let mut pending = self.pending_events.write().await;
+        let mut ready = Vec::new();
+
+        pending.retain(|path, (timestamp, event_type)| {
+            if now.duration_since(*timestamp) >= self.debounce_duration {
+                ready.push((path.clone(), *event_type));
+                false // Remove from pending
+            } else {
+                true // Keep in pending
+            }
+        });
+
+        ready
+    }
+}
+
+/// Event filter for ignoring unwanted file system events
+#[derive(Debug)]
+pub struct EventFilter {
+    ignore_patterns: Vec<Pattern>,
+}
+
+impl EventFilter {
+    /// Create a new event filter from configuration
+    pub fn new(config: &FileWatcherConfig) -> Self {
+        let mut ignore_patterns = Vec::new();
+
+        for pattern_str in &config.ignore_patterns {
+            match Pattern::new(pattern_str) {
+                Ok(pattern) => ignore_patterns.push(pattern),
+                Err(e) => {
+                    warn!("Invalid ignore pattern '{}': {}", pattern_str, e);
+                }
+            }
+        }
+
+        Self { ignore_patterns }
+    }
+
+    /// Check if an event should be ignored
+    pub fn should_ignore(&self, event: &Event) -> bool {
+        for path in &event.paths {
+            // Convert to string for pattern matching
+            let path_str = match path.to_str() {
+                Some(s) => s,
+                None => {
+                    warn!("Non-UTF8 path encountered: {:?}", path);
+                    return true; // Ignore non-UTF8 paths
+                }
+            };
+
+            // Check against ignore patterns
+            for pattern in &self.ignore_patterns {
+                if pattern.matches(path_str) {
+                    debug!("Ignoring path due to pattern match: {}", path_str);
+                    return true;
+                }
+            }
+
+            // Additional filtering logic
+            if self.should_ignore_by_extension(path) {
+                return true;
+            }
+        }
+
+        false
+    }
+
+    /// Check if a file should be ignored based on its extension or path patterns
+    fn should_ignore_by_extension(&self, path: &Path) -> bool {
+        if let Some(extension) = path.extension() {
+            if let Some(ext_str) = extension.to_str() {
+                match ext_str {
+                    "tmp" | "log" | "bak" | "swp" | "cache" => return true,
+                    _ => {}
+                }
+            }
+        }
+
+        // Check for backup files ending with ~
+        if let Some(filename) = path.file_name() {
+            if let Some(filename_str) = filename.to_str() {
+                if filename_str.ends_with('~') {
+                    return true;
+                }
+            }
+        }
+
+        false
+    }
+}
+
+/// File system event handler with rate limiting
+#[derive(Debug)]
+pub struct FileSystemEventHandler {
+    max_events_per_second: u32,
+    last_event_time: Arc<Mutex<Instant>>,
+    event_count: Arc<Mutex<u32>>,
+}
+
+impl FileSystemEventHandler {
+    /// Create a new event handler with rate limiting
+    pub fn new(max_events_per_second: u32) -> Self {
+        Self {
+            max_events_per_second,
+            last_event_time: Arc::new(Mutex::new(Instant::now())),
+            event_count: Arc::new(Mutex::new(0)),
+        }
+    }
+
+    /// Handle a burst of events with rate limiting
+    pub async fn handle_event_burst(&self, events: Vec<DebouncedEvent>) -> Vec<DebouncedEvent> {
+        if self.max_events_per_second == 0 {
+            return events; // No rate limiting
+        }
+
+        let mut processed = Vec::new();
+        let interval_duration = Duration::from_millis(1000 / self.max_events_per_second as u64);
+
+        for event in events {
+            // Check if we need to rate limit
+            {
+                let mut last_time = self.last_event_time.lock().await;
+                let mut count = self.event_count.lock().await;
+                let now = Instant::now();
+
+                // Reset counter if more than a second has passed
+                if now.duration_since(*last_time) >= Duration::from_secs(1) {
+                    *count = 0;
+                    *last_time = now;
+                }
+
+                // Rate limit if we've exceeded the threshold
+                if *count >= self.max_events_per_second {
+                    sleep(interval_duration).await;
+                    *count = 0;
+                    *last_time = Instant::now();
+                }
+
+                *count += 1;
+            }
+
+            processed.push(event);
+        }
+
+        processed
+    }
+}
+
+/// Debounced event structure for testing
+#[derive(Debug, Clone)]
+pub struct DebouncedEvent {
+    pub path: PathBuf,
+    pub event_type: EventKind,
+    pub timestamp: Instant,
 }
 
 #[cfg(test)]
@@ -82,6 +617,9 @@ mod tests {
     use std::path::PathBuf;
     use std::sync::Arc;
     use tokio_test;
+    use std::time::{Duration, Instant};
+    use futures_util::future::join_all;
+    use notify;
 
     fn create_test_config(enabled: bool) -> FileWatcherConfig {
         FileWatcherConfig {
