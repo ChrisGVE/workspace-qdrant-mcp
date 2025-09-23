@@ -1,0 +1,99 @@
+# Rust Testing and Build Configuration
+
+[build]
+# Enable debug info for better test debugging
+rustflags = ["-C", "debug-assertions=true"]
+
+# Target-specific configurations (commented out to avoid linker issues)
+# [target.x86_64-unknown-linux-gnu]
+# linker = "clang"
+
+# [target.x86_64-apple-darwin]
+# rustflags = ["-C", "target-cpu=native"]
+
+# [target.aarch64-apple-darwin]
+# rustflags = ["-C", "target-cpu=native"]
+
+# Test configuration
+[env]
+# Enable test mode
+RUST_TEST_MODE = "true"
+# Set test timeout
+RUST_TEST_TIMEOUT = "300"
+# Enable better backtraces for test failures
+RUST_BACKTRACE = "1"
+# Enable colored output
+RUST_LOG = "debug"
+
+# Nextest configuration
+[nextest]
+# Default profile for functional testing
+default-profile = "functional"
+
+# Functional testing profile
+[nextest.profiles.functional]
+# Test timeout
+timeout = { period = "300s" }
+# Retry failed tests once
+retry = 1
+# Show output for failing tests
+show-output = "failures"
+# Run tests in parallel
+test-threads = "logical"
+# Capture stdout/stderr
+capture-output = true
+
+# Performance testing profile
+[nextest.profiles.performance]
+timeout = { period = "600s" }
+retry = 0
+show-output = "all"
+test-threads = 1  # Serial execution for consistent performance measurements
+
+# Integration testing profile
+[nextest.profiles.integration]
+timeout = { period = "600s" }
+retry = 2
+show-output = "failures"
+test-threads = "logical"
+# Set environment variables for integration tests
+[nextest.profiles.integration.env]
+TESTCONTAINERS_RYUK_DISABLED = "true"
+RUST_LOG = "debug"
+
+# Property-based testing profile
+[nextest.profiles.proptest]
+timeout = { period = "900s" }  # Longer timeout for property tests
+retry = 0
+show-output = "failures"
+test-threads = "logical"
+
+# Test filtering by attributes
+[nextest.default-filter]
+# Skip tests marked as slow by default
+expr = 'not test(slow)'
+
+[nextest.profiles.all]
+# Run all tests including slow ones
+expr = 'all()'
+
+[nextest.profiles.fast]
+# Run only fast tests
+expr = 'not test(slow) and not test(integration)'
+
+# Cargo aliases for testing
+[alias]
+test-fast = "nextest run --profile fast"
+test-all = "nextest run --profile all"
+test-integration = "nextest run --profile integration"
+test-performance = "nextest run --profile performance"
+test-proptest = "nextest run --profile proptest"
+
+# Benchmark configuration
+bench = "criterion --output-format html"
+bench-baseline = "criterion --save-baseline baseline"
+bench-compare = "criterion --baseline baseline"
+
+# Coverage configuration
+coverage = "llvm-cov nextest --html --open"
+coverage-ci = "llvm-cov nextest --lcov --output-path coverage.lcov"
