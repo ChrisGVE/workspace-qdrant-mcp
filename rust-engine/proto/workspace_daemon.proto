@@ -79,6 +79,27 @@ service SystemService {
     rpc ListProjects(google.protobuf.Empty) returns (ListProjectsResponse);
 }
 
+// Service Discovery Service
+service ServiceDiscovery {
+    // Register a service instance
+    rpc RegisterService(RegisterServiceRequest) returns (RegisterServiceResponse);
+
+    // Deregister a service instance
+    rpc DeregisterService(DeregisterServiceRequest) returns (DeregisterServiceResponse);
+
+    // List all registered services
+    rpc ListServices(ListServicesRequest) returns (ListServicesResponse);
+
+    // Get instances for a specific service
+    rpc GetServiceInstances(GetServiceInstancesRequest) returns (GetServiceInstancesResponse);
+
+    // Update service health status
+    rpc UpdateServiceHealth(UpdateServiceHealthRequest) returns (UpdateServiceHealthResponse);
+
+    // Get service discovery statistics
+    rpc GetDiscoveryStats(ServiceDiscoveryStatsRequest) returns (ServiceDiscoveryStatsResponse);
+}
+
 // Message Types
 
 // Document Processing Messages
@@ -477,4 +498,101 @@ message ProjectInfo {
     repeated string submodules = 6;
     map<string, string> metadata = 7;
     google.protobuf.Timestamp detected_at = 8;
+}
+
+// Service Discovery Messages
+
+message RegisterServiceRequest {
+    ServiceInstanceProto instance = 1;
+}
+
+message RegisterServiceResponse {
+    bool success = 1;
+    string instance_id = 2;
+    string error_message = 3;
+}
+
+message DeregisterServiceRequest {
+    string service_name = 1;
+    string instance_id = 2;
+}
+
+message DeregisterServiceResponse {
+    bool success = 1;
+    string error_message = 2;
+}
+
+message ListServicesRequest {
+    // No fields needed
+}
+
+message ListServicesResponse {
+    repeated string service_names = 1;
+}
+
+message GetServiceInstancesRequest {
+    string service_name = 1;
+    bool healthy_only = 2;
+}
+
+message GetServiceInstancesResponse {
+    repeated ServiceInstanceProto instances = 1;
+}
+
+message UpdateServiceHealthRequest {
+    string service_name = 1;
+    string instance_id = 2;
+    ServiceHealthProto health = 3;
+}
+
+message UpdateServiceHealthResponse {
+    bool success = 1;
+    string error_message = 2;
+}
+
+message ServiceDiscoveryStatsRequest {
+    // No fields needed
+}
+
+message ServiceDiscoveryStatsResponse {
+    uint32 total_services = 1;
+    uint32 total_instances = 2;
+    uint32 healthy_instances = 3;
+    uint32 degraded_instances = 4;
+    uint32 unhealthy_instances = 5;
+    uint32 draining_instances = 6;
+    uint32 unknown_instances = 7;
+}
+
+message ServiceInstanceProto {
+    string id = 1;
+    string name = 2;
+    string version = 3;
+    string address = 4;
+    uint32 weight = 5;
+    ServiceHealthProto health = 6;
+    map<string, string> metadata = 7;
+    repeated string tags = 8;
+    string health_endpoint = 9;
+    uint64 health_interval = 10;
+    uint32 active_connections = 11;
+    uint64 total_requests = 12;
+    google.protobuf.Timestamp registered_at = 13;
+    google.protobuf.Timestamp last_health_check = 14;
+}
+
+enum ServiceHealthProto {
+    SERVICE_HEALTH_UNKNOWN = 0;
+    SERVICE_HEALTH_HEALTHY = 1;
+    SERVICE_HEALTH_DEGRADED = 2;
+    SERVICE_HEALTH_UNHEALTHY = 3;
+    SERVICE_HEALTH_DRAINING = 4;
+}
+
+enum LoadBalancingStrategyProto {
+    LOAD_BALANCING_ROUND_ROBIN = 0;
+    LOAD_BALANCING_WEIGHTED_ROUND_ROBIN = 1;
+    LOAD_BALANCING_LEAST_CONNECTIONS = 2;
+    LOAD_BALANCING_RANDOM = 3;
+    LOAD_BALANCING_HEALTH_WEIGHTED = 4;
 }
