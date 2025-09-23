@@ -4,12 +4,15 @@ pub mod core;
 pub mod state;
 pub mod processing;
 pub mod watcher;
+pub mod file_ops;
+pub mod runtime;
 
 use crate::config::DaemonConfig;
 use crate::error::{DaemonError, DaemonResult};
 use std::sync::Arc;
 use tokio::sync::RwLock;
 use tracing::{info, warn};
+use self::runtime::{RuntimeManager, RuntimeConfig};
 
 /// Main daemon coordinator
 #[derive(Debug, Clone)]
@@ -18,6 +21,7 @@ pub struct WorkspaceDaemon {
     state: Arc<RwLock<state::DaemonState>>,
     processing: Arc<processing::DocumentProcessor>,
     watcher: Option<Arc<watcher::FileWatcher>>,
+    runtime_manager: Arc<RuntimeManager>,
 }
 
 impl WorkspaceDaemon {
@@ -47,17 +51,34 @@ impl WorkspaceDaemon {
             None
         };
 
+        // Initialize runtime manager
+        let runtime_config = RuntimeConfig {
+            max_concurrent_tasks: config.processing.max_concurrent_tasks,
+            task_timeout: std::time::Duration::from_secs(config.server.request_timeout_secs),
+            resource_pool_size: config.server.max_connections,
+            enable_monitoring: config.metrics.enabled,
+            monitoring_interval: std::time::Duration::from_secs(config.metrics.collection_interval_secs),
+            max_retry_attempts: config.qdrant.max_retries,
+            shutdown_timeout: std::time::Duration::from_secs(30),
+        };
+        let runtime_manager = Arc::new(RuntimeManager::new(runtime_config).await?);
+
         Ok(Self {
             config,
             state,
             processing,
             watcher,
+            runtime_manager,
         })
     }
 
     /// Start all daemon services
     pub async fn start(&mut self) -> DaemonResult<()> {
         info!("Starting daemon services");
+
+        // Start runtime manager
+        self.runtime_manager.start().await?;
+        info!("Runtime manager started");
 
         // Start file watcher if enabled
         if let Some(ref watcher) = self.watcher {
@@ -78,6 +99,10 @@ impl WorkspaceDaemon {
             watcher.stop().await?;
             info!("File watcher stopped");
         }
+
+        // Stop runtime manager gracefully
+        self.runtime_manager.stop(true).await?;
+        info!("Runtime manager stopped");
 
         info!("All daemon services stopped");
         Ok(())
@@ -106,6 +131,16 @@ impl WorkspaceDaemon {
     /// Get file watcher
     pub fn watcher(&self) -> Option<&Arc<watcher::FileWatcher>> {
         self.watcher.as_ref()
+    }
+
+    /// Get runtime manager
+    pub fn runtime_manager(&self) -> &Arc<RuntimeManager> {
+        &self.runtime_manager
+    }
+
+    /// Get runtime statistics
+    pub async fn get_runtime_statistics(&self) -> runtime::RuntimeStatistics {
+        self.runtime_manager.get_statistics().await
     }
 }
 
