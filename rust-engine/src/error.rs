@@ -211,6 +211,61 @@ impl From<DaemonError> for Status {
     }
 }
 
+/// Custom Clone implementation for DaemonError
+impl Clone for DaemonError {
+    fn clone(&self) -> Self {
+        match self {
+            // String-based errors can be cloned directly
+            DaemonError::Configuration { message } => DaemonError::Configuration { message: message.clone() },
+            DaemonError::FileIo { message, path } => DaemonError::FileIo { message: message.clone(), path: path.clone() },
+            DaemonError::FileTooLarge { path, size, max_size } => DaemonError::FileTooLarge { path: path.clone(), size: *size, max_size: *max_size },
+            DaemonError::DocumentProcessing { message } => DaemonError::DocumentProcessing { message: message.clone() },
+            DaemonError::Search { message } => DaemonError::Search { message: message.clone() },
+            DaemonError::Memory { message } => DaemonError::Memory { message: message.clone() },
+            DaemonError::System { message } => DaemonError::System { message: message.clone() },
+            DaemonError::ProjectDetection { message } => DaemonError::ProjectDetection { message: message.clone() },
+            DaemonError::ConnectionPool { message } => DaemonError::ConnectionPool { message: message.clone() },
+            DaemonError::Timeout { seconds } => DaemonError::Timeout { seconds: *seconds },
+            DaemonError::NotFound { resource } => DaemonError::NotFound { resource: resource.clone() },
+            DaemonError::InvalidInput { message } => DaemonError::InvalidInput { message: message.clone() },
+            DaemonError::Internal { message } => DaemonError::Internal { message: message.clone() },
+            DaemonError::ServiceNotFound(service) => DaemonError::ServiceNotFound(service.clone()),
+            DaemonError::SymlinkBroken { link_path, target_path } => DaemonError::SymlinkBroken { link_path: link_path.clone(), target_path: target_path.clone() },
+            DaemonError::SymlinkCircular { link_path, cycle_depth } => DaemonError::SymlinkCircular { link_path: link_path.clone(), cycle_depth: *cycle_depth },
+            DaemonError::SymlinkDepthExceeded { link_path, depth, max_depth } => DaemonError::SymlinkDepthExceeded { link_path: link_path.clone(), depth: *depth, max_depth: *max_depth },
+            // Network errors
+            DaemonError::NetworkConnection { message } => DaemonError::NetworkConnection { message: message.clone() },
+            DaemonError::NetworkTimeout { timeout_ms } => DaemonError::NetworkTimeout { timeout_ms: *timeout_ms },
+            DaemonError::NetworkUnavailable { message } => DaemonError::NetworkUnavailable { message: message.clone() },
+            DaemonError::DnsResolution { hostname } => DaemonError::DnsResolution { hostname: hostname.clone() },
+            DaemonError::TlsHandshake { message } => DaemonError::TlsHandshake { message: message.clone() },
+            // Retry errors
+            DaemonError::RetryLimitExceeded { attempts } => DaemonError::RetryLimitExceeded { attempts: *attempts },
+            DaemonError::RetryConfigInvalid { message } => DaemonError::RetryConfigInvalid { message: message.clone() },
+            DaemonError::BackoffCalculation { message } => DaemonError::BackoffCalculation { message: message.clone() },
+            // Circuit breaker errors
+            DaemonError::CircuitBreakerOpen { service } => DaemonError::CircuitBreakerOpen { service: service.clone() },
+            DaemonError::CircuitBreakerHalfOpen { service } => DaemonError::CircuitBreakerHalfOpen { service: service.clone() },
+            DaemonError::CircuitBreakerConfig { message } => DaemonError::CircuitBreakerConfig { message: message.clone() },
+            // Service health errors
+            DaemonError::ServiceHealthCheck { service, reason } => DaemonError::ServiceHealthCheck { service: service.clone(), reason: reason.clone() },
+            DaemonError::ServiceDegraded { service, details } => DaemonError::ServiceDegraded { service: service.clone(), details: details.clone() },
+            // Load balancing errors
+            DaemonError::NoHealthyInstances { service } => DaemonError::NoHealthyInstances { service: service.clone() },
+            DaemonError::LoadBalancerConfig { message } => DaemonError::LoadBalancerConfig { message: message.clone() },
+            // For errors wrapping non-cloneable types, create a new error with message
+            DaemonError::Config(ref err) => DaemonError::Configuration { message: err.to_string() },
+            DaemonError::Database(ref err) => DaemonError::Internal { message: format!("Database error: {}", err) },
+            DaemonError::Io(ref err) => DaemonError::Internal { message: format!("I/O error: {}", err) },
+            DaemonError::Grpc(ref err) => DaemonError::NetworkConnection { message: format!("gRPC error: {}", err) },
+            DaemonError::Serialization(ref err) => DaemonError::Internal { message: format!("Serialization error: {}", err) },
+            DaemonError::FileWatcher(ref err) => DaemonError::Internal { message: format!("File watcher error: {}", err) },
+            DaemonError::Git(ref err) => DaemonError::Internal { message: format!("Git error: {}", err) },
+            DaemonError::Http(ref err) => DaemonError::NetworkConnection { message: format!("HTTP error: {}", err) },
+        }
+    }
+}
+
 /// Result type alias for daemon operations
 pub type DaemonResult<T> = Result<T, DaemonError>;
 

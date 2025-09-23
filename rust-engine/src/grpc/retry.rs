@@ -119,7 +119,7 @@ impl RetryConfig {
 }
 
 /// Trait to determine if an error should trigger a retry
-pub trait RetryPredicate {
+pub trait RetryPredicate: std::fmt::Debug {
     /// Returns true if the error should trigger a retry
     fn should_retry(&self, error: &DaemonError, attempt: u32) -> bool;
 }
@@ -184,7 +184,7 @@ impl RetryPredicate for DefaultRetryPredicate {
 }
 
 /// Retry strategy implementation
-#[derive(Debug)]
+// Note: Can't derive Debug because of trait object
 pub struct RetryStrategy {
     config: RetryConfig,
     predicate: Box<dyn RetryPredicate + Send + Sync>,
@@ -307,6 +307,14 @@ impl RetryStrategy {
 impl Default for RetryStrategy {
     fn default() -> Self {
         Self::new()
+    }
+}
+
+impl std::fmt::Debug for RetryStrategy {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("RetryStrategy")
+            .field("config", &self.config)
+            .finish_non_exhaustive()
     }
 }
 
