@@ -1,0 +1,952 @@
+//! Performance testing and optimization for file watcher
+
+use super::watcher::{FileWatcher, EventStats, WatcherMetrics, EventDebouncer, EventFilter, DebouncedEvent};
+use crate::config::{FileWatcherConfig, ProcessingConfig, QdrantConfig};
+use crate::daemon::processing::DocumentProcessor;
+use crate::error::DaemonResult;
+use std::sync::Arc;
+use std::time::{Duration, Instant};
+use std::path::{Path, PathBuf};
+use tokio::sync::{mpsc, Mutex, RwLock};
+use tracing::{info, debug, warn, error};
+use criterion::{Criterion, black_box};
+use tempfile::TempDir;
+use notify::{EventKind, CreateKind, ModifyKind};
+use futures_util::future::join_all;
+use std::collections::HashMap;
+
+/// Performance benchmarks for file watcher operations
+pub struct WatcherPerformanceBenchmarks;
+
+impl WatcherPerformanceBenchmarks {
+    /// Benchmark file watcher initialization and startup performance
+    pub fn benchmark_watcher_initialization(c: &mut Criterion) {
+        let rt = tokio::runtime::Runtime::new().unwrap();
+
+        c.bench_function("watcher_initialization", |b| {
+            b.to_async(&rt).iter(|| async {
+                let config = create_performance_config();
+                let processor = create_test_processor();
+
+                let start = Instant::now();
+                let watcher = FileWatcher::new(&config, processor).await.unwrap();
+                let init_time = start.elapsed();
+
+                black_box((watcher, init_time))
+            });
+        });
+    }
+
+    /// Benchmark watching multiple directories performance
+    pub fn benchmark_watch_directories(c: &mut Criterion) {
+        let rt = tokio::runtime::Runtime::new().unwrap();
+
+        c.bench_function("watch_100_directories", |b| {
+            b.to_async(&rt).iter(|| async {
+                let config = create_performance_config();
+                let processor = create_test_processor();
+                let mut watcher = FileWatcher::new(&config, processor).await.unwrap();
+
+                // Create temporary directories
+                let temp_dirs: Vec<TempDir> = (0..100).map(|_| TempDir::new().unwrap()).collect();
+
+                let start = Instant::now();
+                for temp_dir in &temp_dirs {
+                    watcher.watch_directory(temp_dir.path()).await.unwrap();
+                }
+                let watch_time = start.elapsed();
+
+                black_box(watch_time)
+            });
+        });
+    }
+
+    /// Benchmark event processing throughput
+    pub fn benchmark_event_processing_throughput(c: &mut Criterion) {
+        let rt = tokio::runtime::Runtime::new().unwrap();
+
+        c.bench_function("process_1000_events", |b| {
+            b.to_async(&rt).iter(|| async {
+                let events = create_test_events(1000);
+                let processor = create_test_processor();
+
+                let start = Instant::now();
+                for event in events {
+                    processor.process_document(&event.path.to_string_lossy()).await.unwrap();
+                }
+                let processing_time = start.elapsed();
+
+                black_box(processing_time)
+            });
+        });
+    }
+
+    /// Benchmark concurrent watcher performance
+    pub fn benchmark_concurrent_watchers(c: &mut Criterion) {
+        let rt = tokio::runtime::Runtime::new().unwrap();
+
+        c.bench_function("concurrent_10_watchers", |b| {
+            b.to_async(&rt).iter(|| async {
+                let config = create_performance_config();
+                let processor = create_test_processor();
+
+                let start = Instant::now();
+                let mut handles = Vec::new();
+
+                for _ in 0..10 {
+                    let config_clone = config.clone();
+                    let processor_clone = Arc::clone(&processor);
+
+                    let handle = tokio::spawn(async move {
+                        let mut watcher = FileWatcher::new(&config_clone, processor_clone).await.unwrap();
+                        watcher.start().await.unwrap();
+
+                        // Simulate some work
+                        tokio::time::sleep(Duration::from_millis(10)).await;
+
+                        watcher.stop().await.unwrap();
+                    });
+                    handles.push(handle);
+                }
+
+                join_all(handles).await;
+                let concurrent_time = start.elapsed();
+
+                black_box(concurrent_time)
+            });
+        });
+    }
+
+    /// Benchmark memory usage under load
+    pub fn benchmark_memory_usage(c: &mut Criterion) {
+        let rt = tokio::runtime::Runtime::new().unwrap();
+
+        c.bench_function("memory_usage_stress", |b| {
+            b.to_async(&rt).iter(|| async {
+                let config = create_large_scale_config();
+                let processor = create_test_processor();
+                let mut watcher = FileWatcher::new(&config, processor).await.unwrap();
+
+                // Create many temporary directories
+                let temp_dirs: Vec<TempDir> = (0..500).map(|_| TempDir::new().unwrap()).collect();
+
+                let initial_memory = get_memory_usage();
+
+                for temp_dir in &temp_dirs {
+                    watcher.watch_directory(temp_dir.path()).await.unwrap();
+                }
+
+                let peak_memory = get_memory_usage();
+                let memory_growth = peak_memory - initial_memory;
+
+                black_box(memory_growth)
+            });
+        });
+    }
+
+    /// Benchmark debouncer performance
+    pub fn benchmark_event_debouncing(c: &mut Criterion) {
+        let rt = tokio::runtime::Runtime::new().unwrap();
+
+        c.bench_function("debounce_10000_events", |b| {
+            b.to_async(&rt).iter(|| async {
+                let debouncer = EventDebouncer::new(Duration::from_millis(100));
+                let events = create_test_events(10000);
+
+                let start = Instant::now();
+                let processed = debouncer.process_events(events).await;
+                let debounce_time = start.elapsed();
+
+                black_box((processed.len(), debounce_time))
+            });
+        });
+    }
+
+    /// Benchmark event filtering performance
+    pub fn benchmark_event_filtering(c: &mut Criterion) {
+        c.bench_function("filter_10000_events", |b| {
+            let config = create_performance_config();
+            let filter = EventFilter::new(&config);
+            let events = create_notify_events(10000);
+
+            b.iter(|| {
+                let mut filtered_count = 0;
+                for event in &events {
+                    if !filter.should_ignore(event) {
+                        filtered_count += 1;
+                    }
+                }
+                black_box(filtered_count)
+            });
+        });
+    }
+
+    /// Benchmark pattern matching performance
+    pub fn benchmark_pattern_matching(c: &mut Criterion) {
+        c.bench_function("pattern_matching_performance", |b| {
+            let patterns = vec![
+                "*.tmp".to_string(),
+                "*.log".to_string(),
+                "target/**".to_string(),
+                "node_modules/**".to_string(),
+                ".git/**".to_string(),
+            ];
+
+            let test_paths = create_test_paths(1000);
+
+            b.iter(|| {
+                let mut matches = 0;
+                for path in &test_paths {
+                    for pattern in &patterns {
+                        if path_matches_pattern(&path.to_string_lossy(), pattern) {
+                            matches += 1;
+                            break;
+                        }
+                    }
+                }
+                black_box(matches)
+            });
+        });
+    }
+
+    /// Benchmark deep directory watching
+    pub fn benchmark_deep_directory_watching(c: &mut Criterion) {
+        let rt = tokio::runtime::Runtime::new().unwrap();
+
+        c.bench_function("watch_deep_directory_structure", |b| {
+            b.to_async(&rt).iter(|| async {
+                let config = create_performance_config();
+                let processor = create_test_processor();
+                let mut watcher = FileWatcher::new(&config, processor).await.unwrap();
+
+                // Create a deep directory structure
+                let base_dir = TempDir::new().unwrap();
+                let deep_structure = create_deep_directory_structure(base_dir.path(), 10, 5).await;
+
+                let start = Instant::now();
+                watcher.watch_directory(base_dir.path()).await.unwrap();
+                let watch_time = start.elapsed();
+
+                black_box((deep_structure, watch_time))
+            });
+        });
+    }
+
+    /// Benchmark rapid file operations
+    pub fn benchmark_rapid_file_operations(c: &mut Criterion) {
+        let rt = tokio::runtime::Runtime::new().unwrap();
+
+        c.bench_function("rapid_file_operations", |b| {
+            b.to_async(&rt).iter(|| async {
+                let temp_dir = TempDir::new().unwrap();
+
+                let start = Instant::now();
+
+                // Create many files rapidly
+                let mut handles = Vec::new();
+                for i in 0..100 {
+                    let file_path = temp_dir.path().join(format!("test_file_{}.txt", i));
+                    let handle = tokio::spawn(async move {
+                        tokio::fs::write(&file_path, "test content").await.unwrap();
+                        tokio::fs::remove_file(&file_path).await.unwrap();
+                    });
+                    handles.push(handle);
+                }
+
+                join_all(handles).await;
+                let operation_time = start.elapsed();
+
+                black_box(operation_time)
+            });
+        });
+    }
+
+    /// Benchmark scalability limits
+    pub fn benchmark_scalability_limits(c: &mut Criterion) {
+        let rt = tokio::runtime::Runtime::new().unwrap();
+
+        let sizes = vec![10, 100, 500, 1000, 2000];
+
+        for size in sizes {
+            let bench_name = format!("scalability_test_{}_dirs", size);
+            c.bench_function(&bench_name, |b| {
+                b.to_async(&rt).iter(|| async {
+                    let config = create_large_scale_config();
+                    let processor = create_test_processor();
+                    let mut watcher = FileWatcher::new(&config, processor).await.unwrap();
+
+                    let temp_dirs: Vec<TempDir> = (0..size).map(|_| TempDir::new().unwrap()).collect();
+
+                    let start = Instant::now();
+
+                    for temp_dir in &temp_dirs {
+                        if watcher.watch_directory(temp_dir.path()).await.is_err() {
+                            break; // Hit the limit
+                        }
+                    }
+
+                    let scaling_time = start.elapsed();
+                    let watched_count = watcher.watched_directory_count();
+
+                    black_box((scaling_time, watched_count))
+                });
+            });
+        }
+    }
+}
+
+/// Performance analysis and optimization recommendations
+pub struct PerformanceAnalyzer;
+
+impl PerformanceAnalyzer {
+    /// Analyze watcher performance under various loads
+    pub async fn analyze_performance_characteristics() -> PerformanceReport {
+        let mut report = PerformanceReport::default();
+
+        // Test baseline performance
+        report.baseline_metrics = Self::measure_baseline_performance().await;
+
+        // Test under load
+        report.load_metrics = Self::measure_load_performance().await;
+
+        // Test scalability
+        report.scalability_metrics = Self::measure_scalability().await;
+
+        // Test memory efficiency
+        report.memory_metrics = Self::measure_memory_efficiency().await;
+
+        // Generate recommendations
+        report.recommendations = Self::generate_recommendations(&report);
+
+        report
+    }
+
+    async fn measure_baseline_performance() -> BaselineMetrics {
+        let config = create_performance_config();
+        let processor = create_test_processor();
+        let mut watcher = FileWatcher::new(&config, processor).await.unwrap();
+
+        let start = Instant::now();
+        watcher.start().await.unwrap();
+        let startup_time = start.elapsed();
+
+        let temp_dir = TempDir::new().unwrap();
+        let start = Instant::now();
+        watcher.watch_directory(temp_dir.path()).await.unwrap();
+        let watch_time = start.elapsed();
+
+        BaselineMetrics {
+            startup_time_ms: startup_time.as_millis() as u64,
+            watch_time_ms: watch_time.as_millis() as u64,
+            memory_usage_mb: get_memory_usage() as f64 / 1024.0 / 1024.0,
+        }
+    }
+
+    async fn measure_load_performance() -> LoadMetrics {
+        let config = create_performance_config();
+        let processor = create_test_processor();
+        let mut watcher = FileWatcher::new(&config, processor).await.unwrap();
+
+        watcher.start().await.unwrap();
+
+        // Create load scenario
+        let temp_dirs: Vec<TempDir> = (0..100).map(|_| TempDir::new().unwrap()).collect();
+
+        let start = Instant::now();
+        for temp_dir in &temp_dirs {
+            watcher.watch_directory(temp_dir.path()).await.unwrap();
+        }
+        let watch_all_time = start.elapsed();
+
+        // Simulate events
+        let events = create_test_events(1000);
+        let start = Instant::now();
+
+        for event in events {
+            let _ = processor.process_document(&event.path.to_string_lossy()).await;
+        }
+
+        let event_processing_time = start.elapsed();
+
+        LoadMetrics {
+            watch_100_dirs_ms: watch_all_time.as_millis() as u64,
+            process_1000_events_ms: event_processing_time.as_millis() as u64,
+            events_per_second: 1000.0 / event_processing_time.as_secs_f64(),
+            peak_memory_mb: get_memory_usage() as f64 / 1024.0 / 1024.0,
+        }
+    }
+
+    async fn measure_scalability() -> ScalabilityMetrics {
+        let mut results = Vec::new();
+
+        for scale in [10, 100, 500, 1000, 2000] {
+            let config = create_large_scale_config();
+            let processor = create_test_processor();
+            let mut watcher = FileWatcher::new(&config, processor).await.unwrap();
+
+            let temp_dirs: Vec<TempDir> = (0..scale).map(|_| TempDir::new().unwrap()).collect();
+
+            let start = Instant::now();
+            let mut successful_watches = 0;
+
+            for temp_dir in &temp_dirs {
+                if watcher.watch_directory(temp_dir.path()).await.is_ok() {
+                    successful_watches += 1;
+                } else {
+                    break;
+                }
+            }
+
+            let time_taken = start.elapsed();
+
+            results.push(ScalabilityPoint {
+                target_dirs: scale,
+                actual_dirs: successful_watches,
+                time_taken_ms: time_taken.as_millis() as u64,
+                memory_usage_mb: get_memory_usage() as f64 / 1024.0 / 1024.0,
+            });
+        }
+
+        ScalabilityMetrics { points: results }
+    }
+
+    async fn measure_memory_efficiency() -> MemoryMetrics {
+        let config = create_performance_config();
+        let processor = create_test_processor();
+        let mut watcher = FileWatcher::new(&config, processor).await.unwrap();
+
+        let initial_memory = get_memory_usage();
+
+        // Add directories one by one and measure memory growth
+        let mut memory_growth = Vec::new();
+
+        for i in 1..=100 {
+            let temp_dir = TempDir::new().unwrap();
+            watcher.watch_directory(temp_dir.path()).await.unwrap();
+
+            let current_memory = get_memory_usage();
+            let growth = current_memory - initial_memory;
+
+            memory_growth.push(MemoryGrowthPoint {
+                dirs_watched: i,
+                memory_bytes: growth,
+                memory_per_dir: growth as f64 / i as f64,
+            });
+
+            // Don't let temp_dir be dropped immediately
+            std::mem::forget(temp_dir);
+        }
+
+        MemoryMetrics {
+            initial_memory_bytes: initial_memory,
+            growth_points: memory_growth,
+        }
+    }
+
+    fn generate_recommendations(report: &PerformanceReport) -> Vec<String> {
+        let mut recommendations = Vec::new();
+
+        // Analyze startup time
+        if report.baseline_metrics.startup_time_ms > 100 {
+            recommendations.push("Consider lazy initialization to reduce startup time".to_string());
+        }
+
+        // Analyze memory usage
+        if report.load_metrics.peak_memory_mb > 100.0 {
+            recommendations.push("Memory usage is high - consider implementing memory pooling".to_string());
+        }
+
+        // Analyze scalability
+        if let Some(last_point) = report.scalability_metrics.points.last() {
+            if last_point.actual_dirs < last_point.target_dirs {
+                recommendations.push(format!(
+                    "Scalability limit reached at {} directories - consider increasing limits",
+                    last_point.actual_dirs
+                ));
+            }
+        }
+
+        // Analyze event processing rate
+        if report.load_metrics.events_per_second < 100.0 {
+            recommendations.push("Event processing rate is low - consider batching or async processing".to_string());
+        }
+
+        recommendations
+    }
+}
+
+/// Performance test suite for comprehensive validation
+pub struct PerformanceTestSuite;
+
+impl PerformanceTestSuite {
+    /// Run all performance tests
+    pub async fn run_all_tests() -> TestResults {
+        let mut results = TestResults::default();
+
+        results.throughput_tests = Self::run_throughput_tests().await;
+        results.latency_tests = Self::run_latency_tests().await;
+        results.memory_tests = Self::run_memory_tests().await;
+        results.scalability_tests = Self::run_scalability_tests().await;
+        results.stress_tests = Self::run_stress_tests().await;
+
+        results
+    }
+
+    async fn run_throughput_tests() -> ThroughputTestResults {
+        let config = create_performance_config();
+        let processor = create_test_processor();
+        let mut watcher = FileWatcher::new(&config, processor).await.unwrap();
+
+        watcher.start().await.unwrap();
+
+        // Test event processing throughput
+        let events = create_test_events(10000);
+        let start = Instant::now();
+
+        for event in &events {
+            let _ = processor.process_document(&event.path.to_string_lossy()).await;
+        }
+
+        let total_time = start.elapsed();
+        let events_per_second = events.len() as f64 / total_time.as_secs_f64();
+
+        // Test directory watching throughput
+        let temp_dirs: Vec<TempDir> = (0..1000).map(|_| TempDir::new().unwrap()).collect();
+        let start = Instant::now();
+
+        for temp_dir in &temp_dirs {
+            let _ = watcher.watch_directory(temp_dir.path()).await;
+        }
+
+        let watch_time = start.elapsed();
+        let dirs_per_second = temp_dirs.len() as f64 / watch_time.as_secs_f64();
+
+        ThroughputTestResults {
+            events_per_second,
+            dirs_per_second,
+            passed: events_per_second > 100.0 && dirs_per_second > 10.0,
+        }
+    }
+
+    async fn run_latency_tests() -> LatencyTestResults {
+        let config = create_performance_config();
+        let processor = create_test_processor();
+        let mut watcher = FileWatcher::new(&config, processor).await.unwrap();
+
+        watcher.start().await.unwrap();
+
+        // Test single event processing latency
+        let mut latencies = Vec::new();
+
+        for _ in 0..100 {
+            let event = create_single_test_event();
+            let start = Instant::now();
+            let _ = processor.process_document(&event.path.to_string_lossy()).await;
+            latencies.push(start.elapsed());
+        }
+
+        let avg_latency = latencies.iter().sum::<Duration>() / latencies.len() as u32;
+        let max_latency = *latencies.iter().max().unwrap();
+        let min_latency = *latencies.iter().min().unwrap();
+
+        // Test directory watch latency
+        let mut watch_latencies = Vec::new();
+
+        for _ in 0..100 {
+            let temp_dir = TempDir::new().unwrap();
+            let start = Instant::now();
+            let _ = watcher.watch_directory(temp_dir.path()).await;
+            watch_latencies.push(start.elapsed());
+        }
+
+        let avg_watch_latency = watch_latencies.iter().sum::<Duration>() / watch_latencies.len() as u32;
+
+        LatencyTestResults {
+            avg_event_latency_ms: avg_latency.as_millis() as u64,
+            max_event_latency_ms: max_latency.as_millis() as u64,
+            min_event_latency_ms: min_latency.as_millis() as u64,
+            avg_watch_latency_ms: avg_watch_latency.as_millis() as u64,
+            passed: avg_latency.as_millis() < 100 && avg_watch_latency.as_millis() < 50,
+        }
+    }
+
+    async fn run_memory_tests() -> MemoryTestResults {
+        let config = create_performance_config();
+        let processor = create_test_processor();
+        let mut watcher = FileWatcher::new(&config, processor).await.unwrap();
+
+        let initial_memory = get_memory_usage();
+
+        // Load test with many directories
+        let temp_dirs: Vec<TempDir> = (0..1000).map(|_| TempDir::new().unwrap()).collect();
+
+        for temp_dir in &temp_dirs {
+            let _ = watcher.watch_directory(temp_dir.path()).await;
+        }
+
+        let peak_memory = get_memory_usage();
+        let memory_growth = peak_memory - initial_memory;
+
+        // Test memory cleanup
+        drop(watcher);
+        tokio::time::sleep(Duration::from_millis(100)).await; // Allow cleanup
+
+        let final_memory = get_memory_usage();
+        let memory_leak = final_memory.saturating_sub(initial_memory);
+
+        MemoryTestResults {
+            initial_memory_mb: initial_memory as f64 / 1024.0 / 1024.0,
+            peak_memory_mb: peak_memory as f64 / 1024.0 / 1024.0,
+            memory_growth_mb: memory_growth as f64 / 1024.0 / 1024.0,
+            memory_leak_mb: memory_leak as f64 / 1024.0 / 1024.0,
+            passed: memory_growth < 100 * 1024 * 1024 && memory_leak < 10 * 1024 * 1024, // 100MB growth, 10MB leak limits
+        }
+    }
+
+    async fn run_scalability_tests() -> ScalabilityTestResults {
+        let config = create_large_scale_config();
+        let processor = create_test_processor();
+        let mut watcher = FileWatcher::new(&config, processor).await.unwrap();
+
+        let test_sizes = [10, 100, 500, 1000, 2000, 5000];
+        let mut results = Vec::new();
+
+        for size in test_sizes {
+            let temp_dirs: Vec<TempDir> = (0..size).map(|_| TempDir::new().unwrap()).collect();
+
+            let start = Instant::now();
+            let mut successful_watches = 0;
+
+            for temp_dir in &temp_dirs {
+                if watcher.watch_directory(temp_dir.path()).await.is_ok() {
+                    successful_watches += 1;
+                } else {
+                    break;
+                }
+            }
+
+            let time_taken = start.elapsed();
+
+            results.push(ScalabilityTestPoint {
+                target_dirs: size,
+                successful_dirs: successful_watches,
+                time_ms: time_taken.as_millis() as u64,
+                success_rate: successful_watches as f64 / size as f64,
+            });
+
+            if successful_watches < size {
+                break; // Hit scalability limit
+            }
+        }
+
+        let max_dirs = results.iter().map(|r| r.successful_dirs).max().unwrap_or(0);
+
+        ScalabilityTestResults {
+            points: results,
+            max_directories: max_dirs,
+            passed: max_dirs >= 1000, // Should handle at least 1000 directories
+        }
+    }
+
+    async fn run_stress_tests() -> StressTestResults {
+        let config = create_performance_config();
+        let processor = create_test_processor();
+
+        // Test 1: Rapid start/stop cycles
+        let start = Instant::now();
+        for _ in 0..100 {
+            let watcher = FileWatcher::new(&config, processor.clone()).await.unwrap();
+            watcher.start().await.unwrap();
+            watcher.stop().await.unwrap();
+        }
+        let rapid_cycles_time = start.elapsed();
+
+        // Test 2: Concurrent watchers
+        let start = Instant::now();
+        let mut handles = Vec::new();
+
+        for _ in 0..50 {
+            let config_clone = config.clone();
+            let processor_clone = processor.clone();
+
+            let handle = tokio::spawn(async move {
+                let mut watcher = FileWatcher::new(&config_clone, processor_clone).await.unwrap();
+                watcher.start().await.unwrap();
+                tokio::time::sleep(Duration::from_millis(100)).await;
+                watcher.stop().await.unwrap();
+            });
+            handles.push(handle);
+        }
+
+        join_all(handles).await;
+        let concurrent_time = start.elapsed();
+
+        // Test 3: Event flood
+        let mut watcher = FileWatcher::new(&config, processor.clone()).await.unwrap();
+        watcher.start().await.unwrap();
+
+        let events = create_test_events(50000);
+        let start = Instant::now();
+
+        for event in &events {
+            let _ = processor.process_document(&event.path.to_string_lossy()).await;
+        }
+
+        let event_flood_time = start.elapsed();
+
+        StressTestResults {
+            rapid_cycles_ms: rapid_cycles_time.as_millis() as u64,
+            concurrent_watchers_ms: concurrent_time.as_millis() as u64,
+            event_flood_ms: event_flood_time.as_millis() as u64,
+            passed: rapid_cycles_time.as_secs() < 30 &&
+                   concurrent_time.as_secs() < 10 &&
+                   event_flood_time.as_secs() < 60,
+        }
+    }
+}
+
+// Helper functions for testing
+
+fn create_performance_config() -> FileWatcherConfig {
+    FileWatcherConfig {
+        enabled: true,
+        debounce_ms: 50,
+        max_watched_dirs: 1000,
+        ignore_patterns: vec![
+            "*.tmp".to_string(),
+            "*.log".to_string(),
+            "target/**".to_string(),
+        ],
+        recursive: true,
+    }
+}
+
+fn create_large_scale_config() -> FileWatcherConfig {
+    FileWatcherConfig {
+        enabled: true,
+        debounce_ms: 10,
+        max_watched_dirs: 10000,
+        ignore_patterns: vec![],
+        recursive: true,
+    }
+}
+
+fn create_test_processor() -> Arc<DocumentProcessor> {
+    Arc::new(DocumentProcessor::test_instance())
+}
+
+fn create_test_events(count: usize) -> Vec<DebouncedEvent> {
+    (0..count)
+        .map(|i| DebouncedEvent {
+            path: PathBuf::from(format!("/tmp/test_file_{}.txt", i)),
+            event_type: EventKind::Modify(ModifyKind::Data),
+            timestamp: Instant::now(),
+        })
+        .collect()
+}
+
+fn create_single_test_event() -> DebouncedEvent {
+    DebouncedEvent {
+        path: PathBuf::from("/tmp/single_test_file.txt"),
+        event_type: EventKind::Create(CreateKind::File),
+        timestamp: Instant::now(),
+    }
+}
+
+fn create_notify_events(count: usize) -> Vec<notify::Event> {
+    (0..count)
+        .map(|i| notify::Event {
+            kind: EventKind::Create(CreateKind::File),
+            paths: vec![PathBuf::from(format!("/tmp/notify_test_{}.txt", i))],
+            attrs: Default::default(),
+        })
+        .collect()
+}
+
+fn create_test_paths(count: usize) -> Vec<PathBuf> {
+    let extensions = ["txt", "log", "tmp", "rs", "py", "js"];
+    let dirs = ["target", "node_modules", ".git", "src", "tests"];
+
+    (0..count)
+        .map(|i| {
+            let ext = extensions[i % extensions.len()];
+            let dir = dirs[i % dirs.len()];
+            PathBuf::from(format!("{}/test_file_{}.{}", dir, i, ext))
+        })
+        .collect()
+}
+
+async fn create_deep_directory_structure(base: &Path, depth: usize, breadth: usize) -> usize {
+    let mut total_dirs = 0;
+
+    async fn create_recursive(path: &Path, remaining_depth: usize, breadth: usize) -> std::io::Result<usize> {
+        if remaining_depth == 0 {
+            return Ok(0);
+        }
+
+        let mut count = 0;
+        for i in 0..breadth {
+            let dir_path = path.join(format!("dir_{}", i));
+            tokio::fs::create_dir_all(&dir_path).await?;
+            count += 1;
+            count += create_recursive(&dir_path, remaining_depth - 1, breadth).await?;
+        }
+        Ok(count)
+    }
+
+    if let Ok(count) = create_recursive(base, depth, breadth).await {
+        total_dirs = count;
+    }
+
+    total_dirs
+}
+
+fn path_matches_pattern(path: &str, pattern: &str) -> bool {
+    if pattern.ends_with("/**") {
+        let prefix = &pattern[..pattern.len() - 3];
+        return path.starts_with(prefix);
+    }
+    if pattern.starts_with("*.") {
+        let extension = &pattern[2..];
+        return path.ends_with(extension);
+    }
+    if pattern.contains('*') {
+        let parts: Vec<&str> = pattern.split('*').collect();
+        if parts.len() == 2 {
+            return path.starts_with(parts[0]) && path.ends_with(parts[1]);
+        }
+    }
+    path == pattern
+}
+
+fn get_memory_usage() -> u64 {
+    // Simplified memory usage calculation
+    // In a real implementation, you would use system-specific APIs
+    #[cfg(target_os = "linux")]
+    {
+        use std::fs;
+        if let Ok(status) = fs::read_to_string("/proc/self/status") {
+            for line in status.lines() {
+                if line.starts_with("VmRSS:") {
+                    if let Some(kb_str) = line.split_whitespace().nth(1) {
+                        if let Ok(kb) = kb_str.parse::<u64>() {
+                            return kb * 1024; // Convert to bytes
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    // Fallback estimation
+    std::mem::size_of::<FileWatcher>() as u64 * 1000
+}
+
+// Data structures for performance reporting
+
+#[derive(Debug, Default)]
+pub struct PerformanceReport {
+    pub baseline_metrics: BaselineMetrics,
+    pub load_metrics: LoadMetrics,
+    pub scalability_metrics: ScalabilityMetrics,
+    pub memory_metrics: MemoryMetrics,
+    pub recommendations: Vec<String>,
+}
+
+#[derive(Debug, Default)]
+pub struct BaselineMetrics {
+    pub startup_time_ms: u64,
+    pub watch_time_ms: u64,
+    pub memory_usage_mb: f64,
+}
+
+#[derive(Debug, Default)]
+pub struct LoadMetrics {
+    pub watch_100_dirs_ms: u64,
+    pub process_1000_events_ms: u64,
+    pub events_per_second: f64,
+    pub peak_memory_mb: f64,
+}
+
+#[derive(Debug, Default)]
+pub struct ScalabilityMetrics {
+    pub points: Vec<ScalabilityPoint>,
+}
+
+#[derive(Debug)]
+pub struct ScalabilityPoint {
+    pub target_dirs: usize,
+    pub actual_dirs: usize,
+    pub time_taken_ms: u64,
+    pub memory_usage_mb: f64,
+}
+
+#[derive(Debug, Default)]
+pub struct MemoryMetrics {
+    pub initial_memory_bytes: u64,
+    pub growth_points: Vec<MemoryGrowthPoint>,
+}
+
+#[derive(Debug)]
+pub struct MemoryGrowthPoint {
+    pub dirs_watched: usize,
+    pub memory_bytes: u64,
+    pub memory_per_dir: f64,
+}
+
+#[derive(Debug, Default)]
+pub struct TestResults {
+    pub throughput_tests: ThroughputTestResults,
+    pub latency_tests: LatencyTestResults,
+    pub memory_tests: MemoryTestResults,
+    pub scalability_tests: ScalabilityTestResults,
+    pub stress_tests: StressTestResults,
+}
+
+#[derive(Debug, Default)]
+pub struct ThroughputTestResults {
+    pub events_per_second: f64,
+    pub dirs_per_second: f64,
+    pub passed: bool,
+}
+
+#[derive(Debug, Default)]
+pub struct LatencyTestResults {
+    pub avg_event_latency_ms: u64,
+    pub max_event_latency_ms: u64,
+    pub min_event_latency_ms: u64,
+    pub avg_watch_latency_ms: u64,
+    pub passed: bool,
+}
+
+#[derive(Debug, Default)]
+pub struct MemoryTestResults {
+    pub initial_memory_mb: f64,
+    pub peak_memory_mb: f64,
+    pub memory_growth_mb: f64,
+    pub memory_leak_mb: f64,
+    pub passed: bool,
+}
+
+#[derive(Debug, Default)]
+pub struct ScalabilityTestResults {
+    pub points: Vec<ScalabilityTestPoint>,
+    pub max_directories: usize,
+    pub passed: bool,
+}
+
+#[derive(Debug)]
+pub struct ScalabilityTestPoint {
+    pub target_dirs: usize,
+    pub successful_dirs: usize,
+    pub time_ms: u64,
+    pub success_rate: f64,
+}
+
+#[derive(Debug, Default)]
+pub struct StressTestResults {
+    pub rapid_cycles_ms: u64,
+    pub concurrent_watchers_ms: u64,
+    pub event_flood_ms: u64,
+    pub passed: bool,
+}

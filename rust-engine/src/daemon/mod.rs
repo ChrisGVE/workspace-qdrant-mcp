@@ -4,8 +4,10 @@ pub mod core;
 pub mod state;
 pub mod processing;
 pub mod watcher;
+// pub mod watcher_performance; // Temporarily disabled - needs proper imports
 pub mod file_ops;
 pub mod runtime;
+pub mod fs_compat;
 
 use crate::config::DaemonConfig;
 use crate::error::{DaemonError, DaemonResult};

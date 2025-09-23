@@ -619,7 +619,7 @@ mod tests {
     use tokio_test;
     use std::time::{Duration, Instant};
     use futures_util::future::join_all;
-    use notify;
+    use notify::{self, event::{CreateKind, ModifyKind}};
     use glob::Pattern;
 
     fn create_test_config(enabled: bool) -> FileWatcherConfig {
@@ -1551,7 +1551,7 @@ mod tests {
         for i in 0..1000 {
             events.push(DebouncedEvent {
                 path: PathBuf::from(format!("/tmp/file_{}.txt", i % 10)), // 10 unique paths
-                event_type: EventKind::Modify(notify::ModifyKind::Data),
+                event_type: EventKind::Modify(ModifyKind::Data(notify::event::DataChange::Content)),
                 timestamp: Instant::now(),
             });
         }
@@ -1575,7 +1575,7 @@ mod tests {
             .map(|i| {
                 let extension = if i % 3 == 0 { "tmp" } else if i % 3 == 1 { "log" } else { "txt" };
                 notify::Event {
-                    kind: EventKind::Create(notify::CreateKind::File),
+                    kind: EventKind::Create(CreateKind::File),
                     paths: vec![PathBuf::from(format!("/tmp/test_{}.{}", i, extension))],
                     attrs: Default::default(),
                 }

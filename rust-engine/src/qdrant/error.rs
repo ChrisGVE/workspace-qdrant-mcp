@@ -136,7 +136,8 @@ impl QdrantError {
                 match e {
                     qdrant_client::QdrantError::ResponseError { status } => {
                         // 5xx errors are typically retryable, 4xx are not
-                        status.as_u16() >= 500
+                        let code = status.code() as u16;
+                        code >= 500
                     },
                     _ => true, // Other client errors might be retryable
                 }

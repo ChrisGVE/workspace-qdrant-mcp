@@ -36,6 +36,9 @@ impl TestConfigBuilder {
                     connection_timeout_secs: 5,
                     request_timeout_secs: 10,
                     enable_tls: false,
+                    message: crate::config::MessageConfig::default(),
+                    compression: crate::config::CompressionConfig::default(),
+                    streaming: crate::config::StreamingConfig::default(),
                 },
                 database: DatabaseConfig {
                     sqlite_path: ":memory:".to_string(),
