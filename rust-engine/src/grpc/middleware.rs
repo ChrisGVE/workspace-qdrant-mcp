@@ -7,6 +7,8 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
 use dashmap::DashMap;
 use parking_lot::RwLock;
+use crate::grpc::{RetryStrategy, CircuitBreaker};
+use crate::error::{DaemonResult, DaemonError};
 
 /// Connection tracking and management
 #[derive(Debug)]
@@ -344,6 +346,82 @@ where
     }
 
     unreachable!()
+}
+
+/// Enhanced middleware that combines connection management, retry logic, and circuit breaker
+#[derive(Debug)]
+pub struct EnhancedMiddleware {
+    connection_manager: Arc<ConnectionManager>,
+    retry_strategy: RetryStrategy,
+    circuit_breakers: Arc<DashMap<String, Arc<CircuitBreaker>>>,
+}
+
+impl EnhancedMiddleware {
+    /// Create new enhanced middleware
+    pub fn new(
+        connection_manager: Arc<ConnectionManager>,
+        retry_strategy: RetryStrategy,
+    ) -> Self {
+        Self {
+            connection_manager,
+            retry_strategy,
+            circuit_breakers: Arc::new(DashMap::new()),
+        }
+    }
+
+    /// Get or create circuit breaker for a service
+    pub async fn get_circuit_breaker(&self, service_name: &str) -> DaemonResult<Arc<CircuitBreaker>> {
+        if let Some(cb) = self.circuit_breakers.get(service_name) {
+            Ok(cb.clone())
+        } else {
+            let circuit_breaker = Arc::new(CircuitBreaker::new_default(service_name.to_string())?);
+            self.circuit_breakers.insert(service_name.to_string(), circuit_breaker.clone());
+            info!("Created circuit breaker for service: {}", service_name);
+            Ok(circuit_breaker)
+        }
+    }
+
+    /// Execute a gRPC operation with retry and circuit breaker protection
+    pub async fn execute_with_protection<F, Fut, T>(
+        &self,
+        service_name: &str,
+        operation: F,
+    ) -> DaemonResult<T>
+    where
+        F: Fn() -> Fut + Clone,
+        Fut: std::future::Future<Output = DaemonResult<T>>,
+    {
+        let circuit_breaker = self.get_circuit_breaker(service_name).await?;
+
+        self.retry_strategy.execute(|| {
+            let cb = circuit_breaker.clone();
+            let op = operation.clone();
+            async move {
+                cb.execute(|| op()).await
+            }
+        }).await
+    }
+
+    /// Get circuit breaker statistics for all services
+    pub async fn get_circuit_breaker_stats(&self) -> Vec<(String, crate::grpc::CircuitBreakerStats)> {
+        let mut stats = Vec::new();
+        for entry in self.circuit_breakers.iter() {
+            let service_name = entry.key().clone();
+            let cb_stats = entry.value().stats().await;
+            stats.push((service_name, cb_stats));
+        }
+        stats
+    }
+
+    /// Get connection manager
+    pub fn connection_manager(&self) -> &Arc<ConnectionManager> {
+        &self.connection_manager
+    }
+
+    /// Get retry strategy
+    pub fn retry_strategy(&self) -> &RetryStrategy {
+        &self.retry_strategy
+    }
 }
 
 #[cfg(test)]
@@ -969,5 +1047,81 @@ mod tests {
         let connection_pool = ConnectionPool { pool, config: pool_config };
         // Just test that it can be created (field is never actually used)
         let _ = connection_pool;
+    }
+
+    #[tokio::test]
+    async fn test_enhanced_middleware_creation() {
+        let connection_manager = Arc::new(ConnectionManager::new(10, 5));
+        let retry_strategy = crate::grpc::RetryStrategy::new();
+
+        let middleware = EnhancedMiddleware::new(connection_manager.clone(), retry_strategy);
+
+        assert_eq!(middleware.circuit_breakers.len(), 0);
+        assert!(Arc::ptr_eq(&middleware.connection_manager, &connection_manager));
+    }
+
+    #[tokio::test]
+    async fn test_enhanced_middleware_circuit_breaker_creation() {
+        let connection_manager = Arc::new(ConnectionManager::new(10, 5));
+        let retry_strategy = crate::grpc::RetryStrategy::new();
+        let middleware = EnhancedMiddleware::new(connection_manager, retry_strategy);
+
+        // Get circuit breaker for first time
+        let cb1 = middleware.get_circuit_breaker("test-service").await.unwrap();
+        assert_eq!(middleware.circuit_breakers.len(), 1);
+
+        // Get circuit breaker again - should return same instance
+        let cb2 = middleware.get_circuit_breaker("test-service").await.unwrap();
+        assert!(Arc::ptr_eq(&cb1, &cb2));
+        assert_eq!(middleware.circuit_breakers.len(), 1);
+    }
+
+    #[tokio::test]
+    async fn test_enhanced_middleware_execute_with_protection() {
+        let connection_manager = Arc::new(ConnectionManager::new(10, 5));
+        let retry_strategy = crate::grpc::RetryStrategy::new();
+        let middleware = EnhancedMiddleware::new(connection_manager, retry_strategy);
+
+        let result = middleware.execute_with_protection("test-service", || async {
+            Ok::<i32, crate::error::DaemonError>(42)
+        }).await;
+
+        assert_eq!(result.unwrap(), 42);
+        assert_eq!(middleware.circuit_breakers.len(), 1);
+    }
+
+    #[tokio::test]
+    async fn test_enhanced_middleware_error_handling() {
+        let connection_manager = Arc::new(ConnectionManager::new(10, 5));
+        let retry_strategy = crate::grpc::RetryStrategy::new();
+        let middleware = EnhancedMiddleware::new(connection_manager, retry_strategy);
+
+        let result = middleware.execute_with_protection("test-service", || async {
+            Err::<i32, crate::error::DaemonError>(crate::error::DaemonError::NetworkConnection {
+                message: "test error".to_string()
+            })
+        }).await;
+
+        assert!(result.is_err());
+
+        // Verify circuit breaker was created and used
+        assert_eq!(middleware.circuit_breakers.len(), 1);
+        let stats = middleware.get_circuit_breaker_stats().await;
+        assert!(stats[0].1.total_requests > 0);
+    }
+
+    #[tokio::test]
+    async fn test_enhanced_middleware_circuit_breaker_stats() {
+        let connection_manager = Arc::new(ConnectionManager::new(10, 5));
+        let retry_strategy = crate::grpc::RetryStrategy::new();
+        let middleware = EnhancedMiddleware::new(connection_manager, retry_strategy);
+
+        // Create a circuit breaker
+        let _ = middleware.get_circuit_breaker("test-service").await.unwrap();
+
+        let stats = middleware.get_circuit_breaker_stats().await;
+        assert_eq!(stats.len(), 1);
+        assert_eq!(stats[0].0, "test-service");
+        assert_eq!(stats[0].1.state, crate::grpc::CircuitState::Closed);
     }
 }

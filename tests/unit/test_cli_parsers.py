@@ -480,6 +480,242 @@ class TestPDFParser:
         assert "include_page_numbers" in options
         assert "max_pages" in options
         assert "password" in options
+        assert "detect_ocr_needed" in options
+        assert "ocr_confidence_threshold" in options
+
+        # Test OCR-specific options
+        assert options["detect_ocr_needed"]["default"] is True
+        assert options["ocr_confidence_threshold"]["default"] == 0.1
+
+    @pytest.mark.asyncio
+    async def test_ocr_detection_no_text(self, parser):
+        """Test OCR detection when no text is extracted."""
+        file_path = Path("/tmp/test.pdf")
+        text_stats = {
+            "total_extracted_chars": 0,
+            "pages_with_text": 0,
+            "pages_with_minimal_text": 0,
+            "total_pages": 1,
+        }
+
+        needs_ocr, confidence = await parser._detect_ocr_needed(
+            file_path, "", text_stats, confidence_threshold=0.1
+        )
+
+        assert needs_ocr is True
+        assert confidence == 0.0
+
+    @pytest.mark.asyncio
+    async def test_ocr_detection_minimal_text(self, parser):
+        """Test OCR detection with minimal text content."""
+        file_path = Path("/tmp/test.pdf")
+        minimal_text = "Fig 1\nPage 1"
+        text_stats = {
+            "total_extracted_chars": len(minimal_text),
+            "pages_with_text": 0,
+            "pages_with_minimal_text": 1,
+            "total_pages": 1,
+        }
+
+        needs_ocr, confidence = await parser._detect_ocr_needed(
+            file_path, minimal_text, text_stats, confidence_threshold=0.1
+        )
+
+        assert needs_ocr is True
+        assert confidence < 0.1
+
+    @pytest.mark.asyncio
+    async def test_ocr_detection_substantial_text(self, parser):
+        """Test OCR detection with substantial text content."""
+        file_path = Path("/tmp/test.pdf")
+        substantial_text = "This is a comprehensive document with substantial text content. " * 10
+        text_stats = {
+            "total_extracted_chars": len(substantial_text),
+            "pages_with_text": 1,
+            "pages_with_minimal_text": 0,
+            "total_pages": 1,
+        }
+
+        needs_ocr, confidence = await parser._detect_ocr_needed(
+            file_path, substantial_text, text_stats, confidence_threshold=0.1
+        )
+
+        assert needs_ocr is False
+        assert confidence > 0.1
+
+    @pytest.mark.asyncio
+    async def test_ocr_detection_high_minimal_text_ratio(self, parser):
+        """Test OCR detection with high minimal text ratio triggers OCR."""
+        file_path = Path("/tmp/test.pdf")
+        text = "Some text. " * 5
+        text_stats = {
+            "total_extracted_chars": len(text),
+            "pages_with_text": 1,
+            "pages_with_minimal_text": 2,  # High ratio of minimal text pages
+            "total_pages": 3,
+        }
+
+        needs_ocr, confidence = await parser._detect_ocr_needed(
+            file_path, text, text_stats, confidence_threshold=0.1
+        )
+
+        # Should trigger OCR due to high minimal text ratio (>30%)
+        assert needs_ocr is True
+        assert confidence <= 0.05
+
+    @pytest.mark.asyncio
+    async def test_image_analysis_without_deps(self, parser):
+        """Test image analysis fallback without OCR dependencies."""
+        file_path = Path("/tmp/test.pdf")
+
+        with patch("wqm_cli.cli.parsers.pdf_parser.HAS_OCR_DEPS", False):
+            confidence = await parser._analyze_pdf_images(file_path)
+
+        assert confidence == 0.5  # Neutral confidence
+
+    @pytest.mark.asyncio
+    @patch("wqm_cli.cli.parsers.pdf_parser.HAS_OCR_DEPS", True)
+    async def test_image_analysis_with_pymupdf_error(self, parser):
+        """Test image analysis handles PyMuPDF errors gracefully."""
+        file_path = Path("/tmp/test.pdf")
+
+        with patch("wqm_cli.cli.parsers.pdf_parser.fitz") as mock_fitz:
+            mock_fitz.open.side_effect = Exception("PyMuPDF error")
+
+            confidence = await parser._analyze_pdf_images(file_path)
+
+        assert confidence == 0.5  # Should return neutral confidence on error
+
+    @pytest.mark.asyncio
+    async def test_record_ocr_requirement_without_state_manager(self, parser):
+        """Test OCR requirement recording without state manager."""
+        parser.state_manager = None
+        file_path = Path("/tmp/test.pdf")
+
+        # Should not raise exception
+        await parser._record_ocr_requirement(file_path, 0.05)
+
+    @pytest.mark.asyncio
+    async def test_get_ocr_queue_without_state_manager(self, parser):
+        """Test OCR queue retrieval without state manager."""
+        parser.state_manager = None
+
+        queue = await parser.get_ocr_queue()
+
+        assert queue == []
+
+    @pytest.mark.asyncio
+    @patch("wqm_cli.cli.parsers.pdf_parser.HAS_PYPDF2", True)
+    @patch("wqm_cli.cli.parsers.pdf_parser.PyPDF2")
+    async def test_parse_with_ocr_detection_enabled(self, mock_pypdf2, parser):
+        """Test PDF parsing with OCR detection enabled produces OCR recommendation."""
+        # Mock PDF with minimal text that should trigger OCR
+        mock_page = Mock()
+        mock_page.extract_text.return_value = "Fig 1"  # Minimal text
+
+        mock_reader = Mock()
+        mock_reader.is_encrypted = False
+        mock_reader.pages = [mock_page] * 3  # Multiple pages with minimal text
+        mock_reader.metadata = {}
+
+        mock_pypdf2.PdfReader.return_value = mock_reader
+
+        with tempfile.NamedTemporaryFile(suffix=".pdf") as f:
+            f.write(b"%PDF-1.4 test content")
+            f.flush()
+
+            result = await parser.parse(f.name, detect_ocr_needed=True)
+
+            assert isinstance(result, ParsedDocument)
+            assert result.metadata["ocr_needed"] is True
+            assert result.metadata["text_confidence"] < 0.1
+            assert "OCR RECOMMENDED" in result.content
+
+    @pytest.mark.asyncio
+    @patch("wqm_cli.cli.parsers.pdf_parser.HAS_PYPDF2", True)
+    @patch("wqm_cli.cli.parsers.pdf_parser.PyPDF2")
+    async def test_parse_with_no_text_ocr_required(self, mock_pypdf2, parser):
+        """Test PDF parsing when no text is extracted (OCR required)."""
+        mock_page = Mock()
+        mock_page.extract_text.return_value = ""  # No text
+
+        mock_reader = Mock()
+        mock_reader.is_encrypted = False
+        mock_reader.pages = [mock_page]
+        mock_reader.metadata = {}
+
+        mock_pypdf2.PdfReader.return_value = mock_reader
+
+        with tempfile.NamedTemporaryFile(suffix=".pdf") as f:
+            f.write(b"%PDF-1.4 image-only content")
+            f.flush()
+
+            result = await parser.parse(f.name, detect_ocr_needed=True)
+
+            assert result.metadata["ocr_needed"] is True
+            assert result.metadata["text_confidence"] == 0.0
+            assert "OCR REQUIRED" in result.content
+
+    @pytest.mark.asyncio
+    @patch("wqm_cli.cli.parsers.pdf_parser.HAS_PYPDF2", True)
+    @patch("wqm_cli.cli.parsers.pdf_parser.PyPDF2")
+    async def test_parse_with_ocr_detection_disabled(self, mock_pypdf2, parser):
+        """Test PDF parsing with OCR detection disabled."""
+        mock_page = Mock()
+        mock_page.extract_text.return_value = "Fig 1"
+
+        mock_reader = Mock()
+        mock_reader.is_encrypted = False
+        mock_reader.pages = [mock_page]
+        mock_reader.metadata = {}
+
+        mock_pypdf2.PdfReader.return_value = mock_reader
+
+        with tempfile.NamedTemporaryFile(suffix=".pdf") as f:
+            f.write(b"%PDF-1.4 test content")
+            f.flush()
+
+            result = await parser.parse(f.name, detect_ocr_needed=False)
+
+            assert isinstance(result, ParsedDocument)
+            # OCR metadata should not be present when detection is disabled
+            assert "ocr_needed" not in result.metadata
+            assert "OCR RECOMMENDED" not in result.content
+            assert "OCR REQUIRED" not in result.content
+
+    @pytest.mark.asyncio
+    async def test_confidence_threshold_customization(self, parser):
+        """Test OCR detection with different confidence thresholds."""
+        file_path = Path("/tmp/test.pdf")
+        moderate_text = "Some moderate text content. " * 5
+        text_stats = {
+            "total_extracted_chars": len(moderate_text),
+            "pages_with_text": 1,
+            "pages_with_minimal_text": 0,
+            "total_pages": 1,
+        }
+
+        # Test with low threshold (more permissive)
+        needs_ocr_low, confidence_low = await parser._detect_ocr_needed(
+            file_path, moderate_text, text_stats, confidence_threshold=0.01
+        )
+
+        # Test with high threshold (more strict)
+        needs_ocr_high, confidence_high = await parser._detect_ocr_needed(
+            file_path, moderate_text, text_stats, confidence_threshold=0.9
+        )
+
+        assert confidence_low == confidence_high  # Same content, same confidence
+        assert not needs_ocr_low   # Low threshold should not trigger OCR
+        assert needs_ocr_high      # High threshold should trigger OCR
+
+    def test_get_current_timestamp(self, parser):
+        """Test timestamp generation."""
+        timestamp = parser._get_current_timestamp()
+
+        assert isinstance(timestamp, str)
+        assert "T" in timestamp  # ISO format
+        assert timestamp.endswith("Z") or "+" in timestamp or "-" in timestamp[-6:]  # Timezone info
 
 
 @pytest.mark.unit
