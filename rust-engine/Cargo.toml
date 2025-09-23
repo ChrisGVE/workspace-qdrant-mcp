@@ -103,6 +103,7 @@ proptest = "1.0"               # Property-based testing
 rstest = "0.18"               # Parameterized tests
 serial_test = "3.0"           # Serial test execution
 wiremock = "0.5"              # HTTP mocking
+rand = "0.8"                  # Random number generation for tests
 
 [features]
 default = ["sqlite"]

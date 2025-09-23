@@ -9,11 +9,20 @@ pub enum DaemonError {
     #[error("Configuration error: {0}")]
     Config(#[from] config::ConfigError),
 
+    #[error("Configuration error: {message}")]
+    Configuration { message: String },
+
     #[error("Database error: {0}")]
     Database(#[from] sqlx::Error),
 
     #[error("I/O error: {0}")]
     Io(#[from] std::io::Error),
+
+    #[error("File I/O error: {message} (path: {path})")]
+    FileIo { message: String, path: String },
+
+    #[error("File too large: {path} ({size} bytes, max: {max_size} bytes)")]
+    FileTooLarge { path: String, size: u64, max_size: u64 },
 
     #[error("gRPC error: {0}")]
     Grpc(#[from] tonic::transport::Error),
@@ -64,7 +73,7 @@ pub enum DaemonError {
 impl From<DaemonError> for Status {
     fn from(err: DaemonError) -> Self {
         match err {
-            DaemonError::Config(_) | DaemonError::InvalidInput { .. } => {
+            DaemonError::Config(_) | DaemonError::Configuration { .. } | DaemonError::InvalidInput { .. } => {
                 Status::new(Code::InvalidArgument, err.to_string())
             },
             DaemonError::NotFound { .. } => {
@@ -75,6 +84,12 @@ impl From<DaemonError> for Status {
             },
             DaemonError::Database(_) | DaemonError::Io(_) | DaemonError::FileWatcher(_) => {
                 Status::new(Code::Internal, "Internal server error")
+            },
+            DaemonError::FileIo { .. } => {
+                Status::new(Code::Internal, "File operation failed")
+            },
+            DaemonError::FileTooLarge { .. } => {
+                Status::new(Code::InvalidArgument, err.to_string())
             },
             _ => Status::new(Code::Internal, "Internal server error"),
         }

@@ -7,6 +7,7 @@ pub mod config;
 pub mod error;
 pub mod daemon;
 pub mod grpc;
+pub mod memory;
 
 // Include generated protobuf code
 pub mod proto {
