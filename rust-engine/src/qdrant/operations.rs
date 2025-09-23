@@ -1,7 +1,7 @@
 //! Qdrant operation types and traits
 
 use crate::qdrant::error::{QdrantError, QdrantResult};
-use serde::{Deserialize, Serialize};
+use serde::{Deserialize, Serialize, de::Error as SerdeError};
 use std::collections::HashMap;
 use qdrant_client::qdrant::{PointId, PointStruct, SearchParams, Distance};
 
@@ -203,6 +203,9 @@ impl Point {
         let vectors = qdrant_client::qdrant::vectors::VectorsOptions::Vector(
             qdrant_client::qdrant::Vector {
                 data: self.vector.clone(),
+                indices: None,
+                vector: None,
+                vectors_count: None,
             }
         );
 
@@ -225,7 +228,7 @@ impl Point {
 }
 
 /// Convert JSON value to Qdrant value
-fn json_to_qdrant_value(value: &serde_json::Value) -> Result<qdrant_client::qdrant::Value, serde_json::Error> {
+pub fn json_to_qdrant_value(value: &serde_json::Value) -> Result<qdrant_client::qdrant::Value, serde_json::Error> {
     use qdrant_client::qdrant::{Value, value::Kind};
 
     let kind = match value {
@@ -237,7 +240,10 @@ fn json_to_qdrant_value(value: &serde_json::Value) -> Result<qdrant_client::qdra
             } else if let Some(f) = n.as_f64() {
                 Kind::DoubleValue(f)
             } else {
-                return Err(serde_json::Error::custom("Invalid number"));
+                return Err(serde_json::Error::io(std::io::Error::new(
+                    std::io::ErrorKind::InvalidData,
+                    "Invalid number"
+                )));
             }
         },
         serde_json::Value::String(s) => Kind::StringValue(s.clone()),

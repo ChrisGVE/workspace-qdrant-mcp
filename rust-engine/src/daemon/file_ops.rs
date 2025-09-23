@@ -6,11 +6,14 @@
 use crate::error::{DaemonError, DaemonResult};
 use blake3::Hasher;
 use std::path::{Path, PathBuf};
+use std::os::unix::fs::{MetadataExt, FileTypeExt};
+use std::collections::HashMap;
 use tokio::fs::{File, OpenOptions};
 use tokio::io::{AsyncReadExt, AsyncWriteExt, BufReader, BufWriter};
 use tokio_stream::StreamExt;
 use futures_util::stream::unfold;
 use tracing::{debug, error, info, warn};
+use walkdir::WalkDir;
 
 /// Maximum file size for async processing (100MB)
 pub const MAX_FILE_SIZE: u64 = 100 * 1024 * 1024;
@@ -449,6 +452,378 @@ pub struct FileInfo {
     pub is_readonly: bool,
     pub created: Option<std::time::SystemTime>,
     pub modified: Option<std::time::SystemTime>,
+}
+
+/// Special file types supported by the system
+#[derive(Debug, Clone, PartialEq)]
+pub enum SpecialFileType {
+    NamedPipe,
+    Socket,
+    CharacterDevice,
+    BlockDevice,
+}
+
+/// Symlink information structure
+#[derive(Debug, Clone)]
+pub struct SymlinkInfo {
+    pub target: PathBuf,
+    pub final_target: PathBuf,
+    pub is_broken: bool,
+    pub is_absolute: bool,
+    pub depth: usize,
+    pub is_cross_filesystem: bool,
+}
+
+/// Special file handler for symlinks, hard links, and special file types
+#[derive(Debug, Clone)]
+pub struct SpecialFileHandler {
+    max_symlink_depth: usize,
+    enable_cross_filesystem: bool,
+}
+
+impl Default for SpecialFileHandler {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl SpecialFileHandler {
+    /// Create a new special file handler with default configuration
+    pub fn new() -> Self {
+        Self {
+            max_symlink_depth: 32, // Standard Unix limit
+            enable_cross_filesystem: true,
+        }
+    }
+
+    /// Create a new special file handler with custom configuration
+    pub fn with_config(max_symlink_depth: usize, enable_cross_filesystem: bool) -> Self {
+        Self {
+            max_symlink_depth,
+            enable_cross_filesystem,
+        }
+    }
+
+    /// Check if a path is a symlink
+    pub async fn is_symlink<P: AsRef<Path>>(&self, path: P) -> DaemonResult<bool> {
+        let path = path.as_ref();
+
+        let metadata = tokio::fs::symlink_metadata(path).await.map_err(|e| {
+            DaemonError::FileIo {
+                message: format!("Cannot read symlink metadata: {}", e),
+                path: path.to_string_lossy().to_string(),
+            }
+        })?;
+
+        Ok(metadata.file_type().is_symlink())
+    }
+
+    /// Resolve a symlink to its final target
+    pub async fn resolve_symlink<P: AsRef<Path>>(&self, path: P) -> DaemonResult<PathBuf> {
+        let path = path.as_ref();
+
+        if !self.is_symlink(path).await? {
+            return Err(DaemonError::FileIo {
+                message: "Path is not a symlink".to_string(),
+                path: path.to_string_lossy().to_string(),
+            });
+        }
+
+        self.resolve_symlink_recursive(path, 0, &mut HashMap::new()).await
+    }
+
+    /// Recursive symlink resolution with cycle detection
+    fn resolve_symlink_recursive<'a>(
+        &'a self,
+        path: &'a Path,
+        depth: usize,
+        visited: &'a mut HashMap<PathBuf, usize>,
+    ) -> std::pin::Pin<Box<dyn std::future::Future<Output = DaemonResult<PathBuf>> + Send + 'a>> {
+        Box::pin(async move {
+        // Check depth limit
+        if depth > self.max_symlink_depth {
+            return Err(DaemonError::SymlinkDepthExceeded {
+                link_path: path.to_string_lossy().to_string(),
+                depth,
+                max_depth: self.max_symlink_depth,
+            });
+        }
+
+        // Check for circular references
+        let canonical_path = path.canonicalize().unwrap_or_else(|_| path.to_path_buf());
+        if let Some(&previous_depth) = visited.get(&canonical_path) {
+            return Err(DaemonError::SymlinkCircular {
+                link_path: path.to_string_lossy().to_string(),
+                cycle_depth: depth - previous_depth,
+            });
+        }
+        visited.insert(canonical_path, depth);
+
+        // Read the symlink target
+        let target = tokio::fs::read_link(path).await.map_err(|e| {
+            DaemonError::FileIo {
+                message: format!("Cannot read symlink target: {}", e),
+                path: path.to_string_lossy().to_string(),
+            }
+        })?;
+
+        // Resolve relative paths
+        let resolved_target = if target.is_absolute() {
+            target
+        } else {
+            path.parent()
+                .ok_or_else(|| DaemonError::FileIo {
+                    message: "Cannot determine parent directory".to_string(),
+                    path: path.to_string_lossy().to_string(),
+                })?
+                .join(target)
+        };
+
+        // Check if target exists
+        if !resolved_target.exists() {
+            return Err(DaemonError::SymlinkBroken {
+                link_path: path.to_string_lossy().to_string(),
+                target_path: resolved_target.to_string_lossy().to_string(),
+            });
+        }
+
+        // If target is also a symlink, resolve recursively
+        if self.is_symlink(&resolved_target).await? {
+            self.resolve_symlink_recursive(&resolved_target, depth + 1, visited).await
+        } else {
+            Ok(resolved_target)
+        }
+        })
+    }
+
+    /// Get comprehensive symlink information
+    pub async fn get_symlink_info<P: AsRef<Path>>(&self, path: P) -> DaemonResult<SymlinkInfo> {
+        let path = path.as_ref();
+
+        if !self.is_symlink(path).await? {
+            return Err(DaemonError::FileIo {
+                message: "Path is not a symlink".to_string(),
+                path: path.to_string_lossy().to_string(),
+            });
+        }
+
+        // Read immediate target
+        let target = tokio::fs::read_link(path).await.map_err(|e| {
+            DaemonError::FileIo {
+                message: format!("Cannot read symlink target: {}", e),
+                path: path.to_string_lossy().to_string(),
+            }
+        })?;
+
+        // Resolve relative target
+        let resolved_target = if target.is_absolute() {
+            target.clone()
+        } else {
+            path.parent()
+                .ok_or_else(|| DaemonError::FileIo {
+                    message: "Cannot determine parent directory".to_string(),
+                    path: path.to_string_lossy().to_string(),
+                })?
+                .join(&target)
+        };
+
+        // Calculate depth and final target
+        let (depth, final_target, is_broken) = match self.calculate_symlink_depth(path, self.max_symlink_depth).await {
+            Ok(d) => {
+                match self.resolve_symlink(path).await {
+                    Ok(ft) => (d, ft, false),
+                    Err(_) => (d, resolved_target.clone(), true),
+                }
+            }
+            Err(_) => (0, resolved_target.clone(), true),
+        };
+
+        // Check if cross-filesystem (simplified check)
+        let is_cross_filesystem = false; // TODO: Implement proper cross-filesystem detection
+
+        Ok(SymlinkInfo {
+            target: resolved_target,
+            final_target,
+            is_broken,
+            is_absolute: target.is_absolute(),
+            depth,
+            is_cross_filesystem,
+        })
+    }
+
+    /// Calculate the depth of a symlink chain
+    pub async fn calculate_symlink_depth<P: AsRef<Path>>(&self, path: P, max_depth: usize) -> DaemonResult<usize> {
+        let path = path.as_ref();
+        let mut visited = HashMap::new();
+
+        self.calculate_depth_recursive(path, 0, max_depth, &mut visited).await
+    }
+
+    /// Recursive depth calculation
+    fn calculate_depth_recursive<'a>(
+        &'a self,
+        path: &'a Path,
+        current_depth: usize,
+        max_depth: usize,
+        visited: &'a mut HashMap<PathBuf, usize>,
+    ) -> std::pin::Pin<Box<dyn std::future::Future<Output = DaemonResult<usize>> + Send + 'a>> {
+        Box::pin(async move {
+        if current_depth > max_depth {
+            return Err(DaemonError::SymlinkDepthExceeded {
+                link_path: path.to_string_lossy().to_string(),
+                depth: current_depth,
+                max_depth,
+            });
+        }
+
+        if !self.is_symlink(path).await? {
+            return Ok(current_depth);
+        }
+
+        // Check for cycles
+        let canonical_path = path.canonicalize().unwrap_or_else(|_| path.to_path_buf());
+        if visited.contains_key(&canonical_path) {
+            return Err(DaemonError::SymlinkCircular {
+                link_path: path.to_string_lossy().to_string(),
+                cycle_depth: current_depth,
+            });
+        }
+        visited.insert(canonical_path, current_depth);
+
+        // Read target and recurse
+        let target = tokio::fs::read_link(path).await.map_err(|e| {
+            DaemonError::FileIo {
+                message: format!("Cannot read symlink target: {}", e),
+                path: path.to_string_lossy().to_string(),
+            }
+        })?;
+
+        let resolved_target = if target.is_absolute() {
+            target
+        } else {
+            path.parent()
+                .ok_or_else(|| DaemonError::FileIo {
+                    message: "Cannot determine parent directory".to_string(),
+                    path: path.to_string_lossy().to_string(),
+                })?
+                .join(target)
+        };
+
+        if !resolved_target.exists() {
+            return Ok(current_depth + 1); // Broken link, but still counts
+        }
+
+        self.calculate_depth_recursive(&resolved_target, current_depth + 1, max_depth, visited).await
+        })
+    }
+
+    /// Check if a path is a hard link (has multiple links to the same inode)
+    pub async fn is_hard_link<P: AsRef<Path>>(&self, path: P) -> DaemonResult<bool> {
+        let path = path.as_ref();
+
+        let metadata = tokio::fs::metadata(path).await.map_err(|e| {
+            DaemonError::FileIo {
+                message: format!("Cannot read file metadata: {}", e),
+                path: path.to_string_lossy().to_string(),
+            }
+        })?;
+
+        // A file is considered a hard link if it has more than 1 link
+        Ok(metadata.nlink() > 1)
+    }
+
+    /// Get the number of hard links to a file
+    pub async fn get_hard_link_count<P: AsRef<Path>>(&self, path: P) -> DaemonResult<u64> {
+        let path = path.as_ref();
+
+        let metadata = tokio::fs::metadata(path).await.map_err(|e| {
+            DaemonError::FileIo {
+                message: format!("Cannot read file metadata: {}", e),
+                path: path.to_string_lossy().to_string(),
+            }
+        })?;
+
+        Ok(metadata.nlink())
+    }
+
+    /// Find all hard links to the same inode within a directory tree
+    pub async fn find_hard_links<P: AsRef<Path>>(&self, search_root: P, target_inode: u64) -> DaemonResult<Vec<PathBuf>> {
+        let search_root = search_root.as_ref();
+        let mut hard_links = Vec::new();
+
+        // Use walkdir for efficient directory traversal
+        for entry in WalkDir::new(search_root).into_iter().filter_map(|e| e.ok()) {
+            if entry.file_type().is_file() {
+                let path = entry.path();
+
+                // Check if this file has the same inode
+                if let Ok(metadata) = tokio::fs::metadata(path).await {
+                    if metadata.ino() == target_inode {
+                        hard_links.push(path.to_path_buf());
+                    }
+                }
+            }
+        }
+
+        Ok(hard_links)
+    }
+
+    /// Check if a path is a special file (pipe, socket, device)
+    pub async fn is_special_file<P: AsRef<Path>>(&self, path: P) -> DaemonResult<bool> {
+        let path = path.as_ref();
+
+        let metadata = tokio::fs::metadata(path).await.map_err(|e| {
+            DaemonError::FileIo {
+                message: format!("Cannot read file metadata: {}", e),
+                path: path.to_string_lossy().to_string(),
+            }
+        })?;
+
+        let file_type = metadata.file_type();
+        Ok(file_type.is_fifo() || file_type.is_socket() || file_type.is_char_device() || file_type.is_block_device())
+    }
+
+    /// Get the type of a special file
+    pub async fn get_file_type<P: AsRef<Path>>(&self, path: P) -> DaemonResult<SpecialFileType> {
+        let path = path.as_ref();
+
+        let metadata = tokio::fs::metadata(path).await.map_err(|e| {
+            DaemonError::FileIo {
+                message: format!("Cannot read file metadata: {}", e),
+                path: path.to_string_lossy().to_string(),
+            }
+        })?;
+
+        let file_type = metadata.file_type();
+
+        if file_type.is_fifo() {
+            Ok(SpecialFileType::NamedPipe)
+        } else if file_type.is_socket() {
+            Ok(SpecialFileType::Socket)
+        } else if file_type.is_char_device() {
+            Ok(SpecialFileType::CharacterDevice)
+        } else if file_type.is_block_device() {
+            Ok(SpecialFileType::BlockDevice)
+        } else {
+            Err(DaemonError::FileIo {
+                message: "File is not a special file type".to_string(),
+                path: path.to_string_lossy().to_string(),
+            })
+        }
+    }
+
+    /// Determine if a special file should be processed for content
+    pub async fn should_process_special_file<P: AsRef<Path>>(&self, path: P) -> DaemonResult<bool> {
+        let file_type = self.get_file_type(path).await?;
+
+        // Generally, special files should not be processed for content
+        match file_type {
+            SpecialFileType::NamedPipe => Ok(false),      // Pipes are streams, not files
+            SpecialFileType::Socket => Ok(false),         // Sockets are communication endpoints
+            SpecialFileType::CharacterDevice => Ok(false), // Device files
+            SpecialFileType::BlockDevice => Ok(false),    // Block devices
+        }
+    }
 }
 
 /// Stream-based file processor for large files
