@@ -82,6 +82,7 @@ deadpool = "0.12"
 tonic-reflection = "0.12"
 num_cpus = "1.0"
 hostname = "0.4"
+rand = "0.8"
 
 [build-dependencies]
 tonic-build = "0.12"
@@ -104,6 +105,10 @@ rstest = "0.18"               # Parameterized tests
 serial_test = "3.0"           # Serial test execution
 wiremock = "0.5"              # HTTP mocking
 rand = "0.8"                  # Random number generation for tests
+
+# gRPC integration testing
+tonic-reflection = "0.12"      # gRPC reflection for protocol validation
+tokio-stream = "0.1"          # Async streams for gRPC testing
 
 [features]
 default = ["sqlite"]

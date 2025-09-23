@@ -68,6 +68,9 @@ pub enum DaemonError {
 
     #[error("Internal error: {message}")]
     Internal { message: String },
+
+    #[error("Service not found: {0}")]
+    ServiceNotFound(String),
 }
 
 impl From<DaemonError> for Status {
@@ -76,7 +79,7 @@ impl From<DaemonError> for Status {
             DaemonError::Config(_) | DaemonError::Configuration { .. } | DaemonError::InvalidInput { .. } => {
                 Status::new(Code::InvalidArgument, err.to_string())
             },
-            DaemonError::NotFound { .. } => {
+            DaemonError::NotFound { .. } | DaemonError::ServiceNotFound(_) => {
                 Status::new(Code::NotFound, err.to_string())
             },
             DaemonError::Timeout { .. } => {
