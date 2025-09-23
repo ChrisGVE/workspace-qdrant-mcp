@@ -48,7 +48,7 @@ impl DocumentProcessor {
     }
 
     /// Create a test instance for testing purposes
-    #[cfg(test)]
+    #[cfg(any(test, feature = "test-utils"))]
     pub fn test_instance() -> Self {
         let config = ProcessingConfig {
             max_concurrent_tasks: 2,
