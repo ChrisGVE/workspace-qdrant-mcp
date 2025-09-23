@@ -479,3 +479,263 @@ class PDFParser(DocumentParser):
                 "description": "Minimum text confidence to avoid OCR recommendation",
             },
         }
+
+    async def _detect_ocr_needed(
+        self,
+        file_path: Path,
+        extracted_text: str,
+        text_stats: dict[str, int],
+        confidence_threshold: float = 0.1,
+    ) -> tuple[bool, float]:
+        """
+        Detect if a PDF requires OCR by analyzing extracted text and images.
+
+        This method uses multiple heuristics to determine if a PDF contains
+        primarily image-based content that would benefit from OCR processing:
+        1. Text extraction ratio vs. total pages
+        2. Average text per page analysis
+        3. Image content analysis using PyMuPDF
+        4. Text confidence scoring
+
+        Args:
+            file_path: Path to the PDF file
+            extracted_text: Text extracted by pypdf
+            text_stats: Statistics about text extraction
+            confidence_threshold: Minimum confidence to avoid OCR recommendation
+
+        Returns:
+            Tuple of (ocr_needed: bool, confidence: float)
+        """
+        try:
+            # Quick checks first
+            if not extracted_text or len(extracted_text.strip()) < 10:
+                logger.debug(f"PDF {file_path.name}: No meaningful text extracted")
+                return True, 0.0
+
+            # Text density analysis
+            total_chars = text_stats.get("total_extracted_chars", len(extracted_text))
+            pages_with_text = text_stats.get("pages_with_text", 0)
+            pages_with_minimal = text_stats.get("pages_with_minimal_text", 0)
+            total_pages = text_stats.get("total_pages", 1)
+
+            # Calculate text confidence metrics
+            text_density = total_chars / total_pages if total_pages > 0 else 0
+            substantial_text_ratio = pages_with_text / total_pages if total_pages > 0 else 0
+            minimal_text_ratio = pages_with_minimal / total_pages if total_pages > 0 else 0
+
+            # Base confidence from text statistics
+            text_confidence = min(1.0, text_density / 500)  # 500 chars = reasonable page
+            text_confidence *= substantial_text_ratio  # Weight by substantial text ratio
+
+            logger.debug(
+                f"PDF {file_path.name} text analysis: "
+                f"density={text_density:.1f}, substantial_ratio={substantial_text_ratio:.2f}, "
+                f"minimal_ratio={minimal_text_ratio:.2f}, confidence={text_confidence:.2f}"
+            )
+
+            # If we have OCR dependencies, do deeper analysis
+            if HAS_OCR_DEPS and text_confidence < 0.8:
+                image_confidence = await self._analyze_pdf_images(file_path)
+                # Combine text and image analysis
+                final_confidence = (text_confidence * 0.7) + (image_confidence * 0.3)
+                logger.debug(
+                    f"PDF {file_path.name} image analysis: "
+                    f"image_confidence={image_confidence:.2f}, final={final_confidence:.2f}"
+                )
+            else:
+                final_confidence = text_confidence
+
+            # OCR recommendation logic
+            needs_ocr = final_confidence < confidence_threshold
+
+            # Additional heuristics for edge cases
+            if not needs_ocr and minimal_text_ratio > 0.3:
+                # Many pages with minimal text might indicate image-based content
+                logger.debug(f"PDF {file_path.name}: High minimal text ratio, flagging for OCR")
+                needs_ocr = True
+                final_confidence = min(final_confidence, 0.05)
+
+            return needs_ocr, final_confidence
+
+        except Exception as e:
+            logger.warning(f"OCR detection failed for {file_path}: {e}")
+            # Conservative approach: if we can't analyze, assume text is good
+            return False, 0.5
+
+    async def _analyze_pdf_images(self, file_path: Path) -> float:
+        """
+        Analyze PDF for image content using PyMuPDF.
+
+        This method examines the PDF for images and attempts to estimate
+        how much of the content is image-based vs. text-based.
+
+        Args:
+            file_path: Path to the PDF file
+
+        Returns:
+            Confidence score (0.0 = all images, 1.0 = mostly text)
+        """
+        if not HAS_OCR_DEPS:
+            return 0.5  # Neutral confidence without analysis tools
+
+        try:
+            import fitz  # PyMuPDF
+
+            doc = fitz.open(file_path)
+            total_area = 0
+            image_area = 0
+            text_area = 0
+            pages_analyzed = 0
+
+            # Analyze up to first 10 pages to avoid performance issues
+            max_analyze_pages = min(10, len(doc))
+
+            for page_num in range(max_analyze_pages):
+                page = doc[page_num]
+                page_rect = page.rect
+                page_area = page_rect.width * page_rect.height
+                total_area += page_area
+                pages_analyzed += 1
+
+                # Get images on this page
+                image_list = page.get_images(full=True)
+                page_image_area = 0
+
+                for img_index, img in enumerate(image_list):
+                    try:
+                        # Get image object
+                        xref = img[0]
+                        base_image = doc.extract_image(xref)
+                        image_bytes = base_image["image"]
+
+                        # Get image dimensions and position
+                        image_rects = page.get_image_rects(img)
+                        for rect in image_rects:
+                            img_area = rect.width * rect.height
+                            page_image_area += img_area
+
+                    except Exception as e:
+                        logger.debug(f"Could not analyze image {img_index} on page {page_num}: {e}")
+                        continue
+
+                image_area += page_image_area
+
+                # Estimate text area (page area minus image area)
+                page_text_area = max(0, page_area - page_image_area)
+                text_area += page_text_area
+
+                logger.debug(
+                    f"Page {page_num + 1}: area={page_area:.0f}, "
+                    f"images={page_image_area:.0f}, text={page_text_area:.0f}"
+                )
+
+            doc.close()
+
+            if total_area == 0:
+                return 0.5
+
+            # Calculate confidence based on text vs image area ratio
+            text_ratio = text_area / total_area if total_area > 0 else 0
+            image_ratio = image_area / total_area if total_area > 0 else 0
+
+            # Text confidence: higher when more text area, lower when more images
+            confidence = text_ratio / (text_ratio + image_ratio) if (text_ratio + image_ratio) > 0 else 0.5
+
+            logger.debug(
+                f"PDF image analysis: {pages_analyzed} pages, "
+                f"text_ratio={text_ratio:.2f}, image_ratio={image_ratio:.2f}, "
+                f"confidence={confidence:.2f}"
+            )
+
+            return confidence
+
+        except Exception as e:
+            logger.warning(f"PDF image analysis failed for {file_path}: {e}")
+            return 0.5  # Neutral confidence on analysis failure
+
+    async def _record_ocr_requirement(
+        self, file_path: Path, confidence: float
+    ) -> None:
+        """
+        Record OCR requirement in state database.
+
+        This method stores information about PDFs that require OCR processing
+        so that users can be notified and batch processing can be implemented.
+
+        Args:
+            file_path: Path to the PDF file requiring OCR
+            confidence: Text confidence score (0.0 = definitely needs OCR)
+        """
+        if not self.state_manager or not HAS_STATE_MANAGER:
+            logger.debug("State manager not available - cannot record OCR requirement")
+            return
+
+        try:
+            # Record the OCR requirement with metadata
+            ocr_metadata = {
+                "text_confidence": confidence,
+                "requires_ocr": True,
+                "analysis_date": self._get_current_timestamp(),
+                "file_size": file_path.stat().st_size,
+                "file_type": "pdf",
+                "recommendation": (
+                    "OCR required - no extractable text" if confidence == 0.0
+                    else f"OCR recommended - low text confidence ({confidence:.2f})"
+                ),
+            }
+
+            # Store in state database
+            await self.state_manager.record_file_status(
+                file_path=str(file_path),
+                status=FileProcessingStatus.OCR_REQUIRED,
+                metadata=ocr_metadata,
+            )
+
+            logger.info(
+                f"Recorded OCR requirement for {file_path.name} "
+                f"(confidence: {confidence:.2f})"
+            )
+
+        except Exception as e:
+            logger.error(f"Failed to record OCR requirement for {file_path}: {e}")
+
+    def _get_current_timestamp(self) -> str:
+        """
+        Get current timestamp in ISO format.
+
+        Returns:
+            ISO formatted timestamp string
+        """
+        from datetime import datetime, timezone
+        return datetime.now(timezone.utc).isoformat()
+
+    async def get_ocr_queue(self) -> list[dict[str, Any]]:
+        """
+        Retrieve list of files requiring OCR processing.
+
+        Returns:
+            List of dictionaries containing file information and OCR metadata
+        """
+        if not self.state_manager or not HAS_STATE_MANAGER:
+            logger.warning("State manager not available - cannot retrieve OCR queue")
+            return []
+
+        try:
+            ocr_files = await self.state_manager.get_files_by_status(
+                FileProcessingStatus.OCR_REQUIRED
+            )
+
+            return [
+                {
+                    "file_path": file_record["file_path"],
+                    "confidence": file_record.get("metadata", {}).get("text_confidence", 0.0),
+                    "file_size": file_record.get("metadata", {}).get("file_size", 0),
+                    "analysis_date": file_record.get("metadata", {}).get("analysis_date", ""),
+                    "recommendation": file_record.get("metadata", {}).get("recommendation", ""),
+                }
+                for file_record in ocr_files
+            ]
+
+        except Exception as e:
+            logger.error(f"Failed to retrieve OCR queue: {e}")
+            return []
