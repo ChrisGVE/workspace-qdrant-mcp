@@ -8,6 +8,7 @@ pub mod error;
 pub mod daemon;
 pub mod grpc;
 pub mod memory;
+pub mod qdrant;
 
 // Include generated protobuf code
 pub mod proto {
