@@ -574,15 +574,23 @@ class TestPDFParser:
         assert confidence == 0.5  # Neutral confidence
 
     @pytest.mark.asyncio
-    @patch("wqm_cli.cli.parsers.pdf_parser.HAS_OCR_DEPS", True)
     async def test_image_analysis_with_pymupdf_error(self, parser):
         """Test image analysis handles PyMuPDF errors gracefully."""
         file_path = Path("/tmp/test.pdf")
 
-        with patch("wqm_cli.cli.parsers.pdf_parser.fitz") as mock_fitz:
-            mock_fitz.open.side_effect = Exception("PyMuPDF error")
+        with patch("wqm_cli.cli.parsers.pdf_parser.HAS_OCR_DEPS", True):
+            # Mock fitz module import within the method
+            with patch("builtins.__import__") as mock_import:
+                def side_effect(name, *args, **kwargs):
+                    if name == "fitz":
+                        mock_fitz = Mock()
+                        mock_fitz.open.side_effect = Exception("PyMuPDF error")
+                        return mock_fitz
+                    return __import__(name, *args, **kwargs)
 
-            confidence = await parser._analyze_pdf_images(file_path)
+                mock_import.side_effect = side_effect
+
+                confidence = await parser._analyze_pdf_images(file_path)
 
         assert confidence == 0.5  # Should return neutral confidence on error
 
