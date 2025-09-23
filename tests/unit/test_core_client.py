@@ -201,20 +201,23 @@ class TestQdrantWorkspaceClient:
         client = QdrantWorkspaceClient(mock_config)
 
         with patch('qdrant_client.QdrantClient', return_value=MockQdrantClient()), \
-             patch('common.core.collections.WorkspaceCollectionManager', MockWorkspaceCollectionManager), \
-             patch('common.core.collections.MemoryCollectionManager', MockMemoryCollectionManager), \
+             patch('python.common.core.collections.WorkspaceCollectionManager', MockWorkspaceCollectionManager), \
+             patch('python.common.core.collections.MemoryCollectionManager', MockMemoryCollectionManager), \
              patch.object(client.embedding_service, 'initialize', new_callable=AsyncMock), \
-             patch('common.utils.project_detection.ProjectDetector', MockProjectDetector), \
-             patch('common.core.ssl_config.get_ssl_manager') as mock_ssl, \
-             patch('common.core.ssl_config.create_secure_qdrant_config') as mock_config_creator, \
-             patch('common.core.ssl_config.suppress_qdrant_ssl_warnings'), \
-             patch('common.core.llm_access_control.validate_llm_collection_access') as mock_llm_control:
+             patch('python.common.utils.project_detection.ProjectDetector', MockProjectDetector), \
+             patch('python.common.core.ssl_config.get_ssl_manager') as mock_ssl, \
+             patch('python.common.core.ssl_config.create_secure_qdrant_config') as mock_config_creator, \
+             patch('python.common.core.ssl_config.suppress_qdrant_ssl_warnings'), \
+             patch('python.common.core.llm_access_control.validate_llm_collection_access') as mock_llm_control, \
+             patch('python.common.core.collections.validate_llm_collection_access') as mock_collection_llm_control:
 
-            mock_ssl.return_value.is_localhost_url.return_value = True
-            mock_ssl.return_value.for_localhost.return_value.__enter__ = Mock()
-            mock_ssl.return_value.for_localhost.return_value.__exit__ = Mock(return_value=None)
+            mock_ssl_manager = MagicMock()
+            mock_ssl_manager.is_localhost_url.return_value = False  # Simplify test
+            mock_ssl.return_value = mock_ssl_manager
+
             mock_config_creator.return_value = {"host": "localhost", "port": 6333}
             mock_llm_control.return_value = None  # No access control blocking
+            mock_collection_llm_control.return_value = None  # No collection-level access control blocking
 
             await client.initialize()
 
@@ -243,12 +246,18 @@ class TestQdrantWorkspaceClient:
         client = QdrantWorkspaceClient(mock_config)
 
         with patch('qdrant_client.QdrantClient') as mock_qdrant_class, \
-             patch('common.core.ssl_config.get_ssl_manager'), \
-             patch('common.core.ssl_config.create_secure_qdrant_config') as mock_config_creator, \
-             patch('common.core.llm_access_control.validate_llm_collection_access') as mock_llm_control:
+             patch('python.common.core.ssl_config.get_ssl_manager') as mock_ssl, \
+             patch('python.common.core.ssl_config.create_secure_qdrant_config') as mock_config_creator, \
+             patch('python.common.core.llm_access_control.validate_llm_collection_access') as mock_llm_control, \
+             patch('python.common.core.collections.validate_llm_collection_access') as mock_collection_llm_control:
+
+            mock_ssl_manager = MagicMock()
+            mock_ssl_manager.is_localhost_url.return_value = False
+            mock_ssl.return_value = mock_ssl_manager
 
             mock_config_creator.return_value = {"host": "localhost", "port": 6333}
             mock_llm_control.return_value = None  # No access control blocking
+            mock_collection_llm_control.return_value = None  # No collection-level access control blocking
             mock_qdrant_class.side_effect = ConnectionError("Failed to connect")
 
             with pytest.raises(ConnectionError):
@@ -731,3 +740,249 @@ class TestEdgeCases:
 
             assert is_allowed is False
             assert "Validation error" in reason
+
+    @pytest.mark.asyncio
+    async def test_initialize_localhost_ssl_path(self, mock_config):
+        """Test initialization with localhost SSL configuration."""
+        client = QdrantWorkspaceClient(mock_config)
+
+        with patch('qdrant_client.QdrantClient', return_value=MockQdrantClient()), \
+             patch('python.common.core.collections.WorkspaceCollectionManager', MockWorkspaceCollectionManager), \
+             patch('python.common.core.collections.MemoryCollectionManager', MockMemoryCollectionManager), \
+             patch.object(client.embedding_service, 'initialize', new_callable=AsyncMock), \
+             patch('python.common.utils.project_detection.ProjectDetector', MockProjectDetector), \
+             patch('python.common.core.ssl_config.get_ssl_manager') as mock_ssl, \
+             patch('python.common.core.ssl_config.create_secure_qdrant_config') as mock_config_creator, \
+             patch('python.common.core.ssl_config.suppress_qdrant_ssl_warnings'):
+
+            # Configure for localhost SSL path
+            mock_ssl_manager = MagicMock()
+            mock_ssl_manager.is_localhost_url.return_value = True
+            mock_ssl_manager.for_localhost.return_value.__enter__ = MagicMock()
+            mock_ssl_manager.for_localhost.return_value.__exit__ = MagicMock()
+            mock_ssl.return_value = mock_ssl_manager
+            mock_config_creator.return_value = {"host": "localhost", "port": 6333}
+
+            await client.initialize()
+
+            assert client.initialized is True
+            mock_ssl_manager.is_localhost_url.assert_called_once()
+
+    @pytest.mark.asyncio
+    async def test_initialize_memory_collection_error(self, mock_config):
+        """Test initialization with memory collection setup error."""
+        client = QdrantWorkspaceClient(mock_config)
+
+        with patch('qdrant_client.QdrantClient', return_value=MockQdrantClient()), \
+             patch('python.common.core.collections.WorkspaceCollectionManager', MockWorkspaceCollectionManager), \
+             patch('python.common.core.collections.MemoryCollectionManager') as MockMemoryManager, \
+             patch.object(client.embedding_service, 'initialize', new_callable=AsyncMock), \
+             patch('python.common.utils.project_detection.ProjectDetector', MockProjectDetector), \
+             patch('python.common.core.ssl_config.get_ssl_manager') as mock_ssl, \
+             patch('python.common.core.ssl_config.create_secure_qdrant_config') as mock_config_creator, \
+             patch('python.common.core.ssl_config.suppress_qdrant_ssl_warnings'), \
+             patch('python.common.core.llm_access_control.validate_llm_collection_access'):
+
+            # Setup mocks
+            mock_ssl_manager = MagicMock()
+            mock_ssl_manager.is_localhost_url.return_value = False
+            mock_ssl.return_value = mock_ssl_manager
+            mock_config_creator.return_value = {"host": "localhost", "port": 6333}
+
+            # Mock memory collection manager to raise error
+            mock_memory_manager_instance = MagicMock()
+            mock_memory_manager_instance.ensure_memory_collections_exist = AsyncMock(
+                side_effect=Exception("Memory collection error")
+            )
+            MockMemoryManager.return_value = mock_memory_manager_instance
+
+            # This should still succeed despite memory collection error
+            await client.initialize()
+
+            assert client.initialized is True
+
+    def test_refresh_project_detection_no_detector(self, mock_config):
+        """Test refresh_project_detection when detector is None."""
+        client = QdrantWorkspaceClient(mock_config)
+        client.project_detector = None
+
+        with patch('python.common.utils.project_detection.ProjectDetector', MockProjectDetector) as mock_detector_class:
+            result = client.refresh_project_detection()
+
+            # Should create new detector and return project info
+            mock_detector_class.assert_called_once()
+            assert result["main_project"] == "test-project"
+            assert client.project_detector is not None
+
+    @pytest.mark.asyncio
+    async def test_ensure_collection_exists_with_validation(self, mock_config):
+        """Test ensure_collection_exists with multi-tenant validation."""
+        client = QdrantWorkspaceClient(mock_config)
+        client.initialized = True
+        client.collection_manager = MockWorkspaceCollectionManager(None, mock_config)
+        client.project_info = {"main_project": "test-project"}
+
+        # Mock the validation system
+        with patch('python.common.core.collections.collection_naming_validation.CollectionNamingValidator') as MockValidator, \
+             patch('python.common.core.collections.metadata_schema.MultiTenantMetadataSchema') as MockSchema, \
+             patch('python.common.core.collections.CollectionConfig') as MockConfig:
+
+            # Setup validator mock
+            mock_validator = MagicMock()
+            mock_validation_result = MagicMock()
+            mock_validation_result.is_valid = True
+            mock_validator.validate_name.return_value = mock_validation_result
+            MockValidator.return_value = mock_validator
+
+            await client.ensure_collection_exists("test-collection", "docs")
+
+            # Validation should have been called
+            mock_validator.validate_name.assert_called_once()
+
+    @pytest.mark.asyncio
+    async def test_search_with_project_context_additional_filters(self, mock_config):
+        """Test search_with_project_context with additional filters."""
+        client = QdrantWorkspaceClient(mock_config)
+        client.initialized = True
+        client.client = MockQdrantClient()
+        client.project_info = {"main_project": "test-project"}
+
+        # Mock HybridSearchEngine
+        with patch('python.common.core.hybrid_search.HybridSearchEngine') as MockSearchEngine:
+            mock_engine = MagicMock()
+            mock_engine.hybrid_search = AsyncMock(return_value={
+                "fused_results": [{"id": 1, "score": 0.9, "payload": {"text": "test"}}]
+            })
+            MockSearchEngine.return_value = mock_engine
+
+            # Test with various additional filter types
+            additional_filters = {
+                "category": "technical",
+                "priority": 5,
+                "tags": ["python", "testing"]
+            }
+
+            result = await client.search_with_project_context(
+                collection_name="test-collection",
+                query_embeddings={"dense": [0.1, 0.2, 0.3]},
+                additional_filters=additional_filters
+            )
+
+            assert "fused_results" in result
+            assert "project_context" in result
+            assert "collection_type" in result
+            mock_engine.hybrid_search.assert_called_once()
+
+    def test_get_enhanced_collection_selector_no_detector(self, mock_config):
+        """Test get_enhanced_collection_selector when detector is None."""
+        client = QdrantWorkspaceClient(mock_config)
+        client.initialized = True
+        client.project_detector = None
+
+        with patch('python.common.utils.project_detection.ProjectDetector', MockProjectDetector) as mock_detector_class, \
+             patch('python.common.core.collections.CollectionSelector') as MockSelector:
+
+            mock_selector = MagicMock()
+            MockSelector.return_value = mock_selector
+
+            result = client.get_enhanced_collection_selector()
+
+            # Should create new detector
+            mock_detector_class.assert_called_once()
+            MockSelector.assert_called_once()
+            assert result == mock_selector
+
+    @pytest.mark.asyncio
+    async def test_create_collection_multitenant_validation_failure(self, mock_config):
+        """Test create_collection with validation failure in multitenant mode."""
+        client = QdrantWorkspaceClient(mock_config)
+        client.initialized = True
+        client.project_info = {"main_project": "test-project"}
+
+        with patch('python.common.core.multitenant_collections.MultiTenantWorkspaceCollectionManager') as MockMTManager, \
+             patch('python.common.core.collection_naming_validation.CollectionNamingValidator') as MockValidator:
+
+            # Setup validation failure
+            mock_validator = MagicMock()
+            mock_validation_result = MagicMock()
+            mock_validation_result.is_valid = False
+            mock_validation_result.error_message = "Invalid collection name"
+            mock_validation_result.suggested_names = ["suggested-name"]
+            mock_validator.validate_name.return_value = mock_validation_result
+            MockValidator.return_value = mock_validator
+
+            result = await client.create_collection("invalid-name", "docs")
+
+            assert result["success"] is False
+            assert "Invalid collection name" in result["error"]
+            assert "suggestions" in result
+
+    @pytest.mark.asyncio
+    async def test_create_collection_multitenant_success(self, mock_config):
+        """Test successful collection creation in multitenant mode."""
+        client = QdrantWorkspaceClient(mock_config)
+        client.initialized = True
+        client.project_info = {"main_project": "test-project"}
+
+        with patch('python.common.core.multitenant_collections.MultiTenantWorkspaceCollectionManager') as MockMTManager, \
+             patch('python.common.core.collection_naming_validation.CollectionNamingValidator') as MockValidator:
+
+            # Setup successful validation
+            mock_validator = MagicMock()
+            mock_validation_result = MagicMock()
+            mock_validation_result.is_valid = True
+            mock_validation_result.proposed_metadata = MagicMock()
+            mock_validation_result.proposed_metadata.to_dict.return_value = {"project": "test-project"}
+            mock_validator.validate_name.return_value = mock_validation_result
+            MockValidator.return_value = mock_validator
+
+            # Setup successful multitenant manager
+            mock_mt_manager = MagicMock()
+            mock_mt_manager.create_workspace_collection = AsyncMock(return_value={
+                "success": True,
+                "collection_name": "test-project-docs"
+            })
+            MockMTManager.return_value = mock_mt_manager
+
+            result = await client.create_collection("test-collection", "docs")
+
+            assert result["success"] is True
+            assert "metadata_schema" in result
+            mock_mt_manager.create_workspace_collection.assert_called_once()
+
+    @pytest.mark.asyncio
+    async def test_create_collection_no_project_context(self, mock_config):
+        """Test create_collection with no project context available."""
+        client = QdrantWorkspaceClient(mock_config)
+        client.initialized = True
+        client.project_info = None  # No project info
+
+        with patch('python.common.core.multitenant_collections.MultiTenantWorkspaceCollectionManager'), \
+             patch('python.common.core.collection_naming_validation.CollectionNamingValidator') as MockValidator:
+
+            # Setup successful validation
+            mock_validator = MagicMock()
+            mock_validation_result = MagicMock()
+            mock_validation_result.is_valid = True
+            mock_validator.validate_name.return_value = mock_validation_result
+            MockValidator.return_value = mock_validator
+
+            result = await client.create_collection("test-collection", "docs")
+
+            assert result["success"] is False
+            assert "No project context available" in result["error"]
+
+    @pytest.mark.asyncio
+    async def test_create_collection_exception_handling(self, mock_config):
+        """Test create_collection exception handling."""
+        client = QdrantWorkspaceClient(mock_config)
+        client.initialized = True
+        client.project_info = {"main_project": "test-project"}
+
+        with patch('python.common.core.multitenant_collections.MultiTenantWorkspaceCollectionManager') as MockMTManager:
+            MockMTManager.side_effect = Exception("Unexpected error")
+
+            result = await client.create_collection("test-collection", "docs")
+
+            assert result["success"] is False
+            assert "Collection creation failed" in result["error"]
