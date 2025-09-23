@@ -15,6 +15,10 @@ path = "src/lib.rs"
 name = "workspace-qdrant-daemon"
 path = "src/main.rs"
 
+[[bench]]
+name = "processing_benchmarks"
+harness = false
+
 [dependencies]
 # gRPC and Protocol Buffers
 tonic = "0.12"
@@ -84,10 +88,21 @@ tonic-build = "0.12"
 prost-build = "0.13"
 
 [dev-dependencies]
+# Basic testing utilities
 tempfile = "3.0"
 tokio-test = "0.4"
 assert_matches = "1.5"
 futures-util = "0.3"
+
+# Functional testing frameworks
+testcontainers = "0.15"        # Isolated service testing
+criterion = { version = "0.5", features = ["html_reports"] }  # Performance benchmarking
+proptest = "1.0"               # Property-based testing
+
+# Additional testing utilities
+rstest = "0.18"               # Parameterized tests
+serial_test = "3.0"           # Serial test execution
+wiremock = "0.5"              # HTTP mocking
 
 [features]
 default = ["sqlite"]
