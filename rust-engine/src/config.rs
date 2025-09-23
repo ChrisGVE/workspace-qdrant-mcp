@@ -858,4 +858,93 @@ logging:
         assert_eq!(config.server.port, 9999);
         assert_eq!(config.qdrant.url, "http://custom-qdrant:6333");
     }
+
+    #[test]
+    fn test_collection_config_edge_cases() {
+        let config = CollectionConfig {
+            vector_size: 1536,
+            distance_metric: "Euclidean".to_string(),
+            enable_indexing: false,
+            replication_factor: 3,
+            shard_number: 4,
+        };
+
+        let debug_str = format!("{:?}", config);
+        assert!(debug_str.contains("CollectionConfig"));
+        assert!(debug_str.contains("1536"));
+        assert!(debug_str.contains("Euclidean"));
+
+        let cloned = config.clone();
+        assert_eq!(config.vector_size, cloned.vector_size);
+        assert_eq!(config.distance_metric, cloned.distance_metric);
+        assert_eq!(config.enable_indexing, cloned.enable_indexing);
+        assert_eq!(config.replication_factor, cloned.replication_factor);
+        assert_eq!(config.shard_number, cloned.shard_number);
+    }
+
+    #[test]
+    fn test_config_validation_edge_cases() {
+        // Test maximum values
+        let mut config = DaemonConfig::default();
+        config.server.port = 65535;
+        config.processing.default_chunk_size = usize::MAX;
+        config.database.max_connections = u32::MAX;
+        assert!(config.validate().is_ok());
+
+        // Test minimum valid values
+        config.processing.default_chunk_size = 1;
+        assert!(config.validate().is_ok());
+
+        config.server.connection_timeout_secs = 0;
+        assert!(config.validate().is_ok());
+    }
+
+    #[test]
+    fn test_file_watcher_config_comprehensive() {
+        let config = FileWatcherConfig {
+            enabled: true,
+            debounce_ms: u64::MAX,
+            max_watched_dirs: usize::MAX,
+            ignore_patterns: vec!["*".to_string(); 100],
+            recursive: false,
+        };
+
+        let debug_str = format!("{:?}", config);
+        assert!(debug_str.contains("FileWatcherConfig"));
+        assert!(debug_str.contains("debounce_ms"));
+
+        let cloned = config.clone();
+        assert_eq!(config.enabled, cloned.enabled);
+        assert_eq!(config.debounce_ms, cloned.debounce_ms);
+        assert_eq!(config.max_watched_dirs, cloned.max_watched_dirs);
+        assert_eq!(config.ignore_patterns.len(), cloned.ignore_patterns.len());
+        assert_eq!(config.recursive, cloned.recursive);
+    }
+
+    #[test]
+    fn test_all_config_components_debug() {
+        let config = DaemonConfig::default();
+
+        // Test debug formatting for all components
+        let server_debug = format!("{:?}", config.server);
+        assert!(server_debug.contains("ServerConfig"));
+
+        let db_debug = format!("{:?}", config.database);
+        assert!(db_debug.contains("DatabaseConfig"));
+
+        let qdrant_debug = format!("{:?}", config.qdrant);
+        assert!(qdrant_debug.contains("QdrantConfig"));
+
+        let processing_debug = format!("{:?}", config.processing);
+        assert!(processing_debug.contains("ProcessingConfig"));
+
+        let watcher_debug = format!("{:?}", config.file_watcher);
+        assert!(watcher_debug.contains("FileWatcherConfig"));
+
+        let metrics_debug = format!("{:?}", config.metrics);
+        assert!(metrics_debug.contains("MetricsConfig"));
+
+        let logging_debug = format!("{:?}", config.logging);
+        assert!(logging_debug.contains("LoggingConfig"));
+    }
 }

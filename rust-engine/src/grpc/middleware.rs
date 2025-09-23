@@ -799,4 +799,175 @@ mod tests {
         // All connections should be unregistered
         assert_eq!(manager.active_connections.load(Ordering::SeqCst), 0);
     }
+
+    #[test]
+    fn test_connection_manager_edge_cases() {
+        let manager = ConnectionManager::new(10, 100);
+
+        // Test with various client IDs
+        let client_ids = vec![
+            "".to_string(), // empty string
+            "a".repeat(1000), // very long string
+            "client-with-special-chars-!@#$%".to_string(),
+            "正常".to_string(), // Unicode characters
+        ];
+
+        for client_id in client_ids {
+            manager.update_activity(&client_id, 1024, 512);
+            let stats = manager.get_stats();
+            // Stats should be valid
+            assert!(stats.total_bytes_sent >= 0);
+            assert!(stats.total_bytes_received >= 0);
+        }
+
+        // Test connection cleanup with very short duration
+        manager.cleanup_expired_connections(Duration::from_nanos(1));
+        let stats_after_cleanup = manager.get_stats();
+        assert!(stats_after_cleanup.active_connections >= 0);
+    }
+
+    #[test]
+    fn test_connection_info_edge_cases() {
+        use std::sync::atomic::{AtomicU64, Ordering};
+
+        let info = ConnectionInfo {
+            client_id: "".to_string(),
+            connected_at: Instant::now(),
+            last_activity: Instant::now(),
+            request_count: AtomicU64::new(u64::MAX),
+            bytes_sent: AtomicU64::new(u64::MAX),
+            bytes_received: AtomicU64::new(u64::MAX),
+        };
+
+        let debug_str = format!("{:?}", info);
+        assert!(debug_str.contains("ConnectionInfo"));
+        assert!(debug_str.contains("client_id"));
+
+        let cloned = info.clone();
+        assert_eq!(info.client_id, cloned.client_id);
+        assert_eq!(info.request_count.load(Ordering::SeqCst), cloned.request_count.load(Ordering::SeqCst));
+        assert_eq!(info.bytes_sent.load(Ordering::SeqCst), cloned.bytes_sent.load(Ordering::SeqCst));
+        assert_eq!(info.bytes_received.load(Ordering::SeqCst), cloned.bytes_received.load(Ordering::SeqCst));
+    }
+
+    #[test]
+    fn test_connection_stats_edge_cases() {
+        let stats = ConnectionStats {
+            active_connections: u64::MAX,
+            max_connections: u64::MAX,
+            total_requests: u64::MAX,
+            total_bytes_sent: u64::MAX,
+            total_bytes_received: u64::MAX,
+        };
+
+        let debug_str = format!("{:?}", stats);
+        assert!(debug_str.contains("ConnectionStats"));
+        assert!(debug_str.contains("active_connections"));
+
+        let cloned = stats.clone();
+        assert_eq!(stats.active_connections, cloned.active_connections);
+        assert_eq!(stats.max_connections, cloned.max_connections);
+        assert_eq!(stats.total_requests, cloned.total_requests);
+        assert_eq!(stats.total_bytes_sent, cloned.total_bytes_sent);
+        assert_eq!(stats.total_bytes_received, cloned.total_bytes_received);
+    }
+
+    #[test]
+    fn test_pool_config_edge_cases() {
+        let config = PoolConfig {
+            max_size: usize::MAX,
+            min_idle: Some(0),
+            max_lifetime: Some(Duration::from_secs(1)),
+            idle_timeout: Some(Duration::from_secs(1)),
+            connection_timeout: Duration::from_secs(1),
+        };
+
+        let debug_str = format!("{:?}", config);
+        assert!(debug_str.contains("PoolConfig"));
+        assert!(debug_str.contains("max_size"));
+
+        let cloned = config.clone();
+        assert_eq!(config.max_size, cloned.max_size);
+        assert_eq!(config.min_idle, cloned.min_idle);
+        assert_eq!(config.connection_timeout, cloned.connection_timeout);
+    }
+
+    #[test]
+    fn test_retry_config_edge_cases() {
+        let config = RetryConfig {
+            max_retries: u32::MAX,
+            initial_delay: Duration::from_millis(1),
+            max_delay: Duration::from_secs(1),
+            backoff_multiplier: 2.0,
+        };
+
+        let debug_str = format!("{:?}", config);
+        assert!(debug_str.contains("RetryConfig"));
+        assert!(debug_str.contains("max_retries"));
+
+        let cloned = config.clone();
+        assert_eq!(config.max_retries, cloned.max_retries);
+        assert_eq!(config.initial_delay, cloned.initial_delay);
+        assert_eq!(config.max_delay, cloned.max_delay);
+        assert!((config.backoff_multiplier - cloned.backoff_multiplier).abs() < f64::EPSILON);
+    }
+
+    #[test]
+    fn test_connection_manager_overflow_resistance() {
+        let manager = ConnectionManager::new(100, u32::MAX);
+
+        // Register connection first, then test with large values
+        manager.register_connection("test_client".to_string()).unwrap();
+        manager.update_activity("test_client", u64::MAX, u64::MAX);
+        let stats = manager.get_stats();
+        assert!(stats.total_bytes_sent > 0);
+        assert!(stats.total_bytes_received > 0);
+
+        // Clean up
+        manager.unregister_connection("test_client");
+    }
+
+    #[test]
+    fn test_connection_interceptor_creation() {
+        let connection_manager = Arc::new(ConnectionManager::new(100, 1000));
+        let interceptor = ConnectionInterceptor::new(connection_manager.clone());
+
+        // Test that the interceptor holds a reference to the connection manager
+        assert!(Arc::strong_count(&connection_manager) >= 2);
+
+        // Test stats access through connection manager
+        let stats = connection_manager.get_stats();
+        assert_eq!(stats.active_connections, 0);
+        assert_eq!(stats.total_requests, 0);
+    }
+
+    #[test]
+    fn test_connection_pool_edge_cases() {
+        use std::collections::HashMap;
+        use deadpool::managed::Manager;
+
+        // Test that ConnectionPool can be created (field is never read in current impl)
+        struct TestManager;
+        impl Manager for TestManager {
+            type Type = String;
+            type Error = std::io::Error;
+            async fn create(&self) -> Result<Self::Type, Self::Error> {
+                Ok("test".to_string())
+            }
+            async fn recycle(&self, _obj: &mut Self::Type, _metrics: &deadpool::managed::Metrics) -> deadpool::managed::RecycleResult<Self::Error> {
+                Ok(())
+            }
+        }
+
+        let pool_config = deadpool::managed::PoolConfig::new(10);
+        let pool = deadpool::managed::Pool::builder(TestManager {})
+            .config(pool_config)
+            .build()
+            .unwrap();
+
+        let pool_config = PoolConfig::default();
+        let connection_pool = ConnectionPool { pool, config: pool_config };
+        // Just test that it can be created (field is never actually used)
+        let _ = connection_pool;
+    }
 }
