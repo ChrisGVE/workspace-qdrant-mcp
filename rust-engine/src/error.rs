@@ -71,6 +71,65 @@ pub enum DaemonError {
 
     #[error("Service not found: {0}")]
     ServiceNotFound(String),
+
+    // Network-related errors
+    #[error("Network connection failed: {message}")]
+    NetworkConnection { message: String },
+
+    #[error("Network timeout: operation timed out after {timeout_ms}ms")]
+    NetworkTimeout { timeout_ms: u64 },
+
+    #[error("Network unavailable: {message}")]
+    NetworkUnavailable { message: String },
+
+    #[error("DNS resolution failed: {hostname}")]
+    DnsResolution { hostname: String },
+
+    #[error("TLS handshake failed: {message}")]
+    TlsHandshake { message: String },
+
+    // Retry-related errors
+    #[error("Retry limit exceeded: {attempts} attempts failed")]
+    RetryLimitExceeded { attempts: u32 },
+
+    #[error("Retry configuration invalid: {message}")]
+    RetryConfigInvalid { message: String },
+
+    #[error("Backoff calculation failed: {message}")]
+    BackoffCalculation { message: String },
+
+    // Circuit breaker errors
+    #[error("Circuit breaker open: {service} is unavailable")]
+    CircuitBreakerOpen { service: String },
+
+    #[error("Circuit breaker half-open: {service} is in recovery mode")]
+    CircuitBreakerHalfOpen { service: String },
+
+    #[error("Circuit breaker configuration invalid: {message}")]
+    CircuitBreakerConfig { message: String },
+
+    // Service health errors
+    #[error("Service health check failed: {service} - {reason}")]
+    ServiceHealthCheck { service: String, reason: String },
+
+    #[error("Service degraded: {service} - {details}")]
+    ServiceDegraded { service: String, details: String },
+
+    // Load balancing errors
+    #[error("No healthy instances available for service: {service}")]
+    NoHealthyInstances { service: String },
+
+    #[error("Load balancer configuration invalid: {message}")]
+    LoadBalancerConfig { message: String },
+
+    #[error("Symlink is broken: {link_path} -> {target_path}")]
+    SymlinkBroken { link_path: String, target_path: String },
+
+    #[error("Symlink circular reference detected: {link_path} (cycle depth: {cycle_depth})")]
+    SymlinkCircular { link_path: String, cycle_depth: usize },
+
+    #[error("Symlink depth exceeded: {link_path} (depth: {depth}, max: {max_depth})")]
+    SymlinkDepthExceeded { link_path: String, depth: usize, max_depth: usize },
 }
 
 impl From<DaemonError> for Status {
@@ -92,6 +151,59 @@ impl From<DaemonError> for Status {
                 Status::new(Code::Internal, "File operation failed")
             },
             DaemonError::FileTooLarge { .. } => {
+                Status::new(Code::InvalidArgument, err.to_string())
+            },
+            DaemonError::SymlinkBroken { .. } | DaemonError::SymlinkCircular { .. } | DaemonError::SymlinkDepthExceeded { .. } => {
+                Status::new(Code::InvalidArgument, err.to_string())
+            },
+            // Network errors
+            DaemonError::NetworkConnection { .. } => {
+                Status::new(Code::Unavailable, "Network connection failed")
+            },
+            DaemonError::NetworkTimeout { .. } => {
+                Status::new(Code::DeadlineExceeded, err.to_string())
+            },
+            DaemonError::NetworkUnavailable { .. } => {
+                Status::new(Code::Unavailable, err.to_string())
+            },
+            DaemonError::DnsResolution { .. } => {
+                Status::new(Code::Unavailable, "DNS resolution failed")
+            },
+            DaemonError::TlsHandshake { .. } => {
+                Status::new(Code::Unavailable, "TLS handshake failed")
+            },
+            // Retry errors
+            DaemonError::RetryLimitExceeded { .. } => {
+                Status::new(Code::Unavailable, err.to_string())
+            },
+            DaemonError::RetryConfigInvalid { .. } => {
+                Status::new(Code::InvalidArgument, err.to_string())
+            },
+            DaemonError::BackoffCalculation { .. } => {
+                Status::new(Code::Internal, "Backoff calculation failed")
+            },
+            // Circuit breaker errors
+            DaemonError::CircuitBreakerOpen { .. } => {
+                Status::new(Code::Unavailable, err.to_string())
+            },
+            DaemonError::CircuitBreakerHalfOpen { .. } => {
+                Status::new(Code::Unavailable, err.to_string())
+            },
+            DaemonError::CircuitBreakerConfig { .. } => {
+                Status::new(Code::InvalidArgument, err.to_string())
+            },
+            // Service health errors
+            DaemonError::ServiceHealthCheck { .. } => {
+                Status::new(Code::Unavailable, err.to_string())
+            },
+            DaemonError::ServiceDegraded { .. } => {
+                Status::new(Code::Unavailable, err.to_string())
+            },
+            // Load balancing errors
+            DaemonError::NoHealthyInstances { .. } => {
+                Status::new(Code::Unavailable, err.to_string())
+            },
+            DaemonError::LoadBalancerConfig { .. } => {
                 Status::new(Code::InvalidArgument, err.to_string())
             },
             _ => Status::new(Code::Internal, "Internal server error"),
