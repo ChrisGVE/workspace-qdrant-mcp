@@ -120,6 +120,8 @@ tokio-stream = "0.1"          # Async streams for gRPC testing
 
 # Serialization for benchmarks
 bincode = "1.3"               # Binary serialization benchmarking
+flate2 = "1.0"                # Compression benchmarking
+futures-util = "0.3"          # Async utilities for benchmarks
 
 [features]
 default = ["sqlite"]
