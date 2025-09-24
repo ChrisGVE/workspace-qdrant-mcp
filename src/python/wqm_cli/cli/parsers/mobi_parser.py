@@ -133,11 +133,135 @@ class MobiParser(DocumentParser):
             error_details = await self._diagnose_parsing_error(file_path, e)
             raise RuntimeError(f"MOBI parsing failed: {error_details}") from e
 
-    async def _extract_mobi_content(
-        self, file_path: Path, encoding: str, max_content_size: int
-    ) -> tuple[dict[str, str | int | float | bool], str]:
-        """Extract content and metadata from MOBI file using basic parsing."""
+    async def _analyze_file_format(self, file_path: Path) -> Dict[str, Any]:
+        """Analyze MOBI/Kindle file format and version."""
+        format_info = {
+            "format": "unknown",
+            "version": "unknown",
+            "compression": "unknown",
+            "text_encoding": "unknown"
+        }
 
+        try:
+            with open(file_path, "rb") as f:
+                # Read first 1024 bytes for format detection
+                header = f.read(1024)
+
+                # Check for different Kindle formats
+                if len(header) >= 78:
+                    # Check for PDB header (Palm Database)
+                    pdb_header = header[:78]
+
+                    # Look for MOBI identifier
+                    if b'MOBI' in header:
+                        format_info["format"] = "MOBI"
+                        # Try to extract MOBI version
+                        mobi_pos = header.find(b'MOBI')
+                        if mobi_pos != -1 and mobi_pos + 36 < len(header):
+                            version_bytes = header[mobi_pos + 32:mobi_pos + 36]
+                            if len(version_bytes) == 4:
+                                version = struct.unpack('>I', version_bytes)[0]
+                                format_info["version"] = str(version)
+
+                    elif b'TPZ' in header:
+                        format_info["format"] = "AZW/TPZ"
+                    elif b'BOOKMOBI' in header:
+                        format_info["format"] = "MOBI"
+                    elif file_path.suffix.lower() == '.azw3':
+                        format_info["format"] = "AZW3/KF8"
+                    elif file_path.suffix.lower() == '.kfx':
+                        format_info["format"] = "KFX"
+                    elif file_path.suffix.lower() in ['.azw4', '.kfx-zip']:
+                        format_info["format"] = "AZW4/Print Replica"
+
+                # Detect text encoding from MOBI header
+                if b'MOBI' in header:
+                    try:
+                        mobi_pos = header.find(b'MOBI')
+                        if mobi_pos != -1 and mobi_pos + 28 < len(header):
+                            encoding_bytes = header[mobi_pos + 28:mobi_pos + 32]
+                            if len(encoding_bytes) == 4:
+                                encoding_id = struct.unpack('>I', encoding_bytes)[0]
+                                encoding_map = {
+                                    1252: "cp1252",
+                                    65001: "utf-8",
+                                    0: "utf-8"  # Default
+                                }
+                                format_info["text_encoding"] = encoding_map.get(encoding_id, "utf-8")
+                    except Exception:
+                        format_info["text_encoding"] = "utf-8"
+
+        except Exception as e:
+            logger.warning(f"File format analysis failed: {e}")
+            # Fallback based on file extension
+            suffix = file_path.suffix.lower()
+            if suffix == '.mobi':
+                format_info["format"] = "MOBI"
+            elif suffix in ['.azw', '.azw1']:
+                format_info["format"] = "AZW"
+            elif suffix == '.azw3':
+                format_info["format"] = "AZW3"
+            elif suffix == '.kfx':
+                format_info["format"] = "KFX"
+
+        return format_info
+
+    async def _check_drm_protection(self, file_path: Path, format_info: Dict[str, Any]) -> Dict[str, Any]:
+        """Check for DRM protection in Kindle files."""
+        drm_info = {"has_drm": False, "scheme": "none", "details": []}
+
+        try:
+            with open(file_path, "rb") as f:
+                # Read enough data to check for DRM indicators
+                data = f.read(8192)
+
+                # Common DRM indicators in Kindle files
+                drm_indicators = [
+                    b'kindle.amazon.com',
+                    b'kindle://book',
+                    b'ADEPT',
+                    b'DRM',
+                    b'EBOK',
+                    b'\x01\x00\x00\x00',  # Common DRM signature
+                ]
+
+                for indicator in drm_indicators:
+                    if indicator in data:
+                        drm_info["has_drm"] = True
+                        drm_info["details"].append(f"Found DRM indicator: {indicator.decode('utf-8', errors='ignore')}")
+
+                # Check for specific Kindle DRM patterns
+                if b'kindle' in data.lower():
+                    drm_info["scheme"] = "Kindle DRM"
+                    drm_info["has_drm"] = True
+                    drm_info["details"].append("Kindle DRM patterns detected")
+
+                # Check for MOBI-specific DRM
+                if format_info.get("format") == "MOBI" and b'EXTH' in data:
+                    # Look for DRM flags in EXTH header
+                    exth_pos = data.find(b'EXTH')
+                    if exth_pos != -1:
+                        # Check for DRM record types
+                        drm_record_types = [208, 209, 300, 401, 402, 403, 404]
+                        # This is a simplified check - full EXTH parsing is complex
+                        drm_info["details"].append("EXTH header found - may contain DRM metadata")
+
+                # File size heuristics (DRM files often have specific sizes)
+                file_size = file_path.stat().st_size
+                if file_size > 0 and file_size % 1024 == 0 and file_size < 10000:
+                    drm_info["details"].append("Suspicious file size pattern")
+
+        except Exception as e:
+            drm_info["details"].append(f"DRM check failed: {str(e)}")
+
+        return drm_info
+
+    async def _extract_enhanced_content(
+        self, file_path: Path, encoding: str, max_content_size: int,
+        attempt_drm_removal: bool, extract_images: bool, preserve_formatting: bool,
+        format_info: Dict[str, Any], drm_info: Dict[str, Any]
+    ) -> tuple[dict[str, str | int | float | bool], str]:
+        """Extract content and metadata from MOBI file with enhanced parsing."""
         metadata = {}
 
         with open(file_path, "rb") as f:
