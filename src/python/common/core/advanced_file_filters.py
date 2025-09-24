@@ -333,7 +333,7 @@ class AdvancedFileFilter:
             if self.config.check_file_permissions:
                 try:
                     file_path.stat()
-                except PermissionError:
+                except (PermissionError, OSError):
                     return await self._reject_file("permission_denied", start_time)
 
             # Size-based filtering

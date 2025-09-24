@@ -22,7 +22,7 @@ import tempfile
 import time
 from pathlib import Path
 from typing import List
-from unittest.mock import Mock, patch, AsyncMock, MagicMock
+from unittest.mock import Mock, patch, AsyncMock, MagicMock, PropertyMock
 import pytest
 
 # Add src to path for imports
@@ -756,9 +756,16 @@ class TestAdvancedFileFilterSizeFiltering:
         # Create a file that exists
         test_file = self.create_test_file("test.txt", 1024)
 
-        # Mock stat() to raise an exception
-        with patch.object(Path, 'stat', side_effect=OSError("Permission denied")):
-            config = FilterConfig(include_patterns=["*.txt"])
+        # Create a mock stat result that raises an exception when accessing st_size
+        mock_stat = MagicMock()
+        mock_stat.st_size = PropertyMock(side_effect=OSError("Permission denied"))
+
+        # Mock the second stat() call (for size checking) to raise an exception
+        with patch.object(Path, 'stat') as mock_stat_method:
+            # First call (permission check) succeeds, second call (size check) fails
+            mock_stat_method.side_effect = [MagicMock(), mock_stat]
+
+            config = FilterConfig(include_patterns=["*.txt"], check_file_permissions=True)
             filter_manager = AdvancedFileFilter(config)
 
             should_process, reason = await filter_manager.should_process_file(test_file)
