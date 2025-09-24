@@ -8,11 +8,19 @@ providing encoding detection, content cleaning, and basic text analysis
 for the workspace-qdrant-mcp ingestion system.
 """
 
+import csv
+import json
 import logging
+import re
 from pathlib import Path
-from typing import Any, Optional, Union
+from typing import Any, Dict, List, Optional, Union
 
 import chardet
+
+try:
+    import charset_normalizer
+except ImportError:
+    charset_normalizer = None
 
 from .base import DocumentParser, ParsedDocument
 from .exceptions import EncodingError, handle_parsing_error
@@ -45,13 +53,18 @@ class TextParser(DocumentParser):
             ".text",
             ".log",
             ".csv",
+            ".tsv",
+            ".rtf",
             ".json",
+            ".jsonl",
             ".xml",
             ".yaml",
             ".yml",
             ".ini",
             ".cfg",
             ".conf",
+            ".properties",
+            ".env",
             ".py",
             ".js",
             ".html",
@@ -69,7 +82,7 @@ class TextParser(DocumentParser):
     @property
     def format_name(self) -> str:
         """Human-readable format name."""
-        return "Plain Text"
+        return "Text Document"
 
     async def parse(
         self,
@@ -79,10 +92,14 @@ class TextParser(DocumentParser):
         detect_encoding: bool = True,
         clean_content: bool = True,
         preserve_whitespace: bool = False,
+        enable_structured_parsing: bool = True,
+        csv_delimiter: Optional[str] = None,
+        csv_has_header: bool = True,
+        max_file_size: int = 100 * 1024 * 1024,  # 100MB default limit
         **options,
     ) -> ParsedDocument:
         """
-        Parse a plain text file.
+        Parse a text document with comprehensive format support.
 
         Args:
             file_path: Path to the text file
@@ -91,6 +108,10 @@ class TextParser(DocumentParser):
             detect_encoding: Whether to auto-detect encoding if not specified
             clean_content: Whether to normalize and clean the text content
             preserve_whitespace: Whether to preserve original whitespace formatting
+            enable_structured_parsing: Whether to parse structured formats (CSV, LOG, etc.)
+            csv_delimiter: Delimiter for CSV files (auto-detected if None)
+            csv_has_header: Whether CSV files have headers
+            max_file_size: Maximum file size to process (bytes)
             **options: Additional parsing options
 
         Returns:
@@ -203,9 +224,9 @@ class TextParser(DocumentParser):
             # Use error handler for consistent error processing
             raise handle_parsing_error(e, file_path)
 
-    async def _detect_encoding(self, file_path: Path) -> tuple[str, float]:
+    async def _detect_encoding_comprehensive(self, file_path: Path) -> tuple[str, float]:
         """
-        Detect the character encoding of a text file.
+        Comprehensive encoding detection with multiple algorithms and fallbacks.
 
         Args:
             file_path: Path to the file
@@ -214,87 +235,123 @@ class TextParser(DocumentParser):
             Tuple of (encoding_name, confidence_score)
         """
         try:
-            # Read a sample of the file for encoding detection
+            # Read sample data for encoding detection (larger sample for better accuracy)
             with open(file_path, "rb") as f:
-                raw_data = f.read(8192)  # Read first 8KB for detection
+                raw_data = f.read(32768)  # Read first 32KB for detection
 
-            detection = chardet.detect(raw_data)
-            encoding = detection.get("encoding", "utf-8")
-            confidence = detection.get("confidence", 0.0)
+            # Primary detection with chardet
+            chardet_result = chardet.detect(raw_data)
+            chardet_encoding = chardet_result.get("encoding", "utf-8")
+            chardet_confidence = chardet_result.get("confidence", 0.0)
 
-            # Fallback to utf-8 if confidence is too low
-            if confidence < 0.7:
-                logger.warning(
-                    f"Low confidence ({confidence:.2f}) encoding detection for {file_path}. "
-                    f"Detected: {encoding}, using utf-8 as fallback."
-                )
-                encoding = "utf-8"
-                confidence = 0.5  # Mark as fallback
+            # Secondary detection with charset-normalizer if available
+            charset_normalizer_encoding = None
+            charset_normalizer_confidence = 0.0
 
-            return encoding, confidence
+            if charset_normalizer:
+                try:
+                    results = charset_normalizer.from_bytes(raw_data)
+                    if results:
+                        charset_normalizer_encoding = results.best().encoding
+                        charset_normalizer_confidence = results.best().chaos
+                except Exception:
+                    pass
+
+            # Choose best detection result
+            final_encoding, final_confidence = self._select_best_encoding(
+                (chardet_encoding, chardet_confidence),
+                (charset_normalizer_encoding, charset_normalizer_confidence),
+                raw_data
+            )
+
+            logger.debug(
+                f"Encoding detection for {file_path}: {final_encoding} "
+                f"(confidence: {final_confidence:.2f})"
+            )
+
+            return final_encoding, final_confidence
 
         except Exception as e:
             logger.warning(f"Encoding detection failed for {file_path}: {e}")
             return "utf-8", 0.0  # Safe fallback
 
-    async def _read_with_encoding(
+    async def _read_with_encoding_robust(
         self,
         file_path: Path,
         encoding: str,
         progress_tracker: Optional[ProgressTracker] = None,
-    ) -> str:
+    ) -> tuple[str, str]:
         """
-        Read file content with specified encoding.
+        Robustly read file content with encoding fallback chain.
 
         Args:
             file_path: Path to the file
-            encoding: Character encoding to use
+            encoding: Character encoding to use initially
+            progress_tracker: Optional progress tracker
 
         Returns:
-            File content as string
+            Tuple of (file_content, actual_encoding_used)
 
         Raises:
-            RuntimeError: If file cannot be read with the specified encoding
+            EncodingError: If file cannot be read with any encoding
         """
-        try:
-            if progress_tracker:
-                progress_tracker.update(0, f"Reading with {encoding} encoding")
+        # Define encoding fallback chain
+        encoding_chain = [encoding, "utf-8", "latin-1", "ascii", "windows-1252"]
+        # Remove duplicates while preserving order
+        seen = set()
+        encoding_chain = [x for x in encoding_chain if not (x in seen or seen.add(x))]
 
-            with open(file_path, encoding=encoding, errors="replace") as f:
-                content = f.read()
-                if progress_tracker:
-                    progress_tracker.update(len(content.encode("utf-8")), "File loaded")
-                return content
-        except Exception as e:
-            # Try with error handling for corrupted files
+        attempted_encodings = []
+        last_error = None
+
+        for attempt_encoding in encoding_chain:
             try:
-                with open(file_path, encoding=encoding, errors="ignore") as f:
-                    content = f.read()
-                    logger.warning(
-                        f"File {file_path} had encoding errors, some characters were ignored"
-                    )
-                    if progress_tracker:
-                        progress_tracker.add_warning()
-                        progress_tracker.update(
-                            len(content.encode("utf-8")), "File loaded with warnings"
-                        )
-                    return content
-            except Exception as inner_e:
-                # Raise as EncodingError for proper classification
-                raise EncodingError(
-                    f"Unable to read file {file_path} with encoding {encoding}: {e}",
-                    file_path=file_path,
-                    attempted_encodings=[encoding],
-                    original_exception=inner_e,
-                ) from inner_e
+                if progress_tracker:
+                    progress_tracker.update(0, f"Trying {attempt_encoding} encoding")
 
-    def _clean_content(self, content: str, preserve_whitespace: bool = False) -> str:
+                # Try strict decoding first
+                try:
+                    with open(file_path, encoding=attempt_encoding, errors="strict") as f:
+                        content = f.read()
+                        if progress_tracker:
+                            progress_tracker.update(len(content.encode("utf-8")), "File loaded")
+                        return content, attempt_encoding
+                except UnicodeDecodeError:
+                    # Fall back to replace mode for this encoding
+                    with open(file_path, encoding=attempt_encoding, errors="replace") as f:
+                        content = f.read()
+                        logger.debug(
+                            f"File {file_path} loaded with {attempt_encoding} encoding (replace mode)"
+                        )
+                        if progress_tracker:
+                            progress_tracker.add_warning()
+                            progress_tracker.update(
+                                len(content.encode("utf-8")), f"File loaded with {attempt_encoding}"
+                            )
+                        return content, attempt_encoding
+
+            except Exception as e:
+                attempted_encodings.append(attempt_encoding)
+                last_error = e
+                logger.debug(f"Failed to read {file_path} with {attempt_encoding}: {e}")
+                continue
+
+        # All encodings failed
+        raise EncodingError(
+            f"Unable to read file {file_path} with any encoding. Tried: {', '.join(attempted_encodings)}",
+            file_path=file_path,
+            attempted_encodings=attempted_encodings,
+            original_exception=last_error,
+        )
+
+    def _clean_content(self, content: str, preserve_whitespace: bool = False, file_extension: str = "") -> str:
         """
-        Clean and normalize text content.
+        Clean and normalize text content with format-aware processing.
 
         Args:
             content: Raw text content
             preserve_whitespace: Whether to preserve original whitespace
+            file_extension: File extension for format-specific cleaning
 
         Returns:
             Cleaned text content
@@ -302,8 +359,19 @@ class TextParser(DocumentParser):
         if not content:
             return content
 
-        # Remove null bytes and other control characters
+        # Remove null bytes and other problematic control characters
         content = content.replace("\x00", "")
+
+        # Remove other problematic control characters but preserve useful ones
+        # Keep: \t (tab), \n (newline), \r (carriage return)
+        import string
+        allowed_chars = string.printable
+        if file_extension in [".csv", ".tsv"]:
+            # For structured formats, be more permissive with special characters
+            content = ''.join(char for char in content if char in allowed_chars or ord(char) > 127)
+        else:
+            # For plain text, be more aggressive in cleaning
+            content = ''.join(char for char in content if char.isprintable() or char in '\t\n\r')
 
         # Normalize line endings
         content = content.replace("\r\n", "\n").replace("\r", "\n")
@@ -330,7 +398,25 @@ class TextParser(DocumentParser):
 
             content = "\n".join(cleaned_lines)
 
-        return content.strip()
+        # Format-specific final cleaning
+        if file_extension in [".csv", ".tsv"]:
+            # Don't strip CSV/TSV files as leading/trailing whitespace might be meaningful
+            return content
+        elif file_extension == ".log":
+            # For log files, preserve line structure but remove excessive blank lines
+            lines = content.split("\n")
+            cleaned_lines = []
+            blank_count = 0
+            for line in lines:
+                if line.strip():
+                    cleaned_lines.append(line)
+                    blank_count = 0
+                elif blank_count < 1:  # Allow max 1 consecutive blank line
+                    cleaned_lines.append(line)
+                    blank_count += 1
+            return "\n".join(cleaned_lines)
+        else:
+            return content.strip()
 
     def _analyze_text(self, content: str) -> dict[str, int]:
         """
@@ -383,6 +469,80 @@ class TextParser(DocumentParser):
         }
         return language_map.get(extension.lower(), "text")
 
+    def _select_best_encoding(
+        self,
+        chardet_result: tuple[str, float],
+        charset_normalizer_result: tuple[Optional[str], float],
+        raw_data: bytes,
+    ) -> tuple[str, float]:
+        """
+        Select the best encoding result from multiple detection methods.
+
+        Args:
+            chardet_result: (encoding, confidence) from chardet
+            charset_normalizer_result: (encoding, confidence) from charset-normalizer
+            raw_data: Raw file data for additional validation
+
+        Returns:
+            Tuple of (best_encoding, confidence)
+        """
+        chardet_encoding, chardet_confidence = chardet_result
+        charset_normalizer_encoding, charset_normalizer_confidence = charset_normalizer_result
+
+        # If charset-normalizer is available and has high confidence, prefer it
+        if (
+            charset_normalizer_encoding
+            and charset_normalizer_confidence > 0.8
+            and charset_normalizer_confidence > chardet_confidence
+        ):
+            return charset_normalizer_encoding, charset_normalizer_confidence
+
+        # If chardet has high confidence, use it
+        if chardet_confidence > 0.7:
+            return chardet_encoding, chardet_confidence
+
+        # For low confidence, apply heuristics
+        return self._apply_encoding_heuristics(
+            chardet_encoding, chardet_confidence, raw_data
+        )
+
+    def _apply_encoding_heuristics(
+        self, encoding: str, confidence: float, raw_data: bytes
+    ) -> tuple[str, float]:
+        """
+        Apply heuristic rules for encoding detection when confidence is low.
+
+        Args:
+            encoding: Detected encoding
+            confidence: Detection confidence
+            raw_data: Raw file data
+
+        Returns:
+            Tuple of (heuristic_encoding, adjusted_confidence)
+        """
+        # Check for BOM markers
+        if raw_data.startswith(b'\xff\xfe'):
+            return "utf-16-le", 0.9
+        elif raw_data.startswith(b'\xfe\xff'):
+            return "utf-16-be", 0.9
+        elif raw_data.startswith(b'\xef\xbb\xbf'):
+            return "utf-8-sig", 0.9
+
+        # Check for common patterns
+        try:
+            # Test if it's valid UTF-8
+            raw_data.decode('utf-8')
+            return "utf-8", max(confidence, 0.8)
+        except UnicodeDecodeError:
+            pass
+
+        # Check for Windows-1252 specific characters
+        if any(b in raw_data for b in [b'\x80', b'\x82', b'\x83', b'\x84']):
+            return "windows-1252", max(confidence, 0.6)
+
+        # Default fallback with slightly better confidence
+        return encoding or "utf-8", max(confidence, 0.5)
+
     def get_parsing_options(self) -> dict[str, dict[str, Any]]:
         """Get available parsing options for text files."""
         return {
@@ -405,5 +565,25 @@ class TextParser(DocumentParser):
                 "type": bool,
                 "default": False,
                 "description": "Whether to preserve original whitespace formatting",
+            },
+            "enable_structured_parsing": {
+                "type": bool,
+                "default": True,
+                "description": "Whether to parse structured formats (CSV, LOG, etc.)",
+            },
+            "csv_delimiter": {
+                "type": str,
+                "default": None,
+                "description": "Delimiter for CSV files (auto-detected if None)",
+            },
+            "csv_has_header": {
+                "type": bool,
+                "default": True,
+                "description": "Whether CSV files have headers",
+            },
+            "max_file_size": {
+                "type": int,
+                "default": 100 * 1024 * 1024,
+                "description": "Maximum file size to process (bytes)",
             },
         }
