@@ -136,42 +136,55 @@ class TextParser(DocumentParser):
         try:
             progress_tracker.set_phase(ProgressPhase.LOADING)
 
-            # Read file content with encoding detection
+            # Enhanced encoding detection and file reading
             if encoding:
-                content = await self._read_with_encoding(
+                content, final_encoding = await self._read_with_encoding_robust(
                     file_path, encoding, progress_tracker
                 )
-                parsing_info["encoding"] = encoding
+                parsing_info["encoding"] = final_encoding
                 parsing_info["encoding_detection"] = "specified"
             elif detect_encoding:
                 progress_tracker.update(0, "Detecting encoding")
-                encoding, confidence = await self._detect_encoding(file_path)
-                content = await self._read_with_encoding(
-                    file_path, encoding, progress_tracker
+                detected_encoding, confidence = await self._detect_encoding_comprehensive(file_path)
+                content, final_encoding = await self._read_with_encoding_robust(
+                    file_path, detected_encoding, progress_tracker
                 )
-                parsing_info["encoding"] = encoding
+                parsing_info["encoding"] = final_encoding
                 parsing_info["encoding_confidence"] = confidence
                 parsing_info["encoding_detection"] = "auto-detected"
             else:
-                # Fallback to UTF-8
-                content = await self._read_with_encoding(
+                # Fallback chain
+                content, final_encoding = await self._read_with_encoding_robust(
                     file_path, "utf-8", progress_tracker
                 )
-                parsing_info["encoding"] = "utf-8"
+                parsing_info["encoding"] = final_encoding
                 parsing_info["encoding_detection"] = "default"
 
-            # Content processing
+            # Content processing with format detection
             progress_tracker.set_phase(ProgressPhase.PROCESSING)
             original_length = len(content)
             progress_tracker.update(
                 progress_tracker.metrics.total // 2, "Processing content"
             )
 
+            # Detect file format and apply structured parsing
+            file_extension = file_path.suffix.lower()
+            format_metadata = {}
+
+            if enable_structured_parsing:
+                progress_tracker.update(
+                    progress_tracker.metrics.total * 2 // 3, "Analyzing format"
+                )
+                format_metadata = await self._parse_structured_format(
+                    content, file_extension, csv_delimiter, csv_has_header
+                )
+                parsing_info.update(format_metadata)
+
             if clean_content:
                 progress_tracker.update(
                     progress_tracker.metrics.total * 3 // 4, "Cleaning content"
                 )
-                content = self._clean_content(content, preserve_whitespace)
+                content = self._clean_content(content, preserve_whitespace, file_extension)
                 parsing_info["content_cleaned"] = True
                 parsing_info["size_reduction"] = original_length - len(content)
 
@@ -192,17 +205,17 @@ class TextParser(DocumentParser):
                 "paragraph_count": text_stats.get("paragraph_count", 0),
             }
 
-            # Add file-type specific metadata
-            file_extension = file_path.suffix.lower()
-            if file_extension in [".py", ".js", ".html", ".css", ".sql"]:
-                additional_metadata["content_type"] = "code"
+            # Add comprehensive file-type specific metadata
+            content_type, content_subtype = self._classify_content_type(file_extension, content)
+            additional_metadata["content_type"] = content_type
+            additional_metadata["content_subtype"] = content_subtype
+
+            if content_type == "code":
                 additional_metadata["language"] = self._detect_language(file_extension)
-            elif file_extension in [".json", ".xml", ".yaml", ".yml"]:
-                additional_metadata["content_type"] = "structured_data"
-            elif file_extension in [".log"]:
-                additional_metadata["content_type"] = "log_file"
-            else:
-                additional_metadata["content_type"] = "plain_text"
+
+            # Add format-specific metadata from structured parsing
+            if format_metadata:
+                additional_metadata.update(format_metadata)
 
             parsed_doc = ParsedDocument.create(
                 content=content,
@@ -543,6 +556,226 @@ class TextParser(DocumentParser):
         # Default fallback with slightly better confidence
         return encoding or "utf-8", max(confidence, 0.5)
 
+    async def _parse_structured_format(
+        self,
+        content: str,
+        file_extension: str,
+        csv_delimiter: Optional[str] = None,
+        csv_has_header: bool = True,
+    ) -> Dict[str, Any]:
+        """Parse structured text formats and extract metadata."""
+        metadata = {}
+        try:
+            if file_extension in [".csv", ".tsv"]:
+                metadata.update(self._parse_csv_metadata(content, csv_delimiter, csv_has_header))
+            elif file_extension == ".log":
+                metadata.update(self._parse_log_metadata(content))
+            elif file_extension == ".jsonl":
+                metadata.update(self._parse_jsonl_metadata(content))
+            elif file_extension in [".ini", ".cfg", ".conf", ".properties"]:
+                metadata.update(self._parse_config_metadata(content, file_extension))
+            elif file_extension == ".rtf":
+                metadata.update(self._parse_rtf_metadata(content))
+        except Exception as e:
+            logger.debug(f"Failed to parse structured format {file_extension}: {e}")
+            metadata["structured_parsing_error"] = str(e)
+        return metadata
+
+    def _parse_csv_metadata(
+        self, content: str, delimiter: Optional[str] = None, has_header: bool = True
+    ) -> Dict[str, Any]:
+        """Parse CSV/TSV content and extract metadata."""
+        metadata = {"format_type": "csv"}
+        try:
+            if delimiter is None:
+                if "\t" in content:
+                    delimiter = "\t"
+                else:
+                    sniffer = csv.Sniffer()
+                    sample = "\n".join(content.split("\n")[:10])
+                    try:
+                        delimiter = sniffer.sniff(sample).delimiter
+                    except csv.Error:
+                        delimiter = ","
+                metadata["delimiter_detected"] = True
+            else:
+                metadata["delimiter_detected"] = False
+            metadata["delimiter"] = delimiter
+            lines = content.strip().split("\n")
+            if not lines:
+                return metadata
+            reader = csv.reader(lines, delimiter=delimiter)
+            rows = list(reader)
+            metadata["row_count"] = len(rows)
+            metadata["has_header"] = has_header
+            if rows:
+                metadata["column_count"] = len(rows[0]) if rows[0] else 0
+                if has_header and len(rows) > 0:
+                    metadata["headers"] = rows[0]
+                data_rows = rows[1:6] if has_header else rows[:5]
+                if data_rows:
+                    metadata["sample_data_types"] = self._analyze_csv_data_types(data_rows)
+        except Exception as e:
+            metadata["csv_parsing_error"] = str(e)
+        return metadata
+
+    def _parse_log_metadata(self, content: str) -> Dict[str, Any]:
+        """Parse log content and extract metadata."""
+        metadata = {"format_type": "log"}
+        lines = content.split("\n")
+        metadata["line_count"] = len(lines)
+        timestamp_patterns = [
+            r'\d{4}-\d{2}-\d{2}\s\d{2}:\d{2}:\d{2}',
+            r'\d{2}/\d{2}/\d{4}\s\d{2}:\d{2}:\d{2}',
+            r'\[\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}',
+        ]
+        log_levels = ['DEBUG', 'INFO', 'WARN', 'ERROR', 'FATAL', 'TRACE']
+        timestamp_matches = 0
+        level_counts = {level: 0 for level in log_levels}
+        for line in lines[:100]:
+            for pattern in timestamp_patterns:
+                if re.search(pattern, line):
+                    timestamp_matches += 1
+                    break
+            line_upper = line.upper()
+            for level in log_levels:
+                if level in line_upper:
+                    level_counts[level] += 1
+        metadata["timestamp_detection_rate"] = timestamp_matches / min(len(lines), 100) if lines else 0
+        metadata["detected_log_levels"] = {k: v for k, v in level_counts.items() if v > 0}
+        metadata["appears_structured"] = (
+            metadata["timestamp_detection_rate"] > 0.5 or
+            sum(level_counts.values()) > len(lines) * 0.1
+        )
+        return metadata
+
+    def _parse_jsonl_metadata(self, content: str) -> Dict[str, Any]:
+        """Parse JSON Lines content and extract metadata."""
+        metadata = {"format_type": "jsonl"}
+        lines = [line.strip() for line in content.split("\n") if line.strip()]
+        metadata["line_count"] = len(lines)
+        valid_json_count = 0
+        sample_keys = set()
+        for line in lines[:10]:
+            try:
+                obj = json.loads(line)
+                valid_json_count += 1
+                if isinstance(obj, dict):
+                    sample_keys.update(obj.keys())
+            except json.JSONDecodeError:
+                pass
+        metadata["valid_json_rate"] = valid_json_count / min(len(lines), 10) if lines else 0
+        metadata["sample_keys"] = list(sample_keys)[:20]
+        return metadata
+
+    def _parse_config_metadata(self, content: str, file_extension: str) -> Dict[str, Any]:
+        """Parse configuration file content and extract metadata."""
+        metadata = {"format_type": "config", "config_type": file_extension[1:]}
+        lines = content.split("\n")
+        metadata["line_count"] = len(lines)
+        section_count = 0
+        key_value_count = 0
+        comment_count = 0
+        for line in lines:
+            line = line.strip()
+            if not line:
+                continue
+            elif line.startswith(('[', '#', ';')):
+                if line.startswith('['):
+                    section_count += 1
+                else:
+                    comment_count += 1
+            elif '=' in line or ':' in line:
+                key_value_count += 1
+        metadata["section_count"] = section_count
+        metadata["key_value_pairs"] = key_value_count
+        metadata["comment_lines"] = comment_count
+        return metadata
+
+    def _parse_rtf_metadata(self, content: str) -> Dict[str, Any]:
+        """Parse RTF content and extract basic metadata."""
+        metadata = {"format_type": "rtf"}
+        if content.startswith('{\\rtf'):
+            metadata["valid_rtf_header"] = True
+            rtf_version_match = re.search(r'\{\\rtf(\d+)', content)
+            if rtf_version_match:
+                metadata["rtf_version"] = int(rtf_version_match.group(1))
+            control_words = re.findall(r'\\[a-z]+', content[:1000])
+            metadata["control_word_count"] = len(control_words)
+            metadata["unique_control_words"] = len(set(control_words))
+        else:
+            metadata["valid_rtf_header"] = False
+        return metadata
+
+    def _analyze_csv_data_types(self, data_rows: List[List[str]]) -> List[str]:
+        """Analyze data types in CSV rows."""
+        if not data_rows or not data_rows[0]:
+            return []
+        column_count = len(data_rows[0])
+        column_types = []
+        for col_idx in range(column_count):
+            values = []
+            for row in data_rows:
+                if col_idx < len(row) and row[col_idx].strip():
+                    values.append(row[col_idx].strip())
+            if not values:
+                column_types.append("empty")
+                continue
+            is_int = all(self._is_integer(v) for v in values)
+            is_float = all(self._is_float(v) for v in values) if not is_int else False
+            is_date = all(self._is_date_like(v) for v in values) if not (is_int or is_float) else False
+            if is_int:
+                column_types.append("integer")
+            elif is_float:
+                column_types.append("float")
+            elif is_date:
+                column_types.append("date")
+            else:
+                column_types.append("string")
+        return column_types
+
+    def _is_integer(self, value: str) -> bool:
+        """Check if string represents an integer."""
+        try:
+            int(value)
+            return True
+        except ValueError:
+            return False
+
+    def _is_float(self, value: str) -> bool:
+        """Check if string represents a float."""
+        try:
+            float(value)
+            return True
+        except ValueError:
+            return False
+
+    def _is_date_like(self, value: str) -> bool:
+        """Check if string looks like a date."""
+        date_patterns = [
+            r'\d{4}-\d{2}-\d{2}',
+            r'\d{2}/\d{2}/\d{4}',
+            r'\d{2}-\d{2}-\d{4}',
+        ]
+        return any(re.match(pattern, value) for pattern in date_patterns)
+
+    def _classify_content_type(self, file_extension: str, content: str) -> tuple[str, str]:
+        """Classify content type and subtype based on extension and content."""
+        if file_extension in [".py", ".js", ".html", ".css", ".sql", ".sh", ".bash", ".zsh", ".fish", ".ps1", ".bat", ".cmd"]:
+            return "code", self._detect_language(file_extension)
+        elif file_extension in [".json", ".jsonl", ".xml", ".yaml", ".yml"]:
+            return "structured_data", file_extension[1:]
+        elif file_extension in [".csv", ".tsv"]:
+            return "tabular_data", file_extension[1:]
+        elif file_extension == ".log":
+            return "log_file", "application_log"
+        elif file_extension in [".ini", ".cfg", ".conf", ".properties", ".env"]:
+            return "configuration", file_extension[1:]
+        elif file_extension == ".rtf":
+            return "formatted_text", "rtf"
+        else:
+            return "plain_text", "generic"
+
     def get_parsing_options(self) -> dict[str, dict[str, Any]]:
         """Get available parsing options for text files."""
         return {
@@ -587,3 +820,31 @@ class TextParser(DocumentParser):
                 "description": "Maximum file size to process (bytes)",
             },
         }
+
+    async def _old_read_with_encoding(
+        self,
+        file_path: Path,
+        encoding: str,
+        progress_tracker: Optional[ProgressTracker] = None,
+    ) -> str:
+        """Legacy method - keeping for compatibility."""
+        result = await self._read_with_encoding_robust(file_path, encoding, progress_tracker)
+        return result[0]  # Return just the content, not the tuple
+
+    async def _old_detect_encoding(self, file_path: Path) -> tuple[str, float]:
+        """Legacy method - keeping for compatibility."""
+        return await self._detect_encoding_comprehensive(file_path)
+
+    async def _read_with_encoding(
+        self,
+        file_path: Path,
+        encoding: str,
+        progress_tracker: Optional[ProgressTracker] = None,
+    ) -> str:
+        """Legacy compatibility method."""
+        result = await self._read_with_encoding_robust(file_path, encoding, progress_tracker)
+        return result[0]  # Return just the content, not the tuple
+
+    async def _detect_encoding(self, file_path: Path) -> tuple[str, float]:
+        """Legacy compatibility method."""
+        return await self._detect_encoding_comprehensive(file_path)
