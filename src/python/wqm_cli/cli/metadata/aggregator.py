@@ -15,7 +15,7 @@ from loguru import logger
 
 from ..parsers.base import ParsedDocument
 from ..parsers.file_detector import detect_file_type
-from ...common.core.metadata_schema import MultiTenantMetadataSchema, CollectionCategory
+from ....common.core.metadata_schema import MultiTenantMetadataSchema, CollectionCategory
 from .exceptions import AggregationError
 
 

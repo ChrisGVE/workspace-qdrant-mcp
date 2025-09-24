@@ -17,6 +17,7 @@ from .batch_processor import BatchProcessor, BatchConfig, BatchResult
 from .incremental_tracker import IncrementalTracker, DocumentChangeInfo
 from .yaml_generator import YAMLGenerator, YAMLConfig
 from .exceptions import WorkflowConfigurationError, MetadataError
+from ..parsers.base import ParsedDocument
 
 
 class WorkflowConfig:
@@ -479,24 +480,22 @@ class WorkflowManager:
                 ]
 
             # Generate summary YAML
+            # Create a dummy DocumentMetadata for the summary
+            summary_doc = ParsedDocument.create(
+                content="",  # No content for summary
+                file_path=str(report_path),
+                file_type="workflow_summary",
+                additional_metadata=summary_data,
+            )
+
+            summary_metadata = DocumentMetadata(
+                file_path=str(report_path),
+                content_hash="summary",
+                parsed_document=summary_doc,
+            )
+
             summary_yaml = self.yaml_generator.generate_yaml(
-                # Create a dummy DocumentMetadata for the summary
-                from .aggregator import DocumentMetadata, ParsedDocument
-
-                summary_doc = ParsedDocument.create(
-                    content="",  # No content for summary
-                    file_path=str(report_path),
-                    file_type="workflow_summary",
-                    additional_metadata=summary_data,
-                )
-
-                summary_metadata = DocumentMetadata(
-                    file_path=str(report_path),
-                    content_hash="summary",
-                    parsed_document=summary_doc,
-                )
-
-                await summary_metadata,
+                summary_metadata,
                 output_path=report_path,
             )
 
