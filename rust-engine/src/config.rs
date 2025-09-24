@@ -46,8 +46,14 @@ pub struct ServerConfig {
     /// Request timeout in seconds
     pub request_timeout_secs: u64,
 
-    /// Enable TLS (for future use)
+    /// Enable TLS
     pub enable_tls: bool,
+
+    /// Security configuration
+    pub security: SecurityConfig,
+
+    /// Transport configuration
+    pub transport: TransportConfig,
 
     /// Message configuration
     pub message: MessageConfig,
@@ -280,6 +286,329 @@ pub struct LargeOperationStreamConfig {
     pub enable_bidirectional_optimization: bool,
 }
 
+/// Security configuration for gRPC server
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SecurityConfig {
+    /// TLS configuration
+    pub tls: TlsConfig,
+
+    /// Authentication configuration
+    pub auth: AuthConfig,
+
+    /// Rate limiting configuration
+    pub rate_limiting: RateLimitConfig,
+
+    /// Security audit configuration
+    pub audit: SecurityAuditConfig,
+}
+
+/// TLS configuration
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct TlsConfig {
+    /// Server certificate file path
+    pub cert_file: Option<String>,
+
+    /// Server private key file path
+    pub key_file: Option<String>,
+
+    /// CA certificate file path for client verification
+    pub ca_cert_file: Option<String>,
+
+    /// Enable mutual TLS (mTLS)
+    pub enable_mtls: bool,
+
+    /// Client certificate verification mode
+    pub client_cert_verification: ClientCertVerification,
+
+    /// TLS protocol versions to support
+    pub supported_protocols: Vec<String>,
+
+    /// Cipher suites to use
+    pub cipher_suites: Vec<String>,
+}
+
+/// Client certificate verification modes
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub enum ClientCertVerification {
+    /// No client certificate required
+    None,
+    /// Client certificate optional
+    Optional,
+    /// Client certificate required
+    Required,
+}
+
+/// Authentication and authorization configuration
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AuthConfig {
+    /// Enable service-to-service authentication
+    pub enable_service_auth: bool,
+
+    /// JWT token configuration
+    pub jwt: JwtConfig,
+
+    /// API key configuration
+    pub api_key: ApiKeyConfig,
+
+    /// Service authorization rules
+    pub authorization: AuthorizationConfig,
+}
+
+/// JWT token configuration
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct JwtConfig {
+    /// JWT signing secret or public key file path
+    pub secret_or_key_file: String,
+
+    /// Token issuer
+    pub issuer: String,
+
+    /// Token audience
+    pub audience: String,
+
+    /// Token expiration time in seconds
+    pub expiration_secs: u64,
+
+    /// Algorithm to use (HS256, RS256, etc.)
+    pub algorithm: String,
+}
+
+/// API key configuration
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ApiKeyConfig {
+    /// Enable API key authentication
+    pub enabled: bool,
+
+    /// API key header name
+    pub header_name: String,
+
+    /// Valid API keys (in production, load from secure storage)
+    pub valid_keys: Vec<String>,
+
+    /// API key permissions mapping
+    pub key_permissions: std::collections::HashMap<String, Vec<String>>,
+}
+
+/// Authorization configuration
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AuthorizationConfig {
+    /// Enable authorization checks
+    pub enabled: bool,
+
+    /// Default permissions for authenticated users
+    pub default_permissions: Vec<String>,
+
+    /// Service-specific permissions
+    pub service_permissions: ServicePermissions,
+}
+
+/// Service-specific permission configuration
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ServicePermissions {
+    /// Document processor permissions
+    pub document_processor: Vec<String>,
+
+    /// Search service permissions
+    pub search_service: Vec<String>,
+
+    /// Memory service permissions
+    pub memory_service: Vec<String>,
+
+    /// System service permissions
+    pub system_service: Vec<String>,
+}
+
+/// Enhanced rate limiting configuration
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct RateLimitConfig {
+    /// Enable rate limiting
+    pub enabled: bool,
+
+    /// Requests per second per client
+    pub requests_per_second: u32,
+
+    /// Burst capacity
+    pub burst_capacity: u32,
+
+    /// Connection pool limits per service
+    pub connection_pool_limits: ConnectionPoolLimits,
+
+    /// Request queue depth limits
+    pub queue_depth_limit: u32,
+
+    /// Memory usage protection
+    pub memory_protection: MemoryProtectionConfig,
+
+    /// Resource exhaustion protection
+    pub resource_protection: ResourceProtectionConfig,
+}
+
+/// Connection pool limits per service
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ConnectionPoolLimits {
+    /// Document processor connection limit
+    pub document_processor: u32,
+
+    /// Search service connection limit
+    pub search_service: u32,
+
+    /// Memory service connection limit
+    pub memory_service: u32,
+
+    /// System service connection limit
+    pub system_service: u32,
+}
+
+/// Memory usage protection configuration
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct MemoryProtectionConfig {
+    /// Enable memory usage monitoring
+    pub enabled: bool,
+
+    /// Maximum memory usage per connection (bytes)
+    pub max_memory_per_connection: u64,
+
+    /// Total memory usage limit (bytes)
+    pub total_memory_limit: u64,
+
+    /// Memory cleanup interval (seconds)
+    pub cleanup_interval_secs: u64,
+}
+
+/// Resource exhaustion protection configuration
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ResourceProtectionConfig {
+    /// Enable resource protection
+    pub enabled: bool,
+
+    /// CPU usage threshold for throttling (percentage)
+    pub cpu_threshold_percent: f64,
+
+    /// Disk space threshold for throttling (percentage)
+    pub disk_threshold_percent: f64,
+
+    /// Circuit breaker failure threshold
+    pub circuit_breaker_failure_threshold: u32,
+
+    /// Circuit breaker timeout (seconds)
+    pub circuit_breaker_timeout_secs: u64,
+}
+
+/// Security audit configuration
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SecurityAuditConfig {
+    /// Enable security audit logging
+    pub enabled: bool,
+
+    /// Audit log file path
+    pub log_file_path: String,
+
+    /// Log authentication events
+    pub log_auth_events: bool,
+
+    /// Log authorization failures
+    pub log_auth_failures: bool,
+
+    /// Log rate limiting events
+    pub log_rate_limit_events: bool,
+
+    /// Log suspicious patterns
+    pub log_suspicious_patterns: bool,
+
+    /// Audit log rotation configuration
+    pub rotation: AuditLogRotation,
+}
+
+/// Audit log rotation configuration
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AuditLogRotation {
+    /// Maximum file size before rotation (MB)
+    pub max_file_size_mb: u64,
+
+    /// Maximum number of files to keep
+    pub max_files: u32,
+
+    /// Compress rotated files
+    pub compress: bool,
+}
+
+/// Transport configuration
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct TransportConfig {
+    /// Unix domain socket configuration
+    pub unix_socket: UnixSocketConfig,
+
+    /// Local communication optimizations
+    pub local_optimization: LocalOptimizationConfig,
+
+    /// Transport selection strategy
+    pub transport_strategy: TransportStrategy,
+}
+
+/// Unix domain socket configuration
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct UnixSocketConfig {
+    /// Enable Unix domain socket support
+    pub enabled: bool,
+
+    /// Unix socket file path
+    pub socket_path: String,
+
+    /// Socket file permissions (octal)
+    pub permissions: u32,
+
+    /// Enable Unix socket for local development
+    pub prefer_for_local: bool,
+}
+
+/// Local communication optimization configuration
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct LocalOptimizationConfig {
+    /// Enable local transport optimizations
+    pub enabled: bool,
+
+    /// Use larger buffers for local communication
+    pub use_large_buffers: bool,
+
+    /// Buffer size for local communication (bytes)
+    pub local_buffer_size: usize,
+
+    /// Enable memory-efficient serialization
+    pub memory_efficient_serialization: bool,
+
+    /// Reduced latency settings for local calls
+    pub reduce_latency: LocalLatencyConfig,
+}
+
+/// Local latency reduction configuration
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct LocalLatencyConfig {
+    /// Disable Nagle's algorithm for local connections
+    pub disable_nagle: bool,
+
+    /// Use custom local connection pooling
+    pub custom_connection_pooling: bool,
+
+    /// Local connection pool size
+    pub connection_pool_size: u32,
+
+    /// Local connection keep-alive interval (seconds)
+    pub keepalive_interval_secs: u64,
+}
+
+/// Transport selection strategy
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub enum TransportStrategy {
+    /// Automatically detect and use best transport
+    Auto,
+    /// Force TCP transport
+    ForceTcp,
+    /// Force Unix socket (local only)
+    ForceUnixSocket,
+    /// Use Unix socket with TCP fallback
+    UnixSocketWithTcpFallback,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct DatabaseConfig {
     /// SQLite database file path
@@ -419,6 +748,8 @@ impl Default for DaemonConfig {
                 connection_timeout_secs: 30,
                 request_timeout_secs: 300,
                 enable_tls: false,
+                security: SecurityConfig::default(),
+                transport: TransportConfig::default(),
                 message: MessageConfig::default(),
                 compression: CompressionConfig::default(),
                 streaming: StreamingConfig::default(),
@@ -751,6 +1082,207 @@ impl Default for LargeOperationStreamConfig {
             enable_bulk_streaming: true,
             max_streaming_memory: 128 * 1024 * 1024, // 128MB memory limit
             enable_bidirectional_optimization: true,
+        }
+    }
+}
+
+// Default implementations for new configuration structs
+
+impl Default for SecurityConfig {
+    fn default() -> Self {
+        Self {
+            tls: TlsConfig::default(),
+            auth: AuthConfig::default(),
+            rate_limiting: RateLimitConfig::default(),
+            audit: SecurityAuditConfig::default(),
+        }
+    }
+}
+
+impl Default for TlsConfig {
+    fn default() -> Self {
+        Self {
+            cert_file: None,
+            key_file: None,
+            ca_cert_file: None,
+            enable_mtls: false,
+            client_cert_verification: ClientCertVerification::None,
+            supported_protocols: vec!["TLSv1.2".to_string(), "TLSv1.3".to_string()],
+            cipher_suites: vec![], // Use system defaults
+        }
+    }
+}
+
+impl Default for AuthConfig {
+    fn default() -> Self {
+        Self {
+            enable_service_auth: false,
+            jwt: JwtConfig::default(),
+            api_key: ApiKeyConfig::default(),
+            authorization: AuthorizationConfig::default(),
+        }
+    }
+}
+
+impl Default for JwtConfig {
+    fn default() -> Self {
+        Self {
+            secret_or_key_file: "changeme_jwt_secret".to_string(),
+            issuer: "workspace-qdrant-mcp".to_string(),
+            audience: "workspace-qdrant-clients".to_string(),
+            expiration_secs: 3600, // 1 hour
+            algorithm: "HS256".to_string(),
+        }
+    }
+}
+
+impl Default for ApiKeyConfig {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            header_name: "X-API-Key".to_string(),
+            valid_keys: vec![],
+            key_permissions: std::collections::HashMap::new(),
+        }
+    }
+}
+
+impl Default for AuthorizationConfig {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            default_permissions: vec![
+                "read".to_string(),
+                "write".to_string(),
+            ],
+            service_permissions: ServicePermissions::default(),
+        }
+    }
+}
+
+impl Default for ServicePermissions {
+    fn default() -> Self {
+        Self {
+            document_processor: vec!["process".to_string(), "read".to_string()],
+            search_service: vec!["search".to_string(), "read".to_string()],
+            memory_service: vec!["read".to_string(), "write".to_string(), "delete".to_string()],
+            system_service: vec!["admin".to_string(), "read".to_string()],
+        }
+    }
+}
+
+impl Default for RateLimitConfig {
+    fn default() -> Self {
+        Self {
+            enabled: true,
+            requests_per_second: 100,
+            burst_capacity: 200,
+            connection_pool_limits: ConnectionPoolLimits::default(),
+            queue_depth_limit: 1000,
+            memory_protection: MemoryProtectionConfig::default(),
+            resource_protection: ResourceProtectionConfig::default(),
+        }
+    }
+}
+
+impl Default for ConnectionPoolLimits {
+    fn default() -> Self {
+        Self {
+            document_processor: 50,
+            search_service: 100,
+            memory_service: 75,
+            system_service: 25,
+        }
+    }
+}
+
+impl Default for MemoryProtectionConfig {
+    fn default() -> Self {
+        Self {
+            enabled: true,
+            max_memory_per_connection: 100 * 1024 * 1024, // 100MB
+            total_memory_limit: 1024 * 1024 * 1024, // 1GB
+            cleanup_interval_secs: 300, // 5 minutes
+        }
+    }
+}
+
+impl Default for ResourceProtectionConfig {
+    fn default() -> Self {
+        Self {
+            enabled: true,
+            cpu_threshold_percent: 80.0,
+            disk_threshold_percent: 90.0,
+            circuit_breaker_failure_threshold: 5,
+            circuit_breaker_timeout_secs: 60,
+        }
+    }
+}
+
+impl Default for SecurityAuditConfig {
+    fn default() -> Self {
+        Self {
+            enabled: true,
+            log_file_path: "./security_audit.log".to_string(),
+            log_auth_events: true,
+            log_auth_failures: true,
+            log_rate_limit_events: true,
+            log_suspicious_patterns: true,
+            rotation: AuditLogRotation::default(),
+        }
+    }
+}
+
+impl Default for AuditLogRotation {
+    fn default() -> Self {
+        Self {
+            max_file_size_mb: 100,
+            max_files: 10,
+            compress: true,
+        }
+    }
+}
+
+impl Default for TransportConfig {
+    fn default() -> Self {
+        Self {
+            unix_socket: UnixSocketConfig::default(),
+            local_optimization: LocalOptimizationConfig::default(),
+            transport_strategy: TransportStrategy::Auto,
+        }
+    }
+}
+
+impl Default for UnixSocketConfig {
+    fn default() -> Self {
+        Self {
+            enabled: true,
+            socket_path: "/tmp/workspace-qdrant-mcp.sock".to_string(),
+            permissions: 0o600, // Owner read/write only
+            prefer_for_local: true,
+        }
+    }
+}
+
+impl Default for LocalOptimizationConfig {
+    fn default() -> Self {
+        Self {
+            enabled: true,
+            use_large_buffers: true,
+            local_buffer_size: 64 * 1024, // 64KB
+            memory_efficient_serialization: true,
+            reduce_latency: LocalLatencyConfig::default(),
+        }
+    }
+}
+
+impl Default for LocalLatencyConfig {
+    fn default() -> Self {
+        Self {
+            disable_nagle: true,
+            custom_connection_pooling: true,
+            connection_pool_size: 10,
+            keepalive_interval_secs: 30,
         }
     }
 }
@@ -1240,6 +1772,11 @@ logging:
         assert_send_sync::<MessageConfig>();
         assert_send_sync::<CompressionConfig>();
         assert_send_sync::<StreamingConfig>();
+        assert_send_sync::<SecurityConfig>();
+        assert_send_sync::<TlsConfig>();
+        assert_send_sync::<AuthConfig>();
+        assert_send_sync::<TransportConfig>();
+        assert_send_sync::<UnixSocketConfig>();
     }
 
     #[test]
