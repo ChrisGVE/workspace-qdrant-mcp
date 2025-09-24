@@ -20,7 +20,8 @@ pub mod shared_test_utils;
 
 pub use server::GrpcServer;
 pub use client::{WorkspaceDaemonClient, ConnectionPool, ConnectionStats};
-pub use service_discovery::{ServiceRegistry, ServiceInstance, ServiceHealth, LoadBalancingStrategy, ServiceDiscoveryConfig, ServiceDiscoveryStats};
+pub use service_discovery::{ServiceRegistry, ServiceInstance, LoadBalancingStrategy, ServiceDiscoveryConfig, ServiceDiscoveryStats};
+// ServiceHealth is provided by health module
 pub use retry::{RetryConfig, RetryStrategy, RetryPredicate, DefaultRetryPredicate};
 pub use circuit_breaker::{CircuitBreaker, CircuitBreakerConfig, CircuitState, CircuitBreakerStats};
 pub use message_validation::{MessageValidator, MessageStats, StreamHandle};

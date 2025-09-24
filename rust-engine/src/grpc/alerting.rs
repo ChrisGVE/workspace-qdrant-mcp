@@ -287,7 +287,6 @@ impl AlertChannel for EmailAlertChannel {
 }
 
 /// Alert processing and routing system
-#[derive(Debug)]
 pub struct AlertManager {
     /// Registered alert channels
     channels: Arc<RwLock<Vec<Arc<dyn AlertChannel>>>>,
@@ -301,6 +300,18 @@ pub struct AlertManager {
     alert_sender: mpsc::UnboundedSender<Alert>,
     /// Alert processor task handle
     _processor_handle: tokio::task::JoinHandle<()>,
+}
+
+impl std::fmt::Debug for AlertManager {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("AlertManager")
+            .field("channels", &"<trait objects>")
+            .field("active_alerts", &self.active_alerts)
+            .field("alert_history", &self.alert_history)
+            .field("max_history_size", &self.max_history_size)
+            .field("_processor_handle", &"<task handle>")
+            .finish()
+    }
 }
 
 impl AlertManager {
@@ -491,18 +502,29 @@ pub struct AlertStats {
 }
 
 /// Automatic recovery system
-#[derive(Debug)]
 pub struct RecoverySystem {
     /// Health monitoring system
     monitoring_system: Arc<HealthMonitoringSystem>,
     /// Alert manager for notifications
     alert_manager: Arc<AlertManager>,
-    /// Recovery procedures by service name
-    recovery_procedures: Arc<RwLock<HashMap<String, Arc<dyn RecoveryProcedure>>>>,
+    /// Recovery procedures by service name (not Debug due to trait objects)
+    recovery_procedures: Arc<RwLock<HashMap<String, Arc<dyn RecoveryProcedure + Send + Sync>>>>,
     /// Recovery attempt history
     recovery_history: Arc<RwLock<Vec<RecoveryAttempt>>>,
     /// Whether automatic recovery is enabled
     auto_recovery_enabled: Arc<RwLock<bool>>,
+}
+
+impl std::fmt::Debug for RecoverySystem {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("RecoverySystem")
+            .field("monitoring_system", &self.monitoring_system)
+            .field("alert_manager", &self.alert_manager)
+            .field("recovery_procedures", &"<trait objects>")
+            .field("recovery_history", &self.recovery_history)
+            .field("auto_recovery_enabled", &self.auto_recovery_enabled)
+            .finish()
+    }
 }
 
 /// Recovery procedure trait
@@ -635,7 +657,7 @@ impl RecoverySystem {
     }
 
     /// Add a recovery procedure for a service
-    pub async fn add_recovery_procedure(&self, service_name: String, procedure: Arc<dyn RecoveryProcedure>) {
+    pub async fn add_recovery_procedure(&self, service_name: String, procedure: Arc<dyn RecoveryProcedure + Send + Sync>) {
         let mut procedures = self.recovery_procedures.write().await;
         procedures.insert(service_name, procedure);
     }
