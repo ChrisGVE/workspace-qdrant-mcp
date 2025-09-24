@@ -148,7 +148,7 @@ impl DocumentProcessorMonitor {
 }
 
 /// Document processing statistics
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, serde::Serialize)]
 pub struct DocumentProcessingStats {
     pub in_progress: u32,
     pub total_processed: u64,
@@ -329,7 +329,7 @@ impl SearchTracker {
 }
 
 /// Search service statistics
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, serde::Serialize)]
 pub struct SearchStats {
     pub cache_hit_rate: f64,
     pub concurrent_searches: u32,
@@ -503,7 +503,7 @@ impl MemoryOperationTracker {
 }
 
 /// Memory service statistics
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, serde::Serialize)]
 pub struct MemoryStats {
     pub memory_utilization: f64,
     pub active_collections: u32,

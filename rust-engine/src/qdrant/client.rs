@@ -761,13 +761,13 @@ async fn create_qdrant_client(
     url: &str,
     api_key: Option<&str>,
 ) -> QdrantResult<QdrantClientLib> {
-    let mut config = qdrant_client::client::QdrantClientConfig::from_url(url);
+    let mut config = qdrant_client::config::QdrantConfig::from_url(url);
 
     if let Some(key) = api_key {
-        config = config.with_api_key(key);
+        config.api_key = Some(key.to_string());
     }
 
-    let client = QdrantClientLib::new(Some(config))
+    let client = QdrantClientLib::new(config)
         .map_err(|e| QdrantError::Connection {
             message: format!("Failed to create client: {}", e),
         })?;
