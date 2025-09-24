@@ -349,7 +349,18 @@ class AdvancedFileFilter:
                 if not content_result[0]:
                     return await self._reject_file(f"content_filter_failed_{content_result[1]}", start_time)
 
-            # File accepted
+            # File accepted - preserve specific pattern matching reason if available
+            if pattern_result[1] == "no_include_patterns" or pattern_result[1].startswith("included_by_pattern"):
+                # Update stats but preserve the specific pattern reason
+                processing_time_ms = (time.perf_counter() - start_time) * 1000
+                self.statistics.files_accepted += 1
+                self.statistics.add_processing_time(processing_time_ms)
+
+                if self.performance_monitor:
+                    self.performance_monitor.record_metric("processing_time_ms", processing_time_ms)
+
+                return True, pattern_result[1]
+
             return await self._accept_file(start_time)
 
         except Exception as e:
