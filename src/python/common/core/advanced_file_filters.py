@@ -360,24 +360,29 @@ class AdvancedFileFilter:
                     return await self._reject_file(f"mime_type_blocked_{mime_result[1]}", start_time)
 
             # Content-based filtering
+            content_result = None
             if self.config.enable_content_filtering and self.config.content_filters:
                 content_result = await self._check_content_filters(file_path)
                 if not content_result[0]:
                     return await self._reject_file(f"content_filter_failed_{content_result[1]}", start_time)
 
-            # File accepted - preserve specific pattern matching reason if available
-            if pattern_result[1] == "no_include_patterns" or pattern_result[1].startswith("included_by_pattern"):
-                # Update stats but preserve the specific pattern reason
-                processing_time_ms = (time.perf_counter() - start_time) * 1000
-                self.statistics.files_accepted += 1
-                self.statistics.add_processing_time(processing_time_ms)
+            # File accepted - choose the most specific reason
+            # Priority: content match > specific pattern match > no include patterns
+            specific_reason = "accepted"
+            if content_result and content_result[1].startswith("matched_content"):
+                specific_reason = content_result[1]
+            elif pattern_result[1] == "no_include_patterns" or pattern_result[1].startswith("included_by_pattern"):
+                specific_reason = pattern_result[1]
 
-                if self.performance_monitor:
-                    self.performance_monitor.record_metric("processing_time_ms", processing_time_ms)
+            # Update stats and return with appropriate reason
+            processing_time_ms = (time.perf_counter() - start_time) * 1000
+            self.statistics.files_accepted += 1
+            self.statistics.add_processing_time(processing_time_ms)
 
-                return True, pattern_result[1]
+            if self.performance_monitor:
+                self.performance_monitor.record_metric("processing_time_ms", processing_time_ms)
 
-            return await self._accept_file(start_time)
+            return True, specific_reason
 
         except Exception as e:
             logger.error(f"Error checking file {file_path}: {e}")
