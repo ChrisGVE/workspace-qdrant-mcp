@@ -100,7 +100,6 @@ prost-build = "0.13"
 tempfile = "3.0"
 tokio-test = "0.4"
 assert_matches = "1.5"
-futures-util = "0.3"
 
 # Functional testing frameworks
 testcontainers = "0.15"        # Isolated service testing
