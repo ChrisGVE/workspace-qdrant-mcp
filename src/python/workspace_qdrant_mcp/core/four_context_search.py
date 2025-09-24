@@ -71,13 +71,13 @@ from loguru import logger
 from qdrant_client import QdrantClient
 from qdrant_client.http import models
 
-from python.common.core.client import QdrantWorkspaceClient
-from python.common.core.hybrid_search import HybridSearchEngine, RRFFusionRanker
-from python.common.core.project_detection import ProjectDetector
-from python.common.core.collections import CollectionSelector
-from .search import search_workspace, search_workspace_with_project_isolation
-from .code_search import CodeSearchEngine, CodeSearchResult
-from .multitenant_search import MultiTenantSearchCoordinator
+from ...common.core.client import QdrantWorkspaceClient
+from ...common.core.hybrid_search import HybridSearchEngine, RRFFusionRanker
+from ...common.utils.project_detection import ProjectDetector
+from ...common.core.collections import CollectionSelector
+from ..tools.search import search_workspace, search_workspace_with_project_isolation
+from ..tools.code_search import CodeSearchEngine, CodeSearchResult
+from ..tools.multitenant_search import MultiTenantSearchCoordinator
 
 
 class SearchContext(Enum):
