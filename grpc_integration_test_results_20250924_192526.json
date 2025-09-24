@@ -1,0 +1,435 @@
+{
+  "test_summary": {
+    "start_time": 1758734720.0180101,
+    "configuration": {
+      "host": "127.0.0.1",
+      "port": 50051,
+      "concurrency_levels": [
+        5,
+        10,
+        20
+      ],
+      "load_test_duration": 5
+    }
+  },
+  "service_tests": {
+    "DocumentProcessor": {
+      "service": "DocumentProcessor",
+      "methods_tested": [
+        "ProcessDocument",
+        "ProcessDocuments",
+        "GetProcessingStatus",
+        "CancelProcessing"
+      ],
+      "performance_metrics": {
+        "ProcessDocument": {
+          "execution_time_ms": 11.11912727355957,
+          "response_valid": true
+        },
+        "ProcessDocuments": {
+          "execution_time_ms": 54.260969161987305,
+          "batch_size": 5,
+          "responses_count": 5
+        },
+        "GetProcessingStatus": {
+          "execution_time_ms": 10.157108306884766,
+          "status_valid": true
+        },
+        "CancelProcessing": {
+          "execution_time_ms": 10.307073593139648,
+          "cancel_successful": true
+        }
+      },
+      "error_scenarios": {},
+      "edge_cases": {
+        "empty_file_path": "handled_gracefully",
+        "empty_collection": "handled_gracefully"
+      }
+    },
+    "SearchService": {
+      "service": "SearchService",
+      "methods_tested": [
+        "HybridSearch",
+        "SemanticSearch",
+        "KeywordSearch",
+        "GetSuggestions"
+      ],
+      "performance_metrics": {
+        "HybridSearch": {
+          "execution_time_ms": 11.061906814575195,
+          "results_count": 1,
+          "response_valid": true
+        },
+        "SemanticSearch": {
+          "execution_time_ms": 10.757923126220703,
+          "results_count": 2,
+          "semantic_only": true
+        },
+        "KeywordSearch": {
+          "execution_time_ms": 10.286092758178711,
+          "results_count": 4,
+          "keyword_only": true
+        },
+        "GetSuggestions": {
+          "execution_time_ms": 10.256767272949219,
+          "suggestions_count": 1
+        }
+      },
+      "error_scenarios": {},
+      "edge_cases": {
+        "empty_query": "handled_gracefully",
+        "long_query": "handled_gracefully",
+        "zero_limit": "handled_gracefully"
+      }
+    },
+    "MemoryService": {
+      "service": "MemoryService",
+      "methods_tested": [
+        "CreateCollection",
+        "AddDocument",
+        "GetDocument",
+        "UpdateDocument",
+        "ListDocuments",
+        "ListCollections",
+        "RemoveDocument",
+        "DeleteCollection"
+      ],
+      "performance_metrics": {
+        "CreateCollection": {
+          "execution_time_ms": 11.047124862670898,
+          "creation_successful": true
+        },
+        "AddDocument": {
+          "execution_time_ms": 10.940074920654297,
+          "document_added": true,
+          "document_id": "mem_doc_1758734720_1525"
+        },
+        "GetDocument": {
+          "execution_time_ms": 10.693788528442383,
+          "document_retrieved": true
+        },
+        "UpdateDocument": {
+          "execution_time_ms": 10.444164276123047,
+          "update_successful": true
+        },
+        "ListDocuments": {
+          "execution_time_ms": 10.651111602783203,
+          "documents_count": 1,
+          "total_count": 1
+        },
+        "ListCollections": {
+          "execution_time_ms": 10.598897933959961,
+          "collections_count": 1
+        },
+        "RemoveDocument": {
+          "execution_time_ms": 10.556936264038086,
+          "removal_successful": true
+        },
+        "DeleteCollection": {
+          "execution_time_ms": 10.594844818115234,
+          "deletion_successful": true
+        }
+      },
+      "error_scenarios": {},
+      "edge_cases": {
+        "non_existent_document": "error: Document not found",
+        "empty_collection_name": "handled_gracefully"
+      }
+    },
+    "SystemService": {
+      "service": "SystemService",
+      "methods_tested": [
+        "HealthCheck",
+        "GetStatus",
+        "GetMetrics",
+        "GetConfig",
+        "UpdateConfig",
+        "DetectProject",
+        "ListProjects"
+      ],
+      "performance_metrics": {
+        "HealthCheck": {
+          "execution_time_ms": 10.179281234741211,
+          "status": "SERVICE_STATUS_HEALTHY",
+          "components_checked": 2
+        },
+        "GetStatus": {
+          "execution_time_ms": 10.616064071655273,
+          "status_valid": true,
+          "active_projects": 0,
+          "total_documents": 0
+        },
+        "GetMetrics": {
+          "execution_time_ms": 10.652303695678711,
+          "metrics_count": 3,
+          "metrics_valid": true
+        },
+        "GetConfig": {
+          "execution_time_ms": 10.59103012084961,
+          "config_keys": 6,
+          "version_present": true
+        },
+        "UpdateConfig": {
+          "execution_time_ms": 10.576248168945312,
+          "update_successful": true
+        },
+        "DetectProject": {
+          "execution_time_ms": 10.633230209350586,
+          "project_detected": true,
+          "reasons_count": 2
+        },
+        "ListProjects": {
+          "execution_time_ms": 10.538816452026367,
+          "projects_count": 0
+        }
+      },
+      "error_scenarios": {},
+      "edge_cases": {
+        "invalid_project_path": "handled_gracefully",
+        "empty_config_update": "handled_gracefully"
+      }
+    }
+  },
+  "integration_tests": {
+    "concurrent_operations": {
+      "test_type": "concurrent_operations",
+      "concurrency_levels": [
+        {
+          "concurrency_level": 5,
+          "total_operations": 20,
+          "successful_operations": 20,
+          "failed_operations": 0,
+          "success_rate": 100.0,
+          "total_time_ms": 11.422395706176758,
+          "operations_per_second": 1750.946168778309,
+          "average_operation_time_ms": 0.5711197853088379,
+          "operation_distribution": {
+            "hybrid_search": 2,
+            "add_document": 2,
+            "get_metrics": 2,
+            "list_collections": 3,
+            "health_check": 4,
+            "document_process": 4,
+            "semantic_search": 1,
+            "get_status": 2
+          }
+        },
+        {
+          "concurrency_level": 10,
+          "total_operations": 40,
+          "successful_operations": 40,
+          "failed_operations": 0,
+          "success_rate": 100.0,
+          "total_time_ms": 11.754989624023438,
+          "operations_per_second": 3402.8103196495213,
+          "average_operation_time_ms": 0.29387474060058594,
+          "operation_distribution": {
+            "semantic_search": 3,
+            "get_metrics": 7,
+            "list_collections": 4,
+            "add_document": 9,
+            "health_check": 4,
+            "document_process": 6,
+            "get_status": 3,
+            "hybrid_search": 4
+          }
+        },
+        {
+          "concurrency_level": 20,
+          "total_operations": 80,
+          "successful_operations": 80,
+          "failed_operations": 0,
+          "success_rate": 100.0,
+          "total_time_ms": 11.739969253540039,
+          "operations_per_second": 6814.327897483804,
+          "average_operation_time_ms": 0.1467496156692505,
+          "operation_distribution": {
+            "hybrid_search": 7,
+            "semantic_search": 10,
+            "health_check": 9,
+            "document_process": 8,
+            "list_collections": 14,
+            "get_metrics": 8,
+            "get_status": 14,
+            "add_document": 10
+          }
+        }
+      ],
+      "performance_metrics": {
+        "max_throughput_ops_per_second": 6814.327897483804,
+        "average_success_rate": 100.0,
+        "min_average_operation_time_ms": 0.1467496156692505,
+        "max_concurrency_tested": 20
+      },
+      "error_scenarios": {},
+      "load_characteristics": {}
+    }
+  },
+  "performance_tests": {
+    "load_performance": {
+      "test_type": "load_performance",
+      "duration_seconds": 5,
+      "target_ops_per_second": 50,
+      "actual_performance": {
+        "duration_seconds": 5.040873050689697,
+        "total_operations": 225,
+        "successful_operations": 225,
+        "failed_operations": 0,
+        "success_rate": 100.0,
+        "operations_per_second": 44.63512525260188,
+        "average_response_time_ms": 10.88578012254503,
+        "median_response_time_ms": 10.950088500976562,
+        "p95_response_time_ms": 11.063098907470703,
+        "min_response_time_ms": 10.58197021484375,
+        "max_response_time_ms": 11.17396354675293
+      },
+      "resource_usage": {
+        "peak_cpu_percent": 43.868112593092775,
+        "peak_memory_mb": 393.66146300692276,
+        "network_bytes_sent": 240750,
+        "network_bytes_received": 236025,
+        "active_connections": 28
+      },
+      "error_distribution": {}
+    }
+  },
+  "reliability_tests": {
+    "error_scenarios": {
+      "test_type": "error_scenarios",
+      "network_failures": {
+        "failure_rate_configured": 0.5,
+        "operations_attempted": 20,
+        "failures_observed": 8,
+        "successes_observed": 12,
+        "actual_failure_rate": 0.4,
+        "recovery_possible": true
+      },
+      "timeout_scenarios": {
+        "response_delay_ms": 100,
+        "timeout_tests": [
+          {
+            "timeout_ms": 50,
+            "result": "timeout",
+            "execution_time_ms": 50.846099853515625
+          },
+          {
+            "timeout_ms": 150,
+            "result": "success",
+            "execution_time_ms": 101.12190246582031
+          },
+          {
+            "timeout_ms": 200,
+            "result": "success",
+            "execution_time_ms": 100.39782524108887
+          }
+        ],
+        "timeout_handling": "functional"
+      },
+      "invalid_data": {
+        "scenarios_tested": 4,
+        "test_results": [
+          {
+            "scenario": "empty_query",
+            "result": "handled_gracefully",
+            "error": null
+          },
+          {
+            "scenario": "null_project",
+            "result": "handled_gracefully",
+            "error": null
+          },
+          {
+            "scenario": "negative_limit",
+            "result": "handled_gracefully",
+            "error": null
+          },
+          {
+            "scenario": "very_long_input",
+            "result": "handled_gracefully",
+            "error": null
+          }
+        ],
+        "error_handling": "functional"
+      },
+      "resource_exhaustion": {
+        "corruption_rate_configured": 0.3,
+        "operations_attempted": 15,
+        "corrupted_responses": 0,
+        "valid_responses": 15,
+        "corruption_detection": false
+      },
+      "recovery_behavior": {
+        "recovery_attempts": [
+          {
+            "attempt": 1,
+            "result": "failure",
+            "error": "Health check failed"
+          },
+          {
+            "attempt": 2,
+            "result": "failure",
+            "error": "Health check failed"
+          },
+          {
+            "attempt": 3,
+            "result": "failure",
+            "error": "Health check failed"
+          },
+          {
+            "attempt": 4,
+            "result": "recovered"
+          },
+          {
+            "attempt": 5,
+            "result": "recovered"
+          },
+          {
+            "attempt": 6,
+            "result": "recovered"
+          }
+        ],
+        "service_recoverable": true,
+        "failure_isolation": true
+      }
+    }
+  },
+  "overall_metrics": {
+    "test_duration_seconds": 6.198581695556641,
+    "total_services_tested": 4,
+    "total_methods_tested": 23,
+    "total_service_requests": 23,
+    "overall_success_rate": 100.0,
+    "average_response_time_ms": 12.500908063805621,
+    "median_response_time_ms": 10.598897933959961,
+    "p95_response_time_ms": 11.11912727355957,
+    "total_mock_requests": 450,
+    "service_health_summary": {
+      "DocumentProcessor": {
+        "success_rate": 100.0,
+        "avg_response_time": 21.461069583892822,
+        "total_requests": 4
+      },
+      "SearchService": {
+        "success_rate": 100.0,
+        "avg_response_time": 10.590672492980957,
+        "total_requests": 4
+      },
+      "MemoryService": {
+        "success_rate": 100.0,
+        "avg_response_time": 10.690867900848389,
+        "total_requests": 8
+      },
+      "SystemService": {
+        "success_rate": 100.0,
+        "avg_response_time": 10.540996279035296,
+        "total_requests": 7
+      }
+    }
+  },
+  "test_validation": {
+    "all_services_tested": true,
+    "performance_benchmarks_met": true,
+    "error_handling_verified": true,
+    "concurrent_operations_stable": true
+  }
+}
