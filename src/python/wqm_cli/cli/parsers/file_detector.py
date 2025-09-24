@@ -34,6 +34,10 @@ MAGIC_NUMBERS = {
     b"PK\x03\x04": "application/zip",  # Could be DOCX/PPTX/EPUB
     # EPUB specific
     b"PK\x03\x04\x14\x00\x06\x00": "application/epub+zip",
+    # MOBI/Kindle formats
+    b"BOOKMOBI": "application/x-mobipocket-ebook",  # MOBI format
+    b"MOBI": "application/x-mobipocket-ebook",      # MOBI header
+    b"TPZ": "application/vnd.amazon.ebook",         # Amazon format
     # HTML variants
     b"<!DOCTYPE": "text/html",
     b"<html": "text/html",
@@ -59,6 +63,13 @@ EXTENSION_MIME_MAP = {
     ".docx": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
     ".pptx": "application/vnd.openxmlformats-officedocument.presentationml.presentation",
     ".epub": "application/epub+zip",
+    # E-book formats
+    ".mobi": "application/x-mobipocket-ebook",
+    ".azw": "application/vnd.amazon.ebook",
+    ".azw3": "application/vnd.amazon.ebook",
+    ".azw4": "application/vnd.amazon.ebook",
+    ".kfx": "application/vnd.amazon.ebook",
+    ".kfx-zip": "application/vnd.amazon.ebook",
     # Web formats
     ".html": "text/html",
     ".htm": "text/html",
@@ -88,6 +99,9 @@ MIME_TO_PARSER = {
     "application/vnd.openxmlformats-officedocument.wordprocessingml.document": "docx",
     "application/vnd.openxmlformats-officedocument.presentationml.presentation": "pptx",
     "application/epub+zip": "epub",
+    # E-book formats
+    "application/x-mobipocket-ebook": "mobi",
+    "application/vnd.amazon.ebook": "mobi",
     "text/html": "html",
     "application/xhtml+xml": "html",
     "text/x-python": "code",
@@ -189,11 +203,16 @@ class FileDetector:
         Returns:
             Tuple of (mime_type, confidence_score)
         """
-        # Method 1: python-magic (most reliable)
+        # Method 1: python-magic (most reliable, but needs ZIP special handling)
         if self.enable_magic:
             try:
                 mime_type = magic.from_file(str(file_path), mime=True)
                 if mime_type and mime_type != "application/octet-stream":
+                    # Special handling for ZIP-based formats
+                    if mime_type == "application/zip":
+                        zip_specific = self._detect_zip_based_format(file_path)
+                        if zip_specific != "application/zip":
+                            return zip_specific, 0.95  # Higher confidence for specific detection
                     return mime_type, 0.9
             except Exception as e:
                 logger.debug(f"Magic detection failed for {file_path}: {e}")
@@ -232,15 +251,20 @@ class FileDetector:
         """
         try:
             with open(file_path, "rb") as f:
-                header = f.read(64)  # Read first 64 bytes
+                header = f.read(80)  # Read first 80 bytes for MOBI detection
 
             # Check for specific magic numbers
             for magic_bytes, mime_type in MAGIC_NUMBERS.items():
+                # Check at start of file
                 if header.startswith(magic_bytes):
                     # Special handling for ZIP-based formats
                     if mime_type == "application/zip":
                         return self._detect_zip_based_format(file_path), 0.8
                     return mime_type, 0.8
+                # Special check for MOBI formats which have signatures at specific positions
+                elif magic_bytes in header:
+                    if magic_bytes in [b"BOOKMOBI", b"MOBI", b"TPZ"]:
+                        return mime_type, 0.8
 
             return None, 0.0
 
