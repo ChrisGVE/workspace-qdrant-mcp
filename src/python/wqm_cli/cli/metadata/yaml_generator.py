@@ -107,7 +107,7 @@ class YAMLGenerator:
             "width": self.config.line_width,
             "sort_keys": self.config.sort_keys,
             "allow_unicode": True,
-            "encoding": "utf-8",
+            # Remove encoding to get string output instead of bytes
         }
 
     def generate_yaml(
