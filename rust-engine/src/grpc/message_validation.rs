@@ -161,6 +161,18 @@ impl MessageValidator {
                 oversized_messages: AtomicU64::new(0),
                 compression_failures: AtomicU64::new(0),
                 active_streams: AtomicUsize::new(0),
+                service_stats: RwLock::new(HashMap::new()),
+            }),
+            performance_monitor: Arc::new(PerformanceMonitor {
+                compression_times: RwLock::new(Vec::new()),
+                compression_ratios: RwLock::new(Vec::new()),
+                poor_ratio_alerts: AtomicU64::new(0),
+                slow_compression_alerts: AtomicU64::new(0),
+                stream_recovery_attempts: AtomicU64::new(0),
+                successful_recoveries: AtomicU64::new(0),
+                tracked_streams: AtomicUsize::new(0),
+                large_operations_streamed: AtomicU64::new(0),
+                monitoring_enabled: AtomicBool::new(true),
             }),
         }
     }
@@ -486,7 +498,7 @@ impl MessageValidator {
             let (best, worst) = self.performance_monitor.compression_ratios.try_read()
                 .map(|ratios| {
                     let best = ratios.iter().fold(f64::INFINITY, |a, &b| a.min(b));
-                    let worst = ratios.iter().fold(0.0, |a, &b| a.max(b));
+                    let worst = ratios.iter().fold(0.0f64, |a, &b| a.max(b));
                     (best, worst)
                 })
                 .unwrap_or((1.0, 1.0));
