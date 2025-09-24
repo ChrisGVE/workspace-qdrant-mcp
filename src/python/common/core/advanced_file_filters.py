@@ -33,6 +33,7 @@ Example:
 """
 
 import asyncio
+import fnmatch
 import mimetypes
 import re
 import time
@@ -53,6 +54,18 @@ try:
     MONITORING_AVAILABLE = True
 except ImportError:
     MONITORING_AVAILABLE = False
+
+
+def glob_to_regex(glob_pattern: str) -> str:
+    """Convert a glob pattern to a regex pattern."""
+    # Check if it's already a regex pattern (contains regex-specific chars)
+    regex_chars = ['(', ')', '[', ']', '{', '}', '^', '$', '+', '\\']
+    if any(char in glob_pattern for char in regex_chars):
+        # Assume it's already a regex pattern
+        return glob_pattern
+
+    # Convert glob to regex using fnmatch
+    return fnmatch.translate(glob_pattern)
 
 
 @dataclass
@@ -187,12 +200,15 @@ class PatternCache:
             self.access_counts[cache_key] += 1
             return self.patterns[cache_key]
 
+        # Convert glob pattern to regex if needed
+        regex_pattern = glob_to_regex(pattern_str)
+
         # Compile new pattern
         flags = 0 if case_sensitive else re.IGNORECASE
         try:
-            compiled_pattern = re.compile(pattern_str, flags)
+            compiled_pattern = re.compile(regex_pattern, flags)
         except re.error as e:
-            logger.warning(f"Invalid regex pattern '{pattern_str}': {e}")
+            logger.warning(f"Invalid regex pattern '{pattern_str}' (converted to '{regex_pattern}'): {e}")
             # Return pattern that never matches
             compiled_pattern = re.compile(r'(?!)')
 
