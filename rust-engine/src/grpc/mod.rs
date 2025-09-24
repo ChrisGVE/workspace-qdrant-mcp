@@ -11,6 +11,8 @@ pub mod message_validation;
 pub mod streaming;
 pub mod health;
 pub mod health_service;
+pub mod service_monitors;
+pub mod alerting;
 
 #[cfg(test)]
 pub mod shared_test_utils;
@@ -24,6 +26,8 @@ pub use message_validation::{MessageValidator, MessageStats, StreamHandle};
 pub use streaming::{StreamingDocumentHandler, DocumentChunk, DocumentUploadResult, SearchRequest, SearchResult};
 pub use health::{HealthStatus, ServiceHealth, ServiceMetrics, ServiceHealthMonitor, HealthMonitoringSystem, AlertConfig, ExternalMonitoring};
 pub use health_service::{HealthService, ServiceStatus, ComponentHealth, SystemMetrics, Metric, ConnectionStatsProvider};
+pub use service_monitors::{ServiceMonitors, DocumentProcessorMonitor, SearchServiceMonitor, MemoryServiceMonitor, DocumentProcessingStats, SearchStats, MemoryStats, ServiceStats};
+pub use alerting::{AlertManager, AlertChannel, Alert, AlertSeverity, AlertType, RecoverySystem, RecoveryProcedure, RecoveryResult, LogAlertChannel, WebhookAlertChannel, EmailAlertChannel};
 
 #[cfg(test)]
 pub use shared_test_utils::*;

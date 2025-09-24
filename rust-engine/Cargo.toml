@@ -90,6 +90,7 @@ tonic-reflection = "0.12"
 num_cpus = "1.0"
 hostname = "0.4"
 rand = "0.8"
+async-trait = "0.1"
 
 [build-dependencies]
 tonic-build = "0.12"
