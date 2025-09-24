@@ -118,6 +118,9 @@ rand = "0.8"                  # Random number generation for tests
 tonic-reflection = "0.12"      # gRPC reflection for protocol validation
 tokio-stream = "0.1"          # Async streams for gRPC testing
 
+# Serialization for benchmarks
+bincode = "1.3"               # Binary serialization benchmarking
+
 [features]
 default = ["sqlite"]
 sqlite = []
