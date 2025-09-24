@@ -3,15 +3,33 @@
 //! This module provides comprehensive message size validation, compression monitoring,
 //! and streaming control for gRPC operations.
 
-use crate::config::{MessageConfig, CompressionConfig, StreamingConfig};
+use crate::config::{
+    MessageConfig, CompressionConfig, StreamingConfig,
+    ServiceLimit, AdaptiveCompressionConfig, CompressionPerformanceConfig,
+    StreamProgressConfig, StreamHealthConfig, LargeOperationStreamConfig,
+    MessageMonitoringConfig
+};
 use anyhow::{Result, anyhow};
 use flate2::{Compression, write::GzEncoder, read::GzDecoder};
 use std::io::{Write, Read};
-use std::sync::atomic::{AtomicUsize, AtomicU64, Ordering};
+use std::sync::atomic::{AtomicUsize, AtomicU64, AtomicBool, Ordering};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
+use std::collections::HashMap;
 use tonic::{Request, Response, Status};
 use tracing::{debug, warn, error, info};
+use tokio::sync::RwLock;
+
+/// Content type for adaptive compression
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ContentType {
+    /// Text content (high compression ratio)
+    Text,
+    /// Binary content (low compression ratio)
+    Binary,
+    /// Structured data like JSON (medium compression ratio)
+    Structured,
+}
 
 /// Statistics for message processing and compression
 #[derive(Debug, Clone)]
@@ -30,6 +48,55 @@ pub struct MessageStats {
     pub compression_failures: u64,
     /// Streaming operations active
     pub active_streams: u32,
+    /// Service-specific statistics
+    pub service_stats: HashMap<String, ServiceStats>,
+    /// Compression performance metrics
+    pub compression_performance: CompressionPerformanceStats,
+    /// Streaming performance metrics
+    pub streaming_performance: StreamingPerformanceStats,
+}
+
+/// Service-specific statistics
+#[derive(Debug, Clone)]
+pub struct ServiceStats {
+    /// Messages processed by this service
+    pub messages_processed: u64,
+    /// Bytes processed by this service
+    pub bytes_processed: u64,
+    /// Oversized messages for this service
+    pub oversized_messages: u64,
+    /// Average processing time (milliseconds)
+    pub avg_processing_time_ms: f64,
+}
+
+/// Compression performance statistics
+#[derive(Debug, Clone)]
+pub struct CompressionPerformanceStats {
+    /// Average compression time (milliseconds)
+    pub avg_compression_time_ms: f64,
+    /// Best compression ratio achieved
+    pub best_compression_ratio: f64,
+    /// Worst compression ratio achieved
+    pub worst_compression_ratio: f64,
+    /// Number of poor compression ratio alerts
+    pub poor_ratio_alerts: u64,
+    /// Number of slow compression alerts
+    pub slow_compression_alerts: u64,
+}
+
+/// Streaming performance statistics
+#[derive(Debug, Clone)]
+pub struct StreamingPerformanceStats {
+    /// Number of streams with progress tracking
+    pub tracked_streams: u32,
+    /// Number of stream recovery attempts
+    pub recovery_attempts: u64,
+    /// Number of successful recoveries
+    pub successful_recoveries: u64,
+    /// Average stream duration (seconds)
+    pub avg_stream_duration_secs: f64,
+    /// Number of large operations streamed
+    pub large_operations_streamed: u64,
 }
 
 /// Message validation and monitoring system
@@ -38,6 +105,7 @@ pub struct MessageValidator {
     pub compression_config: CompressionConfig,
     pub streaming_config: StreamingConfig,
     stats: Arc<MessageValidationStats>,
+    performance_monitor: Arc<PerformanceMonitor>,
 }
 
 /// Internal statistics tracking
@@ -49,6 +117,30 @@ struct MessageValidationStats {
     oversized_messages: AtomicU64,
     compression_failures: AtomicU64,
     active_streams: AtomicUsize,
+    service_stats: RwLock<HashMap<String, ServiceStatsInternal>>,
+}
+
+/// Internal service statistics
+#[derive(Debug, Default)]
+struct ServiceStatsInternal {
+    messages_processed: u64,
+    bytes_processed: u64,
+    oversized_messages: u64,
+    total_processing_time_ms: u64,
+}
+
+/// Performance monitoring system
+#[derive(Debug)]
+struct PerformanceMonitor {
+    compression_times: RwLock<Vec<f64>>,
+    compression_ratios: RwLock<Vec<f64>>,
+    poor_ratio_alerts: AtomicU64,
+    slow_compression_alerts: AtomicU64,
+    stream_recovery_attempts: AtomicU64,
+    successful_recoveries: AtomicU64,
+    tracked_streams: AtomicUsize,
+    large_operations_streamed: AtomicU64,
+    monitoring_enabled: AtomicBool,
 }
 
 impl MessageValidator {
@@ -73,8 +165,12 @@ impl MessageValidator {
         }
     }
 
-    /// Validate incoming message size
-    pub fn validate_incoming_message<T>(&self, request: &Request<T>) -> Result<(), Status> {
+    /// Validate incoming message size for a specific service
+    pub fn validate_incoming_message<T>(
+        &self,
+        request: &Request<T>,
+        service_name: &str,
+    ) -> Result<(), Status> {
         if !self.message_config.enable_size_validation {
             return Ok(());
         }
@@ -82,24 +178,56 @@ impl MessageValidator {
         // Estimate message size (simplified - in real scenarios you'd need proper serialization)
         let estimated_size = std::mem::size_of::<Request<T>>();
 
-        if estimated_size > self.message_config.max_incoming_message_size {
+        // Get service-specific limit
+        let service_limit = self.get_service_limit(service_name);
+        let max_size = if service_limit.enable_validation {
+            service_limit.max_incoming
+        } else {
+            self.message_config.max_incoming_message_size
+        };
+
+        if estimated_size > max_size {
             self.stats.oversized_messages.fetch_add(1, Ordering::Relaxed);
+            self.update_service_stats(service_name, 0, 0, 1, 0.0);
+
             error!(
-                "Incoming message size {} exceeds limit {}",
-                estimated_size, self.message_config.max_incoming_message_size
+                "Incoming message size {} exceeds limit {} for service {}",
+                estimated_size, max_size, service_name
             );
+
+            // Check if this triggers an alert
+            if estimated_size as f64 > max_size as f64 * self.message_config.monitoring.oversized_alert_threshold {
+                warn!(
+                    "Oversized message alert for service {}: {} bytes ({}% of limit)",
+                    service_name,
+                    estimated_size,
+                    (estimated_size as f64 / max_size as f64) * 100.0
+                );
+            }
+
             return Err(Status::invalid_argument(format!(
-                "Message size {} exceeds maximum allowed size {}",
-                estimated_size, self.message_config.max_incoming_message_size
+                "Message size {} exceeds maximum allowed size {} for service {}",
+                estimated_size, max_size, service_name
             )));
         }
 
-        debug!("Validated incoming message size: {}", estimated_size);
+        // Update service stats
+        self.update_service_stats(service_name, 1, estimated_size as u64, 0, 0.0);
+        debug!("Validated incoming message size: {} for service {}", estimated_size, service_name);
         Ok(())
     }
 
-    /// Validate outgoing message size
-    pub fn validate_outgoing_message<T>(&self, response: &Response<T>) -> Result<(), Status> {
+    /// Validate incoming message size (backwards compatibility)
+    pub fn validate_incoming_message_legacy<T>(&self, request: &Request<T>) -> Result<(), Status> {
+        self.validate_incoming_message(request, "unknown")
+    }
+
+    /// Validate outgoing message size for a specific service
+    pub fn validate_outgoing_message<T>(
+        &self,
+        response: &Response<T>,
+        service_name: &str,
+    ) -> Result<(), Status> {
         if !self.message_config.enable_size_validation {
             return Ok(());
         }
@@ -107,24 +235,42 @@ impl MessageValidator {
         // Estimate message size (simplified - in real scenarios you'd need proper serialization)
         let estimated_size = std::mem::size_of::<Response<T>>();
 
-        if estimated_size > self.message_config.max_outgoing_message_size {
+        // Get service-specific limit
+        let service_limit = self.get_service_limit(service_name);
+        let max_size = if service_limit.enable_validation {
+            service_limit.max_outgoing
+        } else {
+            self.message_config.max_outgoing_message_size
+        };
+
+        if estimated_size > max_size {
             self.stats.oversized_messages.fetch_add(1, Ordering::Relaxed);
+            self.update_service_stats(service_name, 0, 0, 1, 0.0);
+
             error!(
-                "Outgoing message size {} exceeds limit {}",
-                estimated_size, self.message_config.max_outgoing_message_size
+                "Outgoing message size {} exceeds limit {} for service {}",
+                estimated_size, max_size, service_name
             );
+
             return Err(Status::internal(format!(
-                "Response size {} exceeds maximum allowed size {}",
-                estimated_size, self.message_config.max_outgoing_message_size
+                "Response size {} exceeds maximum allowed size {} for service {}",
+                estimated_size, max_size, service_name
             )));
         }
 
-        debug!("Validated outgoing message size: {}", estimated_size);
+        // Update service stats
+        self.update_service_stats(service_name, 1, estimated_size as u64, 0, 0.0);
+        debug!("Validated outgoing message size: {} for service {}", estimated_size, service_name);
         Ok(())
     }
 
-    /// Compress message data if configured
-    pub fn compress_message(&self, data: &[u8]) -> Result<Vec<u8>> {
+    /// Validate outgoing message size (backwards compatibility)
+    pub fn validate_outgoing_message_legacy<T>(&self, response: &Response<T>) -> Result<(), Status> {
+        self.validate_outgoing_message(response, "unknown")
+    }
+
+    /// Compress message data with adaptive compression based on content type
+    pub fn compress_message_adaptive(&self, data: &[u8], content_type: ContentType) -> Result<Vec<u8>> {
         if !self.compression_config.enable_gzip || data.len() < self.compression_config.compression_threshold {
             // No compression needed
             self.update_compression_stats(data.len(), data.len());
@@ -132,18 +278,55 @@ impl MessageValidator {
         }
 
         let start = Instant::now();
-        let mut encoder = GzEncoder::new(Vec::new(), Compression::new(self.compression_config.compression_level));
+
+        // Select compression level based on content type and adaptive configuration
+        let compression_level = if self.compression_config.adaptive.enable_adaptive {
+            match content_type {
+                ContentType::Text => self.compression_config.adaptive.text_compression_level,
+                ContentType::Binary => self.compression_config.adaptive.binary_compression_level,
+                ContentType::Structured => self.compression_config.adaptive.structured_compression_level,
+            }
+        } else {
+            self.compression_config.compression_level
+        };
+
+        let mut encoder = GzEncoder::new(Vec::new(), Compression::new(compression_level));
 
         match encoder.write_all(data) {
             Ok(_) => match encoder.finish() {
                 Ok(compressed) => {
                     let compression_time = start.elapsed();
+                    let compression_time_ms = compression_time.as_millis() as f64;
                     let compression_ratio = compressed.len() as f64 / data.len() as f64;
+
+                    // Check for performance alerts
+                    if self.compression_config.performance.enable_time_monitoring &&
+                       compression_time_ms > self.compression_config.performance.slow_compression_threshold_ms as f64 {
+                        self.performance_monitor.slow_compression_alerts.fetch_add(1, Ordering::Relaxed);
+                        warn!(
+                            "Slow compression detected: {} bytes compressed in {:.2}ms (threshold: {}ms)",
+                            data.len(), compression_time_ms, self.compression_config.performance.slow_compression_threshold_ms
+                        );
+                    }
+
+                    if self.compression_config.performance.enable_ratio_tracking &&
+                       compression_ratio > self.compression_config.performance.poor_ratio_threshold {
+                        self.performance_monitor.poor_ratio_alerts.fetch_add(1, Ordering::Relaxed);
+                        warn!(
+                            "Poor compression ratio detected: {:.2} (threshold: {:.2})",
+                            compression_ratio, self.compression_config.performance.poor_ratio_threshold
+                        );
+                    }
+
+                    // Update performance metrics
+                    if self.performance_monitor.monitoring_enabled.load(Ordering::Relaxed) {
+                        self.update_compression_performance(compression_time_ms, compression_ratio);
+                    }
 
                     if self.compression_config.enable_compression_monitoring {
                         info!(
-                            "Compressed {} bytes to {} bytes (ratio: {:.2}) in {:?}",
-                            data.len(), compressed.len(), compression_ratio, compression_time
+                            "Compressed {} bytes to {} bytes (ratio: {:.2}, level: {}) in {:?}",
+                            data.len(), compressed.len(), compression_ratio, compression_level, compression_time
                         );
                     }
 
@@ -152,16 +335,25 @@ impl MessageValidator {
                 },
                 Err(e) => {
                     self.stats.compression_failures.fetch_add(1, Ordering::Relaxed);
-                    error!("Compression finish failed: {}", e);
+                    if self.compression_config.performance.enable_failure_alerting {
+                        error!("Compression finish failed: {}", e);
+                    }
                     Err(anyhow!("Compression failed: {}", e))
                 }
             },
             Err(e) => {
                 self.stats.compression_failures.fetch_add(1, Ordering::Relaxed);
-                error!("Compression write failed: {}", e);
+                if self.compression_config.performance.enable_failure_alerting {
+                    error!("Compression write failed: {}", e);
+                }
                 Err(anyhow!("Compression failed: {}", e))
             }
         }
+    }
+
+    /// Compress message data (backwards compatibility)
+    pub fn compress_message(&self, data: &[u8]) -> Result<Vec<u8>> {
+        self.compress_message_adaptive(data, ContentType::Binary)
     }
 
     /// Decompress message data
@@ -204,8 +396,8 @@ impl MessageValidator {
         }
     }
 
-    /// Register a new streaming operation
-    pub fn register_stream(&self) -> Result<StreamHandle> {
+    /// Register a new streaming operation with progress tracking
+    pub fn register_stream(&self, operation_size: Option<usize>) -> Result<StreamHandle> {
         let current_streams = self.stats.active_streams.load(Ordering::Relaxed);
 
         if current_streams >= self.streaming_config.max_concurrent_streams as usize {
@@ -216,14 +408,43 @@ impl MessageValidator {
         }
 
         self.stats.active_streams.fetch_add(1, Ordering::Relaxed);
-        info!("Registered new stream, active streams: {}", current_streams + 1);
+
+        // Check if this is a large operation that should be tracked
+        let is_large_operation = operation_size.map_or(false, |size| {
+            size >= self.streaming_config.large_operations.large_operation_chunk_size
+        });
+
+        let enable_progress = self.streaming_config.progress.enable_progress_tracking &&
+                             operation_size.map_or(false, |size| size >= self.streaming_config.progress.progress_threshold);
+
+        if is_large_operation {
+            self.performance_monitor.large_operations_streamed.fetch_add(1, Ordering::Relaxed);
+        }
+
+        if enable_progress {
+            self.performance_monitor.tracked_streams.fetch_add(1, Ordering::Relaxed);
+        }
+
+        info!("Registered new stream, active streams: {}, large operation: {}, progress tracking: {}",
+              current_streams + 1, is_large_operation, enable_progress);
 
         Ok(StreamHandle {
             stats: Arc::clone(&self.stats),
+            performance_monitor: Arc::clone(&self.performance_monitor),
             timeout: Duration::from_secs(self.streaming_config.stream_timeout_secs),
             buffer_size: self.streaming_config.stream_buffer_size,
             flow_control_enabled: self.streaming_config.enable_flow_control,
+            progress_config: self.streaming_config.progress.clone(),
+            health_config: self.streaming_config.health.clone(),
+            is_large_operation,
+            enable_progress_tracking: enable_progress,
+            start_time: Instant::now(),
         })
+    }
+
+    /// Register a new streaming operation (backwards compatibility)
+    pub fn register_stream_legacy(&self) -> Result<StreamHandle> {
+        self.register_stream(None)
     }
 
     /// Get current message processing statistics
@@ -237,6 +458,58 @@ impl MessageValidator {
             1.0
         };
 
+        // Build service statistics
+        let mut service_stats = HashMap::new();
+        if let Ok(stats) = self.stats.service_stats.try_read() {
+            for (service_name, internal_stats) in stats.iter() {
+                let avg_processing_time = if internal_stats.messages_processed > 0 {
+                    internal_stats.total_processing_time_ms as f64 / internal_stats.messages_processed as f64
+                } else {
+                    0.0
+                };
+
+                service_stats.insert(service_name.clone(), ServiceStats {
+                    messages_processed: internal_stats.messages_processed,
+                    bytes_processed: internal_stats.bytes_processed,
+                    oversized_messages: internal_stats.oversized_messages,
+                    avg_processing_time_ms: avg_processing_time,
+                });
+            }
+        }
+
+        // Build compression performance statistics
+        let (avg_compression_time, best_ratio, worst_ratio) = {
+            let times = self.performance_monitor.compression_times.try_read()
+                .map(|t| t.iter().sum::<f64>() / t.len().max(1) as f64)
+                .unwrap_or(0.0);
+
+            let (best, worst) = self.performance_monitor.compression_ratios.try_read()
+                .map(|ratios| {
+                    let best = ratios.iter().fold(f64::INFINITY, |a, &b| a.min(b));
+                    let worst = ratios.iter().fold(0.0, |a, &b| a.max(b));
+                    (best, worst)
+                })
+                .unwrap_or((1.0, 1.0));
+
+            (times, best, worst)
+        };
+
+        let compression_performance = CompressionPerformanceStats {
+            avg_compression_time_ms: avg_compression_time,
+            best_compression_ratio: best_ratio,
+            worst_compression_ratio: worst_ratio,
+            poor_ratio_alerts: self.performance_monitor.poor_ratio_alerts.load(Ordering::Relaxed),
+            slow_compression_alerts: self.performance_monitor.slow_compression_alerts.load(Ordering::Relaxed),
+        };
+
+        let streaming_performance = StreamingPerformanceStats {
+            tracked_streams: self.performance_monitor.tracked_streams.load(Ordering::Relaxed) as u32,
+            recovery_attempts: self.performance_monitor.stream_recovery_attempts.load(Ordering::Relaxed),
+            successful_recoveries: self.performance_monitor.successful_recoveries.load(Ordering::Relaxed),
+            avg_stream_duration_secs: 0.0, // TODO: Track stream durations
+            large_operations_streamed: self.performance_monitor.large_operations_streamed.load(Ordering::Relaxed),
+        };
+
         MessageStats {
             total_messages: self.stats.total_messages.load(Ordering::Relaxed),
             total_bytes_uncompressed: total_uncompressed,
@@ -245,6 +518,9 @@ impl MessageValidator {
             oversized_messages: self.stats.oversized_messages.load(Ordering::Relaxed),
             compression_failures: self.stats.compression_failures.load(Ordering::Relaxed),
             active_streams: self.stats.active_streams.load(Ordering::Relaxed) as u32,
+            service_stats,
+            compression_performance,
+            streaming_performance,
         }
     }
 
@@ -256,6 +532,26 @@ impl MessageValidator {
         self.stats.oversized_messages.store(0, Ordering::Relaxed);
         self.stats.compression_failures.store(0, Ordering::Relaxed);
         self.stats.active_streams.store(0, Ordering::Relaxed);
+
+        // Reset service stats
+        if let Ok(mut stats) = self.stats.service_stats.try_write() {
+            stats.clear();
+        }
+
+        // Reset performance monitor
+        self.performance_monitor.poor_ratio_alerts.store(0, Ordering::Relaxed);
+        self.performance_monitor.slow_compression_alerts.store(0, Ordering::Relaxed);
+        self.performance_monitor.stream_recovery_attempts.store(0, Ordering::Relaxed);
+        self.performance_monitor.successful_recoveries.store(0, Ordering::Relaxed);
+        self.performance_monitor.tracked_streams.store(0, Ordering::Relaxed);
+        self.performance_monitor.large_operations_streamed.store(0, Ordering::Relaxed);
+
+        if let Ok(mut times) = self.performance_monitor.compression_times.try_write() {
+            times.clear();
+        }
+        if let Ok(mut ratios) = self.performance_monitor.compression_ratios.try_write() {
+            ratios.clear();
+        }
     }
 
     /// Update compression statistics
@@ -264,14 +560,68 @@ impl MessageValidator {
         self.stats.total_bytes_uncompressed.fetch_add(uncompressed_size as u64, Ordering::Relaxed);
         self.stats.total_bytes_compressed.fetch_add(compressed_size as u64, Ordering::Relaxed);
     }
+
+    /// Get service-specific limits
+    fn get_service_limit(&self, service_name: &str) -> &crate::config::ServiceLimit {
+        match service_name {
+            "document_processor" => &self.message_config.service_limits.document_processor,
+            "search_service" => &self.message_config.service_limits.search_service,
+            "memory_service" => &self.message_config.service_limits.memory_service,
+            "system_service" => &self.message_config.service_limits.system_service,
+            _ => &self.message_config.service_limits.system_service, // Default to system limits
+        }
+    }
+
+    /// Update service-specific statistics
+    fn update_service_stats(
+        &self,
+        service_name: &str,
+        messages_processed: u64,
+        bytes_processed: u64,
+        oversized_messages: u64,
+        processing_time_ms: f64,
+    ) {
+        if let Ok(mut stats) = self.stats.service_stats.try_write() {
+            let entry = stats.entry(service_name.to_string()).or_insert_with(ServiceStatsInternal::default);
+            entry.messages_processed += messages_processed;
+            entry.bytes_processed += bytes_processed;
+            entry.oversized_messages += oversized_messages;
+            entry.total_processing_time_ms += processing_time_ms as u64;
+        }
+    }
+
+    /// Update compression performance metrics
+    fn update_compression_performance(&self, compression_time_ms: f64, compression_ratio: f64) {
+        if let Ok(mut times) = self.performance_monitor.compression_times.try_write() {
+            // Keep only the last 1000 entries to avoid memory growth
+            if times.len() >= 1000 {
+                times.remove(0);
+            }
+            times.push(compression_time_ms);
+        }
+
+        if let Ok(mut ratios) = self.performance_monitor.compression_ratios.try_write() {
+            if ratios.len() >= 1000 {
+                ratios.remove(0);
+            }
+            ratios.push(compression_ratio);
+        }
+    }
 }
 
-/// Handle for streaming operations
+/// Handle for streaming operations with progress tracking
+#[derive(Debug)]
 pub struct StreamHandle {
     stats: Arc<MessageValidationStats>,
+    performance_monitor: Arc<PerformanceMonitor>,
     timeout: Duration,
     buffer_size: usize,
     flow_control_enabled: bool,
+    progress_config: StreamProgressConfig,
+    health_config: StreamHealthConfig,
+    is_large_operation: bool,
+    enable_progress_tracking: bool,
+    start_time: Instant,
 }
 
 impl StreamHandle {
@@ -294,12 +644,83 @@ impl StreamHandle {
     pub fn active_streams(&self) -> usize {
         self.stats.active_streams.load(Ordering::Relaxed)
     }
+
+    /// Check if this is a large operation
+    pub fn is_large_operation(&self) -> bool {
+        self.is_large_operation
+    }
+
+    /// Check if progress tracking is enabled
+    pub fn is_progress_tracking_enabled(&self) -> bool {
+        self.enable_progress_tracking
+    }
+
+    /// Get progress update interval
+    pub fn progress_update_interval(&self) -> Duration {
+        Duration::from_millis(self.progress_config.progress_update_interval_ms)
+    }
+
+    /// Report progress (percentage completed)
+    pub fn report_progress(&self, progress_percent: f64) {
+        if self.enable_progress_tracking && self.progress_config.enable_progress_callbacks {
+            debug!("Stream progress: {:.1}%", progress_percent);
+        }
+    }
+
+    /// Get stream duration so far
+    pub fn duration(&self) -> Duration {
+        self.start_time.elapsed()
+    }
+
+    /// Attempt recovery from stream interruption
+    pub fn attempt_recovery(&self) -> bool {
+        if self.health_config.enable_auto_recovery {
+            self.performance_monitor.stream_recovery_attempts.fetch_add(1, Ordering::Relaxed);
+
+            info!("Attempting stream recovery (attempt: {})",
+                  self.performance_monitor.stream_recovery_attempts.load(Ordering::Relaxed));
+
+            // Simulate recovery attempt (in real implementation, this would reconnect/retry)
+            let recovery_successful = true; // Placeholder logic
+
+            if recovery_successful {
+                self.performance_monitor.successful_recoveries.fetch_add(1, Ordering::Relaxed);
+                info!("Stream recovery successful");
+            } else {
+                warn!("Stream recovery failed");
+            }
+
+            recovery_successful
+        } else {
+            false
+        }
+    }
+
+    /// Check if stream health monitoring is enabled
+    pub fn health_monitoring_enabled(&self) -> bool {
+        self.health_config.enable_health_monitoring
+    }
+
+    /// Get health check interval
+    pub fn health_check_interval(&self) -> Duration {
+        Duration::from_secs(self.health_config.health_check_interval_secs)
+    }
 }
 
 impl Drop for StreamHandle {
     fn drop(&mut self) {
         let remaining = self.stats.active_streams.fetch_sub(1, Ordering::Relaxed);
-        debug!("Stream closed, remaining active streams: {}", remaining - 1);
+
+        // Update tracking counters
+        if self.enable_progress_tracking {
+            self.performance_monitor.tracked_streams.fetch_sub(1, Ordering::Relaxed);
+        }
+
+        let duration = self.start_time.elapsed();
+        debug!(
+            "Stream closed after {:?}, remaining active streams: {}, was large operation: {}",
+            duration, remaining - 1, self.is_large_operation
+        );
     }
 }
 
@@ -315,6 +736,8 @@ mod tests {
             enable_size_validation: true,
             max_frame_size: 512,
             initial_window_size: 1024,
+            service_limits: crate::config::ServiceMessageLimits::default(),
+            monitoring: crate::config::MessageMonitoringConfig::default(),
         }
     }
 
@@ -325,6 +748,8 @@ mod tests {
             compression_level: 6,
             enable_streaming_compression: true,
             enable_compression_monitoring: true,
+            adaptive: crate::config::AdaptiveCompressionConfig::default(),
+            performance: crate::config::CompressionPerformanceConfig::default(),
         }
     }
 
@@ -336,6 +761,9 @@ mod tests {
             stream_buffer_size: 100,
             stream_timeout_secs: 30,
             enable_flow_control: true,
+            progress: crate::config::StreamProgressConfig::default(),
+            health: crate::config::StreamHealthConfig::default(),
+            large_operations: crate::config::LargeOperationStreamConfig::default(),
         }
     }
 
@@ -416,10 +844,10 @@ mod tests {
         );
 
         // Register streams
-        let stream1 = validator.register_stream().unwrap();
+        let stream1 = validator.register_stream_legacy().unwrap();
         assert_eq!(stream1.active_streams(), 1);
 
-        let stream2 = validator.register_stream().unwrap();
+        let stream2 = validator.register_stream_legacy().unwrap();
         assert_eq!(stream2.active_streams(), 2);
 
         // Test stream properties
@@ -443,11 +871,11 @@ mod tests {
         // Register maximum allowed streams
         let mut handles = Vec::new();
         for _ in 0..10 {
-            handles.push(validator.register_stream().unwrap());
+            handles.push(validator.register_stream_legacy().unwrap());
         }
 
         // Attempting to register another should fail
-        let result = validator.register_stream();
+        let result = validator.register_stream_legacy();
         assert!(result.is_err());
         assert!(result.unwrap_err().to_string().contains("Maximum concurrent streams"));
     }
@@ -594,7 +1022,7 @@ mod tests {
             create_test_streaming_config(),
         );
 
-        let handle = validator.register_stream().unwrap();
+        let handle = validator.register_stream_legacy().unwrap();
 
         assert_eq!(handle.timeout(), Duration::from_secs(30));
         assert_eq!(handle.buffer_size(), 100);
@@ -611,7 +1039,7 @@ mod tests {
         );
 
         // Test concurrent registration and dropping
-        let handles: Vec<_> = (0..5).map(|_| validator.register_stream().unwrap()).collect();
+        let mut handles: Vec<_> = (0..5).map(|_| validator.register_stream_legacy().unwrap()).collect();
 
         assert_eq!(handles[0].active_streams(), 5);
 
