@@ -7,10 +7,14 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
 use dashmap::DashMap;
 use parking_lot::RwLock;
-use crate::grpc::{RetryStrategy, CircuitBreaker};
+use crate::grpc::{RetryStrategy, CircuitBreaker, SecurityManager};
 use crate::error::{DaemonResult, DaemonError};
+use std::task::{Context, Poll};
+use std::pin::Pin;
+use futures_util::future::BoxFuture;
+use tower::{Layer, Service};
 
-/// Connection tracking and management
+/// Connection tracking and management with enhanced security
 #[derive(Debug)]
 pub struct ConnectionManager {
     /// Active connections count
@@ -22,8 +26,11 @@ pub struct ConnectionManager {
     /// Connection metadata by client ID
     connections: Arc<DashMap<String, ConnectionInfo>>,
 
-    /// Rate limiting state
-    rate_limiter: Arc<RwLock<RateLimiter>>,
+    /// Enhanced rate limiting state
+    rate_limiter: Arc<RwLock<EnhancedRateLimiter>>,
+
+    /// Security manager for authentication and authorization
+    security_manager: Option<Arc<SecurityManager>>,
 }
 
 #[derive(Debug)]
@@ -50,28 +57,67 @@ impl Clone for ConnectionInfo {
 }
 
 #[derive(Debug)]
-pub struct RateLimiter {
+pub struct EnhancedRateLimiter {
     /// Requests per second limit per client
     requests_per_second: u32,
 
-    /// Client request tracking
-    client_requests: DashMap<String, Vec<Instant>>,
+    /// Burst capacity for rate limiting
+    burst_capacity: u32,
+
+    /// Client request tracking with burst support
+    client_requests: DashMap<String, ClientRequestTracker>,
 
     /// Cleanup interval
     last_cleanup: Instant,
+
+    /// Resource exhaustion protection enabled
+    resource_protection_enabled: bool,
+
+    /// Memory usage tracking per client
+    client_memory_usage: DashMap<String, AtomicU64>,
+
+    /// Maximum memory per connection
+    max_memory_per_connection: u64,
+}
+
+/// Enhanced client request tracking with burst capacity
+#[derive(Debug, Clone)]
+pub struct ClientRequestTracker {
+    /// Recent request timestamps
+    pub requests: Vec<Instant>,
+    /// Available burst tokens
+    pub burst_tokens: u32,
+    /// Last token replenishment time
+    pub last_replenish: Instant,
+    /// Memory usage for this client
+    pub memory_usage: u64,
 }
 
 impl ConnectionManager {
     pub fn new(max_connections: u64, requests_per_second: u32) -> Self {
+        Self::new_with_security(max_connections, requests_per_second, 200, None)
+    }
+
+    pub fn new_with_security(
+        max_connections: u64,
+        requests_per_second: u32,
+        burst_capacity: u32,
+        security_manager: Option<Arc<SecurityManager>>
+    ) -> Self {
         Self {
             active_connections: AtomicU64::new(0),
             max_connections,
             connections: Arc::new(DashMap::new()),
-            rate_limiter: Arc::new(RwLock::new(RateLimiter {
+            rate_limiter: Arc::new(RwLock::new(EnhancedRateLimiter {
                 requests_per_second,
+                burst_capacity,
                 client_requests: DashMap::new(),
                 last_cleanup: Instant::now(),
+                resource_protection_enabled: true,
+                client_memory_usage: DashMap::new(),
+                max_memory_per_connection: 100 * 1024 * 1024, // 100MB default
             })),
+            security_manager,
         }
     }
 
@@ -118,7 +164,7 @@ impl ConnectionManager {
         // Cleanup old entries periodically
         let now = Instant::now();
         if now.duration_since(rate_limiter.last_cleanup) > Duration::from_secs(60) {
-            self.cleanup_rate_limiter(&mut rate_limiter, now);
+            self.cleanup_enhanced_rate_limiter(&mut rate_limiter, now);
             rate_limiter.last_cleanup = now;
         }
 
@@ -196,14 +242,62 @@ impl ConnectionManager {
         }
     }
 
-    fn cleanup_rate_limiter(&self, rate_limiter: &mut RateLimiter, now: Instant) {
+    fn cleanup_enhanced_rate_limiter(&self, rate_limiter: &mut EnhancedRateLimiter, now: Instant) {
         let cutoff = now - Duration::from_secs(60);
 
         // Remove old client tracking data
-        rate_limiter.client_requests.retain(|_client_id, requests| {
-            requests.retain(|&timestamp| timestamp > cutoff);
-            !requests.is_empty()
+        rate_limiter.client_requests.retain(|_client_id, tracker| {
+            tracker.requests.retain(|&timestamp| timestamp > cutoff);
+            // Keep tracker even if no recent requests for burst token management
+            true
         });
+
+        // Cleanup memory usage tracking for disconnected clients
+        rate_limiter.client_memory_usage.retain(|client_id, _| {
+            self.connections.contains_key(client_id)
+        });
+    }
+
+    /// Check memory usage for a client
+    pub fn check_memory_usage(&self, client_id: &str, additional_memory: u64) -> Result<(), Status> {
+        let rate_limiter = self.rate_limiter.read();
+
+        if !rate_limiter.resource_protection_enabled {
+            return Ok(());
+        }
+
+        let current_usage = rate_limiter.client_memory_usage
+            .get(client_id)
+            .map(|usage| usage.load(Ordering::SeqCst))
+            .unwrap_or(0);
+
+        if current_usage + additional_memory > rate_limiter.max_memory_per_connection {
+            warn!("Memory limit exceeded for client: {} (current: {}, additional: {}, limit: {})",
+                  client_id, current_usage, additional_memory, rate_limiter.max_memory_per_connection);
+            return Err(Status::resource_exhausted("Memory limit exceeded"));
+        }
+
+        Ok(())
+    }
+
+    /// Update memory usage for a client
+    pub fn update_memory_usage(&self, client_id: &str, memory_delta: i64) {
+        let rate_limiter = self.rate_limiter.read();
+
+        let usage = rate_limiter.client_memory_usage
+            .entry(client_id.to_string())
+            .or_insert_with(|| AtomicU64::new(0));
+
+        if memory_delta > 0 {
+            usage.fetch_add(memory_delta as u64, Ordering::SeqCst);
+        } else if memory_delta < 0 {
+            usage.fetch_sub((-memory_delta) as u64, Ordering::SeqCst);
+        }
+    }
+
+    /// Get security manager if available
+    pub fn security_manager(&self) -> Option<&Arc<SecurityManager>> {
+        self.security_manager.as_ref()
     }
 }
 
@@ -421,6 +515,82 @@ impl EnhancedMiddleware {
     /// Get retry strategy
     pub fn retry_strategy(&self) -> &RetryStrategy {
         &self.retry_strategy
+    }
+}
+
+/// Security interceptor for authentication and authorization
+#[derive(Debug, Clone)]
+pub struct SecurityInterceptor {
+    security_manager: Arc<SecurityManager>,
+}
+
+impl SecurityInterceptor {
+    pub fn new(security_manager: Arc<SecurityManager>) -> Self {
+        Self { security_manager }
+    }
+
+    pub async fn intercept<T>(&self, request: Request<T>) -> Result<Request<T>, Status> {
+        // Extract service and method from request URI
+        let uri = request.uri();
+        let path_parts: Vec<&str> = uri.path().split('/').collect();
+
+        let (service, method) = if path_parts.len() >= 3 {
+            (path_parts[1], path_parts[2])
+        } else {
+            ("unknown", "unknown")
+        };
+
+        // Get client ID from request metadata or connection info
+        let client_id = self.extract_client_id(&request);
+
+        // Authenticate the request
+        let permissions = match self.security_manager.authenticate_request(&request).await {
+            Ok(perms) => {
+                self.security_manager.audit_logger().log_auth_event(
+                    &client_id, service, method, true
+                );
+                perms
+            }
+            Err(e) => {
+                self.security_manager.audit_logger().log_auth_event(
+                    &client_id, service, method, false
+                );
+                return Err(Status::unauthenticated(format!("Authentication failed: {}", e)));
+            }
+        };
+
+        // Authorize the request
+        if !self.security_manager.authorize_request(&permissions, service, method) {
+            return Err(Status::permission_denied("Insufficient permissions"));
+        }
+
+        // Add permissions to request metadata for downstream services
+        let mut request = request;
+        if let Ok(permissions_json) = serde_json::to_string(&permissions) {
+            if let Ok(metadata_value) = tonic::metadata::MetadataValue::try_from(permissions_json) {
+                request.metadata_mut().insert("x-permissions", metadata_value);
+            }
+        }
+
+        Ok(request)
+    }
+
+    fn extract_client_id<T>(&self, request: &Request<T>) -> String {
+        // Try to get client ID from various sources
+        if let Some(client_id) = request.metadata().get("x-client-id") {
+            if let Ok(id_str) = client_id.to_str() {
+                return id_str.to_string();
+            }
+        }
+
+        if let Some(client_id) = request.metadata().get("client-id") {
+            if let Ok(id_str) = client_id.to_str() {
+                return id_str.to_string();
+            }
+        }
+
+        // Fallback to unknown client
+        "unknown".to_string()
     }
 }
 
@@ -814,17 +984,23 @@ mod tests {
     }
 
     #[test]
-    fn test_rate_limiter_debug() {
-        let rate_limiter = RateLimiter {
+    fn test_enhanced_rate_limiter_debug() {
+        let rate_limiter = EnhancedRateLimiter {
             requests_per_second: 10,
+            burst_capacity: 20,
             client_requests: DashMap::new(),
             last_cleanup: Instant::now(),
+            resource_protection_enabled: true,
+            client_memory_usage: DashMap::new(),
+            max_memory_per_connection: 100 * 1024 * 1024,
         };
 
         let debug_str = format!("{:?}", rate_limiter);
-        assert!(debug_str.contains("RateLimiter"));
+        assert!(debug_str.contains("EnhancedRateLimiter"));
         assert!(debug_str.contains("requests_per_second"));
         assert!(debug_str.contains("10"));
+        assert!(debug_str.contains("burst_capacity"));
+        assert!(debug_str.contains("20"));
     }
 
     #[test]

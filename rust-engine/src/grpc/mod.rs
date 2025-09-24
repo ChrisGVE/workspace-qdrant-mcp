@@ -14,6 +14,8 @@ pub mod health_service;
 pub mod service_monitors;
 pub mod alerting;
 pub mod health_integration;
+pub mod security;
+pub mod transport;
 
 #[cfg(test)]
 pub mod shared_test_utils;
@@ -31,6 +33,8 @@ pub use health_service::{HealthService, ServiceStatus, ComponentHealth, SystemMe
 pub use service_monitors::{ServiceMonitors, DocumentProcessorMonitor, SearchServiceMonitor, MemoryServiceMonitor, DocumentProcessingStats, SearchStats, MemoryStats, ServiceStats};
 pub use alerting::{AlertManager, AlertChannel, Alert, AlertSeverity, AlertType, RecoverySystem, RecoveryProcedure, RecoveryResult, LogAlertChannel, WebhookAlertChannel, EmailAlertChannel};
 pub use health_integration::{HealthIntegration, HealthSystemStatus, HealthConfigurationFactory};
+pub use security::{SecurityManager, TlsManager, JwtManager, ApiKeyManager, AuthorizationManager, SecurityAuditLogger, AuthToken, SecurityAuditEvent, RiskLevel};
+pub use transport::{TransportManager, UnixSocketManager, TransportType, LocalOptimization, TransportStats, LocalConnectionPool};
 
 #[cfg(test)]
 pub use shared_test_utils::*;
