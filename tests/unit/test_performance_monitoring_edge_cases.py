@@ -465,6 +465,9 @@ class TestAlertingSystemEdgeCases:
         monitor.storage.store_metrics_batch = AsyncMock()
         monitor.storage.store_operation_trace = AsyncMock()
         monitor.storage.get_storage_stats = AsyncMock(return_value={})
+        # Clear any existing alert states to avoid cooldown issues
+        monitor.last_alert_times.clear()
+        monitor.active_alerts.clear()
         return monitor
 
     @pytest.mark.asyncio
@@ -506,6 +509,9 @@ class TestAlertingSystemEdgeCases:
             )
 
             await performance_monitor._check_metric_alerts(metric)
+
+            # Add a small delay to ensure async callbacks complete
+            await asyncio.sleep(0.01)
 
             if expected_severity is None:
                 assert alert_count == 0, f"Unexpected alert for value {value}"

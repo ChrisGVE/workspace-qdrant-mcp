@@ -361,8 +361,8 @@ class PerformanceMonitor:
 
         alert = None
 
-        # Check thresholds
-        if "critical" in thresholds and metric.value > thresholds["critical"]:
+        # Check thresholds (>= to include exact threshold values)
+        if "critical" in thresholds and metric.value >= thresholds["critical"]:
             alert = PerformanceAlert(
                 timestamp=datetime.now(),
                 project_id=self.project_id,
@@ -374,7 +374,7 @@ class PerformanceMonitor:
                 message=f"{metric.metric_type.value} critically high: {metric.value:.1f} {metric.unit}",
                 recommendations=[f"Review {metric.metric_type.value} optimization"]
             )
-        elif "warning" in thresholds and metric.value > thresholds["warning"]:
+        elif "warning" in thresholds and metric.value >= thresholds["warning"]:
             alert = PerformanceAlert(
                 timestamp=datetime.now(),
                 project_id=self.project_id,

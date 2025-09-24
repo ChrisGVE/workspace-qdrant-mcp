@@ -291,7 +291,7 @@ class PerformanceAnalyzer:
                     title="Optimize Search Performance",
                     description="Search latency is higher than optimal",
                     optimization_type=OptimizationType.SEARCH_OPTIMIZATION,
-                    priority=Priority.HIGH if summary.mean_value > 300 else Priority.MEDIUM,
+                    priority=Priority.CRITICAL if summary.mean_value > 10000 else (Priority.HIGH if summary.mean_value > 300 else Priority.MEDIUM),
                     impact_estimate="high",
                     implementation_effort="moderate",
                     metrics_evidence=[summary],
@@ -370,7 +370,7 @@ class PerformanceAnalyzer:
                     title="Optimize File Processing",
                     description=f"File processing rate is low at {summary.mean_value:.1f} files/min",
                     optimization_type=OptimizationType.FILE_PROCESSING_OPTIMIZATION,
-                    priority=Priority.MEDIUM if summary.mean_value < 5 else Priority.LOW,
+                    priority=Priority.CRITICAL if summary.mean_value < 1 else (Priority.MEDIUM if summary.mean_value < 5 else Priority.LOW),
                     impact_estimate="medium",
                     implementation_effort="moderate",
                     metrics_evidence=[summary],
@@ -427,7 +427,7 @@ class PerformanceAnalyzer:
         bottlenecks = []
 
         if (MetricType.SEARCH_LATENCY in metric_summaries and
-            metric_summaries[MetricType.SEARCH_LATENCY].mean_value > 200):
+            metric_summaries[MetricType.SEARCH_LATENCY].mean_value > 150):
             bottlenecks.append("Search operations")
 
         return bottlenecks
