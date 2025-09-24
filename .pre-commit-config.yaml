@@ -1,0 +1,166 @@
+repos:
+  # Code formatting
+  - repo: https://github.com/psf/black
+    rev: 23.12.1
+    hooks:
+      - id: black
+        language_version: python3.11
+        args: ['--line-length=88']
+
+  # Import sorting
+  - repo: https://github.com/pycqa/isort
+    rev: 5.13.2
+    hooks:
+      - id: isort
+        args: ['--profile', 'black', '--line-length=88']
+
+  # Python code quality and security
+  - repo: https://github.com/charliermarsh/ruff-pre-commit
+    rev: v0.1.9
+    hooks:
+      - id: ruff
+        args: ['--fix', '--exit-non-zero-on-fix']
+      - id: ruff-format
+
+  # Security scanning
+  - repo: https://github.com/PyCQA/bandit
+    rev: 1.7.5
+    hooks:
+      - id: bandit
+        args: ['-r', 'src/', '-f', 'json', '-o', 'bandit-report.json']
+        pass_filenames: false
+        always_run: true
+
+  # Type checking
+  - repo: https://github.com/pre-commit/mirrors-mypy
+    rev: v1.7.1
+    hooks:
+      - id: mypy
+        additional_dependencies: [types-PyYAML, types-Markdown, types-psutil]
+        args: ['--ignore-missing-imports', '--show-error-codes']
+        pass_filenames: false
+        always_run: true
+
+  # Documentation quality
+  - repo: https://github.com/PyCQA/pydocstyle
+    rev: 6.3.0
+    hooks:
+      - id: pydocstyle
+        args: ['--convention=pep257', '--add-ignore=D202,D204,D401,D107,D105,D102,D400,D205']
+
+  # YAML/JSON validation
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v4.5.0
+    hooks:
+      - id: trailing-whitespace
+      - id: end-of-file-fixer
+      - id: check-yaml
+      - id: check-json
+      - id: check-toml
+      - id: check-merge-conflict
+      - id: debug-statements
+      - id: check-added-large-files
+        args: ['--maxkb=1000']
+      - id: check-case-conflict
+      - id: check-docstring-first
+
+  # Python-specific validations
+  - repo: https://github.com/asottile/pyupgrade
+    rev: v3.15.0
+    hooks:
+      - id: pyupgrade
+        args: ['--py310-plus']
+
+  # Security dependency scanning
+  - repo: https://github.com/pyupio/safety
+    rev: 2.3.4
+    hooks:
+      - id: safety
+        args: ['--json', '--output', 'safety-report.json']
+        pass_filenames: false
+        always_run: true
+
+  # Rust formatting and linting (for rust-engine)
+  - repo: https://github.com/doublify/pre-commit-rust
+    rev: v1.0
+    hooks:
+      - id: fmt
+        args: ['--manifest-path', 'rust-engine/Cargo.toml', '--all']
+      - id: clippy
+        args: ['--manifest-path', 'rust-engine/Cargo.toml', '--all-targets', '--all-features', '--', '-D', 'warnings']
+
+  # Rust security audit
+  - repo: local
+    hooks:
+      - id: cargo-audit
+        name: Cargo Security Audit
+        entry: cargo audit
+        language: system
+        files: rust-engine/.*\.rs$
+        pass_filenames: false
+        always_run: false
+
+  # Custom test coverage validation
+  - repo: local
+    hooks:
+      - id: test-coverage
+        name: Test Coverage Validation
+        entry: bash -c 'cd /Users/chris/dev/ai/claude-code-cfg/mcp/workspace-qdrant-mcp && . .venv/bin/activate && pytest --cov=src/python --cov-fail-under=100 --cov-branch --quiet'
+        language: system
+        pass_filenames: false
+        stages: [commit]
+
+  # Custom MCP protocol validation
+  - repo: local
+    hooks:
+      - id: mcp-protocol-validation
+        name: MCP Protocol Validation
+        entry: bash -c 'cd /Users/chris/dev/ai/claude-code-cfg/mcp/workspace-qdrant-mcp && . .venv/bin/activate && timeout 10s python -c "import workspace_qdrant_mcp.server; print(\"MCP server validation passed\")" || (echo "MCP server validation failed" && exit 1)'
+        language: system
+        pass_filenames: false
+        stages: [commit]
+
+  # Performance regression detection
+  - repo: local
+    hooks:
+      - id: performance-regression-check
+        name: Performance Regression Check
+        entry: bash -c 'cd /Users/chris/dev/ai/claude-code-cfg/mcp/workspace-qdrant-mcp && . .venv/bin/activate && python -c "print(\"Performance regression check placeholder - integrate with benchmark suite\")"'
+        language: system
+        pass_filenames: false
+        stages: [push]
+
+# Pre-commit configuration
+default_stages: [commit]
+fail_fast: false
+
+# Exclude patterns
+exclude: |
+  (?x)^(
+      .*\.lock|
+      .*\.log|
+      .*\.db|
+      .*\.profraw|
+      htmlcov/.*|
+      \.pytest_cache/.*|
+      \.coverage.*|
+      coverage\.xml|
+      20[0-9]{6}-[0-9]{4}_.*|
+      LT_20[0-9]{6}-[0-9]{4}_.*|
+      rust-engine/target.*|
+      \.venv/.*|
+      __pycache__/.*
+  )$
+
+# CI integration settings
+ci:
+  autofix_commit_msg: |
+    [pre-commit.ci] auto fixes from pre-commit.com hooks
+
+    for more information, see https://pre-commit.ci
+  autofix_prs: true
+  autoupdate_branch: ''
+  autoupdate_commit_msg: '[pre-commit.ci] pre-commit autoupdate'
+  autoupdate_schedule: weekly
+  skip: []
+  submodules: false
