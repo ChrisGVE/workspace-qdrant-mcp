@@ -34,14 +34,25 @@ Example:
 import contextlib
 import ssl
 import warnings
-from typing import Any, ContextManager, Dict, Optional
+from typing import Any, ContextManager, Dict, List, Optional
 from urllib.parse import urlparse
 
 import urllib3
 
 from loguru import logger
 
-# logger imported from loguru
+# Import enhanced certificate validation
+try:
+    from ..security.certificate_validator import (
+        EnhancedCertificateValidator,
+        CertificateSecurityPolicy,
+        create_secure_ssl_context,
+        CertificateValidationError,
+    )
+    _ENHANCED_VALIDATION_AVAILABLE = True
+except ImportError:
+    logger.warning("Enhanced certificate validation not available")
+    _ENHANCED_VALIDATION_AVAILABLE = False
 
 
 class SSLConfiguration:
@@ -60,6 +71,9 @@ class SSLConfiguration:
         auth_token: Optional[str] = None,
         api_key: Optional[str] = None,
         environment: str = "production",
+        enhanced_validation: bool = True,
+        certificate_pinning: Optional[Dict[str, List[str]]] = None,
+        security_policy: Optional[Any] = None,
     ):
         """Initialize SSL configuration.
 
@@ -79,6 +93,26 @@ class SSLConfiguration:
         self.auth_token = auth_token
         self.api_key = api_key
         self.environment = environment
+        self.enhanced_validation = enhanced_validation and _ENHANCED_VALIDATION_AVAILABLE
+        self.certificate_pinning = certificate_pinning or {}
+        self.security_policy = security_policy
+
+        # Initialize enhanced validator if available
+        self._certificate_validator = None
+        if self.enhanced_validation:
+            try:
+                from ..security.certificate_validator import CertificateSecurityPolicy
+                policy = security_policy or CertificateSecurityPolicy(
+                    allow_self_signed=(environment == "development"),
+                    require_san=(environment == "production"),
+                )
+                self._certificate_validator = EnhancedCertificateValidator(
+                    security_policy=policy,
+                    pinned_certificates=self.certificate_pinning,
+                )
+            except Exception as e:
+                logger.warning(f"Failed to initialize enhanced certificate validator: {e}")
+                self.enhanced_validation = False
 
     def to_qdrant_config(self) -> Dict[str, Any]:
         """Convert to Qdrant client configuration.
@@ -118,17 +152,62 @@ class SSLConfiguration:
             context = ssl.create_default_context()
             context.check_hostname = False
             context.verify_mode = ssl.CERT_NONE
+            logger.warning("Using insecure SSL context for development environment")
+        elif self.enhanced_validation:
+            # Use enhanced secure SSL context
+            try:
+                context = create_secure_ssl_context(self._certificate_validator)
+                logger.info("Using enhanced SSL context with certificate validation")
+            except Exception as e:
+                logger.warning(f"Failed to create enhanced SSL context: {e}")
+                context = self._create_standard_ssl_context()
         else:
-            # Secure configuration for production
-            context = ssl.create_default_context()
-
-            if self.ca_cert_path:
-                context.load_verify_locations(self.ca_cert_path)
-
-            if self.client_cert_path and self.client_key_path:
-                context.load_cert_chain(self.client_cert_path, self.client_key_path)
+            # Standard secure configuration
+            context = self._create_standard_ssl_context()
 
         return context
+
+    def _create_standard_ssl_context(self) -> ssl.SSLContext:
+        """Create standard SSL context."""
+        context = ssl.create_default_context()
+
+        # Set minimum TLS version for security
+        context.minimum_version = ssl.TLSVersion.TLSv1_2
+
+        if self.ca_cert_path:
+            context.load_verify_locations(self.ca_cert_path)
+
+        if self.client_cert_path and self.client_key_path:
+            context.load_cert_chain(self.client_cert_path, self.client_key_path)
+
+        return context
+
+    def validate_certificate_for_host(self, hostname: str, certificate_chain: List[bytes]) -> bool:
+        """Validate certificate chain for specific hostname.
+
+        Args:
+            hostname: Target hostname
+            certificate_chain: List of certificate bytes
+
+        Returns:
+            True if validation passes
+
+        Raises:
+            CertificateValidationError: If validation fails
+        """
+        if not self.enhanced_validation or not self._certificate_validator:
+            logger.debug("Enhanced certificate validation not available, skipping")
+            return True
+
+        try:
+            return self._certificate_validator.validate_certificate_chain(
+                hostname=hostname,
+                certificate_chain=certificate_chain,
+                verify_hostname=self.verify_certificates,
+            )
+        except Exception as e:
+            logger.error(f"Certificate validation failed for {hostname}: {e}")
+            raise
 
 
 class SSLContextManager:
