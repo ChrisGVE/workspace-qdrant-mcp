@@ -13,6 +13,7 @@ pub mod health;
 pub mod health_service;
 pub mod service_monitors;
 pub mod alerting;
+pub mod health_integration;
 
 #[cfg(test)]
 pub mod shared_test_utils;
@@ -28,6 +29,7 @@ pub use health::{HealthStatus, ServiceHealth, ServiceMetrics, ServiceHealthMonit
 pub use health_service::{HealthService, ServiceStatus, ComponentHealth, SystemMetrics, Metric, ConnectionStatsProvider};
 pub use service_monitors::{ServiceMonitors, DocumentProcessorMonitor, SearchServiceMonitor, MemoryServiceMonitor, DocumentProcessingStats, SearchStats, MemoryStats, ServiceStats};
 pub use alerting::{AlertManager, AlertChannel, Alert, AlertSeverity, AlertType, RecoverySystem, RecoveryProcedure, RecoveryResult, LogAlertChannel, WebhookAlertChannel, EmailAlertChannel};
+pub use health_integration::{HealthIntegration, HealthSystemStatus, HealthConfigurationFactory};
 
 #[cfg(test)]
 pub use shared_test_utils::*;
