@@ -374,6 +374,9 @@ mod tests {
                 stream_buffer_size: 100,
                 stream_timeout_secs: 30,
                 enable_flow_control: true,
+                progress: crate::config::StreamProgressConfig::default(),
+                health: crate::config::StreamHealthConfig::default(),
+                large_operations: crate::config::LargeOperationStreamConfig::default(),
             },
         ))
     }
@@ -401,6 +404,9 @@ mod tests {
                 stream_buffer_size: 10,
                 stream_timeout_secs: 5,
                 enable_flow_control: false,
+                progress: crate::config::StreamProgressConfig::default(),
+                health: crate::config::StreamHealthConfig::default(),
+                large_operations: crate::config::LargeOperationStreamConfig::default(),
             },
         ));
 
@@ -486,7 +492,7 @@ mod tests {
         assert!(handler.message_validator.is_streaming_enabled(false));
 
         // Test stream registration
-        let stream_handle = validator.register_stream().unwrap();
+        let stream_handle = validator.register_stream(None).unwrap();
         assert_eq!(stream_handle.timeout(), Duration::from_secs(30));
         assert_eq!(stream_handle.buffer_size(), 100);
         assert!(stream_handle.flow_control_enabled());
