@@ -37,19 +37,37 @@ Example:
 """
 
 from .aggregator import MetadataAggregator
-from .batch_processor import BatchProcessor
-from .exceptions import MetadataError, YAMLGenerationError, AggregationError
-from .incremental_tracker import IncrementalTracker
-from .workflow_manager import WorkflowManager
-from .yaml_generator import YAMLGenerator
+from .batch_processor import BatchProcessor, BatchConfig, BatchResult
+from .exceptions import (
+    MetadataError,
+    YAMLGenerationError,
+    AggregationError,
+    BatchProcessingError,
+    IncrementalTrackingError,
+    WorkflowConfigurationError,
+)
+from .incremental_tracker import IncrementalTracker, DocumentChangeInfo
+from .workflow_manager import WorkflowManager, WorkflowConfig, WorkflowResult
+from .yaml_generator import YAMLGenerator, YAMLConfig
 
 __all__ = [
+    # Core components
     "MetadataAggregator",
     "YAMLGenerator",
+    "YAMLConfig",
     "BatchProcessor",
+    "BatchConfig",
+    "BatchResult",
     "IncrementalTracker",
+    "DocumentChangeInfo",
     "WorkflowManager",
+    "WorkflowConfig",
+    "WorkflowResult",
+    # Exceptions
     "MetadataError",
     "YAMLGenerationError",
     "AggregationError",
+    "BatchProcessingError",
+    "IncrementalTrackingError",
+    "WorkflowConfigurationError",
 ]
