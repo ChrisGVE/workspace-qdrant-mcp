@@ -141,9 +141,6 @@ impl GrpcServer {
         let server = Server::builder()
             // Add connection timeout from config
             .timeout(Duration::from_secs(config.server.connection_timeout_secs))
-            // Message size limits from configuration
-            .max_decoding_message_size(config.server.message.max_incoming_message_size)
-            .max_encoding_message_size(config.server.message.max_outgoing_message_size)
             // HTTP/2 frame configuration
             .max_frame_size(Some(config.server.message.max_frame_size))
             .initial_stream_window_size(Some(config.server.message.initial_window_size))
@@ -155,11 +152,27 @@ impl GrpcServer {
             .tcp_keepalive(Some(Duration::from_secs(60)))
             // Request timeout for streaming operations
             .tcp_nodelay(true)
-            // Register all services
-            .add_service(DocumentProcessorServer::new(document_processor))
-            .add_service(SearchServiceServer::new(search_service))
-            .add_service(MemoryServiceServer::new(memory_service))
-            .add_service(SystemServiceServer::new(system_service))
+            // Register all services with message size limits
+            .add_service(
+                DocumentProcessorServer::new(document_processor)
+                    .max_decoding_message_size(config.server.message.service_limits.document_processor.max_incoming)
+                    .max_encoding_message_size(config.server.message.service_limits.document_processor.max_outgoing)
+            )
+            .add_service(
+                SearchServiceServer::new(search_service)
+                    .max_decoding_message_size(config.server.message.service_limits.search_service.max_incoming)
+                    .max_encoding_message_size(config.server.message.service_limits.search_service.max_outgoing)
+            )
+            .add_service(
+                MemoryServiceServer::new(memory_service)
+                    .max_decoding_message_size(config.server.message.service_limits.memory_service.max_incoming)
+                    .max_encoding_message_size(config.server.message.service_limits.memory_service.max_outgoing)
+            )
+            .add_service(
+                SystemServiceServer::new(system_service)
+                    .max_decoding_message_size(config.server.message.service_limits.system_service.max_incoming)
+                    .max_encoding_message_size(config.server.message.service_limits.system_service.max_outgoing)
+            )
             // Add reflection for debugging
             .add_service(reflection_service);
 

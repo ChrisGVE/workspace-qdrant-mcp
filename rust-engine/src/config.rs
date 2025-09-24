@@ -76,6 +76,57 @@ pub struct MessageConfig {
 
     /// Initial window size for HTTP/2
     pub initial_window_size: u32,
+
+    /// Service-specific message size limits
+    pub service_limits: ServiceMessageLimits,
+
+    /// Size monitoring and alerting configuration
+    pub monitoring: MessageMonitoringConfig,
+}
+
+/// Service-specific message size limits
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ServiceMessageLimits {
+    /// Document processor service limits
+    pub document_processor: ServiceLimit,
+
+    /// Search service limits
+    pub search_service: ServiceLimit,
+
+    /// Memory service limits
+    pub memory_service: ServiceLimit,
+
+    /// System service limits
+    pub system_service: ServiceLimit,
+}
+
+/// Individual service message limits
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ServiceLimit {
+    /// Maximum incoming message size (bytes)
+    pub max_incoming: usize,
+
+    /// Maximum outgoing message size (bytes)
+    pub max_outgoing: usize,
+
+    /// Enable size validation for this service
+    pub enable_validation: bool,
+}
+
+/// Message monitoring and alerting configuration
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct MessageMonitoringConfig {
+    /// Enable detailed message size monitoring
+    pub enable_detailed_monitoring: bool,
+
+    /// Alert threshold for oversized messages (percentage of limit)
+    pub oversized_alert_threshold: f64,
+
+    /// Enable real-time metrics collection
+    pub enable_realtime_metrics: bool,
+
+    /// Metrics collection interval (seconds)
+    pub metrics_interval_secs: u64,
 }
 
 /// Compression configuration for gRPC messages
@@ -95,6 +146,50 @@ pub struct CompressionConfig {
 
     /// Monitor compression efficiency
     pub enable_compression_monitoring: bool,
+
+    /// Adaptive compression configuration
+    pub adaptive: AdaptiveCompressionConfig,
+
+    /// Compression performance monitoring
+    pub performance: CompressionPerformanceConfig,
+}
+
+/// Adaptive compression configuration
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AdaptiveCompressionConfig {
+    /// Enable adaptive compression based on content type
+    pub enable_adaptive: bool,
+
+    /// Text content compression level (1-9)
+    pub text_compression_level: u32,
+
+    /// Binary content compression level (1-9)
+    pub binary_compression_level: u32,
+
+    /// JSON/structured data compression level (1-9)
+    pub structured_compression_level: u32,
+
+    /// Maximum time to spend on compression (milliseconds)
+    pub max_compression_time_ms: u64,
+}
+
+/// Compression performance monitoring configuration
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CompressionPerformanceConfig {
+    /// Enable compression ratio tracking
+    pub enable_ratio_tracking: bool,
+
+    /// Alert threshold for poor compression ratio
+    pub poor_ratio_threshold: f64,
+
+    /// Enable compression time monitoring
+    pub enable_time_monitoring: bool,
+
+    /// Alert threshold for slow compression (milliseconds)
+    pub slow_compression_threshold_ms: u64,
+
+    /// Enable compression failure alerting
+    pub enable_failure_alerting: bool,
 }
 
 /// Streaming configuration for large operations
@@ -117,6 +212,72 @@ pub struct StreamingConfig {
 
     /// Enable stream flow control
     pub enable_flow_control: bool,
+
+    /// Progress tracking configuration
+    pub progress: StreamProgressConfig,
+
+    /// Stream health and recovery configuration
+    pub health: StreamHealthConfig,
+
+    /// Large operation streaming configuration
+    pub large_operations: LargeOperationStreamConfig,
+}
+
+/// Stream progress tracking configuration
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct StreamProgressConfig {
+    /// Enable progress tracking for streams
+    pub enable_progress_tracking: bool,
+
+    /// Progress update interval (milliseconds)
+    pub progress_update_interval_ms: u64,
+
+    /// Enable progress callbacks
+    pub enable_progress_callbacks: bool,
+
+    /// Minimum operation size to enable progress tracking (bytes)
+    pub progress_threshold: usize,
+}
+
+/// Stream health monitoring and recovery configuration
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct StreamHealthConfig {
+    /// Enable stream health monitoring
+    pub enable_health_monitoring: bool,
+
+    /// Health check interval (seconds)
+    pub health_check_interval_secs: u64,
+
+    /// Enable automatic stream recovery
+    pub enable_auto_recovery: bool,
+
+    /// Maximum recovery attempts
+    pub max_recovery_attempts: u32,
+
+    /// Recovery backoff multiplier
+    pub recovery_backoff_multiplier: f64,
+
+    /// Initial recovery delay (milliseconds)
+    pub initial_recovery_delay_ms: u64,
+}
+
+/// Large operation streaming configuration
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct LargeOperationStreamConfig {
+    /// Enable streaming for large document uploads
+    pub enable_large_document_streaming: bool,
+
+    /// Chunk size for large operations (bytes)
+    pub large_operation_chunk_size: usize,
+
+    /// Enable streaming for bulk operations
+    pub enable_bulk_streaming: bool,
+
+    /// Maximum memory usage for streaming operations (bytes)
+    pub max_streaming_memory: usize,
+
+    /// Enable bidirectional streaming optimization
+    pub enable_bidirectional_optimization: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -437,6 +598,64 @@ impl Default for MessageConfig {
             max_frame_size: 16 * 1024,
             // 64KB initial window for HTTP/2
             initial_window_size: 64 * 1024,
+            service_limits: ServiceMessageLimits::default(),
+            monitoring: MessageMonitoringConfig::default(),
+        }
+    }
+}
+
+impl Default for ServiceMessageLimits {
+    fn default() -> Self {
+        Self {
+            document_processor: ServiceLimit::default_document_processor(),
+            search_service: ServiceLimit::default_search(),
+            memory_service: ServiceLimit::default_memory(),
+            system_service: ServiceLimit::default_system(),
+        }
+    }
+}
+
+impl ServiceLimit {
+    fn default_document_processor() -> Self {
+        Self {
+            max_incoming: 64 * 1024 * 1024, // 64MB for large documents
+            max_outgoing: 32 * 1024 * 1024, // 32MB for processed responses
+            enable_validation: true,
+        }
+    }
+
+    fn default_search() -> Self {
+        Self {
+            max_incoming: 4 * 1024 * 1024,  // 4MB for search queries
+            max_outgoing: 16 * 1024 * 1024, // 16MB for search results
+            enable_validation: true,
+        }
+    }
+
+    fn default_memory() -> Self {
+        Self {
+            max_incoming: 8 * 1024 * 1024,  // 8MB for memory operations
+            max_outgoing: 8 * 1024 * 1024,  // 8MB for memory responses
+            enable_validation: true,
+        }
+    }
+
+    fn default_system() -> Self {
+        Self {
+            max_incoming: 1024 * 1024,      // 1MB for system commands
+            max_outgoing: 4 * 1024 * 1024,  // 4MB for system responses
+            enable_validation: true,
+        }
+    }
+}
+
+impl Default for MessageMonitoringConfig {
+    fn default() -> Self {
+        Self {
+            enable_detailed_monitoring: true,
+            oversized_alert_threshold: 0.8, // Alert at 80% of limit
+            enable_realtime_metrics: true,
+            metrics_interval_secs: 60,
         }
     }
 }
@@ -451,6 +670,32 @@ impl Default for CompressionConfig {
             compression_level: 6,
             enable_streaming_compression: true,
             enable_compression_monitoring: true,
+            adaptive: AdaptiveCompressionConfig::default(),
+            performance: CompressionPerformanceConfig::default(),
+        }
+    }
+}
+
+impl Default for AdaptiveCompressionConfig {
+    fn default() -> Self {
+        Self {
+            enable_adaptive: true,
+            text_compression_level: 9,   // High compression for text
+            binary_compression_level: 3, // Low compression for binary
+            structured_compression_level: 6, // Medium for JSON/structured
+            max_compression_time_ms: 100,
+        }
+    }
+}
+
+impl Default for CompressionPerformanceConfig {
+    fn default() -> Self {
+        Self {
+            enable_ratio_tracking: true,
+            poor_ratio_threshold: 0.9, // Alert if compression ratio > 90%
+            enable_time_monitoring: true,
+            slow_compression_threshold_ms: 200, // Alert if compression > 200ms
+            enable_failure_alerting: true,
         }
     }
 }
@@ -467,6 +712,45 @@ impl Default for StreamingConfig {
             // 5 minute stream timeout
             stream_timeout_secs: 300,
             enable_flow_control: true,
+            progress: StreamProgressConfig::default(),
+            health: StreamHealthConfig::default(),
+            large_operations: LargeOperationStreamConfig::default(),
+        }
+    }
+}
+
+impl Default for StreamProgressConfig {
+    fn default() -> Self {
+        Self {
+            enable_progress_tracking: true,
+            progress_update_interval_ms: 1000, // 1 second updates
+            enable_progress_callbacks: true,
+            progress_threshold: 1024 * 1024, // 1MB minimum for progress tracking
+        }
+    }
+}
+
+impl Default for StreamHealthConfig {
+    fn default() -> Self {
+        Self {
+            enable_health_monitoring: true,
+            health_check_interval_secs: 30,
+            enable_auto_recovery: true,
+            max_recovery_attempts: 3,
+            recovery_backoff_multiplier: 2.0,
+            initial_recovery_delay_ms: 500,
+        }
+    }
+}
+
+impl Default for LargeOperationStreamConfig {
+    fn default() -> Self {
+        Self {
+            enable_large_document_streaming: true,
+            large_operation_chunk_size: 1024 * 1024, // 1MB chunks
+            enable_bulk_streaming: true,
+            max_streaming_memory: 128 * 1024 * 1024, // 128MB memory limit
+            enable_bidirectional_optimization: true,
         }
     }
 }
