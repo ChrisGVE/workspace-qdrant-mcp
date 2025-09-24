@@ -301,6 +301,86 @@ class PerformanceAnalyzer:
                     ]
                 ))
 
+        # CPU optimization recommendations
+        if MetricType.CPU_USAGE in metric_summaries:
+            summary = metric_summaries[MetricType.CPU_USAGE]
+
+            if summary.mean_value > 80:  # 80% CPU threshold
+                recommendations.append(OptimizationRecommendation(
+                    title="Optimize CPU Usage",
+                    description=f"CPU usage is high at {summary.mean_value:.1f}%",
+                    optimization_type=OptimizationType.CPU_OPTIMIZATION,
+                    priority=Priority.CRITICAL if summary.mean_value > 95 else Priority.HIGH,
+                    impact_estimate="high",
+                    implementation_effort="moderate",
+                    metrics_evidence=[summary],
+                    suggested_actions=[
+                        "Review CPU-intensive operations",
+                        "Implement async processing where possible",
+                        "Consider horizontal scaling"
+                    ]
+                ))
+
+        # Memory optimization recommendations
+        if MetricType.MEMORY_USAGE in metric_summaries:
+            summary = metric_summaries[MetricType.MEMORY_USAGE]
+
+            if summary.mean_value > 400:  # 400MB threshold
+                recommendations.append(OptimizationRecommendation(
+                    title="Optimize Memory Usage",
+                    description=f"Memory usage is high at {summary.mean_value:.1f}MB",
+                    optimization_type=OptimizationType.MEMORY_OPTIMIZATION,
+                    priority=Priority.CRITICAL if summary.mean_value > 480 else Priority.HIGH,
+                    impact_estimate="high",
+                    implementation_effort="moderate",
+                    metrics_evidence=[summary],
+                    suggested_actions=[
+                        "Review memory leaks",
+                        "Implement memory pooling",
+                        "Consider memory limits"
+                    ]
+                ))
+
+        # LSP optimization recommendations
+        if MetricType.LSP_REQUEST_LATENCY in metric_summaries:
+            summary = metric_summaries[MetricType.LSP_REQUEST_LATENCY]
+
+            if summary.mean_value > 200:  # 200ms threshold
+                recommendations.append(OptimizationRecommendation(
+                    title="Optimize LSP Performance",
+                    description=f"LSP request latency is high at {summary.mean_value:.1f}ms",
+                    optimization_type=OptimizationType.LSP_OPTIMIZATION,
+                    priority=Priority.HIGH if summary.mean_value > 500 else Priority.MEDIUM,
+                    impact_estimate="high",
+                    implementation_effort="moderate",
+                    metrics_evidence=[summary],
+                    suggested_actions=[
+                        "Optimize LSP request handling",
+                        "Implement LSP request caching",
+                        "Review LSP server configuration"
+                    ]
+                ))
+
+        # File processing optimization recommendations
+        if MetricType.FILE_PROCESSING_RATE in metric_summaries:
+            summary = metric_summaries[MetricType.FILE_PROCESSING_RATE]
+
+            if summary.mean_value < 10:  # Below 10 files/min threshold
+                recommendations.append(OptimizationRecommendation(
+                    title="Optimize File Processing",
+                    description=f"File processing rate is low at {summary.mean_value:.1f} files/min",
+                    optimization_type=OptimizationType.FILE_PROCESSING_OPTIMIZATION,
+                    priority=Priority.MEDIUM if summary.mean_value < 5 else Priority.LOW,
+                    impact_estimate="medium",
+                    implementation_effort="moderate",
+                    metrics_evidence=[summary],
+                    suggested_actions=[
+                        "Implement parallel file processing",
+                        "Optimize file parsing algorithms",
+                        "Consider batch processing"
+                    ]
+                ))
+
         return recommendations
 
     def _calculate_performance_score(self, metric_summaries: Dict[MetricType, MetricSummary]) -> float:

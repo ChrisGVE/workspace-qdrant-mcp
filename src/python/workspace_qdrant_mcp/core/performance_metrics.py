@@ -304,7 +304,10 @@ class PerformanceProfiler:
             self.trace.complete("completed")
             logger.debug(f"Completed profiling operation: {self.operation_id}")
 
-        # Record the trace
+        # Add trace to the collector's operation traces
+        self.metrics_collector.operation_traces.append(self.trace)
+
+        # Also call the callback if one is set
         if hasattr(self.metrics_collector, '_operation_callback') and self.metrics_collector._operation_callback:
             self.metrics_collector._operation_callback(self.trace)
 
