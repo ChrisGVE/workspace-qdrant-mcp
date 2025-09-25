@@ -1415,6 +1415,473 @@ class ConversationalMemoryProcessor:
         return AuthorityLevel.DEFAULT
 
 
+class BehavioralController:
+    """
+    Memory-driven behavioral control system with adaptive decision making.
+
+    This class uses memory rules to make intelligent decisions about how to
+    respond to different situations, with conflict resolution, priority
+    management, and adaptive learning from user feedback.
+    """
+
+    def __init__(self, memory_manager: MemoryManager):
+        """
+        Initialize the behavioral controller.
+
+        Args:
+            memory_manager: The memory manager instance for rule retrieval
+        """
+        self.memory_manager = memory_manager
+        self.decision_cache = {}  # Cache recent decisions for consistency
+        self.conflict_resolution_history = []  # Track how conflicts were resolved
+        self.feedback_history = []  # Track user feedback on decisions
+
+    async def make_decision(
+        self,
+        context: str,
+        situation_type: str | None = None,
+        project_scope: list[str] | None = None,
+        urgency: str = "normal"
+    ) -> BehavioralDecision:
+        """
+        Make a behavioral decision based on memory rules and context.
+
+        Args:
+            context: The situation or context requiring a decision
+            situation_type: Type of situation (development, communication, etc.)
+            project_scope: Relevant project or domain context
+            urgency: Urgency level (low, normal, high, critical)
+
+        Returns:
+            BehavioralDecision with the decision and reasoning
+        """
+        decision_id = self._generate_decision_id()
+
+        try:
+            # Get relevant rules for this context
+            relevant_rules = await self._find_relevant_rules(
+                context, situation_type, project_scope
+            )
+
+            if not relevant_rules:
+                # No specific rules found, use fallback decision
+                return BehavioralDecision(
+                    decision_id=decision_id,
+                    context=context,
+                    applicable_rules=[],
+                    decision="No specific memory rules found, use default behavior",
+                    confidence=0.3,
+                    reasoning="No applicable memory rules found for this context",
+                    fallback_used=True
+                )
+
+            # Check for conflicts between applicable rules
+            conflicts = await self._detect_rule_conflicts(relevant_rules)
+            resolved_conflicts = []
+
+            if conflicts:
+                # Resolve conflicts using priority and authority levels
+                relevant_rules, resolved_conflicts = await self._resolve_conflicts(
+                    relevant_rules, conflicts, context, urgency
+                )
+
+            # Generate decision based on remaining rules
+            decision = await self._generate_decision(
+                relevant_rules, context, urgency
+            )
+
+            # Calculate confidence based on rule coverage and conflict resolution
+            confidence = self._calculate_decision_confidence(
+                relevant_rules, conflicts, context
+            )
+
+            # Create reasoning explanation
+            reasoning = self._generate_reasoning(
+                relevant_rules, conflicts, resolved_conflicts, context
+            )
+
+            behavioral_decision = BehavioralDecision(
+                decision_id=decision_id,
+                context=context,
+                applicable_rules=[rule.id for rule in relevant_rules],
+                decision=decision,
+                confidence=confidence,
+                reasoning=reasoning,
+                conflicts_resolved=resolved_conflicts,
+                fallback_used=False
+            )
+
+            # Cache decision for consistency
+            self._cache_decision(context, behavioral_decision)
+
+            logger.info(
+                f"Made behavioral decision {decision_id}: {decision} "
+                f"(confidence: {confidence:.2f}, conflicts: {len(conflicts)})"
+            )
+
+            return behavioral_decision
+
+        except Exception as e:
+            logger.error(f"Failed to make behavioral decision: {e}")
+            return BehavioralDecision(
+                decision_id=decision_id,
+                context=context,
+                applicable_rules=[],
+                decision="Error occurred, use fallback behavior",
+                confidence=0.1,
+                reasoning=f"Decision making failed: {e}",
+                fallback_used=True
+            )
+
+    async def _find_relevant_rules(
+        self,
+        context: str,
+        situation_type: str | None,
+        project_scope: list[str] | None
+    ) -> list[MemoryRule]:
+        """Find memory rules relevant to the given context."""
+        # Search by semantic similarity
+        search_results = await self.memory_manager.search_memory_rules(
+            query=context, limit=20
+        )
+
+        relevant_rules = []
+
+        for rule, score in search_results:
+            if score < 0.3:  # Skip low-relevance rules
+                continue
+
+            # Check if rule applies to current situation type
+            if situation_type and rule.conditions:
+                if not self._rule_applies_to_situation(rule, situation_type):
+                    continue
+
+            # Check project scope matching
+            if project_scope and rule.scope:
+                if not any(scope in project_scope for scope in rule.scope):
+                    continue
+
+            relevant_rules.append(rule)
+
+        # Also get rules by category if we can infer it from context
+        inferred_category = self._infer_category_from_context(context)
+        if inferred_category:
+            category_rules = await self.memory_manager.list_memory_rules(
+                category=inferred_category
+            )
+
+            # Add high-relevance category rules that aren't already included
+            existing_ids = {rule.id for rule in relevant_rules}
+            for rule in category_rules:
+                if rule.id not in existing_ids:
+                    # Quick relevance check
+                    if self._quick_relevance_check(rule, context):
+                        relevant_rules.append(rule)
+
+        # Sort by authority level and creation time
+        relevant_rules.sort(key=lambda r: (
+            r.authority == AuthorityLevel.ABSOLUTE,  # Absolute authority first
+            -r.created_at.timestamp()  # More recent rules first
+        ), reverse=True)
+
+        return relevant_rules
+
+    def _rule_applies_to_situation(self, rule: MemoryRule, situation_type: str) -> bool:
+        """Check if a rule applies to the given situation type."""
+        if not rule.conditions:
+            return True  # Rule applies universally
+
+        # Check for situation-specific conditions
+        conditions = rule.conditions
+        if "context" in conditions:
+            context_lower = conditions["context"].lower()
+            if situation_type.lower() in context_lower:
+                return True
+
+        return True  # Default to applicable
+
+    def _infer_category_from_context(self, context: str) -> MemoryCategory | None:
+        """Infer memory category from context string."""
+        context_lower = context.lower()
+
+        # Behavior-related contexts
+        if any(word in context_lower for word in [
+            "commit", "test", "deploy", "review", "workflow", "process"
+        ]):
+            return MemoryCategory.BEHAVIOR
+
+        # Preference-related contexts
+        if any(word in context_lower for word in [
+            "tool", "library", "framework", "language", "choose", "select"
+        ]):
+            return MemoryCategory.PREFERENCE
+
+        return None
+
+    def _quick_relevance_check(self, rule: MemoryRule, context: str) -> bool:
+        """Quick relevance check for category-based rules."""
+        rule_text_lower = rule.rule.lower()
+        context_lower = context.lower()
+
+        # Look for overlapping keywords
+        rule_words = set(rule_text_lower.split())
+        context_words = set(context_lower.split())
+
+        # Check for significant word overlap
+        overlap = len(rule_words & context_words)
+        return overlap >= 2 or len(rule_words & context_words) / len(rule_words) > 0.3
+
+    async def _detect_rule_conflicts(self, rules: list[MemoryRule]) -> list[MemoryConflict]:
+        """Detect conflicts between the given rules."""
+        if len(rules) <= 1:
+            return []
+
+        conflicts = await self.memory_manager.detect_conflicts(rules)
+        return conflicts
+
+    async def _resolve_conflicts(
+        self,
+        rules: list[MemoryRule],
+        conflicts: list[MemoryConflict],
+        context: str,
+        urgency: str
+    ) -> tuple[list[MemoryRule], list[str]]:
+        """
+        Resolve conflicts between rules using priority and context.
+
+        Returns:
+            Tuple of (resolved_rules, conflict_descriptions)
+        """
+        if not conflicts:
+            return rules, []
+
+        resolved_conflicts = []
+        rules_to_remove = set()
+
+        for conflict in conflicts:
+            rule1, rule2 = conflict.rule1, conflict.rule2
+            resolution_description = ""
+
+            # Authority level takes precedence
+            if rule1.authority != rule2.authority:
+                if rule1.authority == AuthorityLevel.ABSOLUTE:
+                    rules_to_remove.add(rule2.id)
+                    resolution_description = f"Kept absolute rule '{rule1.name}' over default rule '{rule2.name}'"
+                else:
+                    rules_to_remove.add(rule1.id)
+                    resolution_description = f"Kept absolute rule '{rule2.name}' over default rule '{rule1.name}'"
+
+            # If same authority level, prefer more recent rules
+            elif rule1.created_at != rule2.created_at:
+                if rule1.created_at > rule2.created_at:
+                    rules_to_remove.add(rule2.id)
+                    resolution_description = f"Kept newer rule '{rule1.name}' over older rule '{rule2.name}'"
+                else:
+                    rules_to_remove.add(rule1.id)
+                    resolution_description = f"Kept newer rule '{rule2.name}' over older rule '{rule1.name}'"
+
+            # If both are same age, prefer more specific rules (with conditions/scope)
+            else:
+                rule1_specificity = len(rule1.scope or []) + (1 if rule1.conditions else 0)
+                rule2_specificity = len(rule2.scope or []) + (1 if rule2.conditions else 0)
+
+                if rule1_specificity > rule2_specificity:
+                    rules_to_remove.add(rule2.id)
+                    resolution_description = f"Kept more specific rule '{rule1.name}' over general rule '{rule2.name}'"
+                elif rule2_specificity > rule1_specificity:
+                    rules_to_remove.add(rule1.id)
+                    resolution_description = f"Kept more specific rule '{rule2.name}' over general rule '{rule1.name}'"
+                else:
+                    # As last resort, keep the first rule (arbitrary but consistent)
+                    rules_to_remove.add(rule2.id)
+                    resolution_description = f"Kept rule '{rule1.name}' over conflicting rule '{rule2.name}' (arbitrary resolution)"
+
+            resolved_conflicts.append(resolution_description)
+
+        # Remove conflicted rules
+        remaining_rules = [rule for rule in rules if rule.id not in rules_to_remove]
+
+        # Log conflict resolution
+        self.conflict_resolution_history.extend(resolved_conflicts)
+        logger.info(f"Resolved {len(conflicts)} conflicts: {resolved_conflicts}")
+
+        return remaining_rules, resolved_conflicts
+
+    async def _generate_decision(
+        self,
+        rules: list[MemoryRule],
+        context: str,
+        urgency: str
+    ) -> str:
+        """Generate a decision based on the applicable rules."""
+        if not rules:
+            return "No specific guidance available, use default behavior"
+
+        # Group rules by category
+        by_category = defaultdict(list)
+        for rule in rules:
+            by_category[rule.category].append(rule)
+
+        decision_parts = []
+
+        # Process absolute authority rules first
+        absolute_rules = [rule for rule in rules if rule.authority == AuthorityLevel.ABSOLUTE]
+        if absolute_rules:
+            decision_parts.append("Required actions:")
+            for rule in absolute_rules[:3]:  # Limit to top 3 for clarity
+                decision_parts.append(f"- {rule.rule}")
+
+        # Process default rules
+        default_rules = [rule for rule in rules if rule.authority == AuthorityLevel.DEFAULT]
+        if default_rules:
+            decision_parts.append("Recommended actions:")
+            for rule in default_rules[:3]:  # Limit to top 3 for clarity
+                decision_parts.append(f"- {rule.rule}")
+
+        # Handle urgency
+        if urgency in ["high", "critical"] and absolute_rules:
+            decision_parts.insert(1, "High priority situation - follow absolute rules strictly")
+
+        return "\n".join(decision_parts)
+
+    def _calculate_decision_confidence(
+        self,
+        rules: list[MemoryRule],
+        conflicts: list[MemoryConflict],
+        context: str
+    ) -> float:
+        """Calculate confidence score for the decision."""
+        if not rules:
+            return 0.1  # Very low confidence with no rules
+
+        confidence = 0.0
+
+        # Base confidence from number of applicable rules
+        confidence += min(len(rules) * 0.2, 0.6)
+
+        # Authority level confidence
+        absolute_rules = [rule for rule in rules if rule.authority == AuthorityLevel.ABSOLUTE]
+        if absolute_rules:
+            confidence += 0.3
+
+        # Conflicts reduce confidence
+        if conflicts:
+            confidence -= len(conflicts) * 0.1
+
+        # Recent rules boost confidence
+        recent_rules = [
+            rule for rule in rules
+            if (datetime.now(timezone.utc) - rule.created_at).days < 30
+        ]
+        if recent_rules:
+            confidence += 0.1
+
+        return max(0.1, min(confidence, 1.0))
+
+    def _generate_reasoning(
+        self,
+        rules: list[MemoryRule],
+        conflicts: list[MemoryConflict],
+        resolved_conflicts: list[str],
+        context: str
+    ) -> str:
+        """Generate reasoning explanation for the decision."""
+        reasoning_parts = []
+
+        if rules:
+            reasoning_parts.append(
+                f"Based on {len(rules)} applicable memory rule(s):"
+            )
+            for i, rule in enumerate(rules[:3], 1):
+                authority_desc = "required" if rule.authority == AuthorityLevel.ABSOLUTE else "recommended"
+                reasoning_parts.append(
+                    f"{i}. {rule.name} ({authority_desc}): {rule.rule}"
+                )
+
+        if conflicts and resolved_conflicts:
+            reasoning_parts.append(f"\nConflict resolution applied:")
+            for resolution in resolved_conflicts:
+                reasoning_parts.append(f"- {resolution}")
+
+        if not rules:
+            reasoning_parts.append("No specific memory rules found for this context")
+
+        return "\n".join(reasoning_parts)
+
+    def _generate_decision_id(self) -> str:
+        """Generate a unique decision ID."""
+        timestamp = int(time.time() * 1000)
+        return f"decision_{timestamp}"
+
+    def _cache_decision(self, context: str, decision: BehavioralDecision):
+        """Cache decision for consistency in similar contexts."""
+        # Simple cache with size limit
+        if len(self.decision_cache) > 100:
+            # Remove oldest entries
+            sorted_cache = sorted(
+                self.decision_cache.items(),
+                key=lambda x: x[1].decision_id
+            )
+            for old_context, _ in sorted_cache[:50]:
+                del self.decision_cache[old_context]
+
+        self.decision_cache[context] = decision
+
+    async def learn_from_feedback(
+        self,
+        decision_id: str,
+        feedback: str,
+        user_action: str | None = None,
+        effectiveness_score: float | None = None
+    ):
+        """
+        Learn from user feedback on decisions to improve future decisions.
+
+        Args:
+            decision_id: ID of the decision to provide feedback on
+            feedback: User feedback text
+            user_action: What the user actually did
+            effectiveness_score: Score from 0.0 to 1.0 for decision effectiveness
+        """
+        feedback_entry = {
+            "decision_id": decision_id,
+            "feedback": feedback,
+            "user_action": user_action,
+            "effectiveness_score": effectiveness_score,
+            "timestamp": datetime.now(timezone.utc).isoformat()
+        }
+
+        self.feedback_history.append(feedback_entry)
+
+        # Simple learning: if feedback indicates the decision was wrong,
+        # we could adjust confidence calculations or create new rules
+        if effectiveness_score is not None and effectiveness_score < 0.3:
+            logger.warning(
+                f"Low effectiveness score ({effectiveness_score}) for decision {decision_id}: {feedback}"
+            )
+
+        # Keep feedback history manageable
+        if len(self.feedback_history) > 1000:
+            self.feedback_history = self.feedback_history[-500:]
+
+        logger.info(f"Recorded feedback for decision {decision_id}")
+
+    async def get_decision_history(self, limit: int = 10) -> list[dict[str, Any]]:
+        """Get recent decision history for analysis."""
+        # Return recent cached decisions
+        recent_decisions = list(self.decision_cache.values())[-limit:]
+        return [
+            {
+                "decision_id": d.decision_id,
+                "context": d.context,
+                "decision": d.decision,
+                "confidence": d.confidence,
+                "conflicts_resolved": len(d.conflicts_resolved or [])
+            }
+            for d in recent_decisions
+        ]
+
+
 # Utility functions for memory management
 
 
