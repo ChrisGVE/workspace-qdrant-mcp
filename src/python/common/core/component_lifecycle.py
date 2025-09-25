@@ -50,7 +50,7 @@ from typing import Any, Callable, Dict, List, Optional, Set, Tuple, Union
 
 from loguru import logger
 
-from python.common.core.component_coordination import (
+from common.core.component_coordination import (
     ComponentCoordinator,
     ComponentType,
     ComponentStatus,
@@ -58,8 +58,8 @@ from python.common.core.component_coordination import (
     ProcessingQueueType,
     get_component_coordinator,
 )
-from python.common.core.daemon_manager import DaemonManager, ensure_daemon_running
-from python.common.core.grpc_client import GrpcWorkspaceClient
+from common.core.daemon_manager import DaemonManager, ensure_daemon_running
+from common.core.grpc_client import GrpcWorkspaceClient
 
 
 class LifecyclePhase(Enum):
