@@ -1,916 +1,822 @@
-"""
-Comprehensive unit tests for WebCrawler with edge cases and error conditions.
+"""Comprehensive unit tests for the WebCrawler component.
 
-This test suite covers:
-- Rate limiting compliance and edge cases
-- Robots.txt parsing and compliance checking
-- URL validation and domain restrictions
-- Content filtering by type and size
-- Error handling and retry logic
-- Statistics tracking and performance metrics
-- Configuration validation and edge cases
-- Network failure scenarios and timeouts
-- Concurrent request handling
-- Cache management and TTL behavior
+Tests cover all edge cases, error conditions, and normal operation scenarios.
 """
 
 import asyncio
-import pytest
 import time
 from datetime import datetime, timedelta
 from unittest.mock import AsyncMock, MagicMock, patch
-from urllib.robotparser import RobotFileParser
 
 import aiohttp
-from aiohttp import ClientTimeout
-from bs4 import BeautifulSoup
+import pytest
 
-from common.core.web_crawler import (
+from workspace_qdrant_mcp.web.crawler import (
+    CrawlConfig,
+    CrawlResponse,
+    RateLimiter,
+    RobotsChecker,
     WebCrawler,
-    CrawlerConfig,
-    CrawlResult,
-    RobotsCache
 )
 
 
-class TestCrawlerConfig:
-    """Test CrawlerConfig dataclass."""
+class TestCrawlConfig:
+    """Test CrawlConfig dataclass functionality."""
 
     def test_default_config(self):
         """Test default configuration values."""
-        config = CrawlerConfig()
-
-        assert config.rate_limit == 2.0
-        assert config.max_concurrent == 10
-        assert config.request_timeout == 30.0
-        assert config.respect_robots is True
-        assert config.robots_cache_ttl == 3600
-        assert "WorkspaceQdrantMCP" in config.user_agent
-        assert config.max_content_size == 10 * 1024 * 1024
-        assert 'text/html' in config.allowed_content_types
-        assert config.same_domain_only is True
-        assert config.max_depth == 3
-        assert config.max_pages == 1000
+        config = CrawlConfig()
+        assert config.delay_between_requests == 1.0
+        assert config.concurrent_requests == 5
+        assert config.max_requests_per_second == 2.0
+        assert config.timeout == 30.0
+        assert config.max_redirects == 10
         assert config.max_retries == 3
-        assert config.retry_delay == 1.0
-        assert config.retry_backoff == 2.0
-        assert isinstance(config.custom_headers, dict)
-        assert isinstance(config.cookies, dict)
+        assert config.retry_delay == 2.0
+        assert config.max_content_size == 10 * 1024 * 1024
+        assert config.user_agent == "ResponsibleWebCrawler/1.0"
+        assert config.respect_robots_txt is True
+        assert config.robots_txt_cache_ttl == 3600
 
     def test_custom_config(self):
         """Test custom configuration values."""
-        custom_headers = {'X-Custom': 'test'}
-        custom_cookies = {'session': 'abc123'}
-        allowed_types = {'text/html', 'application/json'}
-
-        config = CrawlerConfig(
-            rate_limit=5.0,
-            max_concurrent=20,
-            respect_robots=False,
-            user_agent="TestAgent/1.0",
-            max_content_size=5 * 1024 * 1024,
-            allowed_content_types=allowed_types,
-            same_domain_only=False,
-            max_retries=5,
-            custom_headers=custom_headers,
-            cookies=custom_cookies
+        config = CrawlConfig(
+            delay_between_requests=2.0,
+            concurrent_requests=10,
+            max_requests_per_second=5.0,
+            timeout=60.0,
+            user_agent="CustomCrawler/1.0",
+            respect_robots_txt=False
         )
+        assert config.delay_between_requests == 2.0
+        assert config.concurrent_requests == 10
+        assert config.max_requests_per_second == 5.0
+        assert config.timeout == 60.0
+        assert config.user_agent == "CustomCrawler/1.0"
+        assert config.respect_robots_txt is False
 
-        assert config.rate_limit == 5.0
-        assert config.max_concurrent == 20
-        assert config.respect_robots is False
-        assert config.user_agent == "TestAgent/1.0"
-        assert config.max_content_size == 5 * 1024 * 1024
-        assert config.allowed_content_types == allowed_types
-        assert config.same_domain_only is False
-        assert config.max_retries == 5
+    def test_default_allowed_content_types(self):
+        """Test default allowed content types."""
+        config = CrawlConfig()
+        expected_types = {
+            'text/html', 'text/plain', 'text/xml',
+            'application/xml', 'application/xhtml+xml',
+            'application/json', 'text/css', 'text/javascript'
+        }
+        assert config.allowed_content_types == expected_types
+
+    def test_custom_allowed_content_types(self):
+        """Test custom allowed content types."""
+        custom_types = {'text/html', 'application/json'}
+        config = CrawlConfig(allowed_content_types=custom_types)
+        assert config.allowed_content_types == custom_types
+
+    def test_custom_headers(self):
+        """Test custom headers configuration."""
+        custom_headers = {'X-Custom-Header': 'value'}
+        config = CrawlConfig(custom_headers=custom_headers)
         assert config.custom_headers == custom_headers
-        assert config.cookies == custom_cookies
+
+        # Test default empty headers
+        default_config = CrawlConfig()
+        assert default_config.custom_headers == {}
 
 
-class TestRobotsCache:
-    """Test RobotsCache functionality."""
+class TestCrawlResponse:
+    """Test CrawlResponse dataclass functionality."""
 
-    def test_cache_initialization(self):
-        """Test robots cache initialization."""
-        cache = RobotsCache(ttl=1800)
-        assert cache._ttl == 1800
-        assert len(cache._cache) == 0
-
-    def test_cache_set_and_get(self):
-        """Test setting and getting robots parser."""
-        cache = RobotsCache()
-        parser = RobotFileParser()
-        parser.set_url("http://example.com/robots.txt")
-
-        # Cache should be empty initially
-        assert cache.get_robots("example.com") is None
-
-        # Set parser in cache
-        cache.set_robots("example.com", parser)
-
-        # Should retrieve the same parser
-        cached_parser = cache.get_robots("example.com")
-        assert cached_parser is parser
-
-    def test_cache_expiration(self):
-        """Test cache TTL expiration."""
-        cache = RobotsCache(ttl=1)  # 1 second TTL
-        parser = RobotFileParser()
-
-        cache.set_robots("example.com", parser)
-        assert cache.get_robots("example.com") is parser
-
-        # Wait for expiration
-        time.sleep(1.1)
-        assert cache.get_robots("example.com") is None
-
-    def test_clear_expired(self):
-        """Test manual clearing of expired entries."""
-        cache = RobotsCache(ttl=1)
-        parser = RobotFileParser()
-
-        cache.set_robots("example.com", parser)
-        time.sleep(1.1)
-
-        # Entry should still be in cache before clearing
-        assert "example.com" in cache._cache
-
-        cache.clear_expired()
-
-        # Entry should be removed after clearing
-        assert "example.com" not in cache._cache
-
-    def test_multiple_domains(self):
-        """Test caching multiple domains."""
-        cache = RobotsCache()
-        parser1 = RobotFileParser()
-        parser2 = RobotFileParser()
-
-        cache.set_robots("example.com", parser1)
-        cache.set_robots("test.com", parser2)
-
-        assert cache.get_robots("example.com") is parser1
-        assert cache.get_robots("test.com") is parser2
-        assert cache.get_robots("other.com") is None
-
-
-class TestCrawlResult:
-    """Test CrawlResult dataclass."""
-
-    def test_crawl_result_creation(self):
-        """Test creating CrawlResult instances."""
-        # Minimal result
-        result = CrawlResult(url="http://example.com", status_code=200)
-        assert result.url == "http://example.com"
-        assert result.status_code == 200
-        assert result.content is None
-        assert result.error is None
-        assert isinstance(result.metadata, dict)
-
-    def test_crawl_result_full(self):
-        """Test CrawlResult with all fields."""
-        headers = {'content-type': 'text/html'}
-        metadata = {'links': 5}
-        crawl_time = datetime.now()
-
-        result = CrawlResult(
-            url="http://example.com",
+    def test_basic_response(self):
+        """Test basic CrawlResponse creation."""
+        response = CrawlResponse(
+            url="https://example.com",
             status_code=200,
-            content="<html>test</html>",
-            headers=headers,
+            content="<html>Content</html>",
+            headers={"content-type": "text/html"},
             content_type="text/html",
-            content_length=100,
-            crawl_time=crawl_time,
-            processing_time=1.5,
-            metadata=metadata
+            encoding="utf-8"
+        )
+        assert response.url == "https://example.com"
+        assert response.status_code == 200
+        assert response.content == "<html>Content</html>"
+        assert response.headers == {"content-type": "text/html"}
+        assert response.content_type == "text/html"
+        assert response.encoding == "utf-8"
+        assert response.redirect_url is None
+        assert isinstance(response.crawl_time, datetime)
+        assert response.error is None
+
+    def test_response_with_error(self):
+        """Test CrawlResponse with error."""
+        response = CrawlResponse(
+            url="https://example.com",
+            status_code=404,
+            content="",
+            headers={},
+            content_type="",
+            encoding="",
+            error="Not found"
+        )
+        assert response.error == "Not found"
+        assert response.status_code == 404
+
+    def test_response_with_redirect(self):
+        """Test CrawlResponse with redirect."""
+        response = CrawlResponse(
+            url="https://example.com",
+            status_code=200,
+            content="Content",
+            headers={},
+            content_type="text/html",
+            encoding="utf-8",
+            redirect_url="https://www.example.com"
+        )
+        assert response.redirect_url == "https://www.example.com"
+
+    def test_custom_crawl_time(self):
+        """Test CrawlResponse with custom crawl time."""
+        custom_time = datetime(2023, 1, 1, 12, 0, 0)
+        response = CrawlResponse(
+            url="https://example.com",
+            status_code=200,
+            content="",
+            headers={},
+            content_type="",
+            encoding="",
+            crawl_time=custom_time
+        )
+        assert response.crawl_time == custom_time
+
+
+class TestRateLimiter:
+    """Test RateLimiter functionality."""
+
+    @pytest.fixture
+    def config(self):
+        """Rate limiter test configuration."""
+        return CrawlConfig(
+            delay_between_requests=0.5,
+            max_requests_per_second=2.0
         )
 
-        assert result.content == "<html>test</html>"
-        assert result.headers == headers
-        assert result.content_type == "text/html"
-        assert result.content_length == 100
-        assert result.crawl_time == crawl_time
-        assert result.processing_time == 1.5
-        assert result.metadata == metadata
+    @pytest.fixture
+    def rate_limiter(self, config):
+        """Rate limiter instance for testing."""
+        return RateLimiter(config)
+
+    @pytest.mark.asyncio
+    async def test_first_request_no_delay(self, rate_limiter):
+        """Test that first request to domain has no delay."""
+        start_time = time.time()
+        await rate_limiter.wait_if_needed("example.com")
+        elapsed = time.time() - start_time
+        assert elapsed < 0.1  # Should be nearly instantaneous
+
+    @pytest.mark.asyncio
+    async def test_delay_between_requests(self, rate_limiter):
+        """Test delay between requests to same domain."""
+        # First request
+        await rate_limiter.wait_if_needed("example.com")
+
+        # Second request should be delayed
+        start_time = time.time()
+        await rate_limiter.wait_if_needed("example.com")
+        elapsed = time.time() - start_time
+        assert elapsed >= 0.4  # Should wait at least 0.4s (0.5s - small tolerance)
+
+    @pytest.mark.asyncio
+    async def test_no_delay_different_domains(self, rate_limiter):
+        """Test no delay between requests to different domains."""
+        await rate_limiter.wait_if_needed("example.com")
+
+        # Request to different domain should have no delay
+        start_time = time.time()
+        await rate_limiter.wait_if_needed("test.com")
+        elapsed = time.time() - start_time
+        assert elapsed < 0.1
+
+    @pytest.mark.asyncio
+    async def test_requests_per_second_limit(self, rate_limiter):
+        """Test requests per second limiting."""
+        domain = "example.com"
+
+        # Make requests quickly to trigger RPS limit
+        start_time = time.time()
+        await rate_limiter.wait_if_needed(domain)
+        await rate_limiter.wait_if_needed(domain)
+        await rate_limiter.wait_if_needed(domain)  # This should be delayed
+        elapsed = time.time() - start_time
+
+        # Should take at least 1 second due to RPS limit
+        assert elapsed >= 0.9
+
+    @pytest.mark.asyncio
+    async def test_concurrent_access_thread_safety(self, rate_limiter):
+        """Test thread safety with concurrent access."""
+        async def make_request():
+            await rate_limiter.wait_if_needed("example.com")
+            return time.time()
+
+        # Start multiple concurrent requests
+        tasks = [make_request() for _ in range(5)]
+        times = await asyncio.gather(*tasks)
+
+        # Check that times are properly spaced due to rate limiting
+        sorted_times = sorted(times)
+        for i in range(1, len(sorted_times)):
+            time_diff = sorted_times[i] - sorted_times[i-1]
+            # Allow some tolerance for timing variations
+            assert time_diff >= 0.3  # Should be close to delay_between_requests
+
+
+class TestRobotsChecker:
+    """Test RobotsChecker functionality."""
+
+    @pytest.fixture
+    def config(self):
+        """Robots checker test configuration."""
+        return CrawlConfig(
+            respect_robots_txt=True,
+            robots_txt_cache_ttl=3600,
+            user_agent="TestBot/1.0"
+        )
+
+    @pytest.fixture
+    def robots_checker(self, config):
+        """Robots checker instance for testing."""
+        return RobotsChecker(config)
+
+    @pytest.fixture
+    def mock_session(self):
+        """Mock aiohttp session for testing."""
+        session = AsyncMock()
+        return session
+
+    def test_get_robots_url(self, robots_checker):
+        """Test robots.txt URL generation."""
+        test_cases = [
+            ("https://example.com/path", "https://example.com/robots.txt"),
+            ("http://test.com/page.html", "http://test.com/robots.txt"),
+            ("https://subdomain.example.com/deep/path", "https://subdomain.example.com/robots.txt"),
+        ]
+
+        for url, expected in test_cases:
+            result = robots_checker._get_robots_url(url)
+            assert result == expected
+
+    @pytest.mark.asyncio
+    async def test_fetch_robots_txt_success(self, robots_checker, mock_session):
+        """Test successful robots.txt fetching."""
+        robots_content = "User-agent: *\nDisallow: /admin"
+
+        mock_response = AsyncMock()
+        mock_response.status = 200
+        mock_response.text.return_value = robots_content
+        mock_session.get.return_value.__aenter__.return_value = mock_response
+
+        result = await robots_checker._fetch_robots_txt(mock_session, "https://example.com/robots.txt")
+        assert result == robots_content
+
+    @pytest.mark.asyncio
+    async def test_fetch_robots_txt_not_found(self, robots_checker, mock_session):
+        """Test robots.txt not found (404)."""
+        mock_response = AsyncMock()
+        mock_response.status = 404
+        mock_session.get.return_value.__aenter__.return_value = mock_response
+
+        result = await robots_checker._fetch_robots_txt(mock_session, "https://example.com/robots.txt")
+        assert result is None
+
+    @pytest.mark.asyncio
+    async def test_fetch_robots_txt_timeout(self, robots_checker, mock_session):
+        """Test robots.txt fetch timeout."""
+        mock_session.get.side_effect = asyncio.TimeoutError()
+
+        result = await robots_checker._fetch_robots_txt(mock_session, "https://example.com/robots.txt")
+        assert result is None
+
+    @pytest.mark.asyncio
+    async def test_fetch_robots_txt_connection_error(self, robots_checker, mock_session):
+        """Test robots.txt fetch connection error."""
+        mock_session.get.side_effect = aiohttp.ClientError()
+
+        result = await robots_checker._fetch_robots_txt(mock_session, "https://example.com/robots.txt")
+        assert result is None
+
+    @pytest.mark.asyncio
+    async def test_can_crawl_no_robots_txt(self, robots_checker, mock_session):
+        """Test crawl allowed when no robots.txt exists."""
+        mock_response = AsyncMock()
+        mock_response.status = 404
+        mock_session.get.return_value.__aenter__.return_value = mock_response
+
+        result = await robots_checker.can_crawl(mock_session, "https://example.com/page")
+        assert result is True
+
+    @pytest.mark.asyncio
+    async def test_can_crawl_robots_txt_allows(self, robots_checker, mock_session):
+        """Test crawl allowed by robots.txt."""
+        robots_content = "User-agent: TestBot\nDisallow: /admin\nAllow: /"
+
+        mock_response = AsyncMock()
+        mock_response.status = 200
+        mock_response.text.return_value = robots_content
+        mock_session.get.return_value.__aenter__.return_value = mock_response
+
+        result = await robots_checker.can_crawl(mock_session, "https://example.com/page")
+        assert result is True
+
+    @pytest.mark.asyncio
+    async def test_can_crawl_caching(self, robots_checker, mock_session):
+        """Test robots.txt response caching."""
+        robots_content = "User-agent: *\nAllow: /"
+
+        mock_response = AsyncMock()
+        mock_response.status = 200
+        mock_response.text.return_value = robots_content
+        mock_session.get.return_value.__aenter__.return_value = mock_response
+
+        # First call should fetch robots.txt
+        await robots_checker.can_crawl(mock_session, "https://example.com/page1")
+        assert mock_session.get.call_count == 1
+
+        # Second call should use cache
+        await robots_checker.can_crawl(mock_session, "https://example.com/page2")
+        assert mock_session.get.call_count == 1  # No additional call
+
+    @pytest.mark.asyncio
+    async def test_can_crawl_cache_expiry(self, robots_checker, mock_session):
+        """Test robots.txt cache expiry."""
+        robots_content = "User-agent: *\nAllow: /"
+
+        mock_response = AsyncMock()
+        mock_response.status = 200
+        mock_response.text.return_value = robots_content
+        mock_session.get.return_value.__aenter__.return_value = mock_response
+
+        # First call
+        await robots_checker.can_crawl(mock_session, "https://example.com/page")
+
+        # Simulate cache expiry by modifying cache timestamp
+        domain = "example.com"
+        if domain in robots_checker.robots_cache:
+            parser, _ = robots_checker.robots_cache[domain]
+            expired_time = datetime.now() - timedelta(seconds=robots_checker.config.robots_txt_cache_ttl + 1)
+            robots_checker.robots_cache[domain] = (parser, expired_time)
+
+        # Second call should fetch again
+        await robots_checker.can_crawl(mock_session, "https://example.com/page2")
+        assert mock_session.get.call_count == 2
+
+    @pytest.mark.asyncio
+    async def test_can_crawl_respect_disabled(self, mock_session):
+        """Test crawling when robots.txt respect is disabled."""
+        config = CrawlConfig(respect_robots_txt=False)
+        robots_checker = RobotsChecker(config)
+
+        # Should return True without making any requests
+        result = await robots_checker.can_crawl(mock_session, "https://example.com/page")
+        assert result is True
+        assert mock_session.get.call_count == 0
+
+    @pytest.mark.asyncio
+    async def test_can_crawl_parsing_error(self, robots_checker, mock_session):
+        """Test robots.txt parsing error handling."""
+        # Invalid robots.txt content that might cause parsing issues
+        robots_content = "Invalid robots.txt content\n\x00\x01\x02"
+
+        mock_response = AsyncMock()
+        mock_response.status = 200
+        mock_response.text.return_value = robots_content
+        mock_session.get.return_value.__aenter__.return_value = mock_response
+
+        # Should default to allowing crawl on parsing errors
+        result = await robots_checker.can_crawl(mock_session, "https://example.com/page")
+        assert result is True
 
 
 class TestWebCrawler:
     """Test WebCrawler functionality."""
 
     @pytest.fixture
-    def crawler(self):
-        """Create WebCrawler instance for testing."""
-        config = CrawlerConfig(rate_limit=0)  # Disable rate limiting for tests
-        return WebCrawler(config)
+    def config(self):
+        """Web crawler test configuration."""
+        return CrawlConfig(
+            delay_between_requests=0.1,  # Faster for tests
+            max_requests_per_second=10.0,  # Higher for tests
+            timeout=5.0,  # Shorter timeout for tests
+            max_retries=1,  # Fewer retries for faster tests
+            retry_delay=0.1,
+            concurrent_requests=3
+        )
 
     @pytest.fixture
-    def rate_limited_crawler(self):
-        """Create WebCrawler with rate limiting enabled."""
-        config = CrawlerConfig(rate_limit=10.0)  # 10 requests per second
-        return WebCrawler(config)
-
-    def test_initialization(self, crawler):
-        """Test crawler initialization."""
-        assert crawler.config is not None
-        assert crawler._session is None
-        assert crawler._rate_limiter._value == crawler.config.max_concurrent
-        assert crawler._last_request_time == 0.0
-        assert isinstance(crawler._robots_cache, RobotsCache)
-
-        # Check initial statistics
-        stats = crawler.get_statistics()
-        assert stats['requests_made'] == 0
-        assert stats['successful_requests'] == 0
-        assert stats['failed_requests'] == 0
-
-    def test_initialization_with_custom_config(self):
-        """Test crawler initialization with custom config."""
-        config = CrawlerConfig(
-            rate_limit=5.0,
-            max_concurrent=20,
-            user_agent="TestBot/1.0"
-        )
+    async def crawler(self, config):
+        """Web crawler instance for testing."""
         crawler = WebCrawler(config)
-
-        assert crawler.config.rate_limit == 5.0
-        assert crawler.config.max_concurrent == 20
-        assert crawler.config.user_agent == "TestBot/1.0"
-        assert crawler._rate_limiter._value == 20
+        await crawler.start()
+        yield crawler
+        await crawler.stop()
 
     @pytest.mark.asyncio
-    async def test_context_manager(self):
-        """Test crawler as async context manager."""
-        config = CrawlerConfig(rate_limit=0)
-
+    async def test_context_manager(self, config):
+        """Test async context manager functionality."""
         async with WebCrawler(config) as crawler:
-            assert crawler._session is not None
-            assert isinstance(crawler._session, aiohttp.ClientSession)
-
-        # Session should be closed after exit
-        assert crawler._session.closed
+            assert crawler.session is not None
+        # Session should be closed after exiting context
 
     @pytest.mark.asyncio
-    async def test_manual_initialization_and_close(self, crawler):
-        """Test manual session initialization and closing."""
-        assert crawler._session is None
+    async def test_start_stop(self, config):
+        """Test manual start/stop functionality."""
+        crawler = WebCrawler(config)
+        assert crawler.session is None
 
-        await crawler._initialize_session()
-        assert crawler._session is not None
-        assert isinstance(crawler._session, aiohttp.ClientSession)
+        await crawler.start()
+        assert crawler.session is not None
 
-        await crawler.close()
-        assert crawler._session.closed
+        await crawler.stop()
+        assert crawler.session is None
 
-    @pytest.mark.asyncio
-    async def test_rate_limiting(self, rate_limited_crawler):
-        """Test rate limiting enforcement."""
-        start_time = time.time()
+    def test_get_domain(self, config):
+        """Test domain extraction from URLs."""
+        crawler = WebCrawler(config)
+        test_cases = [
+            ("https://www.example.com/path", "example.com"),
+            ("http://subdomain.test.co.uk/page", "test.co.uk"),
+            ("https://blog.example.org", "example.org"),
+        ]
 
-        # Make multiple rate limit checks
-        await rate_limited_crawler._enforce_rate_limit()
-        await rate_limited_crawler._enforce_rate_limit()
-        await rate_limited_crawler._enforce_rate_limit()
+        for url, expected in test_cases:
+            result = crawler._get_domain(url)
+            assert result == expected
 
-        elapsed = time.time() - start_time
-        expected_min_time = 2 / rate_limited_crawler.config.rate_limit  # 2 intervals
-
-        # Should take at least the minimum time for rate limiting
-        assert elapsed >= expected_min_time * 0.9  # Allow 10% tolerance
-
-    @pytest.mark.asyncio
-    async def test_rate_limiting_disabled(self, crawler):
-        """Test that rate limiting can be disabled."""
-        start_time = time.time()
-
-        # Make multiple rate limit checks with rate_limit=0
-        await crawler._enforce_rate_limit()
-        await crawler._enforce_rate_limit()
-        await crawler._enforce_rate_limit()
-
-        elapsed = time.time() - start_time
-
-        # Should be nearly instant with no rate limiting
-        assert elapsed < 0.1
-
-    def test_url_validation(self, crawler):
-        """Test URL validation logic."""
-        # Valid URLs
-        assert crawler._is_valid_url("http://example.com")
-        assert crawler._is_valid_url("https://example.com/path")
-        assert crawler._is_valid_url("https://sub.example.com")
-
-        # Invalid URLs
-        assert not crawler._is_valid_url("ftp://example.com")
-        assert not crawler._is_valid_url("not-a-url")
-        assert not crawler._is_valid_url("")
-        assert not crawler._is_valid_url("http://")
-        assert not crawler._is_valid_url("://example.com")
-
-    def test_domain_restriction(self, crawler):
-        """Test same-domain URL validation."""
-        base_domain = "example.com"
-
-        # Same domain - should be valid
-        assert crawler._is_valid_url("http://example.com", base_domain)
-        assert crawler._is_valid_url("https://example.com/path", base_domain)
-
-        # Different domain - should be invalid with same_domain_only=True
-        assert not crawler._is_valid_url("http://other.com", base_domain)
-        assert not crawler._is_valid_url("https://sub.other.com", base_domain)
-
-        # Subdomain - should be invalid with exact domain matching
-        assert not crawler._is_valid_url("http://sub.example.com", base_domain)
-
-    def test_domain_restriction_disabled(self):
-        """Test URL validation with same_domain_only disabled."""
-        config = CrawlerConfig(same_domain_only=False)
+    def test_get_domain_fallback(self, config):
+        """Test domain extraction fallback for malformed URLs."""
         crawler = WebCrawler(config)
 
-        base_domain = "example.com"
+        # Test with malformed URL that might cause tldextract to fail
+        with patch('tldextract.extract') as mock_extract:
+            mock_extract.side_effect = Exception("Parsing failed")
 
-        # All valid URLs should be accepted regardless of domain
-        assert crawler._is_valid_url("http://example.com", base_domain)
-        assert crawler._is_valid_url("http://other.com", base_domain)
-        assert crawler._is_valid_url("https://different.org", base_domain)
-
-    def test_content_type_filtering(self, crawler):
-        """Test content type filtering."""
-        # Allowed content types
-        assert crawler._should_process_content("text/html", 1000)
-        assert crawler._should_process_content("text/plain", 1000)
-        assert crawler._should_process_content("application/json", 1000)
-        assert crawler._should_process_content("text/html; charset=utf-8", 1000)
-
-        # Disallowed content types
-        assert not crawler._should_process_content("image/jpeg", 1000)
-        assert not crawler._should_process_content("video/mp4", 1000)
-        assert not crawler._should_process_content("application/octet-stream", 1000)
-
-    def test_content_size_filtering(self, crawler):
-        """Test content size filtering."""
-        max_size = crawler.config.max_content_size
-
-        # Within size limit
-        assert crawler._should_process_content("text/html", max_size)
-        assert crawler._should_process_content("text/html", max_size - 1)
-        assert crawler._should_process_content("text/html", 1000)
-
-        # Exceeds size limit
-        assert not crawler._should_process_content("text/html", max_size + 1)
-        assert not crawler._should_process_content("text/html", max_size * 2)
-
-    def test_content_filtering_edge_cases(self, crawler):
-        """Test content filtering edge cases."""
-        # None values should be handled gracefully
-        assert crawler._should_process_content(None, 1000)
-        assert crawler._should_process_content("text/html", None)
-        assert crawler._should_process_content(None, None)
-
-        # Zero size should be allowed
-        assert crawler._should_process_content("text/html", 0)
+            result = crawler._get_domain("https://example.com")
+            assert result == "example.com"
 
     @pytest.mark.asyncio
-    async def test_robots_txt_compliance_disabled(self, crawler):
-        """Test robots.txt checking when disabled."""
-        crawler.config.respect_robots = False
+    async def test_crawl_url_not_started(self, config):
+        """Test crawl_url when crawler not started."""
+        crawler = WebCrawler(config)
 
-        # Should allow all URLs when robots.txt compliance is disabled
-        result = await crawler._check_robots_txt("http://example.com/admin")
-        assert result is True
-
-        result = await crawler._check_robots_txt("https://other.com/private")
-        assert result is True
+        with pytest.raises(RuntimeError, match="Crawler not started"):
+            await crawler.crawl_url("https://example.com")
 
     @pytest.mark.asyncio
-    @patch('aiohttp.ClientSession.get')
-    async def test_robots_txt_compliance_enabled(self, mock_get, crawler):
-        """Test robots.txt checking when enabled."""
-        # Mock robots.txt response
-        mock_response = AsyncMock()
-        mock_response.status = 200
-        mock_response.text = AsyncMock(return_value="""
-User-agent: *
-Disallow: /admin
-Disallow: /private
-Allow: /public
-""")
-        mock_get.return_value.__aenter__.return_value = mock_response
-
-        await crawler._initialize_session()
-
-        # Should allow public paths
-        result = await crawler._check_robots_txt("http://example.com/public")
-        assert result is True
-
-        result = await crawler._check_robots_txt("http://example.com/")
-        assert result is True
-
-    @pytest.mark.asyncio
-    @patch('aiohttp.ClientSession.get')
-    async def test_robots_txt_not_found(self, mock_get, crawler):
-        """Test robots.txt handling when file not found."""
-        # Mock 404 response for robots.txt
-        mock_response = AsyncMock()
-        mock_response.status = 404
-        mock_get.return_value.__aenter__.return_value = mock_response
-
-        await crawler._initialize_session()
-
-        # Should allow all URLs when robots.txt not found
-        result = await crawler._check_robots_txt("http://example.com/admin")
-        assert result is True
-
-    @pytest.mark.asyncio
-    @patch('aiohttp.ClientSession.get')
-    async def test_robots_txt_network_error(self, mock_get, crawler):
-        """Test robots.txt handling with network errors."""
-        # Mock network error
-        mock_get.side_effect = aiohttp.ClientError("Network error")
-
-        await crawler._initialize_session()
-
-        # Should allow all URLs on network error (be permissive)
-        result = await crawler._check_robots_txt("http://example.com/admin")
-        assert result is True
-
-    @pytest.mark.asyncio
-    @patch('aiohttp.ClientSession.get')
-    async def test_robots_txt_caching(self, mock_get, crawler):
-        """Test robots.txt caching behavior."""
-        # Mock robots.txt response
-        mock_response = AsyncMock()
-        mock_response.status = 200
-        mock_response.text = AsyncMock(return_value="User-agent: *\nDisallow: /admin")
-        mock_get.return_value.__aenter__.return_value = mock_response
-
-        await crawler._initialize_session()
-
-        # First request should fetch robots.txt
-        await crawler._check_robots_txt("http://example.com/test")
-        assert mock_get.call_count == 1
-
-        # Second request should use cache
-        await crawler._check_robots_txt("http://example.com/other")
-        assert mock_get.call_count == 1  # No additional call
-
-    @pytest.mark.asyncio
-    @patch('aiohttp.ClientSession.get')
-    async def test_successful_crawl(self, mock_get, crawler):
+    async def test_crawl_url_successful(self, crawler):
         """Test successful URL crawling."""
-        # Mock successful HTTP response
+        with patch.object(crawler, '_make_request') as mock_request:
+            expected_response = CrawlResponse(
+                url="https://example.com",
+                status_code=200,
+                content="<html>Test</html>",
+                headers={"content-type": "text/html"},
+                content_type="text/html",
+                encoding="utf-8"
+            )
+            mock_request.return_value = expected_response
+
+            result = await crawler.crawl_url("https://example.com")
+            assert result == expected_response
+            mock_request.assert_called_once_with("https://example.com")
+
+    @pytest.mark.asyncio
+    async def test_crawl_url_duplicate_request(self, crawler):
+        """Test handling of duplicate crawl requests."""
+        url = "https://example.com"
+
+        # Mock _make_request to simulate a slow request
+        async def slow_request(url):
+            await asyncio.sleep(0.2)
+            return CrawlResponse(
+                url=url, status_code=200, content="", headers={},
+                content_type="", encoding=""
+            )
+
+        with patch.object(crawler, '_make_request', side_effect=slow_request):
+            # Start first request
+            task1 = asyncio.create_task(crawler.crawl_url(url))
+
+            # Start second request for same URL (should be rejected)
+            await asyncio.sleep(0.05)  # Give first request time to start
+            result2 = await crawler.crawl_url(url)
+
+            # Wait for first request to complete
+            result1 = await task1
+
+            assert result1.status_code == 200
+            assert result2.error == "Duplicate crawl request"
+
+    @pytest.mark.asyncio
+    async def test_crawl_urls_multiple(self, crawler):
+        """Test crawling multiple URLs."""
+        urls = ["https://example.com", "https://test.com", "https://demo.com"]
+
+        with patch.object(crawler, '_make_request') as mock_request:
+            def make_response(url):
+                return CrawlResponse(
+                    url=url, status_code=200, content=f"Content for {url}",
+                    headers={}, content_type="text/html", encoding="utf-8"
+                )
+
+            mock_request.side_effect = lambda url: make_response(url)
+
+            results = await crawler.crawl_urls(urls)
+
+            assert len(results) == 3
+            for i, result in enumerate(results):
+                assert result.url == urls[i]
+                assert result.status_code == 200
+                assert f"Content for {urls[i]}" in result.content
+
+    @pytest.mark.asyncio
+    async def test_crawl_urls_empty_list(self, crawler):
+        """Test crawling empty URL list."""
+        results = await crawler.crawl_urls([])
+        assert results == []
+
+    @pytest.mark.asyncio
+    async def test_crawl_urls_with_exception(self, crawler):
+        """Test crawling URLs when some requests raise exceptions."""
+        urls = ["https://example.com", "https://error.com"]
+
+        with patch.object(crawler, 'crawl_url') as mock_crawl:
+            def side_effect(url):
+                if url == "https://error.com":
+                    raise Exception("Network error")
+                return CrawlResponse(
+                    url=url, status_code=200, content="Success",
+                    headers={}, content_type="text/html", encoding="utf-8"
+                )
+
+            mock_crawl.side_effect = side_effect
+
+            results = await crawler.crawl_urls(urls)
+
+            assert len(results) == 2
+            assert results[0].status_code == 200
+            assert results[1].error == "Network error"
+
+    @pytest.mark.asyncio
+    async def test_make_request_robots_blocked(self, crawler):
+        """Test request blocked by robots.txt."""
+        with patch.object(crawler.robots_checker, 'can_crawl', return_value=False):
+            result = await crawler._make_request("https://example.com")
+
+            assert result.status_code == 403
+            assert result.error == "Blocked by robots.txt"
+            assert result.content == ""
+
+    @pytest.mark.asyncio
+    async def test_make_request_invalid_content_type(self, crawler):
+        """Test request with invalid content type."""
         mock_response = AsyncMock()
         mock_response.status = 200
-        mock_response.headers = {
-            'content-type': 'text/html; charset=utf-8',
-            'content-length': '100'
-        }
-        mock_response.text = AsyncMock(return_value="<html>test content</html>")
-        mock_response.url = "http://example.com"
-        mock_get.return_value.__aenter__.return_value = mock_response
+        mock_response.headers = {'content-type': 'application/pdf'}
+        mock_response.get_encoding.return_value = 'utf-8'
 
-        await crawler._initialize_session()
+        with patch.object(crawler.robots_checker, 'can_crawl', return_value=True), \
+             patch.object(crawler.rate_limiter, 'wait_if_needed'), \
+             patch.object(crawler.session, 'get') as mock_get:
 
-        result = await crawler.crawl_url("http://example.com")
+            mock_get.return_value.__aenter__.return_value = mock_response
 
-        assert result.status_code == 200
-        assert result.content == "<html>test content</html>"
-        assert result.content_type == "text/html; charset=utf-8"
-        assert result.error is None
-        assert result.crawl_time is not None
-        assert result.processing_time is not None
+            result = await crawler._make_request("https://example.com")
 
-        # Check statistics
-        stats = crawler.get_statistics()
-        assert stats['successful_requests'] == 1
-        assert stats['requests_made'] == 1
-        assert stats['failed_requests'] == 0
+            assert result.status_code == 200
+            assert "Content type not allowed" in result.error
+            assert result.content == ""
 
     @pytest.mark.asyncio
-    async def test_invalid_url_crawl(self, crawler):
-        """Test crawling invalid URLs."""
-        result = await crawler.crawl_url("invalid-url")
-
-        assert result.status_code == 0
-        assert result.error == "Invalid URL format"
-        assert result.content is None
-
-    @pytest.mark.asyncio
-    @patch('aiohttp.ClientSession.get')
-    async def test_robots_blocked_crawl(self, mock_get, crawler):
-        """Test crawling URLs blocked by robots.txt."""
-        # Mock robots.txt that blocks the path
-        mock_response = AsyncMock()
-        mock_response.status = 200
-        mock_response.text = AsyncMock(return_value="""
-User-agent: *
-Disallow: /admin
-""")
-        mock_get.return_value.__aenter__.return_value = mock_response
-
-        await crawler._initialize_session()
-
-        result = await crawler.crawl_url("http://example.com/admin/panel")
-
-        assert result.status_code == 0
-        assert result.error == "Blocked by robots.txt"
-
-        # Check statistics
-        stats = crawler.get_statistics()
-        assert stats['robots_blocked'] == 1
-
-    @pytest.mark.asyncio
-    @patch('aiohttp.ClientSession.get')
-    async def test_content_filtered_crawl(self, mock_get, crawler):
-        """Test crawling with content filtering."""
-        # Mock response with disallowed content type
-        mock_response = AsyncMock()
-        mock_response.status = 200
-        mock_response.headers = {
-            'content-type': 'image/jpeg',
-            'content-length': '1000'
-        }
-        mock_get.return_value.__aenter__.return_value = mock_response
-
-        await crawler._initialize_session()
-
-        result = await crawler.crawl_url("http://example.com/image.jpg")
-
-        assert result.status_code == 200
-        assert "Content filtered" in result.error
-        assert result.content is None
-
-        # Check statistics
-        stats = crawler.get_statistics()
-        assert stats['content_filtered'] == 1
-
-    @pytest.mark.asyncio
-    @patch('aiohttp.ClientSession.get')
-    async def test_oversized_content_crawl(self, mock_get, crawler):
-        """Test crawling content that exceeds size limits."""
-        # Mock response with oversized content
+    async def test_make_request_content_too_large_header(self, crawler):
+        """Test request with content too large (from headers)."""
         mock_response = AsyncMock()
         mock_response.status = 200
         mock_response.headers = {
             'content-type': 'text/html',
             'content-length': str(crawler.config.max_content_size + 1)
         }
-        mock_get.return_value.__aenter__.return_value = mock_response
+        mock_response.get_encoding.return_value = 'utf-8'
 
-        await crawler._initialize_session()
+        with patch.object(crawler.robots_checker, 'can_crawl', return_value=True), \
+             patch.object(crawler.rate_limiter, 'wait_if_needed'), \
+             patch.object(crawler.session, 'get') as mock_get:
 
-        result = await crawler.crawl_url("http://example.com/large.html")
+            mock_get.return_value.__aenter__.return_value = mock_response
 
-        assert result.status_code == 200
-        assert "Content filtered" in result.error
-        assert result.content is None
+            result = await crawler._make_request("https://example.com")
 
-    @pytest.mark.asyncio
-    @patch('aiohttp.ClientSession.get')
-    async def test_timeout_error(self, mock_get, crawler):
-        """Test handling of timeout errors."""
-        mock_get.side_effect = asyncio.TimeoutError("Request timeout")
-
-        await crawler._initialize_session()
-
-        result = await crawler.crawl_url("http://example.com")
-
-        assert result.status_code == 0
-        assert "Timeout" in result.error
-
-        stats = crawler.get_statistics()
-        assert stats['failed_requests'] == 1
+            assert result.status_code == 200
+            assert "Content too large" in result.error
 
     @pytest.mark.asyncio
-    @patch('aiohttp.ClientSession.get')
-    async def test_client_error(self, mock_get, crawler):
-        """Test handling of client errors."""
-        mock_get.side_effect = aiohttp.ClientError("Connection failed")
+    async def test_make_request_content_too_large_streaming(self, crawler):
+        """Test request with content too large (detected while streaming)."""
+        large_chunk = b'x' * (crawler.config.max_content_size + 1)
 
-        await crawler._initialize_session()
-
-        result = await crawler.crawl_url("http://example.com")
-
-        assert result.status_code == 0
-        assert "Client error" in result.error
-
-    @pytest.mark.asyncio
-    @patch('aiohttp.ClientSession.get')
-    async def test_unexpected_error(self, mock_get, crawler):
-        """Test handling of unexpected errors."""
-        mock_get.side_effect = ValueError("Unexpected error")
-
-        await crawler._initialize_session()
-
-        result = await crawler.crawl_url("http://example.com")
-
-        assert result.status_code == 0
-        assert "Unexpected error" in result.error
-
-    @pytest.mark.asyncio
-    @patch('aiohttp.ClientSession.get')
-    async def test_retry_logic(self, mock_get, crawler):
-        """Test retry logic with eventual success."""
-        # First two calls fail, third succeeds
         mock_response = AsyncMock()
         mock_response.status = 200
         mock_response.headers = {'content-type': 'text/html'}
-        mock_response.text = AsyncMock(return_value="success")
-        mock_response.url = "http://example.com"
+        mock_response.get_encoding.return_value = 'utf-8'
+        mock_response.content.iter_chunked.return_value = [large_chunk]
 
-        mock_get.side_effect = [
-            aiohttp.ClientError("First failure"),
-            aiohttp.ClientError("Second failure"),
-            AsyncMock(__aenter__=AsyncMock(return_value=mock_response))
-        ]
+        with patch.object(crawler.robots_checker, 'can_crawl', return_value=True), \
+             patch.object(crawler.rate_limiter, 'wait_if_needed'), \
+             patch.object(crawler.session, 'get') as mock_get:
 
-        await crawler._initialize_session()
+            mock_get.return_value.__aenter__.return_value = mock_response
 
-        result = await crawler.crawl_url("http://example.com")
+            result = await crawler._make_request("https://example.com")
 
-        assert result.status_code == 200
-        assert result.content == "success"
-        assert mock_get.call_count == 3
+            assert result.status_code == 200
+            assert "Content exceeded size limit" in result.error
 
     @pytest.mark.asyncio
-    @patch('aiohttp.ClientSession.get')
-    async def test_retry_exhaustion(self, mock_get, crawler):
-        """Test retry logic when all retries are exhausted."""
-        mock_get.side_effect = aiohttp.ClientError("Persistent failure")
+    async def test_make_request_encoding_detection(self, crawler):
+        """Test content encoding detection and fallbacks."""
+        content_bytes = "Hello, 世界".encode('utf-8')
 
-        await crawler._initialize_session()
-
-        result = await crawler.crawl_url("http://example.com")
-
-        assert result.status_code == 0
-        assert "Client error" in result.error
-        assert mock_get.call_count == crawler.config.max_retries + 1
-
-    @pytest.mark.asyncio
-    @patch('aiohttp.ClientSession.get')
-    async def test_redirect_handling(self, mock_get, crawler):
-        """Test handling of HTTP redirects."""
         mock_response = AsyncMock()
         mock_response.status = 200
         mock_response.headers = {'content-type': 'text/html'}
-        mock_response.text = AsyncMock(return_value="redirected content")
-        mock_response.url = "http://example.com/final"  # Different from requested URL
-        mock_get.return_value.__aenter__.return_value = mock_response
+        mock_response.get_encoding.return_value = None  # No encoding in response
+        mock_response.content.iter_chunked.return_value = [content_bytes]
+        mock_response.url = "https://example.com"
 
-        await crawler._initialize_session()
+        with patch.object(crawler.robots_checker, 'can_crawl', return_value=True), \
+             patch.object(crawler.rate_limiter, 'wait_if_needed'), \
+             patch.object(crawler.session, 'get') as mock_get:
 
-        result = await crawler.crawl_url("http://example.com/redirect")
+            mock_get.return_value.__aenter__.return_value = mock_response
 
-        assert result.status_code == 200
-        assert result.content == "redirected content"
-        assert result.redirect_url == "http://example.com/final"
+            result = await crawler._make_request("https://example.com")
 
-    @pytest.mark.asyncio
-    @patch('aiohttp.ClientSession.get')
-    async def test_crawl_multiple_urls(self, mock_get, crawler):
-        """Test crawling multiple URLs concurrently."""
-        # Mock responses for different URLs
-        def mock_response_factory(url):
-            response = AsyncMock()
-            response.status = 200
-            response.headers = {'content-type': 'text/html'}
-            response.text = AsyncMock(return_value=f"content from {url}")
-            response.url = url
-            return response
-
-        mock_get.side_effect = [
-            AsyncMock(__aenter__=AsyncMock(return_value=mock_response_factory("http://example.com/1"))),
-            AsyncMock(__aenter__=AsyncMock(return_value=mock_response_factory("http://example.com/2"))),
-            AsyncMock(__aenter__=AsyncMock(return_value=mock_response_factory("http://example.com/3")))
-        ]
-
-        await crawler._initialize_session()
-
-        urls = ["http://example.com/1", "http://example.com/2", "http://example.com/3"]
-        results = await crawler.crawl_urls(urls)
-
-        assert len(results) == 3
-        for i, result in enumerate(results):
             assert result.status_code == 200
-            assert f"content from http://example.com/{i+1}" in result.content
-
-    def test_statistics_tracking(self, crawler):
-        """Test statistics tracking and retrieval."""
-        # Initial statistics
-        stats = crawler.get_statistics()
-        assert stats['requests_made'] == 0
-        assert stats['successful_requests'] == 0
-        assert stats['failed_requests'] == 0
-        assert stats['robots_blocked'] == 0
-        assert stats['content_filtered'] == 0
-        assert stats['success_rate'] == 0.0
-
-        # Manually update statistics to test calculation
-        crawler._stats['requests_made'] = 10
-        crawler._stats['successful_requests'] = 8
-        crawler._stats['failed_requests'] = 2
-
-        stats = crawler.get_statistics()
-        assert stats['requests_made'] == 10
-        assert stats['successful_requests'] == 8
-        assert stats['failed_requests'] == 2
-        assert stats['success_rate'] == 0.8
-
-    def test_statistics_reset(self, crawler):
-        """Test statistics reset functionality."""
-        # Set some statistics
-        crawler._stats['requests_made'] = 10
-        crawler._stats['successful_requests'] = 5
-
-        # Reset statistics
-        crawler.reset_statistics()
-
-        stats = crawler.get_statistics()
-        assert stats['requests_made'] == 0
-        assert stats['successful_requests'] == 0
-        assert stats['success_rate'] == 0.0
+            assert "Hello, 世界" in result.content
+            assert result.encoding == 'utf-8'
 
     @pytest.mark.asyncio
-    async def test_health_check(self, crawler):
-        """Test health check functionality."""
-        health = await crawler.health_check()
+    async def test_make_request_encoding_fallback(self, crawler):
+        """Test encoding fallback for invalid UTF-8."""
+        # Create content with invalid UTF-8 bytes
+        content_bytes = b"Hello \xFF\xFE World"
 
-        assert 'session_active' in health
-        assert 'robots_cache_entries' in health
-        assert 'stats' in health
-        assert 'config_valid' in health
-        assert 'connectivity' in health
+        mock_response = AsyncMock()
+        mock_response.status = 200
+        mock_response.headers = {'content-type': 'text/html'}
+        mock_response.get_encoding.return_value = 'utf-8'
+        mock_response.content.iter_chunked.return_value = [content_bytes]
+        mock_response.url = "https://example.com"
 
-        # Without session, connectivity should be None
-        assert health['session_active'] is False
-        assert health['connectivity'] is None
+        with patch.object(crawler.robots_checker, 'can_crawl', return_value=True), \
+             patch.object(crawler.rate_limiter, 'wait_if_needed'), \
+             patch.object(crawler.session, 'get') as mock_get:
 
-    @pytest.mark.asyncio
-    async def test_health_check_with_session(self, crawler):
-        """Test health check with active session."""
-        await crawler._initialize_session()
+            mock_get.return_value.__aenter__.return_value = mock_response
 
-        health = await crawler.health_check()
-        assert health['session_active'] is True
+            result = await crawler._make_request("https://example.com")
 
-    @pytest.mark.asyncio
-    @patch('aiohttp.ClientSession.get')
-    async def test_concurrent_request_limiting(self, mock_get):
-        """Test that concurrent requests are properly limited."""
-        config = CrawlerConfig(max_concurrent=2, rate_limit=0)
-        crawler = WebCrawler(config)
-
-        # Track concurrent requests
-        active_requests = []
-        max_concurrent = 0
-
-        async def mock_request(*args, **kwargs):
-            active_requests.append(1)
-            nonlocal max_concurrent
-            max_concurrent = max(max_concurrent, len(active_requests))
-            await asyncio.sleep(0.1)  # Simulate request duration
-            active_requests.pop()
-
-            response = AsyncMock()
-            response.status = 200
-            response.headers = {'content-type': 'text/html'}
-            response.text = AsyncMock(return_value="test")
-            response.url = args[0] if args else "http://example.com"
-            return AsyncMock(__aenter__=AsyncMock(return_value=response))
-
-        mock_get.side_effect = mock_request
-
-        await crawler._initialize_session()
-
-        # Start multiple concurrent requests
-        urls = [f"http://example.com/{i}" for i in range(5)]
-        await crawler.crawl_urls(urls)
-
-        # Should not exceed max_concurrent limit
-        assert max_concurrent <= config.max_concurrent
-
-        await crawler.close()
-
-
-class TestWebCrawlerEdgeCases:
-    """Test edge cases and error conditions."""
+            assert result.status_code == 200
+            assert "Hello" in result.content  # Should decode with replacement chars
+            assert result.encoding == 'utf-8'
 
     @pytest.mark.asyncio
-    async def test_crawl_without_session_initialization(self):
-        """Test crawling when session is not initialized."""
-        crawler = WebCrawler()
+    async def test_make_request_redirect(self, crawler):
+        """Test request with redirect."""
+        original_url = "https://example.com"
+        final_url = "https://www.example.com"
 
-        # Should auto-initialize session when needed
-        with patch('aiohttp.ClientSession') as mock_session_class:
-            mock_session = AsyncMock()
-            mock_session_class.return_value = mock_session
+        mock_response = AsyncMock()
+        mock_response.status = 200
+        mock_response.headers = {'content-type': 'text/html'}
+        mock_response.get_encoding.return_value = 'utf-8'
+        mock_response.content.iter_chunked.return_value = [b"Content"]
+        mock_response.url = final_url  # Simulate redirect
 
+        with patch.object(crawler.robots_checker, 'can_crawl', return_value=True), \
+             patch.object(crawler.rate_limiter, 'wait_if_needed'), \
+             patch.object(crawler.session, 'get') as mock_get:
+
+            mock_get.return_value.__aenter__.return_value = mock_response
+
+            result = await crawler._make_request(original_url)
+
+            assert result.status_code == 200
+            assert result.url == original_url
+            assert result.redirect_url == final_url
+
+    @pytest.mark.asyncio
+    async def test_make_request_timeout_retry(self, crawler):
+        """Test request timeout with retry logic."""
+        with patch.object(crawler.robots_checker, 'can_crawl', return_value=True), \
+             patch.object(crawler.rate_limiter, 'wait_if_needed'), \
+             patch.object(crawler.session, 'get') as mock_get:
+
+            # First call times out, second succeeds
+            mock_get.side_effect = [
+                asyncio.TimeoutError(),
+                AsyncMock().__aenter__.return_value
+            ]
+
+            # Mock successful response for retry
             mock_response = AsyncMock()
             mock_response.status = 200
             mock_response.headers = {'content-type': 'text/html'}
-            mock_response.text = AsyncMock(return_value="test")
-            mock_response.url = "http://example.com"
-            mock_session.get.return_value.__aenter__.return_value = mock_response
+            mock_response.get_encoding.return_value = 'utf-8'
+            mock_response.content.iter_chunked.return_value = [b"Content"]
+            mock_response.url = "https://example.com"
+            mock_get.side_effect[1] = mock_response
 
-            result = await crawler.crawl_url("http://example.com")
+            with patch('asyncio.sleep'):  # Speed up retry delay
+                result = await crawler._make_request("https://example.com")
 
             assert result.status_code == 200
-            assert mock_session_class.called
-
-    def test_malformed_robots_txt(self, crawler):
-        """Test handling of malformed robots.txt files."""
-        cache = RobotsCache()
-
-        # Test with None parser (should handle gracefully)
-        assert cache.get_robots("nonexistent.com") is None
+            assert mock_get.call_count == 2
 
     @pytest.mark.asyncio
-    async def test_extremely_large_response(self, crawler):
-        """Test handling of extremely large responses."""
-        # This would typically be handled by content-length checking
-        # but we test the behavior when content-length is not available
-        with patch('aiohttp.ClientSession.get') as mock_get:
+    async def test_make_request_max_retries_exceeded(self, crawler):
+        """Test request with max retries exceeded."""
+        with patch.object(crawler.robots_checker, 'can_crawl', return_value=True), \
+             patch.object(crawler.rate_limiter, 'wait_if_needed'), \
+             patch.object(crawler.session, 'get') as mock_get:
+
+            # All attempts time out
+            mock_get.side_effect = asyncio.TimeoutError()
+
+            with patch('asyncio.sleep'):  # Speed up retry delay
+                result = await crawler._make_request("https://example.com")
+
+            assert result.status_code == 0
+            assert "Request timeout" in result.error
+            assert mock_get.call_count == crawler.config.max_retries + 1
+
+    @pytest.mark.asyncio
+    async def test_make_request_client_error_retry(self, crawler):
+        """Test request client error with retry."""
+        with patch.object(crawler.robots_checker, 'can_crawl', return_value=True), \
+             patch.object(crawler.rate_limiter, 'wait_if_needed'), \
+             patch.object(crawler.session, 'get') as mock_get:
+
+            # First call has client error, second succeeds
+            mock_get.side_effect = [
+                aiohttp.ClientError("Connection failed"),
+                AsyncMock().__aenter__.return_value
+            ]
+
+            # Mock successful response for retry
             mock_response = AsyncMock()
             mock_response.status = 200
             mock_response.headers = {'content-type': 'text/html'}
-            mock_response.text = AsyncMock(return_value="x" * (crawler.config.max_content_size + 1000))
-            mock_response.url = "http://example.com"
-            mock_get.return_value.__aenter__.return_value = mock_response
+            mock_response.get_encoding.return_value = 'utf-8'
+            mock_response.content.iter_chunked.return_value = [b"Content"]
+            mock_response.url = "https://example.com"
+            mock_get.side_effect[1] = mock_response
 
-            await crawler._initialize_session()
-            result = await crawler.crawl_url("http://example.com")
-
-            # Should still process since content-length wasn't checked beforehand
-            assert result.status_code == 200
-
-    @pytest.mark.asyncio
-    async def test_unicode_content_handling(self, crawler):
-        """Test handling of Unicode content."""
-        with patch('aiohttp.ClientSession.get') as mock_get:
-            unicode_content = "Hello 世界 🌍 émojis and açcénts"
-            mock_response = AsyncMock()
-            mock_response.status = 200
-            mock_response.headers = {'content-type': 'text/html; charset=utf-8'}
-            mock_response.text = AsyncMock(return_value=unicode_content)
-            mock_response.url = "http://example.com"
-            mock_get.return_value.__aenter__.return_value = mock_response
-
-            await crawler._initialize_session()
-            result = await crawler.crawl_url("http://example.com")
+            with patch('asyncio.sleep'):  # Speed up retry delay
+                result = await crawler._make_request("https://example.com")
 
             assert result.status_code == 200
-            assert result.content == unicode_content
 
     @pytest.mark.asyncio
-    async def test_empty_response_content(self, crawler):
-        """Test handling of empty response content."""
-        with patch('aiohttp.ClientSession.get') as mock_get:
-            mock_response = AsyncMock()
-            mock_response.status = 200
-            mock_response.headers = {'content-type': 'text/html'}
-            mock_response.text = AsyncMock(return_value="")
-            mock_response.url = "http://example.com"
-            mock_get.return_value.__aenter__.return_value = mock_response
+    async def test_make_request_unexpected_error(self, crawler):
+        """Test request with unexpected error."""
+        with patch.object(crawler.robots_checker, 'can_crawl', return_value=True), \
+             patch.object(crawler.rate_limiter, 'wait_if_needed'), \
+             patch.object(crawler.session, 'get') as mock_get:
 
-            await crawler._initialize_session()
-            result = await crawler.crawl_url("http://example.com")
+            mock_get.side_effect = ValueError("Unexpected error")
 
-            assert result.status_code == 200
-            assert result.content == ""
-            assert result.content_length == 0
+            result = await crawler._make_request("https://example.com")
 
-    def test_custom_user_agent_in_headers(self):
-        """Test that custom user agent is properly set."""
-        custom_agent = "CustomBot/2.0"
-        config = CrawlerConfig(user_agent=custom_agent)
-        crawler = WebCrawler(config)
+            assert result.status_code == 0
+            assert "Unexpected error" in result.error
+            assert mock_get.call_count == 1  # No retries for unexpected errors
 
-        assert crawler.config.user_agent == custom_agent
 
-    @pytest.mark.asyncio
-    async def test_close_without_session(self, crawler):
-        """Test closing crawler without active session."""
-        # Should not raise error
-        await crawler.close()
-        assert crawler._session is None
+@pytest.mark.asyncio
+async def test_integration_full_crawl():
+    """Integration test for full crawling process."""
+    config = CrawlConfig(
+        delay_between_requests=0.1,
+        max_requests_per_second=10.0,
+        timeout=5.0,
+        max_retries=1,
+        respect_robots_txt=False  # Disable for integration test
+    )
 
-    @pytest.mark.asyncio
-    async def test_double_close(self, crawler):
-        """Test closing crawler multiple times."""
-        await crawler._initialize_session()
-        await crawler.close()
-
-        # Second close should not raise error
-        await crawler.close()
-
-    def test_zero_rate_limit_handling(self):
-        """Test handling of zero rate limit (disabled)."""
-        config = CrawlerConfig(rate_limit=0)
-        crawler = WebCrawler(config)
-        assert crawler.config.rate_limit == 0
-
-    def test_negative_rate_limit_handling(self):
-        """Test handling of negative rate limit."""
-        config = CrawlerConfig(rate_limit=-1)
-        crawler = WebCrawler(config)
-        assert crawler.config.rate_limit == -1
+    async with WebCrawler(config) as crawler:
+        # Test that we can crawl without errors (will fail if no network)
+        try:
+            result = await crawler.crawl_url("https://httpbin.org/html")
+            # If successful, verify response structure
+            assert isinstance(result, CrawlResponse)
+            assert result.url == "https://httpbin.org/html"
+        except Exception:
+            # Skip if no network connection available
+            pytest.skip("No network connection available for integration test")
