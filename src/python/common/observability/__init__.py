@@ -30,7 +30,7 @@ from .metrics import MetricsCollector, metrics_instance, record_operation
 
 # Import logging functions from the new loguru-based system
 from loguru import logger
-from python.common.logging import LogContext, PerformanceLogger
+from common.logging import LogContext, PerformanceLogger
 from .monitoring import (
     BatchOperationMonitor,
     OperationMonitor,
