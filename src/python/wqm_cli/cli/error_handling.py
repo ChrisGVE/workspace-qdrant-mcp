@@ -234,8 +234,21 @@ class ErrorHandler:
         error_type = type(exception).__name__
         error_message = str(exception).lower()
 
-        # Pattern matching for common errors
-        if "connection refused" in error_message or "connection failed" in error_message:
+        # Pattern matching by exception type first
+        if error_type in ["ConnectionRefusedError", "ConnectionError", "ConnectionResetError"]:
+            return self._handle_connection_refused(exception, context)
+        elif error_type in ["FileNotFoundError", "NotADirectoryError"]:
+            return self._handle_file_not_found(exception, context)
+        elif error_type in ["PermissionError"]:
+            return self._handle_permission_denied(exception, context)
+        elif error_type in ["TimeoutError"]:
+            return self._handle_network_timeout(exception, context)
+        elif error_type in ["OSError"] and ("no space left" in error_message or "disk full" in error_message):
+            return self._handle_disk_space(exception, context)
+        elif error_type == "ValidationError":
+            return self._handle_config_invalid(exception, context)
+        # Pattern matching by message content for generic exceptions
+        elif "connection refused" in error_message or "connection failed" in error_message:
             return self._handle_connection_refused(exception, context)
         elif "no such file or directory" in error_message or "file not found" in error_message:
             return self._handle_file_not_found(exception, context)
@@ -247,8 +260,6 @@ class ErrorHandler:
             return self._handle_network_timeout(exception, context)
         elif "no space left" in error_message or "disk full" in error_message:
             return self._handle_disk_space(exception, context)
-        elif error_type == "ValidationError":
-            return self._handle_config_invalid(exception, context)
         elif error_type == "CommandNotFoundError" or "command not found" in error_message:
             return self._handle_invalid_command(exception, context)
         else:
