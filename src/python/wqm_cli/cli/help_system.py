@@ -325,6 +325,9 @@ class InteractiveHelpSystem:
                 all_commands.append(f"{cmd_name} {sub}")
 
         # Use difflib for fuzzy matching
+        if limit <= 0:
+            return []
+
         matches = difflib.get_close_matches(
             partial_command, all_commands, n=limit, cutoff=0.3
         )
