@@ -1,0 +1,493 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{{ config.project.name or "Documentation" }} - Interactive Documentation</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            line-height: 1.6;
+            color: #333;
+            background-color: #f8f9fa;
+        }
+
+        .header {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            padding: 2rem 0;
+            text-align: center;
+        }
+
+        .header h1 {
+            font-size: 2.5rem;
+            margin-bottom: 0.5rem;
+        }
+
+        .header p {
+            font-size: 1.2rem;
+            opacity: 0.9;
+        }
+
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 0 20px;
+        }
+
+        .main-content {
+            display: grid;
+            grid-template-columns: 1fr 2fr;
+            gap: 2rem;
+            padding: 2rem 0;
+        }
+
+        .sidebar {
+            background: white;
+            border-radius: 8px;
+            box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+            padding: 1.5rem;
+            height: fit-content;
+            position: sticky;
+            top: 2rem;
+        }
+
+        .sidebar h2 {
+            margin-bottom: 1rem;
+            color: #495057;
+            border-bottom: 2px solid #e9ecef;
+            padding-bottom: 0.5rem;
+        }
+
+        .module-list {
+            list-style: none;
+        }
+
+        .module-item {
+            margin-bottom: 0.5rem;
+        }
+
+        .module-link {
+            display: block;
+            padding: 0.75rem;
+            background: #f8f9fa;
+            border-radius: 4px;
+            text-decoration: none;
+            color: #495057;
+            transition: all 0.3s ease;
+        }
+
+        .module-link:hover {
+            background: #e9ecef;
+            color: #212529;
+            transform: translateX(5px);
+        }
+
+        .module-name {
+            font-weight: 600;
+            display: block;
+        }
+
+        .module-description {
+            font-size: 0.875rem;
+            color: #6c757d;
+            margin-top: 0.25rem;
+        }
+
+        .content-area {
+            background: white;
+            border-radius: 8px;
+            box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+            padding: 2rem;
+        }
+
+        .welcome-section {
+            text-align: center;
+            padding: 3rem 0;
+        }
+
+        .welcome-section h2 {
+            font-size: 2rem;
+            margin-bottom: 1rem;
+            color: #495057;
+        }
+
+        .welcome-section p {
+            font-size: 1.1rem;
+            color: #6c757d;
+            max-width: 600px;
+            margin: 0 auto 2rem;
+        }
+
+        .feature-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+            gap: 1.5rem;
+            margin-top: 2rem;
+        }
+
+        .feature-card {
+            background: #f8f9fa;
+            border-radius: 8px;
+            padding: 1.5rem;
+            text-align: center;
+            transition: transform 0.3s ease;
+        }
+
+        .feature-card:hover {
+            transform: translateY(-5px);
+        }
+
+        .feature-icon {
+            font-size: 2.5rem;
+            margin-bottom: 1rem;
+        }
+
+        .feature-card h3 {
+            margin-bottom: 0.5rem;
+            color: #495057;
+        }
+
+        .feature-card p {
+            color: #6c757d;
+            font-size: 0.9rem;
+        }
+
+        .search-box {
+            width: 100%;
+            padding: 0.75rem;
+            border: 1px solid #dee2e6;
+            border-radius: 4px;
+            font-size: 1rem;
+            margin-bottom: 1rem;
+        }
+
+        .search-box:focus {
+            outline: none;
+            border-color: #667eea;
+            box-shadow: 0 0 0 2px rgba(102, 126, 234, 0.25);
+        }
+
+        .stats {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 1rem;
+            margin-bottom: 2rem;
+        }
+
+        .stat-card {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            padding: 1.5rem;
+            border-radius: 8px;
+            text-align: center;
+        }
+
+        .stat-number {
+            font-size: 2rem;
+            font-weight: bold;
+            display: block;
+        }
+
+        .stat-label {
+            font-size: 0.9rem;
+            opacity: 0.9;
+        }
+
+        .api-links {
+            margin-top: 2rem;
+            padding: 1rem;
+            background: #e9ecef;
+            border-radius: 4px;
+        }
+
+        .api-links h3 {
+            margin-bottom: 0.5rem;
+        }
+
+        .api-links a {
+            color: #667eea;
+            text-decoration: none;
+            margin-right: 1rem;
+        }
+
+        .api-links a:hover {
+            text-decoration: underline;
+        }
+
+        @media (max-width: 768px) {
+            .main-content {
+                grid-template-columns: 1fr;
+            }
+
+            .header h1 {
+                font-size: 2rem;
+            }
+
+            .feature-grid {
+                grid-template-columns: 1fr;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="header">
+        <div class="container">
+            <h1>{{ config.project.name or "Interactive Documentation" }}</h1>
+            <p>{{ config.project.description or "Live documentation with executable examples" }}</p>
+        </div>
+    </div>
+
+    <div class="container">
+        <div class="main-content">
+            <div class="sidebar">
+                <h2>Modules</h2>
+                <input type="text" class="search-box" placeholder="Search modules..." id="moduleSearch">
+                {% if modules %}
+                <ul class="module-list" id="moduleList">
+                    {% for module in modules %}
+                    <li class="module-item">
+                        <a href="#module-{{ module.name }}" class="module-link" data-module="{{ module.name }}">
+                            <span class="module-name">{{ module.name }}</span>
+                            {% if module.docstring %}
+                            <span class="module-description">
+                                {{ module.docstring.split('\n')[0][:80] }}{% if module.docstring.split('\n')[0]|length > 80 %}...{% endif %}
+                            </span>
+                            {% endif %}
+                        </a>
+                    </li>
+                    {% endfor %}
+                </ul>
+                {% else %}
+                <p>No modules loaded. Check your configuration.</p>
+                {% endif %}
+
+                <div class="api-links">
+                    <h3>API Endpoints</h3>
+                    <a href="/api/modules">All Modules</a>
+                    <a href="/health">Health Check</a>
+                </div>
+            </div>
+
+            <div class="content-area">
+                <div class="welcome-section">
+                    <h2>Welcome to Interactive Documentation</h2>
+                    <p>
+                        Explore your codebase with live examples, execute code snippets,
+                        and discover APIs through an interactive interface.
+                    </p>
+
+                    {% if modules %}
+                    <div class="stats">
+                        <div class="stat-card">
+                            <span class="stat-number">{{ modules|length }}</span>
+                            <span class="stat-label">Modules</span>
+                        </div>
+                        <div class="stat-card">
+                            <span class="stat-number">{{ modules|sum(attribute='children')|length }}</span>
+                            <span class="stat-label">Total Members</span>
+                        </div>
+                        <div class="stat-card">
+                            <span class="stat-number">100%</span>
+                            <span class="stat-label">Live Examples</span>
+                        </div>
+                    </div>
+                    {% endif %}
+
+                    <div class="feature-grid">
+                        <div class="feature-card">
+                            <div class="feature-icon">🚀</div>
+                            <h3>Live Code Execution</h3>
+                            <p>Run code examples directly in your browser with a secure sandbox environment</p>
+                        </div>
+                        <div class="feature-card">
+                            <div class="feature-icon">🔍</div>
+                            <h3>Interactive Search</h3>
+                            <p>Find functions, classes, and documentation with intelligent search</p>
+                        </div>
+                        <div class="feature-card">
+                            <div class="feature-icon">📊</div>
+                            <h3>Quality Metrics</h3>
+                            <p>View documentation coverage and quality scores for your codebase</p>
+                        </div>
+                        <div class="feature-card">
+                            <div class="feature-icon">🔗</div>
+                            <h3>Link Validation</h3>
+                            <p>Automatically validate all links and references in your documentation</p>
+                        </div>
+                    </div>
+                </div>
+
+                <div id="module-content" style="display: none;">
+                    <!-- Module content will be loaded here -->
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // Module search functionality
+        const moduleSearch = document.getElementById('moduleSearch');
+        const moduleList = document.getElementById('moduleList');
+        const originalModules = moduleList ? moduleList.innerHTML : '';
+
+        if (moduleSearch) {
+            moduleSearch.addEventListener('input', (e) => {
+                const query = e.target.value.toLowerCase();
+                const moduleItems = document.querySelectorAll('.module-item');
+
+                moduleItems.forEach(item => {
+                    const moduleName = item.querySelector('.module-name').textContent.toLowerCase();
+                    const moduleDesc = item.querySelector('.module-description');
+                    const description = moduleDesc ? moduleDesc.textContent.toLowerCase() : '';
+
+                    if (moduleName.includes(query) || description.includes(query)) {
+                        item.style.display = 'block';
+                    } else {
+                        item.style.display = 'none';
+                    }
+                });
+            });
+        }
+
+        // Module loading functionality
+        const moduleLinks = document.querySelectorAll('.module-link');
+        const moduleContent = document.getElementById('module-content');
+        const welcomeSection = document.querySelector('.welcome-section');
+
+        moduleLinks.forEach(link => {
+            link.addEventListener('click', async (e) => {
+                e.preventDefault();
+                const moduleName = link.dataset.module;
+
+                if (!moduleName) return;
+
+                try {
+                    // Show loading
+                    moduleContent.innerHTML = '<div style="text-align: center; padding: 2rem;">Loading...</div>';
+                    welcomeSection.style.display = 'none';
+                    moduleContent.style.display = 'block';
+
+                    // Fetch module data
+                    const response = await fetch(`/api/modules/${moduleName}`);
+                    if (!response.ok) throw new Error('Failed to load module');
+
+                    const moduleData = await response.json();
+
+                    // Render module content
+                    renderModuleContent(moduleData);
+
+                    // Update active state
+                    moduleLinks.forEach(l => l.classList.remove('active'));
+                    link.classList.add('active');
+
+                } catch (error) {
+                    moduleContent.innerHTML = `<div style="color: #dc3545; text-align: center; padding: 2rem;">Error loading module: ${error.message}</div>`;
+                }
+            });
+        });
+
+        function renderModuleContent(moduleData) {
+            const content = `
+                <div>
+                    <div style="border-bottom: 2px solid #e9ecef; padding-bottom: 1rem; margin-bottom: 2rem;">
+                        <h1>${moduleData.name}</h1>
+                        ${moduleData.docstring ? `<p style="color: #6c757d; margin-top: 0.5rem;">${moduleData.docstring}</p>` : ''}
+                        ${moduleData.source_file ? `<p style="font-size: 0.875rem; color: #6c757d; margin-top: 0.5rem;">Source: ${moduleData.source_file}</p>` : ''}
+                    </div>
+
+                    <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 1rem; margin-bottom: 2rem;">
+                        <div style="padding: 1rem; background: #f8f9fa; border-radius: 4px; text-align: center;">
+                            <div style="font-size: 1.5rem; font-weight: bold; color: #495057;">${moduleData.children.length}</div>
+                            <div style="color: #6c757d;">Members</div>
+                        </div>
+                        <div style="padding: 1rem; background: #f8f9fa; border-radius: 4px; text-align: center;">
+                            <div style="font-size: 1.5rem; font-weight: bold; color: #495057;">
+                                ${moduleData.children.filter(c => c.type === 'class').length}
+                            </div>
+                            <div style="color: #6c757d;">Classes</div>
+                        </div>
+                        <div style="padding: 1rem; background: #f8f9fa; border-radius: 4px; text-align: center;">
+                            <div style="font-size: 1.5rem; font-weight: bold; color: #495057;">
+                                ${moduleData.children.filter(c => c.type === 'function').length}
+                            </div>
+                            <div style="color: #6c757d;">Functions</div>
+                        </div>
+                    </div>
+
+                    ${renderMembers(moduleData.children)}
+
+                    <div style="margin-top: 2rem; padding: 1rem; background: #e9ecef; border-radius: 4px;">
+                        <h3>API Actions</h3>
+                        <a href="/api/modules/${moduleData.name}/coverage" target="_blank" style="color: #667eea; text-decoration: none; margin-right: 1rem;">View Coverage</a>
+                        <a href="/api/modules/${moduleData.name}/quality" target="_blank" style="color: #667eea; text-decoration: none;">View Quality</a>
+                    </div>
+                </div>
+            `;
+
+            moduleContent.innerHTML = content;
+        }
+
+        function renderMembers(members) {
+            if (!members || members.length === 0) {
+                return '<p>No members found.</p>';
+            }
+
+            const groupedMembers = members.reduce((groups, member) => {
+                if (!groups[member.type]) groups[member.type] = [];
+                groups[member.type].push(member);
+                return groups;
+            }, {});
+
+            let html = '';
+
+            Object.entries(groupedMembers).forEach(([type, typeMembers]) => {
+                html += `
+                    <div style="margin-bottom: 2rem;">
+                        <h2 style="color: #495057; border-bottom: 1px solid #dee2e6; padding-bottom: 0.5rem;">
+                            ${type.charAt(0).toUpperCase() + type.slice(1)}s
+                        </h2>
+                        ${typeMembers.map(member => `
+                            <div style="margin: 1rem 0; padding: 1rem; border: 1px solid #dee2e6; border-radius: 4px;">
+                                <h3 style="color: #495057;">${member.name}</h3>
+                                ${member.signature ? `<code style="background: #f8f9fa; padding: 0.25rem; border-radius: 2px;">${member.signature}</code>` : ''}
+                                ${member.docstring ? `<p style="margin: 0.5rem 0; color: #6c757d;">${member.docstring.split('\\n')[0]}</p>` : ''}
+                                ${member.children && member.children.length > 0 ? `
+                                    <details style="margin-top: 0.5rem;">
+                                        <summary style="cursor: pointer; color: #667eea;">View members (${member.children.length})</summary>
+                                        <div style="margin-top: 0.5rem; padding-left: 1rem;">
+                                            ${member.children.map(child => `
+                                                <div style="margin: 0.5rem 0; padding: 0.5rem; background: #f8f9fa; border-radius: 2px;">
+                                                    <strong>${child.name}</strong> (${child.type})
+                                                    ${child.docstring ? `<br><small style="color: #6c757d;">${child.docstring.split('\\n')[0]}</small>` : ''}
+                                                </div>
+                                            `).join('')}
+                                        </div>
+                                    </details>
+                                ` : ''}
+                            </div>
+                        `).join('')}
+                    </div>
+                `;
+            });
+
+            return html;
+        }
+
+        // Initialize
+        document.addEventListener('DOMContentLoaded', () => {
+            // Auto-load first module if available
+            const firstModule = document.querySelector('.module-link');
+            if (firstModule && !window.location.hash) {
+                firstModule.click();
+            }
+        });
+    </script>
+</body>
+</html>
