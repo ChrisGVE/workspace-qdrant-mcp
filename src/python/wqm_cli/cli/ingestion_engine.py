@@ -16,7 +16,7 @@ from pathlib import Path
 from typing import Any
 from loguru import logger
 
-from python.common.core.daemon_client import get_daemon_client, with_daemon_client
+from common.core.daemon_client import get_daemon_client, with_daemon_client
 from .parsers import (
     CodeParser,
     DocumentParser,

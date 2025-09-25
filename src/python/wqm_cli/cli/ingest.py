@@ -28,8 +28,8 @@ from rich.progress import (
 )
 from rich.table import Table
 
-from python.common.core.daemon_client import get_daemon_client, with_daemon_client
-from python.common.core.yaml_config import load_config
+from common.core.daemon_client import get_daemon_client, with_daemon_client
+from common.core.yaml_config import load_config
 from .ingestion_engine import DocumentIngestionEngine, IngestionResult, IngestionStats
 from .parsers import SecurityConfig, WebIngestionInterface, create_secure_web_parser
 

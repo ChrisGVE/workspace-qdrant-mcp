@@ -25,11 +25,13 @@ Key Features:
 import asyncio
 import json
 import re
+import statistics
+from collections import defaultdict, Counter
 
 from loguru import logger
 import time
 from dataclasses import asdict, dataclass
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 from enum import Enum
 from typing import Any, Dict, List, Optional, Set, Tuple, Union
 
@@ -171,6 +173,58 @@ class MemoryStats:
     rules_by_authority: dict[AuthorityLevel, int]
     estimated_tokens: int
     last_optimization: datetime | None = None
+
+
+@dataclass
+class ConversationalContext:
+    """
+    Context extracted from conversational memory updates.
+
+    Attributes:
+        intent: Detected intent (preference, behavior, identity, etc.)
+        confidence: Confidence score (0.0-1.0)
+        project_scope: Detected project or domain scope
+        temporal_context: Time-based context (immediate, future, conditional)
+        urgency_level: Extracted urgency or priority level
+        conditions: Conditional logic detected in the message
+        authority_signals: Language patterns indicating authority level
+        extracted_entities: Named entities found (tools, libraries, people, etc.)
+    """
+
+    intent: str
+    confidence: float
+    project_scope: list[str] | None = None
+    temporal_context: str | None = None
+    urgency_level: str = "normal"  # low, normal, high, critical
+    conditions: dict[str, Any] | None = None
+    authority_signals: list[str] | None = None
+    extracted_entities: dict[str, list[str]] | None = None
+
+
+@dataclass
+class BehavioralDecision:
+    """
+    Decision made by the behavioral control system.
+
+    Attributes:
+        decision_id: Unique identifier for this decision
+        context: The context that triggered the decision
+        applicable_rules: Rules that influenced the decision
+        decision: The actual decision or recommendation
+        confidence: Confidence score for the decision
+        reasoning: Explanation of the decision logic
+        conflicts_resolved: Any rule conflicts that were resolved
+        fallback_used: Whether a fallback decision was used
+    """
+
+    decision_id: str
+    context: str
+    applicable_rules: list[str]
+    decision: str
+    confidence: float
+    reasoning: str
+    conflicts_resolved: list[str] | None = None
+    fallback_used: bool = False
 
 
 class MemoryManager:

@@ -10,9 +10,9 @@ from typing import Any, Dict, List, Optional
 
 import typer
 
-from python.common.core.collection_naming import CollectionNameError, validate_collection_name
-from python.common.core.daemon_client import get_daemon_client, with_daemon_client
-from python.common.core.yaml_config import load_config
+from common.core.collection_naming import CollectionNameError, validate_collection_name
+from common.core.daemon_client import get_daemon_client, with_daemon_client
+from common.core.yaml_config import load_config
 from loguru import logger
 from ..utils import (
     confirm,

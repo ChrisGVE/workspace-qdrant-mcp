@@ -19,7 +19,7 @@ from pathlib import Path
 from typing import Dict, List, Optional, Union, Any
 import fnmatch
 
-from python.common.core.client import QdrantWorkspaceClient
+from common.core.client import QdrantWorkspaceClient
 from workspace_qdrant_mcp.tools.simplified_interface import SimplifiedToolsRouter, get_simplified_router
 from loguru import logger
 
