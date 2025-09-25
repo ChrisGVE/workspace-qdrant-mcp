@@ -47,6 +47,9 @@ dependencies = [
   # Web crawling and security
   "aiohttp>=3.9.0", # Async HTTP client for web crawling
   "aiofiles>=23.0.0", # Async file operations
+  "urllib-robotparser>=1.5.1", # Enhanced robots.txt parsing
+  "tldextract>=5.0.0", # Top-level domain extraction for URL analysis
+  "xxhash>=3.0.0", # Fast hashing for content deduplication
   "maturin>=1.9.4",
   # Configuration management
   "toml>=0.10.0",
@@ -166,7 +169,7 @@ ignore-decorators = "property"
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
 testpaths = ["tests"]
-pythonpath = ["."]
+pythonpath = ["src/python", "."]
 addopts = "-v --tb=short --cov=src/python --cov-report=term-missing --cov-report=html --cov-report=xml --cov-fail-under=10 --cov-branch"
 markers = [
   "unit: Unit tests",
