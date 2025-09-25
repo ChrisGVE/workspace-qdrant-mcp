@@ -13,21 +13,32 @@ This module provides comprehensive analytics capabilities including:
 from .engine.statistical_engine import StatisticalEngine
 from .engine.pattern_recognition import PatternRecognition
 from .engine.predictive_models import PredictiveModels
-from .visualization.dashboard_generator import DashboardGenerator
 from .visualization.chart_builders import ChartBuilder
-from .anomaly.detection_algorithms import AnomalyDetector
-from .anomaly.alerting_system import AlertingSystem
-from .intelligence.insights_generator import InsightsGenerator
-from .intelligence.ml_models import MLModels
+from .anomaly.detection_algorithms import AnomalyDetector, AnomalyResult
+from .anomaly.alerting_system import (
+    AlertingSystem, AlertRule, Alert, AlertSeverity, AlertType, AlertStatus,
+    EmailNotificationChannel, WebhookNotificationChannel, SlackNotificationChannel
+)
 
 __all__ = [
+    # Core Analytics Engine
     'StatisticalEngine',
     'PatternRecognition',
     'PredictiveModels',
-    'DashboardGenerator',
+
+    # Data Visualization
     'ChartBuilder',
+
+    # Anomaly Detection & Alerting
     'AnomalyDetector',
+    'AnomalyResult',
     'AlertingSystem',
-    'InsightsGenerator',
-    'MLModels'
+    'AlertRule',
+    'Alert',
+    'AlertSeverity',
+    'AlertType',
+    'AlertStatus',
+    'EmailNotificationChannel',
+    'WebhookNotificationChannel',
+    'SlackNotificationChannel'
 ]
