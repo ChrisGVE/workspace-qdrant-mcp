@@ -194,7 +194,7 @@ class PrivacyManager:
             return event_type in functional_events
 
         if consent_level == ConsentLevel.ANALYTICS:
-            # Allow most analytics events
+            # Allow most analytics events, but respect specific tracking settings
             if event_type == "search" and not self.settings.allow_search_tracking:
                 return False
             if event_type == "performance" and not self.settings.allow_performance_tracking:
@@ -203,8 +203,18 @@ class PrivacyManager:
                 return False
             return True
 
-        # ConsentLevel.ALL allows everything (subject to other settings)
-        return True
+        if consent_level == ConsentLevel.ALL:
+            # ALL consent still respects individual tracking settings
+            if event_type == "search" and not self.settings.allow_search_tracking:
+                return False
+            if event_type == "performance" and not self.settings.allow_performance_tracking:
+                return False
+            if event_type == "error" and not self.settings.allow_error_tracking:
+                return False
+            return True
+
+        # Default fallback
+        return False
 
     def should_respect_dnt(self, request_headers: Dict[str, str]) -> bool:
         """Check if Do Not Track header should be respected.

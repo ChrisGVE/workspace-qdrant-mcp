@@ -507,7 +507,7 @@ class AnalyticsCollector:
         # Remove file paths that might contain usernames
         import re
         message = re.sub(r'/Users/[^/\s]+', '/Users/[USER]', message)
-        message = re.sub(r'C:\\Users\\[^\\s]+', 'C:\\Users\\[USER]', message)
+        message = re.sub(r'C:\\\\Users\\\\[^\\\\\\s]+', 'C:\\\\Users\\\\[USER]', message)
 
         return message.strip()
 

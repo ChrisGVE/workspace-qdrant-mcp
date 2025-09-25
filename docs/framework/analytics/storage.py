@@ -251,6 +251,9 @@ class AnalyticsStorage:
                 events = []
                 for row in rows:
                     event_data = dict(row)
+                    # Remove database-specific fields that aren't part of AnalyticsEvent
+                    event_data.pop('id', None)
+                    event_data.pop('created_at', None)
                     events.append(AnalyticsEvent.from_dict(event_data))
 
                 return events

@@ -19,6 +19,10 @@ from .anomaly.alerting_system import (
     AlertingSystem, AlertRule, Alert, AlertSeverity, AlertType, AlertStatus,
     EmailNotificationChannel, WebhookNotificationChannel, SlackNotificationChannel
 )
+from .intelligence.ml_insights import (
+    MLInsightEngine, Insight, InsightReport, InsightType,
+    ConfidenceLevel, DataQualityIssue
+)
 
 __all__ = [
     # Core Analytics Engine
@@ -40,5 +44,13 @@ __all__ = [
     'AlertStatus',
     'EmailNotificationChannel',
     'WebhookNotificationChannel',
-    'SlackNotificationChannel'
+    'SlackNotificationChannel',
+
+    # ML-based Intelligence Framework
+    'MLInsightEngine',
+    'Insight',
+    'InsightReport',
+    'InsightType',
+    'ConfidenceLevel',
+    'DataQualityIssue'
 ]
