@@ -542,10 +542,9 @@ def create_help_app() -> typer.Typer:
         no_args_is_help=False
     )
 
-    @help_app.callback(invoke_without_command=True)
-    def help_main(
-        ctx: typer.Context,
-        command: Optional[str] = typer.Argument(None, help="Command to get help for"),
+    @help_app.command(name="info")
+    def help_info(
+        command: str = typer.Argument(..., help="Command to get help for"),
         level: HelpLevel = typer.Option(
             HelpLevel.DETAILED, "--level", "-l",
             help="Help detail level"
@@ -555,15 +554,16 @@ def create_help_app() -> typer.Typer:
             help="Show examples"
         )
     ) -> None:
+        """Show detailed help for a specific command."""
+        actual_level = HelpLevel.EXAMPLES if examples else level
+        help_system.show_command_help(command, level=actual_level)
+
+    @help_app.callback(invoke_without_command=True)
+    def help_main(ctx: typer.Context) -> None:
         """Interactive help system for wqm commands."""
         if not ctx.invoked_subcommand:
-            if command:
-                # Show help for specific command
-                actual_level = HelpLevel.EXAMPLES if examples else level
-                help_system.show_command_help(command, level=actual_level)
-            else:
-                # Show quick reference
-                help_system.show_quick_reference()
+            # Show quick reference when no subcommand is provided
+            help_system.show_quick_reference()
 
     @help_app.command("discover")
     def discover_commands() -> None:
