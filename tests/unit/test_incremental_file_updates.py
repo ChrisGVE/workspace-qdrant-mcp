@@ -15,7 +15,7 @@ from pathlib import Path
 from unittest.mock import Mock, patch, AsyncMock, MagicMock
 import pytest
 
-from src.python.common.core.incremental_updates import (
+from src.python.common.core.incremental_file_updates import (
     IncrementalUpdateSystem,
     ChangeDetector,
     ChecksumCalculator,

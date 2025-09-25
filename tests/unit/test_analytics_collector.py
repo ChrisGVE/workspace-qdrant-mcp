@@ -147,6 +147,7 @@ class TestAnalyticsCollector:
         )
 
         assert result is True
+        # Events are auto-flushed when batch size (2) is reached, but we only have 1
         assert self.collector.get_queue_size() == 1
 
     def test_track_page_view_excluded_path(self):
@@ -497,7 +498,8 @@ class TestAnalyticsCollector:
         assert self.collector.get_queue_size() == 1
 
         self.collector.track_search("query", "session", "/page", 5)
-        assert self.collector.get_queue_size() == 2
+        # Should have 2 events, which triggers auto-flush due to batch_size=2
+        assert self.collector.get_queue_size() == 0  # Queue should be empty after flush
 
     def test_background_flush_task(self):
         """Test that background flush task works."""
@@ -620,24 +622,28 @@ class TestAnalyticsCollector:
         )
         assert result is True
 
-        self.collector.flush()
+        # Should auto-flush since we have 2 events and batch_size=2
         events = self.storage.get_events(limit=2)
         assert len(events) == 2
 
     def test_extreme_duration_values(self):
         """Test handling of extreme duration values."""
         # Very large duration
-        result = self.collector.track_page_view("/page", "session", duration_ms=999999999)
+        result = self.collector.track_page_view("/page1", "session", duration_ms=999999999)
         assert result is True
 
         # Zero duration
-        result = self.collector.track_page_view("/page", "session", duration_ms=0)
+        result = self.collector.track_page_view("/page2", "session", duration_ms=0)
         assert result is True
+
+        # This should auto-flush since we have batch_size=2
+        events = self.storage.get_events(limit=3)
+        assert len(events) == 2
 
         # Negative duration (should still be stored as-is)
-        result = self.collector.track_page_view("/page", "session", duration_ms=-100)
+        result = self.collector.track_page_view("/page3", "session", duration_ms=-100)
         assert result is True
 
-        self.collector.flush()
+        self.collector.flush()  # Flush the remaining event
         events = self.storage.get_events(limit=3)
         assert len(events) == 3
