@@ -14,10 +14,10 @@ from typing import Any, Optional
 import psutil
 import typer
 
-from python.common.core.client import QdrantWorkspaceClient, create_qdrant_client
-from python.common.core.config import Config
+from common.core.client import QdrantWorkspaceClient, create_qdrant_client
+from common.core.config import Config
 from loguru import logger
-from python.common.utils.project_detection import ProjectDetector
+from common.utils.project_detection import ProjectDetector
 # Lazy import to avoid CLI startup issues
 # from workspace_qdrant_mcp.utils.migration import ConfigMigrator, ReportGenerator
 

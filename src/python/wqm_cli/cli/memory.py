@@ -27,10 +27,10 @@ from rich.prompt import Confirm, Prompt
 from rich.table import Table
 from rich.text import Text
 
-from python.common.core.client import create_qdrant_client
-from python.common.core.collection_naming import create_naming_manager
-from python.common.core.config import Config
-from python.common.memory.manager import (
+from common.core.client import create_qdrant_client
+from common.core.collection_naming import create_naming_manager
+from common.core.config import Config
+from common.memory.manager import (
     AuthorityLevel,
     MemoryCategory,
     MemoryManager,

@@ -59,9 +59,9 @@ from rich.progress import Progress, SpinnerColumn, TextColumn
 from rich.table import Table
 from rich.text import Text
 
-from python.common.core.client import QdrantWorkspaceClient
-from python.common.core.config import Config
-from python.common.utils.config_validator import ConfigValidator
+from common.core.client import QdrantWorkspaceClient
+from common.core.config import Config
+from common.utils.config_validator import ConfigValidator
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)

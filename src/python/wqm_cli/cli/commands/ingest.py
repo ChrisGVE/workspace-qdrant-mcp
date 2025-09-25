@@ -11,9 +11,9 @@ from typing import List, Optional
 import typer
 
 from ..ingestion_engine import IngestionResult
-from python.common.core.daemon_client import get_daemon_client, with_daemon_client
-from python.common.core.yaml_config import load_config
-from python.common.core.yaml_metadata import YamlMetadataWorkflow
+from common.core.daemon_client import get_daemon_client, with_daemon_client
+from common.core.yaml_config import load_config
+from common.core.yaml_metadata import YamlMetadataWorkflow
 from loguru import logger
 from ..utils import (
     create_command_app,
@@ -436,8 +436,8 @@ async def _generate_yaml_metadata(
 
         # Create workflow - this still needs direct client as YAML metadata workflow
         # is not yet integrated with daemon gRPC API
-        from python.common.core.client import create_qdrant_client
-        from python.common.core.config import Config
+        from common.core.client import create_qdrant_client
+        from common.core.config import Config
 
         config = Config()
         client = create_qdrant_client(config.qdrant_client_config)
@@ -485,8 +485,8 @@ async def _ingest_yaml_metadata(path: str, dry_run: bool, force: bool):
 
         # Create workflow - this still needs direct client as YAML metadata workflow
         # is not yet integrated with daemon gRPC API
-        from python.common.core.client import create_qdrant_client
-        from python.common.core.config import Config
+        from common.core.client import create_qdrant_client
+        from common.core.config import Config
 
         config = Config()
         client = create_qdrant_client(config.qdrant_client_config)

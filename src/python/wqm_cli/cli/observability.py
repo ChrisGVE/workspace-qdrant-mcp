@@ -34,10 +34,10 @@ from typing import Any, Dict, Optional
 
 import typer
 
-from python.common.core.client import QdrantWorkspaceClient
-from python.common.core.config import Config
+from common.core.client import QdrantWorkspaceClient
+from common.core.config import Config
 from loguru import logger
-from python.common.observability import (
+from common.observability import (
     HealthStatus,
     health_checker_instance,
     metrics_instance,

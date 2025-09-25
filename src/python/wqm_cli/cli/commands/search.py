@@ -11,11 +11,11 @@ from typing import Any, Dict, List, Optional
 
 import typer
 
-from python.common.core.daemon_client import get_daemon_client, with_daemon_client
-from python.common.core.yaml_config import load_config
-from python.common.grpc.ingestion_pb2 import SearchMode
+from common.core.daemon_client import get_daemon_client, with_daemon_client
+from common.core.yaml_config import load_config
+from common.grpc.ingestion_pb2 import SearchMode
 from loguru import logger
-from python.common.utils.project_detection import ProjectDetector
+from common.utils.project_detection import ProjectDetector
 from ..utils import (
     create_command_app,
     error_message,
