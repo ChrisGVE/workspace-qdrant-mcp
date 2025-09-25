@@ -93,6 +93,11 @@ from .commands.watch import watch_app
 from .observability import observability_app
 from .status import status_app
 
+# Import enhanced CLI features
+from .help_system import help_app
+from .advanced_features import advanced_features_app
+from .error_handling import error_handler, setup_exception_hook
+
 # Initialize main app and logger
 app = typer.Typer(
     name="wqm",
@@ -129,6 +134,12 @@ app.add_typer(
 )
 app.add_typer(
     status_app, name="status", help="Processing status and user feedback system"
+)
+app.add_typer(
+    help_app, name="help", help="Interactive help and command discovery system"
+)
+app.add_typer(
+    advanced_features_app, name="wizard", help="Configuration wizards and advanced features"
 )
 
 
@@ -210,6 +221,10 @@ def main(
         if debug:
             logger.debug("Custom config path provided", config_path=config_path)
         pass
+
+    # Setup enhanced error handling
+    if not debug:  # Only in non-debug mode to avoid interference
+        setup_exception_hook()
 
 
 def show_version(verbose: bool = False) -> None:
