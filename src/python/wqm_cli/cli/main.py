@@ -74,7 +74,7 @@ if len(sys.argv) >= 2 and (sys.argv[1] == "--version" or sys.argv[1] == "-v"):
 # Import heavy modules only after version check passes
 import typer
 
-from python.common.logging.loguru_config import setup_logging
+from common.logging.loguru_config import setup_logging
 from loguru import logger
 from .commands.admin import admin_app
 from .commands.config import config_app
