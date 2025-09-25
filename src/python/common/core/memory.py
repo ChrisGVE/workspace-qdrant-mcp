@@ -2426,156 +2426,49 @@ def create_memory_manager(
     )
 
 
-def parse_conversational_memory_update(message: str) -> dict[str, Any] | None:
+def parse_conversational_memory_update(
+    message: str, context: dict[str, Any] | None = None
+) -> dict[str, Any] | None:
     """
-    Parse conversational memory updates from chat messages.
+    Parse conversational memory updates from chat messages using advanced NLP.
 
-    Detects patterns like:
-    - "Note: call me Chris"
-    - "For future reference, always use TypeScript strict mode"
-    - "Remember that I prefer uv for Python package management"
-    - "I prefer using pytest over unittest"
-    - "Make sure to always commit after each change"
-    - "Please use atomic commits going forward"
-    - "From now on, use uv instead of pip"
-    - "My name is Chris"
-    - "Call me Chris"
+    This function now uses the ConversationalMemoryProcessor for sophisticated
+    pattern matching, context extraction, and confidence scoring.
 
     Args:
         message: The conversational message to parse
+        context: Optional context about the conversation (project, task, etc.)
 
     Returns:
         Dictionary with parsed memory update or None if no update detected
+
+    Note:
+        This function maintains backward compatibility but now leverages
+        the enhanced ConversationalMemoryProcessor for better accuracy.
     """
-    message = message.strip()
+    if not message or not message.strip():
+        return None
 
-    # Pattern: "Note: <preference>"
-    note_match = re.match(r"^(?:note|reminder?):\s*(.+)$", message, re.IGNORECASE)
-    if note_match:
-        content = note_match.group(1).strip()
-        return {
-            "category": MemoryCategory.PREFERENCE,
-            "rule": content,
-            "source": "conversational_note",
-            "authority": AuthorityLevel.DEFAULT,
-        }
+    # Use the advanced processor for better results
+    processor = ConversationalMemoryProcessor()
+    result = processor.process_conversational_update(message, context)
 
-    # Pattern: "For future reference, <instruction>"
-    future_match = re.match(r"^for future reference,?\s*(.+)$", message, re.IGNORECASE)
-    if future_match:
-        content = future_match.group(1).strip()
-        return {
-            "category": MemoryCategory.BEHAVIOR,
-            "rule": content,
-            "source": "conversational_future",
-            "authority": AuthorityLevel.DEFAULT,
-        }
-
-    # Pattern: "From now on, <instruction>"
-    from_now_match = re.match(r"^from now on,?\s*(.+)$", message, re.IGNORECASE)
-    if from_now_match:
-        content = from_now_match.group(1).strip()
-        return {
-            "category": MemoryCategory.BEHAVIOR,
-            "rule": content,
-            "source": "conversational_directive",
-            "authority": AuthorityLevel.ABSOLUTE,
-        }
-
-    # Pattern: "Please <behavior> going forward"
-    please_match = re.match(r"^please (.+) (?:going forward|from now on)$", message, re.IGNORECASE)
-    if please_match:
-        content = please_match.group(1).strip()
-        return {
-            "category": MemoryCategory.BEHAVIOR,
-            "rule": content,
-            "source": "conversational_request",
-            "authority": AuthorityLevel.DEFAULT,
-        }
-
-    # Pattern: "Make sure to <behavior>"
-    make_sure_match = re.match(r"^make sure to (.+)$", message, re.IGNORECASE)
-    if make_sure_match:
-        content = make_sure_match.group(1).strip()
-        return {
-            "category": MemoryCategory.BEHAVIOR,
-            "rule": f"Always {content}",
-            "source": "conversational_instruction",
-            "authority": AuthorityLevel.ABSOLUTE,
-        }
-
-    # Pattern: "Remember (that) I <preference>"
-    remember_match = re.match(r"^remember (?:that )?i (.+)$", message, re.IGNORECASE)
-    if remember_match:
-        content = remember_match.group(1).strip()
-        return {
-            "category": MemoryCategory.PREFERENCE,
-            "rule": f"User {content}",
-            "source": "conversational_remember",
-            "authority": AuthorityLevel.DEFAULT,
-        }
-
-    # Pattern: "I prefer <preference>"
-    prefer_match = re.match(r"^i prefer (.+)$", message, re.IGNORECASE)
-    if prefer_match:
-        content = prefer_match.group(1).strip()
-        return {
-            "category": MemoryCategory.PREFERENCE,
-            "rule": f"User prefers {content}",
-            "source": "conversational_preference",
-            "authority": AuthorityLevel.DEFAULT,
-        }
-
-    # Pattern: "My name is <name>" or "Call me <name>"
-    name_match = re.match(r"^(?:my name is|call me)\s+(.+)$", message, re.IGNORECASE)
-    if name_match:
-        name = name_match.group(1).strip()
-        return {
-            "category": MemoryCategory.PREFERENCE,
-            "rule": f"User's name is {name}",
-            "source": "conversational_identity",
-            "authority": AuthorityLevel.DEFAULT,
-        }
-
-    # Pattern: "Always <behavior>" or "Never <behavior>"
-    behavior_match = re.match(r"^(always|never) (.+)$", message, re.IGNORECASE)
-    if behavior_match:
-        modifier = behavior_match.group(1).lower()
-        behavior = behavior_match.group(2).strip()
-        return {
-            "category": MemoryCategory.BEHAVIOR,
-            "rule": f"{modifier.title()} {behavior}",
-            "source": "conversational_behavior",
-            "authority": AuthorityLevel.ABSOLUTE,
-        }
-
-    # Pattern: "Use <tool> instead of <other_tool>"
-    instead_match = re.match(r"^use (.+) instead of (.+)$", message, re.IGNORECASE)
-    if instead_match:
-        preferred = instead_match.group(1).strip()
-        avoided = instead_match.group(2).strip()
-        return {
-            "category": MemoryCategory.PREFERENCE,
-            "rule": f"Use {preferred} instead of {avoided}",
-            "source": "conversational_substitution",
-            "authority": AuthorityLevel.DEFAULT,
-        }
-
-    # Pattern: "<tool> over <other_tool>" (e.g., "pytest over unittest")
-    over_match = re.match(r"^(.+) over (.+)$", message, re.IGNORECASE)
-    if over_match:
-        preferred = over_match.group(1).strip()
-        avoided = over_match.group(2).strip()
-        # Only match if both are recognizable tool/library names
-        if len(preferred.split()) <= 2 and len(avoided.split()) <= 2:
-            return {
-                "category": MemoryCategory.PREFERENCE,
-                "rule": f"Prefer {preferred} over {avoided}",
-                "source": "conversational_preference_comparison",
-                "authority": AuthorityLevel.DEFAULT,
+    if result:
+        # Convert ConversationalContext and extracted entities to serializable format
+        if "context" in result:
+            conv_context = result["context"]
+            result["context"] = {
+                "intent": conv_context.intent,
+                "confidence": conv_context.confidence,
+                "project_scope": conv_context.project_scope,
+                "temporal_context": conv_context.temporal_context,
+                "urgency_level": conv_context.urgency_level,
+                "conditions": conv_context.conditions,
+                "authority_signals": conv_context.authority_signals,
+                "extracted_entities": conv_context.extracted_entities
             }
 
-    return None
+    return result
 
 
 def estimate_token_count(text: str) -> int:
