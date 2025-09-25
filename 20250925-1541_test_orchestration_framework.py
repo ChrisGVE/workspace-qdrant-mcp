@@ -46,7 +46,7 @@ class TestOrchestrationConfig:
         assert config.priority == OrchestrationPriority.NORMAL
         assert config.max_workers == 4
         assert config.execution_strategy == ExecutionStrategy.PARALLEL_SMART
-        assert config.isolation_level == IsolationLevel.THREAD
+        assert config.isolation_level == IsolationLevel.PROCESS
         assert config.enable_analytics is True
         assert config.enable_integration is True
         assert config.timeout_seconds == 3600.0

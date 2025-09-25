@@ -67,7 +67,7 @@ class OrchestrationConfig:
     priority: OrchestrationPriority = OrchestrationPriority.NORMAL
     max_workers: int = 4
     execution_strategy: ExecutionStrategy = ExecutionStrategy.PARALLEL_SMART
-    isolation_level: IsolationLevel = IsolationLevel.THREAD
+    isolation_level: IsolationLevel = IsolationLevel.PROCESS
     enable_analytics: bool = True
     enable_integration: bool = True
     enable_caching: bool = True
