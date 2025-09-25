@@ -909,6 +909,512 @@ class MemoryManager:
             )
 
 
+class ConversationalMemoryProcessor:
+    """
+    Advanced conversational memory update processor with NLP capabilities.
+
+    This class provides sophisticated natural language processing for extracting
+    memory rules from conversational messages, including context analysis,
+    intent classification, and confidence scoring.
+    """
+
+    # Known tools, libraries, and frameworks for entity recognition
+    KNOWN_ENTITIES = {
+        "tools": {
+            "uv", "pip", "poetry", "conda", "npm", "yarn", "pnpm", "docker", "kubernetes",
+            "git", "svn", "mercurial", "pytest", "unittest", "jest", "vitest", "cypress"
+        },
+        "languages": {
+            "python", "javascript", "typescript", "rust", "go", "java", "c++", "c#",
+            "ruby", "php", "swift", "kotlin", "scala", "clojure", "haskell"
+        },
+        "frameworks": {
+            "react", "vue", "angular", "django", "flask", "fastapi", "express", "nextjs",
+            "spring", "rails", "laravel", "asp.net", "gin", "echo", "fiber"
+        }
+    }
+
+    # Authority level indicators in language
+    HIGH_AUTHORITY_SIGNALS = [
+        "always", "never", "must", "required", "mandatory", "critical", "essential",
+        "from now on", "absolutely", "without exception", "under no circumstances"
+    ]
+
+    MEDIUM_AUTHORITY_SIGNALS = [
+        "should", "recommend", "suggest", "prefer", "typically", "usually",
+        "make sure", "ensure", "remember", "important"
+    ]
+
+    # Urgency level indicators
+    URGENCY_PATTERNS = {
+        "critical": ["urgent", "critical", "immediately", "asap", "emergency"],
+        "high": ["important", "priority", "soon", "quickly", "right away"],
+        "normal": ["when possible", "eventually", "at some point"],
+        "low": ["if convenient", "low priority", "not urgent", "sometime"]
+    }
+
+    def __init__(self):
+        """Initialize the conversational processor."""
+        # Compile regex patterns for performance
+        self._compile_patterns()
+
+    def _compile_patterns(self):
+        """Compile regex patterns for efficient matching."""
+        self.patterns = {
+            # Enhanced pattern matching with context capture
+            "note": re.compile(r"^(?:note|reminder?|fyi):\s*(.+)$", re.IGNORECASE),
+            "future_reference": re.compile(r"^for future reference,?\s*(.+)$", re.IGNORECASE),
+            "from_now_on": re.compile(r"^from now on,?\s*(.+)$", re.IGNORECASE),
+            "make_sure": re.compile(r"^(?:make sure|ensure) (?:to\s+)?(.+)$", re.IGNORECASE),
+            "remember": re.compile(r"^remember (?:that\s+)?(.+)$", re.IGNORECASE),
+            "prefer": re.compile(r"^i prefer (.+)$", re.IGNORECASE),
+            "always_never": re.compile(r"^(always|never) (.+)$", re.IGNORECASE),
+            "instead_of": re.compile(r"^use (.+) instead of (.+)$", re.IGNORECASE),
+            "preference_over": re.compile(r"^(.+) over (.+)$", re.IGNORECASE),
+            "when_doing": re.compile(r"^when (?:working (?:on|with)|doing) (.+), (.+)$", re.IGNORECASE),
+            "for_project": re.compile(r"^(?:for|in) (?:the\s+)?(.+) project,?\s*(.+)$", re.IGNORECASE),
+            "conditional": re.compile(r"^(?:if|when) (.+), (?:then\s+)?(.+)$", re.IGNORECASE),
+            "identity": re.compile(r"^(?:my name is|call me|i am|i'm)\s+(.+)$", re.IGNORECASE),
+            "please_request": re.compile(r"^please (.+)(?:\s+going forward|\s+from now on)?$", re.IGNORECASE),
+            "should_behavior": re.compile(r"^(?:you should|we should|i should) (.+)$", re.IGNORECASE),
+        }
+
+    def process_conversational_update(self, message: str, context: dict[str, Any] | None = None) -> dict[str, Any] | None:
+        """
+        Process a conversational message for memory updates with advanced NLP.
+
+        Args:
+            message: The conversational message to process
+            context: Optional context about the conversation (project, task, etc.)
+
+        Returns:
+            Dictionary with extracted memory rule information or None if no pattern matched
+        """
+        if not message or not message.strip():
+            return None
+
+        message = message.strip()
+
+        # Extract conversational context first
+        conv_context = self._extract_context(message, context)
+
+        if conv_context.confidence < 0.3:  # Too ambiguous
+            return None
+
+        # Try pattern matching with context awareness
+        result = self._match_patterns(message, conv_context)
+
+        if result:
+            # Add extracted context to the result
+            result["context"] = conv_context
+            result["confidence"] = conv_context.confidence
+
+        return result
+
+    def _extract_context(self, message: str, external_context: dict[str, Any] | None = None) -> ConversationalContext:
+        """
+        Extract conversational context from the message.
+
+        Args:
+            message: The message to analyze
+            external_context: External context from the conversation
+
+        Returns:
+            ConversationalContext with extracted information
+        """
+        message_lower = message.lower()
+
+        # Detect intent
+        intent = self._classify_intent(message)
+
+        # Extract entities (tools, languages, etc.)
+        entities = self._extract_entities(message_lower)
+
+        # Detect authority signals
+        authority_signals = self._detect_authority_signals(message_lower)
+
+        # Detect urgency level
+        urgency_level = self._detect_urgency(message_lower)
+
+        # Extract project scope
+        project_scope = self._extract_project_scope(message, external_context)
+
+        # Detect temporal context
+        temporal_context = self._detect_temporal_context(message_lower)
+
+        # Extract conditions
+        conditions = self._extract_conditions(message)
+
+        # Calculate confidence based on signal strength
+        confidence = self._calculate_confidence(
+            intent, entities, authority_signals, project_scope
+        )
+
+        return ConversationalContext(
+            intent=intent,
+            confidence=confidence,
+            project_scope=project_scope,
+            temporal_context=temporal_context,
+            urgency_level=urgency_level,
+            conditions=conditions,
+            authority_signals=authority_signals,
+            extracted_entities=entities
+        )
+
+    def _classify_intent(self, message: str) -> str:
+        """Classify the intent of the message."""
+        message_lower = message.lower()
+
+        # Identity patterns
+        if any(pattern in message_lower for pattern in ["my name", "call me", "i am", "i'm"]):
+            return "identity"
+
+        # Preference patterns
+        if any(pattern in message_lower for pattern in ["prefer", "like", "favor", "choose"]):
+            return "preference"
+
+        # Behavior patterns
+        if any(pattern in message_lower for pattern in ["always", "never", "make sure", "ensure", "should"]):
+            return "behavior"
+
+        # Tool/technology choice
+        if any(pattern in message_lower for pattern in ["use", "avoid", "instead", "over", "better than"]):
+            return "tool_choice"
+
+        # Process/workflow
+        if any(pattern in message_lower for pattern in ["when", "process", "workflow", "procedure", "method"]):
+            return "process"
+
+        # Default
+        return "general"
+
+    def _extract_entities(self, message_lower: str) -> dict[str, list[str]]:
+        """Extract known entities from the message."""
+        entities = {}
+
+        for entity_type, entity_set in self.KNOWN_ENTITIES.items():
+            found_entities = [entity for entity in entity_set if entity in message_lower]
+            if found_entities:
+                entities[entity_type] = found_entities
+
+        return entities
+
+    def _detect_authority_signals(self, message_lower: str) -> list[str]:
+        """Detect authority level indicators in the message."""
+        signals = []
+
+        for signal in self.HIGH_AUTHORITY_SIGNALS:
+            if signal.lower() in message_lower:
+                signals.append(f"high:{signal}")
+
+        for signal in self.MEDIUM_AUTHORITY_SIGNALS:
+            if signal.lower() in message_lower:
+                signals.append(f"medium:{signal}")
+
+        return signals
+
+    def _detect_urgency(self, message_lower: str) -> str:
+        """Detect urgency level from the message."""
+        for urgency_level, indicators in self.URGENCY_PATTERNS.items():
+            if any(indicator in message_lower for indicator in indicators):
+                return urgency_level
+        return "normal"
+
+    def _extract_project_scope(self, message: str, external_context: dict[str, Any] | None = None) -> list[str] | None:
+        """Extract project or domain scope from the message."""
+        scope = []
+
+        # Check external context first
+        if external_context:
+            if "project" in external_context:
+                scope.append(external_context["project"])
+            if "domain" in external_context:
+                scope.append(external_context["domain"])
+
+        # Extract from message patterns
+        project_match = re.search(r"(?:for|in) (?:the\s+)?(\w+) project", message, re.IGNORECASE)
+        if project_match:
+            scope.append(project_match.group(1))
+
+        domain_match = re.search(r"when (?:working (?:on|with)|doing) ([\w\s]+)", message, re.IGNORECASE)
+        if domain_match:
+            domain = domain_match.group(1).strip()
+            if len(domain.split()) <= 3:  # Reasonable domain length
+                scope.append(domain)
+
+        return scope if scope else None
+
+    def _detect_temporal_context(self, message_lower: str) -> str | None:
+        """Detect temporal context from the message."""
+        if any(word in message_lower for word in ["now", "immediately", "right away"]):
+            return "immediate"
+        elif any(word in message_lower for word in ["future", "going forward", "from now on"]):
+            return "future"
+        elif any(word in message_lower for word in ["when", "if", "whenever"]):
+            return "conditional"
+        return None
+
+    def _extract_conditions(self, message: str) -> dict[str, Any] | None:
+        """Extract conditional logic from the message."""
+        conditions = {}
+
+        # Conditional patterns
+        conditional_match = re.search(r"^(?:if|when) (.+), (?:then\s+)?(.+)$", message, re.IGNORECASE)
+        if conditional_match:
+            conditions["condition"] = conditional_match.group(1).strip()
+            conditions["action"] = conditional_match.group(2).strip()
+            return conditions
+
+        # Context-specific patterns
+        context_match = re.search(r"when (?:working (?:on|with)|doing) (.+), (.+)", message, re.IGNORECASE)
+        if context_match:
+            conditions["context"] = context_match.group(1).strip()
+            conditions["behavior"] = context_match.group(2).strip()
+            return conditions
+
+        return None
+
+    def _calculate_confidence(
+        self,
+        intent: str,
+        entities: dict[str, list[str]],
+        authority_signals: list[str],
+        project_scope: list[str] | None
+    ) -> float:
+        """Calculate confidence score for the extracted information."""
+        confidence = 0.0
+
+        # Base confidence for intent recognition
+        if intent != "general":
+            confidence += 0.3
+        else:
+            confidence += 0.1
+
+        # Entity recognition boosts confidence
+        if entities:
+            confidence += 0.3 * min(len(entities), 2) / 2
+
+        # Clear authority signals boost confidence
+        if authority_signals:
+            confidence += 0.2
+
+        # Project scope adds context confidence
+        if project_scope:
+            confidence += 0.2
+
+        return min(confidence, 1.0)
+
+    def _match_patterns(self, message: str, context: ConversationalContext) -> dict[str, Any] | None:
+        """
+        Match message against patterns with context awareness.
+
+        Args:
+            message: The message to match
+            context: Extracted conversational context
+
+        Returns:
+            Memory rule information dictionary or None
+        """
+        # Enhanced pattern matching using compiled patterns
+
+        # Note pattern
+        if match := self.patterns["note"].match(message):
+            return self._create_rule_dict(
+                category=MemoryCategory.PREFERENCE,
+                rule=match.group(1).strip(),
+                source="conversational_note",
+                authority=self._determine_authority(context),
+                context=context
+            )
+
+        # Future reference pattern
+        if match := self.patterns["future_reference"].match(message):
+            return self._create_rule_dict(
+                category=MemoryCategory.BEHAVIOR,
+                rule=match.group(1).strip(),
+                source="conversational_future",
+                authority=AuthorityLevel.DEFAULT,
+                context=context
+            )
+
+        # From now on pattern (high authority)
+        if match := self.patterns["from_now_on"].match(message):
+            return self._create_rule_dict(
+                category=MemoryCategory.BEHAVIOR,
+                rule=match.group(1).strip(),
+                source="conversational_directive",
+                authority=AuthorityLevel.ABSOLUTE,
+                context=context
+            )
+
+        # Make sure pattern (high authority)
+        if match := self.patterns["make_sure"].match(message):
+            return self._create_rule_dict(
+                category=MemoryCategory.BEHAVIOR,
+                rule=f"Always {match.group(1).strip()}",
+                source="conversational_instruction",
+                authority=AuthorityLevel.ABSOLUTE,
+                context=context
+            )
+
+        # Remember pattern
+        if match := self.patterns["remember"].match(message):
+            content = match.group(1).strip()
+            if content.lower().startswith("i "):
+                content = f"User {content[2:]}"
+            return self._create_rule_dict(
+                category=MemoryCategory.PREFERENCE,
+                rule=content,
+                source="conversational_remember",
+                authority=AuthorityLevel.DEFAULT,
+                context=context
+            )
+
+        # Preference pattern
+        if match := self.patterns["prefer"].match(message):
+            return self._create_rule_dict(
+                category=MemoryCategory.PREFERENCE,
+                rule=f"User prefers {match.group(1).strip()}",
+                source="conversational_preference",
+                authority=AuthorityLevel.DEFAULT,
+                context=context
+            )
+
+        # Always/Never pattern (high authority)
+        if match := self.patterns["always_never"].match(message):
+            modifier = match.group(1).lower()
+            behavior = match.group(2).strip()
+            return self._create_rule_dict(
+                category=MemoryCategory.BEHAVIOR,
+                rule=f"{modifier.title()} {behavior}",
+                source="conversational_behavior",
+                authority=AuthorityLevel.ABSOLUTE,
+                context=context
+            )
+
+        # Use instead of pattern
+        if match := self.patterns["instead_of"].match(message):
+            preferred = match.group(1).strip()
+            avoided = match.group(2).strip()
+            return self._create_rule_dict(
+                category=MemoryCategory.PREFERENCE,
+                rule=f"Use {preferred} instead of {avoided}",
+                source="conversational_substitution",
+                authority=AuthorityLevel.DEFAULT,
+                context=context
+            )
+
+        # Preference over pattern
+        if match := self.patterns["preference_over"].match(message):
+            preferred = match.group(1).strip()
+            avoided = match.group(2).strip()
+            # Only match if both are reasonable tool/library names
+            if len(preferred.split()) <= 2 and len(avoided.split()) <= 2:
+                return self._create_rule_dict(
+                    category=MemoryCategory.PREFERENCE,
+                    rule=f"Prefer {preferred} over {avoided}",
+                    source="conversational_preference_comparison",
+                    authority=AuthorityLevel.DEFAULT,
+                    context=context
+                )
+
+        # Identity pattern
+        if match := self.patterns["identity"].match(message):
+            name = match.group(1).strip()
+            return self._create_rule_dict(
+                category=MemoryCategory.PREFERENCE,
+                rule=f"User's name is {name}",
+                source="conversational_identity",
+                authority=AuthorityLevel.DEFAULT,
+                context=context
+            )
+
+        # Conditional pattern
+        if match := self.patterns["conditional"].match(message):
+            condition = match.group(1).strip()
+            action = match.group(2).strip()
+            return self._create_rule_dict(
+                category=MemoryCategory.BEHAVIOR,
+                rule=f"When {condition}, {action}",
+                source="conversational_conditional",
+                authority=self._determine_authority(context),
+                context=context,
+                conditions={"condition": condition, "action": action}
+            )
+
+        # When doing pattern (context-specific)
+        if match := self.patterns["when_doing"].match(message):
+            context_desc = match.group(1).strip()
+            behavior = match.group(2).strip()
+            return self._create_rule_dict(
+                category=MemoryCategory.BEHAVIOR,
+                rule=f"When working on {context_desc}, {behavior}",
+                source="conversational_context_specific",
+                authority=AuthorityLevel.DEFAULT,
+                context=context,
+                conditions={"context": context_desc, "behavior": behavior}
+            )
+
+        # Project-specific pattern
+        if match := self.patterns["for_project"].match(message):
+            project = match.group(1).strip()
+            rule_content = match.group(2).strip()
+            return self._create_rule_dict(
+                category=MemoryCategory.BEHAVIOR,
+                rule=rule_content,
+                source="conversational_project_specific",
+                authority=AuthorityLevel.DEFAULT,
+                context=context,
+                scope=[project]
+            )
+
+        # Please request pattern
+        if match := self.patterns["please_request"].match(message):
+            return self._create_rule_dict(
+                category=MemoryCategory.BEHAVIOR,
+                rule=match.group(1).strip(),
+                source="conversational_request",
+                authority=AuthorityLevel.DEFAULT,
+                context=context
+            )
+
+        return None
+
+    def _create_rule_dict(
+        self,
+        category: MemoryCategory,
+        rule: str,
+        source: str,
+        authority: AuthorityLevel,
+        context: ConversationalContext,
+        conditions: dict[str, Any] | None = None,
+        scope: list[str] | None = None
+    ) -> dict[str, Any]:
+        """Create a standardized rule dictionary."""
+        return {
+            "category": category,
+            "rule": rule,
+            "source": source,
+            "authority": authority,
+            "scope": scope or context.project_scope or [],
+            "conditions": conditions or context.conditions,
+            "urgency_level": context.urgency_level,
+            "temporal_context": context.temporal_context,
+            "extracted_entities": context.extracted_entities,
+        }
+
+    def _determine_authority(self, context: ConversationalContext) -> AuthorityLevel:
+        """Determine authority level based on conversational context."""
+        if not context.authority_signals:
+            return AuthorityLevel.DEFAULT
+
+        high_signals = [s for s in context.authority_signals if s.startswith("high:")]
+        if high_signals:
+            return AuthorityLevel.ABSOLUTE
+
+        return AuthorityLevel.DEFAULT
+
+
 # Utility functions for memory management
 
 
