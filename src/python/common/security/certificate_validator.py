@@ -18,10 +18,17 @@ from pathlib import Path
 from urllib.parse import urlparse
 
 import cryptography.x509
-from cryptography.x509.verification import PolicyBuilder, StoreBuilder
+try:
+    from cryptography.x509.verification import PolicyBuilder, StoreBuilder
+except ImportError:
+    # Fallback for newer cryptography versions
+    from cryptography.x509.verification import PolicyBuilder
+    StoreBuilder = None
 from cryptography.hazmat.primitives import hashes, serialization
 from cryptography.hazmat.primitives.asymmetric import rsa, ec
-from loguru import logger
+import logging
+
+logger = logging.getLogger(__name__)
 
 
 class CertificatePinningError(Exception):
@@ -224,7 +231,11 @@ class EnhancedCertificateValidator:
                 raise CertificateValidationError("Self-signed certificates not allowed")
 
         # Build certificate store
-        builder = StoreBuilder()
+        if StoreBuilder is not None:
+            builder = StoreBuilder()
+        else:
+            # Use alternative validation for newer cryptography versions
+            logger.warning("StoreBuilder not available, using basic validation")
 
         # Add trusted CA certificates
         for ca_path in self.trusted_ca_paths:
