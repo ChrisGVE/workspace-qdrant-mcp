@@ -26,8 +26,8 @@ import aiohttp
 from collections import defaultdict, deque
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta
-from email.mime.text import MimeText
-from email.mime.multipart import MimeMultipart
+from email.mime.text import MIMEText as MimeText
+from email.mime.multipart import MIMEMultipart as MimeMultipart
 from enum import Enum
 from typing import Dict, List, Optional, Set, Any, Callable, Union
 from pathlib import Path
