@@ -15,9 +15,9 @@ Components:
 
 from .discovery import TestDiscovery, TestCategory, TestComplexity
 from .execution import ParallelTestExecutor, ExecutionStrategy
+from .analytics import TestAnalytics, TestMetrics
 
 # Other imports will be added as modules are created
-# from .analytics import TestAnalytics, TestMetrics
 # from .integration import IntegrationTestCoordinator
 # from .orchestration import TestOrchestrator
 # from .coverage_validator import CoverageValidator
@@ -28,9 +28,9 @@ __all__ = [
     "TestComplexity",
     "ParallelTestExecutor",
     "ExecutionStrategy",
+    "TestAnalytics",
+    "TestMetrics",
     # Other exports will be added as modules are created
-    # "TestAnalytics",
-    # "TestMetrics",
     # "IntegrationTestCoordinator",
     # "TestOrchestrator",
     # "CoverageValidator",
