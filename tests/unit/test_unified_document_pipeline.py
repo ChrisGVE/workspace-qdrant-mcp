@@ -33,7 +33,7 @@ import pytest
 import sys
 sys.path.insert(0, str(Path(__file__).parent.parent.parent / "src" / "python"))
 
-from workspace_qdrant_mcp.core.unified_document_pipeline import (
+from common.core.unified_document_pipeline import (
     UnifiedDocumentPipeline,
     ProcessingResult,
     PipelineStats,
@@ -143,7 +143,7 @@ def test_files(temp_dir):
 def mock_pipeline():
     """Create UnifiedDocumentPipeline with mocked dependencies."""
     with patch.multiple(
-        'workspace_qdrant_mcp.core.unified_document_pipeline',
+        'common.core.unified_document_pipeline',
         LspMetadataExtractor=MockLspMetadataExtractor,
         PerformanceMonitor=Mock,
         GracefulDegradationManager=Mock,
@@ -174,11 +174,11 @@ class TestUnifiedDocumentPipelineInitialization:
     async def test_pipeline_initialization_default_config(self):
         """Test pipeline initialization with default configuration."""
         with patch.multiple(
-            'workspace_qdrant_mcp.core.unified_document_pipeline',
+            'common.core.unified_document_pipeline',
             LspMetadataExtractor=None,
             PerformanceMonitor=None
         ):
-            pipeline = UnifiedDocumentPipeline()
+            pipeline = UnifiedDocumentPipeline(enable_lsp=False, enable_performance_monitoring=False)
             await pipeline.initialize()
 
             assert pipeline.is_initialized
@@ -220,7 +220,7 @@ class TestUnifiedDocumentPipelineInitialization:
     async def test_pipeline_initialization_failure_handling(self):
         """Test pipeline initialization failure handling."""
         with patch(
-            'workspace_qdrant_mcp.core.unified_document_pipeline.LspMetadataExtractor',
+            'common.core.unified_document_pipeline.LspMetadataExtractor',
             side_effect=Exception("LSP initialization failed")
         ):
             pipeline = UnifiedDocumentPipeline(enable_lsp=True)
@@ -379,13 +379,13 @@ class TestLSPIntegration:
     async def test_lsp_metadata_extraction_success(self, test_files):
         """Test successful LSP metadata extraction."""
         with patch(
-            'workspace_qdrant_mcp.core.unified_document_pipeline.LspMetadataExtractor',
+            'common.core.unified_document_pipeline.LspMetadataExtractor',
             MockLspMetadataExtractor
         ):
             pipeline = UnifiedDocumentPipeline(enable_lsp=True, enable_performance_monitoring=False)
 
             # Mock code parser
-            from workspace_qdrant_mcp.core.unified_document_pipeline import CodeParser
+            from common.core.unified_document_pipeline import CodeParser
             pipeline.parsers = [MockDocumentParser("Code", {".py"})]
 
             await pipeline.initialize()
@@ -405,7 +405,7 @@ class TestLSPIntegration:
     async def test_lsp_extraction_failure_handling(self, test_files):
         """Test handling of LSP extraction failures."""
         with patch(
-            'workspace_qdrant_mcp.core.unified_document_pipeline.LspMetadataExtractor',
+            'common.core.unified_document_pipeline.LspMetadataExtractor',
             lambda: MockLspMetadataExtractor(should_fail=True)
         ):
             pipeline = UnifiedDocumentPipeline(enable_lsp=True, enable_performance_monitoring=False)
@@ -772,7 +772,7 @@ class TestAsyncContextManager:
     async def test_context_manager_initialization_and_cleanup(self):
         """Test async context manager initialization and cleanup."""
         with patch.multiple(
-            'workspace_qdrant_mcp.core.unified_document_pipeline',
+            'common.core.unified_document_pipeline',
             LspMetadataExtractor=None,
             PerformanceMonitor=None
         ):
@@ -786,7 +786,7 @@ class TestAsyncContextManager:
     async def test_context_manager_exception_handling(self, test_files):
         """Test context manager behavior with exceptions."""
         with patch.multiple(
-            'workspace_qdrant_mcp.core.unified_document_pipeline',
+            'common.core.unified_document_pipeline',
             LspMetadataExtractor=None,
             PerformanceMonitor=None
         ):
@@ -815,7 +815,7 @@ class TestConvenienceFunctions:
         (temp_dir / "subdir" / "file3.txt").write_text("Content 3")
 
         with patch.multiple(
-            'workspace_qdrant_mcp.core.unified_document_pipeline',
+            'common.core.unified_document_pipeline',
             LspMetadataExtractor=None,
             PerformanceMonitor=None,
             detect_file_type=Mock(return_value="txt")
@@ -836,7 +836,7 @@ class TestConvenienceFunctions:
         file_list = [test_files["text"], test_files["python"]]
 
         with patch.multiple(
-            'workspace_qdrant_mcp.core.unified_document_pipeline',
+            'common.core.unified_document_pipeline',
             LspMetadataExtractor=None,
             PerformanceMonitor=None
         ):
@@ -933,7 +933,7 @@ class TestEdgeCasesAndBoundaryConditions:
         """Test running multiple pipeline instances concurrently."""
         # Create two pipeline instances
         with patch.multiple(
-            'workspace_qdrant_mcp.core.unified_document_pipeline',
+            'common.core.unified_document_pipeline',
             LspMetadataExtractor=None,
             PerformanceMonitor=None
         ):
@@ -970,7 +970,7 @@ class TestPerformanceRequirements:
             file_list.append(file_path)
 
         with patch.multiple(
-            'workspace_qdrant_mcp.core.unified_document_pipeline',
+            'common.core.unified_document_pipeline',
             LspMetadataExtractor=None,
             PerformanceMonitor=None
         ):
@@ -1003,7 +1003,7 @@ class TestPerformanceRequirements:
             file_list.append(file_path)
 
         with patch.multiple(
-            'workspace_qdrant_mcp.core.unified_document_pipeline',
+            'common.core.unified_document_pipeline',
             LspMetadataExtractor=None,
             PerformanceMonitor=None
         ):
