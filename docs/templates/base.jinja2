@@ -1,0 +1,35 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{% block title %}{{ project.name or "Documentation" }}{% endblock %}</title>
+    <style>
+        body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; }
+        .container { max-width: 1200px; margin: 0 auto; padding: 20px; }
+        .header { border-bottom: 1px solid #eee; margin-bottom: 30px; padding-bottom: 20px; }
+        .module { margin-bottom: 40px; }
+        .class { margin-bottom: 30px; border-left: 3px solid #007acc; padding-left: 20px; }
+        .function { margin-bottom: 20px; }
+        .signature { background: #f8f8f8; padding: 10px; border-radius: 4px; font-family: monospace; }
+        .docstring { margin: 15px 0; line-height: 1.6; }
+        .parameters { margin: 10px 0; }
+        .parameter { margin: 5px 0; }
+        .private { opacity: 0.7; }
+        pre { background: #f8f8f8; padding: 15px; border-radius: 4px; overflow-x: auto; }
+        code { background: #f0f0f0; padding: 2px 4px; border-radius: 2px; font-family: monospace; }
+    </style>
+    {% block extra_head %}{% endblock %}
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>{% block page_title %}{{ project.name or "Documentation" }}{% endblock %}</h1>
+            <p>{% block description %}{{ project.description }}{% endblock %}</p>
+        </div>
+        <div class="content">
+            {% block content %}{% endblock %}
+        </div>
+    </div>
+</body>
+</html>

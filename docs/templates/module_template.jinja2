@@ -1,0 +1,78 @@
+{% extends "base.jinja2" %}
+
+{% block title %}{{ module.name }} - {{ project.name }}{% endblock %}
+{% block page_title %}Module: {{ module.name }}{% endblock %}
+
+{% block content %}
+<div class="module-doc">
+    {% if module.docstring %}
+    <div class="module-description">
+        <div class="docstring">{{ module.docstring | format_docstring }}</div>
+    </div>
+    {% endif %}
+
+    {% if classes %}
+    <section class="classes">
+        <h2>Classes</h2>
+        {% for class in classes | sort_by_name %}
+        <div class="class">
+            <h3>{{ class.name }}</h3>
+            {% if class.signature %}
+            <div class="signature">{{ class.signature | format_signature }}</div>
+            {% endif %}
+            {% if class.docstring %}
+            <div class="docstring">{{ class.docstring | format_docstring }}</div>
+            {% endif %}
+
+            {% set methods = class.children | selectattr("member_type.value", "equalto", "method") | list %}
+            {% if methods %}
+            <h4>Methods</h4>
+            {% for method in methods | sort_by_name %}
+            <div class="function">
+                <h5>{{ method.name }}</h5>
+                {% if method.signature %}
+                <div class="signature">{{ method.signature | format_signature }}</div>
+                {% endif %}
+                {% if method.docstring %}
+                <div class="docstring">{{ method.docstring | format_docstring }}</div>
+                {% endif %}
+            </div>
+            {% endfor %}
+            {% endif %}
+        </div>
+        {% endfor %}
+    </section>
+    {% endif %}
+
+    {% if functions %}
+    <section class="functions">
+        <h2>Functions</h2>
+        {% for func in functions | sort_by_name %}
+        <div class="function">
+            <h3>{{ func.name }}</h3>
+            {% if func.signature %}
+            <div class="signature">{{ func.signature | format_signature }}</div>
+            {% endif %}
+            {% if func.docstring %}
+            <div class="docstring">{{ func.docstring | format_docstring }}</div>
+            {% endif %}
+        </div>
+        {% endfor %}
+    </section>
+    {% endif %}
+
+    {% if constants %}
+    <section class="constants">
+        <h2>Constants</h2>
+        {% for const in constants | sort_by_name %}
+        <div class="constant">
+            <h3>{{ const.name }}</h3>
+            {% if const.docstring %}
+            <div class="docstring">{{ const.docstring | format_docstring }}</div>
+            {% endif %}
+        </div>
+        {% endfor %}
+    </section>
+    {% endif %}
+</div>
+{% endblock %}

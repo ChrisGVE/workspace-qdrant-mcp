@@ -1,0 +1,50 @@
+{% extends "base.jinja2" %}
+
+{% block title %}API Documentation - {{ project.name }}{% endblock %}
+{% block page_title %}API Documentation{% endblock %}
+
+{% block content %}
+<div class="api-overview">
+    <h2>Modules</h2>
+    {% for module in modules %}
+    <div class="module">
+        <h3>{{ module.name }}</h3>
+        {% if module.docstring %}
+        <div class="docstring">{{ module.docstring | format_docstring }}</div>
+        {% endif %}
+
+        {% set classes = module.children | selectattr("member_type.value", "equalto", "class") | list %}
+        {% if classes %}
+        <h4>Classes</h4>
+        <ul>
+        {% for class in classes %}
+            <li>
+                <strong>{{ class.name }}</strong>
+                {% if class.docstring %}
+                - {{ class.docstring.split('
+')[0] }}
+                {% endif %}
+            </li>
+        {% endfor %}
+        </ul>
+        {% endif %}
+
+        {% set functions = module.children | selectattr("member_type.value", "equalto", "function") | list %}
+        {% if functions %}
+        <h4>Functions</h4>
+        <ul>
+        {% for func in functions %}
+            <li>
+                <code>{{ func.signature or func.name }}</code>
+                {% if func.docstring %}
+                - {{ func.docstring.split('
+')[0] }}
+                {% endif %}
+            </li>
+        {% endfor %}
+        </ul>
+        {% endif %}
+    </div>
+    {% endfor %}
+</div>
+{% endblock %}

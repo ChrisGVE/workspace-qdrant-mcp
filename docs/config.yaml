@@ -1,0 +1,67 @@
+# Documentation Framework Configuration
+project:
+  name: "Workspace Qdrant MCP"
+  version: "0.2.1dev1"
+  description: "Project-scoped Qdrant MCP server with hybrid search capabilities"
+  author: "Christian C. Berclaz"
+  repository: "https://github.com/ChrisGVE/workspace-qdrant-mcp"
+
+# Source code paths for documentation generation
+sources:
+  python:
+    - "src/python"
+  rust:
+    - "rust-engine"
+
+# Output configuration
+output:
+  base_dir: "docs/generated"
+  formats:
+    - html
+    - markdown
+    - json
+
+# API documentation settings
+api:
+  include_private: false
+  include_inherited: true
+  group_by_module: true
+  sort_members: true
+  show_source_links: true
+
+# User guide configuration
+guides:
+  tutorials_dir: "docs/templates/tutorials"
+  examples_dir: "examples"
+  output_dir: "docs/generated/guides"
+
+# Validation settings
+validation:
+  coverage:
+    minimum_percentage: 80
+    require_examples: true
+    require_return_docs: true
+    require_param_docs: true
+  quality:
+    min_docstring_length: 20
+    check_grammar: true
+    check_links: true
+    check_code_examples: true
+
+# Interactive server settings
+server:
+  host: "127.0.0.1"
+  port: 8080
+  auto_reload: true
+  enable_sandbox: true
+  cors_origins:
+    - "http://localhost:*"
+    - "http://127.0.0.1:*"
+
+# Deployment configuration
+deployment:
+  github_pages: true
+  versioned_docs: true
+  base_url: "/workspace-qdrant-mcp/"
+  build_on_release: true
+  build_on_push: true
