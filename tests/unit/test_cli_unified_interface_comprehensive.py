@@ -331,7 +331,7 @@ class TestCLIErrorHandling:
             # Add more errors than the limit using the proper method
             for i in range(15):
                 exception = Exception(f"Test error {i}")
-                self.error_handler.handle_error(exception, context)
+                self.error_handler.handle_exception(exception, context)
 
             # Should only keep the limit
             assert len(self.error_handler.last_errors) <= self.error_handler.error_history_limit
@@ -377,16 +377,17 @@ class TestCLIIntegrationAndEdgeCases:
         # This is hard to test directly, but we can check the handler exists
         from wqm_cli.cli.main import handle_async_command
         import asyncio
+        import typer
 
         async def mock_interrupted_coroutine():
             raise KeyboardInterrupt("User interrupted")
 
         # The function should handle KeyboardInterrupt and exit gracefully
-        with pytest.raises(SystemExit) as exc_info:
+        with pytest.raises(typer.Exit) as exc_info:
             handle_async_command(mock_interrupted_coroutine())
 
         # Should exit with code 1 for KeyboardInterrupt
-        assert exc_info.value.code == 1
+        assert exc_info.value.exit_code == 1
 
     def test_concurrent_cli_invocations(self):
         """Test that multiple CLI invocations don't interfere."""
