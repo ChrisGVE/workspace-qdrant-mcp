@@ -23,6 +23,10 @@ from .intelligence.ml_insights import (
     MLInsightEngine, Insight, InsightReport, InsightType,
     ConfidenceLevel, DataQualityIssue
 )
+from .intelligence.trend_analyzer import (
+    AdvancedTrendAnalyzer, TrendAnalysisResult, TrendSegment, ChangePoint,
+    TrendDirection, TrendStrength, TrendType, ChangePointType
+)
 
 __all__ = [
     # Core Analytics Engine
@@ -52,5 +56,15 @@ __all__ = [
     'InsightReport',
     'InsightType',
     'ConfidenceLevel',
-    'DataQualityIssue'
+    'DataQualityIssue',
+
+    # Advanced Trend Analysis
+    'AdvancedTrendAnalyzer',
+    'TrendAnalysisResult',
+    'TrendSegment',
+    'ChangePoint',
+    'TrendDirection',
+    'TrendStrength',
+    'TrendType',
+    'ChangePointType'
 ]

@@ -18,12 +18,33 @@ from .ml_insights import (
     ConfidenceLevel,
     DataQualityIssue
 )
+from .trend_analyzer import (
+    AdvancedTrendAnalyzer,
+    TrendAnalysisResult,
+    TrendSegment,
+    ChangePoint,
+    TrendDirection,
+    TrendStrength,
+    TrendType,
+    ChangePointType
+)
 
 __all__ = [
+    # ML Insights
     'MLInsightEngine',
     'Insight',
     'InsightReport',
     'InsightType',
     'ConfidenceLevel',
-    'DataQualityIssue'
+    'DataQualityIssue',
+
+    # Trend Analysis
+    'AdvancedTrendAnalyzer',
+    'TrendAnalysisResult',
+    'TrendSegment',
+    'ChangePoint',
+    'TrendDirection',
+    'TrendStrength',
+    'TrendType',
+    'ChangePointType'
 ]
