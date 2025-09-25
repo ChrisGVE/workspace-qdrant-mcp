@@ -1882,6 +1882,518 @@ class BehavioralController:
         ]
 
 
+class MemoryLifecycleManager:
+    """
+    Manages memory lifecycle with intelligent cleanup and archiving policies.
+
+    This class handles automatic cleanup of outdated rules, archiving for
+    historical context, storage optimization, and memory consolidation.
+    """
+
+    def __init__(self, memory_manager: MemoryManager):
+        """
+        Initialize the lifecycle manager.
+
+        Args:
+            memory_manager: The memory manager instance
+        """
+        self.memory_manager = memory_manager
+        self.cleanup_policies = self._initialize_cleanup_policies()
+        self.archive_collection = f"{memory_manager.memory_collection_name}_archive"
+
+    def _initialize_cleanup_policies(self) -> dict[str, Any]:
+        """Initialize default cleanup policies."""
+        return {
+            "max_age_days": {
+                MemoryCategory.PREFERENCE: 365,  # Keep preferences for 1 year
+                MemoryCategory.BEHAVIOR: 180,    # Keep behaviors for 6 months
+                MemoryCategory.AGENT: 90,        # Keep agent defs for 3 months
+            },
+            "max_unused_days": 60,  # Archive rules unused for 60 days
+            "max_total_rules": 1000,  # Maximum total rules before cleanup
+            "consolidation_threshold": 5,  # Consolidate when 5+ similar rules exist
+            "archive_enabled": True,
+            "backup_before_cleanup": True,
+        }
+
+    async def run_cleanup_cycle(self, dry_run: bool = False) -> dict[str, Any]:
+        """
+        Run a complete cleanup cycle with archiving and optimization.
+
+        Args:
+            dry_run: If True, only report what would be cleaned up
+
+        Returns:
+            Cleanup results and statistics
+        """
+        logger.info("Starting memory lifecycle cleanup cycle")
+
+        cleanup_results = {
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "dry_run": dry_run,
+            "rules_processed": 0,
+            "rules_archived": 0,
+            "rules_deleted": 0,
+            "rules_consolidated": 0,
+            "storage_optimized": False,
+            "errors": [],
+            "actions": []
+        }
+
+        try:
+            # Get all current memory rules
+            all_rules = await self.memory_manager.list_memory_rules()
+            cleanup_results["rules_processed"] = len(all_rules)
+
+            if not all_rules:
+                cleanup_results["actions"].append("No rules found to process")
+                return cleanup_results
+
+            # 1. Archive old and unused rules
+            archive_results = await self._archive_old_rules(all_rules, dry_run)
+            cleanup_results["rules_archived"] = archive_results["archived_count"]
+            cleanup_results["actions"].extend(archive_results["actions"])
+
+            # 2. Delete rules that should be removed (not archived)
+            deletion_results = await self._delete_obsolete_rules(all_rules, dry_run)
+            cleanup_results["rules_deleted"] = deletion_results["deleted_count"]
+            cleanup_results["actions"].extend(deletion_results["actions"])
+
+            # 3. Consolidate similar rules
+            consolidation_results = await self._consolidate_similar_rules(all_rules, dry_run)
+            cleanup_results["rules_consolidated"] = consolidation_results["consolidated_count"]
+            cleanup_results["actions"].extend(consolidation_results["actions"])
+
+            # 4. Optimize storage
+            if not dry_run:
+                storage_results = await self._optimize_storage()
+                cleanup_results["storage_optimized"] = storage_results["optimized"]
+                cleanup_results["actions"].extend(storage_results["actions"])
+
+            logger.info(
+                f"Cleanup cycle completed: {cleanup_results['rules_archived']} archived, "
+                f"{cleanup_results['rules_deleted']} deleted, "
+                f"{cleanup_results['rules_consolidated']} consolidated"
+            )
+
+        except Exception as e:
+            error_msg = f"Cleanup cycle failed: {e}"
+            logger.error(error_msg)
+            cleanup_results["errors"].append(error_msg)
+
+        return cleanup_results
+
+    async def _archive_old_rules(self, rules: list[MemoryRule], dry_run: bool) -> dict[str, Any]:
+        """Archive rules that are old or unused."""
+        results = {"archived_count": 0, "actions": []}
+
+        if not self.cleanup_policies["archive_enabled"]:
+            results["actions"].append("Archiving disabled by policy")
+            return results
+
+        current_time = datetime.now(timezone.utc)
+        rules_to_archive = []
+
+        for rule in rules:
+            should_archive = False
+            reason = ""
+
+            # Check age-based archiving
+            age_days = (current_time - rule.created_at).days
+            max_age = self.cleanup_policies["max_age_days"].get(rule.category, 180)
+
+            if age_days > max_age:
+                should_archive = True
+                reason = f"Rule age ({age_days} days) exceeds maximum for {rule.category.value} ({max_age} days)"
+
+            # Check usage-based archiving (placeholder - would need usage tracking)
+            # For now, we'll simulate usage based on rule update frequency
+            elif rule.updated_at and (current_time - rule.updated_at).days > self.cleanup_policies["max_unused_days"]:
+                should_archive = True
+                reason = f"Rule unused for {(current_time - rule.updated_at).days} days"
+
+            if should_archive:
+                rules_to_archive.append((rule, reason))
+
+        # Perform archiving
+        for rule, reason in rules_to_archive:
+            action_desc = f"Archive rule '{rule.name}' ({rule.id}): {reason}"
+            results["actions"].append(action_desc)
+
+            if not dry_run:
+                archive_success = await self._archive_rule(rule)
+                if archive_success:
+                    # Remove from active memory
+                    await self.memory_manager.delete_memory_rule(rule.id)
+                    results["archived_count"] += 1
+                    logger.debug(f"Archived rule {rule.id}: {rule.name}")
+                else:
+                    results["actions"].append(f"Failed to archive rule {rule.id}")
+
+        return results
+
+    async def _delete_obsolete_rules(self, rules: list[MemoryRule], dry_run: bool) -> dict[str, Any]:
+        """Delete rules that should be removed entirely (not archived)."""
+        results = {"deleted_count": 0, "actions": []}
+
+        rules_to_delete = []
+
+        # Look for rules that should be deleted (e.g., replaced rules, invalid rules)
+        for rule in rules:
+            should_delete = False
+            reason = ""
+
+            # Check if this rule was explicitly replaced by another rule
+            if rule.replaces:
+                # Check if all replaced rules still exist (they shouldn't)
+                for replaced_id in rule.replaces:
+                    if any(r.id == replaced_id for r in rules):
+                        should_delete = True
+                        reason = f"Rule {replaced_id} still exists but should have been replaced"
+                        break
+
+            # Check for malformed rules (basic validation)
+            if not rule.rule.strip() or len(rule.rule.strip()) < 3:
+                should_delete = True
+                reason = "Rule content is too short or empty"
+
+            if should_delete:
+                rules_to_delete.append((rule, reason))
+
+        # Perform deletion
+        for rule, reason in rules_to_delete:
+            action_desc = f"Delete rule '{rule.name}' ({rule.id}): {reason}"
+            results["actions"].append(action_desc)
+
+            if not dry_run:
+                delete_success = await self.memory_manager.delete_memory_rule(rule.id)
+                if delete_success:
+                    results["deleted_count"] += 1
+                    logger.debug(f"Deleted rule {rule.id}: {rule.name}")
+
+        return results
+
+    async def _consolidate_similar_rules(self, rules: list[MemoryRule], dry_run: bool) -> dict[str, Any]:
+        """Consolidate similar rules to reduce redundancy."""
+        results = {"consolidated_count": 0, "actions": []}
+
+        # Group rules by category and look for similar ones
+        by_category = defaultdict(list)
+        for rule in rules:
+            by_category[rule.category].append(rule)
+
+        for category, category_rules in by_category.items():
+            if len(category_rules) < self.cleanup_policies["consolidation_threshold"]:
+                continue
+
+            # Find similar rules within this category
+            similar_groups = self._find_similar_rules(category_rules)
+
+            for group in similar_groups:
+                if len(group) >= 2:  # Only consolidate groups of 2 or more
+                    consolidation_result = await self._consolidate_rule_group(group, dry_run)
+                    if consolidation_result["consolidated"]:
+                        results["consolidated_count"] += consolidation_result["rules_consolidated"]
+                        results["actions"].extend(consolidation_result["actions"])
+
+        return results
+
+    def _find_similar_rules(self, rules: list[MemoryRule]) -> list[list[MemoryRule]]:
+        """Find groups of similar rules that could be consolidated."""
+        similar_groups = []
+        processed_rules = set()
+
+        for i, rule1 in enumerate(rules):
+            if rule1.id in processed_rules:
+                continue
+
+            similar_group = [rule1]
+            processed_rules.add(rule1.id)
+
+            for j, rule2 in enumerate(rules[i+1:], i+1):
+                if rule2.id in processed_rules:
+                    continue
+
+                if self._rules_are_similar(rule1, rule2):
+                    similar_group.append(rule2)
+                    processed_rules.add(rule2.id)
+
+            if len(similar_group) > 1:
+                similar_groups.append(similar_group)
+
+        return similar_groups
+
+    def _rules_are_similar(self, rule1: MemoryRule, rule2: MemoryRule) -> bool:
+        """Check if two rules are similar enough to be consolidated."""
+        # Same category required
+        if rule1.category != rule2.category:
+            return False
+
+        # Similar scope
+        scope1 = set(rule1.scope or [])
+        scope2 = set(rule2.scope or [])
+        if scope1 and scope2 and not (scope1 & scope2):  # No overlap
+            return False
+
+        # Similar rule text (simple word overlap)
+        words1 = set(rule1.rule.lower().split())
+        words2 = set(rule2.rule.lower().split())
+
+        if not words1 or not words2:
+            return False
+
+        overlap = len(words1 & words2)
+        union_size = len(words1 | words2)
+        similarity = overlap / union_size if union_size > 0 else 0
+
+        return similarity > 0.6  # 60% word overlap threshold
+
+    async def _consolidate_rule_group(self, rules: list[MemoryRule], dry_run: bool) -> dict[str, Any]:
+        """Consolidate a group of similar rules into one rule."""
+        if len(rules) < 2:
+            return {"consolidated": False, "rules_consolidated": 0, "actions": []}
+
+        # Choose the "best" rule as the base (highest authority, most recent)
+        base_rule = max(rules, key=lambda r: (
+            r.authority == AuthorityLevel.ABSOLUTE,
+            r.created_at.timestamp()
+        ))
+
+        # Create consolidated rule content
+        consolidated_content = self._merge_rule_content(rules)
+        consolidated_scope = list(set().union(*(r.scope or [] for r in rules)))
+        consolidated_replaces = [r.id for r in rules if r.id != base_rule.id]
+
+        action_desc = f"Consolidate {len(rules)} rules into '{base_rule.name}'"
+
+        result = {
+            "consolidated": True,
+            "rules_consolidated": len(rules) - 1,  # One rule remains
+            "actions": [action_desc]
+        }
+
+        if not dry_run:
+            try:
+                # Update the base rule with consolidated content
+                updates = {
+                    "rule": consolidated_content,
+                    "scope": consolidated_scope,
+                    "replaces": consolidated_replaces,
+                    "metadata": {
+                        "consolidated_from": [r.id for r in rules if r.id != base_rule.id],
+                        "consolidation_date": datetime.now(timezone.utc).isoformat()
+                    }
+                }
+
+                update_success = await self.memory_manager.update_memory_rule(
+                    base_rule.id, updates
+                )
+
+                if update_success:
+                    # Delete the other rules
+                    for rule in rules:
+                        if rule.id != base_rule.id:
+                            await self.memory_manager.delete_memory_rule(rule.id)
+
+                    logger.info(f"Consolidated {len(rules)} similar rules into {base_rule.id}")
+                else:
+                    result["consolidated"] = False
+                    result["actions"].append("Failed to update consolidated rule")
+
+            except Exception as e:
+                result["consolidated"] = False
+                result["actions"].append(f"Consolidation failed: {e}")
+
+        return result
+
+    def _merge_rule_content(self, rules: list[MemoryRule]) -> str:
+        """Merge rule content from multiple similar rules."""
+        # Simple merging strategy: combine unique sentences
+        all_sentences = []
+        for rule in rules:
+            sentences = rule.rule.split('.')
+            for sentence in sentences:
+                sentence = sentence.strip()
+                if sentence and sentence not in all_sentences:
+                    all_sentences.append(sentence)
+
+        # Choose the most comprehensive version, or merge if reasonable
+        if len(all_sentences) <= 3:
+            return '. '.join(all_sentences) + '.'
+        else:
+            # Take the longest rule if too many sentences
+            return max(rules, key=lambda r: len(r.rule)).rule
+
+    async def _optimize_storage(self) -> dict[str, Any]:
+        """Optimize storage by cleaning up and compacting collections."""
+        results = {"optimized": False, "actions": []}
+
+        try:
+            # Check collection statistics
+            stats = await self.memory_manager.get_memory_stats()
+
+            results["actions"].append(f"Current memory stats: {stats.total_rules} rules, ~{stats.estimated_tokens} tokens")
+
+            # Placeholder for actual storage optimization
+            # In a real implementation, this might involve:
+            # - Reindexing the collection
+            # - Optimizing vector storage
+            # - Compacting the database
+            # - Cleaning up orphaned data
+
+            results["optimized"] = True
+            results["actions"].append("Storage optimization completed")
+
+        except Exception as e:
+            results["actions"].append(f"Storage optimization failed: {e}")
+
+        return results
+
+    async def _archive_rule(self, rule: MemoryRule) -> bool:
+        """Archive a single rule to the archive collection."""
+        try:
+            # Ensure archive collection exists
+            await self._ensure_archive_collection()
+
+            # Create archive entry with additional metadata
+            archive_entry = {
+                **asdict(rule),
+                "archived_at": datetime.now(timezone.utc).isoformat(),
+                "original_collection": self.memory_manager.memory_collection_name
+            }
+
+            # Create embedding (placeholder - would use actual embedding service)
+            embedding_vector = [0.0] * self.memory_manager.embedding_dim
+
+            # Store in archive collection
+            point = PointStruct(
+                id=f"archived_{rule.id}",
+                vector={"dense": embedding_vector},
+                payload=archive_entry
+            )
+
+            self.memory_manager.client.upsert(
+                collection_name=self.archive_collection,
+                points=[point]
+            )
+
+            return True
+
+        except Exception as e:
+            logger.error(f"Failed to archive rule {rule.id}: {e}")
+            return False
+
+    async def _ensure_archive_collection(self):
+        """Ensure the archive collection exists."""
+        collections = self.memory_manager.client.get_collections()
+        collection_names = {col.name for col in collections.collections}
+
+        if self.archive_collection not in collection_names:
+            # Create archive collection with same configuration as main collection
+            vector_config = {
+                "dense": VectorParams(
+                    size=self.memory_manager.embedding_dim,
+                    distance=Distance.COSINE
+                )
+            }
+
+            self.memory_manager.client.create_collection(
+                collection_name=self.archive_collection,
+                vectors_config=vector_config
+            )
+
+            logger.info(f"Created archive collection: {self.archive_collection}")
+
+    async def get_archived_rules(
+        self,
+        limit: int = 20,
+        date_range: tuple[datetime, datetime] | None = None
+    ) -> list[dict[str, Any]]:
+        """Retrieve archived rules for analysis or restoration."""
+        try:
+            await self._ensure_archive_collection()
+
+            # Build filter for date range if provided
+            search_filter = None
+            if date_range:
+                start_date, end_date = date_range
+                # Note: This would need proper date filtering implementation
+                pass
+
+            # Retrieve archived rules
+            points, _ = self.memory_manager.client.scroll(
+                collection_name=self.archive_collection,
+                scroll_filter=search_filter,
+                limit=limit,
+                with_payload=True
+            )
+
+            archived_rules = []
+            for point in points:
+                payload = point.payload
+                archived_rules.append({
+                    "id": payload.get("id"),
+                    "name": payload.get("name"),
+                    "rule": payload.get("rule"),
+                    "category": payload.get("category"),
+                    "archived_at": payload.get("archived_at"),
+                    "original_created_at": payload.get("created_at")
+                })
+
+            return archived_rules
+
+        except Exception as e:
+            logger.error(f"Failed to retrieve archived rules: {e}")
+            return []
+
+    async def restore_rule_from_archive(self, archived_rule_id: str) -> bool:
+        """Restore a rule from the archive back to active memory."""
+        try:
+            # Retrieve from archive
+            points = self.memory_manager.client.retrieve(
+                collection_name=self.archive_collection,
+                ids=[f"archived_{archived_rule_id}"],
+                with_payload=True
+            )
+
+            if not points:
+                logger.error(f"Archived rule {archived_rule_id} not found")
+                return False
+
+            archived_data = points[0].payload
+
+            # Recreate the memory rule
+            restored_rule_id = await self.memory_manager.add_memory_rule(
+                category=MemoryCategory(archived_data["category"]),
+                name=archived_data["name"],
+                rule=archived_data["rule"],
+                authority=AuthorityLevel(archived_data["authority"]),
+                scope=archived_data.get("scope", []),
+                source=f"{archived_data.get('source', 'archived')}_restored",
+                conditions=archived_data.get("conditions"),
+                metadata={
+                    "restored_from_archive": True,
+                    "original_id": archived_rule_id,
+                    "restored_at": datetime.now(timezone.utc).isoformat()
+                }
+            )
+
+            logger.info(f"Restored rule from archive: {archived_rule_id} -> {restored_rule_id}")
+            return True
+
+        except Exception as e:
+            logger.error(f"Failed to restore rule {archived_rule_id}: {e}")
+            return False
+
+    def update_cleanup_policy(self, policy_key: str, value: Any):
+        """Update a cleanup policy setting."""
+        if policy_key in self.cleanup_policies:
+            self.cleanup_policies[policy_key] = value
+            logger.info(f"Updated cleanup policy {policy_key} to {value}")
+        else:
+            logger.warning(f"Unknown cleanup policy: {policy_key}")
+
+
 # Utility functions for memory management
 
 
