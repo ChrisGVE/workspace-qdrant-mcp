@@ -28,9 +28,8 @@ from .threat_detection import (
     ThreatAnalyzer,
     ThreatLevel,
     ThreatType,
-    ThreatEvent,
-    BehavioralPattern,
-    AnomalyType,
+    SecurityEvent,
+    ThreatDetection,
 )
 
 from .security_monitor import (
@@ -38,10 +37,10 @@ from .security_monitor import (
     SecurityMetrics,
     AlertingSystem,
     SecurityEventLogger,
-    AlertRule,
-    AlertSeverity,
-    AlertStatus,
-    NotificationChannel,
+    SecurityAlert,
+    SecurityMetric,
+    AlertLevel,
+    MetricType,
 )
 
 from .audit_framework import (
@@ -51,7 +50,8 @@ from .audit_framework import (
     ComplianceFramework,
     AuditEvent,
     ComplianceRule,
-    ComplianceStatus,
+    AuditLevel,
+    AuditEventType,
 )
 
 from .access_control import (
@@ -106,19 +106,18 @@ __all__ = [
     'ThreatAnalyzer',
     'ThreatLevel',
     'ThreatType',
-    'ThreatEvent',
-    'BehavioralPattern',
-    'AnomalyType',
+    'SecurityEvent',
+    'ThreatDetection',
 
     # Security monitoring
     'SecurityMonitor',
     'SecurityMetrics',
     'AlertingSystem',
     'SecurityEventLogger',
-    'AlertRule',
-    'AlertSeverity',
-    'AlertStatus',
-    'NotificationChannel',
+    'SecurityAlert',
+    'SecurityMetric',
+    'AlertLevel',
+    'MetricType',
 
     # Audit framework
     'AuditLogger',
@@ -127,7 +126,8 @@ __all__ = [
     'ComplianceFramework',
     'AuditEvent',
     'ComplianceRule',
-    'ComplianceStatus',
+    'AuditLevel',
+    'AuditEventType',
 
     # Access control
     'RoleBasedAccessControl',

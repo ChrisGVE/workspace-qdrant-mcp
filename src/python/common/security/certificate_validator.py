@@ -381,7 +381,7 @@ class EnhancedCertificateValidator:
 
 def create_secure_ssl_context(
     validator: Optional[EnhancedCertificateValidator] = None,
-    protocol: ssl.Protocol = ssl.PROTOCOL_TLS_CLIENT,
+    protocol: int = ssl.PROTOCOL_TLS_CLIENT,
 ) -> ssl.SSLContext:
     """Create a secure SSL context with enhanced validation.
 
