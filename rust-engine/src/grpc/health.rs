@@ -552,7 +552,6 @@ impl ExternalMonitoring {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use tokio_test;
 
     #[test]
     fn test_health_status_conversions() {
@@ -710,7 +709,7 @@ mod tests {
 
         // Register multiple services
         let monitor1 = system.register_service("service1".to_string(), None).await;
-        let monitor2 = system.register_service("service2".to_string(), None).await;
+        let _monitor2 = system.register_service("service2".to_string(), None).await;
 
         // All services healthy
         let (status, _) = system.get_system_health().await;

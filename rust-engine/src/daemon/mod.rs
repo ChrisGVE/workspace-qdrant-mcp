@@ -159,10 +159,6 @@ impl WorkspaceDaemon {
 mod tests {
     use super::*;
     use crate::config::*;
-    use tempfile::TempDir;
-    use tokio_test;
-    use std::path::PathBuf;
-    use uuid::Uuid;
 
     fn create_test_config() -> DaemonConfig {
         // Use in-memory SQLite database for tests

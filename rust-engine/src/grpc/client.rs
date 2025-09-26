@@ -549,7 +549,6 @@ pub struct ConnectionStats {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 
     #[tokio::test]
     async fn test_connection_pool_basic_operations() {

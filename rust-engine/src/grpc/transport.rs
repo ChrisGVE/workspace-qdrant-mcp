@@ -380,7 +380,6 @@ impl LocalConnectionPool {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use tempfile::tempdir;
 
     #[test]
     fn test_transport_type_determination() {

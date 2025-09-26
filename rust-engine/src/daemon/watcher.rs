@@ -633,11 +633,10 @@ pub struct DebouncedEvent {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::config::{FileWatcherConfig, ProcessingConfig, QdrantConfig};
+    use crate::config::FileWatcherConfig;
     use tempfile::TempDir;
     use std::path::PathBuf;
     use std::sync::Arc;
-    use tokio_test;
     use std::time::{Duration, Instant};
     use futures_util::future::join_all;
     use notify::{self, event::{CreateKind, ModifyKind}};
@@ -830,7 +829,7 @@ mod tests {
         let processor = create_test_processor();
         let processor_clone = Arc::clone(&processor);
 
-        let watcher = FileWatcher::new(&config, processor_clone).await.unwrap();
+        let _watcher = FileWatcher::new(&config, processor_clone).await.unwrap();
 
         // Test that the processor Arc is properly shared
         assert!(Arc::strong_count(&processor) >= 2);
@@ -1350,7 +1349,7 @@ mod tests {
         assert_eq!(processor.config().max_concurrent_tasks, 2);
 
         // Create another watcher with the same processor
-        let mut watcher2 = FileWatcher::new(&config, processor).await.unwrap();
+        let watcher2 = FileWatcher::new(&config, processor).await.unwrap();
         assert!(watcher2.start().await.is_ok());
         assert!(watcher2.stop().await.is_ok());
     }
@@ -1390,14 +1389,14 @@ mod tests {
         fn _takes_send(_: impl Send) {}
         fn _takes_sync(_: impl Sync) {}
 
-        let config = FileWatcherConfig {
+        let _config = FileWatcherConfig {
             enabled: true,
             debounce_ms: 100,
             max_watched_dirs: 10,
             ignore_patterns: vec![],
             recursive: true,
         };
-        let processor = Arc::new(DocumentProcessor::test_instance());
+        let _processor = Arc::new(DocumentProcessor::test_instance());
 
         // This would be tested in a tokio context, but we're testing trait bounds here
         // let watcher = FileWatcher::new(&config, processor).await.unwrap();
@@ -1459,7 +1458,7 @@ mod tests {
             let processor_clone = Arc::clone(&processor);
 
             let handle = tokio::spawn(async move {
-                let mut watcher = FileWatcher::new(&config_clone, processor_clone).await.unwrap();
+                let watcher = FileWatcher::new(&config_clone, processor_clone).await.unwrap();
                 watcher.start().await.unwrap();
                 tokio::time::sleep(Duration::from_millis(50)).await;
                 watcher.stop().await.unwrap();
@@ -1483,7 +1482,7 @@ mod tests {
 
         // Rapid start/stop cycles
         for _ in 0..20 {
-            let mut watcher = FileWatcher::new(&config, processor.clone()).await.unwrap();
+            let watcher = FileWatcher::new(&config, processor.clone()).await.unwrap();
             watcher.start().await.unwrap();
             watcher.stop().await.unwrap();
         }

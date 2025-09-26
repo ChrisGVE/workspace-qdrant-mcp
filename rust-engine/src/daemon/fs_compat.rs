@@ -389,7 +389,7 @@ impl FsCompat {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use tempfile::{tempdir, TempDir};
+    use tempfile::tempdir;
     use std::fs;
     
     fn create_fs_compat() -> FsCompat {

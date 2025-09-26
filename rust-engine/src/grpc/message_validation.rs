@@ -1178,7 +1178,7 @@ mod tests {
         let request = Request::new(());
 
         // This should trigger oversized message handling
-        let result = validator.validate_incoming_message(&request, "system_service");
+        let _result = validator.validate_incoming_message(&request, "system_service");
 
         let stats = validator.get_stats();
         assert!(stats.oversized_messages > 0);

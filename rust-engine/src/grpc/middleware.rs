@@ -8,6 +8,12 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use dashmap::DashMap;
 use parking_lot::RwLock;
 use crate::grpc::security::SecurityManager;
+#[cfg(any(test, feature = "test-utils"))]
+use crate::grpc::{RetryStrategy, CircuitBreaker};
+#[cfg(any(test, feature = "test-utils"))]
+use crate::grpc::circuit_breaker::{CircuitBreakerStats, CircuitState};
+#[cfg(any(test, feature = "test-utils"))]
+use crate::error::DaemonResult;
 
 /// Connection tracking and management with enhanced security
 #[derive(Debug)]
@@ -529,7 +535,7 @@ impl EnhancedMiddleware {
     }
 
     /// Get circuit breaker statistics for all services
-    pub async fn get_circuit_breaker_stats(&self) -> Vec<(String, crate::grpc::CircuitBreakerStats)> {
+    pub async fn get_circuit_breaker_stats(&self) -> Vec<(String, CircuitBreakerStats)> {
         let mut stats = Vec::new();
         for entry in self.circuit_breakers.iter() {
             let service_name = entry.key().clone();
@@ -625,10 +631,9 @@ impl SecurityInterceptor {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use tokio_test;
     use std::sync::atomic::Ordering;
     use std::time::Duration;
-    use tonic::{Request, Response, Status, metadata::MetadataValue};
+    use tonic::{Request, metadata::MetadataValue};
 
     #[test]
     fn test_connection_manager_new() {
@@ -1097,15 +1102,15 @@ mod tests {
         for client_id in client_ids {
             manager.update_activity(&client_id, 1024, 512);
             let stats = manager.get_stats();
-            // Stats should be valid
-            assert!(stats.total_bytes_sent >= 0);
-            assert!(stats.total_bytes_received >= 0);
+            // Stats should be valid (u64 values are always >= 0)
+            assert_eq!(stats.total_bytes_sent, 0);
+            assert_eq!(stats.total_bytes_received, 0);
         }
 
         // Test connection cleanup with very short duration
         manager.cleanup_expired_connections(Duration::from_nanos(1));
         let stats_after_cleanup = manager.get_stats();
-        assert!(stats_after_cleanup.active_connections >= 0);
+        assert_eq!(stats_after_cleanup.active_connections, 0);
     }
 
     #[test]
@@ -1212,7 +1217,7 @@ mod tests {
     #[test]
     fn test_connection_interceptor_creation() {
         let connection_manager = Arc::new(ConnectionManager::new(100, 1000));
-        let interceptor = ConnectionInterceptor::new(connection_manager.clone());
+        let _interceptor = ConnectionInterceptor::new(connection_manager.clone());
 
         // Test that the interceptor holds a reference to the connection manager
         assert!(Arc::strong_count(&connection_manager) >= 2);
@@ -1225,7 +1230,6 @@ mod tests {
 
     #[test]
     fn test_connection_pool_edge_cases() {
-        use std::collections::HashMap;
         use deadpool::managed::Manager;
 
         // Test that ConnectionPool can be created (field is never read in current impl)
@@ -1326,6 +1330,6 @@ mod tests {
         let stats = middleware.get_circuit_breaker_stats().await;
         assert_eq!(stats.len(), 1);
         assert_eq!(stats[0].0, "test-service");
-        assert_eq!(stats[0].1.state, crate::grpc::CircuitState::Closed);
+        assert_eq!(stats[0].1.state, CircuitState::Closed);
     }
 }

@@ -14,7 +14,7 @@ use std::{net::SocketAddr, sync::Arc, time::Duration, collections::HashMap};
 use tokio::time::timeout;
 use tonic::{
     transport::{Server, Channel},
-    Request, Response, Status, Code,
+    Request,
     metadata::{MetadataValue, MetadataMap},
 };
 use prost_types::Timestamp;
@@ -389,7 +389,7 @@ impl TestValidators {
     pub fn validate_hybrid_search_response(response: &HybridSearchResponse) -> bool {
         !response.query_id.is_empty()
             && response.metadata.is_some()
-            && response.results.len() >= 0
+            // results.len() is usize, always >= 0
     }
 
     /// Validate a HealthCheckResponse

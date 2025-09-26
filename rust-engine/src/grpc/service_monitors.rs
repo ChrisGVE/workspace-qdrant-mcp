@@ -638,7 +638,6 @@ pub struct ServiceStats {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use tokio_test;
 
     #[tokio::test]
     async fn test_document_processor_monitor() {

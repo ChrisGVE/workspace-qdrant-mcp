@@ -982,7 +982,7 @@ impl ShutdownManager {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use tokio_test::{assert_ok, assert_err};
+    use tokio_test::assert_ok;
 
     #[tokio::test]
     async fn test_runtime_manager_creation() {
@@ -1001,7 +1001,7 @@ mod tests {
         let manager = assert_ok!(RuntimeManager::new(config).await);
         assert_ok!(manager.start().await);
 
-        let task_id = assert_ok!(manager.spawn_task(
+        let _task_id = assert_ok!(manager.spawn_task(
             "test_task".to_string(),
             TaskPriority::Normal,
             async { Ok(()) }

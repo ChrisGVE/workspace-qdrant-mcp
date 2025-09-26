@@ -499,7 +499,6 @@ mod tests {
     use super::*;
     use crate::grpc::health::{HealthMonitoringSystem, AlertConfig};
     use std::time::Duration;
-    use tokio_test;
 
     #[test]
     fn test_service_status_conversion() {
@@ -546,7 +545,7 @@ mod tests {
         // First call should collect fresh metrics
         let start = std::time::Instant::now();
         let metrics1 = collector.collect_metrics(None).await.unwrap();
-        let first_duration = start.elapsed();
+        let _first_duration = start.elapsed();
 
         // Second call should use cached metrics and be faster
         let start = std::time::Instant::now();

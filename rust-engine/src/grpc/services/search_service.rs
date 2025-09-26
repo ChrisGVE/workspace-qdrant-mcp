@@ -154,10 +154,7 @@ impl SearchService for SearchServiceImpl {
 mod tests {
     use super::*;
     use crate::config::*;
-    use tempfile::TempDir;
     use tonic::Request;
-    use tokio_test;
-    use std::collections::HashMap;
 
     fn create_test_daemon_config() -> DaemonConfig {
         // Use in-memory SQLite database for tests
@@ -308,7 +305,7 @@ mod tests {
     fn create_suggestions_request(
         partial_query: &str,
         limit: i32,
-        collection_names: Vec<String>
+        _collection_names: Vec<String>
     ) -> SuggestionsRequest {
         SuggestionsRequest {
             partial_query: partial_query.to_string(),
