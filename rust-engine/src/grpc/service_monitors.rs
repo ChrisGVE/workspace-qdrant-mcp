@@ -796,7 +796,7 @@ mod tests {
 
         // Start multiple concurrent searches
         for i in 0..5 {
-            let monitor_clone = Arc::clone(&monitor);
+            let monitor_clone: Arc<SearchServiceMonitor> = Arc::clone(&monitor);
             let handle = tokio::spawn(async move {
                 let tracker = monitor_clone.start_search(&format!("query {}", i)).await;
                 tokio::time::sleep(Duration::from_millis(10)).await;
