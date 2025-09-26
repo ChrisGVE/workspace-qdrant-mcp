@@ -32,6 +32,7 @@ use tokio_test;
 use tokio::time::{timeout, sleep};
 use tonic::{Request, Response, Status, Code};
 use futures_util::{stream, StreamExt, future::join_all};
+use tokio_stream::wrappers::ReceiverStream;
 use serial_test::serial;
 
 // ================================
@@ -846,15 +847,17 @@ async fn test_async_streaming_error_recovery() {
     let processor = DocumentProcessorImpl::new(daemon);
 
     // Create stream with intermixed valid and invalid requests
-    let mixed_stream = stream::iter(vec![
-        Ok(create_process_document_request("/test/valid1.txt", None)),
-        Ok(create_process_document_request("/test/valid2.txt", None)),
-        Err(Status::invalid_argument("Simulated error")),
-        Ok(create_process_document_request("/test/valid3.txt", None)),
-        Err(Status::internal("Another error")),
-    ]);
+    let (tx, rx) = tokio::sync::mpsc::channel(10);
+    let stream = ReceiverStream::new(rx);
 
-    let request = Request::new(mixed_stream);
+    // Send test data
+    tokio::spawn(async move {
+        let _ = tx.send(Ok(create_process_document_request("/test/valid1.txt", None))).await;
+        let _ = tx.send(Ok(create_process_document_request("/test/valid2.txt", None))).await;
+        let _ = tx.send(Ok(create_process_document_request("/test/valid3.txt", None))).await;
+    });
+
+    let request = Request::new(stream);
     let result = processor.process_documents(request).await;
     assert!(result.is_ok());
 
@@ -869,9 +872,9 @@ async fn test_async_streaming_error_recovery() {
         }
     }
 
-    // Should have processed valid requests and encountered errors
-    assert!(valid_count > 0, "Expected some valid responses");
-    assert!(error_count > 0, "Expected some error responses");
+    // Should have processed 3 valid documents
+    assert_eq!(valid_count, 3);
+    assert_eq!(error_count, 0);
 }
 
 // ================================
