@@ -17,6 +17,10 @@ use workspace_qdrant_daemon::daemon::WorkspaceDaemon;
 use workspace_qdrant_daemon::grpc::services::{
     DocumentProcessorImpl, SearchServiceImpl, MemoryServiceImpl, SystemServiceImpl
 };
+use workspace_qdrant_daemon::proto::document_processor_server::DocumentProcessor;
+use workspace_qdrant_daemon::proto::search_service_server::SearchService;
+use workspace_qdrant_daemon::proto::memory_service_server::MemoryService;
+use workspace_qdrant_daemon::proto::system_service_server::SystemService;
 use workspace_qdrant_daemon::grpc::middleware::{ConnectionManager, ConnectionInterceptor};
 use workspace_qdrant_daemon::grpc::server::GrpcServer;
 use workspace_qdrant_daemon::proto::*;

@@ -16,6 +16,10 @@ use futures_util::future::FutureExt;
 use workspace_qdrant_daemon::error::{DaemonError, DaemonResult};
 use workspace_qdrant_daemon::daemon::processing::DocumentProcessor;
 use workspace_qdrant_daemon::grpc::middleware::{with_retry, RetryConfig, ConnectionManager};
+use workspace_qdrant_daemon::proto::document_processor_server::DocumentProcessor;
+use workspace_qdrant_daemon::proto::search_service_server::SearchService;
+use workspace_qdrant_daemon::proto::memory_service_server::MemoryService;
+use workspace_qdrant_daemon::proto::system_service_server::SystemService;
 use tonic::{Request, Response, Status};
 // Note: Using manual pattern matching instead of assert_matches for better compatibility
 
