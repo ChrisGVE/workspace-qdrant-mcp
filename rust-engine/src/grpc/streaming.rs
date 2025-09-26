@@ -53,7 +53,7 @@ impl StreamingDocumentHandler {
         let (tx, rx) = mpsc::channel(stream_handle.buffer_size());
 
         // Spawn task to process the incoming stream
-        let message_validator = Arc::clone(&self.message_validator);
+        let _message_validator = Arc::clone(&self.message_validator);
         let process_chunk = Arc::new(process_chunk);
         tokio::spawn(async move {
             let mut chunk_count = 0;

@@ -262,7 +262,7 @@ impl RetryStrategy {
         }
 
         // All retries exhausted
-        let final_error = last_error.unwrap_or_else(|| DaemonError::Internal {
+        let _final_error = last_error.unwrap_or_else(|| DaemonError::Internal {
             message: "No error recorded during retry attempts".to_string(),
         });
 

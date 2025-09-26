@@ -447,7 +447,7 @@ impl QdrantClient {
                 timeout: None,
             };
 
-            let result = client.get_points(request).await
+            let _result = client.get_points(request).await
                 .map_err(|e| QdrantError::VectorOperation {
                     operation: "get".to_string(),
                     message: format!("Get points failed: {}", e),
@@ -503,7 +503,7 @@ impl QdrantClient {
     async fn update_payload(
         &self,
         collection_name: &str,
-        point_id: PointId,
+        _point_id: PointId,
         payload: HashMap<String, serde_json::Value>,
         wait: bool,
     ) -> QdrantResult<PointsOperationResponse> {
@@ -541,7 +541,7 @@ impl QdrantClient {
     async fn delete_payload(
         &self,
         collection_name: &str,
-        point_id: PointId,
+        _point_id: PointId,
         payload_keys: Vec<String>,
         wait: bool,
     ) -> QdrantResult<PointsOperationResponse> {
@@ -648,7 +648,7 @@ impl QdrantClient {
                 collection_name: collection_name.to_string(),
             };
 
-            let result = client.collection_info(request).await
+            let _result = client.collection_info(request).await
                 .map_err(|e| QdrantError::CollectionOperation {
                     operation: "get_info".to_string(),
                     message: format!("Get collection info failed: {}", e),
@@ -668,9 +668,9 @@ impl QdrantClient {
         self.circuit_breaker.call("list_collections", async {
             let client = self.pool.acquire().await?;
 
-            let request = ListCollectionsRequest {};
+            let _request = ListCollectionsRequest {};
 
-            let result = client.list_collections().await
+            let _result = client.list_collections().await
                 .map_err(|e| QdrantError::CollectionOperation {
                     operation: "list".to_string(),
                     message: format!("List collections failed: {}", e),
@@ -687,7 +687,7 @@ impl QdrantClient {
 
     async fn update_collection(
         &self,
-        collection_name: &str,
+        _collection_name: &str,
         _optimizers_config: Option<serde_json::Value>,
         _params: Option<serde_json::Value>,
     ) -> QdrantResult<CollectionOperationResponse> {
@@ -699,7 +699,7 @@ impl QdrantClient {
         })
     }
 
-    async fn create_alias(&self, collection_name: &str, alias_name: &str) -> QdrantResult<CollectionOperationResponse> {
+    async fn create_alias(&self, _collection_name: &str, _alias_name: &str) -> QdrantResult<CollectionOperationResponse> {
         // For now, return a placeholder implementation
         // Full implementation would require alias management
         Err(QdrantError::CollectionOperation {
@@ -708,7 +708,7 @@ impl QdrantClient {
         })
     }
 
-    async fn delete_alias(&self, alias_name: &str) -> QdrantResult<CollectionOperationResponse> {
+    async fn delete_alias(&self, _alias_name: &str) -> QdrantResult<CollectionOperationResponse> {
         // For now, return a placeholder implementation
         // Full implementation would require alias management
         Err(QdrantError::CollectionOperation {
