@@ -1,7 +1,9 @@
 //! Daemon state management using SQLite
 
 use crate::config::DatabaseConfig;
-use crate::error::{DaemonError, DaemonResult};
+use crate::error::DaemonResult;
+#[cfg(test)]
+use crate::error::DaemonError;
 use sqlx::SqlitePool;
 use tracing::{info, debug};
 

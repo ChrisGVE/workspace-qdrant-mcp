@@ -5,8 +5,10 @@
 
 use crate::config::{
     TransportConfig, UnixSocketConfig, LocalOptimizationConfig,
-    TransportStrategy, LocalLatencyConfig
+    TransportStrategy
 };
+#[cfg(test)]
+use crate::config::LocalLatencyConfig;
 
 use anyhow::{Result, anyhow};
 use std::path::Path;

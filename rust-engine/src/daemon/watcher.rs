@@ -71,8 +71,8 @@ impl FileWatcher {
         }
 
         // Create event channel
-        let (event_tx, mut event_rx) = mpsc::channel::<notify::Result<Event>>(1000);
-        let (shutdown_tx, mut shutdown_rx) = tokio::sync::oneshot::channel::<()>();
+        let (event_tx, event_rx) = mpsc::channel::<notify::Result<Event>>(1000);
+        let (shutdown_tx, shutdown_rx) = tokio::sync::oneshot::channel::<()>();
 
         // Store senders for later use
         *self.event_sender.lock().await = Some(event_tx.clone());
