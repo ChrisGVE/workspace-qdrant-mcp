@@ -563,8 +563,6 @@ mod retry_backoff_tests {
 
     #[tokio::test]
     async fn test_retry_success_after_failures() {
-        let operation = FailableAsyncOperation::new().fail_n_times(2);
-
         let config = RetryConfig {
             max_retries: 3,
             initial_delay: Duration::from_millis(1),
@@ -574,7 +572,10 @@ mod retry_backoff_tests {
 
         let start_time = Instant::now();
         let result = with_retry(
-            || Box::pin(operation.execute()),
+            || {
+                let operation = FailableAsyncOperation::new().fail_n_times(2);
+                Box::pin(operation.execute())
+            },
             &config,
         ).await;
         let elapsed = start_time.elapsed();
@@ -588,7 +589,7 @@ mod retry_backoff_tests {
 
     #[tokio::test]
     async fn test_retry_final_failure() {
-        let operation = FailableAsyncOperation::new().fail_n_times(5); // More failures than retries
+        let operation = Arc::new(FailableAsyncOperation::new().fail_n_times(5)); // More failures than retries
 
         let config = RetryConfig {
             max_retries: 3,
@@ -597,8 +598,9 @@ mod retry_backoff_tests {
             backoff_multiplier: 2.0,
         };
 
+        let op_clone = Arc::clone(&operation);
         let result = with_retry(
-            || Box::pin(operation.execute()),
+            move || Box::pin(op_clone.execute()),
             &config,
         ).await;
 
@@ -610,8 +612,6 @@ mod retry_backoff_tests {
 
     #[tokio::test]
     async fn test_exponential_backoff_timing() {
-        let operation = FailableAsyncOperation::new().fail_n_times(3);
-
         let config = RetryConfig {
             max_retries: 3,
             initial_delay: Duration::from_millis(10),
@@ -621,7 +621,10 @@ mod retry_backoff_tests {
 
         let start_time = Instant::now();
         let result = with_retry(
-            || Box::pin(operation.execute()),
+            || {
+                let operation = FailableAsyncOperation::new().fail_n_times(3);
+                Box::pin(operation.execute())
+            },
             &config,
         ).await;
         let elapsed = start_time.elapsed();
@@ -635,8 +638,6 @@ mod retry_backoff_tests {
 
     #[tokio::test]
     async fn test_retry_max_delay_cap() {
-        let operation = FailableAsyncOperation::new().fail_n_times(4);
-
         let config = RetryConfig {
             max_retries: 4,
             initial_delay: Duration::from_millis(10),
@@ -646,7 +647,10 @@ mod retry_backoff_tests {
 
         let start_time = Instant::now();
         let result = with_retry(
-            || Box::pin(operation.execute()),
+            || {
+                let operation = FailableAsyncOperation::new().fail_n_times(4);
+                Box::pin(operation.execute())
+            },
             &config,
         ).await;
         let elapsed = start_time.elapsed();
@@ -660,10 +664,6 @@ mod retry_backoff_tests {
 
     #[tokio::test]
     async fn test_retry_with_timeout_interaction() {
-        let operation = FailableAsyncOperation::new()
-            .fail_n_times(2)
-            .with_timeout(Duration::from_millis(30));
-
         let config = RetryConfig {
             max_retries: 3,
             initial_delay: Duration::from_millis(5),
@@ -674,7 +674,12 @@ mod retry_backoff_tests {
         // Each retry takes 30ms + delay time
         let start_time = Instant::now();
         let result = timeout(Duration::from_millis(200), with_retry(
-            || Box::pin(operation.execute()),
+            || {
+                let operation = FailableAsyncOperation::new()
+                    .fail_n_times(2)
+                    .with_timeout(Duration::from_millis(30));
+                Box::pin(operation.execute())
+            },
             &config,
         )).await;
 
@@ -700,9 +705,11 @@ mod retry_backoff_tests {
         let results = test_concurrent_operations(5, |i| {
             let config = config.clone();
             Box::pin(async move {
-                let operation = FailableAsyncOperation::new().fail_n_times(i as u32 % 3);
                 with_retry(
-                    || Box::pin(operation.execute()),
+                    || {
+                        let operation = FailableAsyncOperation::new().fail_n_times(i as u32 % 3);
+                        Box::pin(operation.execute())
+                    },
                     &config,
                 ).await
             })
