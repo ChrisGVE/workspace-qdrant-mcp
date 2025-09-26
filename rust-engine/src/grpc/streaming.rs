@@ -349,7 +349,6 @@ pub struct SearchResult {
 mod tests {
     use super::*;
     use crate::config::{MessageConfig, CompressionConfig, StreamingConfig};
-    use tokio_stream::iter;
 
     fn create_test_message_validator() -> Arc<MessageValidator> {
         Arc::new(MessageValidator::new(

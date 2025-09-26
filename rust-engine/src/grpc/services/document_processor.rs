@@ -141,9 +141,7 @@ impl DocumentProcessor for DocumentProcessorImpl {
 mod tests {
     use super::*;
     use crate::config::*;
-    use tempfile::TempDir;
     use tonic::Request;
-    use tokio_test;
     use std::collections::HashMap;
 
     fn create_test_daemon_config() -> DaemonConfig {

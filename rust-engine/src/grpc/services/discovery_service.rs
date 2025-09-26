@@ -312,10 +312,7 @@ impl ServiceDiscovery for ServiceDiscoveryImpl {
 mod tests {
     use super::*;
     use crate::config::*;
-    use std::net::{IpAddr, Ipv4Addr};
-    use tempfile::TempDir;
     use tonic::Request;
-    use tokio_test;
 
     fn create_test_daemon_config() -> DaemonConfig {
         let db_path = ":memory:";

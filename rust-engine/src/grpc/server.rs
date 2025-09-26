@@ -37,7 +37,7 @@ pub struct GrpcServer {
 impl GrpcServer {
     /// Create a new gRPC server instance
     pub fn new(daemon: WorkspaceDaemon, address: SocketAddr) -> Self {
-        let config = daemon.config();
+        let config = daemon.config().clone();
         let connection_manager = Arc::new(ConnectionManager::new(
             config.server.max_connections as u64,
             100, // 100 requests per second per client
@@ -212,8 +212,6 @@ mod tests {
     use super::*;
     use crate::config::*;
     use std::net::{IpAddr, Ipv4Addr};
-    use tempfile::TempDir;
-    use tokio_test;
 
     fn create_test_daemon_config() -> DaemonConfig {
         // Use in-memory SQLite database for tests
@@ -390,8 +388,8 @@ mod tests {
         let connection_manager = server.connection_manager();
         let stats = connection_manager.get_stats();
 
-        // Should have valid stats
-        assert!(stats.active_connections >= 0);
+        // Should have valid stats (active_connections is u64, always >= 0)
+        assert_eq!(stats.active_connections, 0);
     }
 
     #[tokio::test]

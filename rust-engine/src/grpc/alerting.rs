@@ -770,7 +770,6 @@ impl RecoverySystem {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use tokio_test;
 
     #[test]
     fn test_alert_creation() {

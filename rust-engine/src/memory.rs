@@ -681,7 +681,8 @@ mod tests {
 
         // Force GC should clean up old blocks
         let freed = pool.force_gc().await.unwrap();
-        assert!(freed >= 0); // May be 0 if blocks are too recent
+        // freed is u64, always >= 0 - may be 0 if blocks are too recent
+        assert!(freed < 1000); // Sanity check
     }
 
     #[tokio::test]

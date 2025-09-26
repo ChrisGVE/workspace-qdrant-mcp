@@ -897,8 +897,7 @@ impl AsyncFileStream {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use tempfile::{tempdir, TempDir};
-    use tokio_test;
+    use tempfile::tempdir;
     use std::fs;
     use futures_util;
 
@@ -1199,8 +1198,7 @@ mod tests {
         let mut stream = stream_processor.process_stream(&file_path, 10).await.unwrap();
 
         let mut chunks = Vec::new();
-        use futures_util::stream::StreamExt;
-        while let Some(chunk_result) = futures_util::StreamExt::next(&mut stream).await {
+        while let Some(chunk_result) = futures_util::stream::StreamExt::next(&mut stream).await {
             chunks.push(chunk_result.unwrap());
         }
 
@@ -1307,7 +1305,7 @@ mod tests {
         // Create a larger file (1MB)
         let chunk_data = vec![0u8; 1024];
         let mut large_content = Vec::new();
-        for i in 0..1024 {
+        for _i in 0..1024 {
             large_content.extend_from_slice(&chunk_data);
         }
 
