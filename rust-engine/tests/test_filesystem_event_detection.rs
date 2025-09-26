@@ -4,15 +4,12 @@
 use workspace_qdrant_daemon::config::FileWatcherConfig;
 use workspace_qdrant_daemon::daemon::watcher::FileWatcher;
 use workspace_qdrant_daemon::daemon::processing::DocumentProcessor;
-use workspace_qdrant_daemon::error::DaemonResult;
 use std::sync::Arc;
-use std::path::{Path, PathBuf};
 use std::time::Duration;
-use tempfile::{TempDir, NamedTempFile};
+use tempfile::TempDir;
 use tokio::fs;
 use tokio::time::sleep;
 use serial_test::serial;
-use std::io::Write;
 
 /// Helper function to create test configuration
 fn create_test_config(enabled: bool, debounce_ms: u64) -> FileWatcherConfig {
