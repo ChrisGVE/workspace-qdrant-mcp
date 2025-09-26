@@ -11,7 +11,9 @@ use crate::grpc::security::SecurityManager;
 #[cfg(any(test, feature = "test-utils"))]
 use crate::grpc::{RetryStrategy, CircuitBreaker};
 #[cfg(any(test, feature = "test-utils"))]
-use crate::grpc::circuit_breaker::{CircuitBreakerStats, CircuitState};
+use crate::grpc::circuit_breaker::CircuitBreakerStats;
+#[cfg(test)]
+use crate::grpc::circuit_breaker::CircuitState;
 #[cfg(any(test, feature = "test-utils"))]
 use crate::error::DaemonResult;
 
