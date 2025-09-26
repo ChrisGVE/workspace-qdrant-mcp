@@ -1,7 +1,7 @@
 //! Comprehensive tests for file system event detection with actual file operations
 //! Tests the notify crate integration, debouncing, filtering, and cross-platform compatibility
 
-use workspace_qdrant_daemon::config::FileWatcherConfig;
+use workspace_qdrant_daemon::config::{FileWatcherConfig, ProcessingConfig, QdrantConfig, CollectionConfig};
 use workspace_qdrant_daemon::daemon::watcher::FileWatcher;
 use workspace_qdrant_daemon::daemon::processing::DocumentProcessor;
 use std::sync::Arc;
@@ -23,8 +23,30 @@ fn create_test_config(enabled: bool, debounce_ms: u64) -> FileWatcherConfig {
 }
 
 /// Helper function to create test processor
-fn create_test_processor() -> Arc<DocumentProcessor> {
-    Arc::new(DocumentProcessor::test_instance())
+async fn create_test_processor() -> Arc<DocumentProcessor> {
+    let processing_config = ProcessingConfig {
+        max_concurrent_tasks: 2,
+        default_chunk_size: 1000,
+        default_chunk_overlap: 200,
+        max_file_size_bytes: 1024 * 1024,
+        supported_extensions: vec!["rs".to_string(), "txt".to_string()],
+        enable_lsp: false,
+        lsp_timeout_secs: 10,
+    };
+    let qdrant_config = QdrantConfig {
+        url: "http://localhost:6333".to_string(),
+        api_key: None,
+        timeout_secs: 30,
+        max_retries: 3,
+        default_collection: CollectionConfig {
+            vector_size: 384,
+            distance_metric: "Cosine".to_string(),
+            enable_indexing: true,
+            replication_factor: 1,
+            shard_number: 1,
+        },
+    };
+    Arc::new(DocumentProcessor::new(&processing_config, &qdrant_config).await.unwrap())
 }
 
 /// Test basic file creation detection

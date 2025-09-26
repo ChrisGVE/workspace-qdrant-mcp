@@ -7,9 +7,7 @@
 use workspace_qdrant_daemon::daemon::fs_compat::*;
 use workspace_qdrant_daemon::error::DaemonError;
 use tempfile::{tempdir, TempDir};
-use std::fs;
-use std::path::{Path, PathBuf};
-use std::io::Write;
+use std::path::PathBuf;
 use tokio_test;
 use std::time::{Duration, SystemTime};
 

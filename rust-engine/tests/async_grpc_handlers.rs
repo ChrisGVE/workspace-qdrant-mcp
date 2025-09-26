@@ -12,7 +12,11 @@
 //! - Concurrent request processing limits
 //! - Connection timeout and resource management
 
-use workspace_qdrant_daemon::config::*;
+use workspace_qdrant_daemon::config::{
+    DaemonConfig, ServerConfig, SecurityConfig, TransportConfig, MessageConfig,
+    CompressionConfig, StreamingConfig, DatabaseConfig, QdrantConfig, CollectionConfig,
+    ProcessingConfig, FileWatcherConfig
+};
 use workspace_qdrant_daemon::daemon::WorkspaceDaemon;
 use workspace_qdrant_daemon::grpc::services::{
     DocumentProcessorImpl, SearchServiceImpl, MemoryServiceImpl, SystemServiceImpl

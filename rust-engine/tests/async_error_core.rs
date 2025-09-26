@@ -58,6 +58,7 @@ mod test_utils {
             }
         }
 
+        #[allow(dead_code)]
         pub fn reset(&self) {
             self.current_attempt.store(0, Ordering::SeqCst);
         }
@@ -65,6 +66,7 @@ mod test_utils {
 
     /// Resource manager that tracks cleanup on drop
     pub struct TrackedResource {
+        #[allow(dead_code)]
         pub id: String,
         pub cleanup_counter: Arc<AtomicU32>,
     }
@@ -115,7 +117,7 @@ mod test_utils {
 /// Core async error propagation tests
 mod error_propagation_tests {
     use super::*;
-    use super::test_utils::*;
+    use super::test_utils::{FailableAsyncOperation, test_concurrent_operations};
 
     #[tokio::test]
     async fn test_async_error_type_preservation() {
@@ -244,7 +246,7 @@ mod error_propagation_tests {
 /// Timeout and cancellation handling tests
 mod timeout_cancellation_tests {
     use super::*;
-    use super::test_utils::*;
+    use super::test_utils::{FailableAsyncOperation, TrackedResource, test_concurrent_operations};
 
     #[tokio::test]
     async fn test_operation_timeout_handling() {
@@ -317,7 +319,7 @@ mod timeout_cancellation_tests {
 /// Resource cleanup and leak prevention tests
 mod resource_cleanup_tests {
     use super::*;
-    use super::test_utils::*;
+    use super::test_utils::{FailableAsyncOperation, TrackedResource, test_concurrent_operations};
 
     #[tokio::test]
     async fn test_resource_cleanup_on_error() {
@@ -505,7 +507,7 @@ mod error_conversion_tests {
 /// Performance testing under error conditions
 mod performance_tests {
     use super::*;
-    use super::test_utils::*;
+    use super::test_utils::{FailableAsyncOperation, TrackedResource, test_concurrent_operations};
 
     #[tokio::test]
     async fn test_error_handling_performance_overhead() {

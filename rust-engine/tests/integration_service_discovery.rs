@@ -9,9 +9,8 @@
 //! - Service mesh integration patterns
 
 use workspace_qdrant_daemon::grpc::service_discovery::{
-    ServiceRegistry, ServiceInstance, ServiceHealth, LoadBalancingStrategy, ServiceDiscoveryConfig,
+    ServiceRegistry, ServiceInstance, ServiceHealth, ServiceDiscoveryConfig, ServiceDiscoveryStats
 };
-use workspace_qdrant_daemon::grpc::{ServiceDiscoveryStats};
 use anyhow::Result;
 use std::collections::HashMap;
 use std::net::{IpAddr, Ipv4Addr, SocketAddr};

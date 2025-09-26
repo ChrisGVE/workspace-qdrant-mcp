@@ -1,7 +1,9 @@
 //! Simple middleware test coverage
 //! Testing the actual APIs that exist in the middleware module
 
-use workspace_qdrant_daemon::grpc::middleware::*;
+use workspace_qdrant_daemon::grpc::middleware::{
+    ConnectionManager, ConnectionInterceptor, ConnectionStats, PoolConfig, RetryConfig
+};
 use std::sync::Arc;
 use std::time::Duration;
 
