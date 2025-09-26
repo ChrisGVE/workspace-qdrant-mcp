@@ -7,9 +7,8 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 use tokio::time::{sleep, timeout};
 use workspace_qdrant_daemon::memory::{
-    AsyncMemoryPool, AsyncSharedCache, AsyncMappedBuffer, MemoryConfig, MemoryStats
+    AsyncMemoryPool, AsyncSharedCache, AsyncMappedBuffer, MemoryConfig
 };
-use workspace_qdrant_daemon::error::DaemonResult;
 
 /// Test suite for async memory pool integration
 mod async_memory_pool_integration {
