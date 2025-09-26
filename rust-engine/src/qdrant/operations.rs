@@ -1,7 +1,7 @@
 //! Qdrant operation types and traits
 
 use crate::qdrant::error::{QdrantError, QdrantResult};
-use serde::{Deserialize, Serialize, de::Error as SerdeError};
+use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use qdrant_client::qdrant::{PointId, PointStruct, SearchParams, Distance};
 

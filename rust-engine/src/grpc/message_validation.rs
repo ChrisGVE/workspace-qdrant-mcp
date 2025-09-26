@@ -178,7 +178,7 @@ impl MessageValidator {
     /// Validate incoming message size for a specific service
     pub fn validate_incoming_message<T>(
         &self,
-        request: &Request<T>,
+        _request: &Request<T>,
         service_name: &str,
     ) -> Result<(), Status> {
         if !self.message_config.enable_size_validation {
@@ -235,7 +235,7 @@ impl MessageValidator {
     /// Validate outgoing message size for a specific service
     pub fn validate_outgoing_message<T>(
         &self,
-        response: &Response<T>,
+        _response: &Response<T>,
         service_name: &str,
     ) -> Result<(), Status> {
         if !self.message_config.enable_size_validation {

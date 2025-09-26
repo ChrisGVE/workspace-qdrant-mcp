@@ -10,7 +10,6 @@ use std::os::unix::fs::{MetadataExt, FileTypeExt};
 use std::collections::HashMap;
 use tokio::fs::{File, OpenOptions};
 use tokio::io::{AsyncReadExt, AsyncWriteExt, BufReader, BufWriter};
-use tokio_stream::StreamExt;
 use futures_util::stream::unfold;
 use tracing::{debug, error, info, warn};
 use walkdir::WalkDir;
