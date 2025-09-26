@@ -31,10 +31,9 @@ pub mod transport;
 #[cfg(test)]
 pub mod shared_test_utils;
 
-// Re-export actually used types
-pub use server::GrpcServer;
-pub use retry::{RetryStrategy, RetryConfig};
-pub use circuit_breaker::{CircuitBreaker, CircuitBreakerConfig, CircuitBreakerStats};
+// Re-export types used by external binaries
+pub use retry::RetryStrategy;
+pub use circuit_breaker::{CircuitBreaker, CircuitBreakerStats};
 
 #[cfg(test)]
 pub use shared_test_utils::*;

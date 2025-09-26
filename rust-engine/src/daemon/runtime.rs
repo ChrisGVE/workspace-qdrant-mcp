@@ -172,7 +172,8 @@ pub struct CommunicationHub {
     system_status: watch::Sender<SystemStatus>,
     /// Global notification system
     global_notify: Arc<Notify>,
-    /// Message queues for task-to-task communication
+    /// Message queues for task-to-task communication (future use)
+    #[allow(dead_code)]
     message_queues: RwLock<HashMap<String, mpsc::UnboundedSender<TaskMessage>>>,
 }
 

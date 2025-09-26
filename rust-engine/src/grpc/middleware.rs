@@ -17,7 +17,8 @@ pub struct ConnectionManager {
     /// Active connections count
     active_connections: AtomicU64,
 
-    /// Maximum allowed connections
+    /// Maximum allowed connections (future use)
+    #[allow(dead_code)]
     max_connections: u64,
 
     /// Connection metadata by client ID
@@ -26,7 +27,8 @@ pub struct ConnectionManager {
     /// Enhanced rate limiting state
     rate_limiter: Arc<RwLock<EnhancedRateLimiter>>,
 
-    /// Security manager for authentication and authorization
+    /// Security manager for authentication and authorization (future use)
+    #[allow(dead_code)]
     security_manager: Option<Arc<SecurityManager>>,
 }
 
@@ -55,38 +57,48 @@ impl Clone for ConnectionInfo {
 
 #[derive(Debug)]
 pub struct EnhancedRateLimiter {
-    /// Requests per second limit per client
+    /// Requests per second limit per client (future use)
+    #[allow(dead_code)]
     requests_per_second: u32,
 
-    /// Burst capacity for rate limiting
+    /// Burst capacity for rate limiting (future use)
+    #[allow(dead_code)]
     burst_capacity: u32,
 
     /// Client request tracking with burst support
     client_requests: DashMap<String, ClientRequestTracker>,
 
-    /// Cleanup interval
+    /// Cleanup interval (future use)
+    #[allow(dead_code)]
     last_cleanup: Instant,
 
-    /// Resource exhaustion protection enabled
+    /// Resource exhaustion protection enabled (future use)
+    #[allow(dead_code)]
     resource_protection_enabled: bool,
 
-    /// Memory usage tracking per client
+    /// Memory usage tracking per client (future use)
+    #[allow(dead_code)]
     client_memory_usage: DashMap<String, AtomicU64>,
 
-    /// Maximum memory per connection
+    /// Maximum memory per connection (future use)
+    #[allow(dead_code)]
     max_memory_per_connection: u64,
 }
 
 /// Enhanced client request tracking with burst capacity
 #[derive(Debug, Clone)]
 pub struct ClientRequestTracker {
-    /// Recent request timestamps
+    /// Recent request timestamps (future use)
+    #[allow(dead_code)]
     pub requests: Vec<Instant>,
-    /// Available burst tokens
+    /// Available burst tokens (future use)
+    #[allow(dead_code)]
     pub burst_tokens: u32,
-    /// Last token replenishment time
+    /// Last token replenishment time (future use)
+    #[allow(dead_code)]
     pub last_replenish: Instant,
-    /// Memory usage for this client
+    /// Memory usage for this client (future use)
+    #[allow(dead_code)]
     pub memory_usage: u64,
 }
 
@@ -314,6 +326,7 @@ pub struct ConnectionStats {
 
 /// Connection pool for outbound connections (to Qdrant, etc.)
 pub struct ConnectionPool<T: deadpool::managed::Manager> {
+    #[allow(dead_code)]
     pool: deadpool::managed::Pool<T>,
     config: PoolConfig,
 }

@@ -161,6 +161,7 @@ impl TlsManager {
 #[derive(Debug)]
 pub struct JwtManager {
     config: JwtConfig,
+    #[allow(dead_code)]
     secret: Vec<u8>,
 }
 

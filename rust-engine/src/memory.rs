@@ -463,6 +463,7 @@ pub struct AsyncMappedBuffer {
     data: Arc<Mutex<Vec<u8>>>,
     size: usize,
     readonly: bool,
+    #[allow(dead_code)]
     stats: Arc<MemoryStats>,
 }
 
