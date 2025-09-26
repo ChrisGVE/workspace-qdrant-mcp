@@ -9,23 +9,23 @@ pub mod message_validation;
 pub mod security;
 
 // Modules only used in tests or not used at all
-#[cfg(test)]
+#[cfg(any(test, feature = "test-utils"))]
 pub mod client;
-#[cfg(test)]
+#[cfg(any(test, feature = "test-utils"))]
 pub mod service_discovery;
-#[cfg(test)]
+#[cfg(any(test, feature = "test-utils"))]
 pub mod streaming;
-#[cfg(test)]
+#[cfg(any(test, feature = "test-utils"))]
 pub mod health;
-#[cfg(test)]
+#[cfg(any(test, feature = "test-utils"))]
 pub mod health_service;
-#[cfg(test)]
+#[cfg(any(test, feature = "test-utils"))]
 pub mod service_monitors;
-#[cfg(test)]
+#[cfg(any(test, feature = "test-utils"))]
 pub mod alerting;
-#[cfg(test)]
+#[cfg(any(test, feature = "test-utils"))]
 pub mod health_integration;
-#[cfg(test)]
+#[cfg(any(test, feature = "test-utils"))]
 pub mod transport;
 
 #[cfg(test)]
