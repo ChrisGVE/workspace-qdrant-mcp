@@ -32,7 +32,10 @@ pub mod transport;
 pub mod shared_test_utils;
 
 // Re-export types used by external binaries
+// NOTE: These are currently unused but kept for potential future use
+#[allow(unused_imports)]
 pub use retry::RetryStrategy;
+#[allow(unused_imports)]
 pub use circuit_breaker::CircuitBreaker;
 
 #[cfg(test)]
