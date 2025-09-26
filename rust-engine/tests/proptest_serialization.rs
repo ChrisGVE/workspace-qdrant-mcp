@@ -53,8 +53,174 @@ fn random_config_values() -> impl Strategy<Value = DaemonConfig> {
         max_log_size, enable_metrics, metrics_port
     )| {
         DaemonConfig {
-            host,
-            port,
+            server: ServerConfig {
+                host,
+                port,
+                max_connections: 100,
+                connection_timeout_secs: 30,
+                request_timeout_secs: 60,
+                enable_tls: false,
+                security: SecurityConfig {
+                    tls: TlsConfig {
+                        cert_file: None,
+                        key_file: None,
+                        ca_cert_file: None,
+                        enable_mtls: false,
+                        client_cert_verification: ClientCertVerification::None,
+                        supported_protocols: vec![],
+                        cipher_suites: vec![],
+                    },
+                    auth: AuthConfig {
+                        enable_service_auth: false,
+                        jwt: JwtConfig {
+                            secret_key: "test".to_string(),
+                            token_expiry_secs: 3600,
+                            issuer: "test".to_string(),
+                            audience: vec![],
+                            algorithm: "HS256".to_string(),
+                        },
+                        api_key: ApiKeyConfig {
+                            keys: vec![],
+                            header_name: "X-API-Key".to_string(),
+                            enable_key_rotation: false,
+                            key_expiry_days: 365,
+                        },
+                        authorization: AuthorizationConfig {
+                            enable_rbac: false,
+                            default_permissions: vec![],
+                            service_permissions: std::collections::HashMap::new(),
+                            admin_roles: vec![],
+                            guest_permissions: vec![],
+                        },
+                    },
+                    rate_limiting: RateLimitConfig {
+                        enabled: false,
+                        requests_per_second: 1000,
+                        burst_capacity: 100,
+                        connection_pool_limits: ConnectionPoolLimits {
+                            document_processor: 50,
+                            search_service: 30,
+                            memory_service: 20,
+                            system_service: 10,
+                        },
+                        queue_depth_limit: 1000,
+                        memory_protection: MemoryProtectionConfig {
+                            enabled: false,
+                            max_memory_per_connection: 104857600,
+                            memory_alert_threshold: 0.8,
+                            enable_memory_monitoring: false,
+                            gc_trigger_threshold: 0.9,
+                        },
+                        resource_protection: ResourceProtectionConfig {
+                            enabled: false,
+                            max_cpu_per_connection: 50.0,
+                            cpu_alert_threshold: 0.8,
+                            enable_resource_monitoring: false,
+                            throttle_threshold: 0.9,
+                        },
+                    },
+                    audit: AuditConfig {
+                        enabled: false,
+                        log_successful_requests: false,
+                        log_failed_requests: true,
+                        audit_file_path: "/tmp/audit.log".to_string(),
+                        enable_audit_rotation: false,
+                        max_audit_file_size: 10485760,
+                        retention_days: 30,
+                    },
+                },
+                transport: TransportConfig {
+                    unix_socket: UnixSocketConfig {
+                        enabled: false,
+                        socket_path: "/tmp/test.sock".to_string(),
+                        permissions: 0o666,
+                        prefer_for_local: false,
+                    },
+                    local_optimization: LocalOptimizationConfig {
+                        enabled: true,
+                        use_large_buffers: false,
+                        local_buffer_size: 4096,
+                        memory_efficient_serialization: true,
+                        reduce_latency: true,
+                    },
+                    transport_strategy: TransportStrategy::Auto,
+                },
+                message: MessageConfig {
+                    max_incoming_message_size: 4194304,
+                    max_outgoing_message_size: 4194304,
+                    enable_size_validation: true,
+                    max_frame_size: 16384,
+                    initial_window_size: 65536,
+                    service_limits: ServiceMessageLimits {
+                        document_processor: ServiceLimit { max_incoming: 4194304, max_outgoing: 4194304, enable_validation: true },
+                        search_service: ServiceLimit { max_incoming: 1048576, max_outgoing: 1048576, enable_validation: true },
+                        memory_service: ServiceLimit { max_incoming: 1048576, max_outgoing: 1048576, enable_validation: true },
+                        system_service: ServiceLimit { max_incoming: 1048576, max_outgoing: 1048576, enable_validation: true },
+                    },
+                    monitoring: MessageMonitoringConfig {
+                        enable_detailed_monitoring: false,
+                        oversized_alert_threshold: 0.9,
+                        enable_realtime_metrics: false,
+                        metrics_interval_secs: 60,
+                    },
+                },
+                compression: CompressionConfig {
+                    enable_gzip: false,
+                    compression_threshold: 1024,
+                    compression_level: 6,
+                    enable_streaming_compression: false,
+                    enable_compression_monitoring: false,
+                    adaptive: AdaptiveCompressionConfig {
+                        enable_adaptive: false,
+                        text_compression_level: 6,
+                        binary_compression_level: 3,
+                        structured_compression_level: 6,
+                        max_compression_time_ms: 100,
+                    },
+                    performance: CompressionPerformanceConfig {
+                        enable_ratio_tracking: false,
+                        poor_ratio_threshold: 0.1,
+                        enable_time_monitoring: false,
+                        slow_compression_threshold_ms: 1000,
+                        enable_failure_alerting: false,
+                    },
+                },
+                streaming: StreamingConfig {
+                    enable_server_streaming: true,
+                    enable_client_streaming: true,
+                    max_concurrent_streams: 100,
+                    stream_buffer_size: 1000,
+                    stream_timeout_secs: 300,
+                    enable_flow_control: true,
+                    progress: StreamProgressConfig {
+                        enable_progress_tracking: false,
+                        progress_update_interval_ms: 1000,
+                        enable_progress_callbacks: false,
+                        progress_threshold: 1048576,
+                    },
+                    health: StreamHealthConfig {
+                        enable_health_monitoring: false,
+                        health_check_interval_secs: 30,
+                        enable_auto_recovery: false,
+                        max_recovery_attempts: 3,
+                        recovery_backoff_multiplier: 2.0,
+                        initial_recovery_delay_ms: 1000,
+                    },
+                    large_operations: LargeOperationStreamConfig {
+                        enable_large_document_streaming: true,
+                        large_operation_chunk_size: 65536,
+                        enable_bulk_streaming: false,
+                        max_streaming_memory: 67108864,
+                        enable_bidirectional_optimization: false,
+                    },
+                },
+            },
+            database: DatabaseConfig {
+                sqlite_path: ":memory:".to_string(),
+                max_connections: 10,
+                connection_timeout_secs: 30,
+                enable_wal: true,
+            },
             processing: ProcessingConfig {
                 max_concurrent_tasks: max_tasks,
                 default_chunk_size: chunk_size,
@@ -77,16 +243,27 @@ fn random_config_values() -> impl Strategy<Value = DaemonConfig> {
                     shard_number,
                 },
             },
+            file_watcher: FileWatcherConfig {
+                watch_interval_secs: 1,
+                debounce_duration_ms: 500,
+                max_watch_depth: 10,
+                ignore_patterns: vec!["*.tmp".to_string()],
+                enable_recursive_watching: true,
+                symlink_policy: SymlinkPolicy::Follow,
+            },
+            metrics: MetricsConfig {
+                enabled: enable_metrics,
+                port: metrics_port,
+                host: "127.0.0.1".to_string(),
+                update_interval_secs: 60,
+                retention_days: 7,
+            },
             logging: LoggingConfig {
                 level: log_level,
-                enable_file_logging,
-                log_dir,
-                max_log_files,
-                max_log_size_bytes: max_log_size,
-            },
-            monitoring: MonitoringConfig {
-                enable_metrics,
-                metrics_port,
+                file_path: log_dir,
+                json_format: enable_file_logging,
+                max_file_size_mb: (max_log_size / 1_048_576) as u32,
+                max_files: max_log_files as u32,
             },
         }
     })
@@ -133,6 +310,7 @@ fn random_daemon_error() -> impl Strategy<Value = DaemonError> {
         "[\\PC]{1,100}".prop_map(|msg| DaemonError::Search { message: msg }),
         "[\\PC]{1,100}".prop_map(|msg| DaemonError::Memory { message: msg }),
         "[\\PC]{1,100}".prop_map(|msg| DaemonError::DocumentProcessing { message: msg }),
+        "[\\PC]{1,100}".prop_map(|msg| DaemonError::System { message: msg }),
     ]
 }
 
@@ -218,13 +396,11 @@ proptest! {
             }
             DaemonError::Internal { message } |
             DaemonError::Configuration { message } |
-            DaemonError::Qdrant { message } |
-            DaemonError::Grpc { message } => {
+            DaemonError::Search { message } |
+            DaemonError::Memory { message } |
+            DaemonError::DocumentProcessing { message } |
+            DaemonError::System { message } => {
                 prop_assert!(!message.is_empty(), "Error message should not be empty");
-            }
-            DaemonError::Database { operation, message } => {
-                prop_assert!(!operation.is_empty(), "Database operation should not be empty");
-                prop_assert!(!message.is_empty(), "Database error message should not be empty");
             }
         }
     }
@@ -232,7 +408,7 @@ proptest! {
     #[test]
     fn proptest_config_validation_properties(config in random_config_values()) {
         // Property: Config should satisfy basic validation invariants
-        prop_assert!(config.port > 0, "Port should be positive");
+        prop_assert!(config.server.port > 0, "Port should be positive");
         prop_assert!(config.processing.max_concurrent_tasks > 0, "Max concurrent tasks should be positive");
         prop_assert!(config.processing.default_chunk_size > 0, "Chunk size should be positive");
         prop_assert!(config.processing.max_file_size_bytes > 0, "Max file size should be positive");
@@ -248,11 +424,11 @@ proptest! {
         prop_assert!(config.qdrant.default_collection.shard_number > 0, "Shard number should be positive");
 
         prop_assert!(!config.logging.level.is_empty(), "Log level should not be empty");
-        prop_assert!(!config.logging.log_dir.is_empty(), "Log directory should not be empty");
-        prop_assert!(config.logging.max_log_files > 0, "Max log files should be positive");
-        prop_assert!(config.logging.max_log_size_bytes > 0, "Max log size should be positive");
+        prop_assert!(!config.logging.file_path.is_empty(), "Log file path should not be empty");
+        prop_assert!(config.logging.max_files > 0, "Max log files should be positive");
+        prop_assert!(config.logging.max_file_size_mb > 0, "Max log file size should be positive");
 
-        prop_assert!(config.monitoring.metrics_port > 0, "Metrics port should be positive");
+        prop_assert!(config.metrics.port > 0, "Metrics port should be positive");
     }
 
     #[test]
@@ -293,13 +469,13 @@ proptest! {
         config2 in random_config_values()
     ) {
         // Property: Config fields should be independent in serialization
-        if config1.host != config2.host {
+        if config1.server.host != config2.server.host {
             let json1 = serde_json::to_string(&config1).unwrap();
             let json2 = serde_json::to_string(&config2).unwrap();
 
             // Different configs should produce different JSON (unless by coincidence)
             if json1 != json2 {
-                prop_assert_ne!(config1.host, config2.host, "Different hosts should produce different JSON");
+                prop_assert_ne!(config1.server.host, config2.server.host, "Different hosts should produce different JSON");
             }
         }
     }
