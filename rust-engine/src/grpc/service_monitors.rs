@@ -543,14 +543,14 @@ impl ServiceMonitors {
     }
 
     /// Create a new service monitoring system with external monitoring
-    pub fn with_external_monitoring(
+    pub async fn with_external_monitoring(
         external_monitoring: Arc<crate::grpc::health::ExternalMonitoring>,
     ) -> DaemonResult<Self> {
         let monitoring_system = Arc::new(HealthMonitoringSystem::with_external_monitoring(None, external_monitoring));
 
-        let document_processor = DocumentProcessorMonitor::new(&monitoring_system)?;
-        let search_service = SearchServiceMonitor::new(&monitoring_system)?;
-        let memory_service = MemoryServiceMonitor::new(&monitoring_system)?;
+        let document_processor = DocumentProcessorMonitor::new(&monitoring_system).await?;
+        let search_service = SearchServiceMonitor::new(&monitoring_system).await?;
+        let memory_service = MemoryServiceMonitor::new(&monitoring_system).await?;
 
         Ok(Self {
             document_processor,
