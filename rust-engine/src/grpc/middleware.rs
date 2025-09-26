@@ -8,11 +8,7 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use dashmap::DashMap;
 use parking_lot::RwLock;
 use crate::grpc::{RetryStrategy, CircuitBreaker, SecurityManager};
-use crate::error::{DaemonResult, DaemonError};
-use std::task::{Context, Poll};
-use std::pin::Pin;
-use futures_util::future::BoxFuture;
-use tower::{Layer, Service};
+use crate::error::DaemonResult;
 
 /// Connection tracking and management with enhanced security
 #[derive(Debug)]
@@ -169,23 +165,28 @@ impl ConnectionManager {
         }
 
         // Get or create client request history
-        let mut requests = rate_limiter.client_requests
+        let mut tracker = rate_limiter.client_requests
             .entry(client_id.to_string())
-            .or_insert_with(Vec::new)
+            .or_insert_with(|| ClientRequestTracker {
+                requests: Vec::new(),
+                burst_tokens: 100,
+                last_replenish: now,
+                memory_usage: 0,
+            })
             .clone();
 
         // Remove requests older than 1 second
-        requests.retain(|&timestamp| now.duration_since(timestamp) < Duration::from_secs(1));
+        tracker.requests.retain(|&timestamp| now.duration_since(timestamp) < Duration::from_secs(1));
 
         // Check if rate limit exceeded
-        if requests.len() >= rate_limiter.requests_per_second as usize {
+        if tracker.requests.len() >= rate_limiter.requests_per_second as usize {
             warn!("Rate limit exceeded for client: {}", client_id);
             return Err(Status::resource_exhausted("Rate limit exceeded"));
         }
 
         // Add current request
-        requests.push(now);
-        rate_limiter.client_requests.insert(client_id.to_string(), requests);
+        tracker.requests.push(now);
+        rate_limiter.client_requests.insert(client_id.to_string(), tracker);
 
         Ok(())
     }
@@ -530,15 +531,9 @@ impl SecurityInterceptor {
     }
 
     pub async fn intercept<T>(&self, request: Request<T>) -> Result<Request<T>, Status> {
-        // Extract service and method from request URI
-        let uri = request.uri();
-        let path_parts: Vec<&str> = uri.path().split('/').collect();
-
-        let (service, method) = if path_parts.len() >= 3 {
-            (path_parts[1], path_parts[2])
-        } else {
-            ("unknown", "unknown")
-        };
+        // For tonic 0.12, we'll get service/method from metadata if available
+        // or use default values for now
+        let (service, method) = ("grpc_service", "grpc_method");
 
         // Get client ID from request metadata or connection info
         let client_id = self.extract_client_id(&request);
