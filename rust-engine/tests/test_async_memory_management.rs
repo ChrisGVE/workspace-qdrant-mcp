@@ -64,7 +64,8 @@ mod async_memory_pool_integration {
 
         // Force GC and verify cleanup
         let freed_bytes = pool.force_gc().await.unwrap();
-        assert!(freed_bytes >= 0);
+        // freed_bytes is u64, so it's inherently >= 0
+        assert!(freed_bytes != u64::MAX, "freed_bytes should be a valid value");
     }
 
     #[tokio::test]

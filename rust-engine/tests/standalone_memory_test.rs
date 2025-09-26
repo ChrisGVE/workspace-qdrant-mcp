@@ -99,7 +99,8 @@ async fn test_memory_pressure_and_gc() {
 
     // Test garbage collection
     let freed = pool.force_gc().await.unwrap();
-    assert!(freed >= 0);
+    // freed is u64, so it's inherently >= 0
+    assert!(freed != u64::MAX, "freed should be a valid value");
 }
 
 #[tokio::test]
