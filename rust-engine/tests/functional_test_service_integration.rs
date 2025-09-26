@@ -1,7 +1,7 @@
 use proptest::prelude::*;
 use serial_test::serial;
 use std::time::Duration;
-use testcontainers::{clients, images, Container, Docker};
+use testcontainers::{clients, Container, Image};
 use tokio::time::sleep;
 
 /// Property-based test for document content validation
