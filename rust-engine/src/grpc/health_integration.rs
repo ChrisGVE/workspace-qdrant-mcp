@@ -11,7 +11,7 @@ use tracing::{info, error};
 use crate::error::DaemonResult;
 use crate::grpc::{
     health::{HealthMonitoringSystem, AlertConfig, ExternalMonitoring},
-    health_service::{HealthService, SystemMetricsCollector},
+    health_service::HealthService,
     service_monitors::ServiceMonitors,
     alerting::{AlertManager, RecoverySystem, LogAlertChannel, WebhookAlertChannel, EmailAlertChannel, EmailConfig, RestartRecoveryProcedure, CircuitBreakerResetProcedure},
     middleware::ConnectionManager,

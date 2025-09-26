@@ -5,13 +5,13 @@ use crate::qdrant::{
     error::{QdrantError, QdrantResult},
     operations::{
         VectorOperation, SearchOperation, CollectionOperation, BatchOperation,
-        SearchResult, Point
+        SearchResult
     },
 };
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 use tokio::sync::{RwLock, Semaphore};
-use tracing::{debug, info, warn};
+use tracing::{debug, warn};
 use qdrant_client::{
     Qdrant as QdrantClientLib,
     qdrant::{
