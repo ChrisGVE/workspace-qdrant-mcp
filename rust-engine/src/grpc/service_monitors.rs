@@ -643,7 +643,7 @@ mod tests {
     #[tokio::test]
     async fn test_document_processor_monitor() {
         let monitoring_system = Arc::new(HealthMonitoringSystem::new(None));
-        let monitor = DocumentProcessorMonitor::new(&monitoring_system).unwrap();
+        let monitor = DocumentProcessorMonitor::new(&monitoring_system).await.unwrap();
 
         // Test processing workflow
         monitor.start_processing("doc1").await;
@@ -664,7 +664,7 @@ mod tests {
     #[tokio::test]
     async fn test_document_processor_overload() {
         let monitoring_system = Arc::new(HealthMonitoringSystem::new(None));
-        let monitor = DocumentProcessorMonitor::new(&monitoring_system).unwrap();
+        let monitor = DocumentProcessorMonitor::new(&monitoring_system).await.unwrap();
 
         // Start many documents to trigger overload
         for i in 0..12 {
@@ -679,7 +679,7 @@ mod tests {
     #[tokio::test]
     async fn test_search_service_monitor() {
         let monitoring_system = Arc::new(HealthMonitoringSystem::new(None));
-        let monitor = SearchServiceMonitor::new(&monitoring_system).unwrap();
+        let monitor = SearchServiceMonitor::new(&monitoring_system).await.unwrap();
 
         // Test search workflow
         let tracker = monitor.start_search("test query").await;
@@ -695,7 +695,7 @@ mod tests {
     #[tokio::test]
     async fn test_search_service_cache_stats() {
         let monitoring_system = Arc::new(HealthMonitoringSystem::new(None));
-        let monitor = SearchServiceMonitor::new(&monitoring_system).unwrap();
+        let monitor = SearchServiceMonitor::new(&monitoring_system).await.unwrap();
 
         // Record cache hits and misses
         for _ in 0..8 {
