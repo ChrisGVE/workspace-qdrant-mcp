@@ -7,10 +7,10 @@ use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::SystemTime;
 use tonic::{Request, Response, Status};
-use tracing::{debug, info, warn, error};
+use tracing::{debug, info};
 
 use crate::error::{DaemonResult, DaemonError};
-use crate::grpc::health::{HealthMonitoringSystem, HealthStatus, ServiceHealth};
+use crate::grpc::health::{HealthMonitoringSystem, HealthStatus};
 use crate::grpc::middleware::ConnectionStats;
 
 // Proto-generated types (these would normally be auto-generated)
@@ -114,7 +114,7 @@ pub struct HealthService {
 }
 
 /// Trait for providing connection statistics
-pub trait ConnectionStatsProvider {
+pub trait ConnectionStatsProvider: std::fmt::Debug {
     /// Get current connection statistics
     fn get_connection_stats(&self) -> ConnectionStats;
 }
@@ -145,7 +145,7 @@ impl SystemMetricsCollector {
             if let Some((metrics, timestamp)) = cache.as_ref() {
                 let age = SystemTime::now()
                     .duration_since(*timestamp)
-                    .map_err(|e| DaemonError::Validation {
+                    .map_err(|e| DaemonError::System {
                         message: format!("System time error: {}", e)
                     })?;
 
@@ -335,7 +335,7 @@ impl HealthService {
             }
 
             // Skip metrics that are older than requested timestamp
-            if let Some(since) = req.since {
+            if let Some(_since) = req.since {
                 // In a real implementation, we'd check the metric timestamp
                 // For now, all metrics are considered current
             }
