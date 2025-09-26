@@ -1,7 +1,7 @@
 use proptest::prelude::*;
 use serial_test::serial;
 use std::time::Duration;
-use testcontainers::{clients, Container, Image};
+use testcontainers::{clients, Container, Image, GenericImage};
 use tokio::time::sleep;
 
 /// Property-based test for document content validation
@@ -84,7 +84,7 @@ mod integration_tests {
 
         // For demonstration, using a generic container
         // In real implementation, this would be a Qdrant container
-        let container = docker.run(images::generic::GenericImage::new("hello-world", "latest"));
+        let container = docker.run(GenericImage::new("hello-world", "latest"));
 
         // Wait for container to be ready
         sleep(Duration::from_secs(2)).await;
@@ -110,7 +110,7 @@ mod integration_tests {
         let docker = clients::Cli::default();
 
         // Start service container
-        let _container = docker.run(images::generic::GenericImage::new("hello-world", "latest"));
+        let _container = docker.run(GenericImage::new("hello-world", "latest"));
 
         // Test specific service operations in isolation
         test_document_upload().await;
