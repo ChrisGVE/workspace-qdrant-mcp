@@ -27,7 +27,7 @@ pub struct DocumentProcessorMonitor {
 
 impl DocumentProcessorMonitor {
     /// Create a new document processor monitor
-    pub fn new(monitoring_system: &Arc<HealthMonitoringSystem>) -> DaemonResult<Self> {
+    pub async fn new(monitoring_system: &Arc<HealthMonitoringSystem>) -> DaemonResult<Self> {
         let alert_config = AlertConfig {
             max_error_rate: 0.02, // 2% - stricter for document processing
             max_avg_latency_ms: 5000.0, // 5 seconds for document processing
@@ -36,7 +36,7 @@ impl DocumentProcessorMonitor {
             evaluation_window_secs: 300,
         };
 
-        let monitor = monitoring_system.register_service("document-processor".to_string(), Some(alert_config));
+        let monitor = monitoring_system.register_service("document-processor".to_string(), Some(alert_config)).await;
 
         Ok(Self {
             health_monitor: monitor,
@@ -174,7 +174,7 @@ pub struct SearchServiceMonitor {
 
 impl SearchServiceMonitor {
     /// Create a new search service monitor
-    pub fn new(monitoring_system: &Arc<HealthMonitoringSystem>) -> DaemonResult<Self> {
+    pub async fn new(monitoring_system: &Arc<HealthMonitoringSystem>) -> DaemonResult<Self> {
         let alert_config = AlertConfig {
             max_error_rate: 0.01, // 1% - very strict for search
             max_avg_latency_ms: 500.0, // 500ms for search operations
@@ -183,7 +183,7 @@ impl SearchServiceMonitor {
             evaluation_window_secs: 180, // 3 minute window
         };
 
-        let monitor = monitoring_system.register_service("search-service".to_string(), Some(alert_config));
+        let monitor = monitoring_system.register_service("search-service".to_string(), Some(alert_config)).await;
 
         Ok(Self {
             health_monitor: monitor,
@@ -354,7 +354,7 @@ pub struct MemoryServiceMonitor {
 
 impl MemoryServiceMonitor {
     /// Create a new memory service monitor
-    pub fn new(monitoring_system: &Arc<HealthMonitoringSystem>) -> DaemonResult<Self> {
+    pub async fn new(monitoring_system: &Arc<HealthMonitoringSystem>) -> DaemonResult<Self> {
         let alert_config = AlertConfig {
             max_error_rate: 0.005, // 0.5% - strictest for data integrity
             max_avg_latency_ms: 200.0, // 200ms for memory operations
@@ -363,7 +363,7 @@ impl MemoryServiceMonitor {
             evaluation_window_secs: 120, // 2 minute window
         };
 
-        let monitor = monitoring_system.register_service("memory-service".to_string(), Some(alert_config));
+        let monitor = monitoring_system.register_service("memory-service".to_string(), Some(alert_config)).await;
 
         Ok(Self {
             health_monitor: monitor,
