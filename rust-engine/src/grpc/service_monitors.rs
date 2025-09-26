@@ -527,12 +527,12 @@ pub struct ServiceMonitors {
 
 impl ServiceMonitors {
     /// Create a new service monitoring system
-    pub fn new() -> DaemonResult<Self> {
+    pub async fn new() -> DaemonResult<Self> {
         let monitoring_system = Arc::new(HealthMonitoringSystem::new(None));
 
-        let document_processor = DocumentProcessorMonitor::new(&monitoring_system)?;
-        let search_service = SearchServiceMonitor::new(&monitoring_system)?;
-        let memory_service = MemoryServiceMonitor::new(&monitoring_system)?;
+        let document_processor = DocumentProcessorMonitor::new(&monitoring_system).await?;
+        let search_service = SearchServiceMonitor::new(&monitoring_system).await?;
+        let memory_service = MemoryServiceMonitor::new(&monitoring_system).await?;
 
         Ok(Self {
             document_processor,
