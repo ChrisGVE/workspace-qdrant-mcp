@@ -36,6 +36,8 @@ impl TestConfigBuilder {
                     connection_timeout_secs: 5,
                     request_timeout_secs: 10,
                     enable_tls: false,
+                    security: crate::config::SecurityConfig::default(),
+                    transport: crate::config::TransportConfig::default(),
                     message: crate::config::MessageConfig::default(),
                     compression: crate::config::CompressionConfig::default(),
                     streaming: crate::config::StreamingConfig::default(),
