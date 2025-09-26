@@ -10,20 +10,18 @@ use workspace_qdrant_daemon::proto::{
     search_service_client::SearchServiceClient,
     memory_service_client::MemoryServiceClient,
     system_service_client::SystemServiceClient,
-    *,
+    ServiceStatus, ProcessDocumentRequest, DocumentType, ProcessingOptions,
+    CreateCollectionRequest, ProcessingStatus, HybridSearchRequest,
+    CollectionConfig as ProtoCollectionConfig, HealthCheckResponse, SearchContext,
 };
+use tempfile::TempDir;
 
 use std::net::{IpAddr, Ipv4Addr, SocketAddr};
-use std::sync::Arc;
 use std::time::Duration;
 use tokio::time::{timeout, sleep};
-use tonic::transport::{Channel, Server, Endpoint};
+use tonic::transport::{Channel, Endpoint};
 use tonic::{Code, Request, Status};
-use testcontainers::{clients, images, Container, Docker};
 use serial_test::serial;
-use tempfile::TempDir;
-use futures_util::stream;
-use tokio_test;
 
 // ================================
 // TEST INFRASTRUCTURE
@@ -95,17 +93,24 @@ impl Drop for TestEnvironment {
 }
 
 fn create_test_daemon_config() -> DaemonConfig {
+    let db_path = ":memory:";
+
     DaemonConfig {
         server: ServerConfig {
             host: "127.0.0.1".to_string(),
-            port: 0, // Random port
+            port: 50052,
             max_connections: 100,
             connection_timeout_secs: 30,
             request_timeout_secs: 60,
             enable_tls: false,
+            security: SecurityConfig::default(),
+            transport: TransportConfig::default(),
+            message: MessageConfig::default(),
+            compression: CompressionConfig::default(),
+            streaming: StreamingConfig::default(),
         },
         database: DatabaseConfig {
-            sqlite_path: ":memory:".to_string(),
+            sqlite_path: db_path.to_string(),
             max_connections: 5,
             connection_timeout_secs: 30,
             enable_wal: true,
@@ -115,7 +120,7 @@ fn create_test_daemon_config() -> DaemonConfig {
             api_key: None,
             timeout_secs: 30,
             max_retries: 3,
-            default_collection: CollectionConfig {
+            default_collection: workspace_qdrant_daemon::config::CollectionConfig {
                 vector_size: 384,
                 distance_metric: "Cosine".to_string(),
                 enable_indexing: true,
@@ -124,32 +129,38 @@ fn create_test_daemon_config() -> DaemonConfig {
             },
         },
         processing: ProcessingConfig {
-            max_concurrent_tasks: 2,
+            max_concurrent_tasks: 4,
             default_chunk_size: 1000,
             default_chunk_overlap: 200,
-            max_file_size_bytes: 1024 * 1024,
-            supported_extensions: vec!["txt".to_string(), "md".to_string()],
+            max_file_size_bytes: 10 * 1024 * 1024,
+            supported_extensions: vec![
+                "rs".to_string(),
+                "py".to_string(),
+                "js".to_string(),
+                "ts".to_string(),
+                "md".to_string(),
+                "txt".to_string(),
+            ],
             enable_lsp: false,
             lsp_timeout_secs: 10,
         },
         file_watcher: FileWatcherConfig {
             enabled: false,
-            debounce_ms: 500,
+            debounce_ms: 100,
             max_watched_dirs: 10,
-            ignore_patterns: vec![],
+            ignore_patterns: vec!["*.tmp".to_string(), "*.log".to_string()],
             recursive: true,
         },
         metrics: MetricsConfig {
             enabled: false,
-            collection_interval_secs: 60,
-            retention_days: 30,
-            enable_prometheus: false,
             prometheus_port: 9090,
+            collection_interval_secs: 60,
+            retention_days: 7,
         },
         logging: LoggingConfig {
             level: "info".to_string(),
-            file_path: None,
             json_format: false,
+            file_path: None,
             max_file_size_mb: 100,
             max_files: 5,
         },
@@ -406,7 +417,7 @@ async fn test_memory_service_communication() {
     let create_request = Request::new(CreateCollectionRequest {
         collection_name: "test-collection".to_string(),
         project_id: "test-project".to_string(),
-        config: Some(CollectionConfig {
+        config: Some(ProtoCollectionConfig {
             vector_size: 384,
             distance_metric: "Cosine".to_string(),
             enable_indexing: true,
