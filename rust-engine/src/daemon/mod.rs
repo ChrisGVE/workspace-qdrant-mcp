@@ -167,6 +167,11 @@ mod tests {
                 connection_timeout_secs: 30,
                 request_timeout_secs: 300,
                 enable_tls: false,
+                security: crate::config::SecurityConfig::default(),
+                transport: crate::config::TransportConfig::default(),
+                message: crate::config::MessageConfig::default(),
+                compression: crate::config::CompressionConfig::default(),
+                streaming: crate::config::StreamingConfig::default(),
             },
             database: DatabaseConfig {
                 sqlite_path: db_path,

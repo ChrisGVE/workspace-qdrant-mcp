@@ -515,7 +515,10 @@ impl ProtocolTestSuite {
     ) -> Result<bool, Box<dyn std::error::Error>> {
         let mut request = Request::new(());
         for (key, value) in metadata_pairs {
-            request.metadata_mut().insert(key.as_str(), MetadataValue::try_from(value).unwrap());
+            request.metadata_mut().insert(
+                tonic::metadata::MetadataKey::from_bytes(key.as_bytes()).unwrap(),
+                MetadataValue::try_from(value).unwrap()
+            );
         }
 
         let response = timeout(
