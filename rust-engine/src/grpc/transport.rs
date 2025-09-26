@@ -5,23 +5,16 @@
 
 use crate::config::{
     TransportConfig, UnixSocketConfig, LocalOptimizationConfig,
-    LocalLatencyConfig, TransportStrategy
+    TransportStrategy, LocalLatencyConfig
 };
-use crate::error::{DaemonResult, DaemonError};
 
 use anyhow::{Result, anyhow};
 use std::path::Path;
 use std::os::unix::fs::PermissionsExt;
-use std::sync::Arc;
 use std::time::Duration;
 use tonic::transport::{Server, Endpoint};
-use tokio::net::{UnixListener, UnixStream};
-use tokio_stream::wrappers::UnixListenerStream;
-use tower::service_fn;
-use tracing::{info, warn, error, debug};
-
-#[cfg(unix)]
-use std::os::unix::net::UnixListener as StdUnixListener;
+use tokio::net::UnixListener;
+use tracing::{info, debug};
 
 /// Transport type detection result
 #[derive(Debug, Clone)]
