@@ -3,10 +3,9 @@
 //! This test suite validates the async file operations in a more realistic scenario
 //! where they're integrated with the document processing pipeline.
 
-use workspace_qdrant_daemon::daemon::file_ops::{AsyncFileProcessor, AsyncFileStream, FileInfo};
-use workspace_qdrant_daemon::error::{DaemonError, DaemonResult};
+use workspace_qdrant_daemon::daemon::file_ops::{AsyncFileProcessor, AsyncFileStream};
+use workspace_qdrant_daemon::error::DaemonError;
 use tempfile::tempdir;
-use tokio_test;
 use std::fs;
 
 /// Test basic async file operations integration
@@ -204,7 +203,7 @@ async file operations to avoid blocking the runtime.
 
     // Process document in chunks
     let chunks = processor.process_chunks(&document_path, 100, |chunk, index| {
-        let chunk_str = String::from_utf8_lossy(chunk);
+        let _chunk_str = String::from_utf8_lossy(chunk);
         Ok(format!("Chunk {}: {} chars", index, chunk.len()))
     }).await.unwrap();
 
