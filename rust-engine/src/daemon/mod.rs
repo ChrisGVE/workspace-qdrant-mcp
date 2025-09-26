@@ -116,12 +116,12 @@ impl WorkspaceDaemon {
     }
 
     /// Get daemon state (read-only)
-    pub async fn state(&self) -> tokio::sync::RwLockReadGuard<state::DaemonState> {
+    pub async fn state(&self) -> tokio::sync::RwLockReadGuard<'_, state::DaemonState> {
         self.state.read().await
     }
 
     /// Get daemon state (read-write)
-    pub async fn state_mut(&self) -> tokio::sync::RwLockWriteGuard<state::DaemonState> {
+    pub async fn state_mut(&self) -> tokio::sync::RwLockWriteGuard<'_, state::DaemonState> {
         self.state.write().await
     }
 

@@ -633,7 +633,7 @@ impl TaskManager {
         self.failed_count.load(Ordering::SeqCst)
     }
 
-    pub async fn acquire_spawn_permit(&self) -> Result<tokio::sync::SemaphorePermit, tokio::sync::AcquireError> {
+    pub async fn acquire_spawn_permit(&self) -> Result<tokio::sync::SemaphorePermit<'_>, tokio::sync::AcquireError> {
         self.spawn_semaphore.acquire().await
     }
 }
@@ -649,7 +649,7 @@ impl ResourcePool {
         })
     }
 
-    pub async fn acquire_connection(&self) -> Result<tokio::sync::SemaphorePermit, tokio::sync::AcquireError> {
+    pub async fn acquire_connection(&self) -> Result<tokio::sync::SemaphorePermit<'_>, tokio::sync::AcquireError> {
         self.connection_semaphore.acquire().await
     }
 
