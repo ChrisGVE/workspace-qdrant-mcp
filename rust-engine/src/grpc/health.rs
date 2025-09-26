@@ -10,8 +10,7 @@ use tokio::sync::RwLock;
 use tracing::{debug, info, warn, error};
 use serde::{Serialize, Deserialize};
 
-use crate::error::{DaemonResult, DaemonError};
-use crate::grpc::middleware::ConnectionStats;
+use crate::error::DaemonResult;
 
 /// Standard gRPC health check status
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]

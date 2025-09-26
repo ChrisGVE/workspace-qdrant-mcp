@@ -5,9 +5,7 @@
 
 use crate::config::{
     MessageConfig, CompressionConfig, StreamingConfig,
-    ServiceLimit, AdaptiveCompressionConfig, CompressionPerformanceConfig,
-    StreamProgressConfig, StreamHealthConfig, LargeOperationStreamConfig,
-    MessageMonitoringConfig
+    StreamProgressConfig, StreamHealthConfig
 };
 use anyhow::{Result, anyhow};
 use flate2::{Compression, write::GzEncoder, read::GzDecoder};

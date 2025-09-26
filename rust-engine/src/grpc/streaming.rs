@@ -3,8 +3,8 @@
 //! This module provides server-side streaming for large document uploads,
 //! processing results, and search operations.
 
-use crate::grpc::message_validation::{MessageValidator, StreamHandle};
-use anyhow::{Result, anyhow};
+use crate::grpc::message_validation::MessageValidator;
+use anyhow::Result;
 use std::sync::Arc;
 use std::time::Duration;
 use tokio::sync::mpsc;

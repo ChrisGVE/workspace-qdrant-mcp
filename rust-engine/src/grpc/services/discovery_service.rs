@@ -10,9 +10,8 @@ use crate::proto::{
     GetServiceInstancesRequest, GetServiceInstancesResponse,
     UpdateServiceHealthRequest, UpdateServiceHealthResponse,
     ServiceDiscoveryStatsRequest, ServiceDiscoveryStatsResponse,
-    ServiceInstanceProto, ServiceHealthProto, LoadBalancingStrategyProto,
+    ServiceInstanceProto, ServiceHealthProto,
 };
-use std::collections::HashMap;
 use std::net::SocketAddr;
 use std::sync::Arc;
 use tokio::sync::RwLock;
