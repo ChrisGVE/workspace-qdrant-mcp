@@ -22,6 +22,11 @@ fn test_server_config_creation() {
         connection_timeout_secs: 60,
         request_timeout_secs: 300,
         enable_tls: true,
+        security: SecurityConfig::default(),
+        transport: TransportConfig::default(),
+        message: MessageConfig::default(),
+        compression: CompressionConfig::default(),
+        streaming: StreamingConfig::default(),
     };
 
     assert_eq!(config.host, "0.0.0.0");

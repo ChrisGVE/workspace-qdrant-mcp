@@ -5,7 +5,6 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 use workspace_qdrant_daemon::config::{ProcessingConfig, QdrantConfig, CollectionConfig};
 use workspace_qdrant_daemon::daemon::processing::DocumentProcessor;
-use workspace_qdrant_daemon::error::DaemonResult;
 
 /// Configuration module for test setup
 #[cfg(test)]

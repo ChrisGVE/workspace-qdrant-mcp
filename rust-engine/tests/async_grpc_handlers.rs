@@ -43,6 +43,11 @@ fn create_test_daemon_config() -> DaemonConfig {
             connection_timeout_secs: 5, // Short timeout for testing
             request_timeout_secs: 10,
             enable_tls: false,
+            security: SecurityConfig::default(),
+            transport: TransportConfig::default(),
+            message: MessageConfig::default(),
+            compression: CompressionConfig::default(),
+            streaming: StreamingConfig::default(),
         },
         database: DatabaseConfig {
             sqlite_path: ":memory:".to_string(),
