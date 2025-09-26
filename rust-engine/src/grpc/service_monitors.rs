@@ -4,10 +4,10 @@
 //! defined in workspace_daemon.proto, with service-specific metrics and health indicators.
 
 use std::sync::Arc;
-use std::time::{Duration, Instant, SystemTime};
+use std::time::{Duration, Instant};
 use tracing::{debug, info, warn, error};
 
-use crate::error::{DaemonResult, DaemonError};
+use crate::error::DaemonResult;
 use crate::grpc::health::{HealthMonitoringSystem, ServiceHealthMonitor, AlertConfig, HealthStatus};
 
 /// Service-specific health monitor for DocumentProcessor service

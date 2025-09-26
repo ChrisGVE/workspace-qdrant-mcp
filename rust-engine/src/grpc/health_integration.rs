@@ -6,7 +6,7 @@
 use std::sync::Arc;
 use std::time::Duration;
 use tokio::sync::RwLock;
-use tracing::{info, warn, error};
+use tracing::{info, error};
 
 use crate::error::DaemonResult;
 use crate::grpc::{
