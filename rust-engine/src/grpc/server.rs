@@ -128,7 +128,7 @@ impl GrpcServer {
             .map_err(|e| anyhow::anyhow!("Failed to build reflection service: {}", e))?;
 
         // Create connection interceptor
-        let interceptor = ConnectionInterceptor::new(Arc::clone(&self.connection_manager));
+        let _interceptor = ConnectionInterceptor::new(Arc::clone(&self.connection_manager));
 
         // Create service implementations
         let document_processor = DocumentProcessorImpl::new(Arc::clone(&self.daemon));
