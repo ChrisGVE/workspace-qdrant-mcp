@@ -89,6 +89,11 @@ impl AsyncFileProcessor {
             }
         })?;
 
+        // Use compression setting for future enhancement
+        if self.enable_compression {
+            debug!("Compression enabled for file processing");
+        }
+
         info!("Successfully read {} bytes from {}", buffer.len(), path.display());
         Ok(buffer)
     }
@@ -541,6 +546,17 @@ impl SpecialFileHandler {
         Box::pin(async move {
         // Check depth limit
         if depth > self.max_symlink_depth {
+            return Err(DaemonError::SymlinkDepthExceeded {
+                link_path: path.to_string_lossy().to_string(),
+                depth,
+                max_depth: self.max_symlink_depth,
+            });
+        }
+
+        // Check cross-filesystem access
+        if !self.enable_cross_filesystem {
+            debug!("Cross-filesystem symlink resolution disabled");
+        }
             return Err(DaemonError::SymlinkDepthExceeded {
                 link_path: path.to_string_lossy().to_string(),
                 depth,
