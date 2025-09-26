@@ -9,7 +9,7 @@ use crate::proto::{
 };
 use std::sync::Arc;
 use tonic::{Request, Response, Status};
-use tracing::{debug, error, info};
+use tracing::{debug, info};
 
 /// System service implementation
 #[derive(Debug)]

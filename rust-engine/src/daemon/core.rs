@@ -1,7 +1,7 @@
 //! Core daemon functionality
 
 use crate::error::{DaemonError, DaemonResult};
-use tracing::{info, debug};
+use tracing::info;
 
 /// Core daemon utilities
 #[derive(Debug)]
