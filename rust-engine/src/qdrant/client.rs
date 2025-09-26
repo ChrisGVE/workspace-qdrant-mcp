@@ -486,10 +486,9 @@ impl QdrantClient {
                 }),
                 wait: Some(wait),
                 ordering: None,
-                write_consistency: None,
             };
 
-            let result = client.delete_points(&request).await
+            let result = client.delete_points(request).await
                 .map_err(|e| QdrantError::VectorOperation {
                     operation: "delete".to_string(),
                     message: format!("Delete points failed: {}", e),
@@ -522,19 +521,12 @@ impl QdrantClient {
 
             let request = SetPayloadPoints {
                 collection_name: collection_name.to_string(),
-                points: Some(qdrant_client::qdrant::PointsSelector {
-                    points_selector_one_of: Some(
-                        qdrant_client::qdrant::points_selector::PointsSelectorOneOf::Points(
-                            qdrant_client::qdrant::PointsIdsList { ids: vec![point_id] }
-                        )
-                    ),
-                }),
                 payload: qdrant_payload,
                 wait: Some(wait),
                 ..Default::default()
             };
 
-            let result = client.set_payload(&request).await
+            let result = client.set_payload(request).await
                 .map_err(|e| QdrantError::VectorOperation {
                     operation: "update_payload".to_string(),
                     message: format!("Update payload failed: {}", e),
@@ -559,19 +551,12 @@ impl QdrantClient {
 
             let request = DeletePayloadPoints {
                 collection_name: collection_name.to_string(),
-                points: Some(qdrant_client::qdrant::PointsSelector {
-                    points_selector_one_of: Some(
-                        qdrant_client::qdrant::points_selector::PointsSelectorOneOf::Points(
-                            qdrant_client::qdrant::PointsIdsList { ids: vec![point_id] }
-                        )
-                    ),
-                }),
                 keys: payload_keys,
                 wait: Some(wait),
                 ..Default::default()
             };
 
-            let result = client.delete_payload(&request).await
+            let result = client.delete_payload(request).await
                 .map_err(|e| QdrantError::VectorOperation {
                     operation: "delete_payload".to_string(),
                     message: format!("Delete payload failed: {}", e),
