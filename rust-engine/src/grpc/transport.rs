@@ -202,13 +202,16 @@ impl TransportManager {
     pub async fn create_optimized_server(
         &self,
         transport_type: &TransportType,
-    ) -> Result<tonic::transport::server::Router> {
+    ) -> Result<tonic::transport::Server> {
         let mut server = Server::builder();
 
         // Apply local optimizations if this is a local connection
-        if matches!(transport_type, TransportType::UnixSocket { .. }) ||
-           (matches!(transport_type, TransportType::Tcp { host, .. }) && self.is_local_connection(host)) {
+        let should_optimize = match transport_type {
+            TransportType::UnixSocket { .. } => true,
+            TransportType::Tcp { host, .. } => self.is_local_connection(host),
+        };
 
+        if should_optimize {
             server = self.apply_local_optimizations(server);
         }
 
@@ -218,8 +221,8 @@ impl TransportManager {
     /// Apply local communication optimizations to the server
     fn apply_local_optimizations(
         &self,
-        mut server: tonic::transport::server::ServerBuilder,
-    ) -> tonic::transport::server::ServerBuilder {
+        mut server: tonic::transport::Server,
+    ) -> tonic::transport::Server {
         if !self.config.local_optimization.enabled {
             return server;
         }
@@ -266,7 +269,7 @@ impl TransportManager {
 
                 Ok(endpoint)
             }
-            TransportType::UnixSocket { path } => {
+            TransportType::UnixSocket { path: _ } => {
                 // For Unix sockets, we need to create a custom endpoint
                 // This is a simplified approach - in practice you'd need to implement
                 // a custom connector for Unix domain sockets
