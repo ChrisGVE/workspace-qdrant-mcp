@@ -4445,6 +4445,7 @@ checksum = "2f87b8aa10b915a06587d0dec516c282ff295b475d94abf425d62b57710070a2"
 dependencies = [
  "getrandom 0.3.3",
  "js-sys",
+ "serde",
  "wasm-bindgen",
 ]
 
@@ -5047,6 +5048,7 @@ dependencies = [
  "anyhow",
  "assert_matches",
  "async-trait",
+ "base64 0.22.1",
  "bincode",
  "blake3",
  "chrono",
@@ -5089,6 +5091,7 @@ dependencies = [
  "tonic",
  "tonic-build",
  "tonic-reflection",
+ "tower 0.4.13",
  "tracing",
  "tracing-appender",
  "tracing-subscriber",
