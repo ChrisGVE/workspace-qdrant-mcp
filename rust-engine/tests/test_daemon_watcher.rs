@@ -58,11 +58,11 @@ mod watcher_tests {
         assert!(result.is_ok());
 
         let watcher = result.unwrap();
-        assert_eq!(watcher.config.enabled, true);
-        assert_eq!(watcher.config.debounce_ms, 100);
-        assert_eq!(watcher.config.max_watched_dirs, 10);
-        assert_eq!(watcher.config.recursive, true);
-        assert_eq!(watcher.config.ignore_patterns.len(), 2);
+        assert_eq!(watcher.config().enabled, true);
+        assert_eq!(watcher.config().debounce_ms, 100);
+        assert_eq!(watcher.config().max_watched_dirs, 10);
+        assert_eq!(watcher.config().recursive, true);
+        assert_eq!(watcher.config().ignore_patterns.len(), 2);
     }
 
     #[tokio::test]
@@ -74,10 +74,10 @@ mod watcher_tests {
         assert!(result.is_ok());
 
         let watcher = result.unwrap();
-        assert_eq!(watcher.config.enabled, false);
-        assert_eq!(watcher.config.debounce_ms, 500);
-        assert_eq!(watcher.config.max_watched_dirs, 5);
-        assert_eq!(watcher.config.recursive, false);
+        assert_eq!(watcher.config().enabled, false);
+        assert_eq!(watcher.config().debounce_ms, 500);
+        assert_eq!(watcher.config().max_watched_dirs, 5);
+        assert_eq!(watcher.config().recursive, false);
     }
 
     #[tokio::test]
@@ -89,11 +89,11 @@ mod watcher_tests {
         assert!(result.is_ok());
 
         let watcher = result.unwrap();
-        assert_eq!(watcher.config.debounce_ms, 2000);
-        assert_eq!(watcher.config.max_watched_dirs, 50);
-        assert_eq!(watcher.config.recursive, false);
-        assert!(watcher.config.ignore_patterns.contains(&"*.swp".to_string()));
-        assert!(watcher.config.ignore_patterns.contains(&"node_modules/*".to_string()));
+        assert_eq!(watcher.config().debounce_ms, 2000);
+        assert_eq!(watcher.config().max_watched_dirs, 50);
+        assert_eq!(watcher.config().recursive, false);
+        assert!(watcher.config().ignore_patterns.contains(&"*.swp".to_string()));
+        assert!(watcher.config().ignore_patterns.contains(&"node_modules/*".to_string()));
     }
 
     #[tokio::test]
@@ -448,9 +448,9 @@ mod watcher_tests {
         assert!(result.is_ok());
 
         let watcher = result.unwrap();
-        assert_eq!(watcher.config.debounce_ms, 0);
-        assert_eq!(watcher.config.max_watched_dirs, 0);
-        assert_eq!(watcher.config.ignore_patterns.len(), 0);
+        assert_eq!(watcher.config().debounce_ms, 0);
+        assert_eq!(watcher.config().max_watched_dirs, 0);
+        assert_eq!(watcher.config().ignore_patterns.len(), 0);
     }
 
     #[tokio::test]
@@ -468,9 +468,9 @@ mod watcher_tests {
         assert!(result.is_ok());
 
         let watcher = result.unwrap();
-        assert_eq!(watcher.config.debounce_ms, u64::MAX);
-        assert_eq!(watcher.config.max_watched_dirs, usize::MAX);
-        assert_eq!(watcher.config.ignore_patterns.len(), 1000);
+        assert_eq!(watcher.config().debounce_ms, u64::MAX);
+        assert_eq!(watcher.config().max_watched_dirs, usize::MAX);
+        assert_eq!(watcher.config().ignore_patterns.len(), 1000);
     }
 
     // Processor Arc sharing tests
@@ -640,10 +640,10 @@ mod watcher_tests {
         let watcher2 = FileWatcher::new(&config_clone, processor).await.unwrap();
 
         // Both watchers should have the same configuration values
-        assert_eq!(watcher1.config.enabled, watcher2.config.enabled);
-        assert_eq!(watcher1.config.debounce_ms, watcher2.config.debounce_ms);
-        assert_eq!(watcher1.config.max_watched_dirs, watcher2.config.max_watched_dirs);
-        assert_eq!(watcher1.config.recursive, watcher2.config.recursive);
+        assert_eq!(watcher1.config().enabled, watcher2.config().enabled);
+        assert_eq!(watcher1.config().debounce_ms, watcher2.config().debounce_ms);
+        assert_eq!(watcher1.config().max_watched_dirs, watcher2.config().max_watched_dirs);
+        assert_eq!(watcher1.config().recursive, watcher2.config().recursive);
     }
 
     // Error resilience tests (testing placeholder implementation behavior)
