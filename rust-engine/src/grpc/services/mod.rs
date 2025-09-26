@@ -10,4 +10,4 @@ pub use document_processor::DocumentProcessorImpl;
 pub use search_service::SearchServiceImpl;
 pub use memory_service::MemoryServiceImpl;
 pub use system_service::SystemServiceImpl;
-pub use discovery_service::ServiceDiscoveryImpl;
+// ServiceDiscoveryImpl is used internally but not exported
