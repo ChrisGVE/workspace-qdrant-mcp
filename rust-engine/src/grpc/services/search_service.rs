@@ -34,6 +34,9 @@ impl SearchService for SearchServiceImpl {
         let req = request.into_inner();
         debug!("Hybrid search requested: {}", req.query);
 
+        // Access daemon config to prevent unused field warning
+        let _config = self.daemon.config();
+
         // TODO: Implement actual hybrid search
         let response = HybridSearchResponse {
             results: vec![
