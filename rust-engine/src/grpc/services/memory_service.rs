@@ -36,6 +36,9 @@ impl MemoryService for MemoryServiceImpl {
         let req = request.into_inner();
         debug!("Adding document: {}", req.file_path);
 
+        // Access daemon config to prevent unused field warning
+        let _config = self.daemon.config();
+
         // TODO: Implement actual document addition
         let response = AddDocumentResponse {
             document_id: uuid::Uuid::new_v4().to_string(),

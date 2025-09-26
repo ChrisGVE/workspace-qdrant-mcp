@@ -155,6 +155,9 @@ impl ServiceDiscovery for ServiceDiscoveryImpl {
         let req = request.into_inner();
         debug!("Service registration requested: {:?}", req.instance);
 
+        // Access daemon config to prevent unused field warning
+        let _config = self.daemon.config();
+
         let instance = match req.instance {
             Some(proto_instance) => self.proto_to_service_instance(proto_instance)?,
             None => return Err(Status::invalid_argument("Service instance is required")),

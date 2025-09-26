@@ -32,6 +32,9 @@ impl DocumentProcessor for DocumentProcessorImpl {
         let req = request.into_inner();
         debug!("Processing document: {:?}", req.file_path);
 
+        // Access daemon config to prevent unused field warning
+        let _config = self.daemon.config();
+
         // TODO: Implement actual document processing
         // This is a placeholder implementation
         let response = ProcessDocumentResponse {
