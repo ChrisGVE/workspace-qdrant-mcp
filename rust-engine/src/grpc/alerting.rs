@@ -14,7 +14,7 @@ use crate::error::{DaemonResult, DaemonError};
 use crate::grpc::health::{HealthStatus, ServiceHealth, HealthMonitoringSystem};
 
 /// Alert severity levels
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum AlertSeverity {
     /// Informational alert
     Info,
@@ -353,7 +353,7 @@ impl AlertManager {
     pub async fn send_alert(&self, alert: Alert) -> DaemonResult<()> {
         self.alert_sender
             .send(alert)
-            .map_err(|e| DaemonError::Validation {
+            .map_err(|e| DaemonError::System {
                 message: format!("Failed to queue alert: {}", e)
             })?;
 
