@@ -3,7 +3,10 @@
 use std::time::Duration;
 use tokio::time::sleep;
 use workspace_qdrant_daemon::error::{DaemonError, DaemonResult};
-use workspace_qdrant_daemon::grpc::{RetryStrategy, RetryConfig, CircuitBreaker, CircuitBreakerConfig};
+use workspace_qdrant_daemon::grpc::RetryStrategy;
+use workspace_qdrant_daemon::grpc::retry::RetryConfig;
+use workspace_qdrant_daemon::grpc::CircuitBreaker;
+use workspace_qdrant_daemon::grpc::circuit_breaker::CircuitBreakerConfig;
 
 #[tokio::main]
 async fn main() -> DaemonResult<()> {
