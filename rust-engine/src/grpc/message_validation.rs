@@ -931,7 +931,7 @@ mod tests {
         let request = Request::new(());
 
         // Should always pass when validation is disabled
-        assert!(validator.validate_incoming_message(&request).is_ok());
+        assert!(validator.validate_incoming_message(&request, "test_service").is_ok());
     }
 
     #[test]

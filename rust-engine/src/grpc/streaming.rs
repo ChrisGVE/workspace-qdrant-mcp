@@ -359,6 +359,8 @@ mod tests {
                 enable_size_validation: true,
                 max_frame_size: 16384,
                 initial_window_size: 65536,
+                service_limits: crate::config::ServiceMessageLimits::default(),
+                monitoring: crate::config::MessageMonitoringConfig::default(),
             },
             CompressionConfig {
                 enable_gzip: true,
@@ -366,6 +368,8 @@ mod tests {
                 compression_level: 6,
                 enable_streaming_compression: true,
                 enable_compression_monitoring: true,
+                adaptive: crate::config::AdaptiveCompressionConfig::default(),
+                performance: crate::config::CompressionPerformanceConfig::default(),
             },
             StreamingConfig {
                 enable_server_streaming: true,
