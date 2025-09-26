@@ -3,6 +3,8 @@
 //! This module provides comprehensive tokio runtime lifecycle management,
 //! task coordination, resource sharing, and performance monitoring.
 
+#![allow(dead_code)]
+
 use crate::error::{DaemonError, DaemonResult};
 use std::sync::{Arc, atomic::{AtomicBool, AtomicUsize, AtomicU64, Ordering}};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};

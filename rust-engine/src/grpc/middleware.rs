@@ -322,6 +322,7 @@ impl ConnectionManager {
 }
 
 #[derive(Debug, Clone)]
+#[allow(dead_code)]
 pub struct ConnectionStats {
     pub active_connections: u64,
     pub max_connections: u64,

@@ -9,7 +9,9 @@ use tracing::{info, debug};
 /// Document processor
 #[derive(Debug)]
 pub struct DocumentProcessor {
+    #[allow(dead_code)]
     config: ProcessingConfig,
+    #[allow(dead_code)]
     qdrant_config: QdrantConfig,
     semaphore: Arc<Semaphore>,
 }
@@ -43,11 +45,13 @@ impl DocumentProcessor {
     }
 
     /// Get processing configuration
+    #[allow(dead_code)]
     pub fn config(&self) -> &ProcessingConfig {
         &self.config
     }
 
     /// Get Qdrant configuration
+    #[allow(dead_code)]
     pub fn qdrant_config(&self) -> &QdrantConfig {
         &self.qdrant_config
     }
