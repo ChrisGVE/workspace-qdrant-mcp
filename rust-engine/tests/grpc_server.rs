@@ -13,19 +13,241 @@ use std::time::Duration;
 // TEST CONFIGURATION HELPERS
 // ================================
 
+fn create_test_server_config() -> ServerConfig {
+    ServerConfig {
+        host: "127.0.0.1".to_string(),
+        port: 50052,
+        max_connections: 100,
+        connection_timeout_secs: 30,
+        request_timeout_secs: 60,
+        enable_tls: false,
+        security: create_test_security_config(),
+        transport: create_test_transport_config(),
+        message: create_test_message_config(),
+        compression: create_test_compression_config(),
+        streaming: create_test_streaming_config(),
+    }
+}
+
+fn create_test_security_config() -> SecurityConfig {
+    SecurityConfig {
+        tls: TlsConfig {
+            cert_file: None,
+            key_file: None,
+            ca_cert_file: None,
+            enable_mtls: false,
+            client_cert_verification: ClientCertVerification::None,
+            supported_protocols: vec!["TLSv1.2".to_string(), "TLSv1.3".to_string()],
+            cipher_suites: vec![],
+        },
+        auth: AuthConfig {
+            enable_service_auth: false,
+            jwt: create_test_jwt_config(),
+            api_key: create_test_api_key_config(),
+            authorization: create_test_authorization_config(),
+        },
+        rate_limiting: RateLimitConfig {
+            enabled: false,
+            requests_per_second: 1000,
+            burst_capacity: 100,
+            connection_pool_limits: create_test_connection_pool_limits(),
+            queue_depth_limit: 1000,
+            memory_protection: create_test_memory_protection_config(),
+            resource_protection: create_test_resource_protection_config(),
+        },
+        audit: create_test_audit_config(),
+    }
+}
+
+fn create_test_transport_config() -> TransportConfig {
+    TransportConfig {
+        unix_socket: UnixSocketConfig {
+            enabled: false,
+            socket_path: "/tmp/test.sock".to_string(),
+            permissions: 0o666,
+            prefer_for_local: false,
+        },
+        local_optimization: LocalOptimizationConfig {
+            enabled: true,
+            use_large_buffers: false,
+            local_buffer_size: 4096,
+            memory_efficient_serialization: true,
+            reduce_latency: true,
+        },
+        transport_strategy: TransportStrategy::Auto,
+    }
+}
+
+fn create_test_message_config() -> MessageConfig {
+    MessageConfig {
+        max_incoming_message_size: 4194304, // 4MB
+        max_outgoing_message_size: 4194304, // 4MB
+        enable_size_validation: true,
+        max_frame_size: 16384,
+        initial_window_size: 65536,
+        service_limits: ServiceMessageLimits {
+            document_processor: ServiceLimit {
+                max_incoming: 4194304,
+                max_outgoing: 4194304,
+                enable_validation: true,
+            },
+            search_service: ServiceLimit {
+                max_incoming: 1048576,
+                max_outgoing: 1048576,
+                enable_validation: true,
+            },
+            memory_service: ServiceLimit {
+                max_incoming: 1048576,
+                max_outgoing: 1048576,
+                enable_validation: true,
+            },
+            system_service: ServiceLimit {
+                max_incoming: 1048576,
+                max_outgoing: 1048576,
+                enable_validation: true,
+            },
+        },
+        monitoring: MessageMonitoringConfig {
+            enable_detailed_monitoring: false,
+            oversized_alert_threshold: 0.9,
+            enable_realtime_metrics: false,
+            metrics_interval_secs: 60,
+        },
+    }
+}
+
+fn create_test_compression_config() -> CompressionConfig {
+    CompressionConfig {
+        enable_gzip: false,
+        compression_threshold: 1024,
+        compression_level: 6,
+        enable_streaming_compression: false,
+        enable_compression_monitoring: false,
+        adaptive: AdaptiveCompressionConfig {
+            enable_adaptive: false,
+            text_compression_level: 6,
+            binary_compression_level: 3,
+            structured_compression_level: 6,
+            max_compression_time_ms: 100,
+        },
+        performance: CompressionPerformanceConfig {
+            enable_ratio_tracking: false,
+            poor_ratio_threshold: 0.1,
+            enable_time_monitoring: false,
+            slow_compression_threshold_ms: 1000,
+            enable_failure_alerting: false,
+        },
+    }
+}
+
+fn create_test_streaming_config() -> StreamingConfig {
+    StreamingConfig {
+        enable_server_streaming: true,
+        enable_client_streaming: true,
+        max_concurrent_streams: 100,
+        stream_buffer_size: 1000,
+        stream_timeout_secs: 300,
+        enable_flow_control: true,
+        progress: StreamProgressConfig {
+            enable_progress_tracking: false,
+            progress_update_interval_ms: 1000,
+            enable_progress_callbacks: false,
+            progress_threshold: 1048576,
+        },
+        health: StreamHealthConfig {
+            enable_health_monitoring: false,
+            health_check_interval_secs: 30,
+            enable_auto_recovery: false,
+            max_recovery_attempts: 3,
+            recovery_backoff_multiplier: 2.0,
+            initial_recovery_delay_ms: 1000,
+        },
+        large_operations: LargeOperationStreamConfig {
+            enable_large_document_streaming: true,
+            large_operation_chunk_size: 65536,
+            enable_bulk_streaming: false,
+            max_streaming_memory: 67108864, // 64MB
+            enable_bidirectional_optimization: false,
+        },
+    }
+}
+
+fn create_test_jwt_config() -> JwtConfig {
+    JwtConfig {
+        secret_key: "test-secret".to_string(),
+        token_expiry_secs: 3600,
+        issuer: "test-issuer".to_string(),
+        audience: vec!["test-audience".to_string()],
+        algorithm: "HS256".to_string(),
+    }
+}
+
+fn create_test_api_key_config() -> ApiKeyConfig {
+    ApiKeyConfig {
+        keys: vec![],
+        header_name: "X-API-Key".to_string(),
+        enable_key_rotation: false,
+        key_expiry_days: 365,
+    }
+}
+
+fn create_test_authorization_config() -> AuthorizationConfig {
+    AuthorizationConfig {
+        enable_rbac: false,
+        default_permissions: vec![],
+        service_permissions: std::collections::HashMap::new(),
+        admin_roles: vec!["admin".to_string()],
+        guest_permissions: vec!["read".to_string()],
+    }
+}
+
+fn create_test_connection_pool_limits() -> ConnectionPoolLimits {
+    ConnectionPoolLimits {
+        document_processor: 50,
+        search_service: 30,
+        memory_service: 20,
+        system_service: 10,
+    }
+}
+
+fn create_test_memory_protection_config() -> MemoryProtectionConfig {
+    MemoryProtectionConfig {
+        enabled: false,
+        max_memory_per_connection: 104857600, // 100MB
+        memory_alert_threshold: 0.8,
+        enable_memory_monitoring: false,
+        gc_trigger_threshold: 0.9,
+    }
+}
+
+fn create_test_resource_protection_config() -> ResourceProtectionConfig {
+    ResourceProtectionConfig {
+        enabled: false,
+        max_cpu_per_connection: 50.0,
+        cpu_alert_threshold: 0.8,
+        enable_resource_monitoring: false,
+        throttle_threshold: 0.9,
+    }
+}
+
+fn create_test_audit_config() -> AuditConfig {
+    AuditConfig {
+        enabled: false,
+        log_successful_requests: false,
+        log_failed_requests: true,
+        audit_file_path: "/tmp/audit.log".to_string(),
+        enable_audit_rotation: false,
+        max_audit_file_size: 10485760, // 10MB
+        retention_days: 30,
+    }
+}
+
 fn create_test_daemon_config() -> DaemonConfig {
     // Use in-memory SQLite database for tests
     let db_path = ":memory:";
 
     DaemonConfig {
-        server: ServerConfig {
-            host: "127.0.0.1".to_string(),
-            port: 50052, // Use different port for testing
-            max_connections: 100,
-            connection_timeout_secs: 30,
-            request_timeout_secs: 60,
-            enable_tls: false,
-        },
+        server: create_test_server_config(),
         database: DatabaseConfig {
             sqlite_path: db_path.to_string(),
             max_connections: 5,
