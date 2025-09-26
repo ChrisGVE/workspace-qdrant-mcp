@@ -875,6 +875,7 @@ impl DaemonConfig {
     }
 
     /// Save configuration to file
+    #[allow(dead_code)]
     pub fn save(&self, path: &Path) -> DaemonResult<()> {
         let content = serde_yaml::to_string(self)
             .map_err(|e| crate::error::DaemonError::Config(

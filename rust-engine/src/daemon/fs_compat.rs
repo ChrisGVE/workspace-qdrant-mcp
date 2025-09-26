@@ -3,6 +3,8 @@
 //! This module provides a unified interface for file system operations that handles
 //! platform-specific differences in file paths, case sensitivity, symlinks, and permissions.
 
+#![allow(dead_code)]
+
 use crate::error::{DaemonError, DaemonResult};
 use std::path::{Path, PathBuf};
 use std::fs::Metadata;

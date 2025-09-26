@@ -119,31 +119,37 @@ impl WorkspaceDaemon {
     }
 
     /// Get daemon state (read-only)
+    #[allow(dead_code)]
     pub async fn state(&self) -> tokio::sync::RwLockReadGuard<'_, state::DaemonState> {
         self.state.read().await
     }
 
     /// Get daemon state (read-write)
+    #[allow(dead_code)]
     pub async fn state_mut(&self) -> tokio::sync::RwLockWriteGuard<'_, state::DaemonState> {
         self.state.write().await
     }
 
     /// Get document processor
+    #[allow(dead_code)]
     pub fn processor(&self) -> &Arc<processing::DocumentProcessor> {
         &self.processing
     }
 
     /// Get file watcher
+    #[allow(dead_code)]
     pub fn watcher(&self) -> Option<&Arc<watcher::FileWatcher>> {
         self.watcher.as_ref()
     }
 
     /// Get runtime manager
+    #[allow(dead_code)]
     pub fn runtime_manager(&self) -> &Arc<RuntimeManager> {
         &self.runtime_manager
     }
 
     /// Get runtime statistics
+    #[allow(dead_code)]
     pub async fn get_runtime_statistics(&self) -> runtime::RuntimeStatistics {
         self.runtime_manager.get_statistics().await
     }

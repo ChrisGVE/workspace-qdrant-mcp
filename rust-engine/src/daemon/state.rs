@@ -10,6 +10,7 @@ use tracing::{info, debug};
 /// Daemon state manager
 #[derive(Debug)]
 pub struct DaemonState {
+    #[allow(dead_code)]
     pool: SqlitePool,
 }
 
@@ -84,11 +85,13 @@ impl DaemonState {
     }
 
     /// Get the connection pool
+    #[allow(dead_code)]
     pub fn pool(&self) -> &SqlitePool {
         &self.pool
     }
 
     /// Health check
+    #[allow(dead_code)]
     pub async fn health_check(&self) -> DaemonResult<()> {
         sqlx::query("SELECT 1")
             .execute(&self.pool)
