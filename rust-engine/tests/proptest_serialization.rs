@@ -130,9 +130,9 @@ fn random_daemon_error() -> impl Strategy<Value = DaemonError> {
             .prop_map(|(path, size, max)| DaemonError::FileTooLarge { path, size, max_size: max }),
         "[\\PC]{1,100}".prop_map(|msg| DaemonError::Internal { message: msg }),
         "[\\PC]{1,100}".prop_map(|msg| DaemonError::Configuration { message: msg }),
-        "[\\PC]{1,100}".prop_map(|msg| DaemonError::Qdrant { message: msg }),
-        "[\\PC]{1,100}".prop_map(|msg| DaemonError::Grpc { message: msg }),
-        ("[\\PC]{1,100}", "[\\PC]{1,100}").prop_map(|(op, msg)| DaemonError::Database { operation: op, message: msg }),
+        "[\\PC]{1,100}".prop_map(|msg| DaemonError::Search { message: msg }),
+        "[\\PC]{1,100}".prop_map(|msg| DaemonError::Memory { message: msg }),
+        "[\\PC]{1,100}".prop_map(|msg| DaemonError::DocumentProcessing { message: msg }),
     ]
 }
 

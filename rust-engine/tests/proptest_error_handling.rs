@@ -81,8 +81,8 @@ async fn simulate_error_condition(condition: &ErrorCondition) -> DaemonResult<St
             })
         }
         ErrorCondition::NetworkTimeout => {
-            Err(DaemonError::Qdrant {
-                message: "Connection timeout".to_string(),
+            Err(DaemonError::NetworkTimeout {
+                timeout_ms: 5000,
             })
         }
         ErrorCondition::InvalidData => {
@@ -158,8 +158,8 @@ proptest! {
                                        "File conditions should produce FileIo errors");
                         }
                         ErrorCondition::NetworkTimeout => {
-                            prop_assert!(matches!(error, DaemonError::Qdrant { .. }),
-                                       "Network conditions should produce Qdrant errors");
+                            prop_assert!(matches!(error, DaemonError::NetworkTimeout { .. }),
+                                       "Network conditions should produce NetworkTimeout errors");
                         }
                         ErrorCondition::ConfigurationError => {
                             prop_assert!(matches!(error, DaemonError::Configuration { .. }),
@@ -309,8 +309,8 @@ proptest! {
                         message: format!("File error at level {}: {}", level, current_error),
                         path: format!("/tmp/level_{}", level),
                     },
-                    1 => DaemonError::Qdrant {
-                        message: format!("Qdrant error at level {}: {}", level, current_error),
+                    1 => DaemonError::NetworkConnection {
+                        message: format!("Network error at level {}: {}", level, current_error),
                     },
                     2 => DaemonError::Configuration {
                         message: format!("Config error at level {}: {}", level, current_error),
