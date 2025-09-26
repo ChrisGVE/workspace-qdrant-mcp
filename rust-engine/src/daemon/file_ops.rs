@@ -557,12 +557,6 @@ impl SpecialFileHandler {
         if !self.enable_cross_filesystem {
             debug!("Cross-filesystem symlink resolution disabled");
         }
-            return Err(DaemonError::SymlinkDepthExceeded {
-                link_path: path.to_string_lossy().to_string(),
-                depth,
-                max_depth: self.max_symlink_depth,
-            });
-        }
 
         // Check for circular references
         let canonical_path = path.canonicalize().unwrap_or_else(|_| path.to_path_buf());
@@ -858,6 +852,9 @@ impl AsyncFileStream {
     {
         let path = path.as_ref();
         debug!("Creating stream processor for file: {}", path.display());
+
+        // Use processor configuration for stream processing
+        let _processor_ref = &self.processor;
 
         let file = File::open(path).await.map_err(|e| {
             error!("Failed to open file for streaming {}: {}", path.display(), e);

@@ -565,6 +565,9 @@ impl TaskManager {
         };
 
         self.tasks.write().await.insert(id, task_info);
+
+        // Use coordination for task notifications
+        self.coordination.notify_hub.notify_one();
         Ok(())
     }
 
