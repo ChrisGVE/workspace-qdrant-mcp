@@ -110,7 +110,7 @@ impl TlsManager {
         let key_pem = fs::read_to_string(key_file)
             .map_err(|e| anyhow!("Failed to read key file {}: {}", key_file, e))?;
 
-        Ok(Identity::from_pem(cert_pem, key_pem)?)
+        Ok(Identity::from_pem(cert_pem, key_pem))
     }
 
     /// Load CA certificate for client verification
@@ -118,7 +118,7 @@ impl TlsManager {
         let ca_cert_pem = fs::read_to_string(ca_cert_file)
             .map_err(|e| anyhow!("Failed to read CA certificate file {}: {}", ca_cert_file, e))?;
 
-        Ok(Certificate::from_pem(ca_cert_pem)?)
+        Ok(Certificate::from_pem(ca_cert_pem))
     }
 
     /// Create server TLS configuration
