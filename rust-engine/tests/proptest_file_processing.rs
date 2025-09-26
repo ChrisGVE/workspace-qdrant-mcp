@@ -27,7 +27,8 @@ fn random_file_content() -> impl Strategy<Value = Vec<u8>> {
         // Content with null bytes
         prop::collection::vec(any::<u8>(), 0..1000).prop_map(|mut v| {
             if !v.is_empty() && v.len() > 10 {
-                v[v.len() / 2] = 0;
+                let mid_idx = v.len() / 2;
+                v[mid_idx] = 0;
             }
             v
         }),

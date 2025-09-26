@@ -90,7 +90,9 @@ mod integration_tests {
         sleep(Duration::from_secs(2)).await;
 
         // Test basic container functionality
-        assert!(container.get_host_port_ipv4(6333).is_err()); // hello-world doesn't expose ports
+        // Test basic container functionality - hello-world doesn't expose ports so we expect no port mapping
+        let result = container.get_host_port_ipv4(6333);
+        assert!(result.is_err()); // hello-world doesn't expose ports
 
         // In a real test, you would:
         // 1. Start Qdrant container
