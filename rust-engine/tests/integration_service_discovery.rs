@@ -489,6 +489,7 @@ async fn test_service_failover_scenarios() -> Result<()> {
 #[tokio::test]
 async fn test_concurrent_service_operations() -> Result<()> {
     let config = create_test_config();
+    let registry = ServiceRegistry::new(config);
     let registry = Arc::new(registry);
 
     let mut handles = Vec::new();
