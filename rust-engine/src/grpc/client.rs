@@ -6,8 +6,8 @@ use anyhow::{Result, anyhow};
 use std::sync::Arc;
 use std::time::Duration;
 use tonic::transport::{Channel, Endpoint};
-use tonic::{Request, Response, Status};
-use tracing::{debug, info, warn, error};
+use tonic::Request;
+use tracing::{debug, info, warn};
 use tokio::sync::RwLock;
 use std::collections::HashMap;
 

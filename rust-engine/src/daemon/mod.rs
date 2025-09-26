@@ -10,10 +10,10 @@ pub mod runtime;
 pub mod fs_compat;
 
 use crate::config::DaemonConfig;
-use crate::error::{DaemonError, DaemonResult};
+use crate::error::DaemonResult;
 use std::sync::Arc;
 use tokio::sync::RwLock;
-use tracing::{info, warn};
+use tracing::info;
 use self::runtime::{RuntimeManager, RuntimeConfig};
 
 /// Main daemon coordinator
