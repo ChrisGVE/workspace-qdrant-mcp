@@ -30,7 +30,7 @@ proptest! {
         // Property: String reversal is involutive
         let reversed = s.chars().rev().collect::<String>();
         let double_reversed = reversed.chars().rev().collect::<String>();
-        prop_assert_eq!(s, double_reversed, "Double reversal should equal original");
+        prop_assert_eq!(s.clone(), double_reversed, "Double reversal should equal original");
 
         // Property: Length is preserved
         prop_assert_eq!(s.len(), reversed.len(), "Length should be preserved in reversal");
