@@ -421,7 +421,7 @@ impl HealthMonitoringSystem {
         }
 
         let mut serving_count = 0;
-        let mut total_count = all_health.len();
+        let total_count = all_health.len();
         let mut degraded_services = Vec::new();
 
         for (service_name, health) in all_health.iter() {

@@ -15,7 +15,6 @@ pub use operations::{VectorOperation, SearchOperation, CollectionOperation};
 
 /// Re-export commonly used types from qdrant-client
 pub use qdrant_client::{
-    prelude::*,
     qdrant::{
         vectors::VectorsOptions,
         vectors_config::Config as VectorsConfig,
