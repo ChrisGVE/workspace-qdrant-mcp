@@ -486,6 +486,7 @@ impl QdrantClient {
                 }),
                 wait: Some(wait),
                 ordering: None,
+                shard_key_selector: None,
             };
 
             let result = client.delete_points(request).await
@@ -588,6 +589,8 @@ impl QdrantClient {
                     hnsw_config: None, // Use defaults
                     quantization_config: None,
                     on_disk: on_disk_vectors,
+                    datatype: None,
+                    multivector_config: None,
                 })),
             };
 
@@ -602,7 +605,7 @@ impl QdrantClient {
                 ..Default::default()
             };
 
-            let result = client.create_collection(&request).await
+            let result = client.create_collection(request).await
                 .map_err(|e| QdrantError::CollectionOperation {
                     operation: "create".to_string(),
                     message: format!("Create collection failed: {}", e),
@@ -624,7 +627,7 @@ impl QdrantClient {
                 timeout: Some(self.config.request_timeout_secs),
             };
 
-            let result = client.delete_collection(&request).await
+            let result = client.delete_collection(request).await
                 .map_err(|e| QdrantError::CollectionOperation {
                     operation: "delete".to_string(),
                     message: format!("Delete collection failed: {}", e),
@@ -645,7 +648,7 @@ impl QdrantClient {
                 collection_name: collection_name.to_string(),
             };
 
-            let result = client.get_collection_info(&request).await
+            let result = client.collection_info(request).await
                 .map_err(|e| QdrantError::CollectionOperation {
                     operation: "get_info".to_string(),
                     message: format!("Get collection info failed: {}", e),
