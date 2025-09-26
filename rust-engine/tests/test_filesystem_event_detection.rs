@@ -54,7 +54,7 @@ async fn create_test_processor() -> Arc<DocumentProcessor> {
 #[serial]
 async fn test_file_creation_detection() {
     let config = create_test_config(true, 50);
-    let processor = create_test_processor();
+    let processor = create_test_processor().await;
     let mut watcher = FileWatcher::new(&config, processor).await.unwrap();
 
     let temp_dir = TempDir::new().unwrap();
@@ -84,7 +84,7 @@ async fn test_file_creation_detection() {
 #[serial]
 async fn test_file_modification_detection() {
     let config = create_test_config(true, 50);
-    let processor = create_test_processor();
+    let processor = create_test_processor().await;
     let mut watcher = FileWatcher::new(&config, processor).await.unwrap();
 
     let temp_dir = TempDir::new().unwrap();
@@ -117,7 +117,7 @@ async fn test_file_modification_detection() {
 #[serial]
 async fn test_file_deletion_detection() {
     let config = create_test_config(true, 50);
-    let processor = create_test_processor();
+    let processor = create_test_processor().await;
     let mut watcher = FileWatcher::new(&config, processor).await.unwrap();
 
     let temp_dir = TempDir::new().unwrap();
@@ -150,7 +150,7 @@ async fn test_file_deletion_detection() {
 #[serial]
 async fn test_rapid_file_events_debouncing() {
     let config = create_test_config(true, 100); // 100ms debounce
-    let processor = create_test_processor();
+    let processor = create_test_processor().await;
     let mut watcher = FileWatcher::new(&config, processor).await.unwrap();
 
     let temp_dir = TempDir::new().unwrap();
@@ -183,7 +183,7 @@ async fn test_rapid_file_events_debouncing() {
 #[serial]
 async fn test_ignore_patterns() {
     let config = create_test_config(true, 50);
-    let processor = create_test_processor();
+    let processor = create_test_processor().await;
     let mut watcher = FileWatcher::new(&config, processor).await.unwrap();
 
     let temp_dir = TempDir::new().unwrap();
@@ -224,7 +224,7 @@ async fn test_ignore_patterns() {
 #[serial]
 async fn test_recursive_directory_monitoring() {
     let config = create_test_config(true, 50);
-    let processor = create_test_processor();
+    let processor = create_test_processor().await;
     let mut watcher = FileWatcher::new(&config, processor).await.unwrap();
 
     let temp_dir = TempDir::new().unwrap();
@@ -270,7 +270,7 @@ async fn test_non_recursive_directory_monitoring() {
     let mut config = create_test_config(true, 50);
     config.recursive = false; // Disable recursive monitoring
 
-    let processor = create_test_processor();
+    let processor = create_test_processor().await;
     let mut watcher = FileWatcher::new(&config, processor).await.unwrap();
 
     let temp_dir = TempDir::new().unwrap();
@@ -310,7 +310,7 @@ async fn test_max_watched_directories_limit() {
     let mut config = create_test_config(true, 50);
     config.max_watched_dirs = 2; // Limit to 2 directories
 
-    let processor = create_test_processor();
+    let processor = create_test_processor().await;
     let mut watcher = FileWatcher::new(&config, processor).await.unwrap();
 
     let temp_dir1 = TempDir::new().unwrap();
@@ -335,7 +335,7 @@ async fn test_max_watched_directories_limit() {
 #[serial]
 async fn test_watch_same_directory_multiple_times() {
     let config = create_test_config(true, 50);
-    let processor = create_test_processor();
+    let processor = create_test_processor().await;
     let mut watcher = FileWatcher::new(&config, processor).await.unwrap();
 
     let temp_dir = TempDir::new().unwrap();
@@ -356,7 +356,7 @@ async fn test_watch_same_directory_multiple_times() {
 #[serial]
 async fn test_watcher_state_management() {
     let config = create_test_config(true, 50);
-    let processor = create_test_processor();
+    let processor = create_test_processor().await;
     let mut watcher = FileWatcher::new(&config, processor).await.unwrap();
 
     let temp_dir = TempDir::new().unwrap();
@@ -387,7 +387,7 @@ async fn test_watcher_state_management() {
 #[serial]
 async fn test_large_file_operations() {
     let config = create_test_config(true, 50);
-    let processor = create_test_processor();
+    let processor = create_test_processor().await;
     let mut watcher = FileWatcher::new(&config, processor).await.unwrap();
 
     let temp_dir = TempDir::new().unwrap();
@@ -421,7 +421,7 @@ async fn test_large_file_operations() {
 #[serial]
 async fn test_symlink_handling() {
     let config = create_test_config(true, 50);
-    let processor = create_test_processor();
+    let processor = create_test_processor().await;
     let mut watcher = FileWatcher::new(&config, processor).await.unwrap();
 
     let temp_dir = TempDir::new().unwrap();
@@ -462,7 +462,7 @@ async fn test_symlink_handling() {
 #[serial]
 async fn test_file_permission_changes() {
     let config = create_test_config(true, 50);
-    let processor = create_test_processor();
+    let processor = create_test_processor().await;
     let mut watcher = FileWatcher::new(&config, processor).await.unwrap();
 
     let temp_dir = TempDir::new().unwrap();
@@ -498,7 +498,7 @@ async fn test_file_permission_changes() {
 #[serial]
 async fn test_concurrent_file_operations() {
     let config = create_test_config(true, 100);
-    let processor = create_test_processor();
+    let processor = create_test_processor().await;
     let mut watcher = FileWatcher::new(&config, processor).await.unwrap();
 
     let temp_dir = TempDir::new().unwrap();
@@ -544,7 +544,7 @@ async fn test_concurrent_file_operations() {
 #[serial]
 async fn test_error_resilience() {
     let config = create_test_config(true, 50);
-    let processor = create_test_processor();
+    let processor = create_test_processor().await;
     let mut watcher = FileWatcher::new(&config, processor).await.unwrap();
 
     let temp_dir = TempDir::new().unwrap();
@@ -576,7 +576,7 @@ async fn test_error_resilience() {
 #[serial]
 async fn test_zero_debounce() {
     let config = create_test_config(true, 0); // Zero debounce
-    let processor = create_test_processor();
+    let processor = create_test_processor().await;
     let mut watcher = FileWatcher::new(&config, processor).await.unwrap();
 
     let temp_dir = TempDir::new().unwrap();
@@ -604,7 +604,7 @@ async fn test_zero_debounce() {
 #[serial]
 async fn test_high_frequency_events() {
     let config = create_test_config(true, 200); // Higher debounce for this test
-    let processor = create_test_processor();
+    let processor = create_test_processor().await;
     let mut watcher = FileWatcher::new(&config, processor).await.unwrap();
 
     let temp_dir = TempDir::new().unwrap();
@@ -640,7 +640,7 @@ async fn test_high_frequency_events() {
 #[serial]
 async fn test_cross_platform_paths() {
     let config = create_test_config(true, 50);
-    let processor = create_test_processor();
+    let processor = create_test_processor().await;
     let mut watcher = FileWatcher::new(&config, processor).await.unwrap();
 
     let temp_dir = TempDir::new().unwrap();
