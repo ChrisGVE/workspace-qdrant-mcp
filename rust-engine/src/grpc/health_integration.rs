@@ -44,9 +44,9 @@ impl HealthIntegration {
 
         // Step 2: Set up service monitors
         let service_monitors = if let Some(external) = external_monitoring {
-            Arc::new(ServiceMonitors::with_external_monitoring(external)?)
+            Arc::new(ServiceMonitors::with_external_monitoring(external).await?)
         } else {
-            Arc::new(ServiceMonitors::new()?)
+            Arc::new(ServiceMonitors::new().await?)
         };
 
         let health_monitoring = service_monitors.monitoring_system.clone();

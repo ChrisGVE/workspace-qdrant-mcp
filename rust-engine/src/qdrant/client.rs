@@ -11,7 +11,7 @@ use crate::qdrant::{
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 use tokio::sync::{RwLock, Semaphore};
-use tracing::{debug, info};
+use tracing::{debug, info, warn};
 use qdrant_client::{
     Qdrant as QdrantClientLib,
     qdrant::{
