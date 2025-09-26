@@ -127,6 +127,7 @@ impl FileWatcher {
     }
 
     /// Stop watching for file changes
+    #[allow(dead_code)]
     pub async fn stop(&self) -> DaemonResult<()> {
         info!("Stopping file watcher");
 
@@ -144,6 +145,7 @@ impl FileWatcher {
     }
 
     /// Add a directory to watch
+    #[allow(dead_code)]
     pub async fn watch_directory<P: AsRef<Path>>(&mut self, path: P) -> DaemonResult<()> {
         let path = path.as_ref().to_path_buf();
         info!("Adding directory to watch: {}", path.display());
@@ -188,6 +190,7 @@ impl FileWatcher {
     }
 
     /// Remove a directory from watching
+    #[allow(dead_code)]
     pub async fn unwatch_directory<P: AsRef<Path>>(&mut self, path: P) -> DaemonResult<()> {
         let path = path.as_ref().to_path_buf();
         info!("Removing directory from watch: {}", path.display());
@@ -216,11 +219,13 @@ impl FileWatcher {
     }
 
     /// Get list of currently watched directories
+    #[allow(dead_code)]
     pub async fn get_watched_directories(&self) -> Vec<PathBuf> {
         self.watched_dirs.read().await.iter().cloned().collect()
     }
 
     /// Check if a path should be ignored based on ignore patterns
+    #[allow(dead_code)]
     pub fn should_ignore_path(&self, path: &Path) -> bool {
         let path_str = path.to_string_lossy();
 
@@ -244,16 +249,19 @@ impl FileWatcher {
     }
 
     /// Check if watcher is currently running
+    #[allow(dead_code)]
     pub async fn is_running(&self) -> bool {
         self.watcher.lock().await.is_some()
     }
 
     /// Get current configuration
+    #[allow(dead_code)]
     pub fn config(&self) -> &FileWatcherConfig {
         &self.config
     }
 
     /// Get count of watched directories
+    #[allow(dead_code)]
     pub async fn watched_directory_count(&self) -> usize {
         self.watched_dirs.read().await.len()
     }
@@ -397,6 +405,7 @@ impl FileWatcher {
 
 /// Event debouncer for handling rapid file system events
 #[derive(Debug)]
+#[allow(dead_code)]
 pub struct EventDebouncer {
     debounce_duration: Duration,
     pending_events: Arc<RwLock<HashMap<PathBuf, (Instant, EventKind)>>>,
@@ -404,6 +413,7 @@ pub struct EventDebouncer {
 
 impl EventDebouncer {
     /// Create a new event debouncer
+    #[allow(dead_code)]
     pub fn new(debounce_duration: Duration) -> Self {
         Self {
             debounce_duration,
@@ -412,6 +422,7 @@ impl EventDebouncer {
     }
 
     /// Process a batch of events, applying debouncing logic
+    #[allow(dead_code)]
     pub async fn process_events(&self, events: Vec<DebouncedEvent>) -> Vec<DebouncedEvent> {
         let mut debounced = Vec::new();
         let mut event_map: HashMap<PathBuf, DebouncedEvent> = HashMap::new();
@@ -443,6 +454,7 @@ impl EventDebouncer {
     }
 
     /// Add an event to the debouncer
+    #[allow(dead_code)]
     pub async fn add_event(&self, path: PathBuf, event_type: EventKind) {
         let now = Instant::now();
         let mut pending = self.pending_events.write().await;
@@ -450,6 +462,7 @@ impl EventDebouncer {
     }
 
     /// Get debounced events that are ready for processing
+    #[allow(dead_code)]
     pub async fn get_ready_events(&self) -> Vec<(PathBuf, EventKind)> {
         let now = Instant::now();
         let mut pending = self.pending_events.write().await;
@@ -470,12 +483,14 @@ impl EventDebouncer {
 
 /// Event filter for ignoring unwanted file system events
 #[derive(Debug)]
+#[allow(dead_code)]
 pub struct EventFilter {
     ignore_patterns: Vec<Pattern>,
 }
 
 impl EventFilter {
     /// Create a new event filter from configuration
+    #[allow(dead_code)]
     pub fn new(config: &FileWatcherConfig) -> Self {
         let mut ignore_patterns = Vec::new();
 
@@ -492,6 +507,7 @@ impl EventFilter {
     }
 
     /// Check if an event should be ignored
+    #[allow(dead_code)]
     pub fn should_ignore(&self, event: &Event) -> bool {
         for path in &event.paths {
             // Convert to string for pattern matching
@@ -521,6 +537,7 @@ impl EventFilter {
     }
 
     /// Check if a file should be ignored based on its extension or path patterns
+    #[allow(dead_code)]
     fn should_ignore_by_extension(&self, path: &Path) -> bool {
         if let Some(extension) = path.extension() {
             if let Some(ext_str) = extension.to_str() {
@@ -546,6 +563,7 @@ impl EventFilter {
 
 /// File system event handler with rate limiting
 #[derive(Debug)]
+#[allow(dead_code)]
 pub struct FileSystemEventHandler {
     max_events_per_second: u32,
     last_event_time: Arc<Mutex<Instant>>,
@@ -554,6 +572,7 @@ pub struct FileSystemEventHandler {
 
 impl FileSystemEventHandler {
     /// Create a new event handler with rate limiting
+    #[allow(dead_code)]
     pub fn new(max_events_per_second: u32) -> Self {
         Self {
             max_events_per_second,
@@ -563,6 +582,7 @@ impl FileSystemEventHandler {
     }
 
     /// Handle a burst of events with rate limiting
+    #[allow(dead_code)]
     pub async fn handle_event_burst(&self, events: Vec<DebouncedEvent>) -> Vec<DebouncedEvent> {
         if self.max_events_per_second == 0 {
             return events; // No rate limiting
@@ -603,6 +623,7 @@ impl FileSystemEventHandler {
 
 /// Debounced event structure for testing
 #[derive(Debug, Clone)]
+#[allow(dead_code)]
 pub struct DebouncedEvent {
     pub path: PathBuf,
     pub event_type: EventKind,
