@@ -47,6 +47,11 @@ impl DocumentProcessor {
         &self.config
     }
 
+    /// Get Qdrant configuration
+    pub fn qdrant_config(&self) -> &QdrantConfig {
+        &self.qdrant_config
+    }
+
     /// Create a test instance for testing purposes
     #[cfg(any(test, feature = "test-utils"))]
     pub fn test_instance() -> Self {
