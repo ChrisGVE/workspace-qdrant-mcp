@@ -129,6 +129,7 @@ impl ConnectionManager {
     }
 
     /// Register a new connection
+    #[allow(dead_code)]
     pub fn register_connection(&self, client_id: String) -> Result<(), Status> {
         let current_connections = self.active_connections.load(Ordering::SeqCst);
 
@@ -165,6 +166,7 @@ impl ConnectionManager {
     }
 
     /// Check if request is rate limited
+    #[allow(dead_code)]
     pub fn check_rate_limit(&self, client_id: &str) -> Result<(), Status> {
         let mut rate_limiter = self.rate_limiter.write();
 
@@ -203,6 +205,7 @@ impl ConnectionManager {
     }
 
     /// Update connection activity
+    #[allow(dead_code)]
     pub fn update_activity(&self, client_id: &str, bytes_sent: u64, bytes_received: u64) {
         if let Some(mut connection) = self.connections.get_mut(client_id) {
             connection.last_activity = Instant::now();
@@ -213,6 +216,7 @@ impl ConnectionManager {
     }
 
     /// Get connection statistics
+    #[allow(dead_code)]
     pub fn get_stats(&self) -> ConnectionStats {
         let active_count = self.active_connections.load(Ordering::SeqCst);
         let total_requests: u64 = self.connections
@@ -254,6 +258,7 @@ impl ConnectionManager {
         }
     }
 
+    #[allow(dead_code)]
     fn cleanup_enhanced_rate_limiter(&self, rate_limiter: &mut EnhancedRateLimiter, now: Instant) {
         let cutoff = now - Duration::from_secs(60);
 
@@ -271,6 +276,7 @@ impl ConnectionManager {
     }
 
     /// Check memory usage for a client
+    #[allow(dead_code)]
     pub fn check_memory_usage(&self, client_id: &str, additional_memory: u64) -> Result<(), Status> {
         let rate_limiter = self.rate_limiter.read();
 
@@ -293,6 +299,7 @@ impl ConnectionManager {
     }
 
     /// Update memory usage for a client
+    #[allow(dead_code)]
     pub fn update_memory_usage(&self, client_id: &str, memory_delta: i64) {
         let rate_limiter = self.rate_limiter.read();
 
@@ -308,6 +315,7 @@ impl ConnectionManager {
     }
 
     /// Get security manager if available
+    #[allow(dead_code)]
     pub fn security_manager(&self) -> Option<&Arc<SecurityManager>> {
         self.security_manager.as_ref()
     }
@@ -365,6 +373,7 @@ impl Default for PoolConfig {
 /// Middleware interceptor for connection management
 #[derive(Debug, Clone)]
 pub struct ConnectionInterceptor {
+    #[allow(dead_code)]
     connection_manager: Arc<ConnectionManager>,
 }
 
@@ -374,6 +383,7 @@ impl ConnectionInterceptor {
     }
 
     /// Intercept incoming requests
+    #[allow(dead_code)]
     pub fn intercept<T>(&self, request: Request<T>) -> Result<Request<T>, Status> {
         // Extract client ID from metadata
         let client_id = request
@@ -394,6 +404,7 @@ impl ConnectionInterceptor {
     }
 
     /// Intercept outgoing responses
+    #[allow(dead_code)]
     pub fn intercept_response<T>(&self, response: Response<T>, client_id: &str) -> Response<T> {
         // Update activity (approximate response size)
         let response_size = std::mem::size_of_val(&response) as u64;
@@ -424,6 +435,7 @@ impl Default for RetryConfig {
 }
 
 /// Retry wrapper for gRPC operations
+#[allow(dead_code)]
 pub async fn with_retry<F, T, E>(
     operation: F,
     config: &RetryConfig,

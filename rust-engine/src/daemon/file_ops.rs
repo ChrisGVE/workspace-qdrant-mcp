@@ -15,13 +15,16 @@ use tracing::{debug, error, info, warn};
 use walkdir::WalkDir;
 
 /// Maximum file size for async processing (100MB)
+#[allow(dead_code)]
 pub const MAX_FILE_SIZE: u64 = 100 * 1024 * 1024;
 
 /// Default buffer size for async operations
+#[allow(dead_code)]
 pub const DEFAULT_BUFFER_SIZE: usize = 8192;
 
 /// Async file processor for document operations
 #[derive(Debug, Clone)]
+#[allow(dead_code)]
 pub struct AsyncFileProcessor {
     max_file_size: u64,
     buffer_size: usize,
@@ -38,6 +41,7 @@ impl Default for AsyncFileProcessor {
     }
 }
 
+#[allow(dead_code)]
 impl AsyncFileProcessor {
     /// Create a new async file processor with custom configuration
     pub fn new(max_file_size: u64, buffer_size: usize, enable_compression: bool) -> Self {
@@ -448,6 +452,7 @@ impl AsyncFileProcessor {
 
 /// File information structure
 #[derive(Debug, Clone)]
+#[allow(dead_code)]
 pub struct FileInfo {
     pub path: PathBuf,
     pub size: u64,
@@ -460,6 +465,7 @@ pub struct FileInfo {
 
 /// Special file types supported by the system
 #[derive(Debug, Clone, PartialEq)]
+#[allow(dead_code)]
 pub enum SpecialFileType {
     NamedPipe,
     Socket,
@@ -469,6 +475,7 @@ pub enum SpecialFileType {
 
 /// Symlink information structure
 #[derive(Debug, Clone)]
+#[allow(dead_code)]
 pub struct SymlinkInfo {
     pub target: PathBuf,
     pub final_target: PathBuf,
@@ -480,17 +487,20 @@ pub struct SymlinkInfo {
 
 /// Special file handler for symlinks, hard links, and special file types
 #[derive(Debug, Clone)]
+#[allow(dead_code)]
 pub struct SpecialFileHandler {
     max_symlink_depth: usize,
     enable_cross_filesystem: bool,
 }
 
+#[allow(dead_code)]
 impl Default for SpecialFileHandler {
     fn default() -> Self {
         Self::new()
     }
 }
 
+#[allow(dead_code)]
 impl SpecialFileHandler {
     /// Create a new special file handler with default configuration
     pub fn new() -> Self {
@@ -836,10 +846,12 @@ impl SpecialFileHandler {
 }
 
 /// Stream-based file processor for large files
+#[allow(dead_code)]
 pub struct AsyncFileStream {
     processor: AsyncFileProcessor,
 }
 
+#[allow(dead_code)]
 impl AsyncFileStream {
     pub fn new(processor: AsyncFileProcessor) -> Self {
         Self { processor }

@@ -20,7 +20,9 @@ use self::runtime::{RuntimeManager, RuntimeConfig};
 #[derive(Debug, Clone)]
 pub struct WorkspaceDaemon {
     config: DaemonConfig,
+    #[allow(dead_code)]
     state: Arc<RwLock<state::DaemonState>>,
+    #[allow(dead_code)]
     processing: Arc<processing::DocumentProcessor>,
     watcher: Option<Arc<watcher::FileWatcher>>,
     runtime_manager: Arc<RuntimeManager>,
@@ -93,6 +95,7 @@ impl WorkspaceDaemon {
     }
 
     /// Stop all daemon services
+    #[allow(dead_code)]
     pub async fn stop(&mut self) -> DaemonResult<()> {
         info!("Stopping daemon services");
 
