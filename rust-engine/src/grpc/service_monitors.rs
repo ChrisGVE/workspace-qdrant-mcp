@@ -712,7 +712,7 @@ mod tests {
     #[tokio::test]
     async fn test_memory_service_monitor() {
         let monitoring_system = Arc::new(HealthMonitoringSystem::new(None));
-        let monitor = MemoryServiceMonitor::new(&monitoring_system).unwrap();
+        let monitor = MemoryServiceMonitor::new(&monitoring_system).await.unwrap();
 
         // Test memory operation workflow
         let tracker = monitor.start_operation("add_document").await;
@@ -732,7 +732,7 @@ mod tests {
     #[tokio::test]
     async fn test_memory_service_high_utilization_alert() {
         let monitoring_system = Arc::new(HealthMonitoringSystem::new(None));
-        let monitor = MemoryServiceMonitor::new(&monitoring_system).unwrap();
+        let monitor = MemoryServiceMonitor::new(&monitoring_system).await.unwrap();
 
         // Trigger high memory utilization alert
         monitor.update_memory_utilization(95.0).await;
@@ -751,7 +751,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_service_monitors_creation() {
-        let monitors = ServiceMonitors::new().unwrap();
+        let monitors = ServiceMonitors::new().await.unwrap();
 
         let stats = monitors.get_all_stats().await;
         assert_eq!(stats.system_status, HealthStatus::Serving);
@@ -760,7 +760,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_service_monitors_health_check() {
-        let monitors = ServiceMonitors::new().unwrap();
+        let monitors = ServiceMonitors::new().await.unwrap();
 
         let result = monitors.perform_health_check().await;
         assert!(result.is_ok());
@@ -768,11 +768,11 @@ mod tests {
 
     #[tokio::test]
     async fn test_service_monitors_export_metrics() {
-        let monitors = ServiceMonitors::new().unwrap();
+        let monitors = ServiceMonitors::new().await.unwrap();
 
         // Record some activity
-        let doc_tracker = monitors.document_processor.start_processing("test").await;
-        doc_tracker.complete_processing("test", Duration::from_millis(100)).await;
+        monitors.document_processor.start_processing("test").await;
+        monitors.document_processor.complete_processing("test", Duration::from_millis(100)).await;
 
         let search_tracker = monitors.search_service.start_search("query").await;
         search_tracker.complete_success(5).await;
@@ -790,7 +790,7 @@ mod tests {
     #[tokio::test]
     async fn test_concurrent_operations() {
         let monitoring_system = Arc::new(HealthMonitoringSystem::new(None));
-        let monitor = Arc::new(SearchServiceMonitor::new(&monitoring_system).unwrap());
+        let monitor = Arc::new(SearchServiceMonitor::new(&monitoring_system).await.unwrap());
 
         let mut handles = vec![];
 
