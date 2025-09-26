@@ -1,5 +1,7 @@
 //! Core daemon functionality
 
+#![allow(dead_code)] // Infrastructure module - core utilities
+
 use crate::error::{DaemonError, DaemonResult};
 use tracing::info;
 

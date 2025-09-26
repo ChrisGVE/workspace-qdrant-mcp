@@ -33,7 +33,7 @@ pub mod shared_test_utils;
 
 // Re-export types used by external binaries
 pub use retry::RetryStrategy;
-pub use circuit_breaker::{CircuitBreaker, CircuitBreakerStats};
+pub use circuit_breaker::CircuitBreaker;
 
 #[cfg(test)]
 pub use shared_test_utils::*;

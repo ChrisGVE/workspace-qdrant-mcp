@@ -4,6 +4,8 @@
 //! failures by monitoring service health and cutting connections when failures
 //! exceed configured thresholds.
 
+#![allow(dead_code)] // Infrastructure module - components used by external test binary
+
 use crate::error::{DaemonError, DaemonResult};
 use std::future::Future;
 use std::sync::Arc;

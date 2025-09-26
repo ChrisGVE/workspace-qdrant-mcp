@@ -3,6 +3,8 @@
 //! This module provides TLS/mTLS support, authentication, authorization,
 //! and security audit logging for gRPC communication.
 
+#![allow(dead_code)] // Infrastructure module - SecurityManager used by middleware
+
 use crate::config::{
     SecurityConfig, TlsConfig, JwtConfig, ApiKeyConfig,
     AuthorizationConfig, SecurityAuditConfig, ClientCertVerification

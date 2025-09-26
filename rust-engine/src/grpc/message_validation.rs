@@ -3,6 +3,8 @@
 //! This module provides comprehensive message size validation, compression monitoring,
 //! and streaming control for gRPC operations.
 
+#![allow(dead_code)] // Infrastructure module - used conditionally in server
+
 use crate::config::{
     MessageConfig, CompressionConfig, StreamingConfig,
     StreamProgressConfig, StreamHealthConfig

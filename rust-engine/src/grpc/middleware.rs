@@ -7,9 +7,7 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
 use dashmap::DashMap;
 use parking_lot::RwLock;
-use crate::grpc::{RetryStrategy, CircuitBreaker};
 use crate::grpc::security::SecurityManager;
-use crate::error::DaemonResult;
 
 /// Connection tracking and management with enhanced security
 #[derive(Debug)]

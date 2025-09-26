@@ -3,6 +3,8 @@
 //! This module provides configurable retry mechanisms for handling transient
 //! failures in gRPC communications.
 
+#![allow(dead_code)] // Infrastructure module - components used by external test binary
+
 use crate::error::{DaemonError, DaemonResult};
 use rand::Rng;
 use std::future::Future;
