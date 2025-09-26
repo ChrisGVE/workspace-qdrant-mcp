@@ -4,20 +4,19 @@
 //! and security audit logging for gRPC communication.
 
 use crate::config::{
-    SecurityConfig, TlsConfig, AuthConfig, JwtConfig, ApiKeyConfig,
+    SecurityConfig, TlsConfig, JwtConfig, ApiKeyConfig,
     AuthorizationConfig, SecurityAuditConfig, ClientCertVerification
 };
-use crate::error::{DaemonResult, DaemonError};
 
 use anyhow::{Result, anyhow};
+use base64::prelude::*;
 use serde::{Serialize, Deserialize};
 use std::collections::HashMap;
 use std::fs;
-use std::path::Path;
 use std::sync::Arc;
 use std::time::{SystemTime, UNIX_EPOCH};
-use tonic::{Request, Response, Status, metadata::MetadataValue};
-use tonic::transport::{Certificate, Identity, ServerTlsConfig, ClientTlsConfig};
+use tonic::Request;
+use tonic::transport::{Certificate, Identity, ServerTlsConfig};
 use tracing::{info, warn, error, debug};
 use tokio::sync::RwLock;
 
@@ -111,8 +110,7 @@ impl TlsManager {
         let key_pem = fs::read_to_string(key_file)
             .map_err(|e| anyhow!("Failed to read key file {}: {}", key_file, e))?;
 
-        Identity::from_pem(cert_pem, key_pem)
-            .map_err(|e| anyhow!("Failed to create identity from PEM files: {}", e))
+        Ok(Identity::from_pem(cert_pem, key_pem)?)
     }
 
     /// Load CA certificate for client verification
@@ -120,8 +118,7 @@ impl TlsManager {
         let ca_cert_pem = fs::read_to_string(ca_cert_file)
             .map_err(|e| anyhow!("Failed to read CA certificate file {}: {}", ca_cert_file, e))?;
 
-        Certificate::from_pem(ca_cert_pem)
-            .map_err(|e| anyhow!("Failed to create certificate from PEM: {}", e))
+        Ok(Certificate::from_pem(ca_cert_pem)?)
     }
 
     /// Create server TLS configuration
@@ -201,7 +198,7 @@ impl JwtManager {
         // In a real implementation, use a proper JWT library like jsonwebtoken
         // For now, return a simple token format
         let token_data = serde_json::to_string(&auth_token)?;
-        let token = base64::encode(token_data);
+        let token = BASE64_STANDARD.encode(token_data);
 
         info!("Generated JWT token for subject: {} (expires in {}s)",
               subject, self.config.expiration_secs);
@@ -212,7 +209,7 @@ impl JwtManager {
     /// Validate a JWT token
     pub fn validate_token(&self, token: &str) -> Result<AuthToken> {
         // In a real implementation, use proper JWT validation
-        let token_data = base64::decode(token)
+        let token_data = BASE64_STANDARD.decode(token)
             .map_err(|e| anyhow!("Invalid token format: {}", e))?;
 
         let auth_token: AuthToken = serde_json::from_slice(&token_data)
@@ -286,7 +283,7 @@ impl AuthorizationManager {
     }
 
     /// Check if permissions allow access to service method
-    pub fn check_access(&self, permissions: &[String], service: &str, method: &str) -> bool {
+    pub fn check_access(&self, permissions: &[String], service: &str, _method: &str) -> bool {
         if !self.config.enabled {
             return true;
         }
