@@ -2,6 +2,7 @@
 
 use crate::daemon::WorkspaceDaemon;
 use crate::grpc::middleware::{ConnectionManager, ConnectionInterceptor};
+#[cfg(any(test, feature = "test-utils"))]
 use crate::grpc::message_validation::MessageValidator;
 use crate::grpc::services::{
     DocumentProcessorImpl,
@@ -29,6 +30,7 @@ pub struct GrpcServer {
     daemon: Arc<WorkspaceDaemon>,
     address: SocketAddr,
     connection_manager: Arc<ConnectionManager>,
+    #[cfg(any(test, feature = "test-utils"))]
     message_validator: Arc<MessageValidator>,
 }
 
@@ -41,18 +43,19 @@ impl GrpcServer {
             100, // 100 requests per second per client
         ));
 
-        // Initialize message validator with configuration
-        let message_validator = Arc::new(MessageValidator::new(
-            config.server.message.clone(),
-            config.server.compression.clone(),
-            config.server.streaming.clone(),
-        ));
-
         Self {
             daemon: Arc::new(daemon),
             address,
             connection_manager,
-            message_validator,
+            #[cfg(any(test, feature = "test-utils"))]
+            message_validator: {
+                // Initialize message validator with configuration for test/debug use
+                Arc::new(MessageValidator::new(
+                    config.server.message.clone(),
+                    config.server.compression.clone(),
+                    config.server.streaming.clone(),
+                ))
+            },
         }
     }
 
@@ -179,22 +182,26 @@ impl GrpcServer {
         Ok(server)
     }
 
-    /// Get connection statistics
+    /// Get connection statistics (test/debug use)
+    #[cfg(any(test, feature = "test-utils"))]
     pub fn get_connection_stats(&self) -> crate::grpc::middleware::ConnectionStats {
         self.connection_manager.get_stats()
     }
 
-    /// Get connection manager for external access
+    /// Get connection manager for external access (test/debug use)
+    #[cfg(any(test, feature = "test-utils"))]
     pub fn connection_manager(&self) -> &Arc<ConnectionManager> {
         &self.connection_manager
     }
 
-    /// Get message validator for external access
+    /// Get message validator for external access (test/debug use)
+    #[cfg(any(test, feature = "test-utils"))]
     pub fn message_validator(&self) -> &Arc<MessageValidator> {
         &self.message_validator
     }
 
-    /// Get message processing statistics
+    /// Get message processing statistics (test/debug use)
+    #[cfg(any(test, feature = "test-utils"))]
     pub fn get_message_stats(&self) -> crate::grpc::message_validation::MessageStats {
         self.message_validator.get_stats()
     }

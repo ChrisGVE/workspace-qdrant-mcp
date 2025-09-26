@@ -325,12 +325,14 @@ pub struct ConnectionStats {
 }
 
 /// Connection pool for outbound connections (to Qdrant, etc.)
+#[cfg(any(test, feature = "test-utils"))]
 pub struct ConnectionPool<T: deadpool::managed::Manager> {
     #[allow(dead_code)]
     pool: deadpool::managed::Pool<T>,
     config: PoolConfig,
 }
 
+#[cfg(any(test, feature = "test-utils"))]
 impl<T: deadpool::managed::Manager> std::fmt::Debug for ConnectionPool<T> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("ConnectionPool")
@@ -339,6 +341,7 @@ impl<T: deadpool::managed::Manager> std::fmt::Debug for ConnectionPool<T> {
     }
 }
 
+#[cfg(any(test, feature = "test-utils"))]
 #[derive(Debug, Clone)]
 pub struct PoolConfig {
     pub max_size: usize,
@@ -348,6 +351,7 @@ pub struct PoolConfig {
     pub connection_timeout: Duration,
 }
 
+#[cfg(any(test, feature = "test-utils"))]
 impl Default for PoolConfig {
     fn default() -> Self {
         Self {
@@ -459,12 +463,14 @@ where
 
 /// Enhanced middleware that combines connection management, retry logic, and circuit breaker
 #[derive(Debug)]
+#[cfg(any(test, feature = "test-utils"))]
 pub struct EnhancedMiddleware {
     connection_manager: Arc<ConnectionManager>,
     retry_strategy: RetryStrategy,
     circuit_breakers: Arc<DashMap<String, Arc<CircuitBreaker>>>,
 }
 
+#[cfg(any(test, feature = "test-utils"))]
 impl EnhancedMiddleware {
     /// Create new enhanced middleware
     pub fn new(
@@ -535,10 +541,12 @@ impl EnhancedMiddleware {
 
 /// Security interceptor for authentication and authorization
 #[derive(Debug, Clone)]
+#[cfg(any(test, feature = "test-utils"))]
 pub struct SecurityInterceptor {
     security_manager: Arc<SecurityManager>,
 }
 
+#[cfg(any(test, feature = "test-utils"))]
 impl SecurityInterceptor {
     pub fn new(security_manager: Arc<SecurityManager>) -> Self {
         Self { security_manager }
