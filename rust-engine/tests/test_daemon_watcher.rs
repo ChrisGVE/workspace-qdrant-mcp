@@ -4,9 +4,7 @@
 use workspace_qdrant_daemon::config::FileWatcherConfig;
 use workspace_qdrant_daemon::daemon::watcher::FileWatcher;
 use workspace_qdrant_daemon::daemon::processing::DocumentProcessor;
-use workspace_qdrant_daemon::error::DaemonResult;
 use std::sync::Arc;
-use std::path::PathBuf;
 use tempfile::{TempDir, NamedTempFile};
 
 #[cfg(test)]
