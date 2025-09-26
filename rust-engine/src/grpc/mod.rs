@@ -20,21 +20,10 @@ pub mod transport;
 #[cfg(test)]
 pub mod shared_test_utils;
 
+// Re-export only actually used types
 pub use server::GrpcServer;
-pub use client::{WorkspaceDaemonClient, ConnectionPool, ConnectionStats};
-pub use service_discovery::{ServiceRegistry, ServiceInstance, LoadBalancingStrategy, ServiceDiscoveryConfig, ServiceDiscoveryStats};
-// ServiceHealth is provided by health module
-pub use retry::{RetryConfig, RetryStrategy, RetryPredicate, DefaultRetryPredicate};
-pub use circuit_breaker::{CircuitBreaker, CircuitBreakerConfig, CircuitState, CircuitBreakerStats};
-pub use message_validation::{MessageValidator, MessageStats, StreamHandle};
-pub use streaming::{StreamingDocumentHandler, DocumentChunk, DocumentUploadResult, SearchRequest, SearchResult};
-pub use health::{HealthStatus, ServiceHealth, ServiceMetrics, ServiceHealthMonitor, HealthMonitoringSystem, AlertConfig, ExternalMonitoring};
-pub use health_service::{HealthService, ServiceStatus, ComponentHealth, SystemMetrics, Metric, ConnectionStatsProvider};
-pub use service_monitors::{ServiceMonitors, DocumentProcessorMonitor, SearchServiceMonitor, MemoryServiceMonitor, DocumentProcessingStats, SearchStats, MemoryStats, ServiceStats};
-pub use alerting::{AlertManager, AlertChannel, Alert, AlertSeverity, AlertType, RecoverySystem, RecoveryProcedure, RecoveryResult, LogAlertChannel, WebhookAlertChannel, EmailAlertChannel};
-pub use health_integration::{HealthIntegration, HealthSystemStatus, HealthConfigurationFactory};
-pub use security::{SecurityManager, TlsManager, JwtManager, ApiKeyManager, AuthorizationManager, SecurityAuditLogger, AuthToken, SecurityAuditEvent, RiskLevel};
-pub use transport::{TransportManager, UnixSocketManager, TransportType, LocalOptimization, TransportStats, LocalConnectionPool};
+pub use retry::RetryStrategy;
+pub use circuit_breaker::{CircuitBreaker, CircuitBreakerStats};
 
 #[cfg(test)]
 pub use shared_test_utils::*;
