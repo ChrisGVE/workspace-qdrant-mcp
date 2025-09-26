@@ -7,7 +7,7 @@
 use anyhow::Result;
 use clap::Parser;
 use std::net::SocketAddr;
-use tracing::{info, warn};
+use tracing::info;
 
 mod grpc;
 mod daemon;
