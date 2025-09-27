@@ -2,18 +2,15 @@
 # WORKSPACE-QDRANT-MCP - COMPLETE SYSTEM CONFIGURATION
 # =============================================================================
 # Version: v2.0
-# Date: 2025-09-27
+# Date: 2025-09-20
 #
-# This configuration file contains ONLY user-configurable options for the
-# complete workspace-qdrant-mcp system. Each option is fully documented with:
+# This configuration file contains EVERY configuration option for the complete
+# workspace-qdrant-mcp system. Each option is fully documented with:
 # - Purpose and behavior
 # - Default values and valid ranges
 # - Examples and constraints
 # - Dependencies and cross-references
 # - Platform-specific considerations
-#
-# NOTE: File extensions, LSP configs, and exclusion patterns are embedded
-# compile-time assets and NOT configurable here. See PRDv3.txt for details.
 # =============================================================================
 
 # =============================================================================
@@ -118,9 +115,9 @@ memory:
     #   reject_new: Keep existing rule, reject new rule
     #   user_prompt: Present options to user for decision
 
-    user_prompt_timeout_seconds: 30
-    # Valid values: 10-300 seconds
-    # Default: 30
+    user_prompt_timeout: "30s"
+    # Valid values: 10-300 seconds in format "Ns" (e.g., "30s")
+    # Default: "30s"
     # Purpose: How long to wait for user input during conflict resolution
 
   # Token management and optimization
@@ -158,9 +155,9 @@ memory:
     # Default: true
     # Purpose: Support temporary rules that expire after session/time
 
-    temporary_rule_duration_hours: 24
-    # Valid values: 1-168 hours (1 hour to 1 week)
-    # Default: 24
+    temporary_rule_duration: "24h"
+    # Valid values: 1-168 hours in format "Nh" (e.g., "24h")
+    # Default: "24h"
     # Purpose: Default expiration time for temporary rules
 
   # Session initialization settings
@@ -175,9 +172,9 @@ memory:
     # Default: true
     # Purpose: Check for rule conflicts during session initialization
 
-    startup_timeout_seconds: 10
-    # Valid values: 5-60 seconds
-    # Default: 10
+    startup_timeout: "10s"
+    # Valid values: 5-60 seconds in format "Ns" (e.g., "10s")
+    # Default: "10s"
     # Purpose: Maximum time to spend on memory initialization
 
 # =============================================================================
@@ -198,6 +195,13 @@ collections:
   # Examples: ["scratchbook", "docs", "notes"] creates project-scratchbook, project-docs, project-notes
   # Note: If empty or not present, no project collections are automatically created
 
+  # Library collection behavior (NOT CONFIGURABLE - hardcoded)
+  # Note: Library collections are created via 'wqm library' commands, not configuration
+  # System automatically prefixes library names with "_" to mark them as read-only from MCP
+  # Examples: 'wqm library create technical-books' creates "_technical-books" collection
+  # UI Display: Users interact with "technical-books" but system stores as "_technical-books"
+  # Collision Prevention: Cannot have both "_library" and "library" collections simultaneously
+
   # Project content collection (for file artifacts)
   project_content:
     enabled: true
@@ -215,6 +219,15 @@ collections:
 
   # Reserved naming patterns and validation
   naming:
+    reserved_patterns:
+      - "${memory.collection_name}"  # Global memory collection (configurable)
+      - "_*"                         # Library collection prefix (hardcoded)
+      - "__*"                        # System-internal collections (hardcoded)
+      # Valid values: array of glob patterns
+      # Default: ["${memory.collection_name}", "_*", "__*"]
+      # Purpose: Prevent conflicts with system-reserved collection names
+      # Note: Memory collection name is configurable, prefixes are hardcoded
+
     collision_detection: true
     # Valid values: true, false
     # Default: true
@@ -225,6 +238,23 @@ collections:
     # Valid values: true, false
     # Default: true
     # Purpose: Enforce strict naming rules vs. permissive validation
+
+    prefix_rules:
+      underscore_prefix:
+        read_only_from_mcp: true
+        # Valid values: true (hardcoded, not configurable)
+        # Purpose: Collections with "_" prefix are read-only from MCP server perspective
+        hidden_prefix_in_ui: true
+        # Valid values: true (hardcoded, not configurable)
+        # Purpose: UI shows "library" but stores as "_library"
+        prevents_collision: true
+        # Valid values: true (hardcoded, not configurable)
+        # Purpose: Cannot create "library" if "_library" exists
+
+      double_underscore_prefix:
+        system_internal: true
+        # Valid values: true (hardcoded, not configurable)
+        # Purpose: "__" prefix reserved for system-internal collections
 
   # Multi-tenancy isolation settings
   multi_tenancy:
@@ -247,6 +277,12 @@ collections:
       # Valid values: array of metadata field names
       # Default: ["project_id", "project_path", "git_repository"]
       # Purpose: Metadata fields used for multi-tenant isolation
+
+  # Note: Collection access control is determined by naming conventions (not configurable):
+  # - Collections with "_" prefix: Read-only from MCP server, read-write from CLI/daemon
+  # - Collections with "__" prefix: System-internal, no MCP access
+  # - ${memory.collection_name}: Special exception - read-write from both MCP and CLI
+  # - Project collections (${collections.root_name}-{type}): Read-write from MCP server
 
 # =============================================================================
 # 4. PROJECT DETECTION & MANAGEMENT
@@ -315,7 +351,7 @@ project_detection:
     # Default: 2
     # Purpose: Priority order for project detection methods
 
-    # NOTE: Project detection patterns are embedded assets from comprehensive research
+    # Note: Project detection patterns are embedded assets from comprehensive research
     # See: assets/internal_configuration.yaml for complete 500+ project indicator patterns
     # Based on: research/languages/ comprehensive A-Z language ecosystem analysis
 
@@ -366,7 +402,7 @@ lsp_integration:
   # Philosophy: Respect user autonomy over development environment
 
   # LSP server selection and configuration
-  # NOTE: LSP server definitions, features, and installation notes are embedded assets
+  # Note: LSP server definitions, features, and installation notes are embedded assets
   # See: assets/internal_configuration.yaml and research/languages/ for complete details
 
   server_override:
@@ -386,9 +422,9 @@ lsp_integration:
     # Default: true
     # Purpose: Monitor LSP server health and performance
 
-    check_interval_seconds: 30
-    # Valid values: 10-300 seconds
-    # Default: 30
+    check_interval: "30s"
+    # Valid values: 10-300 seconds in format "Ns" (e.g., "30s")
+    # Default: "30s"
     # Purpose: How often to check LSP server health
 
     automatic_recovery: true
@@ -412,19 +448,94 @@ lsp_integration:
       action: "continue_text_only"
       # Valid values: "continue_text_only", "disable_processing", "retry_immediately"
       # Default: "continue_text_only"
-      # Purpose: Action when LSP server crashes but file processing continues
+      # Purpose: Continue with text-only processing when LSP crashes
+      notify_user: true
 
-    level_2_multiple_failures:
-      action: "fallback_treesitter"
-      # Valid values: "fallback_treesitter", "disable_processing", "manual_intervention"
-      # Default: "fallback_treesitter"
-      # Purpose: Action when multiple LSP failures occur
+    level_2_protocol_errors:
+      action: "fallback_basic_symbols"
+      # Valid values: "fallback_basic_symbols", "disable_analysis", "queue_for_recovery"
+      # Default: "fallback_basic_symbols"
+      # Purpose: Fall back to basic symbol extraction on protocol errors
+      queue_advanced_analysis: true
 
-    level_3_complete_failure:
-      action: "text_only_mode"
-      # Valid values: "text_only_mode", "disable_component", "error_state"
-      # Default: "text_only_mode"
-      # Purpose: Action when all code intelligence options fail
+    level_3_resource_constraints:
+      action: "disable_background_analysis"
+      # Valid values: "disable_background_analysis", "reduce_priority", "temporary_shutdown"
+      # Default: "disable_background_analysis"
+      # Purpose: Disable background analysis under resource pressure
+      prioritize_user_queries: true
+
+    level_4_complete_failure:
+      action: "maintain_other_functionality"
+      # Valid values: "maintain_other_functionality", "shutdown_component", "fallback_mode"
+      # Default: "maintain_other_functionality"
+      # Purpose: Continue non-LSP functionality when LSP completely fails
+      clear_user_communication: true
+
+  # Data collection strategy
+  data_collection:
+    strategy: "interface_plus_minimal_context"
+    # Valid values: "interface_plus_minimal_context", "full_content", "symbols_only"
+    # Default: "interface_plus_minimal_context"
+    # Purpose: Balance between information richness and storage efficiency
+
+    include_in_vectors:
+      - "complete_function_signatures"
+      - "class_definitions_with_inheritance"
+      - "import_statements_and_dependencies"
+      - "documentation_strings_and_comments"
+      - "type_annotations_and_signatures"
+      - "small_context_snippets"  # 1-3 lines around definitions
+      # Valid values: array of content types to include in vector embeddings
+      # Purpose: Define what LSP-extracted content gets vectorized
+
+    exclude_from_vectors:
+      - "full_method_implementations"  # prevents storage duplication
+      - "detailed_implementation_logic"  # available in file content
+      - "large_code_blocks"  # rely on file content for details
+      # Valid values: array of content types to exclude from vector embeddings
+      # Purpose: Prevent duplication and reduce storage requirements
+
+    metadata_extraction:
+      symbols:
+        - "function_names_and_signatures"
+        - "class_definitions_and_inheritance"
+        - "variable_declarations_with_types"
+        - "module_and_import_structure"
+      relationships:
+        - "import_dependencies_and_usage"
+        - "inheritance_hierarchies"
+        - "function_call_graphs"
+        - "cross_file_references"
+      semantic_information:
+        - "type_information_and_annotations"
+        - "documentation_and_docstrings"
+        - "semantic_token_classification"
+        - "syntax_highlighting_metadata"
+      # Valid values: arrays of metadata types to extract
+      # Purpose: Define structured metadata extraction from LSP analysis
+
+  # Performance settings
+  performance:
+    symbol_extraction_timeout: "5s"
+    # Valid values: 1-30 seconds in format "Ns" (e.g., "5s")
+    # Default: "5s"
+    # Purpose: Timeout for symbol extraction per 1000 files
+
+    symbol_lookup_timeout: "100ms"
+    # Valid values: 50-1000 milliseconds in format "Nms" (e.g., "100ms")
+    # Default: "100ms"
+    # Purpose: Timeout for individual symbol definition queries
+
+    incremental_update_timeout: "1s"
+    # Valid values: 0.5-10 seconds in format "Ns" (e.g., "1s")
+    # Default: "1s"
+    # Purpose: Timeout for processing single file changes
+
+    relationship_analysis_timeout: "200ms"
+    # Valid values: 100-2000 milliseconds in format "Nms" (e.g., "200ms")
+    # Default: "200ms"
+    # Purpose: Timeout for dependency graph queries
 
 # =============================================================================
 # 6. DOCUMENT PROCESSING & INGESTION
@@ -437,6 +548,11 @@ document_processing:
       # Valid values: true, false
       # Default: true
       # Purpose: Process plain text files with metadata extraction
+
+      extensions: [".txt", ".md", ".rst", ".asciidoc"]
+      # Valid values: array of file extensions
+      # Default: [".txt", ".md", ".rst", ".asciidoc"]
+      # Purpose: File extensions to treat as text documents
 
     pdf:
       enabled: true
@@ -530,6 +646,41 @@ document_processing:
         # Default: true
         # Purpose: Respect robots.txt files during crawling
 
+  # Metadata workflow for library collections
+  metadata_workflow:
+    incomplete_detection: true
+    # Valid values: true, false
+    # Default: true
+    # Purpose: Detect files with incomplete metadata
+
+    yaml_generation: true
+    # Valid values: true, false
+    # Default: true
+    # Purpose: Generate YAML files for metadata completion
+
+    user_completion_cycle: true
+    # Valid values: true, false
+    # Default: true
+    # Purpose: Enable user metadata completion workflow
+
+    yaml_update_on_rerun: true
+    # Valid values: true, false
+    # Default: true
+    # Purpose: Update YAML with remaining incomplete files on subsequent runs
+
+    required_metadata_by_type:
+      book:
+        required: ["title", "author", "edition"]
+        optional: ["isbn", "publisher", "draft_status"]
+      scientific_article:
+        required: ["title", "authors", "journal", "publication_date"]
+        optional: ["doi", "volume", "issue", "arxiv_id"]
+      webpage:
+        required: ["title", "url", "ingestion_date", "content_hash"]
+        optional: ["author", "publication_date", "tags"]
+      # Valid values: objects defining required and optional metadata fields
+      # Purpose: Define metadata requirements for different document types
+
   # File watching and auto-ingestion
   file_watching:
     enabled: true
@@ -554,6 +705,11 @@ document_processing:
       # Default: true
       # Purpose: Require user configuration for library folder monitoring
 
+      command: "wqm library watch"
+      # Valid values: CLI command string
+      # Default: "wqm library watch"
+      # Purpose: Command used to configure library folder watching
+
     incremental_updates:
       content_hash_tracking: true
       # Valid values: true, false
@@ -571,38 +727,35 @@ document_processing:
       # Purpose: Process only files that have actually changed
 
     debouncing:
-      delay_ms: 500
-      # Valid values: 100-5000 milliseconds
-      # Default: 500
+      lsp_projects: true
+      # Valid values: true, false
+      # Default: true
+      # Purpose: Debounce file changes for projects with LSP integration
+
+      treesitter_only: false
+      # Valid values: true, false
+      # Default: false
+      # Purpose: No debouncing for tree-sitter only projects
+
+      no_analysis: false
+      # Valid values: true, false
+      # Default: false
+      # Purpose: No debouncing when no analysis tools available
+
+      delay: "500ms"
+      # Valid values: 100-5000 milliseconds in format "Nms" (e.g., "500ms")
+      # Default: "500ms"
       # Purpose: Debounce delay for file change events
 
-  # Processing performance and chunking
-  chunking:
-    default_chunk_size: 1000
-    # Valid values: 100-10000 characters
-    # Default: 1000
-    # Purpose: Default chunk size for document processing
-
-    default_chunk_overlap: 200
-    # Valid values: 50-1000 characters
-    # Default: 200
-    # Purpose: Default overlap between document chunks
-
-    max_file_size_bytes: "100MB"
-    # Valid values: size with units (B/KB/MB/GB/TB)
-    # Default: "100MB"
-    # Purpose: Maximum file size to process
-
-  performance:
-    max_concurrent_tasks: 4
-    # Valid values: 1-16 tasks
-    # Default: 4
-    # Purpose: Maximum number of concurrent processing tasks
-
-    batch_size: 100
-    # Valid values: 10-1000 documents
-    # Default: 100
-    # Purpose: Number of documents to process in each batch
+    priority_processing:
+      order:
+        - "mcp_active"
+        - "current_project"
+        - "background_libraries"
+        - "background_projects"
+      # Valid values: array of processing priority levels
+      # Default: ["mcp_active", "current_project", "background_libraries", "background_projects"]
+      # Purpose: Define processing order when multiple sources need attention
 
 # =============================================================================
 # 7. SEARCH & INDEXING CONFIGURATION
@@ -636,51 +789,131 @@ search:
       enabled: true
       # Valid values: true, false
       # Default: true
-      # Purpose: Search across all accessible collections
+      # Purpose: Comprehensive search across entire workspace
+      # Note: Replaces qdrant-retrieve functionality
 
-  # Hybrid search configuration
-  hybrid:
+  # Search performance settings
+  performance:
+    response_timeout: "100ms"
+    # Valid values: 50-1000 milliseconds in format "Nms" (e.g., "100ms")
+    # Default: "100ms"
+    # Purpose: Maximum time for search responses across all modes
+
+    max_results_per_mode: 50
+    # Valid values: 10-500 results
+    # Default: 50
+    # Purpose: Maximum results returned per search mode
+
+    semantic_similarity_threshold: 0.7
+    # Valid values: 0.1-1.0 (similarity score)
+    # Default: 0.7
+    # Purpose: Minimum similarity score for semantic search results
+
+  # Search features and options
+  features:
+    include_relationships: true
+    # Valid values: true, false
+    # Default: true
+    # Purpose: Include related content based on semantic relationships
+
+    relationship_max_distance: 0.8
+    # Valid values: 0.1-1.0 (similarity score)
+    # Default: 0.8
+    # Purpose: Maximum semantic distance for relationship inclusion
+
+    version_preference: "latest"
+    # Valid values: "latest", "all", "specific"
+    # Default: "latest"
+    # Purpose: Which document versions to prefer in search results
+
+    include_archived: false
+    # Valid values: true, false
+    # Default: false
+    # Purpose: Include archived collections in search by default
+
+    content_type_filtering:
+      enabled: true
+      # Valid values: true, false
+      # Default: true
+      # Purpose: Allow filtering search results by content type
+
+      available_types:
+        - "all"
+        - "code"
+        - "docs"
+        - "books"
+        - "web"
+        - "notes"
+      # Valid values: array of content type identifiers
+      # Default: ["all", "code", "docs", "books", "web", "notes"]
+      # Purpose: Available content types for search filtering
+
+  # Code-aware search settings
+  code_search:
     enabled: true
     # Valid values: true, false
     # Default: true
-    # Purpose: Enable hybrid dense + sparse vector search
+    # Purpose: Enable specialized code search functionality
 
-    fusion_algorithm: "rrf"
-    # Valid values: "rrf", "weighted_sum", "max_score"
-    # Default: "rrf"
-    # Purpose: Algorithm for combining dense and sparse search results
+    symbol_search:
+      enabled: true
+      # Valid values: true, false
+      # Default: true
+      # Purpose: Enable LSP-enhanced symbol definition and usage search
 
-    dense_weight: 0.7
-    # Valid values: 0.0-1.0
-    # Default: 0.7
-    # Purpose: Weight for dense (semantic) search results
+      include_usage: true
+      # Valid values: true, false
+      # Default: true
+      # Purpose: Include symbol usage locations in search results
 
-    sparse_weight: 0.3
-    # Valid values: 0.0-1.0
-    # Default: 0.3
-    # Purpose: Weight for sparse (keyword) search results
+      project_scope_default: true
+      # Valid values: true, false
+      # Default: true
+      # Purpose: Default to project scope for symbol searches
 
-  # Result formatting and limits
-  results:
-    default_limit: 20
-    # Valid values: 1-1000 results
-    # Default: 20
-    # Purpose: Default number of search results to return
+    type_signature_search:
+      enabled: true
+      # Valid values: true, false
+      # Default: true
+      # Purpose: Enable search by function/method type signatures
 
-    max_limit: 100
-    # Valid values: 10-1000 results
-    # Default: 100
-    # Purpose: Maximum number of search results allowed
+      return_examples: true
+      # Valid values: true, false
+      # Default: true
+      # Purpose: Return code examples with type signature matches
 
-    include_metadata: true
+    related_documentation:
+      enabled: true
+      # Valid values: true, false
+      # Default: true
+      # Purpose: Find documentation related to code elements
+
+      include_external: false
+      # Valid values: true, false
+      # Default: false
+      # Purpose: Include external documentation sources
+
+      max_distance: 0.8
+      # Valid values: 0.1-1.0 (similarity score)
+      # Default: 0.8
+      # Purpose: Maximum semantic distance for related documentation
+
+  # Global collections configuration
+  global_collections:
+    user_configurable: true
     # Valid values: true, false
     # Default: true
-    # Purpose: Include document metadata in search results
+    # Purpose: Allow users to configure global collection list
 
-    include_snippets: true
-    # Valid values: true, false
-    # Default: true
-    # Purpose: Include content snippets in search results
+    default_collections: []
+    # Valid values: array of collection names
+    # Default: []
+    # Purpose: Default global collections (user can override)
+
+    environment_variable: "WQM_GLOBAL_COLLECTIONS"
+    # Valid values: environment variable name
+    # Default: "WQM_GLOBAL_COLLECTIONS"
+    # Purpose: Environment variable for global collection configuration
 
 # =============================================================================
 # 8. PERFORMANCE & RESOURCE MANAGEMENT
@@ -688,36 +921,53 @@ search:
 performance:
   # Resource constraints and limits
   memory:
-    max_rss_mb: 500
-    # Valid values: 100-2000 MB
-    # Default: 500
+    max_rss: "500MB"
+    # Valid values: 100-2000 MB in format "NMB" (e.g., "500MB")
+    # Default: "500MB"
     # Purpose: Maximum RSS memory usage for large workspaces (100k+ documents)
 
-    warning_threshold_mb: 400
-    # Valid values: 80-1600 MB (80% of max_rss_mb)
-    # Default: 400
+    warning_threshold: "400MB"
+    # Valid values: 80-1600 MB (80% of max_rss) in format "NMB" (e.g., "400MB")
+    # Default: "400MB"
     # Purpose: Memory usage level that triggers warnings
 
-    gc_threshold_mb: 350
-    # Valid values: 70-1400 MB (70% of max_rss_mb)
-    # Default: 350
+    gc_threshold: "350MB"
+    # Valid values: 70-1400 MB (70% of max_rss) in format "NMB" (e.g., "350MB")
+    # Default: "350MB"
     # Purpose: Memory usage level that triggers garbage collection
+
+  # Processing performance targets
+  processing:
+    document_ingestion_rate: 1000
+    # Valid values: 100-10000 documents per minute
+    # Default: 1000
+    # Purpose: Target sustained throughput for document processing (Rust daemon)
+
+    batch_size: 100
+    # Valid values: 10-1000 documents
+    # Default: 100
+    # Purpose: Number of documents to process in each batch
+
+    max_concurrent_operations: 4
+    # Valid values: 1-16 operations
+    # Default: 4
+    # Purpose: Maximum concurrent processing operations
 
   # Startup and initialization
   startup:
-    daemon_init_timeout_seconds: 2
-    # Valid values: 1-10 seconds
-    # Default: 2
+    daemon_init_timeout: "2s"
+    # Valid values: 1-10 seconds in format "Ns" (e.g., "2s")
+    # Default: "2s"
     # Purpose: Maximum time for Rust daemon initialization and gRPC connection
 
-    mcp_server_init_timeout_seconds: 5
-    # Valid values: 2-30 seconds
-    # Default: 5
+    mcp_server_init_timeout: "5s"
+    # Valid values: 2-30 seconds in format "Ns" (e.g., "5s")
+    # Default: "5s"
     # Purpose: Maximum time for MCP server initialization
 
-    health_check_timeout_seconds: 1
-    # Valid values: 0.5-5 seconds
-    # Default: 1
+    health_check_timeout: "1s"
+    # Valid values: 0.5-5 seconds in format "Ns" (e.g., "1s")
+    # Default: "1s"
     # Purpose: Timeout for component health checks during startup
 
   # CPU and priority management
@@ -742,11 +992,60 @@ performance:
     # Default: true
     # Purpose: Revert to background priority when MCP server quits
 
+  # Recovery and resumption performance
+  recovery:
+    state_recovery_timeout: "5s"
+    # Valid values: 1-30 seconds in format "Ns" (e.g., "5s")
+    # Default: "5s"
+    # Purpose: Maximum time to detect and present resumption options
+
+    transaction_rollback_timeout: "1s"
+    # Valid values: 0.5-10 seconds in format "Ns" (e.g., "1s")
+    # Default: "1s"
+    # Purpose: Maximum time for atomic operation rollback on failure
+
+    queue_persistence: true
+    # Valid values: true, false
+    # Default: true
+    # Purpose: 100% preservation of unfinished work across system restarts
+
+    graceful_degradation_response: "500ms"
+    # Valid values: 100-2000 milliseconds in format "Nms" (e.g., "500ms")
+    # Default: "500ms"
+    # Purpose: Maximum time to switch to degraded mode when components fail
+
+    automatic_recovery_timeout: "10s"
+    # Valid values: 5-60 seconds in format "Ns" (e.g., "10s")
+    # Default: "10s"
+    # Purpose: Maximum time to resume full functionality after component restart
+
+  # Scalability targets
+  scalability:
+    max_collections: 100
+    # Valid values: 10-1000 collections
+    # Default: 100
+    # Purpose: Maximum number of collections supported per workspace
+
+    max_documents_total: 100000
+    # Valid values: 1000-1000000 documents
+    # Default: 100000
+    # Purpose: Maximum total documents across all collections
+
+    max_documents_per_collection: 10000
+    # Valid values: 100-100000 documents
+    # Default: 10000
+    # Purpose: Maximum documents per individual collection
+
+    concurrent_mcp_servers: 3
+    # Valid values: 1-10 servers
+    # Default: 3
+    # Purpose: Maximum concurrent MCP servers supported on same daemon
+
 # =============================================================================
 # 9. PLATFORM & DIRECTORY CONFIGURATION
 # =============================================================================
 platform:
-  # XDG Base Directory Specification compliance
+  # OS-standard directory compliance
   xdg_compliance:
     enabled: true
     # Valid values: true, false
@@ -785,13 +1084,31 @@ platform:
     # Purpose: Ensure proper directory usage according to OS conventions
     # Note: User-configurable directories removed in favor of OS standards
 
-  # File pattern customization
+  # File pattern system (embedded at compile-time)
   file_patterns:
-    # NOTE: Language extensions and exclusion patterns are embedded at compile-time
-    # Complete patterns available in: assets/internal_configuration.yaml
-    # Includes: version_control, build_outputs, cache_directories, virtual_environments,
-    #           ide_files, temporary_files, binary_files, media_files, archive_files
-    # Coverage: Research-backed patterns for optimal performance
+    language_extensions:
+      python:
+        extensions: [".py", ".pyi", ".pyx"]
+        config_files: ["pyproject.toml", "setup.py", "requirements*.txt", "Pipfile"]
+      rust:
+        extensions: [".rs"]
+        config_files: ["Cargo.toml", "Cargo.lock"]
+      javascript:
+        extensions: [".js", ".mjs", ".cjs"]
+        config_files: ["package.json", "package-lock.json"]
+      typescript:
+        extensions: [".ts", ".tsx", ".d.ts"]
+        config_files: ["tsconfig.json", "package.json"]
+      # Valid values: objects mapping languages to extensions and config files
+      # Purpose: Automatically generated from available LSP servers
+      # Note: Embedded at compile-time for performance
+
+    exclusion_patterns:
+      # Note: Global exclusion patterns are embedded at compile-time
+      # Complete patterns available in: assets/internal_configuration.yaml
+      # Includes: version_control, build_outputs, cache_directories, virtual_environments,
+      #           ide_files, temporary_files, binary_files, media_files, archive_files
+      # Coverage: Research-backed patterns for optimal performance
 
     include_patterns:
       # Custom include patterns can be added by user
@@ -831,27 +1148,64 @@ cli:
     progress_indicators: true
     # Valid values: true, false
     # Default: true
-    # Purpose: Show progress indicators for long-running operations
+    # Purpose: Show progress bars and indicators for long operations
 
-  # Command-specific settings
-  commands:
-    memory:
-      auto_backup: true
-      # Valid values: true, false
-      # Default: true
-      # Purpose: Automatically backup memory rules before modifications
+    confirmation_prompts: true
+    # Valid values: true, false
+    # Default: true
+    # Purpose: Show confirmation prompts for destructive operations
 
-    admin:
-      confirm_destructive: true
-      # Valid values: true, false
-      # Default: true
-      # Purpose: Require confirmation for destructive admin operations
+  # Subcommand availability (enable/disable major command groups)
+  subcommands:
+    memory_commands: true
+    # Valid values: true, false
+    # Default: true
+    # Purpose: Enable/disable memory management command group
 
-    ingest:
-      show_progress: true
-      # Valid values: true, false
-      # Default: true
-      # Purpose: Show detailed progress during ingestion operations
+    admin_commands: true
+    # Valid values: true, false
+    # Default: true
+    # Purpose: Enable/disable system administration command group
+
+    ingest_commands: true
+    # Valid values: true, false
+    # Default: true
+    # Purpose: Enable/disable document ingestion command group
+
+    search_commands: true
+    # Valid values: true, false
+    # Default: true
+    # Purpose: Enable/disable search interface command group
+
+    library_commands: true
+    # Valid values: true, false
+    # Default: true
+    # Purpose: Enable/disable library management command group
+
+    collection_commands: true
+    # Valid values: true, false
+    # Default: true
+    # Purpose: Enable/disable collection management command group
+
+  # CLI integration settings
+  integration:
+    shell_completion: true
+    # Valid values: true, false
+    # Default: true
+    # Purpose: Generate shell completion scripts for bash/zsh/fish
+
+    man_pages: true
+    # Valid values: true, false
+    # Default: true
+    # Purpose: Generate man pages for CLI commands
+
+    help_system: "comprehensive"
+    # Valid values: "minimal", "standard", "comprehensive"
+    # Default: "comprehensive"
+    # Purpose: Level of detail in CLI help system
+
+  # Note: CLI command structure and subcommands are authoritatively defined in Section 7.1
+  # This section only contains user-configurable behavior, output preferences, and integration options
 
 # =============================================================================
 # 11. gRPC & COMMUNICATION SETTINGS
@@ -879,31 +1233,31 @@ grpc:
     # Default: 100
     # Purpose: Maximum concurrent gRPC streams
 
-    max_message_size_mb: 16
-    # Valid values: 1-100 MB
-    # Default: 16
+    max_message_size: "16MB"
+    # Valid values: 1-100 MB in format "NMB" (e.g., "16MB")
+    # Default: "16MB"
     # Purpose: Maximum message size for gRPC communication
 
   # Client settings (for Python MCP server)
   client:
-    connection_timeout_seconds: 5
-    # Valid values: 1-30 seconds
-    # Default: 5
+    connection_timeout: "5s"
+    # Valid values: 1-30 seconds in format "Ns" (e.g., "5s")
+    # Default: "5s"
     # Purpose: Timeout for initial gRPC connection
 
-    request_timeout_seconds: 30
-    # Valid values: 5-300 seconds
-    # Default: 30
+    request_timeout: "30s"
+    # Valid values: 5-300 seconds in format "Ns" (e.g., "30s")
+    # Default: "30s"
     # Purpose: Default timeout for gRPC requests
 
-    keepalive_interval_seconds: 30
-    # Valid values: 10-300 seconds
-    # Default: 30
+    keepalive_interval: "30s"
+    # Valid values: 10-300 seconds in format "Ns" (e.g., "30s")
+    # Default: "30s"
     # Purpose: Keep-alive ping interval
 
-    keepalive_timeout_seconds: 5
-    # Valid values: 1-30 seconds
-    # Default: 5
+    keepalive_timeout: "5s"
+    # Valid values: 1-30 seconds in format "Ns" (e.g., "5s")
+    # Default: "5s"
     # Purpose: Keep-alive ping timeout
 
     max_retry_attempts: 3
@@ -911,110 +1265,661 @@ grpc:
     # Default: 3
     # Purpose: Maximum retry attempts for failed requests
 
-    retry_backoff_ms: 1000
-    # Valid values: 100-10000 milliseconds
-    # Default: 1000
-    # Purpose: Backoff delay between retry attempts
+    retry_backoff: "1000ms"
+    # Valid values: 100-10000 milliseconds in format "Nms" (e.g., "1000ms")
+    # Default: "1000ms"
+    # Purpose: Base backoff time for retry attempts
+
+  # Health checking and monitoring
+  health:
+    enabled: true
+    # Valid values: true, false
+    # Default: true
+    # Purpose: Enable gRPC health checking service
+
+    check_interval: "10s"
+    # Valid values: 5-60 seconds in format "Ns" (e.g., "10s")
+    # Default: "10s"
+    # Purpose: Health check interval
+
+    timeout: "2s"
+    # Valid values: 1-10 seconds in format "Ns" (e.g., "2s")
+    # Default: "2s"
+    # Purpose: Health check timeout
+
+  # TLS and security (for future use)
+  security:
+    tls_enabled: false
+    # Valid values: true, false
+    # Default: false
+    # Purpose: Enable TLS encryption for gRPC communication
+    # Note: Currently disabled for local communication
+
+    cert_file: ""
+    # Valid values: file path string
+    # Default: ""
+    # Purpose: Path to TLS certificate file
+
+    key_file: ""
+    # Valid values: file path string
+    # Default: ""
+    # Purpose: Path to TLS private key file
 
 # =============================================================================
-# 12. EXTERNAL SERVICE CONFIGURATION
+# 12. VERSION MANAGEMENT & CONFLICT RESOLUTION
 # =============================================================================
-external_services:
-  # Qdrant vector database settings
-  qdrant:
-    url: "http://localhost:6333"
-    # Valid values: HTTP/HTTPS URL
-    # Default: "http://localhost:6333"
-    # Purpose: Qdrant server URL for vector storage
+version_management:
+  # Document type-based versioning strategies
+  document_types:
+    book:
+      primary_version: "edition"
+      # Valid values: "edition", "publication_date", "modification_date"
+      # Default: "edition"
+      # Purpose: Primary version identifier for books
 
-    api_key: null
-    # Valid values: API key string or null
-    # Default: null
-    # Purpose: Qdrant API key (required for Qdrant Cloud, optional for local)
+      secondary_version: "publication_date"
+      # Valid values: "publication_date", "modification_date", "ingestion_date"
+      # Default: "publication_date"
+      # Purpose: Secondary version identifier for books
 
-    timeout_seconds: 30
-    # Valid values: 5-300 seconds
-    # Default: 30
-    # Purpose: Connection timeout for Qdrant operations
+      required_metadata: ["title", "author", "edition"]
+      # Valid values: array of required metadata field names
+      # Default: ["title", "author", "edition"]
+      # Purpose: Metadata fields required for proper versioning
 
-    max_retries: 3
+      optional_metadata: ["isbn", "publisher", "draft_status"]
+      # Valid values: array of optional metadata field names
+      # Default: ["isbn", "publisher", "draft_status"]
+      # Purpose: Optional metadata fields that enhance versioning
+
+      retention_policy: "latest_only"
+      # Valid values: "latest_only", "all_versions", "archive_older"
+      # Default: "latest_only"
+      # Purpose: How many versions to retain
+
+    scientific_article:
+      primary_version: "publication_date"
+      secondary_version: "arxiv_version"
+      required_metadata: ["title", "authors", "journal", "publication_date"]
+      optional_metadata: ["doi", "volume", "issue", "arxiv_id"]
+      retention_policy: "latest_only"
+
+    code_file:
+      primary_version: "git_tag"
+      secondary_version: "modification_date"
+      auto_metadata: true
+      # Valid values: true, false
+      # Default: true
+      # Purpose: Automatically extract metadata from git/filesystem
+      retention_policy: "current_state_only"
+      # Note: Git handles history, only store current working tree
+
+    webpage:
+      primary_version: "ingestion_date"
+      secondary_version: "content_hash"
+      required_metadata: ["title", "url", "ingestion_date", "content_hash"]
+      optional_metadata: ["author", "publication_date", "tags"]
+      retention_policy: "latest_with_archive_option"
+      # Note: Can optionally archive previous versions
+
+    # Add more document types as needed
+    generic:
+      primary_version: "modification_date"
+      secondary_version: "content_hash"
+      required_metadata: ["title", "format"]
+      optional_metadata: ["author", "tags", "description"]
+      retention_policy: "latest_only"
+
+  # Version conflict resolution strategies
+  conflict_resolution:
+    same_content_different_editions:
+      strategy: "latest_wins_auto"
+      # Valid values: "latest_wins_auto", "user_decision", "keep_both"
+      # Default: "latest_wins_auto"
+      # Purpose: How to handle same content in different editions
+
+      deprioritize_older: true
+      # Valid values: true, false
+      # Default: true
+      # Purpose: Lower search ranking for older versions
+
+    code_files:
+      git_tag_precedence: true
+      # Valid values: true, false
+      # Default: true
+      # Purpose: Git tags take precedence over modification dates
+
+      working_tree_only: true
+      # Valid values: true, false
+      # Default: true
+      # Purpose: Only store current working tree state
+
+    format_precedence:
+      enabled: true
+      # Valid values: true, false
+      # Default: true
+      # Purpose: Enable format-based precedence rules
+
+      create_research_task: true
+      # Valid values: true, false
+      # Default: true
+      # Purpose: Create research tasks for PDF vs EPUB vs MOBI quality analysis
+
+    metadata_conflicts:
+      user_responsibility: true
+      # Valid values: true, false
+      # Default: true
+      # Purpose: User validates and resolves metadata conflicts
+
+      engine_override: false
+      # Valid values: true, false
+      # Default: false
+      # Purpose: Engine never overrides user decisions
+
+  # Archive collection settings
+  archive_collections:
+    enabled: true
+    # Valid values: true, false
+    # Default: true
+    # Purpose: Enable optional archive collections for version history
+
+    naming_pattern: "_{collection}_archive"
+    # Valid values: string pattern with {collection} placeholder
+    # Default: "_{collection}_archive"
+    # Purpose: Naming pattern for archive collections
+
+    auto_creation: false
+    # Valid values: true, false
+    # Default: false
+    # Purpose: Automatically create archive collections vs user-initiated
+
+    retention_policy: "user_defined"
+    # Valid values: "user_defined", "time_based", "count_based"
+    # Default: "user_defined"
+    # Purpose: How long to retain archived versions
+
+# =============================================================================
+# 13. WEB CRAWLING & EXTERNAL CONTENT
+# =============================================================================
+web_crawling:
+  # Core web crawling settings
+  enabled: true
+  # Valid values: true, false
+  # Default: true
+  # Purpose: Enable web crawling and external content ingestion
+
+  # Single page scraping
+  single_page:
+    enabled: true
+    # Valid values: true, false
+    # Default: true
+    # Purpose: Support single webpage scraping
+
+    timeout: "30s"
+    # Valid values: 5-120 seconds in format "Ns" (e.g., "30s")
+    # Default: "30s"
+    # Purpose: Timeout for single page requests
+
+    max_page_size: "10MB"
+    # Valid values: 1-100 MB in format "NMB" (e.g., "10MB")
+    # Default: "10MB"
+    # Purpose: Maximum page size to process
+
+    follow_redirects: true
+    # Valid values: true, false
+    # Default: true
+    # Purpose: Follow HTTP redirects during scraping
+
+    max_redirects: 5
+    # Valid values: 1-20 redirects
+    # Default: 5
+    # Purpose: Maximum number of redirects to follow
+
+  # Recursive crawling settings
+  recursive:
+    enabled: true
+    # Valid values: true, false
+    # Default: true
+    # Purpose: Support recursive web crawling from starting URLs
+
+    max_depth: 3
+    # Valid values: 1-10 levels
+    # Default: 3
+    # Purpose: Maximum recursion depth for web crawling
+
+    same_domain_only: true
+    # Valid values: true, false
+    # Default: true
+    # Purpose: Restrict crawling to same domain as starting URL
+
+    max_pages_per_domain: 100
+    # Valid values: 10-10000 pages
+    # Default: 100
+    # Purpose: Maximum pages to crawl per domain
+
+  # Rate limiting and politeness
+  rate_limiting:
+    requests_per_second: 2
+    # Valid values: 0.1-10 requests per second
+    # Default: 2
+    # Purpose: Rate limit for respectful web crawling
+
+    concurrent_connections: 3
+    # Valid values: 1-10 connections
+    # Default: 3
+    # Purpose: Maximum concurrent connections during crawling
+
+    delay_between_requests: "1000ms"
+    # Valid values: 100-10000 milliseconds in format "Nms" (e.g., "1000ms")
+    # Default: "1000ms"
+    # Purpose: Minimum delay between requests to same domain
+
+    respect_robots_txt: true
+    # Valid values: true, false
+    # Default: true
+    # Purpose: Respect robots.txt files during crawling
+
+    user_agent: "workspace-qdrant-mcp/2.0 (+https://github.com/user/workspace-qdrant-mcp)"
+    # Valid values: user agent string
+    # Default: "workspace-qdrant-mcp/2.0 (+https://github.com/user/workspace-qdrant-mcp)"
+    # Purpose: User agent string for web requests
+
+  # Content extraction and processing
+  content_extraction:
+    extract_text_only: false
+    # Valid values: true, false
+    # Default: false
+    # Purpose: Extract only text content vs. full page structure
+
+    include_metadata: true
+    # Valid values: true, false
+    # Default: true
+    # Purpose: Extract and store page metadata (title, description, etc.)
+
+    extract_links: true
+    # Valid values: true, false
+    # Default: true
+    # Purpose: Extract and process links for recursive crawling
+
+    filter_content: true
+    # Valid values: true, false
+    # Default: true
+    # Purpose: Filter out navigation, ads, and non-content elements
+
+    min_content_length: 100
+    # Valid values: 10-10000 characters
+    # Default: 100
+    # Purpose: Minimum content length to consider page worthwhile
+
+  # Error handling and retries
+  error_handling:
+    max_retry_attempts: 3
     # Valid values: 1-10 attempts
     # Default: 3
-    # Purpose: Maximum retry attempts for failed Qdrant operations
+    # Purpose: Maximum retry attempts for failed requests
 
-  # FastEmbed embeddings configuration
-  embeddings:
-    model: "sentence-transformers/all-MiniLM-L6-v2"
-    # Valid values: FastEmbed model name
-    # Default: "sentence-transformers/all-MiniLM-L6-v2"
-    # Purpose: Embedding model for semantic search
+    retry_backoff: "5s"
+    # Valid values: 1-60 seconds in format "Ns" (e.g., "5s")
+    # Default: "5s"
+    # Purpose: Base backoff time for retry attempts
 
-    cache_dir: null
-    # Valid values: directory path or null (uses platform default)
-    # Default: null
-    # Purpose: Directory for caching embedding models
+    skip_on_error: true
+    # Valid values: true, false
+    # Default: true
+    # Purpose: Skip problematic pages vs. failing entire crawl
+
+    log_errors: true
+    # Valid values: true, false
+    # Default: true
+    # Purpose: Log crawling errors for user review
 
 # =============================================================================
-# 13. MONITORING & LOGGING CONFIGURATION
+# 14. GRACEFUL DEGRADATION & RECOVERY
+# =============================================================================
+graceful_degradation:
+  # Core graceful degradation settings
+  enabled: true
+  # Valid values: true, false
+  # Default: true
+  # Purpose: Enable graceful degradation when components fail
+
+  # Component failure handling
+  component_failures:
+    rust_daemon:
+      fallback_mode: "mcp_server_only"
+      # Valid values: "mcp_server_only", "cli_only", "shutdown_system"
+      # Default: "mcp_server_only"
+      # Purpose: How to handle Rust daemon failures
+
+      preserve_functionality:
+        - "memory_collection_access"
+        - "basic_search"
+        - "configuration_management"
+      # Valid values: array of functionality to preserve
+      # Purpose: Core functionality to maintain during daemon failure
+
+      user_notification: true
+      # Valid values: true, false
+      # Default: true
+      # Purpose: Notify user of degraded functionality
+
+    mcp_server:
+      fallback_mode: "cli_only"
+      # Valid values: "cli_only", "daemon_only", "shutdown_system"
+      # Default: "cli_only"
+      # Purpose: How to handle MCP server failures
+
+      preserve_functionality:
+        - "file_processing"
+        - "collection_management"
+        - "administrative_tasks"
+      # Valid values: array of functionality to preserve
+      # Purpose: Core functionality to maintain during MCP server failure
+
+    lsp_servers:
+      fallback_mode: "text_only_processing"
+      # Valid values: "text_only_processing", "treesitter_fallback", "skip_code_files"
+      # Default: "text_only_processing"
+      # Purpose: How to handle LSP server failures
+
+      degradation_levels: 4
+      # Valid values: 1-10 levels
+      # Default: 4
+      # Purpose: Number of graceful degradation levels for LSP failures
+      # See LSP section for detailed level definitions
+
+  # Automatic recovery settings
+  automatic_recovery:
+    enabled: true
+    # Valid values: true, false
+    # Default: true
+    # Purpose: Enable automatic recovery when failed components restart
+
+    detection_interval: "5s"
+    # Valid values: 1-60 seconds in format "Ns" (e.g., "5s")
+    # Default: "5s"
+    # Purpose: How often to check for component recovery
+
+    recovery_timeout: "10s"
+    # Valid values: 5-60 seconds in format "Ns" (e.g., "10s")
+    # Default: "10s"
+    # Purpose: Maximum time to attempt recovery
+
+    max_recovery_attempts: 3
+    # Valid values: 1-10 attempts
+    # Default: 3
+    # Purpose: Maximum automatic recovery attempts
+
+  # State preservation during failures
+  state_preservation:
+    enabled: true
+    # Valid values: true, false
+    # Default: true
+    # Purpose: Ensure no data loss during component failures
+
+    transaction_boundaries: true
+    # Valid values: true, false
+    # Default: true
+    # Purpose: Use SQLite transaction boundaries for atomic operations
+
+    rollback_capability: true
+    # Valid values: true, false
+    # Default: true
+    # Purpose: Enable rollback of failed operations
+
+    queue_persistence: true
+    # Valid values: true, false
+    # Default: true
+    # Purpose: Persist operation queues across failures
+
+    checkpoint_interval: "30s"
+    # Valid values: 10-300 seconds in format "Ns" (e.g., "30s")
+    # Default: "30s"
+    # Purpose: How often to checkpoint system state
+
+  # User communication during degradation
+  user_communication:
+    clear_messaging: true
+    # Valid values: true, false
+    # Default: true
+    # Purpose: Provide clear communication about degraded functionality
+
+    recovery_progress: true
+    # Valid values: true, false
+    # Default: true
+    # Purpose: Show recovery progress to user
+
+    functionality_status: true
+    # Valid values: true, false
+    # Default: true
+    # Purpose: Clearly indicate which features are available/unavailable
+
+    recovery_instructions: true
+    # Valid values: true, false
+    # Default: true
+    # Purpose: Provide instructions for manual recovery when needed
+
+# =============================================================================
+# 15. SECURITY & ACCESS CONTROL
+# =============================================================================
+security:
+  # Access control and permissions
+  access_control:
+    collection_permissions:
+      enabled: true
+      # Valid values: true, false
+      # Default: true
+      # Purpose: Enforce collection-level access permissions
+
+      default_policy: "restrictive"
+      # Valid values: "restrictive", "permissive"
+      # Default: "restrictive"
+      # Purpose: Default access policy for new collections
+
+    api_authentication:
+      enabled: false
+      # Valid values: true, false
+      # Default: false
+      # Purpose: Enable API authentication (future feature)
+      # Note: Currently disabled for local development
+
+    file_system_access:
+      restricted_paths:
+        - "/etc"
+        - "/sys"
+        - "/proc"
+        - "C:\\Windows\\System32"
+      # Valid values: array of file system paths
+      # Default: system-critical directories
+      # Purpose: Prevent access to sensitive system directories
+
+      home_directory_only: false
+      # Valid values: true, false
+      # Default: false
+      # Purpose: Restrict file access to user's home directory only
+
+  # Data protection and privacy
+  data_protection:
+    encrypt_at_rest: false
+    # Valid values: true, false
+    # Default: false
+    # Purpose: Encrypt stored data (future feature)
+
+    sanitize_logs: true
+    # Valid values: true, false
+    # Default: true
+    # Purpose: Remove sensitive information from logs
+
+    secure_temp_files: true
+    # Valid values: true, false
+    # Default: true
+    # Purpose: Use secure temporary file creation
+
+  # Network security
+  network_security:
+    localhost_only: true
+    # Valid values: true, false
+    # Default: true
+    # Purpose: Bind servers to localhost only
+
+    firewall_friendly: true
+    # Valid values: true, false
+    # Default: true
+    # Purpose: Use standard ports and protocols
+
+  # Content filtering and validation
+  content_filtering:
+    validate_file_types: true
+    # Valid values: true, false
+    # Default: true
+    # Purpose: Validate file types before processing
+
+    max_file_size: "100MB"
+    # Valid values: 1-1000 MB in format "NMB" (e.g., "100MB")
+    # Default: "100MB"
+    # Purpose: Maximum file size to process
+
+    scan_for_malware: false
+    # Valid values: true, false
+    # Default: false
+    # Purpose: Scan files for malware (requires external tool)
+
+# =============================================================================
+# 16. MONITORING & DIAGNOSTICS
 # =============================================================================
 monitoring:
+  # System health monitoring
+  health_monitoring:
+    enabled: true
+    # Valid values: true, false
+    # Default: true
+    # Purpose: Enable comprehensive system health monitoring
+
+    check_interval: "30s"
+    # Valid values: 10-300 seconds in format "Ns" (e.g., "30s")
+    # Default: "30s"
+    # Purpose: How often to perform health checks
+
+    component_checks:
+      - "rust_daemon"
+      - "mcp_server"
+      - "grpc_communication"
+      - "sqlite_database"
+      - "lsp_servers"
+      - "file_system_access"
+      # Valid values: array of component names to monitor
+      # Purpose: Components to include in health monitoring
+
+  # Performance metrics
+  performance_metrics:
+    enabled: true
+    # Valid values: true, false
+    # Default: true
+    # Purpose: Collect and report performance metrics
+
+    metrics_retention: "7d"
+    # Valid values: 1-30 days in format "Nd" (e.g., "7d")
+    # Default: "7d"
+    # Purpose: How long to retain performance metrics
+
+    collected_metrics:
+      - "memory_usage"
+      - "cpu_usage"
+      - "disk_io"
+      - "network_io"
+      - "processing_throughput"
+      - "search_response_times"
+      - "error_rates"
+      # Valid values: array of metric names
+      # Purpose: Performance metrics to collect
+
   # Logging configuration
   logging:
+    enabled: true
+    # Valid values: true, false
+    # Default: true
+    # Purpose: Enable system logging
+
     level: "info"
     # Valid values: "trace", "debug", "info", "warn", "error"
     # Default: "info"
-    # Purpose: Minimum log level to output
+    # Purpose: Minimum log level to record
 
-    json_format: false
-    # Valid values: true, false
-    # Default: false
-    # Purpose: Use JSON format for structured logging
-
-    enable_file_logging: true
+    file_rotation: true
     # Valid values: true, false
     # Default: true
-    # Purpose: Enable logging to files
+    # Purpose: Enable log file rotation
 
-    max_file_size_mb: 100
-    # Valid values: 1-1000 MB
-    # Default: 100
-    # Purpose: Maximum log file size before rotation
+    max_file_size: "10MB"
+    # Valid values: 1-100 MB in format "NMB" (e.g., "10MB")
+    # Default: "10MB"
+    # Purpose: Maximum size for individual log files
 
     max_files: 5
-    # Valid values: 1-50 files
+    # Valid values: 1-20 files
     # Default: 5
-    # Purpose: Maximum number of log files to keep
+    # Purpose: Maximum number of rotated log files to keep
 
-  # Metrics collection
-  metrics:
+    structured_logging: true
+    # Valid values: true, false
+    # Default: true
+    # Purpose: Use structured (JSON) log format
+
+  # Error tracking and reporting
+  error_tracking:
     enabled: true
     # Valid values: true, false
     # Default: true
-    # Purpose: Enable metrics collection
+    # Purpose: Track and categorize errors
 
-    collection_interval_seconds: 60
-    # Valid values: 10-3600 seconds
-    # Default: 60
-    # Purpose: Interval for metrics collection
-
-    retention_days: 30
-    # Valid values: 1-365 days
-    # Default: 30
-    # Purpose: How long to retain collected metrics
-
-  # Health checks
-  health_checks:
-    enabled: true
+    error_categorization: true
     # Valid values: true, false
     # Default: true
-    # Purpose: Enable component health monitoring
+    # Purpose: Automatically categorize errors by type and severity
 
-    check_interval_seconds: 30
-    # Valid values: 5-300 seconds
-    # Default: 30
-    # Purpose: Interval for health check execution
+    error_reporting: "local_only"
+    # Valid values: "local_only", "opt_in_telemetry", "disabled"
+    # Default: "local_only"
+    # Purpose: How to handle error reporting
 
-    failure_threshold: 3
-    # Valid values: 1-10 failures
-    # Default: 3
-    # Purpose: Number of consecutive failures before marking unhealthy
+    crash_dumps: true
+    # Valid values: true, false
+    # Default: true
+    # Purpose: Generate crash dumps for debugging
+
+  # Diagnostics and troubleshooting
+  diagnostics:
+    self_test_on_startup: true
+    # Valid values: true, false
+    # Default: true
+    # Purpose: Run self-tests during system startup
+
+    diagnostic_commands:
+      enabled: true
+      # Valid values: true, false
+      # Default: true
+      # Purpose: Enable diagnostic CLI commands
+
+      include_system_info: true
+      # Valid values: true, false
+      # Default: true
+      # Purpose: Include system information in diagnostics
+
+      include_config_validation: true
+      # Valid values: true, false
+      # Default: true
+      # Purpose: Include configuration validation in diagnostics
+
+    troubleshooting_guides: true
+    # Valid values: true, false
+    # Default: true
+    # Purpose: Include built-in troubleshooting guides
+
+    support_bundle_generation: true
+    # Valid values: true, false
+    # Default: true
+    # Purpose: Enable generation of support bundles for debugging
+
+# =============================================================================
+# END OF CONFIGURATION
+# =============================================================================
