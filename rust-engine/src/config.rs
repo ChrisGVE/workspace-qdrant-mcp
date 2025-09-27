@@ -972,7 +972,7 @@ impl Default for AutoIngestionConfig {
             enabled: true,
             auto_create_watches: true,
             project_path: None,
-            target_collection_suffix: "repo".to_string(),
+            target_collection_suffix: "scratchbook".to_string(),
             include_source_files: true,
             include_common_files: true,
             include_patterns: vec![

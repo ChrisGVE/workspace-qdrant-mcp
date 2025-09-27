@@ -252,7 +252,7 @@ class GrpcConfig(BaseModel):
         - File watching: Native filesystem event handling
     """
 
-    enabled: bool = False
+    enabled: bool = True
     host: str = "127.0.0.1"
     port: int = 50051
     fallback_to_direct: bool = True
@@ -292,7 +292,7 @@ class AutoIngestionConfig(BaseModel):
     auto_create_watches: bool = True
     include_common_files: bool = True
     include_source_files: bool = False
-    target_collection_suffix: str = ""  # Which collection suffix to use for auto-ingestion when multiple are available
+    target_collection_suffix: str = "scratchbook"  # Which collection suffix to use for auto-ingestion when multiple are available
     max_files_per_batch: int = 5
     batch_delay_seconds: float = 2.0
     max_file_size_mb: int = 50
