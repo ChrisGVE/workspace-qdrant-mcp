@@ -25,7 +25,7 @@ impl FromStr for SizeUnit {
             return Err("Empty size string".to_string());
         }
 
-        // Extract number and unit
+        // Extract number and unit - support both long and short forms
         let (num_str, unit) = if s.ends_with("TB") {
             (&s[..s.len() - 2], 1_099_511_627_776)
         } else if s.ends_with("GB") {
@@ -34,6 +34,14 @@ impl FromStr for SizeUnit {
             (&s[..s.len() - 2], 1_048_576)
         } else if s.ends_with("KB") {
             (&s[..s.len() - 2], 1_024)
+        } else if s.ends_with('T') && !s.ends_with("TB") {
+            (&s[..s.len() - 1], 1_099_511_627_776)
+        } else if s.ends_with('G') && !s.ends_with("GB") {
+            (&s[..s.len() - 1], 1_073_741_824)
+        } else if s.ends_with('M') && !s.ends_with("MB") {
+            (&s[..s.len() - 1], 1_048_576)
+        } else if s.ends_with('K') && !s.ends_with("KB") {
+            (&s[..s.len() - 1], 1_024)
         } else if s.ends_with('B') {
             (&s[..s.len() - 1], 1)
         } else {
@@ -92,15 +100,17 @@ impl FromStr for TimeUnit {
             return Err("Empty time string".to_string());
         }
 
-        // Extract number and unit
+        // Extract number and unit - support ms, s, m, h, d formats
         let (num_str, unit_ms) = if s.ends_with("ms") {
             (&s[..s.len() - 2], 1)
-        } else if s.ends_with('s') {
+        } else if s.ends_with('s') && !s.ends_with("ms") {
             (&s[..s.len() - 1], 1_000)
         } else if s.ends_with('m') {
             (&s[..s.len() - 1], 60_000)
         } else if s.ends_with('h') {
             (&s[..s.len() - 1], 3_600_000)
+        } else if s.ends_with('d') {
+            (&s[..s.len() - 1], 86_400_000)  // 24 * 60 * 60 * 1000
         } else {
             // No unit, assume seconds
             (s, 1_000)
@@ -116,7 +126,9 @@ impl FromStr for TimeUnit {
 impl fmt::Display for TimeUnit {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         let ms = self.0;
-        if ms >= 3_600_000 {
+        if ms >= 86_400_000 {
+            write!(f, "{}d", ms / 86_400_000)
+        } else if ms >= 3_600_000 {
             write!(f, "{}h", ms / 3_600_000)
         } else if ms >= 60_000 {
             write!(f, "{}m", ms / 60_000)
@@ -265,7 +277,7 @@ pub struct ConversationalUpdatesConfig {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ConflictResolutionConfig {
     pub strategy: String,
-    pub user_prompt_timeout_seconds: u64,
+    pub user_prompt_timeout: TimeUnit,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -280,14 +292,14 @@ pub struct RuleScopeConfig {
     pub all_sessions: bool,
     pub project_specific: bool,
     pub temporary_rules: bool,
-    pub temporary_rule_duration_hours: u64,
+    pub temporary_rule_duration: TimeUnit,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SessionInitializationConfig {
     pub rule_injection_enabled: bool,
     pub conflict_detection_on_startup: bool,
-    pub startup_timeout_seconds: u64,
+    pub startup_timeout: TimeUnit,
 }
 
 // =============================================================================
@@ -419,7 +431,7 @@ pub struct ServerOverrideConfig {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct LspHealthMonitoringConfig {
     pub enabled: bool,
-    pub check_interval_seconds: u64,
+    pub check_interval: TimeUnit,
     pub automatic_recovery: bool,
     pub max_restart_attempts: u8,
 }
@@ -547,7 +559,7 @@ pub struct IncrementalUpdatesConfig {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct DebouncingConfig {
-    pub delay_ms: u64,
+    pub delay: TimeUnit,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -628,16 +640,16 @@ pub struct PerformanceConfig {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct MemoryPerformanceConfig {
-    pub max_rss_mb: u32,
-    pub warning_threshold_mb: u32,
-    pub gc_threshold_mb: u32,
+    pub max_rss: SizeUnit,
+    pub warning_threshold: SizeUnit,
+    pub gc_threshold: SizeUnit,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct StartupConfig {
-    pub daemon_init_timeout_seconds: u64,
-    pub mcp_server_init_timeout_seconds: u64,
-    pub health_check_timeout_seconds: u64,
+    pub daemon_init_timeout: TimeUnit,
+    pub mcp_server_init_timeout: TimeUnit,
+    pub health_check_timeout: TimeUnit,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -763,17 +775,17 @@ pub struct GrpcServerConfig {
     pub host: String,
     pub port: u16,
     pub max_concurrent_streams: u32,
-    pub max_message_size_mb: u32,
+    pub max_message_size: SizeUnit,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct GrpcClientConfig {
-    pub connection_timeout_seconds: u64,
-    pub request_timeout_seconds: u64,
-    pub keepalive_interval_seconds: u64,
-    pub keepalive_timeout_seconds: u64,
+    pub connection_timeout: TimeUnit,
+    pub request_timeout: TimeUnit,
+    pub keepalive_interval: TimeUnit,
+    pub keepalive_timeout: TimeUnit,
     pub max_retry_attempts: u8,
-    pub retry_backoff_ms: u64,
+    pub retry_backoff: TimeUnit,
 }
 
 // =============================================================================
@@ -793,7 +805,7 @@ pub struct ExternalServicesConfig {
 pub struct QdrantServiceConfig {
     pub url: String,
     pub api_key: Option<String>,
-    pub timeout_seconds: u64,
+    pub timeout: TimeUnit,
     pub max_retries: u8,
 }
 
@@ -826,7 +838,7 @@ pub struct MonitoringConfig {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct HealthChecksConfig {
     pub enabled: bool,
-    pub check_interval_seconds: u64,
+    pub check_interval: TimeUnit,
     pub failure_threshold: u8,
 }
 
@@ -890,7 +902,7 @@ impl Default for MemoryConfig {
             },
             conflict_resolution: ConflictResolutionConfig {
                 strategy: "merge_conditional".to_string(),
-                user_prompt_timeout_seconds: 30,
+                user_prompt_timeout: TimeUnit(30_000),
             },
             token_management: TokenManagementConfig {
                 max_tokens: 2000,
@@ -901,12 +913,12 @@ impl Default for MemoryConfig {
                 all_sessions: true,
                 project_specific: true,
                 temporary_rules: true,
-                temporary_rule_duration_hours: 24,
+                temporary_rule_duration: TimeUnit(24 * 60 * 60 * 1000),
             },
             session_initialization: SessionInitializationConfig {
                 rule_injection_enabled: true,
                 conflict_detection_on_startup: true,
-                startup_timeout_seconds: 10,
+                startup_timeout: TimeUnit(10_000),
             },
         }
     }
@@ -984,7 +996,7 @@ impl Default for LspIntegrationConfig {
             },
             health_monitoring: LspHealthMonitoringConfig {
                 enabled: true,
-                check_interval_seconds: 30,
+                check_interval: TimeUnit(30_000),
                 automatic_recovery: true,
                 max_restart_attempts: 3,
             },
@@ -1053,7 +1065,7 @@ impl Default for DocumentProcessingConfig {
                     modification_time_tracking: true,
                     process_only_changes: true,
                 },
-                debouncing: DebouncingConfig { delay_ms: 500 },
+                debouncing: DebouncingConfig { delay: TimeUnit(500) },
             },
             chunking: ChunkingConfig {
                 default_chunk_size: 1000,
@@ -1109,14 +1121,14 @@ impl Default for PerformanceConfig {
     fn default() -> Self {
         Self {
             memory: MemoryPerformanceConfig {
-                max_rss_mb: 500,
-                warning_threshold_mb: 400,
-                gc_threshold_mb: 350,
+                max_rss: SizeUnit(500 * 1024 * 1024),
+                warning_threshold: SizeUnit(400 * 1024 * 1024),
+                gc_threshold: SizeUnit(350 * 1024 * 1024),
             },
             startup: StartupConfig {
-                daemon_init_timeout_seconds: 2,
-                mcp_server_init_timeout_seconds: 5,
-                health_check_timeout_seconds: 1,
+                daemon_init_timeout: TimeUnit(2_000),
+                mcp_server_init_timeout: TimeUnit(5_000),
+                health_check_timeout: TimeUnit(1_000),
             },
             cpu: CpuConfig {
                 background_priority: "low".to_string(),
@@ -1191,15 +1203,15 @@ impl Default for GrpcConfig {
                 host: "127.0.0.1".to_string(),
                 port: 50051,
                 max_concurrent_streams: 100,
-                max_message_size_mb: 16,
+                max_message_size: SizeUnit(16 * 1024 * 1024),
             },
             client: GrpcClientConfig {
-                connection_timeout_seconds: 5,
-                request_timeout_seconds: 30,
-                keepalive_interval_seconds: 30,
-                keepalive_timeout_seconds: 5,
+                connection_timeout: TimeUnit(5_000),
+                request_timeout: TimeUnit(30_000),
+                keepalive_interval: TimeUnit(30_000),
+                keepalive_timeout: TimeUnit(5_000),
                 max_retry_attempts: 3,
-                retry_backoff_ms: 1000,
+                retry_backoff: TimeUnit(1_000),
             },
         }
     }
@@ -1211,7 +1223,7 @@ impl Default for ExternalServicesConfig {
             qdrant: QdrantServiceConfig {
                 url: "http://localhost:6333".to_string(),
                 api_key: None,
-                timeout_seconds: 30,
+                timeout: TimeUnit(30_000),
                 max_retries: 3,
             },
             embeddings: EmbeddingsConfig {
@@ -1241,7 +1253,7 @@ impl Default for MonitoringConfig {
             },
             health_checks: HealthChecksConfig {
                 enabled: true,
-                check_interval_seconds: 30,
+                check_interval: TimeUnit(30_000),
                 failure_threshold: 3,
             },
         }
@@ -1379,8 +1391,8 @@ impl DaemonConfig {
             host: self.grpc.server.host.clone(),
             port: self.grpc.server.port,
             max_connections: 1000,
-            connection_timeout_secs: self.grpc.client.connection_timeout_seconds,
-            request_timeout_secs: self.grpc.client.request_timeout_seconds,
+            connection_timeout_secs: self.grpc.client.connection_timeout.0 / 1000,
+            request_timeout_secs: self.grpc.client.request_timeout.0 / 1000,
             enable_tls: false,
             security: SecurityConfig::default(),
             transport: TransportConfig::default(),
@@ -1406,7 +1418,7 @@ impl DaemonConfig {
         QdrantConfig {
             url: self.external_services.qdrant.url.clone(),
             api_key: self.external_services.qdrant.api_key.clone(),
-            timeout_secs: self.external_services.qdrant.timeout_seconds,
+            timeout_secs: self.external_services.qdrant.timeout.0 / 1000,
             max_retries: self.external_services.qdrant.max_retries as u32,
             default_collection: CollectionConfig {
                 vector_size: 384, // Default for all-MiniLM-L6-v2
@@ -1439,7 +1451,7 @@ impl DaemonConfig {
     pub fn get_legacy_file_watcher_config(&self) -> FileWatcherConfig {
         FileWatcherConfig {
             enabled: self.document_processing.file_watching.enabled,
-            debounce_ms: self.document_processing.file_watching.debouncing.delay_ms,
+            debounce_ms: self.document_processing.file_watching.debouncing.delay.0,
             max_watched_dirs: 100,
             ignore_patterns: vec![
                 "target/**".to_string(),
@@ -1530,9 +1542,14 @@ mod tests {
     fn test_time_unit_parsing() {
         assert_eq!("100ms".parse::<TimeUnit>().unwrap().0, 100);
         assert_eq!("1s".parse::<TimeUnit>().unwrap().0, 1000);
+        assert_eq!("1d".parse::<TimeUnit>().unwrap().0, 86_400_000);
         assert_eq!("1m".parse::<TimeUnit>().unwrap().0, 60000);
         assert_eq!("1h".parse::<TimeUnit>().unwrap().0, 3600000);
         assert_eq!("10".parse::<TimeUnit>().unwrap().0, 10000); // Default to seconds
+        assert_eq!("1T".parse::<SizeUnit>().unwrap().0, 1024_u64.pow(4));
+        assert_eq!("1G".parse::<SizeUnit>().unwrap().0, 1024 * 1024 * 1024);
+        assert_eq!("1M".parse::<SizeUnit>().unwrap().0, 1024 * 1024);
+        assert_eq!("1K".parse::<SizeUnit>().unwrap().0, 1024);
     }
 
     #[test]
@@ -1573,8 +1590,8 @@ mod tests {
         assert!(config.search.hybrid.enabled);
         assert_eq!(config.search.hybrid.fusion_algorithm, "rrf");
 
-        assert_eq!(config.performance.memory.max_rss_mb, 500);
-        assert_eq!(config.performance.startup.daemon_init_timeout_seconds, 2);
+        assert_eq!(config.performance.memory.max_rss.0, 500 * 1024 * 1024);
+        assert_eq!(config.performance.startup.daemon_init_timeout.0, 2_000);
 
         assert!(config.platform.xdg_compliance.enabled);
         assert!(config.platform.xdg_compliance.fallback_on_windows_mac);
@@ -1639,6 +1656,7 @@ mod tests {
         assert_eq!(TimeUnit(1000).to_string(), "1s");
         assert_eq!(TimeUnit(60000).to_string(), "1m");
         assert_eq!(TimeUnit(3600000).to_string(), "1h");
+        assert_eq!(TimeUnit(86400000).to_string(), "1d");
     }
 
     #[test]

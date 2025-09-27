@@ -152,11 +152,11 @@ impl SystemService for SystemServiceImpl {
 
         // Convert configuration to string map
         let mut configuration = std::collections::HashMap::new();
-        configuration.insert("server.host".to_string(), config.server.host.clone());
-        configuration.insert("server.port".to_string(), config.server.port.to_string());
-        configuration.insert("qdrant.url".to_string(), config.qdrant.url.clone());
-        configuration.insert("database.sqlite_path".to_string(), config.database.sqlite_path.clone());
-        configuration.insert("processing.max_concurrent_tasks".to_string(), config.processing.max_concurrent_tasks.to_string());
+        configuration.insert("server.host".to_string(), config.server().host.clone());
+        configuration.insert("server.port".to_string(), config.server().port.to_string());
+        configuration.insert("qdrant.url".to_string(), config.qdrant().url.clone());
+        configuration.insert("database.sqlite_path".to_string(), config.database().sqlite_path.clone());
+        configuration.insert("processing.max_concurrent_tasks".to_string(), config.processing().max_concurrent_tasks.to_string());
 
         let response = ConfigResponse {
             configuration,
@@ -301,6 +301,7 @@ mod tests {
                 ignore_patterns: vec![],
                 recursive: true,
             },
+            auto_ingestion: crate::config::AutoIngestionConfig::default(),
             metrics: MetricsConfig {
                 enabled: false,
                 collection_interval_secs: 60,

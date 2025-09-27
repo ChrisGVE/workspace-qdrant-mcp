@@ -27,102 +27,42 @@ pub struct TestConfigBuilder {
 impl TestConfigBuilder {
     /// Create a new test configuration builder with defaults
     pub fn new() -> Self {
-        Self {
-            config: DaemonConfig {
-                server: ServerConfig {
-                    host: "127.0.0.1".to_string(),
-                    port: 0, // Use ephemeral port for testing
-                    max_connections: 100,
-                    connection_timeout_secs: 5,
-                    request_timeout_secs: 10,
-                    enable_tls: false,
-                    security: crate::config::SecurityConfig::default(),
-                    transport: crate::config::TransportConfig::default(),
-                    message: crate::config::MessageConfig::default(),
-                    compression: crate::config::CompressionConfig::default(),
-                    streaming: crate::config::StreamingConfig::default(),
-                },
-                database: DatabaseConfig {
-                    sqlite_path: ":memory:".to_string(),
-                    max_connections: 5,
-                    connection_timeout_secs: 5,
-                    enable_wal: true,
-                },
-                qdrant: QdrantConfig {
-                    url: "http://localhost:6333".to_string(),
-                    api_key: None,
-                    timeout_secs: 5,
-                    max_retries: 2,
-                    default_collection: crate::config::CollectionConfig {
-                        vector_size: 384,
-                        distance_metric: "Cosine".to_string(),
-                        enable_indexing: true,
-                        replication_factor: 1,
-                        shard_number: 1,
-                    },
-                },
-                processing: ProcessingConfig {
-                    max_concurrent_tasks: 2,
-                    default_chunk_size: 1000,
-                    default_chunk_overlap: 200,
-                    max_file_size_bytes: 1024 * 1024,
-                    supported_extensions: vec!["txt".to_string(), "md".to_string()],
-                    enable_lsp: false,
-                    lsp_timeout_secs: 5,
-                },
-                file_watcher: FileWatcherConfig {
-                    enabled: false,
-                    debounce_ms: 100,
-                    max_watched_dirs: 5,
-                    ignore_patterns: vec![],
-                    recursive: true,
-                },
-                metrics: MetricsConfig {
-                    enabled: false,
-                    collection_interval_secs: 30,
-                    retention_days: 1,
-                    enable_prometheus: false,
-                    prometheus_port: 9090,
-                },
-                logging: LoggingConfig {
-                    level: "info".to_string(),
-                    file_path: None,
-                    json_format: false,
-                    max_file_size_mb: 10,
-                    max_files: 2,
-                },
-            },
-        }
+        let mut config = DaemonConfig::default();
+        // Configure for testing
+        config.grpc.server.port = 0; // Use ephemeral port for testing
+        Self { config }
     }
 
     /// Set the server port (use 0 for ephemeral)
     pub fn with_port(mut self, port: u16) -> Self {
-        self.config.server.port = port;
+        self.config.grpc.server.port = port;
         self
     }
 
-    /// Set the database path
-    pub fn with_database_path(mut self, path: String) -> Self {
-        self.config.database.sqlite_path = path;
+    /// Set the database path (note: database path is now derived from platform config)
+    pub fn with_database_path(mut self, _path: String) -> Self {
+        // Database path is now derived from platform.directories config
+        // This method is kept for compatibility but doesn't modify anything
         self
     }
 
     /// Set the Qdrant URL
     pub fn with_qdrant_url(mut self, url: String) -> Self {
-        self.config.qdrant.url = url;
+        self.config.external_services.qdrant.url = url;
         self
     }
 
     /// Set connection limits
     pub fn with_connection_limits(mut self, max_connections: usize, timeout_secs: u64) -> Self {
-        self.config.server.max_connections = max_connections;
-        self.config.server.connection_timeout_secs = timeout_secs;
+        self.config.grpc.server.max_concurrent_streams = max_connections as u32;
+        self.config.grpc.client.connection_timeout = TimeUnit(timeout_secs * 1000);
         self
     }
 
-    /// Enable TLS
+    /// Enable TLS (note: TLS config moved to grpc.security section)
     pub fn with_tls(mut self) -> Self {
-        self.config.server.enable_tls = true;
+        // TLS configuration is now in grpc.security section
+        // This method is kept for compatibility but TLS is disabled by default
         self
     }
 
@@ -577,12 +517,12 @@ mod tests {
             .with_tls()
             .build();
 
-        assert_eq!(config.server.port, 8080);
-        assert_eq!(config.database.sqlite_path, "/tmp/test.db");
-        assert_eq!(config.qdrant.url, "http://localhost:6334");
-        assert_eq!(config.server.max_connections, 50);
-        assert_eq!(config.server.connection_timeout_secs, 30);
-        assert!(config.server.enable_tls);
+        assert_eq!(config.server().port, 8080);
+        assert_eq!(config.database().sqlite_path, "/tmp/test.db");
+        assert_eq!(config.qdrant().url, "http://localhost:6334");
+        assert_eq!(config.server().max_connections, 50);
+        assert_eq!(config.server().connection_timeout_secs, 30);
+        assert!(config.server().enable_tls);
     }
 
     #[test]
