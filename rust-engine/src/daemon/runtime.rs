@@ -172,6 +172,9 @@ pub struct CommunicationHub {
     system_commands: mpsc::UnboundedSender<SystemCommand>,
     /// System status updates
     system_status: watch::Sender<SystemStatus>,
+    /// Keep a receiver alive to prevent channel closure
+    #[allow(dead_code)]
+    system_status_receiver: watch::Receiver<SystemStatus>,
     /// Global notification system
     global_notify: Arc<Notify>,
     /// Message queues for task-to-task communication (future use)
@@ -770,12 +773,13 @@ impl CommunicationHub {
     pub async fn new() -> DaemonResult<Self> {
         let (task_events, _) = broadcast::channel(10000);
         let (system_commands, _) = mpsc::unbounded_channel();
-        let (system_status, _) = watch::channel(SystemStatus::Initializing);
+        let (system_status, system_status_receiver) = watch::channel(SystemStatus::Initializing);
 
         Ok(Self {
             task_events,
             system_commands,
             system_status,
+            system_status_receiver,
             global_notify: Arc::new(Notify::new()),
             message_queues: RwLock::new(HashMap::new()),
         })
