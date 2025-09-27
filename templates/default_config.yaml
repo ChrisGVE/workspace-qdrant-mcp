@@ -1,163 +1,390 @@
-# Unified Configuration for Workspace Qdrant MCP
-# This configuration file supports both Rust daemon and Python MCP server
+# Complete Workspace Qdrant Daemon Configuration
+# This configuration matches ALL Rust configuration structs exactly
 
-# Server configuration (Python MCP server)
-host: "127.0.0.1"
-port: 8000
-debug: false
+# Main server configuration
+server:
+  # gRPC server host
+  host: "127.0.0.1"
 
-# Qdrant database connection settings
+  # gRPC server port
+  port: 50051
+
+  # Maximum number of concurrent connections
+  max_connections: 1000
+
+  # Connection timeout in seconds
+  connection_timeout_secs: 30
+
+  # Request timeout in seconds
+  request_timeout_secs: 300
+
+  # Enable TLS
+  enable_tls: false
+
+  # Security configuration
+  security:
+    # TLS configuration
+    tls:
+      cert_file: null
+      key_file: null
+      ca_cert_file: null
+      enable_mtls: false
+      client_cert_verification: "None"  # None, Optional, Required
+      supported_protocols: ["TLSv1.2", "TLSv1.3"]
+      cipher_suites: []
+
+    # Authentication configuration
+    auth:
+      enable_service_auth: false
+      jwt:
+        secret_or_key_file: "changeme_jwt_secret"
+        issuer: "workspace-qdrant-mcp"
+        audience: "workspace-qdrant-clients"
+        expiration_secs: 3600
+        algorithm: "HS256"
+      api_key:
+        enabled: false
+        header_name: "X-API-Key"
+        valid_keys: []
+        key_permissions: {}
+      authorization:
+        enabled: false
+        default_permissions: ["read", "write"]
+        service_permissions:
+          document_processor: ["process", "read"]
+          search_service: ["search", "read"]
+          memory_service: ["read", "write", "delete"]
+          system_service: ["admin", "read"]
+
+    # Rate limiting configuration
+    rate_limiting:
+      enabled: true
+      requests_per_second: 100
+      burst_capacity: 200
+      connection_pool_limits:
+        document_processor: 50
+        search_service: 100
+        memory_service: 75
+        system_service: 25
+      queue_depth_limit: 1000
+      memory_protection:
+        enabled: true
+        max_memory_per_connection: 104857600  # 100MB
+        total_memory_limit: 1073741824  # 1GB
+        cleanup_interval_secs: 300
+      resource_protection:
+        enabled: true
+        cpu_threshold_percent: 80.0
+        disk_threshold_percent: 90.0
+        circuit_breaker_failure_threshold: 5
+        circuit_breaker_timeout_secs: 60
+
+    # Security audit configuration
+    audit:
+      enabled: true
+      log_file_path: "./security_audit.log"
+      log_auth_events: true
+      log_auth_failures: true
+      log_rate_limit_events: true
+      log_suspicious_patterns: true
+      rotation:
+        max_file_size_mb: 100
+        max_files: 10
+        compress: true
+
+  # Transport configuration
+  transport:
+    unix_socket:
+      enabled: true
+      socket_path: "/tmp/workspace-qdrant-mcp.sock"
+      permissions: 384  # 0o600 in decimal
+      prefer_for_local: true
+    local_optimization:
+      enabled: true
+      use_large_buffers: true
+      local_buffer_size: 65536  # 64KB
+      memory_efficient_serialization: true
+      reduce_latency:
+        disable_nagle: true
+        custom_connection_pooling: true
+        connection_pool_size: 10
+        keepalive_interval_secs: 30
+    transport_strategy: "Auto"  # Auto, ForceTcp, ForceUnixSocket, UnixSocketWithTcpFallback
+
+  # Message configuration
+  message:
+    # Message size limits (16MB default)
+    max_incoming_message_size: 16777216
+    max_outgoing_message_size: 16777216
+    enable_size_validation: true
+
+    # HTTP/2 frame configuration
+    max_frame_size: 16384  # 16KB
+    initial_window_size: 65536  # 64KB
+
+    # Service-specific message limits
+    service_limits:
+      document_processor:
+        max_incoming: 67108864  # 64MB for large documents
+        max_outgoing: 33554432   # 32MB for processed responses
+        enable_validation: true
+      search_service:
+        max_incoming: 4194304    # 4MB for search queries
+        max_outgoing: 16777216   # 16MB for search results
+        enable_validation: true
+      memory_service:
+        max_incoming: 8388608    # 8MB for memory operations
+        max_outgoing: 8388608    # 8MB for memory responses
+        enable_validation: true
+      system_service:
+        max_incoming: 1048576    # 1MB for system commands
+        max_outgoing: 4194304    # 4MB for system responses
+        enable_validation: true
+
+    # Size monitoring and alerting
+    monitoring:
+      enable_detailed_monitoring: true
+      oversized_alert_threshold: 0.8  # Alert at 80% of limit
+      enable_realtime_metrics: true
+      metrics_interval_secs: 60
+
+  # Compression configuration
+  compression:
+    enable_gzip: true
+    compression_threshold: 1024  # Compress messages larger than 1KB
+    compression_level: 6  # Medium compression level
+    enable_streaming_compression: true
+    enable_compression_monitoring: true
+
+    # Adaptive compression
+    adaptive:
+      enable_adaptive: true
+      text_compression_level: 9   # High compression for text
+      binary_compression_level: 3 # Low compression for binary
+      structured_compression_level: 6 # Medium for JSON/structured
+      max_compression_time_ms: 100
+
+    # Compression performance monitoring
+    performance:
+      enable_ratio_tracking: true
+      poor_ratio_threshold: 0.9 # Alert if compression ratio > 90%
+      enable_time_monitoring: true
+      slow_compression_threshold_ms: 200 # Alert if compression > 200ms
+      enable_failure_alerting: true
+
+  # Streaming configuration
+  streaming:
+    enable_server_streaming: true
+    enable_client_streaming: true
+    max_concurrent_streams: 128
+    stream_buffer_size: 1000
+    stream_timeout_secs: 300  # 5 minutes
+    enable_flow_control: true
+
+    # Progress tracking
+    progress:
+      enable_progress_tracking: true
+      progress_update_interval_ms: 1000  # 1 second updates
+      enable_progress_callbacks: true
+      progress_threshold: 1048576  # 1MB minimum for progress tracking
+
+    # Stream health monitoring
+    health:
+      enable_health_monitoring: true
+      health_check_interval_secs: 30
+      enable_auto_recovery: true
+      max_recovery_attempts: 3
+      recovery_backoff_multiplier: 2.0
+      initial_recovery_delay_ms: 500
+
+    # Large operation streaming
+    large_operations:
+      enable_large_document_streaming: true
+      large_operation_chunk_size: 1048576  # 1MB chunks
+      enable_bulk_streaming: true
+      max_streaming_memory: 134217728  # 128MB memory limit
+      enable_bidirectional_optimization: true
+
+# Database configuration
+database:
+  # SQLite database file path
+  sqlite_path: "./workspace_daemon.db"
+
+  # Maximum number of database connections
+  max_connections: 10
+
+  # Connection timeout in seconds
+  connection_timeout_secs: 30
+
+  # Enable WAL mode for better concurrency
+  enable_wal: true
+
+# Qdrant configuration
 qdrant:
+  # Qdrant server URL
   url: "http://localhost:6333"
-  api_key: null  # Set via WORKSPACE_QDRANT_QDRANT__API_KEY environment variable
-  timeout: 30
-  prefer_grpc: false
 
-# Daemon configuration and behavior (Rust daemon)
-daemon:
-  # SQLite database for state persistence
-  database_path: "~/.config/workspace-qdrant/state.db"
-  
-  # Processing configuration
-  max_concurrent_jobs: 4
-  job_timeout_seconds: 300
-  
-  # Priority levels for task management
-  priority_levels:
-    mcp_server: high
-    cli_commands: medium
-    background_watching: low
-    
-  # Resource limits
-  max_memory_mb: 1024
-  max_cpu_percent: 80
-  
-  # gRPC server settings
-  grpc:
-    host: "127.0.0.1"
-    port: 50051
-    max_message_size_mb: 100
+  # Qdrant API key (optional)
+  api_key: null
 
-# Embedding model configuration
-embedding:
-  model: "sentence-transformers/all-MiniLM-L6-v2"
-  enable_sparse_vectors: true
-  chunk_size: 800
-  chunk_overlap: 120
-  batch_size: 50
+  # Connection timeout in seconds
+  timeout_secs: 30
 
-# Collection management settings
-workspace:
-  collection_types: ["scratchbook"]
-  global_collections: []
-  github_user: null  # Set via WORKSPACE_QDRANT_WORKSPACE__GITHUB_USER
-  auto_create_collections: false
+  # Maximum number of retries
+  max_retries: 3
 
-# Folder watching configuration
-watching:
-  # Default watching behavior
-  auto_watch_project: true
-  debounce_seconds: 5
-  max_file_size_mb: 50
-  
-  # File patterns
+  # Default collection configuration
+  default_collection:
+    # Vector size for embeddings (384 for sentence-transformers/all-MiniLM-L6-v2)
+    vector_size: 384
+
+    # Distance metric (Cosine, Euclidean, Dot)
+    distance_metric: "Cosine"
+
+    # Enable payload indexing
+    enable_indexing: true
+
+    # Replication factor
+    replication_factor: 1
+
+    # Number of shards
+    shard_number: 1
+
+# Document processing configuration
+processing:
+  # Maximum number of concurrent processing tasks
+  max_concurrent_tasks: 4
+
+  # Default chunk size for documents
+  default_chunk_size: 1000
+
+  # Default chunk overlap
+  default_chunk_overlap: 200
+
+  # Maximum file size to process (100MB in bytes)
+  max_file_size_bytes: 104857600
+
+  # Supported file extensions
+  supported_extensions:
+    - "rs"
+    - "py"
+    - "js"
+    - "ts"
+    - "md"
+    - "txt"
+    - "pdf"
+    - "html"
+    - "json"
+    - "xml"
+
+  # Enable LSP integration
+  enable_lsp: true
+
+  # LSP server timeout in seconds
+  lsp_timeout_secs: 10
+
+# File watching configuration
+file_watcher:
+  # Enable file watching
+  enabled: true
+
+  # Debounce delay in milliseconds
+  debounce_ms: 500
+
+  # Maximum number of watched directories
+  max_watched_dirs: 100
+
+  # Patterns to ignore
+  ignore_patterns:
+    - "target/**"
+    - "node_modules/**"
+    - ".git/**"
+    - "*.tmp"
+    - "*.log"
+
+  # Enable recursive watching
+  recursive: true
+
+# Auto ingestion configuration
+auto_ingestion:
+  # Enable automatic ingestion and watch creation
+  enabled: true
+
+  # Automatically create watches for detected projects
+  auto_create_watches: true
+
+  # Project path to watch (if specified)
+  project_path: null
+
+  # Target collection suffix for auto-created collections
+  target_collection_suffix: "scratchbook"
+
+  # Include source files in watching
+  include_source_files: true
+
+  # Include common files (README, docs, etc.)
+  include_common_files: true
+
+  # File patterns to include
   include_patterns:
-    - "*.txt"
-    - "*.md"
-    - "*.pdf"
-    - "*.epub"
-    - "*.docx"
+    - "*.rs"
     - "*.py"
     - "*.js"
     - "*.ts"
-    - "*.html"
-    - "*.css"
-    
-  ignore_patterns:
-    - "*.tmp"
+    - "*.md"
+    - "*.txt"
+    - "*.json"
+    - "*.yaml"
+    - "*.yml"
+    - "*.toml"
+
+  # File patterns to exclude (in addition to standard ignores)
+  exclude_patterns:
+    - "target/**"
+    - "node_modules/**"
+    - ".git/**"
+    - "build/**"
+    - "dist/**"
     - "*.log"
-    - "*.cache"
-    - ".git/*"
-    - "node_modules/*"
-    - "__pycache__/*"
-    - "*.pyc"
-    - ".DS_Store"
-    
-  # Recursive watching settings
+    - "*.tmp"
+    - "*.lock"
+
+  # Enable recursive watching of subdirectories
   recursive: true
-  max_depth: 5
-  follow_symlinks: false
 
-# Chunking and processing settings
-processing:
-  chunk_size: 1000
-  chunk_overlap: 200
-  min_chunk_size: 100
-  
-  # File type specific settings
-  pdf:
-    extract_images: false
-    extract_tables: true
-    
-  docx:
-    extract_images: false
-    extract_styles: false
-    
-  code:
-    include_comments: true
-    language_detection: true
+  # Maximum depth for recursive watching (0 = unlimited)
+  max_depth: 10
 
-# gRPC configuration for communication between components
-grpc:
+# Metrics configuration
+metrics:
+  # Enable metrics collection
   enabled: true
-  host: "127.0.0.1"
-  port: 50051
-  fallback_to_direct: true
-  connection_timeout: 10.0
-  max_retries: 3
 
-# Auto-ingestion configuration
-auto_ingestion:
-  enabled: true
-  auto_create_watches: true
-  include_common_files: true
-  include_source_files: false
-  target_collection_suffix: "scratchbook"
-  max_files_per_batch: 5
-  batch_delay_seconds: 2.0
-  max_file_size_mb: 50
-  debounce_seconds: 10
+  # Metrics collection interval in seconds
+  collection_interval_secs: 60
 
-# Logging and observability
+  # Metrics retention period in days
+  retention_days: 30
+
+  # Enable Prometheus metrics export
+  enable_prometheus: true
+
+  # Prometheus metrics port
+  prometheus_port: 9090
+
+# Logging configuration
 logging:
-  level: "INFO"  # DEBUG, INFO, WARN, ERROR
-  format: "json"  # json, text
-  file_path: "~/.config/workspace-qdrant/logs/daemon.log"
-  max_file_size_mb: 10
-  backup_count: 5
-  
-  # Component-specific log levels
-  components:
-    qdrant_client: "WARN"
-    embedding: "INFO"
-    file_watcher: "INFO"
-    grpc_server: "WARN"
+  # Log level (trace, debug, info, warn, error)
+  level: "info"
 
-# Performance and monitoring settings
-monitoring:
-  enabled: true
-  metrics_port: 9090
-  health_check_interval_seconds: 60
-  
-  # Performance thresholds
-  thresholds:
-    max_response_time_ms: 1000
-    max_memory_usage_mb: 512
-    max_cpu_usage_percent: 70
+  # Log file path (optional)
+  file_path: "./workspace_daemon.log"
 
-# Development and debugging settings
-development:
-  debug_mode: false
-  profile_performance: false
-  mock_embedding: false
-  test_data_path: "tests/data"
+  # Enable JSON logging
+  json_format: false
+
+  # Maximum log file size in MB
+  max_file_size_mb: 100
+
+  # Maximum number of log files to keep
+  max_files: 5
