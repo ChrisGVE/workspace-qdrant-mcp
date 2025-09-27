@@ -1,390 +1,1020 @@
-# Complete Workspace Qdrant Daemon Configuration
-# This configuration matches ALL Rust configuration structs exactly
+# =============================================================================
+# WORKSPACE-QDRANT-MCP - COMPLETE SYSTEM CONFIGURATION
+# =============================================================================
+# Version: v2.0
+# Date: 2025-09-27
+#
+# This configuration file contains ONLY user-configurable options for the
+# complete workspace-qdrant-mcp system. Each option is fully documented with:
+# - Purpose and behavior
+# - Default values and valid ranges
+# - Examples and constraints
+# - Dependencies and cross-references
+# - Platform-specific considerations
+#
+# NOTE: File extensions, LSP configs, and exclusion patterns are embedded
+# compile-time assets and NOT configurable here. See PRDv3.txt for details.
+# =============================================================================
 
-# Main server configuration
-server:
-  # gRPC server host
-  host: "127.0.0.1"
+# =============================================================================
+# 1. SYSTEM ARCHITECTURE & CORE SETTINGS
+# =============================================================================
+system:
+  # System identification and versioning
+  project_name: "workspace-qdrant-mcp"
+  # Valid values: any string identifier for the system
+  # Default: "workspace-qdrant-mcp"
+  # Purpose: Used for logging, state management, and system identification
 
-  # gRPC server port
-  port: 50051
+  version: "v2.0"
+  # Valid values: semantic version string (vX.Y.Z)
+  # Default: current system version
+  # Purpose: Determines configuration compatibility and migration needs
 
-  # Maximum number of concurrent connections
-  max_connections: 1000
-
-  # Connection timeout in seconds
-  connection_timeout_secs: 30
-
-  # Request timeout in seconds
-  request_timeout_secs: 300
-
-  # Enable TLS
-  enable_tls: false
-
-  # Security configuration
-  security:
-    # TLS configuration
-    tls:
-      cert_file: null
-      key_file: null
-      ca_cert_file: null
-      enable_mtls: false
-      client_cert_verification: "None"  # None, Optional, Required
-      supported_protocols: ["TLSv1.2", "TLSv1.3"]
-      cipher_suites: []
-
-    # Authentication configuration
-    auth:
-      enable_service_auth: false
-      jwt:
-        secret_or_key_file: "changeme_jwt_secret"
-        issuer: "workspace-qdrant-mcp"
-        audience: "workspace-qdrant-clients"
-        expiration_secs: 3600
-        algorithm: "HS256"
-      api_key:
-        enabled: false
-        header_name: "X-API-Key"
-        valid_keys: []
-        key_permissions: {}
-      authorization:
-        enabled: false
-        default_permissions: ["read", "write"]
-        service_permissions:
-          document_processor: ["process", "read"]
-          search_service: ["search", "read"]
-          memory_service: ["read", "write", "delete"]
-          system_service: ["admin", "read"]
-
-    # Rate limiting configuration
-    rate_limiting:
+  # Four-component architecture enablement
+  components:
+    rust_daemon:
       enabled: true
-      requests_per_second: 100
-      burst_capacity: 200
-      connection_pool_limits:
-        document_processor: 50
-        search_service: 100
-        memory_service: 75
-        system_service: 25
-      queue_depth_limit: 1000
-      memory_protection:
+      # Valid values: true, false
+      # Default: true
+      # Purpose: Enable/disable the heavy processing Rust engine
+      # Dependencies: Required for file processing, LSP integration, and watching
+
+    python_mcp_server:
+      enabled: true
+      # Valid values: true, false
+      # Default: true
+      # Purpose: Enable/disable the intelligent interface layer
+      # Dependencies: Required for Claude Code integration and memory management
+
+    cli_utility:
+      enabled: true
+      # Valid values: true, false
+      # Default: true
+      # Purpose: Enable/disable the wqm CLI utility
+      # Dependencies: Can operate independently of other components
+
+    context_injector:
+      enabled: true
+      # Valid values: true, false
+      # Default: true
+      # Purpose: Enable/disable LLM context injection
+      # Dependencies: Requires memory collection for rule injection
+
+# =============================================================================
+# 2. MEMORY COLLECTION CONFIGURATION
+# =============================================================================
+memory:
+  # Core memory collection settings
+  collection_name: "llm_rules"
+  # Valid values: any valid collection name string
+  # Default: "llm_rules"
+  # Purpose: Global behavioral rules and user preferences storage
+  # Note: Configurable collection name for LLM behavioral rules and user preferences
+
+  # Authority levels for memory rules
+  authority_levels:
+    absolute:
+      enabled: true
+      # Valid values: true, false
+      # Default: true
+      # Purpose: Non-negotiable rules that always apply
+      # Examples: "Always make atomic commits", "Never commit secrets"
+
+    default:
+      enabled: true
+      # Valid values: true, false
+      # Default: true
+      # Purpose: Rules that apply unless explicitly overridden
+      # Examples: "Use pytest for new projects, unittest for existing"
+
+  # Conversational memory update settings
+  conversational_updates:
+    enabled: true
+    # Valid values: true, false
+    # Default: true
+    # Purpose: Allow memory rules to be updated through natural conversation
+
+    auto_conflict_detection: true
+    # Valid values: true, false
+    # Default: true
+    # Purpose: Automatically detect conflicts between new and existing rules
+    # Dependencies: Requires Claude/Sonnet API access for semantic analysis
+
+    immediate_activation: true
+    # Valid values: true, false
+    # Default: true
+    # Purpose: Apply memory changes to current session without restart
+
+  # Rule conflict resolution strategies
+  conflict_resolution:
+    strategy: "merge_conditional"
+    # Valid values: "merge_conditional", "replace_existing", "reject_new", "user_prompt"
+    # Default: "merge_conditional"
+    # Purpose: How to handle conflicts between memory rules
+    # Examples:
+    #   merge_conditional: Create conditional rules (recommended)
+    #   replace_existing: New rule overwrites old rule
+    #   reject_new: Keep existing rule, reject new rule
+    #   user_prompt: Present options to user for decision
+
+    user_prompt_timeout_seconds: 30
+    # Valid values: 10-300 seconds
+    # Default: 30
+    # Purpose: How long to wait for user input during conflict resolution
+
+  # Token management and optimization
+  token_management:
+    max_tokens: 2000
+    # Valid values: 500-8000 tokens
+    # Default: 2000
+    # Purpose: Maximum tokens for memory rules injection
+    # Considerations: Higher values provide more context but consume more tokens
+
+    optimization_enabled: true
+    # Valid values: true, false
+    # Default: true
+    # Purpose: Enable automatic token usage optimization
+
+    trim_interactive: true
+    # Valid values: true, false
+    # Default: true
+    # Purpose: Provide interactive trimming when approaching token limits
+
+  # Memory rule scoping
+  rule_scope:
+    all_sessions: true
+    # Valid values: true, false
+    # Default: true
+    # Purpose: Apply rules across all Claude Code sessions
+
+    project_specific: true
+    # Valid values: true, false
+    # Default: true
+    # Purpose: Allow project-specific memory rules
+
+    temporary_rules: true
+    # Valid values: true, false
+    # Default: true
+    # Purpose: Support temporary rules that expire after session/time
+
+    temporary_rule_duration_hours: 24
+    # Valid values: 1-168 hours (1 hour to 1 week)
+    # Default: 24
+    # Purpose: Default expiration time for temporary rules
+
+  # Session initialization settings
+  session_initialization:
+    rule_injection_enabled: true
+    # Valid values: true, false
+    # Default: true
+    # Purpose: Inject memory rules into Claude Code system context on startup
+
+    conflict_detection_on_startup: true
+    # Valid values: true, false
+    # Default: true
+    # Purpose: Check for rule conflicts during session initialization
+
+    startup_timeout_seconds: 10
+    # Valid values: 5-60 seconds
+    # Default: 10
+    # Purpose: Maximum time to spend on memory initialization
+
+# =============================================================================
+# 3. COLLECTION MANAGEMENT & MULTI-TENANCY
+# =============================================================================
+collections:
+  # Project collection naming and creation
+  root_name: "project"
+  # Valid values: any valid collection name string
+  # Default: "project"
+  # Purpose: Root name used for multi-tenant project collections
+  # Usage: Combined with types to create {root_name}-{type} collections
+
+  types: []
+  # Valid values: string or array of strings, empty means no collections created
+  # Default: [] (no project collections created by default)
+  # Purpose: Collection types to create for projects
+  # Examples: ["scratchbook", "docs", "notes"] creates project-scratchbook, project-docs, project-notes
+  # Note: If empty or not present, no project collections are automatically created
+
+  # Project content collection (for file artifacts)
+  project_content:
+    enabled: true
+    # Valid values: true, false
+    # Default: true
+    # Purpose: Enable multi-tenant project content collection for file artifacts
+
+    name: "project_content"
+    # Valid values: any valid collection name string
+    # Default: "project_content"
+    # Purpose: Base name for the shared, multi-tenant collection containing project artifacts
+    # Storage: System automatically creates "_project_content" (read-only from MCP perspective)
+    # Content: Non-excluded project files (code, documentation, configuration files)
+    # Multi-tenancy: Projects isolated via metadata filtering, not separate collections
+
+  # Reserved naming patterns and validation
+  naming:
+    collision_detection: true
+    # Valid values: true, false
+    # Default: true
+    # Purpose: Prevent duplicate collection names at server level
+    # Collision Rule: If "_collection_name" exists, "collection_name" cannot be created
+
+    validation_strict: true
+    # Valid values: true, false
+    # Default: true
+    # Purpose: Enforce strict naming rules vs. permissive validation
+
+  # Multi-tenancy isolation settings
+  multi_tenancy:
+    isolation_strategy: "metadata_filtering"
+    # Valid values: "metadata_filtering", "separate_collections"
+    # Default: "metadata_filtering"
+    # Purpose: How to isolate projects within collections
+    # metadata_filtering: Use metadata to filter within shared collections
+    # separate_collections: Create separate collections per project
+
+    cross_project_search: true
+    # Valid values: true, false
+    # Default: true
+    # Purpose: Allow searches across project boundaries when explicitly requested
+
+    tenant_metadata_fields:
+      - "project_id"
+      - "project_path"
+      - "git_repository"
+      # Valid values: array of metadata field names
+      # Default: ["project_id", "project_path", "git_repository"]
+      # Purpose: Metadata fields used for multi-tenant isolation
+
+# =============================================================================
+# 4. PROJECT DETECTION & MANAGEMENT
+# =============================================================================
+project_detection:
+  # Git-based project detection (primary method)
+  git_detection:
+    enabled: true
+    # Valid values: true, false
+    # Default: true
+    # Purpose: Use Git repositories as primary project detection method
+
+    priority: 1
+    # Valid values: 1-10 (1 = highest priority)
+    # Default: 1
+    # Purpose: Priority order for project detection methods
+
+    require_initialized: true
+    # Valid values: true, false
+    # Default: true
+    # Purpose: Require initialized Git repository, not just .git folder
+
+    scan_parent_directories: true
+    # Valid values: true, false
+    # Default: true
+    # Purpose: Scan parent directories to find project root
+
+    max_parent_scan_depth: 10
+    # Valid values: 1-50 directory levels
+    # Default: 10
+    # Purpose: Maximum levels to scan upward for project root
+
+  # GitHub user configuration for submodule handling
+  github_integration:
+    user: ""
+    # Valid values: GitHub username string or empty
+    # Default: ""
+    # Purpose: GitHub username for submodule ownership detection
+    # Usage: Determines which submodules are treated as user-owned projects
+
+    submodule_handling:
+      treat_as_independent_projects: true
+      # Valid values: true, false
+      # Default: true
+      # Purpose: Treat user-owned submodules as independent project tenants
+
+      ignore_external_submodules: true
+      # Valid values: true, false
+      # Default: true
+      # Purpose: Ignore submodules not owned by configured GitHub user
+
+      track_ownership_changes: true
+      # Valid values: true, false
+      # Default: true
+      # Purpose: Monitor submodule ownership changes (e.g., forks)
+
+  # Custom project indicators (fallback method)
+  custom_indicators:
+    enabled: true
+    # Valid values: true, false
+    # Default: true
+    # Purpose: Use custom file patterns to detect projects
+
+    priority: 2
+    # Valid values: 1-10 (1 = highest priority)
+    # Default: 2
+    # Purpose: Priority order for project detection methods
+
+    # NOTE: Project detection patterns are embedded assets from comprehensive research
+    # See: assets/internal_configuration.yaml for complete 500+ project indicator patterns
+    # Based on: research/languages/ comprehensive A-Z language ecosystem analysis
+
+    additional_patterns:
+      # Optional: Add custom project detection patterns beyond embedded defaults
+      # Default: [] (use embedded patterns from assets/internal_configuration.yaml)
+      # Purpose: Extend default patterns for custom or proprietary project types
+      custom_indicators: []
+      # Note: These patterns are embedded at compile-time for performance
+
+  # Project naming and collection creation
+  naming:
+    root_name_strategy: "directory_name"
+    # Valid values: "directory_name", "git_remote_name", "explicit_config"
+    # Default: "directory_name"
+    # Purpose: How to determine project root name for collection naming
+
+    collection_auto_creation: true
+    # Valid values: true, false
+    # Default: true
+    # Purpose: Automatically create project collections when MCP server starts
+
+    prevent_project_explosion: true
+    # Valid values: true, false
+    # Default: true
+    # Purpose: Prevent uncontrolled creation of project collections
+    # Implementation: Check if current folder is part of existing project
+
+# =============================================================================
+# 5. LSP INTEGRATION & CODE INTELLIGENCE
+# =============================================================================
+lsp_integration:
+  # Core LSP settings
+  enabled: true
+  # Valid values: true, false
+  # Default: true
+  # Purpose: Enable Language Server Protocol integration for code intelligence
+
+  auto_detection: true
+  # Valid values: true, false
+  # Default: true
+  # Purpose: Automatically detect available LSP servers in PATH
+
+  auto_installation: false
+  # Valid values: true, false
+  # Default: false
+  # Purpose: User maintains control over LSP server versions (never auto-install)
+  # Philosophy: Respect user autonomy over development environment
+
+  # LSP server selection and configuration
+  # NOTE: LSP server definitions, features, and installation notes are embedded assets
+  # See: assets/internal_configuration.yaml and research/languages/ for complete details
+
+  server_override:
+    # Optional: Override default LSP server for specific languages
+    # Format: language_name: "custom-lsp-server-executable"
+    # Default: {} (use embedded defaults from assets/internal_configuration.yaml)
+    # Examples:
+    # python: "pylsp"          # Override default ruff-lsp
+    # javascript: "flow-lsp"   # Override default typescript-language-server
+    enabled: false
+    overrides: {}
+
+  # Health monitoring and graceful degradation
+  health_monitoring:
+    enabled: true
+    # Valid values: true, false
+    # Default: true
+    # Purpose: Monitor LSP server health and performance
+
+    check_interval_seconds: 30
+    # Valid values: 10-300 seconds
+    # Default: 30
+    # Purpose: How often to check LSP server health
+
+    automatic_recovery: true
+    # Valid values: true, false
+    # Default: true
+    # Purpose: Automatically restart failed LSP servers
+
+    max_restart_attempts: 3
+    # Valid values: 1-10 attempts
+    # Default: 3
+    # Purpose: Maximum automatic restart attempts before giving up
+
+  # Graceful degradation levels
+  degradation:
+    enabled: true
+    # Valid values: true, false
+    # Default: true
+    # Purpose: Enable graceful degradation when LSP servers fail
+
+    level_1_lsp_crash:
+      action: "continue_text_only"
+      # Valid values: "continue_text_only", "disable_processing", "retry_immediately"
+      # Default: "continue_text_only"
+      # Purpose: Action when LSP server crashes but file processing continues
+
+    level_2_multiple_failures:
+      action: "fallback_treesitter"
+      # Valid values: "fallback_treesitter", "disable_processing", "manual_intervention"
+      # Default: "fallback_treesitter"
+      # Purpose: Action when multiple LSP failures occur
+
+    level_3_complete_failure:
+      action: "text_only_mode"
+      # Valid values: "text_only_mode", "disable_component", "error_state"
+      # Default: "text_only_mode"
+      # Purpose: Action when all code intelligence options fail
+
+# =============================================================================
+# 6. DOCUMENT PROCESSING & INGESTION
+# =============================================================================
+document_processing:
+  # Supported document types and processing
+  supported_types:
+    text:
+      enabled: true
+      # Valid values: true, false
+      # Default: true
+      # Purpose: Process plain text files with metadata extraction
+
+    pdf:
+      enabled: true
+      # Valid values: true, false
+      # Default: true
+      # Purpose: Process PDF files with text extraction
+
+      text_extraction: true
+      # Valid values: true, false
+      # Default: true
+      # Purpose: Extract text from PDF files
+
+      ocr_required_detection: true
+      # Valid values: true, false
+      # Default: true
+      # Purpose: Detect PDFs without text that require OCR
+
+      store_ocr_required_in_state: true
+      # Valid values: true, false
+      # Default: true
+      # Purpose: Store PDFs requiring OCR in state database for user action
+
+    epub_mobi:
+      enabled: true
+      # Valid values: true, false
+      # Default: true
+      # Purpose: Process e-book files with metadata preservation
+
+      metadata_preservation: true
+      # Valid values: true, false
+      # Default: true
+      # Purpose: Preserve e-book metadata during processing
+
+      extract_toc: true
+      # Valid values: true, false
+      # Default: true
+      # Purpose: Extract table of contents from e-books
+
+    code:
+      enabled: true
+      # Valid values: true, false
+      # Default: true
+      # Purpose: Process code files with LSP enhancement or fallback
+
+      lsp_enhanced: true
+      # Valid values: true, false
+      # Default: true
+      # Purpose: Use LSP for enhanced code processing when available
+
+      fallback_to_treesitter: true
+      # Valid values: true, false
+      # Default: true
+      # Purpose: Use tree-sitter for symbol extraction when LSP unavailable
+
+      fallback_to_storage_only: true
+      # Valid values: true, false
+      # Default: true
+      # Purpose: Store code without analysis when neither LSP nor tree-sitter available
+
+    web:
+      single_page:
         enabled: true
-        max_memory_per_connection: 104857600  # 100MB
-        total_memory_limit: 1073741824  # 1GB
-        cleanup_interval_secs: 300
-      resource_protection:
+        # Valid values: true, false
+        # Default: true
+        # Purpose: Support single webpage scraping
+
+      recursive_crawling:
         enabled: true
-        cpu_threshold_percent: 80.0
-        disk_threshold_percent: 90.0
-        circuit_breaker_failure_threshold: 5
-        circuit_breaker_timeout_secs: 60
+        # Valid values: true, false
+        # Default: true
+        # Purpose: Support recursive web crawling from starting URLs
 
-    # Security audit configuration
-    audit:
+        max_depth: 3
+        # Valid values: 1-10 levels
+        # Default: 3
+        # Purpose: Maximum recursion depth for web crawling
+
+        rate_limiting:
+          requests_per_second: 2
+          # Valid values: 0.1-10 requests per second
+          # Default: 2
+          # Purpose: Rate limit for respectful web crawling
+
+          concurrent_connections: 3
+          # Valid values: 1-10 connections
+          # Default: 3
+          # Purpose: Maximum concurrent connections during crawling
+
+        respect_robots_txt: true
+        # Valid values: true, false
+        # Default: true
+        # Purpose: Respect robots.txt files during crawling
+
+  # File watching and auto-ingestion
+  file_watching:
+    enabled: true
+    # Valid values: true, false
+    # Default: true
+    # Purpose: Enable automatic file system monitoring
+
+    project_folders:
+      auto_monitor: true
+      # Valid values: true, false
+      # Default: true
+      # Purpose: Automatically monitor project folders when MCP server active
+
+      zero_configuration: true
+      # Valid values: true, false
+      # Default: true
+      # Purpose: Require zero user configuration for project monitoring
+
+    library_folders:
+      user_configured: true
+      # Valid values: true, false
+      # Default: true
+      # Purpose: Require user configuration for library folder monitoring
+
+    incremental_updates:
+      content_hash_tracking: true
+      # Valid values: true, false
+      # Default: true
+      # Purpose: Track content hashes to detect actual changes
+
+      modification_time_tracking: true
+      # Valid values: true, false
+      # Default: true
+      # Purpose: Track file modification times
+
+      process_only_changes: true
+      # Valid values: true, false
+      # Default: true
+      # Purpose: Process only files that have actually changed
+
+    debouncing:
+      delay_ms: 500
+      # Valid values: 100-5000 milliseconds
+      # Default: 500
+      # Purpose: Debounce delay for file change events
+
+  # Processing performance and chunking
+  chunking:
+    default_chunk_size: 1000
+    # Valid values: 100-10000 characters
+    # Default: 1000
+    # Purpose: Default chunk size for document processing
+
+    default_chunk_overlap: 200
+    # Valid values: 50-1000 characters
+    # Default: 200
+    # Purpose: Default overlap between document chunks
+
+    max_file_size_bytes: "100MB"
+    # Valid values: size with units (B/KB/MB/GB/TB)
+    # Default: "100MB"
+    # Purpose: Maximum file size to process
+
+  performance:
+    max_concurrent_tasks: 4
+    # Valid values: 1-16 tasks
+    # Default: 4
+    # Purpose: Maximum number of concurrent processing tasks
+
+    batch_size: 100
+    # Valid values: 10-1000 documents
+    # Default: 100
+    # Purpose: Number of documents to process in each batch
+
+# =============================================================================
+# 7. SEARCH & INDEXING CONFIGURATION
+# =============================================================================
+search:
+  # Search modes and contexts
+  modes:
+    project:
       enabled: true
-      log_file_path: "./security_audit.log"
-      log_auth_events: true
-      log_auth_failures: true
-      log_rate_limit_events: true
-      log_suspicious_patterns: true
-      rotation:
-        max_file_size_mb: 100
-        max_files: 10
-        compress: true
+      # Valid values: true, false
+      # Default: true
+      # Purpose: Search within current project's collections only
+      default_mode: true
+      # Valid values: true, false
+      # Default: true
+      # Purpose: Use as default search mode for active development
 
-  # Transport configuration
-  transport:
-    unix_socket:
+    collection:
       enabled: true
-      socket_path: "/tmp/workspace-qdrant-mcp.sock"
-      permissions: 384  # 0o600 in decimal
-      prefer_for_local: true
-    local_optimization:
+      # Valid values: true, false
+      # Default: true
+      # Purpose: Search within specific target collection
+
+    global:
       enabled: true
-      use_large_buffers: true
-      local_buffer_size: 65536  # 64KB
-      memory_efficient_serialization: true
-      reduce_latency:
-        disable_nagle: true
-        custom_connection_pooling: true
-        connection_pool_size: 10
-        keepalive_interval_secs: 30
-    transport_strategy: "Auto"  # Auto, ForceTcp, ForceUnixSocket, UnixSocketWithTcpFallback
+      # Valid values: true, false
+      # Default: true
+      # Purpose: Search user-configured global collections
 
-  # Message configuration
-  message:
-    # Message size limits (16MB default)
-    max_incoming_message_size: 16777216
-    max_outgoing_message_size: 16777216
-    enable_size_validation: true
+    all:
+      enabled: true
+      # Valid values: true, false
+      # Default: true
+      # Purpose: Search across all accessible collections
 
-    # HTTP/2 frame configuration
-    max_frame_size: 16384  # 16KB
-    initial_window_size: 65536  # 64KB
+  # Hybrid search configuration
+  hybrid:
+    enabled: true
+    # Valid values: true, false
+    # Default: true
+    # Purpose: Enable hybrid dense + sparse vector search
 
-    # Service-specific message limits
-    service_limits:
-      document_processor:
-        max_incoming: 67108864  # 64MB for large documents
-        max_outgoing: 33554432   # 32MB for processed responses
-        enable_validation: true
-      search_service:
-        max_incoming: 4194304    # 4MB for search queries
-        max_outgoing: 16777216   # 16MB for search results
-        enable_validation: true
-      memory_service:
-        max_incoming: 8388608    # 8MB for memory operations
-        max_outgoing: 8388608    # 8MB for memory responses
-        enable_validation: true
-      system_service:
-        max_incoming: 1048576    # 1MB for system commands
-        max_outgoing: 4194304    # 4MB for system responses
-        enable_validation: true
+    fusion_algorithm: "rrf"
+    # Valid values: "rrf", "weighted_sum", "max_score"
+    # Default: "rrf"
+    # Purpose: Algorithm for combining dense and sparse search results
 
-    # Size monitoring and alerting
-    monitoring:
-      enable_detailed_monitoring: true
-      oversized_alert_threshold: 0.8  # Alert at 80% of limit
-      enable_realtime_metrics: true
-      metrics_interval_secs: 60
+    dense_weight: 0.7
+    # Valid values: 0.0-1.0
+    # Default: 0.7
+    # Purpose: Weight for dense (semantic) search results
 
-  # Compression configuration
-  compression:
-    enable_gzip: true
-    compression_threshold: 1024  # Compress messages larger than 1KB
-    compression_level: 6  # Medium compression level
-    enable_streaming_compression: true
-    enable_compression_monitoring: true
+    sparse_weight: 0.3
+    # Valid values: 0.0-1.0
+    # Default: 0.3
+    # Purpose: Weight for sparse (keyword) search results
 
-    # Adaptive compression
-    adaptive:
-      enable_adaptive: true
-      text_compression_level: 9   # High compression for text
-      binary_compression_level: 3 # Low compression for binary
-      structured_compression_level: 6 # Medium for JSON/structured
-      max_compression_time_ms: 100
+  # Result formatting and limits
+  results:
+    default_limit: 20
+    # Valid values: 1-1000 results
+    # Default: 20
+    # Purpose: Default number of search results to return
 
-    # Compression performance monitoring
-    performance:
-      enable_ratio_tracking: true
-      poor_ratio_threshold: 0.9 # Alert if compression ratio > 90%
-      enable_time_monitoring: true
-      slow_compression_threshold_ms: 200 # Alert if compression > 200ms
-      enable_failure_alerting: true
+    max_limit: 100
+    # Valid values: 10-1000 results
+    # Default: 100
+    # Purpose: Maximum number of search results allowed
 
-  # Streaming configuration
-  streaming:
-    enable_server_streaming: true
-    enable_client_streaming: true
-    max_concurrent_streams: 128
-    stream_buffer_size: 1000
-    stream_timeout_secs: 300  # 5 minutes
-    enable_flow_control: true
+    include_metadata: true
+    # Valid values: true, false
+    # Default: true
+    # Purpose: Include document metadata in search results
 
-    # Progress tracking
-    progress:
-      enable_progress_tracking: true
-      progress_update_interval_ms: 1000  # 1 second updates
-      enable_progress_callbacks: true
-      progress_threshold: 1048576  # 1MB minimum for progress tracking
+    include_snippets: true
+    # Valid values: true, false
+    # Default: true
+    # Purpose: Include content snippets in search results
 
-    # Stream health monitoring
-    health:
-      enable_health_monitoring: true
-      health_check_interval_secs: 30
-      enable_auto_recovery: true
-      max_recovery_attempts: 3
-      recovery_backoff_multiplier: 2.0
-      initial_recovery_delay_ms: 500
+# =============================================================================
+# 8. PERFORMANCE & RESOURCE MANAGEMENT
+# =============================================================================
+performance:
+  # Resource constraints and limits
+  memory:
+    max_rss_mb: 500
+    # Valid values: 100-2000 MB
+    # Default: 500
+    # Purpose: Maximum RSS memory usage for large workspaces (100k+ documents)
 
-    # Large operation streaming
-    large_operations:
-      enable_large_document_streaming: true
-      large_operation_chunk_size: 1048576  # 1MB chunks
-      enable_bulk_streaming: true
-      max_streaming_memory: 134217728  # 128MB memory limit
-      enable_bidirectional_optimization: true
+    warning_threshold_mb: 400
+    # Valid values: 80-1600 MB (80% of max_rss_mb)
+    # Default: 400
+    # Purpose: Memory usage level that triggers warnings
 
-# Database configuration
-database:
-  # SQLite database file path
-  sqlite_path: "./workspace_daemon.db"
+    gc_threshold_mb: 350
+    # Valid values: 70-1400 MB (70% of max_rss_mb)
+    # Default: 350
+    # Purpose: Memory usage level that triggers garbage collection
 
-  # Maximum number of database connections
-  max_connections: 10
+  # Startup and initialization
+  startup:
+    daemon_init_timeout_seconds: 2
+    # Valid values: 1-10 seconds
+    # Default: 2
+    # Purpose: Maximum time for Rust daemon initialization and gRPC connection
 
-  # Connection timeout in seconds
-  connection_timeout_secs: 30
+    mcp_server_init_timeout_seconds: 5
+    # Valid values: 2-30 seconds
+    # Default: 5
+    # Purpose: Maximum time for MCP server initialization
 
-  # Enable WAL mode for better concurrency
-  enable_wal: true
+    health_check_timeout_seconds: 1
+    # Valid values: 0.5-5 seconds
+    # Default: 1
+    # Purpose: Timeout for component health checks during startup
 
-# Qdrant configuration
-qdrant:
-  # Qdrant server URL
-  url: "http://localhost:6333"
+  # CPU and priority management
+  cpu:
+    background_priority: "low"
+    # Valid values: "low", "normal", "high"
+    # Default: "low"
+    # Purpose: CPU priority for background processing operations
 
-  # Qdrant API key (optional)
-  api_key: null
+    interactive_priority: "high"
+    # Valid values: "low", "normal", "high"
+    # Default: "high"
+    # Purpose: CPU priority when MCP server is active
 
-  # Connection timeout in seconds
-  timeout_secs: 30
+    priority_boost_on_mcp_active: true
+    # Valid values: true, false
+    # Default: true
+    # Purpose: Boost daemon priority when MCP server becomes active
 
-  # Maximum number of retries
-  max_retries: 3
+    revert_priority_on_mcp_quit: true
+    # Valid values: true, false
+    # Default: true
+    # Purpose: Revert to background priority when MCP server quits
 
-  # Default collection configuration
-  default_collection:
-    # Vector size for embeddings (384 for sentence-transformers/all-MiniLM-L6-v2)
-    vector_size: 384
+# =============================================================================
+# 9. PLATFORM & DIRECTORY CONFIGURATION
+# =============================================================================
+platform:
+  # XDG Base Directory Specification compliance
+  xdg_compliance:
+    enabled: true
+    # Valid values: true, false
+    # Default: true
+    # Purpose: Follow XDG Base Directory Specification on Linux/Unix
 
-    # Distance metric (Cosine, Euclidean, Dot)
-    distance_metric: "Cosine"
+    fallback_on_windows_mac: true
+    # Valid values: true, false
+    # Default: true
+    # Purpose: Use platform-specific directories on Windows/macOS
 
-    # Enable payload indexing
-    enable_indexing: true
+  # Platform-specific directory mapping
+  directories:
+    linux:
+      cache: "$XDG_CACHE_HOME/workspace-qdrant-mcp"
+      # Default fallback: "~/.cache/workspace-qdrant-mcp"
+      state: "$XDG_STATE_HOME/workspace-qdrant-mcp"
+      # Default fallback: "~/.local/state/workspace-qdrant-mcp"
+      config: "$XDG_CONFIG_HOME/workspace-qdrant-mcp"
+      # Default fallback: "~/.config/workspace-qdrant-mcp"
+      logs: "$XDG_STATE_HOME/workspace-qdrant-mcp/logs"
+      # Default fallback: "~/.local/state/workspace-qdrant-mcp/logs"
 
-    # Replication factor
-    replication_factor: 1
+    macos:
+      cache: "~/Library/Caches/workspace-qdrant-mcp"
+      logs: "~/Library/Logs/workspace-qdrant-mcp"
+      config: "~/Library/Application Support/workspace-qdrant-mcp"
+      state: "~/Library/Application Support/workspace-qdrant-mcp/state"
 
-    # Number of shards
-    shard_number: 1
+    windows:
+      cache: "%LOCALAPPDATA%\\workspace-qdrant-mcp\\cache"
+      logs: "%LOCALAPPDATA%\\workspace-qdrant-mcp\\logs"
+      config: "%APPDATA%\\workspace-qdrant-mcp"
+      state: "%LOCALAPPDATA%\\workspace-qdrant-mcp\\state"
+    # Valid values: platform-specific directory path templates
+    # Purpose: Ensure proper directory usage according to OS conventions
+    # Note: User-configurable directories removed in favor of OS standards
 
-# Document processing configuration
-processing:
-  # Maximum number of concurrent processing tasks
-  max_concurrent_tasks: 4
+  # File pattern customization
+  file_patterns:
+    # NOTE: Language extensions and exclusion patterns are embedded at compile-time
+    # Complete patterns available in: assets/internal_configuration.yaml
+    # Includes: version_control, build_outputs, cache_directories, virtual_environments,
+    #           ide_files, temporary_files, binary_files, media_files, archive_files
+    # Coverage: Research-backed patterns for optimal performance
 
-  # Default chunk size for documents
-  default_chunk_size: 1000
+    include_patterns:
+      # Custom include patterns can be added by user
+      custom: []
+      # Valid values: array of glob patterns
+      # Default: []
+      # Purpose: User-defined include patterns to supplement defaults
 
-  # Default chunk overlap
-  default_chunk_overlap: 200
+    exclude_patterns:
+      # Custom exclude patterns can be added by user
+      custom: []
+      # Valid values: array of glob patterns
+      # Default: []
+      # Purpose: User-defined exclude patterns to supplement defaults
 
-  # Maximum file size to process (100MB in bytes)
-  max_file_size_bytes: 104857600
+# =============================================================================
+# 10. CLI BEHAVIOR CONFIGURATION
+# =============================================================================
+cli:
+  # CLI behavior and user experience settings
+  behavior:
+    interactive_mode: true
+    # Valid values: true, false
+    # Default: true
+    # Purpose: Enable interactive features like token optimization, conflict resolution
 
-  # Supported file extensions
-  supported_extensions:
-    - "rs"
-    - "py"
-    - "js"
-    - "ts"
-    - "md"
-    - "txt"
-    - "pdf"
-    - "html"
-    - "json"
-    - "xml"
+    default_output_format: "table"
+    # Valid values: "table", "json", "yaml", "structured", "plain"
+    # Default: "table"
+    # Purpose: Default output format for CLI commands
 
-  # Enable LSP integration
-  enable_lsp: true
+    color_output: true
+    # Valid values: true, false
+    # Default: true
+    # Purpose: Use colored output for better readability
 
-  # LSP server timeout in seconds
-  lsp_timeout_secs: 10
+    progress_indicators: true
+    # Valid values: true, false
+    # Default: true
+    # Purpose: Show progress indicators for long-running operations
 
-# File watching configuration
-file_watcher:
-  # Enable file watching
-  enabled: true
+  # Command-specific settings
+  commands:
+    memory:
+      auto_backup: true
+      # Valid values: true, false
+      # Default: true
+      # Purpose: Automatically backup memory rules before modifications
 
-  # Debounce delay in milliseconds
-  debounce_ms: 500
+    admin:
+      confirm_destructive: true
+      # Valid values: true, false
+      # Default: true
+      # Purpose: Require confirmation for destructive admin operations
 
-  # Maximum number of watched directories
-  max_watched_dirs: 100
+    ingest:
+      show_progress: true
+      # Valid values: true, false
+      # Default: true
+      # Purpose: Show detailed progress during ingestion operations
 
-  # Patterns to ignore
-  ignore_patterns:
-    - "target/**"
-    - "node_modules/**"
-    - ".git/**"
-    - "*.tmp"
-    - "*.log"
+# =============================================================================
+# 11. gRPC & COMMUNICATION SETTINGS
+# =============================================================================
+grpc:
+  # Core gRPC server settings
+  server:
+    enabled: true
+    # Valid values: true, false
+    # Default: true
+    # Purpose: Enable gRPC server in Rust daemon for MCP communication
 
-  # Enable recursive watching
-  recursive: true
+    host: "127.0.0.1"
+    # Valid values: IP address string
+    # Default: "127.0.0.1"
+    # Purpose: Host address for gRPC server binding
 
-# Auto ingestion configuration
-auto_ingestion:
-  # Enable automatic ingestion and watch creation
-  enabled: true
+    port: 50051
+    # Valid values: 1024-65535 (port number)
+    # Default: 50051
+    # Purpose: Port number for gRPC server
 
-  # Automatically create watches for detected projects
-  auto_create_watches: true
+    max_concurrent_streams: 100
+    # Valid values: 1-1000 streams
+    # Default: 100
+    # Purpose: Maximum concurrent gRPC streams
 
-  # Project path to watch (if specified)
-  project_path: null
+    max_message_size_mb: 16
+    # Valid values: 1-100 MB
+    # Default: 16
+    # Purpose: Maximum message size for gRPC communication
 
-  # Target collection suffix for auto-created collections
-  target_collection_suffix: "scratchbook"
+  # Client settings (for Python MCP server)
+  client:
+    connection_timeout_seconds: 5
+    # Valid values: 1-30 seconds
+    # Default: 5
+    # Purpose: Timeout for initial gRPC connection
 
-  # Include source files in watching
-  include_source_files: true
+    request_timeout_seconds: 30
+    # Valid values: 5-300 seconds
+    # Default: 30
+    # Purpose: Default timeout for gRPC requests
 
-  # Include common files (README, docs, etc.)
-  include_common_files: true
+    keepalive_interval_seconds: 30
+    # Valid values: 10-300 seconds
+    # Default: 30
+    # Purpose: Keep-alive ping interval
 
-  # File patterns to include
-  include_patterns:
-    - "*.rs"
-    - "*.py"
-    - "*.js"
-    - "*.ts"
-    - "*.md"
-    - "*.txt"
-    - "*.json"
-    - "*.yaml"
-    - "*.yml"
-    - "*.toml"
+    keepalive_timeout_seconds: 5
+    # Valid values: 1-30 seconds
+    # Default: 5
+    # Purpose: Keep-alive ping timeout
 
-  # File patterns to exclude (in addition to standard ignores)
-  exclude_patterns:
-    - "target/**"
-    - "node_modules/**"
-    - ".git/**"
-    - "build/**"
-    - "dist/**"
-    - "*.log"
-    - "*.tmp"
-    - "*.lock"
+    max_retry_attempts: 3
+    # Valid values: 1-10 attempts
+    # Default: 3
+    # Purpose: Maximum retry attempts for failed requests
 
-  # Enable recursive watching of subdirectories
-  recursive: true
+    retry_backoff_ms: 1000
+    # Valid values: 100-10000 milliseconds
+    # Default: 1000
+    # Purpose: Backoff delay between retry attempts
 
-  # Maximum depth for recursive watching (0 = unlimited)
-  max_depth: 10
+# =============================================================================
+# 12. EXTERNAL SERVICE CONFIGURATION
+# =============================================================================
+external_services:
+  # Qdrant vector database settings
+  qdrant:
+    url: "http://localhost:6333"
+    # Valid values: HTTP/HTTPS URL
+    # Default: "http://localhost:6333"
+    # Purpose: Qdrant server URL for vector storage
 
-# Metrics configuration
-metrics:
-  # Enable metrics collection
-  enabled: true
+    api_key: null
+    # Valid values: API key string or null
+    # Default: null
+    # Purpose: Qdrant API key (required for Qdrant Cloud, optional for local)
 
-  # Metrics collection interval in seconds
-  collection_interval_secs: 60
+    timeout_seconds: 30
+    # Valid values: 5-300 seconds
+    # Default: 30
+    # Purpose: Connection timeout for Qdrant operations
 
-  # Metrics retention period in days
-  retention_days: 30
+    max_retries: 3
+    # Valid values: 1-10 attempts
+    # Default: 3
+    # Purpose: Maximum retry attempts for failed Qdrant operations
 
-  # Enable Prometheus metrics export
-  enable_prometheus: true
+  # FastEmbed embeddings configuration
+  embeddings:
+    model: "sentence-transformers/all-MiniLM-L6-v2"
+    # Valid values: FastEmbed model name
+    # Default: "sentence-transformers/all-MiniLM-L6-v2"
+    # Purpose: Embedding model for semantic search
 
-  # Prometheus metrics port
-  prometheus_port: 9090
+    cache_dir: null
+    # Valid values: directory path or null (uses platform default)
+    # Default: null
+    # Purpose: Directory for caching embedding models
 
-# Logging configuration
-logging:
-  # Log level (trace, debug, info, warn, error)
-  level: "info"
+# =============================================================================
+# 13. MONITORING & LOGGING CONFIGURATION
+# =============================================================================
+monitoring:
+  # Logging configuration
+  logging:
+    level: "info"
+    # Valid values: "trace", "debug", "info", "warn", "error"
+    # Default: "info"
+    # Purpose: Minimum log level to output
 
-  # Log file path (optional)
-  file_path: "./workspace_daemon.log"
+    json_format: false
+    # Valid values: true, false
+    # Default: false
+    # Purpose: Use JSON format for structured logging
 
-  # Enable JSON logging
-  json_format: false
+    enable_file_logging: true
+    # Valid values: true, false
+    # Default: true
+    # Purpose: Enable logging to files
 
-  # Maximum log file size in MB
-  max_file_size_mb: 100
+    max_file_size_mb: 100
+    # Valid values: 1-1000 MB
+    # Default: 100
+    # Purpose: Maximum log file size before rotation
 
-  # Maximum number of log files to keep
-  max_files: 5
+    max_files: 5
+    # Valid values: 1-50 files
+    # Default: 5
+    # Purpose: Maximum number of log files to keep
+
+  # Metrics collection
+  metrics:
+    enabled: true
+    # Valid values: true, false
+    # Default: true
+    # Purpose: Enable metrics collection
+
+    collection_interval_seconds: 60
+    # Valid values: 10-3600 seconds
+    # Default: 60
+    # Purpose: Interval for metrics collection
+
+    retention_days: 30
+    # Valid values: 1-365 days
+    # Default: 30
+    # Purpose: How long to retain collected metrics
+
+  # Health checks
+  health_checks:
+    enabled: true
+    # Valid values: true, false
+    # Default: true
+    # Purpose: Enable component health monitoring
+
+    check_interval_seconds: 30
+    # Valid values: 5-300 seconds
+    # Default: 30
+    # Purpose: Interval for health check execution
+
+    failure_threshold: 3
+    # Valid values: 1-10 failures
+    # Default: 3
+    # Purpose: Number of consecutive failures before marking unhealthy
