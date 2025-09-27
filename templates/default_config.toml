@@ -24,7 +24,6 @@ target_collection_suffix = "scratchbook"
 max_files_per_batch = 5
 batch_delay_seconds = 2.0
 max_file_size_mb = 50
-recursive_depth = 5
 debounce_seconds = 10
 
 # Project path (automatically detected if not specified)
@@ -39,7 +38,7 @@ max_retries = 3
 retry_delay_ms = 1000
 pool_size = 10
 tls = false
-dense_vector_size = 1536
+dense_vector_size = 384
 check_compatibility = false
 
 # Enhanced logging configuration
@@ -50,3 +49,12 @@ info_includes_retry_attempts = true
 info_includes_fallback_behavior = true
 error_includes_stack_trace = true
 error_includes_connection_state = true
+
+# gRPC configuration for communication between components
+[grpc]
+enabled = true
+host = "127.0.0.1"
+port = 50051
+fallback_to_direct = true
+connection_timeout = 10.0
+max_retries = 3

@@ -48,11 +48,9 @@ embedding:
 
 # Collection management settings
 workspace:
-  collection_suffixes: ["scratchbook"]
+  collection_types: ["scratchbook"]
   global_collections: []
   github_user: null  # Set via WORKSPACE_QDRANT_WORKSPACE__GITHUB_USER
-  collection_prefix: ""
-  max_collections: 100
   auto_create_collections: false
 
 # Folder watching configuration
@@ -111,7 +109,7 @@ processing:
 
 # gRPC configuration for communication between components
 grpc:
-  enabled: false
+  enabled: true
   host: "127.0.0.1"
   port: 50051
   fallback_to_direct: true
@@ -128,7 +126,6 @@ auto_ingestion:
   max_files_per_batch: 5
   batch_delay_seconds: 2.0
   max_file_size_mb: 50
-  recursive_depth: 5
   debounce_seconds: 10
 
 # Logging and observability
