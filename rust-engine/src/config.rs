@@ -6,6 +6,8 @@ use std::fmt;
 use std::path::Path;
 use std::str::FromStr;
 use std::collections::HashMap;
+use std::sync::{Mutex, Once};
+use serde_yaml::Value as YamlValue;
 
 // =============================================================================
 // UNIT PARSING UTILITIES
@@ -1260,32 +1262,635 @@ impl Default for MonitoringConfig {
     }
 }
 
-impl DaemonConfig {
-    /// Load configuration from file or use defaults
-    pub fn load(config_path: Option<&Path>) -> DaemonResult<Self> {
-        match config_path {
-            Some(path) => {
-                let content = std::fs::read_to_string(path)?;
-                let config: DaemonConfig = if path.extension().and_then(|s| s.to_str()) == Some("toml") {
-                    // Parse as TOML
-                    toml::from_str(&content)
-                        .map_err(|e| crate::error::DaemonError::Configuration {
-                            message: format!("Invalid TOML: {}", e)
-                        })?
-                } else {
-                    // Parse as YAML (default)
-                    serde_yaml::from_str(&content)
-                        .map_err(|e| crate::error::DaemonError::Configuration {
-                            message: format!("Invalid YAML: {}", e)
-                        })?
-                };
-                Ok(config)
+// =============================================================================
+// NEW DICTIONARY-BASED CONFIGURATION SYSTEM
+// =============================================================================
+
+/// Configuration value that can hold any type
+#[derive(Debug, Clone)]
+pub enum ConfigValue {
+    String(String),
+    Integer(i64),
+    Float(f64),
+    Boolean(bool),
+    Array(Vec<ConfigValue>),
+    Object(HashMap<String, ConfigValue>),
+    Null,
+}
+
+impl ConfigValue {
+    /// Convert YAML value to ConfigValue with unit conversions
+    fn from_yaml_value(value: &YamlValue, key: &str) -> Self {
+        match value {
+            YamlValue::String(s) => {
+                // Apply unit conversions based on key patterns
+                if key.contains("size") || key.contains("memory") || key.ends_with("_bytes") {
+                    if let Ok(size_unit) = s.parse::<SizeUnit>() {
+                        return ConfigValue::Integer(size_unit.0 as i64);
+                    }
+                }
+                if key.contains("timeout") || key.contains("interval") || key.contains("delay") || key.ends_with("_ms") {
+                    if let Ok(time_unit) = s.parse::<TimeUnit>() {
+                        return ConfigValue::Integer(time_unit.0 as i64);
+                    }
+                }
+                ConfigValue::String(s.clone())
             },
-            None => {
-                // Try to load from environment variables or use defaults
-                Self::from_env()
+            YamlValue::Number(n) => {
+                if let Some(i) = n.as_i64() {
+                    ConfigValue::Integer(i)
+                } else if let Some(f) = n.as_f64() {
+                    ConfigValue::Float(f)
+                } else {
+                    ConfigValue::Null
+                }
+            },
+            YamlValue::Bool(b) => ConfigValue::Boolean(*b),
+            YamlValue::Sequence(seq) => {
+                let array: Vec<ConfigValue> = seq.iter()
+                    .enumerate()
+                    .map(|(i, v)| Self::from_yaml_value(v, &format!("{}_item_{}", key, i)))
+                    .collect();
+                ConfigValue::Array(array)
+            },
+            YamlValue::Mapping(map) => {
+                let mut object = HashMap::new();
+                for (k, v) in map {
+                    if let Some(key_str) = k.as_str() {
+                        let full_key = if key.is_empty() { key_str.to_string() } else { format!("{}.{}", key, key_str) };
+                        object.insert(key_str.to_string(), Self::from_yaml_value(v, &full_key));
+                    }
+                }
+                ConfigValue::Object(object)
+            },
+            YamlValue::Null => ConfigValue::Null,
+            YamlValue::Tagged(tagged) => {
+                // Handle tagged values by recursing on the inner value
+                Self::from_yaml_value(&tagged.value, key)
+            },
+        }
+    }
+
+    /// Get string value or return default
+    pub fn as_string(&self) -> Option<String> {
+        match self {
+            ConfigValue::String(s) => Some(s.clone()),
+            _ => None,
+        }
+    }
+
+    /// Get integer value or return default
+    pub fn as_i64(&self) -> Option<i64> {
+        match self {
+            ConfigValue::Integer(i) => Some(*i),
+            _ => None,
+        }
+    }
+
+    /// Get float value or return default
+    pub fn as_f64(&self) -> Option<f64> {
+        match self {
+            ConfigValue::Float(f) => Some(*f),
+            _ => None,
+        }
+    }
+
+    /// Get boolean value or return default
+    pub fn as_bool(&self) -> Option<bool> {
+        match self {
+            ConfigValue::Boolean(b) => Some(*b),
+            _ => None,
+        }
+    }
+
+    /// Get array value or return default
+    pub fn as_array(&self) -> Option<&Vec<ConfigValue>> {
+        match self {
+            ConfigValue::Array(arr) => Some(arr),
+            _ => None,
+        }
+    }
+
+    /// Get object value or return default
+    pub fn as_object(&self) -> Option<&HashMap<String, ConfigValue>> {
+        match self {
+            ConfigValue::Object(obj) => Some(obj),
+            _ => None,
+        }
+    }
+
+    /// Check if value is null
+    pub fn is_null(&self) -> bool {
+        matches!(self, ConfigValue::Null)
+    }
+}
+
+/// Global configuration manager that provides dot-notation access
+pub struct ConfigManager {
+    config: HashMap<String, ConfigValue>,
+}
+
+impl ConfigManager {
+    /// Create new configuration manager with merged config
+    fn new(yaml_config: HashMap<String, ConfigValue>, defaults: HashMap<String, ConfigValue>) -> Self {
+        let mut merged = defaults;
+
+        // Merge YAML values taking precedence over defaults
+        Self::merge_configs(&mut merged, yaml_config);
+
+        Self {
+            config: merged,
+        }
+    }
+
+    /// Recursively merge configurations with YAML taking precedence
+    fn merge_configs(target: &mut HashMap<String, ConfigValue>, source: HashMap<String, ConfigValue>) {
+        for (key, source_value) in source {
+            match (target.get(&key), &source_value) {
+                (Some(ConfigValue::Object(_target_obj)), ConfigValue::Object(source_obj)) => {
+                    // Both are objects, merge recursively
+                    if let Some(ConfigValue::Object(target_obj_mut)) = target.get_mut(&key) {
+                        Self::merge_configs(target_obj_mut, source_obj.clone());
+                    }
+                },
+                _ => {
+                    // Replace target with source value (YAML takes precedence)
+                    target.insert(key, source_value);
+                }
             }
         }
+    }
+
+    /// Get configuration value using dot notation (e.g., "server.port")
+    pub fn get(&self, path: &str) -> Option<&ConfigValue> {
+        let parts: Vec<&str> = path.split('.').collect();
+        let mut current = &self.config;
+
+        for (i, part) in parts.iter().enumerate() {
+            if let Some(value) = current.get(*part) {
+                if i == parts.len() - 1 {
+                    // Last part, return the value
+                    return Some(value);
+                } else if let ConfigValue::Object(next_obj) = value {
+                    // Continue traversing
+                    current = next_obj;
+                } else {
+                    // Path doesn't lead to an object but we're not at the end
+                    return None;
+                }
+            } else {
+                return None;
+            }
+        }
+
+        None
+    }
+
+    /// Get string value with default
+    pub fn get_string(&self, path: &str, default: &str) -> String {
+        self.get(path)
+            .and_then(|v| v.as_string())
+            .unwrap_or_else(|| default.to_string())
+    }
+
+    /// Get integer value with default
+    pub fn get_i64(&self, path: &str, default: i64) -> i64 {
+        self.get(path)
+            .and_then(|v| v.as_i64())
+            .unwrap_or(default)
+    }
+
+    /// Get unsigned integer value with default
+    pub fn get_u64(&self, path: &str, default: u64) -> u64 {
+        self.get_i64(path, default as i64) as u64
+    }
+
+    /// Get 32-bit integer value with default
+    pub fn get_i32(&self, path: &str, default: i32) -> i32 {
+        self.get_i64(path, default as i64) as i32
+    }
+
+    /// Get unsigned 32-bit integer value with default
+    pub fn get_u32(&self, path: &str, default: u32) -> u32 {
+        self.get_i64(path, default as i64) as u32
+    }
+
+    /// Get 16-bit integer value with default
+    pub fn get_u16(&self, path: &str, default: u16) -> u16 {
+        self.get_i64(path, default as i64) as u16
+    }
+
+    /// Get 8-bit integer value with default
+    pub fn get_u8(&self, path: &str, default: u8) -> u8 {
+        self.get_i64(path, default as i64) as u8
+    }
+
+    /// Get float value with default
+    pub fn get_f64(&self, path: &str, default: f64) -> f64 {
+        self.get(path)
+            .and_then(|v| v.as_f64())
+            .unwrap_or(default)
+    }
+
+    /// Get 32-bit float value with default
+    pub fn get_f32(&self, path: &str, default: f32) -> f32 {
+        self.get_f64(path, default as f64) as f32
+    }
+
+    /// Get boolean value with default
+    pub fn get_bool(&self, path: &str, default: bool) -> bool {
+        self.get(path)
+            .and_then(|v| v.as_bool())
+            .unwrap_or(default)
+    }
+
+    /// Get array value
+    pub fn get_array(&self, path: &str) -> Option<&Vec<ConfigValue>> {
+        self.get(path)?.as_array()
+    }
+
+    /// Get object value
+    pub fn get_object(&self, path: &str) -> Option<&HashMap<String, ConfigValue>> {
+        self.get(path)?.as_object()
+    }
+
+    /// Create all possible configuration labels with defaults
+    fn create_defaults() -> HashMap<String, ConfigValue> {
+        let mut defaults = HashMap::new();
+
+        // 1. System Architecture & Core Settings
+        let mut system = HashMap::new();
+        system.insert("project_name".to_string(), ConfigValue::String("workspace-qdrant-mcp".to_string()));
+        system.insert("version".to_string(), ConfigValue::String("v2.0".to_string()));
+
+        let mut components = HashMap::new();
+        let mut rust_daemon = HashMap::new();
+        rust_daemon.insert("enabled".to_string(), ConfigValue::Boolean(true));
+        components.insert("rust_daemon".to_string(), ConfigValue::Object(rust_daemon));
+
+        let mut python_mcp_server = HashMap::new();
+        python_mcp_server.insert("enabled".to_string(), ConfigValue::Boolean(true));
+        components.insert("python_mcp_server".to_string(), ConfigValue::Object(python_mcp_server));
+
+        let mut cli_utility = HashMap::new();
+        cli_utility.insert("enabled".to_string(), ConfigValue::Boolean(true));
+        components.insert("cli_utility".to_string(), ConfigValue::Object(cli_utility));
+
+        let mut context_injector = HashMap::new();
+        context_injector.insert("enabled".to_string(), ConfigValue::Boolean(true));
+        components.insert("context_injector".to_string(), ConfigValue::Object(context_injector));
+
+        system.insert("components".to_string(), ConfigValue::Object(components));
+        defaults.insert("system".to_string(), ConfigValue::Object(system));
+
+        // 2. Memory Collection Configuration
+        let mut memory = HashMap::new();
+        memory.insert("collection_name".to_string(), ConfigValue::String("llm_rules".to_string()));
+
+        let mut authority_levels = HashMap::new();
+        let mut absolute = HashMap::new();
+        absolute.insert("enabled".to_string(), ConfigValue::Boolean(true));
+        authority_levels.insert("absolute".to_string(), ConfigValue::Object(absolute));
+        let mut default_auth = HashMap::new();
+        default_auth.insert("enabled".to_string(), ConfigValue::Boolean(true));
+        authority_levels.insert("default".to_string(), ConfigValue::Object(default_auth));
+        memory.insert("authority_levels".to_string(), ConfigValue::Object(authority_levels));
+
+        let mut conversational_updates = HashMap::new();
+        conversational_updates.insert("enabled".to_string(), ConfigValue::Boolean(true));
+        conversational_updates.insert("auto_conflict_detection".to_string(), ConfigValue::Boolean(true));
+        conversational_updates.insert("immediate_activation".to_string(), ConfigValue::Boolean(true));
+        memory.insert("conversational_updates".to_string(), ConfigValue::Object(conversational_updates));
+
+        let mut conflict_resolution = HashMap::new();
+        conflict_resolution.insert("strategy".to_string(), ConfigValue::String("merge_conditional".to_string()));
+        conflict_resolution.insert("user_prompt_timeout".to_string(), ConfigValue::Integer(30000));
+        memory.insert("conflict_resolution".to_string(), ConfigValue::Object(conflict_resolution));
+
+        let mut token_management = HashMap::new();
+        token_management.insert("max_tokens".to_string(), ConfigValue::Integer(2000));
+        token_management.insert("optimization_enabled".to_string(), ConfigValue::Boolean(true));
+        token_management.insert("trim_interactive".to_string(), ConfigValue::Boolean(true));
+        memory.insert("token_management".to_string(), ConfigValue::Object(token_management));
+
+        let mut rule_scope = HashMap::new();
+        rule_scope.insert("all_sessions".to_string(), ConfigValue::Boolean(true));
+        rule_scope.insert("project_specific".to_string(), ConfigValue::Boolean(true));
+        rule_scope.insert("temporary_rules".to_string(), ConfigValue::Boolean(true));
+        rule_scope.insert("temporary_rule_duration".to_string(), ConfigValue::Integer(86400000));
+        memory.insert("rule_scope".to_string(), ConfigValue::Object(rule_scope));
+
+        let mut session_initialization = HashMap::new();
+        session_initialization.insert("rule_injection_enabled".to_string(), ConfigValue::Boolean(true));
+        session_initialization.insert("conflict_detection_on_startup".to_string(), ConfigValue::Boolean(true));
+        session_initialization.insert("startup_timeout".to_string(), ConfigValue::Integer(10000));
+        memory.insert("session_initialization".to_string(), ConfigValue::Object(session_initialization));
+
+        defaults.insert("memory".to_string(), ConfigValue::Object(memory));
+
+        // 3. Collection Management & Multi-tenancy
+        let mut collections = HashMap::new();
+        collections.insert("root_name".to_string(), ConfigValue::String("project".to_string()));
+        collections.insert("types".to_string(), ConfigValue::Array(vec![]));
+
+        let mut project_content = HashMap::new();
+        project_content.insert("enabled".to_string(), ConfigValue::Boolean(true));
+        project_content.insert("name".to_string(), ConfigValue::String("project_content".to_string()));
+        collections.insert("project_content".to_string(), ConfigValue::Object(project_content));
+
+        let mut naming = HashMap::new();
+        naming.insert("collision_detection".to_string(), ConfigValue::Boolean(true));
+        naming.insert("validation_strict".to_string(), ConfigValue::Boolean(true));
+        collections.insert("naming".to_string(), ConfigValue::Object(naming));
+
+        let mut multi_tenancy = HashMap::new();
+        multi_tenancy.insert("isolation_strategy".to_string(), ConfigValue::String("metadata_filtering".to_string()));
+        multi_tenancy.insert("cross_project_search".to_string(), ConfigValue::Boolean(true));
+        multi_tenancy.insert("tenant_metadata_fields".to_string(), ConfigValue::Array(vec![
+            ConfigValue::String("project_id".to_string()),
+            ConfigValue::String("project_path".to_string()),
+            ConfigValue::String("git_repository".to_string()),
+        ]));
+        collections.insert("multi_tenancy".to_string(), ConfigValue::Object(multi_tenancy));
+
+        defaults.insert("collections".to_string(), ConfigValue::Object(collections));
+
+        // 4. Project Detection & Management - Continuing the defaults...
+        let mut project_detection = HashMap::new();
+
+        let mut git_detection = HashMap::new();
+        git_detection.insert("enabled".to_string(), ConfigValue::Boolean(true));
+        git_detection.insert("priority".to_string(), ConfigValue::Integer(1));
+        git_detection.insert("require_initialized".to_string(), ConfigValue::Boolean(true));
+        git_detection.insert("scan_parent_directories".to_string(), ConfigValue::Boolean(true));
+        git_detection.insert("max_parent_scan_depth".to_string(), ConfigValue::Integer(10));
+        project_detection.insert("git_detection".to_string(), ConfigValue::Object(git_detection));
+
+        let mut github_integration = HashMap::new();
+        github_integration.insert("user".to_string(), ConfigValue::String("".to_string()));
+        let mut submodule_handling = HashMap::new();
+        submodule_handling.insert("treat_as_independent_projects".to_string(), ConfigValue::Boolean(true));
+        submodule_handling.insert("ignore_external_submodules".to_string(), ConfigValue::Boolean(true));
+        submodule_handling.insert("track_ownership_changes".to_string(), ConfigValue::Boolean(true));
+        github_integration.insert("submodule_handling".to_string(), ConfigValue::Object(submodule_handling));
+        project_detection.insert("github_integration".to_string(), ConfigValue::Object(github_integration));
+
+        let mut custom_indicators = HashMap::new();
+        custom_indicators.insert("enabled".to_string(), ConfigValue::Boolean(true));
+        custom_indicators.insert("priority".to_string(), ConfigValue::Integer(2));
+        let mut additional_patterns = HashMap::new();
+        additional_patterns.insert("custom_indicators".to_string(), ConfigValue::Array(vec![]));
+        custom_indicators.insert("additional_patterns".to_string(), ConfigValue::Object(additional_patterns));
+        project_detection.insert("custom_indicators".to_string(), ConfigValue::Object(custom_indicators));
+
+        let mut project_naming = HashMap::new();
+        project_naming.insert("root_name_strategy".to_string(), ConfigValue::String("directory_name".to_string()));
+        project_naming.insert("collection_auto_creation".to_string(), ConfigValue::Boolean(true));
+        project_naming.insert("prevent_project_explosion".to_string(), ConfigValue::Boolean(true));
+        project_detection.insert("naming".to_string(), ConfigValue::Object(project_naming));
+
+        defaults.insert("project_detection".to_string(), ConfigValue::Object(project_detection));
+
+        // 11. gRPC & Communication Settings (Legacy compatibility)
+        let mut grpc = HashMap::new();
+
+        let mut server = HashMap::new();
+        server.insert("enabled".to_string(), ConfigValue::Boolean(true));
+        server.insert("host".to_string(), ConfigValue::String("127.0.0.1".to_string()));
+        server.insert("port".to_string(), ConfigValue::Integer(50051));
+        server.insert("max_concurrent_streams".to_string(), ConfigValue::Integer(100));
+        server.insert("max_message_size".to_string(), ConfigValue::Integer(16 * 1024 * 1024));
+        grpc.insert("server".to_string(), ConfigValue::Object(server));
+
+        let mut client = HashMap::new();
+        client.insert("connection_timeout".to_string(), ConfigValue::Integer(5000));
+        client.insert("request_timeout".to_string(), ConfigValue::Integer(30000));
+        client.insert("keepalive_interval".to_string(), ConfigValue::Integer(30000));
+        client.insert("keepalive_timeout".to_string(), ConfigValue::Integer(5000));
+        client.insert("max_retry_attempts".to_string(), ConfigValue::Integer(3));
+        client.insert("retry_backoff".to_string(), ConfigValue::Integer(1000));
+        grpc.insert("client".to_string(), ConfigValue::Object(client));
+
+        defaults.insert("grpc".to_string(), ConfigValue::Object(grpc));
+
+        // 12. External Service Configuration
+        let mut external_services = HashMap::new();
+
+        let mut qdrant = HashMap::new();
+        qdrant.insert("url".to_string(), ConfigValue::String("http://localhost:6333".to_string()));
+        qdrant.insert("api_key".to_string(), ConfigValue::Null);
+        qdrant.insert("timeout".to_string(), ConfigValue::Integer(30000));
+        qdrant.insert("max_retries".to_string(), ConfigValue::Integer(3));
+        external_services.insert("qdrant".to_string(), ConfigValue::Object(qdrant));
+
+        let mut embeddings = HashMap::new();
+        embeddings.insert("model".to_string(), ConfigValue::String("sentence-transformers/all-MiniLM-L6-v2".to_string()));
+        embeddings.insert("cache_dir".to_string(), ConfigValue::Null);
+        external_services.insert("embeddings".to_string(), ConfigValue::Object(embeddings));
+
+        defaults.insert("external_services".to_string(), ConfigValue::Object(external_services));
+
+        // Add remaining sections with minimal defaults for now
+        // They can be expanded as needed
+        defaults.insert("lsp_integration".to_string(), ConfigValue::Object(HashMap::new()));
+        defaults.insert("document_processing".to_string(), ConfigValue::Object(HashMap::new()));
+        defaults.insert("search".to_string(), ConfigValue::Object(HashMap::new()));
+        defaults.insert("performance".to_string(), ConfigValue::Object(HashMap::new()));
+        defaults.insert("platform".to_string(), ConfigValue::Object(HashMap::new()));
+        defaults.insert("cli".to_string(), ConfigValue::Object(HashMap::new()));
+        defaults.insert("monitoring".to_string(), ConfigValue::Object(HashMap::new()));
+
+        defaults
+    }
+}
+
+/// Global configuration instance
+static CONFIG_MANAGER: Once = Once::new();
+static mut CONFIG_MANAGER_INSTANCE: Option<Mutex<ConfigManager>> = None;
+
+/// Initialize the global configuration manager
+pub fn init_config(config_path: Option<&Path>) -> DaemonResult<()> {
+    CONFIG_MANAGER.call_once(|| {
+        let config_manager = match load_config(config_path) {
+            Ok(manager) => manager,
+            Err(e) => {
+                eprintln!("Failed to load configuration: {}", e);
+                // Create with defaults only
+                ConfigManager::new(HashMap::new(), ConfigManager::create_defaults())
+            }
+        };
+
+        unsafe {
+            CONFIG_MANAGER_INSTANCE = Some(Mutex::new(config_manager));
+        }
+    });
+
+    Ok(())
+}
+
+/// Reinitialize the global configuration manager (for testing only)
+#[cfg(test)]
+pub fn reinit_config(config_path: Option<&Path>) -> DaemonResult<()> {
+    let config_manager = load_config(config_path)?;
+
+    unsafe {
+        // For tests, we can replace the config manager
+        if CONFIG_MANAGER_INSTANCE.is_some() {
+            CONFIG_MANAGER_INSTANCE = Some(Mutex::new(config_manager));
+        } else {
+            CONFIG_MANAGER_INSTANCE = Some(Mutex::new(config_manager));
+        }
+    }
+
+    Ok(())
+}
+
+/// Force reinitialize the global configuration manager (for testing/debug only)
+pub fn force_reinit_config(config_path: Option<&Path>) -> DaemonResult<()> {
+    let config_manager = load_config(config_path)?;
+
+    unsafe {
+        // Force replace the config manager
+        CONFIG_MANAGER_INSTANCE = Some(Mutex::new(config_manager));
+    }
+
+    Ok(())
+}
+
+/// Get reference to global configuration manager
+pub fn config() -> &'static Mutex<ConfigManager> {
+    unsafe {
+        CONFIG_MANAGER_INSTANCE.as_ref().expect("Configuration not initialized")
+    }
+}
+
+/// Load configuration following the specified architecture
+fn load_config(config_path: Option<&Path>) -> DaemonResult<ConfigManager> {
+    // Step a) Parse YAML into temporary dictionary with unit conversions
+    let yaml_config = match config_path {
+        Some(path) => {
+            let content = std::fs::read_to_string(path)?;
+            let yaml_value: YamlValue = if path.extension().and_then(|s| s.to_str()) == Some("toml") {
+                return Err(crate::error::DaemonError::Configuration {
+                    message: "TOML not supported in new config system".to_string()
+                });
+            } else {
+                serde_yaml::from_str(&content)
+                    .map_err(|e| crate::error::DaemonError::Configuration {
+                        message: format!("Invalid YAML: {}", e)
+                    })?
+            };
+
+            if let YamlValue::Mapping(map) = yaml_value {
+                let mut config_dict = HashMap::new();
+                for (k, v) in map {
+                    if let Some(key_str) = k.as_str() {
+                        config_dict.insert(key_str.to_string(), ConfigValue::from_yaml_value(&v, key_str));
+                    }
+                }
+                config_dict
+            } else {
+                HashMap::new()
+            }
+        },
+        None => {
+            // Load from environment variables
+            let mut env_config = HashMap::new();
+
+            // Override with environment variables if present
+            if let Ok(url) = std::env::var("QDRANT_URL") {
+                let mut external_services = HashMap::new();
+                let mut qdrant = HashMap::new();
+                qdrant.insert("url".to_string(), ConfigValue::String(url));
+                external_services.insert("qdrant".to_string(), ConfigValue::Object(qdrant));
+                env_config.insert("external_services".to_string(), ConfigValue::Object(external_services));
+            }
+
+            if let Ok(api_key) = std::env::var("QDRANT_API_KEY") {
+                let mut external_services = env_config.get("external_services")
+                    .and_then(|v| v.as_object())
+                    .cloned()
+                    .unwrap_or_else(HashMap::new);
+
+                let mut qdrant = external_services.get("qdrant")
+                    .and_then(|v| v.as_object())
+                    .cloned()
+                    .unwrap_or_else(HashMap::new);
+
+                qdrant.insert("api_key".to_string(), ConfigValue::String(api_key));
+                external_services.insert("qdrant".to_string(), ConfigValue::Object(qdrant));
+                env_config.insert("external_services".to_string(), ConfigValue::Object(external_services));
+            }
+
+            if let Ok(host) = std::env::var("DAEMON_HOST") {
+                let mut grpc = HashMap::new();
+                let mut server = HashMap::new();
+                server.insert("host".to_string(), ConfigValue::String(host));
+                grpc.insert("server".to_string(), ConfigValue::Object(server));
+                env_config.insert("grpc".to_string(), ConfigValue::Object(grpc));
+            }
+
+            if let Ok(port_str) = std::env::var("DAEMON_PORT") {
+                if let Ok(port) = port_str.parse::<u16>() {
+                    let mut grpc = env_config.get("grpc")
+                        .and_then(|v| v.as_object())
+                        .cloned()
+                        .unwrap_or_else(HashMap::new);
+
+                    let mut server = grpc.get("server")
+                        .and_then(|v| v.as_object())
+                        .cloned()
+                        .unwrap_or_else(HashMap::new);
+
+                    server.insert("port".to_string(), ConfigValue::Integer(port as i64));
+                    grpc.insert("server".to_string(), ConfigValue::Object(server));
+                    env_config.insert("grpc".to_string(), ConfigValue::Object(grpc));
+                }
+            }
+
+            env_config
+        }
+    };
+
+    // Step b) Create internal dictionary with ALL possible config labels and defaults
+    let defaults = ConfigManager::create_defaults();
+
+    // Step c) Merge dictionaries (YAML takes precedence) and step d) keep only merged result
+    let config_manager = ConfigManager::new(yaml_config, defaults);
+
+    Ok(config_manager)
+}
+
+impl DaemonConfig {
+    /// Load configuration using the new dictionary-based system
+    pub fn load(config_path: Option<&Path>) -> DaemonResult<Self> {
+        // Initialize the global config manager
+        init_config(config_path)?;
+
+        // Create a DaemonConfig from the global config for backward compatibility
+        let config_guard = config().lock().unwrap();
+
+        // Create DaemonConfig with basic values for immediate compatibility
+        let mut config = Self::default();
+
+        // Override with values from global config
+        config.external_services.qdrant.url = config_guard.get_string("external_services.qdrant.url", "http://localhost:6333");
+
+        if let Some(api_key_value) = config_guard.get("external_services.qdrant.api_key") {
+            if !api_key_value.is_null() {
+                config.external_services.qdrant.api_key = api_key_value.as_string();
+            }
+        }
+
+        config.grpc.server.host = config_guard.get_string("grpc.server.host", "127.0.0.1");
+        config.grpc.server.port = config_guard.get_u16("grpc.server.port", 50051);
+
+        // Add more mappings as needed for backward compatibility
+
+        // Validate the configuration
+        config.validate()?;
+
+        Ok(config)
     }
 
     /// Load configuration from environment variables
@@ -1387,12 +1992,13 @@ impl DaemonConfig {
 
     /// Get legacy server configuration for compatibility
     pub fn get_legacy_server_config(&self) -> ServerConfig {
+        let config_guard = config().lock().unwrap();
         ServerConfig {
-            host: self.grpc.server.host.clone(),
-            port: self.grpc.server.port,
+            host: config_guard.get_string("grpc.server.host", "127.0.0.1"),
+            port: config_guard.get_u16("grpc.server.port", 50051),
             max_connections: 1000,
-            connection_timeout_secs: self.grpc.client.connection_timeout.0 / 1000,
-            request_timeout_secs: self.grpc.client.request_timeout.0 / 1000,
+            connection_timeout_secs: config_guard.get_u64("grpc.client.connection_timeout", 5000) / 1000,
+            request_timeout_secs: config_guard.get_u64("grpc.client.request_timeout", 30000) / 1000,
             enable_tls: false,
             security: SecurityConfig::default(),
             transport: TransportConfig::default(),
@@ -1415,11 +2021,13 @@ impl DaemonConfig {
 
     /// Get legacy Qdrant configuration for compatibility
     pub fn get_legacy_qdrant_config(&self) -> QdrantConfig {
+        let config_guard = config().lock().unwrap();
         QdrantConfig {
-            url: self.external_services.qdrant.url.clone(),
-            api_key: self.external_services.qdrant.api_key.clone(),
-            timeout_secs: self.external_services.qdrant.timeout.0 / 1000,
-            max_retries: self.external_services.qdrant.max_retries as u32,
+            url: config_guard.get_string("external_services.qdrant.url", "http://localhost:6333"),
+            api_key: config_guard.get("external_services.qdrant.api_key")
+                .and_then(|v| if v.is_null() { None } else { v.as_string() }),
+            timeout_secs: config_guard.get_u64("external_services.qdrant.timeout", 30000) / 1000,
+            max_retries: config_guard.get_u32("external_services.qdrant.max_retries", 3),
             default_collection: CollectionConfig {
                 vector_size: 384, // Default for all-MiniLM-L6-v2
                 distance_metric: "Cosine".to_string(),
@@ -2675,5 +3283,131 @@ impl Default for LargeOperationStreamConfig {
             max_streaming_memory: 128 * 1024 * 1024, // 128MB memory limit
             enable_bidirectional_optimization: true,
         }
+    }
+}
+
+// =============================================================================
+// GLOBAL CONFIGURATION ACCESSOR FUNCTIONS
+// =============================================================================
+
+/// Get configuration value as string with default
+pub fn get_config_string(path: &str, default: &str) -> String {
+    config().lock().unwrap().get_string(path, default)
+}
+
+/// Get configuration value as integer with default
+pub fn get_config_i64(path: &str, default: i64) -> i64 {
+    config().lock().unwrap().get_i64(path, default)
+}
+
+/// Get configuration value as u64 with default
+pub fn get_config_u64(path: &str, default: u64) -> u64 {
+    config().lock().unwrap().get_u64(path, default)
+}
+
+/// Get configuration value as u32 with default
+pub fn get_config_u32(path: &str, default: u32) -> u32 {
+    config().lock().unwrap().get_u32(path, default)
+}
+
+/// Get configuration value as u16 with default
+pub fn get_config_u16(path: &str, default: u16) -> u16 {
+    config().lock().unwrap().get_u16(path, default)
+}
+
+/// Get configuration value as u8 with default
+pub fn get_config_u8(path: &str, default: u8) -> u8 {
+    config().lock().unwrap().get_u8(path, default)
+}
+
+/// Get configuration value as float with default
+pub fn get_config_f64(path: &str, default: f64) -> f64 {
+    config().lock().unwrap().get_f64(path, default)
+}
+
+/// Get configuration value as f32 with default
+pub fn get_config_f32(path: &str, default: f32) -> f32 {
+    config().lock().unwrap().get_f32(path, default)
+}
+
+/// Get configuration value as boolean with default
+pub fn get_config_bool(path: &str, default: bool) -> bool {
+    config().lock().unwrap().get_bool(path, default)
+}
+
+/// Get configuration value as array
+pub fn get_config_array(path: &str) -> Option<Vec<ConfigValue>> {
+    config().lock().unwrap().get_array(path).cloned()
+}
+
+/// Get configuration value as object
+pub fn get_config_object(path: &str) -> Option<HashMap<String, ConfigValue>> {
+    config().lock().unwrap().get_object(path).cloned()
+}
+
+/// Get raw configuration value
+pub fn get_config_value(path: &str) -> Option<ConfigValue> {
+    config().lock().unwrap().get(path).cloned()
+}
+
+/// Common configuration accessors for frequently used values
+pub mod common {
+    use super::*;
+
+    /// Get Qdrant URL
+    pub fn qdrant_url() -> String {
+        get_config_string("external_services.qdrant.url", "http://localhost:6333")
+    }
+
+    /// Get Qdrant API key
+    pub fn qdrant_api_key() -> Option<String> {
+        get_config_value("external_services.qdrant.api_key")
+            .and_then(|v| if v.is_null() { None } else { v.as_string() })
+    }
+
+    /// Get gRPC server host
+    pub fn grpc_host() -> String {
+        get_config_string("grpc.server.host", "127.0.0.1")
+    }
+
+    /// Get gRPC server port
+    pub fn grpc_port() -> u16 {
+        get_config_u16("grpc.server.port", 50051)
+    }
+
+    /// Get system project name
+    pub fn project_name() -> String {
+        get_config_string("system.project_name", "workspace-qdrant-mcp")
+    }
+
+    /// Get system version
+    pub fn version() -> String {
+        get_config_string("system.version", "v2.0")
+    }
+
+    /// Check if component is enabled
+    pub fn component_enabled(component: &str) -> bool {
+        let path = format!("system.components.{}.enabled", component);
+        get_config_bool(&path, true)
+    }
+
+    /// Check if Rust daemon is enabled
+    pub fn rust_daemon_enabled() -> bool {
+        component_enabled("rust_daemon")
+    }
+
+    /// Check if Python MCP server is enabled
+    pub fn python_mcp_server_enabled() -> bool {
+        component_enabled("python_mcp_server")
+    }
+
+    /// Check if CLI utility is enabled
+    pub fn cli_utility_enabled() -> bool {
+        component_enabled("cli_utility")
+    }
+
+    /// Check if context injector is enabled
+    pub fn context_injector_enabled() -> bool {
+        component_enabled("context_injector")
     }
 }
