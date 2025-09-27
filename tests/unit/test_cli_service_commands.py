@@ -45,7 +45,7 @@ class TestMemexdServiceManager:
         shutil.rmtree(self.temp_dir, ignore_errors=True)
 
     @patch('platform.system')
-    @patch('pathlib.Path.exists')
+    @patch.object(Path, 'exists')
     @patch('os.access')
     def test_service_manager_init_success(self, mock_access, mock_exists, mock_system):
         """Test successful MemexdServiceManager initialization."""
@@ -59,9 +59,12 @@ class TestMemexdServiceManager:
         assert manager.system == "darwin"
         assert manager.service_name == "workspace-qdrant-daemon"
         assert manager.service_id == "com.workspace-qdrant.workspace-qdrant-daemon"
+        # Binary path should be OS-specific user path
+        assert ".local/bin" in str(manager.memexd_binary)
+        assert manager.memexd_binary.name == "memexd"
 
     @patch('platform.system')
-    @patch('pathlib.Path.exists')
+    @patch.object(Path, 'exists')
     def test_service_manager_init_binary_not_found(self, mock_exists, mock_system):
         """Test MemexdServiceManager initialization with missing binary."""
         mock_system.return_value = "Darwin"
@@ -72,8 +75,15 @@ class TestMemexdServiceManager:
         with pytest.raises(FileNotFoundError, match="memexd binary not found"):
             MemexdServiceManager()
 
+        # Error message should include helpful installation guidance
+        try:
+            MemexdServiceManager()
+        except FileNotFoundError as e:
+            assert "Preferred installation path:" in str(e)
+            assert "wqm service install --build" in str(e)
+
     @patch('platform.system')
-    @patch('pathlib.Path.exists')
+    @patch.object(Path, 'exists')
     @patch('os.access')
     def test_service_manager_init_binary_not_executable(self, mock_access, mock_exists, mock_system):
         """Test MemexdServiceManager initialization with non-executable binary."""
@@ -87,7 +97,7 @@ class TestMemexdServiceManager:
             MemexdServiceManager()
 
     @patch('platform.system')
-    @patch('pathlib.Path.exists')
+    @patch.object(Path, 'exists')
     @patch('os.access')
     def test_get_config_path(self, mock_access, mock_exists, mock_system):
         """Test configuration path resolution."""
