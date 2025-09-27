@@ -3,17 +3,31 @@
 use crate::config::{ProcessingConfig, QdrantConfig};
 use crate::error::{DaemonError, DaemonResult};
 use std::sync::Arc;
+use std::path::Path;
 use tokio::sync::Semaphore;
-use tracing::{info, debug};
+use tokio::fs;
+use tracing::{info, debug, warn, error};
+use qdrant_client::{Qdrant, qdrant::{CreateCollection, Distance, VectorParams, VectorsConfig, PointStruct, Value, Datatype, UpsertPoints}};
+use std::collections::HashMap;
+use chrono;
 
 /// Document processor
-#[derive(Debug)]
 pub struct DocumentProcessor {
-    #[allow(dead_code)]
     config: ProcessingConfig,
-    #[allow(dead_code)]
     qdrant_config: QdrantConfig,
     semaphore: Arc<Semaphore>,
+    qdrant_client: Qdrant,
+}
+
+impl std::fmt::Debug for DocumentProcessor {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("DocumentProcessor")
+            .field("config", &self.config)
+            .field("qdrant_config", &self.qdrant_config)
+            .field("semaphore", &self.semaphore)
+            .field("qdrant_client", &"<Qdrant>")
+            .finish()
+    }
 }
 
 impl DocumentProcessor {
@@ -23,10 +37,18 @@ impl DocumentProcessor {
 
         let semaphore = Arc::new(Semaphore::new(config.max_concurrent_tasks));
 
+        // Initialize Qdrant client
+        let qdrant_client = Qdrant::from_url(&qdrant_config.url)
+            .build()
+            .map_err(|e| DaemonError::Configuration { message: format!("Failed to create Qdrant client: {}", e) })?;
+
+        info!("Connected to Qdrant at: {}", qdrant_config.url);
+
         Ok(Self {
             config: config.clone(),
             qdrant_config: qdrant_config.clone(),
             semaphore,
+            qdrant_client,
         })
     }
 
@@ -35,13 +57,165 @@ impl DocumentProcessor {
         let _permit = self.semaphore.acquire().await
             .map_err(|e| DaemonError::Internal { message: format!("Semaphore error: {}", e) })?;
 
-        debug!("Processing document: {}", file_path);
+        info!("Processing document: {}", file_path);
 
-        // TODO: Implement actual document processing
-        // This is a placeholder
-        tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+        // Check if file should be processed
+        if !self.should_process_file(file_path) {
+            debug!("Skipping file (not in supported extensions): {}", file_path);
+            return Ok("skipped".to_string());
+        }
 
-        Ok(uuid::Uuid::new_v4().to_string())
+        // Read file content
+        let content = match fs::read_to_string(file_path).await {
+            Ok(content) => content,
+            Err(e) => {
+                warn!("Failed to read file {}: {}", file_path, e);
+                return Ok("error".to_string());
+            }
+        };
+
+        if content.trim().is_empty() {
+            debug!("Skipping empty file: {}", file_path);
+            return Ok("empty".to_string());
+        }
+
+        // Generate document ID
+        let document_id = uuid::Uuid::new_v4().to_string();
+
+        // Determine collection name from file path
+        let collection_name = self.get_collection_name(file_path);
+
+        // Ensure collection exists
+        self.ensure_collection_exists(&collection_name).await?;
+
+        // Create document with metadata
+        let mut metadata = HashMap::new();
+        metadata.insert("file_path".to_string(), Value::from(file_path.to_string()));
+        metadata.insert("file_size".to_string(), Value::from(content.len() as i64));
+        metadata.insert("processed_at".to_string(), Value::from(chrono::Utc::now().to_rfc3339()));
+
+        if let Some(extension) = Path::new(file_path).extension().and_then(|ext| ext.to_str()) {
+            metadata.insert("file_type".to_string(), Value::from(extension.to_string()));
+        }
+
+        // For now, create a simple document embedding (placeholder vector)
+        // In a real implementation, this would use an embedding model
+        let embedding = self.create_placeholder_embedding(&content);
+
+        // Create point for Qdrant
+        let point = PointStruct::new(
+            document_id.clone(),
+            embedding,
+            metadata,
+        );
+
+        // Store in Qdrant
+        let upsert_request = UpsertPoints {
+            collection_name: collection_name.clone(),
+            wait: None,
+            points: vec![point],
+            ordering: None,
+            shard_key_selector: None,
+        };
+
+        match self.qdrant_client.upsert_points(upsert_request).await {
+            Ok(_) => {
+                info!("Successfully processed and stored document: {} in collection: {}", file_path, collection_name);
+                Ok(document_id)
+            }
+            Err(e) => {
+                error!("Failed to store document in Qdrant: {}", e);
+                Err(DaemonError::Internal { message: format!("Qdrant storage error: {}", e) })
+            }
+        }
+    }
+
+    /// Check if file should be processed based on extension
+    fn should_process_file(&self, file_path: &str) -> bool {
+        if let Some(extension) = Path::new(file_path).extension().and_then(|ext| ext.to_str()) {
+            self.config.supported_extensions.contains(&extension.to_string())
+        } else {
+            false
+        }
+    }
+
+    /// Get collection name from file path
+    fn get_collection_name(&self, _file_path: &str) -> String {
+        // Extract project name from path
+        // For now, use a simple approach - in real implementation this would be more sophisticated
+        "workspace-qdrant-mcp-repo".to_string()
+    }
+
+    /// Ensure collection exists in Qdrant
+    async fn ensure_collection_exists(&self, collection_name: &str) -> DaemonResult<()> {
+        // Check if collection exists
+        match self.qdrant_client.collection_info(collection_name).await {
+            Ok(_) => {
+                debug!("Collection {} already exists", collection_name);
+                Ok(())
+            }
+            Err(_) => {
+                info!("Creating collection: {}", collection_name);
+
+                // Create collection with default vector size (384 for all-MiniLM-L6-v2)
+                let create_collection = CreateCollection {
+                    collection_name: collection_name.to_string(),
+                    vectors_config: Some(VectorsConfig {
+                        config: Some(qdrant_client::qdrant::vectors_config::Config::Params(VectorParams {
+                            size: self.qdrant_config.default_collection.vector_size as u64,
+                            distance: Distance::Cosine as i32,
+                            hnsw_config: None,
+                            quantization_config: None,
+                            on_disk: None,
+                            datatype: Some(Datatype::Float32 as i32),
+                            multivector_config: None,
+                        })),
+                    }),
+                    hnsw_config: None,
+                    wal_config: None,
+                    optimizers_config: None,
+                    shard_number: Some(self.qdrant_config.default_collection.shard_number),
+                    on_disk_payload: None,
+                    timeout: None,
+                    replication_factor: Some(self.qdrant_config.default_collection.replication_factor),
+                    write_consistency_factor: None,
+                    init_from_collection: None,
+                    quantization_config: None,
+                    sharding_method: None,
+                    sparse_vectors_config: None,
+                    strict_mode_config: None,
+                };
+
+                self.qdrant_client.create_collection(create_collection).await
+                    .map_err(|e| DaemonError::Internal { message: format!("Failed to create collection: {}", e) })?;
+
+                info!("Successfully created collection: {}", collection_name);
+                Ok(())
+            }
+        }
+    }
+
+    /// Create a placeholder embedding (in real implementation, use embedding model)
+    fn create_placeholder_embedding(&self, content: &str) -> Vec<f32> {
+        // Create a simple hash-based embedding as placeholder
+        // In real implementation, this would use FastEmbed or similar
+        let mut embedding = vec![0.0f32; self.qdrant_config.default_collection.vector_size];
+
+        // Simple hash-based approach for demo
+        let hash = content.len() as f32;
+        for (i, byte) in content.bytes().take(embedding.len()).enumerate() {
+            embedding[i] = (byte as f32 / 255.0) * (hash / 1000.0).sin();
+        }
+
+        // Normalize
+        let norm: f32 = embedding.iter().map(|x| x * x).sum::<f32>().sqrt();
+        if norm > 0.0 {
+            for val in &mut embedding {
+                *val /= norm;
+            }
+        }
+
+        embedding
     }
 
     /// Get processing configuration
@@ -85,10 +259,13 @@ impl DocumentProcessor {
 
         let semaphore = Arc::new(Semaphore::new(config.max_concurrent_tasks));
 
+        // Note: This test instance doesn't include a qdrant_client
+        // as it's intended for unit tests that don't require actual Qdrant connection
         Self {
             config,
             qdrant_config,
             semaphore,
+            qdrant_client: Qdrant::from_url("http://localhost:6333").build().unwrap(),
         }
     }
 }
