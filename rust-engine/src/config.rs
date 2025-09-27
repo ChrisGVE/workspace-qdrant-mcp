@@ -969,8 +969,8 @@ impl DaemonConfig {
 impl Default for AutoIngestionConfig {
     fn default() -> Self {
         Self {
-            enabled: false,
-            auto_create_watches: false,
+            enabled: true,
+            auto_create_watches: true,
             project_path: None,
             target_collection_suffix: "repo".to_string(),
             include_source_files: true,
