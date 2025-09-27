@@ -67,13 +67,26 @@ impl WorkspaceDaemon {
         };
         let runtime_manager = Arc::new(RuntimeManager::new(runtime_config).await?);
 
-        Ok(Self {
+        let daemon = Self {
             config,
             state,
             processing,
             watcher,
             runtime_manager,
-        })
+        };
+
+        // Create auto-watch if enabled (do this early, before starting services)
+        if daemon.config.auto_ingestion.enabled && daemon.config.auto_ingestion.auto_create_watches {
+            info!("Auto-ingestion is enabled, creating auto-watch during initialization");
+
+            if let Some(ref project_path) = daemon.config.auto_ingestion.project_path {
+                daemon.create_auto_watch(project_path).await?;
+            } else {
+                info!("Auto-ingestion enabled but no project_path specified");
+            }
+        }
+
+        Ok(daemon)
     }
 
     /// Start all daemon services
@@ -90,16 +103,7 @@ impl WorkspaceDaemon {
             info!("File watcher started");
         }
 
-        // Check for auto-ingestion configuration and create watches if needed
-        if self.config.auto_ingestion.enabled && self.config.auto_ingestion.auto_create_watches {
-            info!("Auto-ingestion is enabled, checking for auto-watch creation");
-
-            if let Some(ref project_path) = self.config.auto_ingestion.project_path {
-                self.create_auto_watch(project_path).await?;
-            } else {
-                info!("Auto-ingestion enabled but no project_path specified");
-            }
-        }
+        // Auto-watch creation is now done during initialization, not during start
 
         info!("All daemon services started successfully");
         Ok(())
