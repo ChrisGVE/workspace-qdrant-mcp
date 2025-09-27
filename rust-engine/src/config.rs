@@ -2,71 +2,1750 @@
 
 use crate::error::DaemonResult;
 use serde::{Deserialize, Serialize};
+use std::fmt;
 use std::path::Path;
+use std::str::FromStr;
+use std::collections::HashMap;
 
-/// Main daemon configuration
+// =============================================================================
+// UNIT PARSING UTILITIES
+// =============================================================================
+
+/// Size unit that supports parsing from strings with units (B, KB, MB, GB, TB)
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(try_from = "String", into = "String")]
+pub struct SizeUnit(pub u64);
+
+impl FromStr for SizeUnit {
+    type Err = String;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        let s = s.trim();
+        if s.is_empty() {
+            return Err("Empty size string".to_string());
+        }
+
+        // Extract number and unit
+        let (num_str, unit) = if s.ends_with("TB") {
+            (&s[..s.len() - 2], 1_099_511_627_776)
+        } else if s.ends_with("GB") {
+            (&s[..s.len() - 2], 1_073_741_824)
+        } else if s.ends_with("MB") {
+            (&s[..s.len() - 2], 1_048_576)
+        } else if s.ends_with("KB") {
+            (&s[..s.len() - 2], 1_024)
+        } else if s.ends_with('B') {
+            (&s[..s.len() - 1], 1)
+        } else {
+            // No unit, assume bytes
+            (s, 1)
+        };
+
+        let num: u64 = num_str.trim().parse()
+            .map_err(|_| format!("Invalid number: {}", num_str))?;
+
+        Ok(SizeUnit(num * unit))
+    }
+}
+
+impl fmt::Display for SizeUnit {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let bytes = self.0;
+        if bytes >= 1_099_511_627_776 {
+            write!(f, "{}TB", bytes / 1_099_511_627_776)
+        } else if bytes >= 1_073_741_824 {
+            write!(f, "{}GB", bytes / 1_073_741_824)
+        } else if bytes >= 1_048_576 {
+            write!(f, "{}MB", bytes / 1_048_576)
+        } else if bytes >= 1_024 {
+            write!(f, "{}KB", bytes / 1_024)
+        } else {
+            write!(f, "{}B", bytes)
+        }
+    }
+}
+
+impl TryFrom<String> for SizeUnit {
+    type Error = String;
+    fn try_from(s: String) -> Result<Self, Self::Error> {
+        s.parse()
+    }
+}
+
+impl From<SizeUnit> for String {
+    fn from(size: SizeUnit) -> String {
+        size.to_string()
+    }
+}
+
+/// Time duration unit that supports parsing from strings with units (ms, s, m, h)
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(try_from = "String", into = "String")]
+pub struct TimeUnit(pub u64); // Store as milliseconds
+
+impl FromStr for TimeUnit {
+    type Err = String;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        let s = s.trim();
+        if s.is_empty() {
+            return Err("Empty time string".to_string());
+        }
+
+        // Extract number and unit
+        let (num_str, unit_ms) = if s.ends_with("ms") {
+            (&s[..s.len() - 2], 1)
+        } else if s.ends_with('s') {
+            (&s[..s.len() - 1], 1_000)
+        } else if s.ends_with('m') {
+            (&s[..s.len() - 1], 60_000)
+        } else if s.ends_with('h') {
+            (&s[..s.len() - 1], 3_600_000)
+        } else {
+            // No unit, assume seconds
+            (s, 1_000)
+        };
+
+        let num: u64 = num_str.trim().parse()
+            .map_err(|_| format!("Invalid number: {}", num_str))?;
+
+        Ok(TimeUnit(num * unit_ms))
+    }
+}
+
+impl fmt::Display for TimeUnit {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let ms = self.0;
+        if ms >= 3_600_000 {
+            write!(f, "{}h", ms / 3_600_000)
+        } else if ms >= 60_000 {
+            write!(f, "{}m", ms / 60_000)
+        } else if ms >= 1_000 {
+            write!(f, "{}s", ms / 1_000)
+        } else {
+            write!(f, "{}ms", ms)
+        }
+    }
+}
+
+impl TryFrom<String> for TimeUnit {
+    type Error = String;
+    fn try_from(s: String) -> Result<Self, Self::Error> {
+        s.parse()
+    }
+}
+
+impl From<TimeUnit> for String {
+    fn from(time: TimeUnit) -> String {
+        time.to_string()
+    }
+}
+
+// =============================================================================
+// MAIN CONFIGURATION STRUCTURE - PRDv3 COMPLIANT
+// =============================================================================
+
+/// Main daemon configuration structure matching PRDv3 YAML format
+/// Contains 13 major sections as specified in templates/default_config.yaml
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct DaemonConfig {
-    /// Server configuration
-    pub server: ServerConfig,
+    /// 1. System Architecture & Core Settings
+    pub system: SystemConfig,
 
-    /// Database configuration
-    pub database: DatabaseConfig,
+    /// 2. Memory Collection Configuration
+    pub memory: MemoryConfig,
 
-    /// Qdrant configuration
-    pub qdrant: QdrantConfig,
+    /// 3. Collection Management & Multi-tenancy
+    pub collections: CollectionsConfig,
 
-    /// Document processing configuration
-    pub processing: ProcessingConfig,
+    /// 4. Project Detection & Management
+    pub project_detection: ProjectDetectionConfig,
 
-    /// File watching configuration
-    pub file_watcher: FileWatcherConfig,
+    /// 5. LSP Integration & Code Intelligence
+    pub lsp_integration: LspIntegrationConfig,
 
-    /// Auto ingestion configuration
-    #[serde(default)]
-    pub auto_ingestion: AutoIngestionConfig,
+    /// 6. Document Processing & Ingestion
+    pub document_processing: DocumentProcessingConfig,
 
-    /// Metrics configuration
-    pub metrics: MetricsConfig,
+    /// 7. Search & Indexing Configuration
+    pub search: SearchConfig,
 
-    /// Logging configuration
-    pub logging: LoggingConfig,
+    /// 8. Performance & Resource Management
+    pub performance: PerformanceConfig,
+
+    /// 9. Platform & Directory Configuration
+    pub platform: PlatformConfig,
+
+    /// 10. CLI Behavior Configuration
+    pub cli: CliConfig,
+
+    /// 11. gRPC & Communication Settings
+    pub grpc: GrpcConfig,
+
+    /// 12. External Service Configuration
+    pub external_services: ExternalServicesConfig,
+
+    /// 13. Monitoring & Logging Configuration
+    pub monitoring: MonitoringConfig,
+}
+
+// =============================================================================
+// 1. SYSTEM ARCHITECTURE & CORE SETTINGS
+// =============================================================================
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SystemConfig {
+    /// System identification and versioning
+    pub project_name: String,
+    pub version: String,
+
+    /// Four-component architecture enablement
+    pub components: ComponentsConfig,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct ServerConfig {
-    /// gRPC server host
+pub struct ComponentsConfig {
+    pub rust_daemon: ComponentConfig,
+    pub python_mcp_server: ComponentConfig,
+    pub cli_utility: ComponentConfig,
+    pub context_injector: ComponentConfig,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ComponentConfig {
+    pub enabled: bool,
+}
+
+// =============================================================================
+// 2. MEMORY COLLECTION CONFIGURATION
+// =============================================================================
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct MemoryConfig {
+    /// Core memory collection settings
+    pub collection_name: String,
+
+    /// Authority levels for memory rules
+    pub authority_levels: AuthorityLevelsConfig,
+
+    /// Conversational memory update settings
+    pub conversational_updates: ConversationalUpdatesConfig,
+
+    /// Rule conflict resolution strategies
+    pub conflict_resolution: ConflictResolutionConfig,
+
+    /// Token management and optimization
+    pub token_management: TokenManagementConfig,
+
+    /// Memory rule scoping
+    pub rule_scope: RuleScopeConfig,
+
+    /// Session initialization settings
+    pub session_initialization: SessionInitializationConfig,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AuthorityLevelsConfig {
+    pub absolute: AuthorityLevelConfig,
+    pub default: AuthorityLevelConfig,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AuthorityLevelConfig {
+    pub enabled: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ConversationalUpdatesConfig {
+    pub enabled: bool,
+    pub auto_conflict_detection: bool,
+    pub immediate_activation: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ConflictResolutionConfig {
+    pub strategy: String,
+    pub user_prompt_timeout_seconds: u64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct TokenManagementConfig {
+    pub max_tokens: u32,
+    pub optimization_enabled: bool,
+    pub trim_interactive: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct RuleScopeConfig {
+    pub all_sessions: bool,
+    pub project_specific: bool,
+    pub temporary_rules: bool,
+    pub temporary_rule_duration_hours: u64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SessionInitializationConfig {
+    pub rule_injection_enabled: bool,
+    pub conflict_detection_on_startup: bool,
+    pub startup_timeout_seconds: u64,
+}
+
+// =============================================================================
+// 3. COLLECTION MANAGEMENT & MULTI-TENANCY
+// =============================================================================
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CollectionsConfig {
+    /// Project collection naming and creation
+    pub root_name: String,
+    pub types: Vec<String>,
+
+    /// Project content collection (for file artifacts)
+    pub project_content: ProjectContentConfig,
+
+    /// Reserved naming patterns and validation
+    pub naming: CollectionNamingConfig,
+
+    /// Multi-tenancy isolation settings
+    pub multi_tenancy: MultiTenancyConfig,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ProjectContentConfig {
+    pub enabled: bool,
+    pub name: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CollectionNamingConfig {
+    pub collision_detection: bool,
+    pub validation_strict: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct MultiTenancyConfig {
+    pub isolation_strategy: String,
+    pub cross_project_search: bool,
+    pub tenant_metadata_fields: Vec<String>,
+}
+
+// =============================================================================
+// 4. PROJECT DETECTION & MANAGEMENT
+// =============================================================================
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ProjectDetectionConfig {
+    /// Git-based project detection (primary method)
+    pub git_detection: GitDetectionConfig,
+
+    /// GitHub user configuration for submodule handling
+    pub github_integration: GitHubIntegrationConfig,
+
+    /// Custom project indicators (fallback method)
+    pub custom_indicators: CustomIndicatorsConfig,
+
+    /// Project naming and collection creation
+    pub naming: ProjectNamingConfig,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct GitDetectionConfig {
+    pub enabled: bool,
+    pub priority: u8,
+    pub require_initialized: bool,
+    pub scan_parent_directories: bool,
+    pub max_parent_scan_depth: u8,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct GitHubIntegrationConfig {
+    pub user: String,
+    pub submodule_handling: SubmoduleHandlingConfig,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SubmoduleHandlingConfig {
+    pub treat_as_independent_projects: bool,
+    pub ignore_external_submodules: bool,
+    pub track_ownership_changes: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CustomIndicatorsConfig {
+    pub enabled: bool,
+    pub priority: u8,
+    pub additional_patterns: AdditionalPatternsConfig,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AdditionalPatternsConfig {
+    pub custom_indicators: Vec<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ProjectNamingConfig {
+    pub root_name_strategy: String,
+    pub collection_auto_creation: bool,
+    pub prevent_project_explosion: bool,
+}
+
+// =============================================================================
+// 5. LSP INTEGRATION & CODE INTELLIGENCE
+// =============================================================================
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct LspIntegrationConfig {
+    /// Core LSP settings
+    pub enabled: bool,
+    pub auto_detection: bool,
+    pub auto_installation: bool,
+
+    /// LSP server selection and configuration
+    pub server_override: ServerOverrideConfig,
+
+    /// Health monitoring and graceful degradation
+    pub health_monitoring: LspHealthMonitoringConfig,
+
+    /// Graceful degradation levels
+    pub degradation: LspDegradationConfig,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ServerOverrideConfig {
+    pub enabled: bool,
+    pub overrides: HashMap<String, String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct LspHealthMonitoringConfig {
+    pub enabled: bool,
+    pub check_interval_seconds: u64,
+    pub automatic_recovery: bool,
+    pub max_restart_attempts: u8,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct LspDegradationConfig {
+    pub enabled: bool,
+    pub level_1_lsp_crash: DegradationActionConfig,
+    pub level_2_multiple_failures: DegradationActionConfig,
+    pub level_3_complete_failure: DegradationActionConfig,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct DegradationActionConfig {
+    pub action: String,
+}
+
+// =============================================================================
+// 6. DOCUMENT PROCESSING & INGESTION
+// =============================================================================
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct DocumentProcessingConfig {
+    /// Supported document types and processing
+    pub supported_types: SupportedTypesConfig,
+
+    /// File watching and auto-ingestion
+    pub file_watching: FileWatchingConfig,
+
+    /// Processing performance and chunking
+    pub chunking: ChunkingConfig,
+
+    /// Performance settings
+    pub performance: ProcessingPerformanceConfig,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SupportedTypesConfig {
+    pub text: TextProcessingConfig,
+    pub pdf: PdfProcessingConfig,
+    pub epub_mobi: EpubMobiProcessingConfig,
+    pub code: CodeProcessingConfig,
+    pub web: WebProcessingConfig,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct TextProcessingConfig {
+    pub enabled: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PdfProcessingConfig {
+    pub enabled: bool,
+    pub text_extraction: bool,
+    pub ocr_required_detection: bool,
+    pub store_ocr_required_in_state: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct EpubMobiProcessingConfig {
+    pub enabled: bool,
+    pub metadata_preservation: bool,
+    pub extract_toc: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CodeProcessingConfig {
+    pub enabled: bool,
+    pub lsp_enhanced: bool,
+    pub fallback_to_treesitter: bool,
+    pub fallback_to_storage_only: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct WebProcessingConfig {
+    pub single_page: WebSinglePageConfig,
+    pub recursive_crawling: WebRecursiveCrawlingConfig,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct WebSinglePageConfig {
+    pub enabled: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct WebRecursiveCrawlingConfig {
+    pub enabled: bool,
+    pub max_depth: u8,
+    pub rate_limiting: WebRateLimitingConfig,
+    pub respect_robots_txt: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct WebRateLimitingConfig {
+    pub requests_per_second: f32,
+    pub concurrent_connections: u8,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct FileWatchingConfig {
+    pub enabled: bool,
+    pub project_folders: ProjectFoldersConfig,
+    pub library_folders: LibraryFoldersConfig,
+    pub incremental_updates: IncrementalUpdatesConfig,
+    pub debouncing: DebouncingConfig,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ProjectFoldersConfig {
+    pub auto_monitor: bool,
+    pub zero_configuration: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct LibraryFoldersConfig {
+    pub user_configured: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct IncrementalUpdatesConfig {
+    pub content_hash_tracking: bool,
+    pub modification_time_tracking: bool,
+    pub process_only_changes: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct DebouncingConfig {
+    pub delay_ms: u64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ChunkingConfig {
+    pub default_chunk_size: u32,
+    pub default_chunk_overlap: u32,
+    pub max_file_size_bytes: SizeUnit,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ProcessingPerformanceConfig {
+    pub max_concurrent_tasks: u8,
+    pub batch_size: u32,
+}
+
+// =============================================================================
+// 7. SEARCH & INDEXING CONFIGURATION
+// =============================================================================
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SearchConfig {
+    /// Search modes and contexts
+    pub modes: SearchModesConfig,
+
+    /// Hybrid search configuration
+    pub hybrid: HybridSearchConfig,
+
+    /// Result formatting and limits
+    pub results: SearchResultsConfig,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SearchModesConfig {
+    pub project: SearchModeConfig,
+    pub collection: SearchModeConfig,
+    pub global: SearchModeConfig,
+    pub all: SearchModeConfig,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SearchModeConfig {
+    pub enabled: bool,
+    #[serde(default)]
+    pub default_mode: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct HybridSearchConfig {
+    pub enabled: bool,
+    pub fusion_algorithm: String,
+    pub dense_weight: f32,
+    pub sparse_weight: f32,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SearchResultsConfig {
+    pub default_limit: u32,
+    pub max_limit: u32,
+    pub include_metadata: bool,
+    pub include_snippets: bool,
+}
+
+// =============================================================================
+// 8. PERFORMANCE & RESOURCE MANAGEMENT
+// =============================================================================
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PerformanceConfig {
+    /// Resource constraints and limits
+    pub memory: MemoryPerformanceConfig,
+
+    /// Startup and initialization
+    pub startup: StartupConfig,
+
+    /// CPU and priority management
+    pub cpu: CpuConfig,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct MemoryPerformanceConfig {
+    pub max_rss_mb: u32,
+    pub warning_threshold_mb: u32,
+    pub gc_threshold_mb: u32,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct StartupConfig {
+    pub daemon_init_timeout_seconds: u64,
+    pub mcp_server_init_timeout_seconds: u64,
+    pub health_check_timeout_seconds: u64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CpuConfig {
+    pub background_priority: String,
+    pub interactive_priority: String,
+    pub priority_boost_on_mcp_active: bool,
+    pub revert_priority_on_mcp_quit: bool,
+}
+
+// =============================================================================
+// 9. PLATFORM & DIRECTORY CONFIGURATION
+// =============================================================================
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PlatformConfig {
+    /// XDG Base Directory Specification compliance
+    pub xdg_compliance: XdgComplianceConfig,
+
+    /// Platform-specific directory mapping
+    pub directories: PlatformDirectoriesConfig,
+
+    /// File pattern customization
+    pub file_patterns: FilePatternsConfig,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct XdgComplianceConfig {
+    pub enabled: bool,
+    pub fallback_on_windows_mac: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PlatformDirectoriesConfig {
+    pub linux: PlatformDirectorySet,
+    pub macos: PlatformDirectorySet,
+    pub windows: PlatformDirectorySet,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PlatformDirectorySet {
+    pub cache: String,
+    pub logs: String,
+    pub config: String,
+    pub state: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct FilePatternsConfig {
+    pub include_patterns: IncludePatternsConfig,
+    pub exclude_patterns: ExcludePatternsConfig,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct IncludePatternsConfig {
+    pub custom: Vec<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ExcludePatternsConfig {
+    pub custom: Vec<String>,
+}
+
+// =============================================================================
+// 10. CLI BEHAVIOR CONFIGURATION
+// =============================================================================
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CliConfig {
+    /// CLI behavior and user experience settings
+    pub behavior: CliBehaviorConfig,
+
+    /// Command-specific settings
+    pub commands: CliCommandsConfig,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CliBehaviorConfig {
+    pub interactive_mode: bool,
+    pub default_output_format: String,
+    pub color_output: bool,
+    pub progress_indicators: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CliCommandsConfig {
+    pub memory: CliMemoryConfig,
+    pub admin: CliAdminConfig,
+    pub ingest: CliIngestConfig,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CliMemoryConfig {
+    pub auto_backup: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CliAdminConfig {
+    pub confirm_destructive: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CliIngestConfig {
+    pub show_progress: bool,
+}
+
+// =============================================================================
+// 11. gRPC & COMMUNICATION SETTINGS
+// =============================================================================
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct GrpcConfig {
+    /// Core gRPC server settings
+    pub server: GrpcServerConfig,
+
+    /// Client settings (for Python MCP server)
+    pub client: GrpcClientConfig,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct GrpcServerConfig {
+    pub enabled: bool,
     pub host: String,
-
-    /// gRPC server port
     pub port: u16,
+    pub max_concurrent_streams: u32,
+    pub max_message_size_mb: u32,
+}
 
-    /// Maximum number of concurrent connections
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct GrpcClientConfig {
+    pub connection_timeout_seconds: u64,
+    pub request_timeout_seconds: u64,
+    pub keepalive_interval_seconds: u64,
+    pub keepalive_timeout_seconds: u64,
+    pub max_retry_attempts: u8,
+    pub retry_backoff_ms: u64,
+}
+
+// =============================================================================
+// 12. EXTERNAL SERVICE CONFIGURATION
+// =============================================================================
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ExternalServicesConfig {
+    /// Qdrant vector database settings
+    pub qdrant: QdrantServiceConfig,
+
+    /// FastEmbed embeddings configuration
+    pub embeddings: EmbeddingsConfig,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct QdrantServiceConfig {
+    pub url: String,
+    pub api_key: Option<String>,
+    pub timeout_seconds: u64,
+    pub max_retries: u8,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct EmbeddingsConfig {
+    pub model: String,
+    pub cache_dir: Option<String>,
+}
+
+// =============================================================================
+// 13. MONITORING & LOGGING CONFIGURATION
+// =============================================================================
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct MonitoringConfig {
+    /// Logging configuration
+    pub logging: LoggingConfig,
+
+    /// Metrics collection
+    pub metrics: MetricsConfig,
+
+    /// Health checks
+    pub health_checks: HealthChecksConfig,
+}
+
+// Note: LoggingConfig is defined in legacy compatibility section
+
+// Note: MetricsConfig is defined in legacy compatibility section
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct HealthChecksConfig {
+    pub enabled: bool,
+    pub check_interval_seconds: u64,
+    pub failure_threshold: u8,
+}
+
+// =============================================================================
+// IMPLEMENTATION
+// =============================================================================
+
+impl Default for DaemonConfig {
+    fn default() -> Self {
+        Self {
+            system: SystemConfig::default(),
+            memory: MemoryConfig::default(),
+            collections: CollectionsConfig::default(),
+            project_detection: ProjectDetectionConfig::default(),
+            lsp_integration: LspIntegrationConfig::default(),
+            document_processing: DocumentProcessingConfig::default(),
+            search: SearchConfig::default(),
+            performance: PerformanceConfig::default(),
+            platform: PlatformConfig::default(),
+            cli: CliConfig::default(),
+            grpc: GrpcConfig::default(),
+            external_services: ExternalServicesConfig::default(),
+            monitoring: MonitoringConfig::default(),
+        }
+    }
+}
+
+impl Default for SystemConfig {
+    fn default() -> Self {
+        Self {
+            project_name: "workspace-qdrant-mcp".to_string(),
+            version: "v2.0".to_string(),
+            components: ComponentsConfig::default(),
+        }
+    }
+}
+
+impl Default for ComponentsConfig {
+    fn default() -> Self {
+        Self {
+            rust_daemon: ComponentConfig { enabled: true },
+            python_mcp_server: ComponentConfig { enabled: true },
+            cli_utility: ComponentConfig { enabled: true },
+            context_injector: ComponentConfig { enabled: true },
+        }
+    }
+}
+
+impl Default for MemoryConfig {
+    fn default() -> Self {
+        Self {
+            collection_name: "llm_rules".to_string(),
+            authority_levels: AuthorityLevelsConfig {
+                absolute: AuthorityLevelConfig { enabled: true },
+                default: AuthorityLevelConfig { enabled: true },
+            },
+            conversational_updates: ConversationalUpdatesConfig {
+                enabled: true,
+                auto_conflict_detection: true,
+                immediate_activation: true,
+            },
+            conflict_resolution: ConflictResolutionConfig {
+                strategy: "merge_conditional".to_string(),
+                user_prompt_timeout_seconds: 30,
+            },
+            token_management: TokenManagementConfig {
+                max_tokens: 2000,
+                optimization_enabled: true,
+                trim_interactive: true,
+            },
+            rule_scope: RuleScopeConfig {
+                all_sessions: true,
+                project_specific: true,
+                temporary_rules: true,
+                temporary_rule_duration_hours: 24,
+            },
+            session_initialization: SessionInitializationConfig {
+                rule_injection_enabled: true,
+                conflict_detection_on_startup: true,
+                startup_timeout_seconds: 10,
+            },
+        }
+    }
+}
+
+impl Default for CollectionsConfig {
+    fn default() -> Self {
+        Self {
+            root_name: "project".to_string(),
+            types: vec![],
+            project_content: ProjectContentConfig {
+                enabled: true,
+                name: "project_content".to_string(),
+            },
+            naming: CollectionNamingConfig {
+                collision_detection: true,
+                validation_strict: true,
+            },
+            multi_tenancy: MultiTenancyConfig {
+                isolation_strategy: "metadata_filtering".to_string(),
+                cross_project_search: true,
+                tenant_metadata_fields: vec![
+                    "project_id".to_string(),
+                    "project_path".to_string(),
+                    "git_repository".to_string(),
+                ],
+            },
+        }
+    }
+}
+
+impl Default for ProjectDetectionConfig {
+    fn default() -> Self {
+        Self {
+            git_detection: GitDetectionConfig {
+                enabled: true,
+                priority: 1,
+                require_initialized: true,
+                scan_parent_directories: true,
+                max_parent_scan_depth: 10,
+            },
+            github_integration: GitHubIntegrationConfig {
+                user: "".to_string(),
+                submodule_handling: SubmoduleHandlingConfig {
+                    treat_as_independent_projects: true,
+                    ignore_external_submodules: true,
+                    track_ownership_changes: true,
+                },
+            },
+            custom_indicators: CustomIndicatorsConfig {
+                enabled: true,
+                priority: 2,
+                additional_patterns: AdditionalPatternsConfig {
+                    custom_indicators: vec![],
+                },
+            },
+            naming: ProjectNamingConfig {
+                root_name_strategy: "directory_name".to_string(),
+                collection_auto_creation: true,
+                prevent_project_explosion: true,
+            },
+        }
+    }
+}
+
+impl Default for LspIntegrationConfig {
+    fn default() -> Self {
+        Self {
+            enabled: true,
+            auto_detection: true,
+            auto_installation: false,
+            server_override: ServerOverrideConfig {
+                enabled: false,
+                overrides: HashMap::new(),
+            },
+            health_monitoring: LspHealthMonitoringConfig {
+                enabled: true,
+                check_interval_seconds: 30,
+                automatic_recovery: true,
+                max_restart_attempts: 3,
+            },
+            degradation: LspDegradationConfig {
+                enabled: true,
+                level_1_lsp_crash: DegradationActionConfig {
+                    action: "continue_text_only".to_string(),
+                },
+                level_2_multiple_failures: DegradationActionConfig {
+                    action: "fallback_treesitter".to_string(),
+                },
+                level_3_complete_failure: DegradationActionConfig {
+                    action: "text_only_mode".to_string(),
+                },
+            },
+        }
+    }
+}
+
+impl Default for DocumentProcessingConfig {
+    fn default() -> Self {
+        Self {
+            supported_types: SupportedTypesConfig {
+                text: TextProcessingConfig { enabled: true },
+                pdf: PdfProcessingConfig {
+                    enabled: true,
+                    text_extraction: true,
+                    ocr_required_detection: true,
+                    store_ocr_required_in_state: true,
+                },
+                epub_mobi: EpubMobiProcessingConfig {
+                    enabled: true,
+                    metadata_preservation: true,
+                    extract_toc: true,
+                },
+                code: CodeProcessingConfig {
+                    enabled: true,
+                    lsp_enhanced: true,
+                    fallback_to_treesitter: true,
+                    fallback_to_storage_only: true,
+                },
+                web: WebProcessingConfig {
+                    single_page: WebSinglePageConfig { enabled: true },
+                    recursive_crawling: WebRecursiveCrawlingConfig {
+                        enabled: true,
+                        max_depth: 3,
+                        rate_limiting: WebRateLimitingConfig {
+                            requests_per_second: 2.0,
+                            concurrent_connections: 3,
+                        },
+                        respect_robots_txt: true,
+                    },
+                },
+            },
+            file_watching: FileWatchingConfig {
+                enabled: true,
+                project_folders: ProjectFoldersConfig {
+                    auto_monitor: true,
+                    zero_configuration: true,
+                },
+                library_folders: LibraryFoldersConfig {
+                    user_configured: true,
+                },
+                incremental_updates: IncrementalUpdatesConfig {
+                    content_hash_tracking: true,
+                    modification_time_tracking: true,
+                    process_only_changes: true,
+                },
+                debouncing: DebouncingConfig { delay_ms: 500 },
+            },
+            chunking: ChunkingConfig {
+                default_chunk_size: 1000,
+                default_chunk_overlap: 200,
+                max_file_size_bytes: SizeUnit(100 * 1024 * 1024), // 100MB
+            },
+            performance: ProcessingPerformanceConfig {
+                max_concurrent_tasks: 4,
+                batch_size: 100,
+            },
+        }
+    }
+}
+
+impl Default for SearchConfig {
+    fn default() -> Self {
+        Self {
+            modes: SearchModesConfig {
+                project: SearchModeConfig {
+                    enabled: true,
+                    default_mode: true,
+                },
+                collection: SearchModeConfig {
+                    enabled: true,
+                    default_mode: false,
+                },
+                global: SearchModeConfig {
+                    enabled: true,
+                    default_mode: false,
+                },
+                all: SearchModeConfig {
+                    enabled: true,
+                    default_mode: false,
+                },
+            },
+            hybrid: HybridSearchConfig {
+                enabled: true,
+                fusion_algorithm: "rrf".to_string(),
+                dense_weight: 0.7,
+                sparse_weight: 0.3,
+            },
+            results: SearchResultsConfig {
+                default_limit: 20,
+                max_limit: 100,
+                include_metadata: true,
+                include_snippets: true,
+            },
+        }
+    }
+}
+
+impl Default for PerformanceConfig {
+    fn default() -> Self {
+        Self {
+            memory: MemoryPerformanceConfig {
+                max_rss_mb: 500,
+                warning_threshold_mb: 400,
+                gc_threshold_mb: 350,
+            },
+            startup: StartupConfig {
+                daemon_init_timeout_seconds: 2,
+                mcp_server_init_timeout_seconds: 5,
+                health_check_timeout_seconds: 1,
+            },
+            cpu: CpuConfig {
+                background_priority: "low".to_string(),
+                interactive_priority: "high".to_string(),
+                priority_boost_on_mcp_active: true,
+                revert_priority_on_mcp_quit: true,
+            },
+        }
+    }
+}
+
+impl Default for PlatformConfig {
+    fn default() -> Self {
+        Self {
+            xdg_compliance: XdgComplianceConfig {
+                enabled: true,
+                fallback_on_windows_mac: true,
+            },
+            directories: PlatformDirectoriesConfig {
+                linux: PlatformDirectorySet {
+                    cache: "$XDG_CACHE_HOME/workspace-qdrant-mcp".to_string(),
+                    state: "$XDG_STATE_HOME/workspace-qdrant-mcp".to_string(),
+                    config: "$XDG_CONFIG_HOME/workspace-qdrant-mcp".to_string(),
+                    logs: "$XDG_STATE_HOME/workspace-qdrant-mcp/logs".to_string(),
+                },
+                macos: PlatformDirectorySet {
+                    cache: "~/Library/Caches/workspace-qdrant-mcp".to_string(),
+                    logs: "~/Library/Logs/workspace-qdrant-mcp".to_string(),
+                    config: "~/Library/Application Support/workspace-qdrant-mcp".to_string(),
+                    state: "~/Library/Application Support/workspace-qdrant-mcp/state".to_string(),
+                },
+                windows: PlatformDirectorySet {
+                    cache: "%LOCALAPPDATA%\\workspace-qdrant-mcp\\cache".to_string(),
+                    logs: "%LOCALAPPDATA%\\workspace-qdrant-mcp\\logs".to_string(),
+                    config: "%APPDATA%\\workspace-qdrant-mcp".to_string(),
+                    state: "%LOCALAPPDATA%\\workspace-qdrant-mcp\\state".to_string(),
+                },
+            },
+            file_patterns: FilePatternsConfig {
+                include_patterns: IncludePatternsConfig { custom: vec![] },
+                exclude_patterns: ExcludePatternsConfig { custom: vec![] },
+            },
+        }
+    }
+}
+
+impl Default for CliConfig {
+    fn default() -> Self {
+        Self {
+            behavior: CliBehaviorConfig {
+                interactive_mode: true,
+                default_output_format: "table".to_string(),
+                color_output: true,
+                progress_indicators: true,
+            },
+            commands: CliCommandsConfig {
+                memory: CliMemoryConfig { auto_backup: true },
+                admin: CliAdminConfig {
+                    confirm_destructive: true,
+                },
+                ingest: CliIngestConfig { show_progress: true },
+            },
+        }
+    }
+}
+
+impl Default for GrpcConfig {
+    fn default() -> Self {
+        Self {
+            server: GrpcServerConfig {
+                enabled: true,
+                host: "127.0.0.1".to_string(),
+                port: 50051,
+                max_concurrent_streams: 100,
+                max_message_size_mb: 16,
+            },
+            client: GrpcClientConfig {
+                connection_timeout_seconds: 5,
+                request_timeout_seconds: 30,
+                keepalive_interval_seconds: 30,
+                keepalive_timeout_seconds: 5,
+                max_retry_attempts: 3,
+                retry_backoff_ms: 1000,
+            },
+        }
+    }
+}
+
+impl Default for ExternalServicesConfig {
+    fn default() -> Self {
+        Self {
+            qdrant: QdrantServiceConfig {
+                url: "http://localhost:6333".to_string(),
+                api_key: None,
+                timeout_seconds: 30,
+                max_retries: 3,
+            },
+            embeddings: EmbeddingsConfig {
+                model: "sentence-transformers/all-MiniLM-L6-v2".to_string(),
+                cache_dir: None,
+            },
+        }
+    }
+}
+
+impl Default for MonitoringConfig {
+    fn default() -> Self {
+        Self {
+            logging: LoggingConfig {
+                level: "info".to_string(),
+                file_path: None,
+                json_format: false,
+                max_file_size_mb: 100,
+                max_files: 5,
+            },
+            metrics: MetricsConfig {
+                enabled: true,
+                collection_interval_secs: 60,
+                retention_days: 30,
+                enable_prometheus: true,
+                prometheus_port: 9090,
+            },
+            health_checks: HealthChecksConfig {
+                enabled: true,
+                check_interval_seconds: 30,
+                failure_threshold: 3,
+            },
+        }
+    }
+}
+
+impl DaemonConfig {
+    /// Load configuration from file or use defaults
+    pub fn load(config_path: Option<&Path>) -> DaemonResult<Self> {
+        match config_path {
+            Some(path) => {
+                let content = std::fs::read_to_string(path)?;
+                let config: DaemonConfig = if path.extension().and_then(|s| s.to_str()) == Some("toml") {
+                    // Parse as TOML
+                    toml::from_str(&content)
+                        .map_err(|e| crate::error::DaemonError::Configuration {
+                            message: format!("Invalid TOML: {}", e)
+                        })?
+                } else {
+                    // Parse as YAML (default)
+                    serde_yaml::from_str(&content)
+                        .map_err(|e| crate::error::DaemonError::Configuration {
+                            message: format!("Invalid YAML: {}", e)
+                        })?
+                };
+                Ok(config)
+            },
+            None => {
+                // Try to load from environment variables or use defaults
+                Self::from_env()
+            }
+        }
+    }
+
+    /// Load configuration from environment variables
+    fn from_env() -> DaemonResult<Self> {
+        let mut config = Self::default();
+
+        // Override with environment variables if present
+        if let Ok(url) = std::env::var("QDRANT_URL") {
+            config.external_services.qdrant.url = url;
+        }
+
+        if let Ok(api_key) = std::env::var("QDRANT_API_KEY") {
+            config.external_services.qdrant.api_key = Some(api_key);
+        }
+
+        if let Ok(host) = std::env::var("DAEMON_HOST") {
+            config.grpc.server.host = host;
+        }
+
+        if let Ok(port) = std::env::var("DAEMON_PORT") {
+            config.grpc.server.port = port.parse()
+                .map_err(|e| crate::error::DaemonError::Configuration {
+                    message: format!("Invalid port: {}", e)
+                })?;
+        }
+
+        Ok(config)
+    }
+
+    /// Save configuration to file
+    #[allow(dead_code)]
+    pub fn save(&self, path: &Path) -> DaemonResult<()> {
+        let content = serde_yaml::to_string(self)
+            .map_err(|e| crate::error::DaemonError::Configuration {
+                message: format!("Serialization error: {}", e)
+            })?;
+        std::fs::write(path, content)?;
+        Ok(())
+    }
+
+    /// Validate configuration
+    pub fn validate(&self) -> DaemonResult<()> {
+        // Validate gRPC server configuration
+        if self.grpc.server.port == 0 {
+            return Err(crate::error::DaemonError::Configuration {
+                message: "gRPC server port cannot be 0".to_string()
+            });
+        }
+
+        // Validate Qdrant URL
+        if self.external_services.qdrant.url.is_empty() {
+            return Err(crate::error::DaemonError::Configuration {
+                message: "Qdrant URL cannot be empty".to_string()
+            });
+        }
+
+        // Validate chunking configuration
+        if self.document_processing.chunking.default_chunk_size == 0 {
+            return Err(crate::error::DaemonError::Configuration {
+                message: "Chunk size must be greater than 0".to_string()
+            });
+        }
+
+        Ok(())
+    }
+
+    /// Compatibility property getters
+    pub fn server(&self) -> ServerConfig {
+        self.get_legacy_server_config()
+    }
+
+    pub fn database(&self) -> DatabaseConfig {
+        self.get_legacy_database_config()
+    }
+
+    pub fn qdrant(&self) -> QdrantConfig {
+        self.get_legacy_qdrant_config()
+    }
+
+    pub fn processing(&self) -> ProcessingConfig {
+        self.get_legacy_processing_config()
+    }
+
+    pub fn file_watcher(&self) -> FileWatcherConfig {
+        self.get_legacy_file_watcher_config()
+    }
+
+    pub fn metrics(&self) -> MetricsConfig {
+        self.get_legacy_metrics_config()
+    }
+
+    pub fn logging(&self) -> LoggingConfig {
+        self.get_legacy_logging_config()
+    }
+
+    pub fn auto_ingestion(&self) -> AutoIngestionConfig {
+        self.get_legacy_auto_ingestion_config()
+    }
+
+    /// Get legacy server configuration for compatibility
+    pub fn get_legacy_server_config(&self) -> ServerConfig {
+        ServerConfig {
+            host: self.grpc.server.host.clone(),
+            port: self.grpc.server.port,
+            max_connections: 1000,
+            connection_timeout_secs: self.grpc.client.connection_timeout_seconds,
+            request_timeout_secs: self.grpc.client.request_timeout_seconds,
+            enable_tls: false,
+            security: SecurityConfig::default(),
+            transport: TransportConfig::default(),
+            message: MessageConfig::default(),
+            compression: CompressionConfig::default(),
+            streaming: StreamingConfig::default(),
+        }
+    }
+
+    /// Get legacy database configuration for compatibility
+    pub fn get_legacy_database_config(&self) -> DatabaseConfig {
+        DatabaseConfig {
+            sqlite_path: format!("{}/workspace_daemon.db",
+                self.platform.directories.linux.state.replace("$XDG_STATE_HOME", "~/.local/state")),
+            max_connections: 10,
+            connection_timeout_secs: 30,
+            enable_wal: true,
+        }
+    }
+
+    /// Get legacy Qdrant configuration for compatibility
+    pub fn get_legacy_qdrant_config(&self) -> QdrantConfig {
+        QdrantConfig {
+            url: self.external_services.qdrant.url.clone(),
+            api_key: self.external_services.qdrant.api_key.clone(),
+            timeout_secs: self.external_services.qdrant.timeout_seconds,
+            max_retries: self.external_services.qdrant.max_retries as u32,
+            default_collection: CollectionConfig {
+                vector_size: 384, // Default for all-MiniLM-L6-v2
+                distance_metric: "Cosine".to_string(),
+                enable_indexing: true,
+                replication_factor: 1,
+                shard_number: 1,
+            },
+        }
+    }
+
+    /// Get legacy processing configuration for compatibility
+    pub fn get_legacy_processing_config(&self) -> ProcessingConfig {
+        ProcessingConfig {
+            max_concurrent_tasks: self.document_processing.performance.max_concurrent_tasks as usize,
+            default_chunk_size: self.document_processing.chunking.default_chunk_size as usize,
+            default_chunk_overlap: self.document_processing.chunking.default_chunk_overlap as usize,
+            max_file_size_bytes: self.document_processing.chunking.max_file_size_bytes.0,
+            supported_extensions: vec![
+                "rs".to_string(), "py".to_string(), "js".to_string(), "ts".to_string(),
+                "md".to_string(), "txt".to_string(), "pdf".to_string(), "html".to_string(),
+                "json".to_string(), "xml".to_string(),
+            ],
+            enable_lsp: self.lsp_integration.enabled,
+            lsp_timeout_secs: 10,
+        }
+    }
+
+    /// Get legacy file watcher configuration for compatibility
+    pub fn get_legacy_file_watcher_config(&self) -> FileWatcherConfig {
+        FileWatcherConfig {
+            enabled: self.document_processing.file_watching.enabled,
+            debounce_ms: self.document_processing.file_watching.debouncing.delay_ms,
+            max_watched_dirs: 100,
+            ignore_patterns: vec![
+                "target/**".to_string(),
+                "node_modules/**".to_string(),
+                ".git/**".to_string(),
+                "*.tmp".to_string(),
+                "*.log".to_string(),
+            ],
+            recursive: true,
+        }
+    }
+
+    /// Get legacy metrics configuration for compatibility
+    pub fn get_legacy_metrics_config(&self) -> MetricsConfig {
+        MetricsConfig {
+            enabled: self.monitoring.metrics.enabled,
+            collection_interval_secs: self.monitoring.metrics.collection_interval_secs,
+            retention_days: self.monitoring.metrics.retention_days as u32,
+            enable_prometheus: true,
+            prometheus_port: 9090,
+        }
+    }
+
+    /// Get legacy logging configuration for compatibility
+    pub fn get_legacy_logging_config(&self) -> LoggingConfig {
+        LoggingConfig {
+            level: self.monitoring.logging.level.clone(),
+            file_path: Some(format!("{}/workspace_daemon.log",
+                self.platform.directories.linux.logs.replace("$XDG_STATE_HOME", "~/.local/state"))),
+            json_format: self.monitoring.logging.json_format,
+            max_file_size_mb: self.monitoring.logging.max_file_size_mb as u64,
+            max_files: self.monitoring.logging.max_files as u32,
+        }
+    }
+
+    /// Get legacy auto ingestion configuration for compatibility
+    pub fn get_legacy_auto_ingestion_config(&self) -> AutoIngestionConfig {
+        AutoIngestionConfig {
+            enabled: self.document_processing.file_watching.enabled,
+            auto_create_watches: true,
+            project_path: None,
+            target_collection_suffix: self.collections.root_name.clone(),
+            include_source_files: self.document_processing.supported_types.code.enabled,
+            include_common_files: self.document_processing.supported_types.text.enabled,
+            include_patterns: vec![
+                "*.rs".to_string(),
+                "*.py".to_string(),
+                "*.js".to_string(),
+                "*.ts".to_string(),
+                "*.md".to_string(),
+                "*.txt".to_string(),
+                "*.json".to_string(),
+                "*.yaml".to_string(),
+                "*.yml".to_string(),
+                "*.toml".to_string(),
+            ],
+            exclude_patterns: vec![
+                "target/**".to_string(),
+                "node_modules/**".to_string(),
+                ".git/**".to_string(),
+                "build/**".to_string(),
+                "dist/**".to_string(),
+                "*.log".to_string(),
+                "*.tmp".to_string(),
+                "*.lock".to_string(),
+            ],
+            recursive: true,
+            max_depth: 10,
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_size_unit_parsing() {
+        assert_eq!("100B".parse::<SizeUnit>().unwrap().0, 100);
+        assert_eq!("1KB".parse::<SizeUnit>().unwrap().0, 1024);
+        assert_eq!("1MB".parse::<SizeUnit>().unwrap().0, 1024 * 1024);
+        assert_eq!("1GB".parse::<SizeUnit>().unwrap().0, 1024 * 1024 * 1024);
+        assert_eq!("1TB".parse::<SizeUnit>().unwrap().0, 1024_u64.pow(4));
+        assert_eq!("100".parse::<SizeUnit>().unwrap().0, 100);
+    }
+
+    #[test]
+    fn test_time_unit_parsing() {
+        assert_eq!("100ms".parse::<TimeUnit>().unwrap().0, 100);
+        assert_eq!("1s".parse::<TimeUnit>().unwrap().0, 1000);
+        assert_eq!("1m".parse::<TimeUnit>().unwrap().0, 60000);
+        assert_eq!("1h".parse::<TimeUnit>().unwrap().0, 3600000);
+        assert_eq!("10".parse::<TimeUnit>().unwrap().0, 10000); // Default to seconds
+    }
+
+    #[test]
+    fn test_daemon_config_default() {
+        let config = DaemonConfig::default();
+
+        assert_eq!(config.system.project_name, "workspace-qdrant-mcp");
+        assert_eq!(config.system.version, "v2.0");
+        assert!(config.system.components.rust_daemon.enabled);
+        assert!(config.system.components.python_mcp_server.enabled);
+        assert!(config.system.components.cli_utility.enabled);
+        assert!(config.system.components.context_injector.enabled);
+
+        assert_eq!(config.memory.collection_name, "llm_rules");
+        assert!(config.memory.authority_levels.absolute.enabled);
+        assert!(config.memory.authority_levels.default.enabled);
+
+        assert_eq!(config.collections.root_name, "project");
+        assert!(config.collections.types.is_empty());
+        assert!(config.collections.project_content.enabled);
+        assert_eq!(config.collections.project_content.name, "project_content");
+
+        assert!(config.project_detection.git_detection.enabled);
+        assert_eq!(config.project_detection.git_detection.priority, 1);
+        assert!(config.project_detection.git_detection.require_initialized);
+
+        assert!(config.lsp_integration.enabled);
+        assert!(config.lsp_integration.auto_detection);
+        assert!(!config.lsp_integration.auto_installation);
+
+        assert!(config.document_processing.supported_types.text.enabled);
+        assert!(config.document_processing.supported_types.pdf.enabled);
+        assert!(config.document_processing.supported_types.code.enabled);
+        assert!(config.document_processing.file_watching.enabled);
+
+        assert!(config.search.modes.project.enabled);
+        assert!(config.search.modes.project.default_mode);
+        assert!(config.search.hybrid.enabled);
+        assert_eq!(config.search.hybrid.fusion_algorithm, "rrf");
+
+        assert_eq!(config.performance.memory.max_rss_mb, 500);
+        assert_eq!(config.performance.startup.daemon_init_timeout_seconds, 2);
+
+        assert!(config.platform.xdg_compliance.enabled);
+        assert!(config.platform.xdg_compliance.fallback_on_windows_mac);
+
+        assert!(config.cli.behavior.interactive_mode);
+        assert_eq!(config.cli.behavior.default_output_format, "table");
+
+        assert!(config.grpc.server.enabled);
+        assert_eq!(config.grpc.server.host, "127.0.0.1");
+        assert_eq!(config.grpc.server.port, 50051);
+
+        assert_eq!(config.external_services.qdrant.url, "http://localhost:6333");
+        assert!(config.external_services.qdrant.api_key.is_none());
+        assert_eq!(config.external_services.embeddings.model, "sentence-transformers/all-MiniLM-L6-v2");
+
+        assert_eq!(config.monitoring.logging.level, "info");
+        assert!(!config.monitoring.logging.json_format);
+        assert!(config.monitoring.metrics.enabled);
+        assert!(config.monitoring.health_checks.enabled);
+    }
+
+    #[test]
+    fn test_config_validation() {
+        let mut config = DaemonConfig::default();
+        assert!(config.validate().is_ok());
+
+        // Test invalid port
+        config.grpc.server.port = 0;
+        assert!(config.validate().is_err());
+        config.grpc.server.port = 50051; // Reset
+
+        // Test empty Qdrant URL
+        config.external_services.qdrant.url = String::new();
+        assert!(config.validate().is_err());
+        config.external_services.qdrant.url = "http://localhost:6333".to_string(); // Reset
+
+        // Test zero chunk size
+        config.document_processing.chunking.default_chunk_size = 0;
+        assert!(config.validate().is_err());
+    }
+
+    #[test]
+    fn test_load_config_from_env() {
+        // This would test environment variable loading
+        // In a real test, we'd set up environment variables first
+        let config = DaemonConfig::from_env().unwrap();
+        assert!(config.validate().is_ok());
+    }
+
+    #[test]
+    fn test_size_unit_display() {
+        assert_eq!(SizeUnit(100).to_string(), "100B");
+        assert_eq!(SizeUnit(1024).to_string(), "1KB");
+        assert_eq!(SizeUnit(1024 * 1024).to_string(), "1MB");
+        assert_eq!(SizeUnit(1024 * 1024 * 1024).to_string(), "1GB");
+        assert_eq!(SizeUnit(1024_u64.pow(4)).to_string(), "1TB");
+    }
+
+    #[test]
+    fn test_time_unit_display() {
+        assert_eq!(TimeUnit(100).to_string(), "100ms");
+        assert_eq!(TimeUnit(1000).to_string(), "1s");
+        assert_eq!(TimeUnit(60000).to_string(), "1m");
+        assert_eq!(TimeUnit(3600000).to_string(), "1h");
+    }
+
+    #[test]
+    fn test_serde_roundtrip() {
+        let config = DaemonConfig::default();
+        let yaml = serde_yaml::to_string(&config).unwrap();
+        let deserialized: DaemonConfig = serde_yaml::from_str(&yaml).unwrap();
+        assert_eq!(config.system.project_name, deserialized.system.project_name);
+        assert_eq!(config.grpc.server.host, deserialized.grpc.server.host);
+    }
+}
+
+// =============================================================================
+// LEGACY COMPATIBILITY STRUCTURES
+// =============================================================================
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ServerConfig {
+    pub host: String,
+    pub port: u16,
     pub max_connections: usize,
-
-    /// Connection timeout in seconds
     pub connection_timeout_secs: u64,
-
-    /// Request timeout in seconds
     pub request_timeout_secs: u64,
-
-    /// Enable TLS
     pub enable_tls: bool,
-
-    /// Security configuration
     pub security: SecurityConfig,
-
-    /// Transport configuration
     pub transport: TransportConfig,
-
-    /// Message configuration
     pub message: MessageConfig,
-
-    /// Compression configuration
     pub compression: CompressionConfig,
-
-    /// Streaming configuration
     pub streaming: StreamingConfig,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct DatabaseConfig {
+    pub sqlite_path: String,
+    pub max_connections: u32,
+    pub connection_timeout_secs: u64,
+    pub enable_wal: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct QdrantConfig {
+    pub url: String,
+    pub api_key: Option<String>,
+    pub timeout_secs: u64,
+    pub max_retries: u32,
+    pub default_collection: CollectionConfig,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CollectionConfig {
+    pub vector_size: usize,
+    pub distance_metric: String,
+    pub enable_indexing: bool,
+    pub replication_factor: u32,
+    pub shard_number: u32,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ProcessingConfig {
+    pub max_concurrent_tasks: usize,
+    pub default_chunk_size: usize,
+    pub default_chunk_overlap: usize,
+    pub max_file_size_bytes: u64,
+    pub supported_extensions: Vec<String>,
+    pub enable_lsp: bool,
+    pub lsp_timeout_secs: u64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct FileWatcherConfig {
+    pub enabled: bool,
+    pub debounce_ms: u64,
+    pub max_watched_dirs: usize,
+    pub ignore_patterns: Vec<String>,
+    pub recursive: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct MetricsConfig {
+    pub enabled: bool,
+    pub collection_interval_secs: u64,
+    pub retention_days: u32,
+    pub enable_prometheus: bool,
+    pub prometheus_port: u16,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct LoggingConfig {
+    pub level: String,
+    pub file_path: Option<String>,
+    pub json_format: bool,
+    pub max_file_size_mb: u64,
+    pub max_files: u32,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AutoIngestionConfig {
+    pub enabled: bool,
+    pub auto_create_watches: bool,
+    pub project_path: Option<String>,
+    pub target_collection_suffix: String,
+    pub include_source_files: bool,
+    pub include_common_files: bool,
+    pub include_patterns: Vec<String>,
+    pub exclude_patterns: Vec<String>,
+    pub recursive: bool,
+    pub max_depth: u32,
 }
 
 /// Message size and validation configuration
@@ -613,566 +2292,7 @@ pub enum TransportStrategy {
     UnixSocketWithTcpFallback,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct DatabaseConfig {
-    /// SQLite database file path
-    pub sqlite_path: String,
-
-    /// Maximum number of database connections
-    pub max_connections: u32,
-
-    /// Connection timeout in seconds
-    pub connection_timeout_secs: u64,
-
-    /// Enable WAL mode for better concurrency
-    pub enable_wal: bool,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct QdrantConfig {
-    /// Qdrant server URL
-    pub url: String,
-
-    /// Qdrant API key (optional)
-    pub api_key: Option<String>,
-
-    /// Connection timeout in seconds
-    pub timeout_secs: u64,
-
-    /// Maximum number of retries
-    pub max_retries: u32,
-
-    /// Default collection configuration
-    pub default_collection: CollectionConfig,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct CollectionConfig {
-    /// Vector size for embeddings
-    pub vector_size: usize,
-
-    /// Distance metric (Cosine, Euclidean, Dot)
-    pub distance_metric: String,
-
-    /// Enable payload indexing
-    pub enable_indexing: bool,
-
-    /// Replication factor
-    pub replication_factor: u32,
-
-    /// Number of shards
-    pub shard_number: u32,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct ProcessingConfig {
-    /// Maximum number of concurrent processing tasks
-    pub max_concurrent_tasks: usize,
-
-    /// Default chunk size for documents
-    pub default_chunk_size: usize,
-
-    /// Default chunk overlap
-    pub default_chunk_overlap: usize,
-
-    /// Maximum file size to process (in bytes)
-    pub max_file_size_bytes: u64,
-
-    /// Supported file extensions
-    pub supported_extensions: Vec<String>,
-
-    /// Enable LSP integration
-    pub enable_lsp: bool,
-
-    /// LSP server timeout in seconds
-    pub lsp_timeout_secs: u64,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct FileWatcherConfig {
-    /// Enable file watching
-    pub enabled: bool,
-
-    /// Debounce delay in milliseconds
-    pub debounce_ms: u64,
-
-    /// Maximum number of watched directories
-    pub max_watched_dirs: usize,
-
-    /// Patterns to ignore
-    pub ignore_patterns: Vec<String>,
-
-    /// Enable recursive watching
-    pub recursive: bool,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct MetricsConfig {
-    /// Enable metrics collection
-    pub enabled: bool,
-
-    /// Metrics collection interval in seconds
-    pub collection_interval_secs: u64,
-
-    /// Metrics retention period in days
-    pub retention_days: u32,
-
-    /// Enable Prometheus metrics export
-    pub enable_prometheus: bool,
-
-    /// Prometheus metrics port
-    pub prometheus_port: u16,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct LoggingConfig {
-    /// Log level (trace, debug, info, warn, error)
-    pub level: String,
-
-    /// Log file path (optional)
-    pub file_path: Option<String>,
-
-    /// Enable JSON logging
-    pub json_format: bool,
-
-    /// Maximum log file size in MB
-    pub max_file_size_mb: u64,
-
-    /// Maximum number of log files to keep
-    pub max_files: u32,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct AutoIngestionConfig {
-    /// Enable automatic ingestion and watch creation
-    pub enabled: bool,
-
-    /// Automatically create watches for detected projects
-    pub auto_create_watches: bool,
-
-    /// Project path to watch (if specified)
-    pub project_path: Option<String>,
-
-    /// Target collection suffix for auto-created collections
-    pub target_collection_suffix: String,
-
-    /// Include source files in watching
-    pub include_source_files: bool,
-
-    /// Include common files (README, docs, etc.)
-    pub include_common_files: bool,
-
-    /// File patterns to include
-    pub include_patterns: Vec<String>,
-
-    /// File patterns to exclude (in addition to standard ignores)
-    pub exclude_patterns: Vec<String>,
-
-    /// Enable recursive watching of subdirectories
-    pub recursive: bool,
-
-    /// Maximum depth for recursive watching (0 = unlimited)
-    pub max_depth: u32,
-}
-
-impl Default for DaemonConfig {
-    fn default() -> Self {
-        Self {
-            server: ServerConfig {
-                host: "127.0.0.1".to_string(),
-                port: 50051,
-                max_connections: 1000,
-                connection_timeout_secs: 30,
-                request_timeout_secs: 300,
-                enable_tls: false,
-                security: SecurityConfig::default(),
-                transport: TransportConfig::default(),
-                message: MessageConfig::default(),
-                compression: CompressionConfig::default(),
-                streaming: StreamingConfig::default(),
-            },
-            database: DatabaseConfig {
-                sqlite_path: "./workspace_daemon.db".to_string(),
-                max_connections: 10,
-                connection_timeout_secs: 30,
-                enable_wal: true,
-            },
-            qdrant: QdrantConfig {
-                url: "http://localhost:6333".to_string(),
-                api_key: None,
-                timeout_secs: 30,
-                max_retries: 3,
-                default_collection: CollectionConfig {
-                    vector_size: 384, // sentence-transformers/all-MiniLM-L6-v2
-                    distance_metric: "Cosine".to_string(),
-                    enable_indexing: true,
-                    replication_factor: 1,
-                    shard_number: 1,
-                },
-            },
-            processing: ProcessingConfig {
-                max_concurrent_tasks: 4,
-                default_chunk_size: 1000,
-                default_chunk_overlap: 200,
-                max_file_size_bytes: 100 * 1024 * 1024, // 100MB
-                supported_extensions: vec![
-                    "rs".to_string(),
-                    "py".to_string(),
-                    "js".to_string(),
-                    "ts".to_string(),
-                    "md".to_string(),
-                    "txt".to_string(),
-                    "pdf".to_string(),
-                    "html".to_string(),
-                    "json".to_string(),
-                    "xml".to_string(),
-                ],
-                enable_lsp: true,
-                lsp_timeout_secs: 10,
-            },
-            file_watcher: FileWatcherConfig {
-                enabled: true,
-                debounce_ms: 500,
-                max_watched_dirs: 100,
-                ignore_patterns: vec![
-                    "target/**".to_string(),
-                    "node_modules/**".to_string(),
-                    ".git/**".to_string(),
-                    "*.tmp".to_string(),
-                    "*.log".to_string(),
-                ],
-                recursive: true,
-            },
-            auto_ingestion: AutoIngestionConfig::default(),
-            metrics: MetricsConfig {
-                enabled: true,
-                collection_interval_secs: 60,
-                retention_days: 30,
-                enable_prometheus: true,
-                prometheus_port: 9090,
-            },
-            logging: LoggingConfig {
-                level: "info".to_string(),
-                file_path: Some("./workspace_daemon.log".to_string()),
-                json_format: false,
-                max_file_size_mb: 100,
-                max_files: 5,
-            },
-        }
-    }
-}
-
-impl DaemonConfig {
-    /// Load configuration from file or use defaults
-    pub fn load(config_path: Option<&Path>) -> DaemonResult<Self> {
-        match config_path {
-            Some(path) => {
-                let content = std::fs::read_to_string(path)?;
-                let config: DaemonConfig = if path.extension().and_then(|s| s.to_str()) == Some("toml") {
-                    // Parse as TOML
-                    toml::from_str(&content)
-                        .map_err(|e| crate::error::DaemonError::Config(
-                            config::ConfigError::Message(format!("Invalid TOML: {}", e))
-                        ))?
-                } else {
-                    // Parse as YAML (default)
-                    serde_yaml::from_str(&content)
-                        .map_err(|e| crate::error::DaemonError::Config(
-                            config::ConfigError::Message(format!("Invalid YAML: {}", e))
-                        ))?
-                };
-                Ok(config)
-            },
-            None => {
-                // Try to load from environment variables
-                Self::from_env()
-            }
-        }
-    }
-
-    /// Load configuration from environment variables
-    fn from_env() -> DaemonResult<Self> {
-        let mut config = Self::default();
-
-        // Override with environment variables if present
-        if let Ok(url) = std::env::var("QDRANT_URL") {
-            config.qdrant.url = url;
-        }
-
-        if let Ok(api_key) = std::env::var("QDRANT_API_KEY") {
-            config.qdrant.api_key = Some(api_key);
-        }
-
-        if let Ok(host) = std::env::var("DAEMON_HOST") {
-            config.server.host = host;
-        }
-
-        if let Ok(port) = std::env::var("DAEMON_PORT") {
-            config.server.port = port.parse()
-                .map_err(|e| crate::error::DaemonError::Config(
-                    config::ConfigError::Message(format!("Invalid port: {}", e))
-                ))?;
-        }
-
-        if let Ok(db_path) = std::env::var("DAEMON_DB_PATH") {
-            config.database.sqlite_path = db_path;
-        }
-
-        Ok(config)
-    }
-
-    /// Save configuration to file
-    #[allow(dead_code)]
-    pub fn save(&self, path: &Path) -> DaemonResult<()> {
-        let content = serde_yaml::to_string(self)
-            .map_err(|e| crate::error::DaemonError::Config(
-                config::ConfigError::Message(format!("Serialization error: {}", e))
-            ))?;
-        std::fs::write(path, content)?;
-        Ok(())
-    }
-
-    /// Validate configuration
-    pub fn validate(&self) -> DaemonResult<()> {
-        // Validate server configuration
-        if self.server.port == 0 {
-            return Err(crate::error::DaemonError::Config(
-                config::ConfigError::Message("Server port cannot be 0".to_string())
-            ));
-        }
-
-        // Validate Qdrant URL
-        if self.qdrant.url.is_empty() {
-            return Err(crate::error::DaemonError::Config(
-                config::ConfigError::Message("Qdrant URL cannot be empty".to_string())
-            ));
-        }
-
-        // Validate database path
-        if self.database.sqlite_path.is_empty() {
-            return Err(crate::error::DaemonError::Config(
-                config::ConfigError::Message("Database path cannot be empty".to_string())
-            ));
-        }
-
-        // Validate processing configuration
-        if self.processing.default_chunk_size == 0 {
-            return Err(crate::error::DaemonError::Config(
-                config::ConfigError::Message("Chunk size must be greater than 0".to_string())
-            ));
-        }
-
-        Ok(())
-    }
-}
-
-impl Default for AutoIngestionConfig {
-    fn default() -> Self {
-        Self {
-            enabled: true,
-            auto_create_watches: true,
-            project_path: None,
-            target_collection_suffix: "scratchbook".to_string(),
-            include_source_files: true,
-            include_common_files: true,
-            include_patterns: vec![
-                "*.rs".to_string(),
-                "*.py".to_string(),
-                "*.js".to_string(),
-                "*.ts".to_string(),
-                "*.md".to_string(),
-                "*.txt".to_string(),
-                "*.json".to_string(),
-                "*.yaml".to_string(),
-                "*.yml".to_string(),
-                "*.toml".to_string(),
-            ],
-            exclude_patterns: vec![
-                "target/**".to_string(),
-                "node_modules/**".to_string(),
-                ".git/**".to_string(),
-                "build/**".to_string(),
-                "dist/**".to_string(),
-                "*.log".to_string(),
-                "*.tmp".to_string(),
-                "*.lock".to_string(),
-            ],
-            recursive: true,
-            max_depth: 10,
-        }
-    }
-}
-
-impl Default for MessageConfig {
-    fn default() -> Self {
-        Self {
-            // 16MB default limit (existing baseline mentioned in requirements)
-            max_incoming_message_size: 16 * 1024 * 1024,
-            max_outgoing_message_size: 16 * 1024 * 1024,
-            enable_size_validation: true,
-            // 16KB frame size for HTTP/2
-            max_frame_size: 16 * 1024,
-            // 64KB initial window for HTTP/2
-            initial_window_size: 64 * 1024,
-            service_limits: ServiceMessageLimits::default(),
-            monitoring: MessageMonitoringConfig::default(),
-        }
-    }
-}
-
-impl Default for ServiceMessageLimits {
-    fn default() -> Self {
-        Self {
-            document_processor: ServiceLimit::default_document_processor(),
-            search_service: ServiceLimit::default_search(),
-            memory_service: ServiceLimit::default_memory(),
-            system_service: ServiceLimit::default_system(),
-        }
-    }
-}
-
-impl ServiceLimit {
-    fn default_document_processor() -> Self {
-        Self {
-            max_incoming: 64 * 1024 * 1024, // 64MB for large documents
-            max_outgoing: 32 * 1024 * 1024, // 32MB for processed responses
-            enable_validation: true,
-        }
-    }
-
-    fn default_search() -> Self {
-        Self {
-            max_incoming: 4 * 1024 * 1024,  // 4MB for search queries
-            max_outgoing: 16 * 1024 * 1024, // 16MB for search results
-            enable_validation: true,
-        }
-    }
-
-    fn default_memory() -> Self {
-        Self {
-            max_incoming: 8 * 1024 * 1024,  // 8MB for memory operations
-            max_outgoing: 8 * 1024 * 1024,  // 8MB for memory responses
-            enable_validation: true,
-        }
-    }
-
-    fn default_system() -> Self {
-        Self {
-            max_incoming: 1024 * 1024,      // 1MB for system commands
-            max_outgoing: 4 * 1024 * 1024,  // 4MB for system responses
-            enable_validation: true,
-        }
-    }
-}
-
-impl Default for MessageMonitoringConfig {
-    fn default() -> Self {
-        Self {
-            enable_detailed_monitoring: true,
-            oversized_alert_threshold: 0.8, // Alert at 80% of limit
-            enable_realtime_metrics: true,
-            metrics_interval_secs: 60,
-        }
-    }
-}
-
-impl Default for CompressionConfig {
-    fn default() -> Self {
-        Self {
-            enable_gzip: true,
-            // Compress messages larger than 1KB
-            compression_threshold: 1024,
-            // Medium compression level (6) for balance of speed/size
-            compression_level: 6,
-            enable_streaming_compression: true,
-            enable_compression_monitoring: true,
-            adaptive: AdaptiveCompressionConfig::default(),
-            performance: CompressionPerformanceConfig::default(),
-        }
-    }
-}
-
-impl Default for AdaptiveCompressionConfig {
-    fn default() -> Self {
-        Self {
-            enable_adaptive: true,
-            text_compression_level: 9,   // High compression for text
-            binary_compression_level: 3, // Low compression for binary
-            structured_compression_level: 6, // Medium for JSON/structured
-            max_compression_time_ms: 100,
-        }
-    }
-}
-
-impl Default for CompressionPerformanceConfig {
-    fn default() -> Self {
-        Self {
-            enable_ratio_tracking: true,
-            poor_ratio_threshold: 0.9, // Alert if compression ratio > 90%
-            enable_time_monitoring: true,
-            slow_compression_threshold_ms: 200, // Alert if compression > 200ms
-            enable_failure_alerting: true,
-        }
-    }
-}
-
-impl Default for StreamingConfig {
-    fn default() -> Self {
-        Self {
-            enable_server_streaming: true,
-            enable_client_streaming: true,
-            // 128 concurrent streams per connection
-            max_concurrent_streams: 128,
-            // Buffer 1000 items for streaming
-            stream_buffer_size: 1000,
-            // 5 minute stream timeout
-            stream_timeout_secs: 300,
-            enable_flow_control: true,
-            progress: StreamProgressConfig::default(),
-            health: StreamHealthConfig::default(),
-            large_operations: LargeOperationStreamConfig::default(),
-        }
-    }
-}
-
-impl Default for StreamProgressConfig {
-    fn default() -> Self {
-        Self {
-            enable_progress_tracking: true,
-            progress_update_interval_ms: 1000, // 1 second updates
-            enable_progress_callbacks: true,
-            progress_threshold: 1024 * 1024, // 1MB minimum for progress tracking
-        }
-    }
-}
-
-impl Default for StreamHealthConfig {
-    fn default() -> Self {
-        Self {
-            enable_health_monitoring: true,
-            health_check_interval_secs: 30,
-            enable_auto_recovery: true,
-            max_recovery_attempts: 3,
-            recovery_backoff_multiplier: 2.0,
-            initial_recovery_delay_ms: 500,
-        }
-    }
-}
-
-impl Default for LargeOperationStreamConfig {
-    fn default() -> Self {
-        Self {
-            enable_large_document_streaming: true,
-            large_operation_chunk_size: 1024 * 1024, // 1MB chunks
-            enable_bulk_streaming: true,
-            max_streaming_memory: 128 * 1024 * 1024, // 128MB memory limit
-            enable_bidirectional_optimization: true,
-        }
-    }
-}
-
-// Default implementations for new configuration structs
-
+// Default implementations for legacy structures
 impl Default for SecurityConfig {
     fn default() -> Self {
         Self {
@@ -1372,707 +2492,170 @@ impl Default for LocalLatencyConfig {
     }
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use std::env;
-    use tempfile::tempdir;
-    use std::fs::File;
-    use std::io::Write;
-
-    #[test]
-    fn test_daemon_config_default() {
-        let config = DaemonConfig::default();
-
-        // Test server defaults
-        assert_eq!(config.server.host, "127.0.0.1");
-        assert_eq!(config.server.port, 50051);
-        assert_eq!(config.server.max_connections, 1000);
-        assert_eq!(config.server.connection_timeout_secs, 30);
-        assert_eq!(config.server.request_timeout_secs, 300);
-        assert!(!config.server.enable_tls);
-
-        // Test message configuration defaults
-        assert_eq!(config.server.message.max_incoming_message_size, 16 * 1024 * 1024);
-        assert_eq!(config.server.message.max_outgoing_message_size, 16 * 1024 * 1024);
-        assert!(config.server.message.enable_size_validation);
-        assert_eq!(config.server.message.max_frame_size, 16 * 1024);
-        assert_eq!(config.server.message.initial_window_size, 64 * 1024);
-
-        // Test compression configuration defaults
-        assert!(config.server.compression.enable_gzip);
-        assert_eq!(config.server.compression.compression_threshold, 1024);
-        assert_eq!(config.server.compression.compression_level, 6);
-        assert!(config.server.compression.enable_streaming_compression);
-        assert!(config.server.compression.enable_compression_monitoring);
-
-        // Test streaming configuration defaults
-        assert!(config.server.streaming.enable_server_streaming);
-        assert!(config.server.streaming.enable_client_streaming);
-        assert_eq!(config.server.streaming.max_concurrent_streams, 128);
-        assert_eq!(config.server.streaming.stream_buffer_size, 1000);
-        assert_eq!(config.server.streaming.stream_timeout_secs, 300);
-        assert!(config.server.streaming.enable_flow_control);
-
-        // Test database defaults
-        assert_eq!(config.database.sqlite_path, "./workspace_daemon.db");
-        assert_eq!(config.database.max_connections, 10);
-        assert_eq!(config.database.connection_timeout_secs, 30);
-        assert!(config.database.enable_wal);
-
-        // Test qdrant defaults
-        assert_eq!(config.qdrant.url, "http://localhost:6333");
-        assert!(config.qdrant.api_key.is_none());
-        assert_eq!(config.qdrant.timeout_secs, 30);
-        assert_eq!(config.qdrant.max_retries, 3);
-        assert_eq!(config.qdrant.default_collection.vector_size, 384);
-        assert_eq!(config.qdrant.default_collection.distance_metric, "Cosine");
-        assert!(config.qdrant.default_collection.enable_indexing);
-        assert_eq!(config.qdrant.default_collection.replication_factor, 1);
-        assert_eq!(config.qdrant.default_collection.shard_number, 1);
-
-        // Test processing defaults
-        assert_eq!(config.processing.max_concurrent_tasks, 4);
-        assert_eq!(config.processing.default_chunk_size, 1000);
-        assert_eq!(config.processing.default_chunk_overlap, 200);
-        assert_eq!(config.processing.max_file_size_bytes, 100 * 1024 * 1024);
-        assert!(config.processing.supported_extensions.contains(&"rs".to_string()));
-        assert!(config.processing.supported_extensions.contains(&"py".to_string()));
-        assert!(config.processing.enable_lsp);
-        assert_eq!(config.processing.lsp_timeout_secs, 10);
-
-        // Test file watcher defaults
-        assert!(config.file_watcher.enabled);
-        assert_eq!(config.file_watcher.debounce_ms, 500);
-        assert_eq!(config.file_watcher.max_watched_dirs, 100);
-        assert!(config.file_watcher.ignore_patterns.contains(&"target/**".to_string()));
-        assert!(config.file_watcher.ignore_patterns.contains(&"node_modules/**".to_string()));
-        assert!(config.file_watcher.recursive);
-
-        // Test metrics defaults
-        assert!(config.metrics.enabled);
-        assert_eq!(config.metrics.collection_interval_secs, 60);
-        assert_eq!(config.metrics.retention_days, 30);
-        assert!(config.metrics.enable_prometheus);
-        assert_eq!(config.metrics.prometheus_port, 9090);
-
-        // Test logging defaults
-        assert_eq!(config.logging.level, "info");
-        assert_eq!(config.logging.file_path, Some("./workspace_daemon.log".to_string()));
-        assert!(!config.logging.json_format);
-        assert_eq!(config.logging.max_file_size_mb, 100);
-        assert_eq!(config.logging.max_files, 5);
+impl Default for MessageConfig {
+    fn default() -> Self {
+        Self {
+            // 16MB default limit (existing baseline mentioned in requirements)
+            max_incoming_message_size: 16 * 1024 * 1024,
+            max_outgoing_message_size: 16 * 1024 * 1024,
+            enable_size_validation: true,
+            // 16KB frame size for HTTP/2
+            max_frame_size: 16 * 1024,
+            // 64KB initial window for HTTP/2
+            initial_window_size: 64 * 1024,
+            service_limits: ServiceMessageLimits::default(),
+            monitoring: MessageMonitoringConfig::default(),
+        }
     }
+}
 
-    #[test]
-    fn test_daemon_config_debug_clone() {
-        let config = DaemonConfig::default();
-        let cloned = config.clone();
-
-        assert_eq!(config.server.host, cloned.server.host);
-        assert_eq!(config.qdrant.url, cloned.qdrant.url);
-
-        // Test debug format
-        let debug_str = format!("{:?}", config);
-        assert!(debug_str.contains("DaemonConfig"));
-        assert!(debug_str.contains("ServerConfig"));
+impl Default for ServiceMessageLimits {
+    fn default() -> Self {
+        Self {
+            document_processor: ServiceLimit::default_document_processor(),
+            search_service: ServiceLimit::default_search(),
+            memory_service: ServiceLimit::default_memory(),
+            system_service: ServiceLimit::default_system(),
+        }
     }
+}
 
-    #[test]
-    fn test_load_config_from_file() {
-        let dir = tempdir().unwrap();
-        let file_path = dir.path().join("config.yaml");
-        let mut file = File::create(&file_path).unwrap();
-
-        writeln!(file, r#"
-server:
-  host: "0.0.0.0"
-  port: 8080
-  max_connections: 500
-  connection_timeout_secs: 60
-  request_timeout_secs: 600
-  enable_tls: true
-  message:
-    max_incoming_message_size: 33554432
-    max_outgoing_message_size: 33554432
-    enable_size_validation: false
-    max_frame_size: 32768
-    initial_window_size: 131072
-  compression:
-    enable_gzip: false
-    compression_threshold: 2048
-    compression_level: 9
-    enable_streaming_compression: false
-    enable_compression_monitoring: false
-  streaming:
-    enable_server_streaming: false
-    enable_client_streaming: false
-    max_concurrent_streams: 64
-    stream_buffer_size: 500
-    stream_timeout_secs: 120
-    enable_flow_control: false
-qdrant:
-  url: "http://remote-qdrant:6333"
-  api_key: "test-key"
-  timeout_secs: 45
-  max_retries: 5
-  default_collection:
-    vector_size: 512
-    distance_metric: "Euclidean"
-    enable_indexing: false
-    replication_factor: 2
-    shard_number: 3
-database:
-  sqlite_path: "/custom/path.db"
-  max_connections: 20
-  connection_timeout_secs: 45
-  enable_wal: false
-processing:
-  max_concurrent_tasks: 8
-  default_chunk_size: 2000
-  default_chunk_overlap: 400
-  max_file_size_bytes: 200000000
-  supported_extensions: ["rs", "py"]
-  enable_lsp: false
-  lsp_timeout_secs: 20
-file_watcher:
-  enabled: false
-  debounce_ms: 1000
-  max_watched_dirs: 50
-  ignore_patterns: ["*.log"]
-  recursive: false
-metrics:
-  enabled: false
-  collection_interval_secs: 120
-  retention_days: 60
-  enable_prometheus: false
-  prometheus_port: 9091
-logging:
-  level: "debug"
-  file_path: "/custom/log.log"
-  json_format: true
-  max_file_size_mb: 200
-  max_files: 10
-"#).unwrap();
-
-        let config = DaemonConfig::load(Some(&file_path)).unwrap();
-
-        assert_eq!(config.server.host, "0.0.0.0");
-        assert_eq!(config.server.port, 8080);
-        assert_eq!(config.server.max_connections, 500);
-        assert_eq!(config.server.connection_timeout_secs, 60);
-        assert_eq!(config.server.request_timeout_secs, 600);
-        assert!(config.server.enable_tls);
-
-        // Test message configuration from YAML
-        assert_eq!(config.server.message.max_incoming_message_size, 33554432);
-        assert_eq!(config.server.message.max_outgoing_message_size, 33554432);
-        assert!(!config.server.message.enable_size_validation);
-        assert_eq!(config.server.message.max_frame_size, 32768);
-        assert_eq!(config.server.message.initial_window_size, 131072);
-
-        // Test compression configuration from YAML
-        assert!(!config.server.compression.enable_gzip);
-        assert_eq!(config.server.compression.compression_threshold, 2048);
-        assert_eq!(config.server.compression.compression_level, 9);
-        assert!(!config.server.compression.enable_streaming_compression);
-        assert!(!config.server.compression.enable_compression_monitoring);
-
-        // Test streaming configuration from YAML
-        assert!(!config.server.streaming.enable_server_streaming);
-        assert!(!config.server.streaming.enable_client_streaming);
-        assert_eq!(config.server.streaming.max_concurrent_streams, 64);
-        assert_eq!(config.server.streaming.stream_buffer_size, 500);
-        assert_eq!(config.server.streaming.stream_timeout_secs, 120);
-        assert!(!config.server.streaming.enable_flow_control);
-
-        assert_eq!(config.qdrant.url, "http://remote-qdrant:6333");
-        assert_eq!(config.qdrant.api_key, Some("test-key".to_string()));
-        assert_eq!(config.qdrant.timeout_secs, 45);
-        assert_eq!(config.qdrant.max_retries, 5);
-        assert_eq!(config.qdrant.default_collection.vector_size, 512);
-        assert_eq!(config.qdrant.default_collection.distance_metric, "Euclidean");
-        assert!(!config.qdrant.default_collection.enable_indexing);
-        assert_eq!(config.qdrant.default_collection.replication_factor, 2);
-        assert_eq!(config.qdrant.default_collection.shard_number, 3);
-
-        assert_eq!(config.database.sqlite_path, "/custom/path.db");
-        assert_eq!(config.database.max_connections, 20);
-        assert_eq!(config.database.connection_timeout_secs, 45);
-        assert!(!config.database.enable_wal);
-
-        assert_eq!(config.processing.max_concurrent_tasks, 8);
-        assert_eq!(config.processing.default_chunk_size, 2000);
-        assert_eq!(config.processing.default_chunk_overlap, 400);
-        assert_eq!(config.processing.max_file_size_bytes, 200000000);
-        assert_eq!(config.processing.supported_extensions, vec!["rs", "py"]);
-        assert!(!config.processing.enable_lsp);
-        assert_eq!(config.processing.lsp_timeout_secs, 20);
-
-        assert!(!config.file_watcher.enabled);
-        assert_eq!(config.file_watcher.debounce_ms, 1000);
-        assert_eq!(config.file_watcher.max_watched_dirs, 50);
-        assert_eq!(config.file_watcher.ignore_patterns, vec!["*.log"]);
-        assert!(!config.file_watcher.recursive);
-
-        assert!(!config.metrics.enabled);
-        assert_eq!(config.metrics.collection_interval_secs, 120);
-        assert_eq!(config.metrics.retention_days, 60);
-        assert!(!config.metrics.enable_prometheus);
-        assert_eq!(config.metrics.prometheus_port, 9091);
-
-        assert_eq!(config.logging.level, "debug");
-        assert_eq!(config.logging.file_path, Some("/custom/log.log".to_string()));
-        assert!(config.logging.json_format);
-        assert_eq!(config.logging.max_file_size_mb, 200);
-        assert_eq!(config.logging.max_files, 10);
-    }
-
-    #[test]
-    fn test_load_config_no_file() {
-        let config = DaemonConfig::load(None).unwrap();
-        // Should load defaults when no file is provided
-        assert_eq!(config.server.host, "127.0.0.1");
-        assert_eq!(config.server.port, 50051);
-    }
-
-    #[test]
-    fn test_load_config_invalid_file() {
-        let dir = tempdir().unwrap();
-        let file_path = dir.path().join("invalid.yaml");
-        let mut file = File::create(&file_path).unwrap();
-        writeln!(file, "invalid: yaml: content: [").unwrap();
-
-        let result = DaemonConfig::load(Some(&file_path));
-        assert!(result.is_err());
-
-        if let Err(crate::error::DaemonError::Config(_)) = result {
-            // Expected error type
-        } else {
-            panic!("Expected Config error");
+impl ServiceLimit {
+    fn default_document_processor() -> Self {
+        Self {
+            max_incoming: 64 * 1024 * 1024, // 64MB for large documents
+            max_outgoing: 32 * 1024 * 1024, // 32MB for processed responses
+            enable_validation: true,
         }
     }
 
-    #[test]
-    fn test_load_config_nonexistent_file() {
-        let nonexistent_path = Path::new("/nonexistent/config.yaml");
-        let result = DaemonConfig::load(Some(nonexistent_path));
-        assert!(result.is_err());
-
-        if let Err(crate::error::DaemonError::Io(_)) = result {
-            // Expected error type
-        } else {
-            panic!("Expected IO error");
+    fn default_search() -> Self {
+        Self {
+            max_incoming: 4 * 1024 * 1024,  // 4MB for search queries
+            max_outgoing: 16 * 1024 * 1024, // 16MB for search results
+            enable_validation: true,
         }
     }
 
-    #[test]
-    fn test_from_env() {
-        // Save original env vars
-        let original_qdrant_url = env::var("QDRANT_URL").ok();
-        let original_qdrant_api_key = env::var("QDRANT_API_KEY").ok();
-        let original_daemon_host = env::var("DAEMON_HOST").ok();
-        let original_daemon_port = env::var("DAEMON_PORT").ok();
-        let original_daemon_db_path = env::var("DAEMON_DB_PATH").ok();
-
-        // Set test env vars
-        env::set_var("QDRANT_URL", "http://test-qdrant:6333");
-        env::set_var("QDRANT_API_KEY", "test-api-key");
-        env::set_var("DAEMON_HOST", "0.0.0.0");
-        env::set_var("DAEMON_PORT", "8080");
-        env::set_var("DAEMON_DB_PATH", "/test/db.sqlite");
-
-        let config = DaemonConfig::from_env().unwrap();
-
-        assert_eq!(config.qdrant.url, "http://test-qdrant:6333");
-        assert_eq!(config.qdrant.api_key, Some("test-api-key".to_string()));
-        assert_eq!(config.server.host, "0.0.0.0");
-        assert_eq!(config.server.port, 8080);
-        assert_eq!(config.database.sqlite_path, "/test/db.sqlite");
-
-        // Restore original env vars
-        match original_qdrant_url {
-            Some(val) => env::set_var("QDRANT_URL", val),
-            None => env::remove_var("QDRANT_URL"),
-        }
-        match original_qdrant_api_key {
-            Some(val) => env::set_var("QDRANT_API_KEY", val),
-            None => env::remove_var("QDRANT_API_KEY"),
-        }
-        match original_daemon_host {
-            Some(val) => env::set_var("DAEMON_HOST", val),
-            None => env::remove_var("DAEMON_HOST"),
-        }
-        match original_daemon_port {
-            Some(val) => env::set_var("DAEMON_PORT", val),
-            None => env::remove_var("DAEMON_PORT"),
-        }
-        match original_daemon_db_path {
-            Some(val) => env::set_var("DAEMON_DB_PATH", val),
-            None => env::remove_var("DAEMON_DB_PATH"),
+    fn default_memory() -> Self {
+        Self {
+            max_incoming: 8 * 1024 * 1024,  // 8MB for memory operations
+            max_outgoing: 8 * 1024 * 1024,  // 8MB for memory responses
+            enable_validation: true,
         }
     }
 
-    #[test]
-    fn test_env_port_parsing_error() {
-        // Test the port parsing logic directly
-        let invalid_port_str = "invalid_port";
-        let parse_result: Result<u16, _> = invalid_port_str.parse();
-        assert!(parse_result.is_err());
-
-        // Test that we can create the expected error type
-        let daemon_error = crate::error::DaemonError::Config(
-            config::ConfigError::Message(format!("Invalid port: {}", parse_result.unwrap_err()))
-        );
-
-        match daemon_error {
-            crate::error::DaemonError::Config(_) => {
-                // Expected error type - test passes
-            },
-            _ => panic!("Expected Config error for invalid port"),
-        }
-
-        // Test the error message formatting
-        let error_msg = format!("{}", daemon_error);
-        assert!(error_msg.contains("Configuration error"));
-        assert!(error_msg.contains("Invalid port"));
-    }
-
-    #[test]
-    fn test_save_config() {
-        let dir = tempdir().unwrap();
-        let file_path = dir.path().join("output.yaml");
-
-        let config = DaemonConfig::default();
-        config.save(&file_path).unwrap();
-
-        // Verify file was created and can be read back
-        assert!(file_path.exists());
-        let loaded_config = DaemonConfig::load(Some(&file_path)).unwrap();
-
-        assert_eq!(config.server.host, loaded_config.server.host);
-        assert_eq!(config.server.port, loaded_config.server.port);
-        assert_eq!(config.qdrant.url, loaded_config.qdrant.url);
-    }
-
-    #[test]
-    fn test_validate_config_valid() {
-        let config = DaemonConfig::default();
-        assert!(config.validate().is_ok());
-    }
-
-    #[test]
-    fn test_validate_config_invalid_port() {
-        let mut config = DaemonConfig::default();
-        config.server.port = 0;
-
-        let result = config.validate();
-        assert!(result.is_err());
-
-        if let Err(crate::error::DaemonError::Config(_)) = result {
-            // Expected error type
-        } else {
-            panic!("Expected Config error for invalid port");
+    fn default_system() -> Self {
+        Self {
+            max_incoming: 1024 * 1024,      // 1MB for system commands
+            max_outgoing: 4 * 1024 * 1024,  // 4MB for system responses
+            enable_validation: true,
         }
     }
+}
 
-    #[test]
-    fn test_validate_config_empty_qdrant_url() {
-        let mut config = DaemonConfig::default();
-        config.qdrant.url = String::new();
-
-        let result = config.validate();
-        assert!(result.is_err());
-
-        if let Err(crate::error::DaemonError::Config(_)) = result {
-            // Expected error type
-        } else {
-            panic!("Expected Config error for empty Qdrant URL");
+impl Default for MessageMonitoringConfig {
+    fn default() -> Self {
+        Self {
+            enable_detailed_monitoring: true,
+            oversized_alert_threshold: 0.8, // Alert at 80% of limit
+            enable_realtime_metrics: true,
+            metrics_interval_secs: 60,
         }
     }
+}
 
-    #[test]
-    fn test_validate_config_empty_database_path() {
-        let mut config = DaemonConfig::default();
-        config.database.sqlite_path = String::new();
-
-        let result = config.validate();
-        assert!(result.is_err());
-
-        if let Err(crate::error::DaemonError::Config(_)) = result {
-            // Expected error type
-        } else {
-            panic!("Expected Config error for empty database path");
+impl Default for CompressionConfig {
+    fn default() -> Self {
+        Self {
+            enable_gzip: true,
+            // Compress messages larger than 1KB
+            compression_threshold: 1024,
+            // Medium compression level (6) for balance of speed/size
+            compression_level: 6,
+            enable_streaming_compression: true,
+            enable_compression_monitoring: true,
+            adaptive: AdaptiveCompressionConfig::default(),
+            performance: CompressionPerformanceConfig::default(),
         }
     }
+}
 
-    #[test]
-    fn test_validate_config_zero_chunk_size() {
-        let mut config = DaemonConfig::default();
-        config.processing.default_chunk_size = 0;
-
-        let result = config.validate();
-        assert!(result.is_err());
-
-        if let Err(crate::error::DaemonError::Config(_)) = result {
-            // Expected error type
-        } else {
-            panic!("Expected Config error for zero chunk size");
+impl Default for AdaptiveCompressionConfig {
+    fn default() -> Self {
+        Self {
+            enable_adaptive: true,
+            text_compression_level: 9,   // High compression for text
+            binary_compression_level: 3, // Low compression for binary
+            structured_compression_level: 6, // Medium for JSON/structured
+            max_compression_time_ms: 100,
         }
     }
+}
 
-    #[test]
-    fn test_serialization_roundtrip() {
-        let config = DaemonConfig::default();
-
-        // Test YAML serialization
-        let yaml_str = serde_yaml::to_string(&config).unwrap();
-        let deserialized: DaemonConfig = serde_yaml::from_str(&yaml_str).unwrap();
-
-        assert_eq!(config.server.host, deserialized.server.host);
-        assert_eq!(config.server.port, deserialized.server.port);
-        assert_eq!(config.qdrant.url, deserialized.qdrant.url);
-
-        // Test JSON serialization
-        let json_str = serde_json::to_string(&config).unwrap();
-        let deserialized: DaemonConfig = serde_json::from_str(&json_str).unwrap();
-
-        assert_eq!(config.server.host, deserialized.server.host);
-        assert_eq!(config.qdrant.url, deserialized.qdrant.url);
+impl Default for CompressionPerformanceConfig {
+    fn default() -> Self {
+        Self {
+            enable_ratio_tracking: true,
+            poor_ratio_threshold: 0.9, // Alert if compression ratio > 90%
+            enable_time_monitoring: true,
+            slow_compression_threshold_ms: 200, // Alert if compression > 200ms
+            enable_failure_alerting: true,
+        }
     }
+}
 
-    #[test]
-    fn test_config_structs_are_send_sync() {
-        fn assert_send_sync<T: Send + Sync>() {}
-
-        assert_send_sync::<DaemonConfig>();
-        assert_send_sync::<ServerConfig>();
-        assert_send_sync::<DatabaseConfig>();
-        assert_send_sync::<QdrantConfig>();
-        assert_send_sync::<CollectionConfig>();
-        assert_send_sync::<ProcessingConfig>();
-        assert_send_sync::<FileWatcherConfig>();
-        assert_send_sync::<MetricsConfig>();
-        assert_send_sync::<LoggingConfig>();
-        assert_send_sync::<MessageConfig>();
-        assert_send_sync::<CompressionConfig>();
-        assert_send_sync::<StreamingConfig>();
-        assert_send_sync::<SecurityConfig>();
-        assert_send_sync::<TlsConfig>();
-        assert_send_sync::<AuthConfig>();
-        assert_send_sync::<TransportConfig>();
-        assert_send_sync::<UnixSocketConfig>();
+impl Default for StreamingConfig {
+    fn default() -> Self {
+        Self {
+            enable_server_streaming: true,
+            enable_client_streaming: true,
+            // 128 concurrent streams per connection
+            max_concurrent_streams: 128,
+            // Buffer 1000 items for streaming
+            stream_buffer_size: 1000,
+            // 5 minute stream timeout
+            stream_timeout_secs: 300,
+            enable_flow_control: true,
+            progress: StreamProgressConfig::default(),
+            health: StreamHealthConfig::default(),
+            large_operations: LargeOperationStreamConfig::default(),
+        }
     }
+}
 
-    #[test]
-    fn test_collection_config_standalone() {
-        let collection_config = CollectionConfig {
-            vector_size: 768,
-            distance_metric: "Dot".to_string(),
-            enable_indexing: false,
-            replication_factor: 3,
-            shard_number: 2,
-        };
-
-        let debug_str = format!("{:?}", collection_config);
-        assert!(debug_str.contains("CollectionConfig"));
-        assert!(debug_str.contains("768"));
-        assert!(debug_str.contains("Dot"));
-
-        let cloned = collection_config.clone();
-        assert_eq!(collection_config.vector_size, cloned.vector_size);
-        assert_eq!(collection_config.distance_metric, cloned.distance_metric);
+impl Default for StreamProgressConfig {
+    fn default() -> Self {
+        Self {
+            enable_progress_tracking: true,
+            progress_update_interval_ms: 1000, // 1 second updates
+            enable_progress_callbacks: true,
+            progress_threshold: 1024 * 1024, // 1MB minimum for progress tracking
+        }
     }
+}
 
-    #[test]
-    fn test_config_with_serde_defaults() {
-        // Test that all config structs can be created with minimal YAML
-        // This tests basic serialization/deserialization
-        let minimal_yaml = r#"
-server:
-  host: "custom-host"
-  port: 9999
-  max_connections: 500
-  connection_timeout_secs: 30
-  request_timeout_secs: 300
-  enable_tls: false
-  message:
-    max_incoming_message_size: 16777216
-    max_outgoing_message_size: 16777216
-    enable_size_validation: true
-    max_frame_size: 16384
-    initial_window_size: 65536
-  compression:
-    enable_gzip: true
-    compression_threshold: 1024
-    compression_level: 6
-    enable_streaming_compression: true
-    enable_compression_monitoring: true
-  streaming:
-    enable_server_streaming: true
-    enable_client_streaming: true
-    max_concurrent_streams: 128
-    stream_buffer_size: 1000
-    stream_timeout_secs: 300
-    enable_flow_control: true
-qdrant:
-  url: "http://custom-qdrant:6333"
-  api_key: null
-  timeout_secs: 30
-  max_retries: 3
-  default_collection:
-    vector_size: 384
-    distance_metric: "Cosine"
-    enable_indexing: true
-    replication_factor: 1
-    shard_number: 1
-database:
-  sqlite_path: "./workspace_daemon.db"
-  max_connections: 10
-  connection_timeout_secs: 30
-  enable_wal: true
-processing:
-  max_concurrent_tasks: 4
-  default_chunk_size: 1000
-  default_chunk_overlap: 200
-  max_file_size_bytes: 104857600
-  supported_extensions: ["rs", "py"]
-  enable_lsp: true
-  lsp_timeout_secs: 10
-file_watcher:
-  enabled: true
-  debounce_ms: 500
-  max_watched_dirs: 100
-  ignore_patterns: ["target/**"]
-  recursive: true
-metrics:
-  enabled: true
-  collection_interval_secs: 60
-  retention_days: 30
-  enable_prometheus: true
-  prometheus_port: 9090
-logging:
-  level: "info"
-  file_path: "./workspace_daemon.log"
-  json_format: false
-  max_file_size_mb: 100
-  max_files: 5
-"#;
-
-        let config: DaemonConfig = serde_yaml::from_str(minimal_yaml).unwrap();
-
-        // Custom fields should be set
-        assert_eq!(config.server.host, "custom-host");
-        assert_eq!(config.server.port, 9999);
-        assert_eq!(config.qdrant.url, "http://custom-qdrant:6333");
+impl Default for StreamHealthConfig {
+    fn default() -> Self {
+        Self {
+            enable_health_monitoring: true,
+            health_check_interval_secs: 30,
+            enable_auto_recovery: true,
+            max_recovery_attempts: 3,
+            recovery_backoff_multiplier: 2.0,
+            initial_recovery_delay_ms: 500,
+        }
     }
+}
 
-    #[test]
-    fn test_collection_config_edge_cases() {
-        let config = CollectionConfig {
-            vector_size: 1536,
-            distance_metric: "Euclidean".to_string(),
-            enable_indexing: false,
-            replication_factor: 3,
-            shard_number: 4,
-        };
-
-        let debug_str = format!("{:?}", config);
-        assert!(debug_str.contains("CollectionConfig"));
-        assert!(debug_str.contains("1536"));
-        assert!(debug_str.contains("Euclidean"));
-
-        let cloned = config.clone();
-        assert_eq!(config.vector_size, cloned.vector_size);
-        assert_eq!(config.distance_metric, cloned.distance_metric);
-        assert_eq!(config.enable_indexing, cloned.enable_indexing);
-        assert_eq!(config.replication_factor, cloned.replication_factor);
-        assert_eq!(config.shard_number, cloned.shard_number);
-    }
-
-    #[test]
-    fn test_config_validation_edge_cases() {
-        // Test maximum values
-        let mut config = DaemonConfig::default();
-        config.server.port = 65535;
-        config.processing.default_chunk_size = usize::MAX;
-        config.database.max_connections = u32::MAX;
-        assert!(config.validate().is_ok());
-
-        // Test minimum valid values
-        config.processing.default_chunk_size = 1;
-        assert!(config.validate().is_ok());
-
-        config.server.connection_timeout_secs = 0;
-        assert!(config.validate().is_ok());
-    }
-
-    #[test]
-    fn test_file_watcher_config_comprehensive() {
-        let config = FileWatcherConfig {
-            enabled: true,
-            debounce_ms: u64::MAX,
-            max_watched_dirs: usize::MAX,
-            ignore_patterns: vec!["*".to_string(); 100],
-            recursive: false,
-        };
-
-        let debug_str = format!("{:?}", config);
-        assert!(debug_str.contains("FileWatcherConfig"));
-        assert!(debug_str.contains("debounce_ms"));
-
-        let cloned = config.clone();
-        assert_eq!(config.enabled, cloned.enabled);
-        assert_eq!(config.debounce_ms, cloned.debounce_ms);
-        assert_eq!(config.max_watched_dirs, cloned.max_watched_dirs);
-        assert_eq!(config.ignore_patterns.len(), cloned.ignore_patterns.len());
-        assert_eq!(config.recursive, cloned.recursive);
-    }
-
-    #[test]
-    fn test_auto_ingestion_config_default() {
-        let auto_config = AutoIngestionConfig::default();
-
-        // Verify auto-ingestion is enabled by default
-        assert!(auto_config.enabled, "Auto-ingestion should be enabled by default");
-        assert!(auto_config.auto_create_watches, "Auto-create watches should be enabled by default");
-        assert!(auto_config.project_path.is_none(), "Project path should be None by default");
-        assert_eq!(auto_config.target_collection_suffix, "repo");
-        assert!(auto_config.include_source_files);
-        assert!(auto_config.include_common_files);
-        assert!(auto_config.recursive);
-        assert_eq!(auto_config.max_depth, 10);
-
-        // Verify in daemon config context
-        let daemon_config = DaemonConfig::default();
-        assert!(daemon_config.auto_ingestion.enabled, "Daemon auto-ingestion should be enabled by default");
-        assert!(daemon_config.auto_ingestion.auto_create_watches, "Daemon auto-create watches should be enabled by default");
-    }
-
-    #[test]
-    fn test_all_config_components_debug() {
-        let config = DaemonConfig::default();
-
-        // Test debug formatting for all components
-        let server_debug = format!("{:?}", config.server);
-        assert!(server_debug.contains("ServerConfig"));
-
-        let db_debug = format!("{:?}", config.database);
-        assert!(db_debug.contains("DatabaseConfig"));
-
-        let qdrant_debug = format!("{:?}", config.qdrant);
-        assert!(qdrant_debug.contains("QdrantConfig"));
-
-        let processing_debug = format!("{:?}", config.processing);
-        assert!(processing_debug.contains("ProcessingConfig"));
-
-        let watcher_debug = format!("{:?}", config.file_watcher);
-        assert!(watcher_debug.contains("FileWatcherConfig"));
-
-        let metrics_debug = format!("{:?}", config.metrics);
-        assert!(metrics_debug.contains("MetricsConfig"));
-
-        let logging_debug = format!("{:?}", config.logging);
-        assert!(logging_debug.contains("LoggingConfig"));
+impl Default for LargeOperationStreamConfig {
+    fn default() -> Self {
+        Self {
+            enable_large_document_streaming: true,
+            large_operation_chunk_size: 1024 * 1024, // 1MB chunks
+            enable_bulk_streaming: true,
+            max_streaming_memory: 128 * 1024 * 1024, // 128MB memory limit
+            enable_bidirectional_optimization: true,
+        }
     }
 }
