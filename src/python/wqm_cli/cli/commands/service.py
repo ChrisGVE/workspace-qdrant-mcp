@@ -48,30 +48,84 @@ console = Console()
 
 class MemexdServiceManager:
     """Service manager for the actual memexd binary."""
-    
+
     def __init__(self):
         self.system = platform.system().lower()
         self.service_name = "workspace-qdrant-daemon"
         self.service_id = f"com.workspace-qdrant.{self.service_name}"
-        
-        # Use the actual memexd binary
-        self.memexd_binary = Path("/usr/local/bin/memexd")
+
+        # Use OS-specific user binary path resolution
+        self.memexd_binary = self.resolve_binary_path()
         self.validate_binary()
         
+    def resolve_binary_path(self) -> Path:
+        """Resolve OS-specific user binary path for memexd."""
+        binary_name = "memexd.exe" if self.system == "windows" else "memexd"
+
+        if self.system == "darwin":  # macOS
+            candidate_paths = [
+                Path.home() / ".local" / "bin" / binary_name,
+                Path.home() / "bin" / binary_name,
+                Path("/usr/local/bin") / binary_name,  # Homebrew
+                Path("/opt/local/bin") / binary_name,   # MacPorts
+            ]
+        elif self.system == "linux":
+            candidate_paths = [
+                Path.home() / ".local" / "bin" / binary_name,
+                Path.home() / "bin" / binary_name,
+                Path.home() / "snap" / "bin" / binary_name,  # Snap packages
+            ]
+        elif self.system == "windows":
+            candidate_paths = [
+                Path.home() / "AppData" / "Local" / "bin" / binary_name,
+                Path.home() / "bin" / binary_name,
+                Path.home() / "AppData" / "Roaming" / "bin" / binary_name,
+            ]
+        else:
+            # Generic Unix fallback
+            candidate_paths = [
+                Path.home() / ".local" / "bin" / binary_name,
+                Path.home() / "bin" / binary_name,
+            ]
+
+        # Return first existing binary, or preferred path for installation
+        for path in candidate_paths:
+            if path.exists() and path.is_file():
+                return path
+
+        # No existing binary found, return preferred installation path
+        return candidate_paths[0]
+
+    def get_preferred_install_path(self) -> Path:
+        """Get the preferred installation path for new binary installation."""
+        binary_name = "memexd.exe" if self.system == "windows" else "memexd"
+
+        if self.system == "darwin":
+            return Path.home() / ".local" / "bin" / binary_name
+        elif self.system == "linux":
+            return Path.home() / ".local" / "bin" / binary_name
+        elif self.system == "windows":
+            return Path.home() / "AppData" / "Local" / "bin" / binary_name
+        else:
+            return Path.home() / ".local" / "bin" / binary_name
+
     def validate_binary(self) -> None:
         """Validate that the memexd binary exists and is executable."""
         if not self.memexd_binary.exists():
+            # Provide helpful error with OS-specific install path
+            preferred_path = self.get_preferred_install_path()
             raise FileNotFoundError(
-                f"memexd binary not found at {self.memexd_binary}. "
-                "Please ensure memexd is installed and available at /usr/local/bin/memexd"
+                f"memexd binary not found at {self.memexd_binary}.\n"
+                f"Preferred installation path: {preferred_path}\n"
+                f"Run 'wqm service install --build' to build and install the binary."
             )
-        
+
         if not os.access(self.memexd_binary, os.X_OK):
             raise PermissionError(
                 f"memexd binary at {self.memexd_binary} is not executable. "
                 "Please check permissions."
             )
-        
+
         logger.debug(f"Found valid memexd binary at {self.memexd_binary}")
     
     def get_config_path(self) -> Path:
@@ -100,7 +154,84 @@ class MemexdServiceManager:
         pid_dir.mkdir(parents=True, exist_ok=True)
         return pid_dir / "memexd.pid"
     
-    async def install_service(self, auto_start: bool = True) -> Dict[str, Any]:
+    async def install_binary_from_source(self) -> Dict[str, Any]:
+        """Build and install the memexd binary from Rust source."""
+        try:
+            # Find rust-engine source directory
+            current_dir = Path(__file__).resolve()
+            project_root = None
+
+            # Walk up directory tree to find rust-engine
+            for parent in current_dir.parents:
+                rust_engine_dir = parent / "rust-engine"
+                if rust_engine_dir.exists() and (rust_engine_dir / "Cargo.toml").exists():
+                    project_root = rust_engine_dir
+                    break
+
+            if not project_root:
+                return {
+                    "success": False,
+                    "error": "rust-engine directory not found. Cannot build from source."
+                }
+
+            logger.info(f"Building memexd from source at {project_root}")
+
+            # Run cargo build --release
+            build_cmd = ["cargo", "build", "--release"]
+            build_result = await asyncio.create_subprocess_exec(
+                *build_cmd,
+                cwd=project_root,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE
+            )
+            build_stdout, build_stderr = await build_result.communicate()
+
+            if build_result.returncode != 0:
+                return {
+                    "success": False,
+                    "error": f"Cargo build failed: {build_stderr.decode()}",
+                    "stdout": build_stdout.decode()
+                }
+
+            # Find the built binary
+            built_binary = project_root / "target" / "release" / ("memexd.exe" if self.system == "windows" else "memexd")
+            if not built_binary.exists():
+                return {
+                    "success": False,
+                    "error": f"Built binary not found at {built_binary}"
+                }
+
+            # Get preferred installation path and ensure directory exists
+            install_path = self.get_preferred_install_path()
+            install_path.parent.mkdir(parents=True, exist_ok=True)
+
+            # Copy binary to installation path
+            import shutil
+            shutil.copy2(built_binary, install_path)
+
+            # Set executable permissions on Unix systems
+            if self.system != "windows":
+                os.chmod(install_path, 0o755)
+
+            # Update binary path and validate
+            self.memexd_binary = install_path
+            self.validate_binary()
+
+            return {
+                "success": True,
+                "source_path": str(built_binary),
+                "install_path": str(install_path),
+                "message": f"memexd binary built and installed successfully at {install_path}"
+            }
+
+        except Exception as e:
+            logger.error("Binary installation from source failed", error=str(e), exc_info=True)
+            return {
+                "success": False,
+                "error": f"Failed to build and install binary: {e}"
+            }
+
+    async def install_service(self, auto_start: bool = True, build: bool = False) -> Dict[str, Any]:
         """Install the service with proper error handling."""
         try:
             if self.system == "darwin":
@@ -119,10 +250,29 @@ class MemexdServiceManager:
     async def _install_macos_service(self, auto_start: bool) -> Dict[str, Any]:
         """Install macOS launchd service with robust error handling using modern bootstrap."""
         
-        # Ensure memexd binary exists
+        # Ensure memexd binary exists, build if requested
         try:
             self.validate_binary()
-        except (FileNotFoundError, PermissionError) as e:
+        except FileNotFoundError as e:
+            if build:
+                # Try to build and install binary from source
+                build_result = await self.install_binary_from_source()
+                if not build_result["success"]:
+                    return build_result
+                # Re-validate after build
+                try:
+                    self.validate_binary()
+                except (FileNotFoundError, PermissionError) as e:
+                    return {
+                        "success": False,
+                        "error": f"Binary validation failed after build: {e}"
+                    }
+            else:
+                return {
+                    "success": False,
+                    "error": str(e)
+                }
+        except PermissionError as e:
             return {
                 "success": False,
                 "error": str(e)
@@ -1078,11 +1228,14 @@ def install_service(
     auto_start: bool = typer.Option(
         True, "--auto-start/--no-auto-start", help="Start service automatically on boot"
     ),
+    build: bool = typer.Option(
+        False, "--build", help="Build memexd binary from source if not found"
+    ),
 ) -> None:
     """Install the workspace daemon as a user service."""
 
     async def _install():
-        result = await service_manager.install_service(auto_start=auto_start)
+        result = await service_manager.install_service(auto_start=auto_start, build=build)
         
         if result["success"]:
             console.print(
