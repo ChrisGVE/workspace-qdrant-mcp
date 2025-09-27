@@ -22,6 +22,10 @@ pub struct DaemonConfig {
     /// File watching configuration
     pub file_watcher: FileWatcherConfig,
 
+    /// Auto ingestion configuration
+    #[serde(default)]
+    pub auto_ingestion: AutoIngestionConfig,
+
     /// Metrics configuration
     pub metrics: MetricsConfig,
 
@@ -738,6 +742,39 @@ pub struct LoggingConfig {
     pub max_files: u32,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AutoIngestionConfig {
+    /// Enable automatic ingestion and watch creation
+    pub enabled: bool,
+
+    /// Automatically create watches for detected projects
+    pub auto_create_watches: bool,
+
+    /// Project path to watch (if specified)
+    pub project_path: Option<String>,
+
+    /// Target collection suffix for auto-created collections
+    pub target_collection_suffix: String,
+
+    /// Include source files in watching
+    pub include_source_files: bool,
+
+    /// Include common files (README, docs, etc.)
+    pub include_common_files: bool,
+
+    /// File patterns to include
+    pub include_patterns: Vec<String>,
+
+    /// File patterns to exclude (in addition to standard ignores)
+    pub exclude_patterns: Vec<String>,
+
+    /// Enable recursive watching of subdirectories
+    pub recursive: bool,
+
+    /// Maximum depth for recursive watching (0 = unlimited)
+    pub max_depth: u32,
+}
+
 impl Default for DaemonConfig {
     fn default() -> Self {
         Self {
@@ -806,6 +843,7 @@ impl Default for DaemonConfig {
                 ],
                 recursive: true,
             },
+            auto_ingestion: AutoIngestionConfig::default(),
             metrics: MetricsConfig {
                 enabled: true,
                 collection_interval_secs: 60,
@@ -830,10 +868,19 @@ impl DaemonConfig {
         match config_path {
             Some(path) => {
                 let content = std::fs::read_to_string(path)?;
-                let config: DaemonConfig = serde_yaml::from_str(&content)
-                    .map_err(|e| crate::error::DaemonError::Config(
-                        config::ConfigError::Message(format!("Invalid YAML: {}", e))
-                    ))?;
+                let config: DaemonConfig = if path.extension().and_then(|s| s.to_str()) == Some("toml") {
+                    // Parse as TOML
+                    toml::from_str(&content)
+                        .map_err(|e| crate::error::DaemonError::Config(
+                            config::ConfigError::Message(format!("Invalid TOML: {}", e))
+                        ))?
+                } else {
+                    // Parse as YAML (default)
+                    serde_yaml::from_str(&content)
+                        .map_err(|e| crate::error::DaemonError::Config(
+                            config::ConfigError::Message(format!("Invalid YAML: {}", e))
+                        ))?
+                };
                 Ok(config)
             },
             None => {
@@ -916,6 +963,43 @@ impl DaemonConfig {
         }
 
         Ok(())
+    }
+}
+
+impl Default for AutoIngestionConfig {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            auto_create_watches: false,
+            project_path: None,
+            target_collection_suffix: "repo".to_string(),
+            include_source_files: true,
+            include_common_files: true,
+            include_patterns: vec![
+                "*.rs".to_string(),
+                "*.py".to_string(),
+                "*.js".to_string(),
+                "*.ts".to_string(),
+                "*.md".to_string(),
+                "*.txt".to_string(),
+                "*.json".to_string(),
+                "*.yaml".to_string(),
+                "*.yml".to_string(),
+                "*.toml".to_string(),
+            ],
+            exclude_patterns: vec![
+                "target/**".to_string(),
+                "node_modules/**".to_string(),
+                ".git/**".to_string(),
+                "build/**".to_string(),
+                "dist/**".to_string(),
+                "*.log".to_string(),
+                "*.tmp".to_string(),
+                "*.lock".to_string(),
+            ],
+            recursive: true,
+            max_depth: 10,
+        }
     }
 }
 

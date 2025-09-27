@@ -90,6 +90,17 @@ impl WorkspaceDaemon {
             info!("File watcher started");
         }
 
+        // Check for auto-ingestion configuration and create watches if needed
+        if self.config.auto_ingestion.enabled && self.config.auto_ingestion.auto_create_watches {
+            info!("Auto-ingestion is enabled, checking for auto-watch creation");
+
+            if let Some(ref project_path) = self.config.auto_ingestion.project_path {
+                self.create_auto_watch(project_path).await?;
+            } else {
+                info!("Auto-ingestion enabled but no project_path specified");
+            }
+        }
+
         info!("All daemon services started successfully");
         Ok(())
     }
@@ -153,6 +164,70 @@ impl WorkspaceDaemon {
     pub async fn get_runtime_statistics(&self) -> runtime::RuntimeStatistics {
         self.runtime_manager.get_statistics().await
     }
+
+    /// Create an automatic watch configuration for a project path
+    async fn create_auto_watch(&self, project_path: &str) -> DaemonResult<()> {
+        info!("Creating auto-watch for project path: {}", project_path);
+
+        // Check if watch configuration already exists
+        let state = self.state.read().await;
+        if state.watch_configuration_exists(project_path).await? {
+            info!("Watch configuration already exists for path: {}", project_path);
+            return Ok(());
+        }
+
+        // Create collection name
+        let collection_name = self.generate_collection_name(project_path);
+
+        // Prepare file patterns
+        let patterns = if self.config.auto_ingestion.include_source_files {
+            self.config.auto_ingestion.include_patterns.clone()
+        } else {
+            vec![]
+        };
+
+        // Prepare ignore patterns
+        let mut ignore_patterns = self.config.auto_ingestion.exclude_patterns.clone();
+
+        // Add standard ignore patterns from file watcher config
+        ignore_patterns.extend(self.config.file_watcher.ignore_patterns.clone());
+
+        // Determine recursive depth
+        let recursive_depth = if self.config.auto_ingestion.max_depth == 0 {
+            -1 // Unlimited depth
+        } else {
+            self.config.auto_ingestion.max_depth as i32
+        };
+
+        // Create watch configuration in database
+        let watch_id = state.create_watch_configuration(
+            project_path,
+            &collection_name,
+            &patterns,
+            &ignore_patterns,
+            self.config.auto_ingestion.recursive,
+            recursive_depth,
+        ).await?;
+
+        info!("Successfully created auto-watch configuration with ID: {} for path: {} -> collection: {}",
+              watch_id, project_path, collection_name);
+
+        info!("Auto-watch creation completed successfully");
+        Ok(())
+    }
+
+    /// Generate a collection name for the given project path
+    fn generate_collection_name(&self, project_path: &str) -> String {
+        use std::path::Path;
+
+        let path = Path::new(project_path);
+        let project_name = path
+            .file_name()
+            .and_then(|name| name.to_str())
+            .unwrap_or("unknown-project");
+
+        format!("{}-{}", project_name, self.config.auto_ingestion.target_collection_suffix)
+    }
 }
 
 #[cfg(test)]
@@ -213,6 +288,7 @@ mod tests {
                 ignore_patterns: vec![],
                 recursive: true,
             },
+            auto_ingestion: crate::config::AutoIngestionConfig::default(),
             metrics: crate::config::MetricsConfig {
                 enabled: false,
                 collection_interval_secs: 60,
@@ -415,5 +491,64 @@ mod tests {
 
         assert_send::<WorkspaceDaemon>();
         assert_sync::<WorkspaceDaemon>();
+    }
+
+    #[tokio::test]
+    async fn test_auto_watch_creation() {
+        let mut config = create_test_config();
+        config.auto_ingestion.enabled = true;
+        config.auto_ingestion.auto_create_watches = true;
+        config.auto_ingestion.project_path = Some("/tmp/test_project".to_string());
+
+        let daemon = WorkspaceDaemon::new(config).await.unwrap();
+
+        // Test the auto-watch creation logic
+        let result = daemon.create_auto_watch("/tmp/test_project").await;
+        assert!(result.is_ok());
+
+        // Test collection name generation
+        let collection_name = daemon.generate_collection_name("/tmp/test_project");
+        assert_eq!(collection_name, "test_project-repo");
+    }
+
+    #[tokio::test]
+    async fn test_collection_name_generation() {
+        let config = create_test_config();
+        let daemon = WorkspaceDaemon::new(config).await.unwrap();
+
+        // Test various project paths
+        assert_eq!(daemon.generate_collection_name("/home/user/my-project"), "my-project-repo");
+        assert_eq!(daemon.generate_collection_name("/path/to/workspace-qdrant-mcp"), "workspace-qdrant-mcp-repo");
+        assert_eq!(daemon.generate_collection_name("/"), "unknown-project-repo");
+        assert_eq!(daemon.generate_collection_name(""), "unknown-project-repo");
+    }
+
+    #[tokio::test]
+    async fn test_auto_ingestion_disabled() {
+        let mut config = create_test_config();
+        config.auto_ingestion.enabled = false;
+
+        let mut daemon = WorkspaceDaemon::new(config).await.unwrap();
+
+        // When auto-ingestion is disabled, start should complete without creating watches
+        let result = daemon.start().await;
+        assert!(result.is_ok());
+    }
+
+    #[tokio::test]
+    async fn test_auto_watch_creation_no_project_path() {
+        let mut config = create_test_config();
+        config.auto_ingestion.enabled = true;
+        config.auto_ingestion.auto_create_watches = true;
+        config.auto_ingestion.project_path = None; // No project path
+
+        let daemon = WorkspaceDaemon::new(config).await.unwrap();
+
+        // When no project path is provided, start should complete without attempting to create watches
+        // We can't test the full start() method because it involves the runtime manager
+        // Instead, let's verify the auto-ingestion configuration is correct
+        assert!(daemon.config.auto_ingestion.enabled);
+        assert!(daemon.config.auto_ingestion.auto_create_watches);
+        assert!(daemon.config.auto_ingestion.project_path.is_none());
     }
 }

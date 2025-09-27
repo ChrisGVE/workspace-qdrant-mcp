@@ -1,11 +1,11 @@
 //! Daemon state management using SQLite
 
 use crate::config::DatabaseConfig;
-use crate::error::DaemonResult;
-#[cfg(test)]
-use crate::error::DaemonError;
+use crate::error::{DaemonResult, DaemonError};
 use sqlx::SqlitePool;
 use tracing::{info, debug};
+use serde_json;
+use sqlx::Row;
 
 /// Daemon state manager
 #[derive(Debug)]
@@ -80,6 +80,44 @@ impl DaemonState {
         .execute(pool)
         .await?;
 
+        // Create watch_configurations table
+        sqlx::query(r#"
+            CREATE TABLE IF NOT EXISTS watch_configurations (
+                id TEXT PRIMARY KEY,
+                path TEXT NOT NULL,
+                collection TEXT NOT NULL,
+                patterns TEXT NOT NULL,
+                ignore_patterns TEXT NOT NULL,
+                lsp_based_extensions BOOLEAN NOT NULL DEFAULT TRUE,
+                lsp_detection_cache_ttl INTEGER NOT NULL DEFAULT 300,
+                auto_ingest BOOLEAN NOT NULL DEFAULT TRUE,
+                recursive BOOLEAN NOT NULL DEFAULT TRUE,
+                recursive_depth INTEGER NOT NULL DEFAULT -1,
+                debounce_seconds INTEGER NOT NULL DEFAULT 5,
+                update_frequency INTEGER NOT NULL DEFAULT 1000,
+                status TEXT NOT NULL DEFAULT 'active',
+                created_at TIMESTAMP NOT NULL,
+                last_activity TIMESTAMP,
+                files_processed INTEGER NOT NULL DEFAULT 0,
+                errors_count INTEGER NOT NULL DEFAULT 0
+            )
+        "#)
+        .execute(pool)
+        .await?;
+
+        // Create indexes for watch_configurations
+        sqlx::query(r#"
+            CREATE INDEX IF NOT EXISTS idx_watch_status ON watch_configurations(status)
+        "#)
+        .execute(pool)
+        .await?;
+
+        sqlx::query(r#"
+            CREATE INDEX IF NOT EXISTS idx_watch_path ON watch_configurations(path)
+        "#)
+        .execute(pool)
+        .await?;
+
         info!("Database migrations completed");
         Ok(())
     }
@@ -97,6 +135,54 @@ impl DaemonState {
             .execute(&self.pool)
             .await?;
         Ok(())
+    }
+
+    /// Create a new watch configuration
+    pub async fn create_watch_configuration(
+        &self,
+        path: &str,
+        collection: &str,
+        patterns: &[String],
+        ignore_patterns: &[String],
+        recursive: bool,
+        recursive_depth: i32,
+    ) -> DaemonResult<String> {
+        let id = uuid::Uuid::new_v4().to_string();
+        let patterns_json = serde_json::to_string(patterns)
+            .map_err(|e| DaemonError::Internal { message: format!("Failed to serialize patterns: {}", e) })?;
+        let ignore_patterns_json = serde_json::to_string(ignore_patterns)
+            .map_err(|e| DaemonError::Internal { message: format!("Failed to serialize ignore patterns: {}", e) })?;
+
+        sqlx::query(r#"
+            INSERT INTO watch_configurations (
+                id, path, collection, patterns, ignore_patterns,
+                lsp_based_extensions, auto_ingest, recursive, recursive_depth,
+                debounce_seconds, update_frequency, status, created_at
+            ) VALUES (?, ?, ?, ?, ?, TRUE, TRUE, ?, ?, 5, 1000, 'active', CURRENT_TIMESTAMP)
+        "#)
+        .bind(&id)
+        .bind(path)
+        .bind(collection)
+        .bind(&patterns_json)
+        .bind(&ignore_patterns_json)
+        .bind(recursive)
+        .bind(recursive_depth)
+        .execute(&self.pool)
+        .await?;
+
+        info!("Created watch configuration for path: {} -> collection: {}", path, collection);
+        Ok(id)
+    }
+
+    /// Check if a watch configuration already exists for the given path
+    pub async fn watch_configuration_exists(&self, path: &str) -> DaemonResult<bool> {
+        let result = sqlx::query("SELECT COUNT(*) as count FROM watch_configurations WHERE path = ? AND status = 'active'")
+            .bind(path)
+            .fetch_one(&self.pool)
+            .await?;
+
+        let count: i64 = result.get("count");
+        Ok(count > 0)
     }
 }
 
