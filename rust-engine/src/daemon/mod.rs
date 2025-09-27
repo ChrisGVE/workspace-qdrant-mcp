@@ -13,8 +13,22 @@ use crate::config::DaemonConfig;
 use crate::error::DaemonResult;
 use std::sync::Arc;
 use tokio::sync::{RwLock, Mutex};
-use tracing::info;
+use tracing::{info, warn, debug};
 use self::runtime::{RuntimeManager, RuntimeConfig};
+use std::path::{Path, PathBuf};
+use std::env;
+use std::collections::hash_map::DefaultHasher;
+use std::hash::{Hash, Hasher};
+
+/// Project information detected from the filesystem and Git
+#[derive(Debug, Clone)]
+struct ProjectInfo {
+    name: String,
+    root_path: PathBuf,
+    git_repository: Option<String>,
+    git_branch: Option<String>,
+    identifier: String, // Unique identifier for disambiguation
+}
 
 /// Main daemon coordinator
 #[derive(Debug, Clone)]
@@ -82,7 +96,19 @@ impl WorkspaceDaemon {
             if let Some(ref project_path) = daemon.config.auto_ingestion.project_path {
                 daemon.create_auto_watch(project_path).await?;
             } else {
-                info!("Auto-ingestion enabled but no project_path specified");
+                info!("Auto-ingestion enabled but no project_path specified, attempting automatic project detection");
+
+                // Attempt automatic project detection
+                match daemon.detect_current_project().await {
+                    Ok(project_info) => {
+                        info!("Detected project: {} at path: {}", project_info.name, project_info.root_path.display());
+                        daemon.create_auto_watch_for_project(&project_info).await?;
+                    }
+                    Err(e) => {
+                        warn!("Failed to detect current project for auto-ingestion: {}", e);
+                        info!("Auto-ingestion will be disabled. You can manually specify a project_path in the configuration.");
+                    }
+                }
             }
         }
 
@@ -243,6 +269,262 @@ impl WorkspaceDaemon {
             }
         }
 
+        Ok(())
+    }
+
+    /// Detect the current project by analyzing the working directory and Git repository
+    async fn detect_current_project(&self) -> DaemonResult<ProjectInfo> {
+        debug!("Starting automatic project detection");
+
+        // Get current working directory
+        let current_dir = env::current_dir().map_err(|e| {
+            crate::error::DaemonError::Internal {
+                message: format!("Failed to get current working directory: {}", e),
+            }
+        })?;
+
+        debug!("Current working directory: {}", current_dir.display());
+
+        // Find Git repository root by walking up the directory tree
+        let git_root = self.find_git_repository_root(&current_dir).await?;
+        debug!("Found Git repository root: {}", git_root.display());
+
+        // Extract Git information
+        let (git_repository, git_branch) = self.extract_git_info(&git_root).await;
+
+        // Generate project name and identifier
+        let project_name = self.generate_project_name(&git_root, &git_repository);
+        let identifier = self.generate_project_identifier(&git_root, &git_repository);
+
+        let project_info = ProjectInfo {
+            name: project_name.clone(),
+            root_path: git_root,
+            git_repository: git_repository.clone(),
+            git_branch,
+            identifier: identifier.clone(),
+        };
+
+        info!("Project detection successful: {} ({})", project_name, identifier);
+        Ok(project_info)
+    }
+
+    /// Find the Git repository root by walking up the directory tree
+    async fn find_git_repository_root(&self, start_path: &Path) -> DaemonResult<PathBuf> {
+        let mut current_path = start_path.to_path_buf();
+
+        loop {
+            let git_dir = current_path.join(".git");
+
+            // Check if .git exists (either as directory or file for worktrees)
+            if tokio::fs::metadata(&git_dir).await.is_ok() {
+                debug!("Found .git at: {}", git_dir.display());
+                return Ok(current_path);
+            }
+
+            // Move to parent directory
+            match current_path.parent() {
+                Some(parent) => {
+                    current_path = parent.to_path_buf();
+                }
+                None => {
+                    // Reached filesystem root without finding .git
+                    // Fall back to current working directory as project root
+                    warn!("No Git repository found, using current directory as project root");
+                    return Ok(start_path.to_path_buf());
+                }
+            }
+        }
+    }
+
+    /// Extract Git repository information (remote URL and current branch)
+    async fn extract_git_info(&self, git_root: &Path) -> (Option<String>, Option<String>) {
+        let mut git_repository = None;
+        let mut git_branch = None;
+
+        // Try to read Git remote URL
+        let git_config_path = git_root.join(".git").join("config");
+        if let Ok(config_content) = tokio::fs::read_to_string(&git_config_path).await {
+            git_repository = self.parse_git_remote_from_config(&config_content);
+        }
+
+        // Try to read current branch
+        let git_head_path = git_root.join(".git").join("HEAD");
+        if let Ok(head_content) = tokio::fs::read_to_string(&git_head_path).await {
+            git_branch = self.parse_git_branch_from_head(&head_content);
+        }
+
+        debug!("Git info - repository: {:?}, branch: {:?}", git_repository, git_branch);
+        (git_repository, git_branch)
+    }
+
+    /// Parse Git remote URL from config file content
+    fn parse_git_remote_from_config(&self, config_content: &str) -> Option<String> {
+        // Look for [remote "origin"] section and extract URL
+        let lines: Vec<&str> = config_content.lines().collect();
+        let mut in_origin_section = false;
+
+        for line in lines {
+            let trimmed = line.trim();
+
+            if trimmed == "[remote \"origin\"]" {
+                in_origin_section = true;
+                continue;
+            }
+
+            if trimmed.starts_with('[') && in_origin_section {
+                // Entering a new section, stop looking
+                break;
+            }
+
+            if in_origin_section && trimmed.starts_with("url = ") {
+                let url = trimmed.strip_prefix("url = ").unwrap_or(trimmed);
+                return Some(url.to_string());
+            }
+        }
+
+        None
+    }
+
+    /// Parse current branch from HEAD file content
+    fn parse_git_branch_from_head(&self, head_content: &str) -> Option<String> {
+        let trimmed = head_content.trim();
+
+        if trimmed.starts_with("ref: refs/heads/") {
+            // Extract branch name from "ref: refs/heads/branch-name"
+            trimmed.strip_prefix("ref: refs/heads/")
+                .map(|branch| branch.to_string())
+        } else {
+            // HEAD is detached (contains commit hash)
+            Some("detached".to_string())
+        }
+    }
+
+    /// Generate a human-readable project name
+    fn generate_project_name(&self, git_root: &Path, git_repository: &Option<String>) -> String {
+        // Priority: Git remote name > directory name
+        if let Some(repo_url) = git_repository {
+            if let Some(name) = self.extract_repository_name_from_url(repo_url) {
+                return self.sanitize_project_name(&name);
+            }
+        }
+
+        // Fall back to directory name
+        git_root
+            .file_name()
+            .and_then(|name| name.to_str())
+            .map(|name| self.sanitize_project_name(name))
+            .unwrap_or_else(|| "unknown-project".to_string())
+    }
+
+    /// Generate a unique project identifier for disambiguation
+    fn generate_project_identifier(&self, git_root: &Path, git_repository: &Option<String>) -> String {
+        // Primary: absolute path for uniqueness
+        // Secondary: Git remote URL for cross-machine consistency
+        let path_based = git_root
+            .to_string_lossy()
+            .replace('/', "-")
+            .replace('\\', "-")
+            .trim_start_matches('-')
+            .to_string();
+
+        if let Some(repo_url) = git_repository {
+            // Use a hash of the repository URL for consistency
+            let repo_hash = self.simple_hash(repo_url);
+            format!("{}-{}", path_based, repo_hash)
+        } else {
+            path_based
+        }
+    }
+
+    /// Extract repository name from Git URL
+    fn extract_repository_name_from_url(&self, url: &str) -> Option<String> {
+        // Handle various Git URL formats:
+        // - https://github.com/user/repo.git
+        // - git@github.com:user/repo.git
+        // - https://gitlab.com/group/subgroup/repo
+
+        let url = url.trim();
+
+        // Remove .git suffix if present
+        let url = url.strip_suffix(".git").unwrap_or(url);
+
+        // Extract the last component after splitting by / or :
+        let parts: Vec<&str> = url.split(&['/', ':']).collect();
+        parts.last().map(|name| name.to_string())
+    }
+
+    /// Sanitize project name for use in collection names
+    fn sanitize_project_name(&self, name: &str) -> String {
+        name.chars()
+            .map(|c| if c.is_alphanumeric() || c == '-' || c == '_' { c } else { '-' })
+            .collect::<String>()
+            .trim_matches('-')
+            .to_lowercase()
+    }
+
+    /// Simple hash function for generating consistent identifiers
+    fn simple_hash(&self, input: &str) -> String {
+        use std::collections::hash_map::DefaultHasher;
+        use std::hash::{Hash, Hasher};
+
+        let mut hasher = DefaultHasher::new();
+        input.hash(&mut hasher);
+        format!("{:x}", hasher.finish())
+    }
+
+    /// Create an automatic watch configuration for a detected project
+    async fn create_auto_watch_for_project(&self, project_info: &ProjectInfo) -> DaemonResult<()> {
+        info!("Creating auto-watch for detected project: {} at path: {}",
+              project_info.name, project_info.root_path.display());
+
+        // Generate collection name using project name
+        let collection_name = format!("{}-{}",
+                                      project_info.name,
+                                      self.config.auto_ingestion.target_collection_suffix);
+
+        // Use the project root path as the watch path
+        let project_path_str = project_info.root_path.to_string_lossy();
+
+        // Check if watch configuration already exists
+        let state = self.state.read().await;
+        if state.watch_configuration_exists(&project_path_str).await? {
+            info!("Watch configuration already exists for project path: {}", project_path_str);
+            return Ok(());
+        }
+
+        // Prepare file patterns
+        let patterns = if self.config.auto_ingestion.include_source_files {
+            self.config.auto_ingestion.include_patterns.clone()
+        } else {
+            vec![]
+        };
+
+        // Prepare ignore patterns
+        let mut ignore_patterns = self.config.auto_ingestion.exclude_patterns.clone();
+        // Add standard ignore patterns from file watcher config
+        ignore_patterns.extend(self.config.file_watcher.ignore_patterns.clone());
+
+        // Determine recursive depth
+        let recursive_depth = if self.config.auto_ingestion.max_depth == 0 {
+            -1 // Unlimited depth
+        } else {
+            self.config.auto_ingestion.max_depth as i32
+        };
+
+        // Create watch configuration in database
+        let watch_id = state.create_watch_configuration(
+            &project_path_str,
+            &collection_name,
+            &patterns,
+            &ignore_patterns,
+            self.config.auto_ingestion.recursive,
+            recursive_depth,
+        ).await?;
+
+        info!("Successfully created auto-watch configuration with ID: {} for project: {} -> collection: {}",
+              watch_id, project_info.name, collection_name);
+
+        info!("Auto-watch creation completed successfully for project: {}", project_info.name);
         Ok(())
     }
 
