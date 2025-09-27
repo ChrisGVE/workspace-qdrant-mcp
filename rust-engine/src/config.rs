@@ -1864,8 +1864,13 @@ fn load_config(config_path: Option<&Path>) -> DaemonResult<ConfigManager> {
 impl DaemonConfig {
     /// Load configuration using the new dictionary-based system
     pub fn load(config_path: Option<&Path>) -> DaemonResult<Self> {
-        // Initialize the global config manager
-        init_config(config_path)?;
+        // For each new load, we need to reinitialize to get updated values
+        // but only if we have a config path (for file-based config)
+        if config_path.is_some() {
+            force_reinit_config(config_path)?;
+        } else {
+            init_config(config_path)?;
+        }
 
         // Create a DaemonConfig from the global config for backward compatibility
         let config_guard = config().lock().unwrap();
