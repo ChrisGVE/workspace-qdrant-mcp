@@ -2030,6 +2030,26 @@ logging:
     }
 
     #[test]
+    fn test_auto_ingestion_config_default() {
+        let auto_config = AutoIngestionConfig::default();
+
+        // Verify auto-ingestion is enabled by default
+        assert!(auto_config.enabled, "Auto-ingestion should be enabled by default");
+        assert!(auto_config.auto_create_watches, "Auto-create watches should be enabled by default");
+        assert!(auto_config.project_path.is_none(), "Project path should be None by default");
+        assert_eq!(auto_config.target_collection_suffix, "repo");
+        assert!(auto_config.include_source_files);
+        assert!(auto_config.include_common_files);
+        assert!(auto_config.recursive);
+        assert_eq!(auto_config.max_depth, 10);
+
+        // Verify in daemon config context
+        let daemon_config = DaemonConfig::default();
+        assert!(daemon_config.auto_ingestion.enabled, "Daemon auto-ingestion should be enabled by default");
+        assert!(daemon_config.auto_ingestion.auto_create_watches, "Daemon auto-create watches should be enabled by default");
+    }
+
+    #[test]
     fn test_all_config_components_debug() {
         let config = DaemonConfig::default();
 
