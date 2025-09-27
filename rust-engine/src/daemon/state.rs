@@ -7,6 +7,18 @@ use tracing::{info, debug};
 use serde_json;
 use sqlx::Row;
 
+/// Watch configuration data
+#[derive(Debug, Clone)]
+pub struct WatchConfiguration {
+    pub id: String,
+    pub path: String,
+    pub collection: String,
+    pub patterns: Vec<String>,
+    pub ignore_patterns: Vec<String>,
+    pub recursive: bool,
+    pub recursive_depth: i32,
+}
+
 /// Daemon state manager
 #[derive(Debug)]
 pub struct DaemonState {
@@ -183,6 +195,39 @@ impl DaemonState {
 
         let count: i64 = result.get("count");
         Ok(count > 0)
+    }
+
+    /// Get all active watch configurations
+    pub async fn get_active_watch_configurations(&self) -> DaemonResult<Vec<WatchConfiguration>> {
+        let rows = sqlx::query(
+            "SELECT id, path, collection, patterns, ignore_patterns, recursive, recursive_depth
+             FROM watch_configurations WHERE status = 'active'"
+        )
+        .fetch_all(&self.pool)
+        .await?;
+
+        let mut configs = Vec::new();
+        for row in rows {
+            let patterns_json: String = row.get("patterns");
+            let ignore_patterns_json: String = row.get("ignore_patterns");
+
+            let patterns: Vec<String> = serde_json::from_str(&patterns_json)
+                .map_err(|e| DaemonError::Configuration { message: format!("Failed to parse patterns: {}", e) })?;
+            let ignore_patterns: Vec<String> = serde_json::from_str(&ignore_patterns_json)
+                .map_err(|e| DaemonError::Configuration { message: format!("Failed to parse ignore patterns: {}", e) })?;
+
+            configs.push(WatchConfiguration {
+                id: row.get("id"),
+                path: row.get("path"),
+                collection: row.get("collection"),
+                patterns,
+                ignore_patterns,
+                recursive: row.get("recursive"),
+                recursive_depth: row.get("recursive_depth"),
+            });
+        }
+
+        Ok(configs)
     }
 }
 

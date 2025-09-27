@@ -12,7 +12,7 @@ pub mod fs_compat;
 use crate::config::DaemonConfig;
 use crate::error::DaemonResult;
 use std::sync::Arc;
-use tokio::sync::RwLock;
+use tokio::sync::{RwLock, Mutex};
 use tracing::info;
 use self::runtime::{RuntimeManager, RuntimeConfig};
 
@@ -24,7 +24,7 @@ pub struct WorkspaceDaemon {
     state: Arc<RwLock<state::DaemonState>>,
     #[allow(dead_code)]
     processing: Arc<processing::DocumentProcessor>,
-    watcher: Option<Arc<watcher::FileWatcher>>,
+    watcher: Option<Arc<Mutex<watcher::FileWatcher>>>,
     runtime_manager: Arc<RuntimeManager>,
 }
 
@@ -48,9 +48,9 @@ impl WorkspaceDaemon {
 
         // Initialize file watcher if enabled
         let watcher = if config.file_watcher.enabled {
-            Some(Arc::new(
+            Some(Arc::new(Mutex::new(
                 watcher::FileWatcher::new(&config.file_watcher, Arc::clone(&processing)).await?
-            ))
+            )))
         } else {
             None
         };
@@ -99,8 +99,14 @@ impl WorkspaceDaemon {
 
         // Start file watcher if enabled
         if let Some(ref watcher) = self.watcher {
-            watcher.start().await?;
+            {
+                let watcher_guard = watcher.lock().await;
+                watcher_guard.start().await?;
+            }
             info!("File watcher started");
+
+            // Configure watcher with database watch configurations
+            self.configure_file_watcher_from_database().await?;
         }
 
         // Auto-watch creation is now done during initialization, not during start
@@ -116,7 +122,8 @@ impl WorkspaceDaemon {
 
         // Stop file watcher
         if let Some(ref watcher) = self.watcher {
-            watcher.stop().await?;
+            let watcher_guard = watcher.lock().await;
+            watcher_guard.stop().await?;
             info!("File watcher stopped");
         }
 
@@ -153,7 +160,7 @@ impl WorkspaceDaemon {
 
     /// Get file watcher
     #[allow(dead_code)]
-    pub fn watcher(&self) -> Option<&Arc<watcher::FileWatcher>> {
+    pub fn watcher(&self) -> Option<&Arc<Mutex<watcher::FileWatcher>>> {
         self.watcher.as_ref()
     }
 
@@ -217,6 +224,25 @@ impl WorkspaceDaemon {
               watch_id, project_path, collection_name);
 
         info!("Auto-watch creation completed successfully");
+        Ok(())
+    }
+
+    /// Configure file watcher with database watch configurations
+    async fn configure_file_watcher_from_database(&mut self) -> DaemonResult<()> {
+        if let Some(ref watcher) = self.watcher {
+            let state = self.state.read().await;
+            let watch_configs = state.get_active_watch_configurations().await?;
+
+            info!("Configuring file watcher with {} active watch configurations", watch_configs.len());
+
+            let mut watcher_guard = watcher.lock().await;
+            for config in watch_configs {
+                info!("Adding directory to file watcher: {} -> collection: {}", config.path, config.collection);
+                watcher_guard.watch_directory(&config.path).await?;
+                info!("Successfully added directory to file watcher: {}", config.path);
+            }
+        }
+
         Ok(())
     }
 
