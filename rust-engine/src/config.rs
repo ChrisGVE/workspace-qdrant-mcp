@@ -1296,10 +1296,10 @@ impl DaemonConfig {
                     auto_create_watches: config_guard.get_bool("auto_ingestion.auto_create_watches", true),
                     project_path: config_guard.get("auto_ingestion.project_path").and_then(|v| v.as_string()),
                     include_source_files: config_guard.get_bool("auto_ingestion.include_source_files", false),
-                    include_patterns: config_guard.get_array("workspace.custom_include_patterns")
+                    include_patterns: config_guard.get_array("auto_ingestion.include_patterns")
                         .map(|arr| arr.iter().filter_map(|v| v.as_string()).collect())
                         .unwrap_or_else(|| vec![]),
-                    exclude_patterns: config_guard.get_array("workspace.custom_exclude_patterns")
+                    exclude_patterns: config_guard.get_array("auto_ingestion.exclude_patterns")
                         .map(|arr| arr.iter().filter_map(|v| v.as_string()).collect())
                         .unwrap_or_else(|| vec![]),
                     max_depth: config_guard.get_u64("auto_ingestion.max_depth", 10) as usize,
@@ -1317,7 +1317,7 @@ impl DaemonConfig {
                     lsp_timeout_secs: config_guard.get_u32("processing.lsp_timeout_secs", 30),
                 },
                 file_watcher: FileWatcherConfig {
-                    enabled: config_guard.get_bool("auto_ingestion.auto_create_watches", true),
+                    enabled: config_guard.get_bool("file_watcher.enabled", true),
                     ignore_patterns: config_guard.get_array("auto_ingestion.ignore_patterns")
                         .map(|arr| arr.iter().filter_map(|v| v.as_string()).collect())
                         .unwrap_or_else(|| vec!["*.tmp".to_string(), "*.log".to_string()]),
@@ -1580,10 +1580,10 @@ impl DaemonConfig {
                 auto_create_watches: config_guard.get_bool("auto_ingestion.auto_create_watches", true),
                 project_path: config_guard.get("auto_ingestion.project_path").and_then(|v| v.as_string()),
                 include_source_files: config_guard.get_bool("auto_ingestion.include_source_files", false),
-                include_patterns: config_guard.get_array("workspace.custom_include_patterns")
+                include_patterns: config_guard.get_array("auto_ingestion.include_patterns")
                     .map(|arr| arr.iter().filter_map(|v| v.as_string()).collect())
                     .unwrap_or_else(|| vec![]),
-                exclude_patterns: config_guard.get_array("workspace.custom_exclude_patterns")
+                exclude_patterns: config_guard.get_array("auto_ingestion.exclude_patterns")
                     .map(|arr| arr.iter().filter_map(|v| v.as_string()).collect())
                     .unwrap_or_else(|| vec![]),
                 max_depth: config_guard.get_u64("auto_ingestion.max_depth", 10) as usize,
@@ -1601,7 +1601,7 @@ impl DaemonConfig {
                 lsp_timeout_secs: config_guard.get_u32("processing.lsp_timeout_secs", 30),
             },
             file_watcher: FileWatcherConfig {
-                enabled: config_guard.get_bool("auto_ingestion.auto_create_watches", true),
+                enabled: config_guard.get_bool("file_watcher.enabled", true),
                 ignore_patterns: config_guard.get_array("auto_ingestion.ignore_patterns")
                     .map(|arr| arr.iter().filter_map(|v| v.as_string()).collect())
                     .unwrap_or_else(|| vec!["*.tmp".to_string(), "*.log".to_string()]),
@@ -1678,10 +1678,10 @@ impl DaemonConfig {
             auto_create_watches: config_guard.get_bool("auto_ingestion.auto_create_watches", true),
             project_path: config_guard.get("auto_ingestion.project_path").and_then(|v| v.as_string()),
             include_source_files: config_guard.get_bool("auto_ingestion.include_source_files", false),
-            include_patterns: config_guard.get_array("workspace.custom_include_patterns")
+            include_patterns: config_guard.get_array("auto_ingestion.include_patterns")
                 .map(|arr| arr.iter().filter_map(|v| v.as_string()).collect())
                 .unwrap_or_else(|| vec![]),
-            exclude_patterns: config_guard.get_array("workspace.custom_exclude_patterns")
+            exclude_patterns: config_guard.get_array("auto_ingestion.exclude_patterns")
                 .map(|arr| arr.iter().filter_map(|v| v.as_string()).collect())
                 .unwrap_or_else(|| vec![]),
             max_depth: config_guard.get_u64("auto_ingestion.max_depth", 10) as usize,
@@ -1722,7 +1722,7 @@ impl DaemonConfig {
     pub fn file_watcher(&self) -> FileWatcherConfig {
         let config_guard = config().lock().unwrap();
         FileWatcherConfig {
-            enabled: config_guard.get_bool("auto_ingestion.auto_create_watches", true),
+            enabled: config_guard.get_bool("file_watcher.enabled", true),
             ignore_patterns: config_guard.get_array("auto_ingestion.ignore_patterns")
                 .map(|arr| arr.iter().filter_map(|v| v.as_string()).collect())
                 .unwrap_or_else(|| vec!["*.tmp".to_string(), "*.log".to_string()]),
