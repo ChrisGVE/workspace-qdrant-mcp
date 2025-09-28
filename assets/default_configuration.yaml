@@ -428,9 +428,20 @@ embedding:
 # behavior. Defines how the system discovers projects, organizes content, and
 # manages different types of documents across workspaces.
 workspace:
-  # collection_types: Project-specific collection suffix definitions
+  # collection_basename: collection base name used to form the collection name with its type
   # Purpose: Defines specialized collections within each detected project
   # Organization pattern: Creates {project_name}-{suffix} collections
+  # Content separation: Allows different content types to be organized separately
+  # Example usage: ["code", "docs", "tests"] creates myproject-code, myproject-docs
+  # Search optimization: Enables targeted search within specific content types
+  # Empty default: Prevents automatic creation of potentially unwanted collections
+  # Management overhead: Each collection type multiplies storage and index overhead
+  # Format: string
+  collection_basename: null
+
+  # collection_types: Project-specific collection suffix definitions
+  # Purpose: Defines specialized collections within each detected project
+  # Organization pattern: Creates {collection_basename}-{suffix} collections
   # Content separation: Allows different content types to be organized separately
   # Example usage: ["code", "docs", "tests"] creates myproject-code, myproject-docs
   # Search optimization: Enables targeted search within specific content types
@@ -467,9 +478,9 @@ workspace:
   # Production caution: May create collections with suboptimal configurations
   # Monitoring: Automatic creation should be monitored for unexpected collections
   # Format: Boolean
-  auto_create_collections: false
+  auto_create_collections: true
 
-  # memory_collection_name: Cross-session persistent storage identifier
+  # llm_rules_collection_name: Cross-session persistent storage identifier
   # Purpose: Defines collection name for storing persistent context and learning data
   # Session continuity: Maintains context across multiple work sessions
   # Learning persistence: Stores user preferences, project insights, and interaction patterns
@@ -477,17 +488,7 @@ workspace:
   # Naming convention: Underscore prefix indicates system collection
   # Backup importance: Contains valuable learned context that should be preserved
   # Format: String collection name
-  memory_collection_name: "__memory"
-
-  # code_collection_name: Source code analysis storage identifier
-  # Purpose: Defines collection name for specialized source code analysis and symbol lookup
-  # Code understanding: Stores extracted symbols, functions, classes, and relationships
-  # Symbol search: Enables fast lookup of code definitions and references
-  # Language agnostic: Works with all supported programming languages
-  # LSP integration: Complements LSP servers with vector-based code search
-  # Development workflow: Supports code navigation and understanding tasks
-  # Format: String collection name
-  code_collection_name: "__code"
+  llm_rules_collection_name: "llm_rules"
 
   # custom_include_patterns: Additional file pattern recognition
   # Purpose: Extends built-in file type detection with custom patterns
@@ -671,17 +672,16 @@ auto_ingestion:
   # Complementary: Works alongside LSP servers for comprehensive code understanding
   # Selective processing: Consider enabling only for specific file types or directories
   # Format: Boolean
-  include_source_files: false
+  include_source_files: true
 
-  # target_collection_suffix: Default collection destination for auto-ingested content
+  # project_collection: Default collection destination for auto-ingested content
   # Purpose: Defines which collection receives automatically processed files
   # Organization: Groups auto-ingested content into designated collections
   # Collection naming: Results in {project_name}-{suffix} collection names
   # Content separation: Distinguishes auto-ingested from manually curated content
   # Search scoping: Enables targeted search within auto-ingested content
-  # Default rationale: "scratchbook" suggests working notes and discovered content
   # Format: String collection suffix
-  target_collection_suffix: "scratchbook"
+  project_collection: "projects_content"
 
   # max_files_per_batch: Batch processing size limit
   # Purpose: Controls maximum number of files processed simultaneously
