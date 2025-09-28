@@ -561,6 +561,93 @@ fn load_config(config_path: Option<&Path>) -> DaemonResult<ConfigManager> {
     Ok(config_manager)
 }
 
+impl ConfigManager {
+    /// Get string value with Result-based error handling
+    pub fn try_get_string(&self, path: &str) -> Result<String, crate::error::DaemonError> {
+        use crate::error::DaemonError;
+
+        match self.get(path) {
+            Some(value) => match value.as_string() {
+                Some(s) => Ok(s),
+                None => Err(DaemonError::ConfigTypeMismatch {
+                    path: path.to_string(),
+                    expected_type: "String".to_string(),
+                    actual_type: format!("{:?}", value),
+                }),
+            },
+            None => Err(DaemonError::ConfigKeyNotFound {
+                path: path.to_string(),
+            }),
+        }
+    }
+
+    /// Get boolean value with Result-based error handling
+    pub fn try_get_bool(&self, path: &str) -> Result<bool, crate::error::DaemonError> {
+        use crate::error::DaemonError;
+
+        match self.get(path) {
+            Some(value) => match value.as_bool() {
+                Some(b) => Ok(b),
+                None => Err(DaemonError::ConfigTypeMismatch {
+                    path: path.to_string(),
+                    expected_type: "Boolean".to_string(),
+                    actual_type: format!("{:?}", value),
+                }),
+            },
+            None => Err(DaemonError::ConfigKeyNotFound {
+                path: path.to_string(),
+            }),
+        }
+    }
+
+    /// Get integer value with Result-based error handling
+    pub fn try_get_i64(&self, path: &str) -> Result<i64, crate::error::DaemonError> {
+        use crate::error::DaemonError;
+
+        match self.get(path) {
+            Some(value) => match value.as_i64() {
+                Some(i) => Ok(i),
+                None => Err(DaemonError::ConfigTypeMismatch {
+                    path: path.to_string(),
+                    expected_type: "Integer".to_string(),
+                    actual_type: format!("{:?}", value),
+                }),
+            },
+            None => Err(DaemonError::ConfigKeyNotFound {
+                path: path.to_string(),
+            }),
+        }
+    }
+
+    /// Get u16 value with Result-based error handling
+    pub fn try_get_u16(&self, path: &str) -> Result<u16, crate::error::DaemonError> {
+        let value = self.try_get_i64(path)?;
+        if value >= 0 && value <= u16::MAX as i64 {
+            Ok(value as u16)
+        } else {
+            Err(crate::error::DaemonError::ConfigTypeMismatch {
+                path: path.to_string(),
+                expected_type: "u16 (0-65535)".to_string(),
+                actual_type: format!("i64({})", value),
+            })
+        }
+    }
+
+    /// Get u32 value with Result-based error handling
+    pub fn try_get_u32(&self, path: &str) -> Result<u32, crate::error::DaemonError> {
+        let value = self.try_get_i64(path)?;
+        if value >= 0 && value <= u32::MAX as i64 {
+            Ok(value as u32)
+        } else {
+            Err(crate::error::DaemonError::ConfigTypeMismatch {
+                path: path.to_string(),
+                expected_type: "u32 (0-4294967295)".to_string(),
+                actual_type: format!("i64({})", value),
+            })
+        }
+    }
+}
+
 // =============================================================================
 // DAEMON CONFIGURATION - MINIMAL WRAPPER
 // =============================================================================
@@ -2661,6 +2748,35 @@ pub fn get_config_u16(path: &str, default: u16) -> u16 {
 /// Get configuration u64 value with dot notation
 pub fn get_config_u64(path: &str, default: u64) -> u64 {
     config().lock().unwrap().get_u64(path, default)
+}
+
+// =============================================================================
+// RESULT-BASED CONFIGURATION FUNCTIONS (IDIOMATIC RUST)
+// =============================================================================
+
+/// Get configuration string with Result-based error handling (idiomatic Rust)
+pub fn try_get_config_string(path: &str) -> Result<String, crate::error::DaemonError> {
+    config().lock().unwrap().try_get_string(path)
+}
+
+/// Get configuration boolean with Result-based error handling (idiomatic Rust)
+pub fn try_get_config_bool(path: &str) -> Result<bool, crate::error::DaemonError> {
+    config().lock().unwrap().try_get_bool(path)
+}
+
+/// Get configuration u16 with Result-based error handling (idiomatic Rust)
+pub fn try_get_config_u16(path: &str) -> Result<u16, crate::error::DaemonError> {
+    config().lock().unwrap().try_get_u16(path)
+}
+
+/// Get configuration u32 with Result-based error handling (idiomatic Rust)
+pub fn try_get_config_u32(path: &str) -> Result<u32, crate::error::DaemonError> {
+    config().lock().unwrap().try_get_u32(path)
+}
+
+/// Get configuration i64 with Result-based error handling (idiomatic Rust)
+pub fn try_get_config_i64(path: &str) -> Result<i64, crate::error::DaemonError> {
+    config().lock().unwrap().try_get_i64(path)
 }
 
 /// Common configuration utilities module for legacy compatibility
