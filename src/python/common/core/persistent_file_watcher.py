@@ -48,33 +48,30 @@ class PersistentFileWatcher(FileWatcher):
             ingestion_callback: Callback for file ingestion
             event_callback: Optional callback for watch events
         """
-        # Convert persistent config to legacy format for base class
-        legacy_config = self._to_legacy_config(config)
-        super().__init__(legacy_config, ingestion_callback, event_callback)
+        # Initialize base class with WatchConfiguration equivalent
+        from .file_watcher import WatchConfiguration
+
+        base_config = WatchConfiguration(
+            id=config.id,
+            path=config.path,
+            collection=config.collection,
+            patterns=config.patterns,
+            ignore_patterns=config.ignore_patterns,
+            auto_ingest=config.auto_ingest,
+            recursive=config.recursive,
+            debounce_seconds=config.debounce_seconds,
+            created_at=config.created_at,
+            last_activity=config.last_activity,
+            status=config.status,
+            files_processed=config.files_processed,
+            errors_count=config.errors_count,
+        )
+        super().__init__(base_config, ingestion_callback, event_callback)
 
         self.persistent_config = config
         self.config_manager = config_manager
         self._last_save_time: Optional[str] = None
 
-    def _to_legacy_config(self, persistent_config: WatchConfigurationPersistent):
-        """Convert persistent config to legacy WatchConfiguration format."""
-        from .file_watcher import WatchConfiguration
-
-        return WatchConfiguration(
-            id=persistent_config.id,
-            path=persistent_config.path,
-            collection=persistent_config.collection,
-            patterns=persistent_config.patterns,
-            ignore_patterns=persistent_config.ignore_patterns,
-            auto_ingest=persistent_config.auto_ingest,
-            recursive=persistent_config.recursive,
-            debounce_seconds=persistent_config.debounce_seconds,
-            created_at=persistent_config.created_at,
-            last_activity=persistent_config.last_activity,
-            status=persistent_config.status,
-            files_processed=persistent_config.files_processed,
-            errors_count=persistent_config.errors_count,
-        )
 
     async def start(self) -> None:
         """Start watching with persistent state updates."""
