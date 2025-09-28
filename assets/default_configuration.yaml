@@ -23,6 +23,39 @@
 # =============================================================================
 
 # =============================================================================
+# DEPLOYMENT CONFIGURATION
+# =============================================================================
+# Purpose: Controls deployment-specific behavior including asset file locations,
+# base paths, and environment-specific settings. This section determines whether
+# the application runs in development mode (using project-relative paths) or
+# production mode (using system-installed paths).
+deployment:
+  # develop: Development mode toggle for asset and configuration file resolution
+  # Purpose: Controls whether to use development (project-relative) or production paths
+  # Development mode (true): Assets loaded from project "assets/" directory
+  # Production mode (false): Assets loaded from system installation directories
+  # Security: Production mode provides better isolation and security
+  # Maintenance: Production mode enables centralized configuration management
+  # Override: Local configurations can set develop=true for development work
+  # Default reasoning: false ensures production deployments use proper system paths
+  # Platform paths (production mode):
+  #   - Linux: /usr/share/workspace-qdrant-mcp/assets/
+  #   - macOS: /usr/local/share/workspace-qdrant-mcp/assets/
+  #   - Windows: %ProgramFiles%\workspace-qdrant-mcp\assets\
+  # Format: Boolean true/false
+  develop: false
+
+  # base_path: Override base path for asset and configuration file resolution
+  # Purpose: Allows custom base directory when standard paths are not suitable
+  # Usage: Optional override for both development and production deployments
+  # Examples: "/opt/workspace-qdrant", "/usr/local/workspace-qdrant"
+  # Security: Ensure path is readable by application user/service account
+  # Precedence: If set, overrides both develop=true and develop=false behavior
+  # Format: Absolute directory path string, or null to use defaults
+  # Default reasoning: null allows automatic path resolution based on develop flag
+  base_path: null
+
+# =============================================================================
 # HTTP SERVER CONFIGURATION
 # =============================================================================
 # Purpose: Configures the HTTP server that handles MCP (Model Context Protocol)

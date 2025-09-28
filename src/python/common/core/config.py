@@ -289,16 +289,59 @@ class ConfigManager:
         # Step d) Both starting dictionaries are now dropped (garbage collected)
         # Only self._config (merged result) is kept
 
+    def _get_asset_base_path(self, deployment_config: Dict[str, Any] = None) -> Path:
+        """Determine the base path for asset files based on deployment configuration.
+
+        Args:
+            deployment_config: Optional deployment configuration dict. If None, uses hardcoded defaults.
+
+        Returns:
+            Path object pointing to the assets directory
+        """
+        import platform
+
+        # Get deployment configuration
+        if deployment_config is None:
+            # When first loading, we don't have config yet, default to development mode
+            develop_mode = True
+            base_path = None
+        else:
+            develop_mode = deployment_config.get("develop", False)
+            base_path = deployment_config.get("base_path")
+
+        # If base_path is explicitly set, use it
+        if base_path:
+            return Path(base_path) / "assets"
+
+        # Development mode: use project-relative path
+        if develop_mode:
+            current_file = Path(__file__)
+            project_root = current_file.parent.parent.parent.parent.parent
+            return project_root / "assets"
+
+        # Production mode: use system-specific paths
+        system = platform.system().lower()
+        if system == "linux":
+            return Path("/usr/share/workspace-qdrant-mcp/assets")
+        elif system == "darwin":  # macOS
+            return Path("/usr/local/share/workspace-qdrant-mcp/assets")
+        elif system == "windows":
+            import os
+            program_files = os.environ.get("ProgramFiles", "C:\\Program Files")
+            return Path(program_files) / "workspace-qdrant-mcp" / "assets"
+        else:
+            # Fallback for unknown systems
+            return Path("/usr/local/share/workspace-qdrant-mcp/assets")
+
     def _create_comprehensive_defaults(self) -> Dict[str, Any]:
         """Load comprehensive default configuration from asset file.
 
         Returns:
             Dict containing all possible configuration paths with default values
         """
-        # Get path to the default configuration asset
-        current_file = Path(__file__)
-        project_root = current_file.parent.parent.parent.parent.parent
-        asset_file = project_root / "assets" / "default_configuration.yaml"
+        # Get path to the default configuration asset using deployment-aware path resolution
+        assets_dir = self._get_asset_base_path()
+        asset_file = assets_dir / "default_configuration.yaml"
 
         try:
             if asset_file.exists():

@@ -1,0 +1,21 @@
+# Development Configuration Override
+# Use this file for local development to enable development mode
+# This ensures assets are loaded from the project directory instead of system paths
+
+deployment:
+  develop: true
+  # Optional: Override base_path if needed
+  # base_path: /path/to/custom/base
+
+# Example: Override other settings for development
+grpc:
+  server:
+    host: "127.0.0.1"
+    port: 50051
+
+logging:
+  level: "debug"
+  file_path: null
+  json_format: false
+  max_file_size_mb: 100
+  max_files: 5
