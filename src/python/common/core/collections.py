@@ -1033,9 +1033,7 @@ class WorkspaceCollectionManager:
                 return sorted(project_collections)
 
             except ImportError:
-                # Fallback to legacy project filtering
-                logger.debug("Metadata filtering not available, using legacy project filtering")
-                return self._list_collections_for_project_legacy(project_name)
+                raise RuntimeError("Metadata filtering not available - system misconfigured")
 
         except Exception as e:
             logger.error(f"Failed to list collections for project {project_name}: {e}")
@@ -1056,7 +1054,7 @@ class WorkspaceCollectionManager:
             bool: True if collection belongs to project, False otherwise
         """
         try:
-            # Check legacy naming patterns first
+            # Check project naming patterns
             if collection_name.startswith(f"{project_name}-"):
                 return True
 
@@ -1082,32 +1080,6 @@ class WorkspaceCollectionManager:
             logger.debug(f"Error checking collection project membership: {e}")
             return False
 
-    def _list_collections_for_project_legacy(self, project_name: str) -> list[str]:
-        """
-        Legacy project filtering method using naming patterns only.
-
-        Args:
-            project_name: Project name to filter for
-
-        Returns:
-            List[str]: Collection names for the project using legacy filtering
-        """
-        try:
-            all_collections = self.client.get_collections()
-            project_collections = []
-
-            for collection in all_collections.collections:
-                collection_name = collection.name
-
-                # Include collections that belong to this project
-                if self._collection_belongs_to_project(collection_name, project_name):
-                    project_collections.append(collection_name)
-
-            return sorted(project_collections)
-
-        except Exception as e:
-            logger.error(f"Legacy project filtering failed: {e}")
-            return []
 
     def validate_collection_operation(self, display_name: str, operation: str) -> tuple[bool, str]:
         """
