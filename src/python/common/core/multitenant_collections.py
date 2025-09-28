@@ -34,7 +34,7 @@ from qdrant_client import QdrantClient
 from qdrant_client.http import models
 
 from .collections import WorkspaceCollectionManager, CollectionConfig
-from .config import Config
+from .config import get_config, ConfigManager
 
 
 @dataclass
@@ -329,7 +329,7 @@ class MultiTenantWorkspaceCollectionManager(WorkspaceCollectionManager):
     metadata-based multi-tenancy while maintaining backward compatibility.
     """
 
-    def __init__(self, client: QdrantClient, config: Config):
+    def __init__(self, client: QdrantClient, config: ConfigManager):
         """Initialize the multi-tenant collection manager."""
         super().__init__(client, config)
 
@@ -385,7 +385,7 @@ class MultiTenantWorkspaceCollectionManager(WorkspaceCollectionManager):
                 description=f"{collection_type.title()} for {project_name}",
                 collection_type=collection_type,
                 project_name=project_name,
-                vector_size=self.config.embeddings.vector_size,
+                vector_size=self.config.get("embedding.vector_size", 384),
                 distance_metric="Cosine",
                 enable_sparse_vectors=True
             )
