@@ -17,7 +17,7 @@ from typing import Any, Dict, List, Optional, Union
 from ..grpc.client import AsyncIngestClient
 from ..grpc.connection_manager import ConnectionConfig
 from .client import QdrantWorkspaceClient
-from .config import Config
+from .config import get_config, ConfigManager
 from .daemon_manager import ensure_daemon_running, get_daemon_for_project
 
 # logger imported from loguru
@@ -33,7 +33,7 @@ class GrpcWorkspaceClient:
 
     def __init__(
         self,
-        config: Config,
+        config: ConfigManager,
         grpc_enabled: bool = True,
         grpc_host: str = "127.0.0.1",
         grpc_port: Optional[int] = None,
