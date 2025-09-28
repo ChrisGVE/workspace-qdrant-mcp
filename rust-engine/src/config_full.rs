@@ -1985,7 +1985,7 @@ impl DaemonConfig {
             enabled: self.document_processing.file_watching.enabled,
             auto_create_watches: true,
             project_path: None,
-            target_collection_suffix: self.collections.root_name.clone(),
+            project_collection: self.collections.root_name.clone(),
             include_source_files: self.document_processing.supported_types.code.enabled,
             include_common_files: self.document_processing.supported_types.text.enabled,
             include_patterns: vec![
@@ -2249,7 +2249,7 @@ pub struct AutoIngestionConfig {
     pub enabled: bool,
     pub auto_create_watches: bool,
     pub project_path: Option<String>,
-    pub target_collection_suffix: String,
+    pub project_collection: String,
     pub include_source_files: bool,
     pub include_common_files: bool,
     pub include_patterns: Vec<String>,

@@ -582,6 +582,7 @@ pub struct DaemonConfig {
     // Legacy field access for backward compatibility
     pub database: DatabaseConfig,
     pub qdrant: QdrantConfig,
+    pub workspace: WorkspaceConfig,
     pub auto_ingestion: AutoIngestionConfig,
     pub processing: ProcessingConfig,
     pub file_watcher: FileWatcherConfig,
@@ -630,7 +631,7 @@ impl Default for DaemonConfig {
                     },
                     auto_ingestion: AutoIngestionConfig {
                         enabled: true,
-                        target_collection_suffix: "".to_string(),
+                        project_collection: "".to_string(),
                         auto_create_watches: true,
                         project_path: None,
                         include_source_files: false,
@@ -990,9 +991,15 @@ impl Default for DaemonConfig {
                     },
                     max_retries: 3,
                 },
+                workspace: WorkspaceConfig {
+                    collection_basename: None,
+                    collection_types: vec![],
+                    memory_collection_name: "memory".to_string(),
+                    auto_create_collections: true,
+                },
                 auto_ingestion: AutoIngestionConfig {
                     enabled: true,
-                    target_collection_suffix: "".to_string(),
+                    project_collection: "projects_content".to_string(),
                     auto_create_watches: true,
                     project_path: None,
                     include_source_files: false,
@@ -1182,7 +1189,7 @@ impl DaemonConfig {
                 },
                 auto_ingestion: AutoIngestionConfig {
                     enabled: config_guard.get_bool("auto_ingestion.enabled", true),
-                    target_collection_suffix: config_guard.get_string("auto_ingestion.target_collection_suffix", ""),
+                    project_collection: config_guard.get_string("auto_ingestion.project_collection", "projects_content"),
                     auto_create_watches: config_guard.get_bool("auto_ingestion.auto_create_watches", true),
                     project_path: config_guard.get("auto_ingestion.project_path").and_then(|v| v.as_string()),
                     include_source_files: config_guard.get_bool("auto_ingestion.include_source_files", false),
@@ -1456,9 +1463,17 @@ impl DaemonConfig {
                     enable_indexing: config_guard.get_bool("qdrant.default_collection.enable_indexing", true),
                 },
             },
+            workspace: WorkspaceConfig {
+                collection_basename: config_guard.get("workspace.collection_basename").and_then(|v| v.as_string()),
+                collection_types: config_guard.get_array("workspace.collection_types")
+                    .map(|arr| arr.iter().filter_map(|v| v.as_string()).collect())
+                    .unwrap_or_else(|| vec![]),
+                memory_collection_name: config_guard.get_string("workspace.memory_collection_name", "memory"),
+                auto_create_collections: config_guard.get_bool("workspace.auto_create_collections", true),
+            },
             auto_ingestion: AutoIngestionConfig {
                 enabled: config_guard.get_bool("auto_ingestion.enabled", true),
-                target_collection_suffix: config_guard.get_string("auto_ingestion.target_collection_suffix", ""),
+                project_collection: config_guard.get_string("auto_ingestion.project_collection", "projects_content"),
                 auto_create_watches: config_guard.get_bool("auto_ingestion.auto_create_watches", true),
                 project_path: config_guard.get("auto_ingestion.project_path").and_then(|v| v.as_string()),
                 include_source_files: config_guard.get_bool("auto_ingestion.include_source_files", false),
@@ -1550,7 +1565,7 @@ impl DaemonConfig {
         let config_guard = config().lock().unwrap();
         AutoIngestionConfig {
             enabled: config_guard.get_bool("auto_ingestion.enabled", true),
-            target_collection_suffix: config_guard.get_string("auto_ingestion.target_collection_suffix", ""),
+            project_collection: config_guard.get_string("auto_ingestion.project_collection", "projects_content"),
             auto_create_watches: config_guard.get_bool("auto_ingestion.auto_create_watches", true),
             project_path: config_guard.get("auto_ingestion.project_path").and_then(|v| v.as_string()),
             include_source_files: config_guard.get_bool("auto_ingestion.include_source_files", false),
@@ -1562,6 +1577,19 @@ impl DaemonConfig {
                 .unwrap_or_else(|| vec![]),
             max_depth: config_guard.get_u64("auto_ingestion.max_depth", 10) as usize,
             recursive: config_guard.get_bool("auto_ingestion.recursive", true),
+        }
+    }
+
+    /// Get workspace configuration - returns values directly
+    pub fn workspace(&self) -> WorkspaceConfig {
+        let config_guard = config().lock().unwrap();
+        WorkspaceConfig {
+            collection_basename: config_guard.get("workspace.collection_basename").and_then(|v| v.as_string()),
+            collection_types: config_guard.get_array("workspace.collection_types")
+                .map(|arr| arr.iter().filter_map(|v| v.as_string()).collect())
+                .unwrap_or_else(|| vec![]),
+            memory_collection_name: config_guard.get_string("workspace.memory_collection_name", "memory"),
+            auto_create_collections: config_guard.get_bool("workspace.auto_create_collections", true),
         }
     }
 
@@ -1884,11 +1912,20 @@ pub struct CollectionConfig {
     pub enable_indexing: bool,
 }
 
+/// Workspace configuration values
+#[derive(Debug, Clone)]
+pub struct WorkspaceConfig {
+    pub collection_basename: Option<String>,
+    pub collection_types: Vec<String>,
+    pub memory_collection_name: String,
+    pub auto_create_collections: bool,
+}
+
 /// Auto-ingestion configuration values
 #[derive(Debug, Clone)]
 pub struct AutoIngestionConfig {
     pub enabled: bool,
-    pub target_collection_suffix: String,
+    pub project_collection: String,  // was target_collection_suffix
     pub auto_create_watches: bool,
     pub project_path: Option<String>,
     pub include_source_files: bool,

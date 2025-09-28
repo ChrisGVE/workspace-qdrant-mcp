@@ -480,7 +480,7 @@ workspace:
   # Format: Boolean
   auto_create_collections: true
 
-  # llm_rules_collection_name: Cross-session persistent storage identifier
+  # memory_collection_name: Cross-session persistent storage identifier
   # Purpose: Defines collection name for storing persistent context and learning data
   # Session continuity: Maintains context across multiple work sessions
   # Learning persistence: Stores user preferences, project insights, and interaction patterns
@@ -488,7 +488,7 @@ workspace:
   # Naming convention: Underscore prefix indicates system collection
   # Backup importance: Contains valuable learned context that should be preserved
   # Format: String collection name
-  llm_rules_collection_name: "llm_rules"
+  memory_collection_name: "memory"
 
   # custom_include_patterns: Additional file pattern recognition
   # Purpose: Extends built-in file type detection with custom patterns
