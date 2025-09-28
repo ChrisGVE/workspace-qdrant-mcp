@@ -23,7 +23,7 @@ Example:
     from workspace_qdrant_mcp.core.client import QdrantWorkspaceClient
     from workspace_qdrant_mcp.core.config import Config
 
-    config = Config()
+    config = get_config()
     client = QdrantWorkspaceClient(config)
     await client.initialize()
 
@@ -41,7 +41,7 @@ from qdrant_client import QdrantClient
 
 from loguru import logger
 from .collections import WorkspaceCollectionManager, MemoryCollectionManager
-from .config import Config
+from .config import get_config, ConfigManager
 from .embeddings import EmbeddingService
 from .ssl_config import create_secure_qdrant_config, get_ssl_manager
 
@@ -82,7 +82,7 @@ class QdrantWorkspaceClient:
 
     Example:
         ```python
-        config = Config()
+        config = get_config()
         workspace_client = QdrantWorkspaceClient(config)
 
         # Initialize connections and detect project structure
@@ -97,7 +97,7 @@ class QdrantWorkspaceClient:
         ```
     """
 
-    def __init__(self, config: Config) -> None:
+    def __init__(self, config: ConfigManager) -> None:
         """Initialize the workspace client with configuration.
 
         Args:
@@ -148,21 +148,13 @@ class QdrantWorkspaceClient:
             environment = getattr(self.config, "environment", "development")
 
             # Get authentication credentials from config if available
-            auth_token = (
-                getattr(self.config.security, "qdrant_auth_token", None)
-                if hasattr(self.config, "security")
-                else None
-            )
-            api_key = (
-                getattr(self.config.security, "qdrant_api_key", None)
-                if hasattr(self.config, "security")
-                else None
-            )
+            auth_token = self.config.get("security.qdrant_auth_token")
+            api_key = self.config.get("security.qdrant_api_key")
 
             # Create secure client configuration
             secure_config = create_secure_qdrant_config(
-                base_config=self.config.qdrant_client_config,
-                url=self.config.qdrant.url,
+                base_config=self.config.get("qdrant_client_config", {}),
+                url=self.config.get("qdrant.url", "http://localhost:6333"),
                 environment=environment,
                 auth_token=auth_token,
                 api_key=api_key,
@@ -193,7 +185,7 @@ class QdrantWorkspaceClient:
                     return self.client.get_collections()
             
             if (
-                ssl_manager.is_localhost_url(self.config.qdrant.url)
+                ssl_manager.is_localhost_url(self.config.get("qdrant.url", "http://localhost:6333"))
                 and environment == "development"
             ):
                 with ssl_manager.for_localhost():
@@ -205,13 +197,13 @@ class QdrantWorkspaceClient:
                     None, get_collections_with_suppression
                 )
 
-            logger.info("Connected to Qdrant at %s", self.config.qdrant.url)
+            logger.info("Connected to Qdrant at %s", self.config.get("qdrant.url", "http://localhost:6333"))
 
             # Initialize project detector (lazy import to avoid circular dependency)
             if self.project_detector is None:
                 from ..utils.project_detection import ProjectDetector
                 self.project_detector = ProjectDetector(
-                    github_user=self.config.workspace.github_user
+                    github_user=self.config.get("workspace.github_user")
                 )
 
             # Detect current project and subprojects
@@ -302,7 +294,7 @@ class QdrantWorkspaceClient:
 
             return {
                 "connected": True,
-                "qdrant_url": self.config.qdrant.url,
+                "qdrant_url": self.config.get("qdrant.url", "http://localhost:6333"),
                 "collections_count": len(info.collections),
                 "workspace_collections": workspace_collections,
                 "current_project": self.project_info["main_project"]
@@ -312,9 +304,9 @@ class QdrantWorkspaceClient:
                 "collection_info": collection_info,
                 "embedding_info": self.embedding_service.get_model_info(),
                 "config": {
-                    "embedding_model": self.config.embedding.model,
-                    "sparse_vectors_enabled": self.config.embedding.enable_sparse_vectors,
-                    "global_collections": self.config.workspace.global_collections,
+                    "embedding_model": self.config.get("embedding.model", "sentence-transformers/all-MiniLM-L6-v2"),
+                    "sparse_vectors_enabled": self.config.get("embedding.enable_sparse_vectors", True),
+                    "global_collections": self.config.get("workspace.global_collections", []),
                 },
             }
 
@@ -418,7 +410,7 @@ class QdrantWorkspaceClient:
         if self.project_detector is None:
             from ..utils.project_detection import ProjectDetector
             self.project_detector = ProjectDetector(
-                github_user=self.config.workspace.github_user
+                github_user=self.config.get("workspace.github_user")
             )
 
         self.project_info = self.project_detector.get_project_info()
@@ -505,7 +497,7 @@ class QdrantWorkspaceClient:
                 collection_type=collection_type,
                 project_name=project_context.get("project_name") if project_context else None,
                 vector_size=self.collection_manager._get_vector_size(),
-                enable_sparse_vectors=self.config.embedding.enable_sparse_vectors,
+                enable_sparse_vectors=self.config.get("embedding.enable_sparse_vectors", True),
             )
 
             # Use the collection manager to ensure the collection exists
@@ -650,7 +642,7 @@ class QdrantWorkspaceClient:
         if self.project_detector is None:
             from ..utils.project_detection import ProjectDetector
             self.project_detector = ProjectDetector(
-                github_user=self.config.workspace.github_user
+                github_user=self.config.get("workspace.github_user")
             )
 
         from .collections import CollectionSelector
@@ -879,7 +871,7 @@ class QdrantWorkspaceClient:
                     collection_type=collection_type,
                     project_name=project_metadata.get("project_name") if project_metadata else None,
                     vector_size=self.collection_manager._get_vector_size(),
-                    enable_sparse_vectors=self.config.embedding.enable_sparse_vectors,
+                    enable_sparse_vectors=self.config.get("embedding.enable_sparse_vectors", True),
                 )
 
                 # Create the collection
@@ -939,10 +931,10 @@ def create_qdrant_client(config_data) -> QdrantWorkspaceClient:
     Returns:
         QdrantWorkspaceClient: Initialized client instance
     """
-    from .config import Config
+    from .config import get_config, ConfigManager
 
     # Create config instance
-    config = Config()
+    config = get_config()
 
     # Create and return the client
     client = QdrantWorkspaceClient(config)
