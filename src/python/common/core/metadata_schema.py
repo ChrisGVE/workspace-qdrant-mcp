@@ -2,15 +2,15 @@
 Multi-tenant metadata schema for workspace-qdrant-mcp.
 
 This module defines a comprehensive metadata schema for supporting multi-tenant
-project isolation while maintaining backward compatibility with existing collection
-management systems. The schema enables efficient metadata-based filtering across
-project boundaries while preserving existing naming conventions and access patterns.
+project isolation with existing collection management systems. The schema enables
+efficient metadata-based filtering across project boundaries while preserving
+existing naming conventions and access patterns.
 
 Key Features:
     - Project isolation via project_id metadata field
     - Collection type identification (memory, library, project, global)
     - Reserved naming pattern validation for system and library collections
-    - Backward compatibility with existing suffix-based collection naming
+    - Support for existing suffix-based collection naming
     - Performance-optimized metadata fields with appropriate indexing
     - Comprehensive validation and constraint enforcement
 
@@ -144,7 +144,7 @@ class MultiTenantMetadataSchema:
         cli_writable: Flag for CLI write access
         created_by: Origin of collection creation
 
-        # Backward compatibility (for migration)
+        # Migration tracking
         migration_source: How collection was created/migrated
         legacy_collection_name: Original name for reference
         compatibility_version: Schema version for future migrations
@@ -179,7 +179,7 @@ class MultiTenantMetadataSchema:
     cli_writable: bool = True                    # False only for some special cases
     created_by: str = "system"                   # system, user, cli, migration
 
-    # === Backward Compatibility Fields ===
+    # === Migration Tracking Fields ===
     migration_source: str = "metadata_based"    # metadata_based, suffix_based, manual, auto_create
     legacy_collection_name: Optional[str] = None # Original collection name
     compatibility_version: str = METADATA_SCHEMA_VERSION
@@ -285,7 +285,7 @@ class MultiTenantMetadataSchema:
             "cli_writable": self.cli_writable,
             "created_by": self.created_by,
 
-            # Backward compatibility
+            # Migration tracking
             "migration_source": self.migration_source,
             "legacy_collection_name": self.legacy_collection_name,
             "compatibility_version": self.compatibility_version,
@@ -337,7 +337,7 @@ class MultiTenantMetadataSchema:
             cli_writable=payload.get("cli_writable", True),
             created_by=payload.get("created_by", "system"),
 
-            # Backward compatibility
+            # Migration tracking
             migration_source=payload.get("migration_source", "metadata_based"),
             legacy_collection_name=payload.get("legacy_collection_name"),
             compatibility_version=payload.get("compatibility_version", METADATA_SCHEMA_VERSION),
@@ -401,7 +401,7 @@ class MultiTenantMetadataSchema:
             cli_writable=True,
             created_by=created_by,
 
-            # Backward compatibility
+            # Migration tracking
             migration_source="metadata_based",
 
             # Organizational
@@ -457,7 +457,7 @@ class MultiTenantMetadataSchema:
             cli_writable=True,
             created_by=created_by,
 
-            # Backward compatibility
+            # Migration tracking
             migration_source="metadata_based",
             legacy_collection_name=collection_name,
 
@@ -513,7 +513,7 @@ class MultiTenantMetadataSchema:
             cli_writable=True,   # CLI can write
             created_by=created_by,
 
-            # Backward compatibility
+            # Migration tracking
             migration_source="metadata_based",
             legacy_collection_name=collection_name,
 
@@ -572,7 +572,7 @@ class MultiTenantMetadataSchema:
             cli_writable=True,
             created_by=created_by,
 
-            # Backward compatibility
+            # Migration tracking
             migration_source="metadata_based",
 
             # Organizational

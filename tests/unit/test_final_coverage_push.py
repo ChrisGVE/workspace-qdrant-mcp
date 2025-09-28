@@ -26,7 +26,6 @@ class TestAllZeroCoverageModules:
         """Import all modules with 0% coverage to get basic import coverage."""
         zero_coverage_modules = [
             # Core modules with 0% coverage
-            "workspace_qdrant_mcp.core.backward_compatibility",
             "workspace_qdrant_mcp.core.depth_validation",
             "workspace_qdrant_mcp.core.enhanced_config",
             "workspace_qdrant_mcp.core.ingestion_config",
@@ -249,7 +248,6 @@ class TestAllZeroCoverageModules:
     def test_access_all_module_constants(self):
         """Access all constants and class attributes in zero-coverage modules."""
         modules_to_check = [
-            "workspace_qdrant_mcp.core.backward_compatibility",
             "workspace_qdrant_mcp.core.enhanced_config",
             "workspace_qdrant_mcp.core.smart_ingestion_router",
             "workspace_qdrant_mcp.memory.migration_utils",

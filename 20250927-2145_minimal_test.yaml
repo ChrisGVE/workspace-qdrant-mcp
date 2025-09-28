@@ -1,0 +1,24 @@
+system:
+  project_name: "workspace-qdrant-mcp"
+  version: "v2.0"
+  components:
+    rust_daemon:
+      enabled: true
+    python_mcp_server:
+      enabled: true
+    cli_utility:
+      enabled: true
+    context_injector:
+      enabled: true
+
+grpc:
+  server:
+    enabled: true
+    host: "127.0.0.1"
+    port: 50051
+    max_concurrent_streams: 100
+    max_message_size: "16MB"
+  client:
+    connection_timeout: "5s"
+    request_timeout: "30s"
+    max_message_size: "16MB"

@@ -363,7 +363,7 @@ class LanguageAwareFilter:
                 self._record_filter_decision(True, include_reason, start_time)
                 return True, include_reason
 
-            # Legacy filtering logic for backward compatibility
+            # Additional filtering logic
             # Check force include patterns first (these override ignores)
             if self._matches_force_include(file_path, file_name, extension):
                 self._record_filter_decision(True, "force_included", start_time)

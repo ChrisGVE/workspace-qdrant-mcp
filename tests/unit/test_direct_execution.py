@@ -60,7 +60,6 @@ class TestDirectModuleExecution:
         common_modules = [
             'common.core.auto_ingestion',
             'common.core.automatic_recovery',
-            'common.core.backward_compatibility',
             'common.core.config_migration',
             'common.core.lsp_client',
             'common.core.service_discovery',

@@ -229,7 +229,7 @@ impl MessageValidator {
         Ok(())
     }
 
-    /// Validate incoming message size (backwards compatibility)
+    /// Validate incoming message size (legacy API)
     pub fn validate_incoming_message_legacy<T>(&self, request: &Request<T>) -> Result<(), Status> {
         self.validate_incoming_message(request, "unknown")
     }
@@ -276,7 +276,7 @@ impl MessageValidator {
         Ok(())
     }
 
-    /// Validate outgoing message size (backwards compatibility)
+    /// Validate outgoing message size (legacy API)
     pub fn validate_outgoing_message_legacy<T>(&self, response: &Response<T>) -> Result<(), Status> {
         self.validate_outgoing_message(response, "unknown")
     }
@@ -363,7 +363,7 @@ impl MessageValidator {
         }
     }
 
-    /// Compress message data (backwards compatibility)
+    /// Compress message data (legacy API)
     pub fn compress_message(&self, data: &[u8]) -> Result<Vec<u8>> {
         self.compress_message_adaptive(data, ContentType::Binary)
     }
@@ -454,7 +454,7 @@ impl MessageValidator {
         })
     }
 
-    /// Register a new streaming operation (backwards compatibility)
+    /// Register a new streaming operation (legacy API)
     pub fn register_stream_legacy(&self) -> Result<StreamHandle> {
         self.register_stream(None)
     }
@@ -1405,7 +1405,7 @@ mod tests {
         assert!(validator.register_stream_legacy().is_ok());
 
         // Test regular compression method
-        let data = b"Test data for backwards compatibility";
+        let data = b"Test data for legacy API";
         let compressed = validator.compress_message(data).unwrap();
         let decompressed = validator.decompress_message(&compressed).unwrap();
         assert_eq!(decompressed, data);

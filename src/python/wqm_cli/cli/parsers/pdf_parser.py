@@ -31,17 +31,17 @@ except ImportError:
 try:
     import pypdf
 
-    # Alias for backward compatibility with tests that expect PyPDF2
+    # Alias for tests that expect PyPDF2
     PyPDF2 = pypdf
     HAS_PYPDF = True
-    HAS_PYPDF2 = True  # For backward compatibility with tests
+    HAS_PYPDF2 = True  # For test compatibility
 except ImportError:
     # Create a dummy PyPDF2 for test compatibility
     class PyPDF2:
         pass
 
     HAS_PYPDF = False
-    HAS_PYPDF2 = False  # For backward compatibility with tests
+    HAS_PYPDF2 = False  # For test compatibility
 
 from .base import DocumentParser, ParsedDocument
 from .progress import ProgressTracker

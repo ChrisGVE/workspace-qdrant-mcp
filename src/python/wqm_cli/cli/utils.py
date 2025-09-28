@@ -470,5 +470,3 @@ def get_configured_client(config=None) -> QdrantClient:
         raise CLIError(f"Failed to create Qdrant client: {str(e)}")
 
 
-# Alias for backward compatibility with service commands
-handle_async_command = handle_async

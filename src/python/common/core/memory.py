@@ -2443,8 +2443,7 @@ def parse_conversational_memory_update(
         Dictionary with parsed memory update or None if no update detected
 
     Note:
-        This function maintains backward compatibility but now leverages
-        the enhanced ConversationalMemoryProcessor for better accuracy.
+        This function leverages the enhanced ConversationalMemoryProcessor for better accuracy.
     """
     if not message or not message.strip():
         return None

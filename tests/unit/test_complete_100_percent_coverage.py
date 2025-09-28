@@ -31,7 +31,6 @@ class Test100PercentCoverage:
         # ALL modules that need coverage based on the coverage report
         all_modules = [
             # Core modules still at 0%
-            "workspace_qdrant_mcp.core.backward_compatibility",
             "workspace_qdrant_mcp.core.depth_validation",
             "workspace_qdrant_mcp.core.enhanced_config",
             "workspace_qdrant_mcp.core.ingestion_config",

@@ -1249,7 +1249,7 @@ class HybridSearchEngine:
                     performance_level=FilterPerformanceLevel.FAST
                 )
             else:
-                # Legacy dict format conversion
+                # Dict format conversion
                 project_name = project_context.get("project_name")
                 collection_type = project_context.get("collection_type")
                 tenant_namespace = project_context.get("tenant_namespace")
@@ -1310,91 +1310,9 @@ class HybridSearchEngine:
                 return base_filter
 
         except Exception as e:
-            logger.error("Failed to create enhanced filter with new system, falling back to legacy", error=str(e))
-
-            # Fallback to legacy filtering logic for backward compatibility
-            return self._build_legacy_filter(base_filter, project_context)
-
-    def _build_legacy_filter(
-        self,
-        base_filter: Optional[models.Filter],
-        project_context: Optional[Union[dict, ProjectMetadata]]
-    ) -> Optional[models.Filter]:
-        """Fallback legacy filter building for backward compatibility.
-
-        This method provides the original filtering logic as a fallback when the new
-        metadata filtering system encounters errors.
-        """
-        if not project_context:
+            logger.error("Failed to create enhanced filter", error=str(e))
             return base_filter
 
-        # Handle both dict and ProjectMetadata inputs
-        if isinstance(project_context, ProjectMetadata):
-            project_name = project_context.project_name
-            collection_type = project_context.collection_type
-            tenant_namespace = project_context.tenant_namespace
-            workspace_scope = project_context.workspace_scope
-        else:
-            # Legacy dict format
-            project_name = project_context.get("project_name")
-            collection_type = project_context.get("collection_type")
-            tenant_namespace = project_context.get("tenant_namespace")
-            workspace_scope = project_context.get("workspace_scope", "project")
-
-        # Use ProjectIsolationManager for legacy filter creation
-        project_filter = None
-
-        try:
-            if tenant_namespace:
-                # Use tenant namespace filtering for precise isolation
-                project_filter = self.isolation_manager.create_tenant_namespace_filter(tenant_namespace)
-                logger.debug("Created legacy tenant namespace filter", namespace=tenant_namespace)
-            elif project_name:
-                # Use workspace filter with collection type and shared scope support
-                project_filter = self.isolation_manager.create_workspace_filter(
-                    project_name=project_name,
-                    collection_type=collection_type,
-                    include_shared=(workspace_scope != "global")
-                )
-                logger.debug(
-                    "Created legacy workspace filter",
-                    project=project_name,
-                    collection_type=collection_type,
-                    workspace_scope=workspace_scope
-                )
-
-        except Exception as e:
-            logger.error("Failed to create legacy project filter", error=str(e))
-            project_filter = None
-
-        # Combine with existing filter if both exist
-        if base_filter and project_filter:
-            # Merge filters by combining must conditions
-            existing_conditions = base_filter.must or []
-            project_conditions = project_filter.must or []
-
-            enhanced_filter = models.Filter(
-                must=existing_conditions + project_conditions,
-                should=base_filter.should,
-                must_not=base_filter.must_not
-            )
-
-            logger.debug(
-                "Enhanced filter built with legacy system",
-                base_conditions=len(existing_conditions),
-                project_conditions=len(project_conditions)
-            )
-
-            return enhanced_filter
-
-        elif project_filter:
-            # Use project filter only
-            logger.debug("Using legacy project filter only")
-            return project_filter
-
-        else:
-            # No enhancement needed or possible
-            return base_filter
 
     def create_project_isolation_filter(
         self,
