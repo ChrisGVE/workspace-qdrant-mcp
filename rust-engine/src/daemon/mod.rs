@@ -480,7 +480,7 @@ impl WorkspaceDaemon {
         // Generate collection name using project name
         let collection_name = format!("{}-{}",
                                       project_info.name,
-                                      self.config.auto_ingestion().target_collection_suffix);
+                                      self.config.auto_ingestion().project_collection);
 
         // Use the project root path as the watch path
         let project_path_str = project_info.root_path.to_string_lossy();
@@ -538,7 +538,7 @@ impl WorkspaceDaemon {
             .and_then(|name| name.to_str())
             .unwrap_or("unknown-project");
 
-        format!("{}-{}", project_name, self.config.auto_ingestion().target_collection_suffix)
+        format!("{}-{}", project_name, self.config.auto_ingestion().project_collection)
     }
 }
 
