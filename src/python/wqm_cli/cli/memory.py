@@ -29,7 +29,7 @@ from rich.text import Text
 
 from common.core.client import create_qdrant_client
 from common.core.collection_naming import create_naming_manager
-from common.core.config import Config
+from common.core.config import get_config
 from common.memory.manager import (
     AuthorityLevel,
     MemoryCategory,
@@ -146,7 +146,7 @@ async def _list_memory_rules(
 ):
     """List memory rules with optional filtering."""
     try:
-        config = Config()
+        config = get_config()
         client = create_qdrant_client(config.qdrant_client_config)
         naming_manager = create_naming_manager(config.workspace.global_collections)
         memory_manager = create_memory_manager(client, naming_manager)
@@ -233,7 +233,7 @@ async def _add_memory_rule(
 ):
     """Add a new memory rule."""
     try:
-        config = Config()
+        config = get_config()
         client = create_qdrant_client(config.qdrant_client_config)
         naming_manager = create_naming_manager(config.workspace.global_collections)
         memory_manager = create_memory_manager(client, naming_manager)
@@ -308,7 +308,7 @@ async def _add_memory_rule(
 async def _edit_memory_rule(rule_id: str):
     """Edit an existing memory rule."""
     try:
-        config = Config()
+        config = get_config()
         client = create_qdrant_client(config.qdrant_client_config)
         naming_manager = create_naming_manager(config.workspace.global_collections)
         memory_manager = create_memory_manager(client, naming_manager)
@@ -377,7 +377,7 @@ async def _edit_memory_rule(rule_id: str):
 async def _remove_memory_rule(rule_id: str, force: bool):
     """Remove a memory rule."""
     try:
-        config = Config()
+        config = get_config()
         client = create_qdrant_client(config.qdrant_client_config)
         naming_manager = create_naming_manager(config.workspace.global_collections)
         memory_manager = create_memory_manager(client, naming_manager)
@@ -418,7 +418,7 @@ async def _remove_memory_rule(rule_id: str, force: bool):
 async def _show_token_usage():
     """Show token usage statistics."""
     try:
-        config = Config()
+        config = get_config()
         client = create_qdrant_client(config.qdrant_client_config)
         naming_manager = create_naming_manager(config.workspace.global_collections)
         memory_manager = create_memory_manager(client, naming_manager)
@@ -465,7 +465,7 @@ By Category:
 async def _trim_memory(max_tokens: int, dry_run: bool):
     """Interactive memory optimization."""
     try:
-        config = Config()
+        config = get_config()
         client = create_qdrant_client(config.qdrant_client_config)
         naming_manager = create_naming_manager(config.workspace.global_collections)
         memory_manager = create_memory_manager(client, naming_manager)
@@ -509,7 +509,7 @@ async def _trim_memory(max_tokens: int, dry_run: bool):
 async def _detect_conflicts(auto_resolve: bool):
     """Detect and resolve memory conflicts."""
     try:
-        config = Config()
+        config = get_config()
         client = create_qdrant_client(config.qdrant_client_config)
         naming_manager = create_naming_manager(config.workspace.global_collections)
         memory_manager = create_memory_manager(client, naming_manager)
@@ -576,7 +576,7 @@ async def _parse_conversational_update(message: str):
             console.print(f"  Source: {result['source']}")
 
             if Confirm.ask("\nAdd this as a memory rule?"):
-                config = Config()
+                config = get_config()
                 client = create_qdrant_client(config.qdrant_client_config)
                 naming_manager = create_naming_manager(
                     config.workspace.global_collections
