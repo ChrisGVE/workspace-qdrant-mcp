@@ -1100,7 +1100,7 @@ class WorkspaceCollectionManager:
                 from ..core.collection_types import validate_collection_operation
                 return validate_collection_operation(actual_name, operation)
             else:
-                # Fallback validation
+                # Standard validation
                 valid_operations = {'read', 'write', 'delete', 'create'}
                 if operation not in valid_operations:
                     return False, f"Invalid operation '{operation}'. Must be one of: {valid_operations}"
