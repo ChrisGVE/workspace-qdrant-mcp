@@ -12,7 +12,6 @@
           "default": "http://localhost:6333"
         },
         "api_key": {
-          "type": "string",
           "type": "string"
         },
         "timeout_seconds": {
@@ -21,11 +20,29 @@
           "maximum": 300,
           "default": 30
         },
+        "timeout_ms": {
+          "type": "integer",
+          "minimum": 1000,
+          "maximum": 300000,
+          "default": 30000
+        },
         "retry_count": {
           "type": "integer",
           "minimum": 0,
           "maximum": 10,
           "default": 3
+        },
+        "max_retries": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 10,
+          "default": 3
+        },
+        "retry_delay_ms": {
+          "type": "integer",
+          "minimum": 100,
+          "maximum": 10000,
+          "default": 1000
         },
         "use_https": {
           "type": "boolean",
@@ -34,10 +51,107 @@
         "verify_ssl": {
           "type": "boolean",
           "default": true
+        },
+        "prefer_grpc": {
+          "type": "boolean",
+          "default": true
+        },
+        "transport": {
+          "type": "string",
+          "enum": ["Http", "Grpc"],
+          "default": "Http"
+        },
+        "pool_size": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 100,
+          "default": 10
+        },
+        "tls": {
+          "type": "boolean",
+          "default": false
+        },
+        "dense_vector_size": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 4096,
+          "default": 1536
+        },
+        "check_compatibility": {
+          "type": "boolean",
+          "default": false
+        },
+        "http2": {
+          "type": "object",
+          "properties": {
+            "max_frame_size": {
+              "type": "integer",
+              "minimum": 1024,
+              "maximum": 16777215,
+              "default": 16384
+            },
+            "initial_window_size": {
+              "type": "integer",
+              "minimum": 1024,
+              "maximum": 2147483647,
+              "default": 65536
+            },
+            "max_header_list_size": {
+              "type": "integer",
+              "minimum": 1024,
+              "maximum": 16777215,
+              "default": 16384
+            },
+            "enable_push": {
+              "type": "boolean",
+              "default": false
+            },
+            "tcp_keepalive": {
+              "type": "boolean",
+              "default": true
+            },
+            "keepalive_interval_ms": {
+              "type": "integer",
+              "minimum": 1000,
+              "maximum": 3600000,
+              "default": 30000
+            },
+            "keepalive_timeout_ms": {
+              "type": "integer",
+              "minimum": 1000,
+              "maximum": 300000,
+              "default": 5000
+            },
+            "http2_adaptive_window": {
+              "type": "boolean",
+              "default": false
+            },
+            "adaptive_window": {
+              "type": "boolean",
+              "default": false
+            },
+            "keep_alive_interval": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 3600,
+              "default": 60
+            },
+            "keep_alive_timeout": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 300,
+              "default": 20
+            },
+            "keep_alive_while_idle": {
+              "type": "boolean",
+              "default": false
+            }
+          },
+          "additionalProperties": true
         }
       },
       "required": ["url"],
-      "additionalProperties": false
+      "additionalProperties": true
     },
     "daemon": {
       "type": "object",
@@ -77,7 +191,7 @@
               "default": "low"
             }
           },
-          "additionalProperties": false
+          "additionalProperties": true
         },
         "max_memory_mb": {
           "type": "integer",
@@ -111,10 +225,10 @@
               "default": 100
             }
           },
-          "additionalProperties": false
+          "additionalProperties": true
         }
       },
-      "additionalProperties": false
+      "additionalProperties": true
     },
     "embedding": {
       "type": "object",
@@ -144,7 +258,7 @@
               "default": "text-embedding-3-small"
             }
           },
-          "additionalProperties": false
+          "additionalProperties": true
         },
         "huggingface": {
           "type": "object",
@@ -158,10 +272,10 @@
               "default": "sentence-transformers/all-MiniLM-L6-v2"
             }
           },
-          "additionalProperties": false
+          "additionalProperties": true
         }
       },
-      "additionalProperties": false
+      "additionalProperties": true
     },
     "collections": {
       "type": "object",
@@ -191,10 +305,10 @@
                   "default": false
                 }
               },
-              "additionalProperties": false
+              "additionalProperties": true
             }
           },
-          "additionalProperties": false
+          "additionalProperties": true
         },
         "reserved_prefixes": {
           "type": "array",
@@ -204,7 +318,7 @@
           "default": ["_", "system_", "temp_"]
         }
       },
-      "additionalProperties": false
+      "additionalProperties": true
     },
     "watching": {
       "type": "object",
@@ -252,7 +366,7 @@
           "default": false
         }
       },
-      "additionalProperties": false
+      "additionalProperties": true
     },
     "processing": {
       "type": "object",
@@ -287,7 +401,7 @@
               "default": true
             }
           },
-          "additionalProperties": false
+          "additionalProperties": true
         },
         "docx": {
           "type": "object",
@@ -301,7 +415,7 @@
               "default": false
             }
           },
-          "additionalProperties": false
+          "additionalProperties": true
         },
         "code": {
           "type": "object",
@@ -315,10 +429,10 @@
               "default": true
             }
           },
-          "additionalProperties": false
+          "additionalProperties": true
         }
       },
-      "additionalProperties": false
+      "additionalProperties": true
     },
     "web_ui": {
       "type": "object",
@@ -353,7 +467,7 @@
           "default": false
         }
       },
-      "additionalProperties": false
+      "additionalProperties": true
     },
     "logging": {
       "type": "object",
@@ -392,10 +506,10 @@
               "enum": ["DEBUG", "INFO", "WARN", "ERROR"]
             }
           },
-          "additionalProperties": false
+          "additionalProperties": true
         }
       },
-      "additionalProperties": false
+      "additionalProperties": true
     },
     "monitoring": {
       "type": "object",
@@ -438,10 +552,10 @@
               "default": 70
             }
           },
-          "additionalProperties": false
+          "additionalProperties": true
         }
       },
-      "additionalProperties": false
+      "additionalProperties": true
     },
     "development": {
       "type": "object",
@@ -463,8 +577,8 @@
           "default": "tests/data"
         }
       },
-      "additionalProperties": false
+      "additionalProperties": true
     }
   },
-  "additionalProperties": false
+  "additionalProperties": true
 }
