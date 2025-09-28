@@ -10,12 +10,17 @@ use sqlx::Row;
 /// Watch configuration data
 #[derive(Debug, Clone)]
 pub struct WatchConfiguration {
+    #[allow(dead_code)]
     pub id: String,
     pub path: String,
     pub collection: String,
+    #[allow(dead_code)]
     pub patterns: Vec<String>,
+    #[allow(dead_code)]
     pub ignore_patterns: Vec<String>,
+    #[allow(dead_code)]
     pub recursive: bool,
+    #[allow(dead_code)]
     pub recursive_depth: i32,
 }
 

@@ -1,12 +1,14 @@
 //! Configuration management for the Workspace Qdrant Daemon
 
+#![allow(dead_code)]
+
 use crate::error::DaemonResult;
 use serde::{Deserialize, Serialize};
 use std::fmt;
 use std::path::Path;
 use std::str::FromStr;
 use std::collections::HashMap;
-use std::sync::{Mutex, Once};
+use std::sync::{Mutex, OnceLock};
 use serde_yaml::Value as YamlValue;
 
 // =============================================================================
@@ -1514,12 +1516,67 @@ impl ConfigManager {
         self.get(path)?.as_object()
     }
 
+    /// Determine the base path for asset files based on deployment configuration
+    fn get_asset_base_path(deployment_config: Option<&HashMap<String, ConfigValue>>) -> std::path::PathBuf {
+        // Get deployment configuration
+        let (develop_mode, base_path) = if let Some(config) = deployment_config {
+            if let Some(deployment) = config.get("deployment").and_then(|d| d.as_object()) {
+                let develop = deployment.get("develop")
+                    .and_then(|v| v.as_bool())
+                    .unwrap_or(false);
+                let base_path = deployment.get("base_path")
+                    .and_then(|v| v.as_string())
+                    .filter(|s| !s.is_empty());
+                (develop, base_path)
+            } else {
+                (true, None) // Default to development mode if no deployment config
+            }
+        } else {
+            (true, None) // When first loading, default to development mode
+        };
+
+        // If base_path is explicitly set, use it
+        if let Some(base_path) = base_path {
+            return std::path::PathBuf::from(base_path).join("assets");
+        }
+
+        // Development mode: use project-relative path
+        if develop_mode {
+            let project_root = std::env::current_dir()
+                .unwrap_or_else(|_| std::path::PathBuf::from("."));
+            return project_root.join("assets");
+        }
+
+        // Production mode: use system-specific paths
+        #[cfg(target_os = "linux")]
+        {
+            std::path::PathBuf::from("/usr/share/workspace-qdrant-mcp/assets")
+        }
+        #[cfg(target_os = "macos")]
+        {
+            std::path::PathBuf::from("/usr/local/share/workspace-qdrant-mcp/assets")
+        }
+        #[cfg(target_os = "windows")]
+        {
+            use std::env;
+            let program_files = env::var("ProgramFiles")
+                .unwrap_or_else(|_| "C:\\Program Files".to_string());
+            std::path::PathBuf::from(program_files)
+                .join("workspace-qdrant-mcp")
+                .join("assets")
+        }
+        #[cfg(not(any(target_os = "linux", target_os = "macos", target_os = "windows")))]
+        {
+            // Fallback for unknown systems
+            std::path::PathBuf::from("/usr/local/share/workspace-qdrant-mcp/assets")
+        }
+    }
+
     /// Load comprehensive default configuration from asset file
     fn create_defaults() -> HashMap<String, ConfigValue> {
-        // Try to load from the default config asset
-        let project_root = std::env::current_dir()
-            .unwrap_or_else(|_| std::path::PathBuf::from("."));
-        let asset_file = project_root.join("assets").join("default_configuration.yaml");
+        // Try to load from the default config asset using deployment-aware path resolution
+        let assets_dir = Self::get_asset_base_path(None);
+        let asset_file = assets_dir.join("default_configuration.yaml");
 
         if let Ok(content) = std::fs::read_to_string(&asset_file) {
             if let Ok(yaml_value) = serde_yaml::from_str::<YamlValue>(&content) {
@@ -1590,63 +1647,31 @@ impl ConfigManager {
 }
 
 /// Global configuration instance
-static CONFIG_MANAGER: Once = Once::new();
-static mut CONFIG_MANAGER_INSTANCE: Option<Mutex<ConfigManager>> = None;
+static CONFIG_MANAGER_INSTANCE: OnceLock<Mutex<ConfigManager>> = OnceLock::new();
 
 /// Initialize the global configuration manager
 pub fn init_config(config_path: Option<&Path>) -> DaemonResult<()> {
-    CONFIG_MANAGER.call_once(|| {
-        let config_manager = match load_config(config_path) {
-            Ok(manager) => manager,
-            Err(e) => {
-                eprintln!("Failed to load configuration: {}", e);
-                // Create with defaults only
-                ConfigManager::new(HashMap::new(), ConfigManager::create_defaults())
-            }
-        };
-
-        unsafe {
-            CONFIG_MANAGER_INSTANCE = Some(Mutex::new(config_manager));
+    let config_manager = match load_config(config_path) {
+        Ok(manager) => manager,
+        Err(e) => {
+            eprintln!("Failed to load configuration: {}", e);
+            // Create with defaults only
+            ConfigManager::new(HashMap::new(), ConfigManager::create_defaults())
         }
-    });
+    };
+
+    CONFIG_MANAGER_INSTANCE.set(Mutex::new(config_manager))
+        .map_err(|_| crate::error::DaemonError::Configuration { message: "Configuration already initialized".to_string() })?;
 
     Ok(())
 }
 
-/// Reinitialize the global configuration manager (for testing only)
-#[cfg(test)]
-pub fn reinit_config(config_path: Option<&Path>) -> DaemonResult<()> {
-    let config_manager = load_config(config_path)?;
-
-    unsafe {
-        // For tests, we can replace the config manager
-        if CONFIG_MANAGER_INSTANCE.is_some() {
-            CONFIG_MANAGER_INSTANCE = Some(Mutex::new(config_manager));
-        } else {
-            CONFIG_MANAGER_INSTANCE = Some(Mutex::new(config_manager));
-        }
-    }
-
-    Ok(())
-}
-
-/// Force reinitialize the global configuration manager (for testing/debug only)
-pub fn force_reinit_config(config_path: Option<&Path>) -> DaemonResult<()> {
-    let config_manager = load_config(config_path)?;
-
-    unsafe {
-        // Force replace the config manager
-        CONFIG_MANAGER_INSTANCE = Some(Mutex::new(config_manager));
-    }
-
-    Ok(())
-}
+/// Note: OnceLock-based configuration cannot be reinitialized at runtime.
+/// For testing, consider using a different approach or per-test configuration instances.
 
 /// Get reference to global configuration manager
 pub fn config() -> &'static Mutex<ConfigManager> {
-    unsafe {
-        CONFIG_MANAGER_INSTANCE.as_ref().expect("Configuration not initialized")
-    }
+    CONFIG_MANAGER_INSTANCE.get().expect("Configuration not initialized")
 }
 
 /// Load configuration following the specified architecture
@@ -1749,13 +1774,8 @@ fn load_config(config_path: Option<&Path>) -> DaemonResult<ConfigManager> {
 impl DaemonConfig {
     /// Load configuration using the new dictionary-based system
     pub fn load(config_path: Option<&Path>) -> DaemonResult<Self> {
-        // For each new load, we need to reinitialize to get updated values
-        // but only if we have a config path (for file-based config)
-        if config_path.is_some() {
-            force_reinit_config(config_path)?;
-        } else {
-            init_config(config_path)?;
-        }
+        // Try to initialize configuration (will fail silently if already initialized)
+        let _ = init_config(config_path);
 
         // Create a DaemonConfig from the global config
         let config_guard = config().lock().unwrap();
@@ -1783,32 +1803,6 @@ impl DaemonConfig {
         Ok(config)
     }
 
-    /// Load configuration from environment variables
-    fn from_env() -> DaemonResult<Self> {
-        let mut config = Self::default();
-
-        // Override with environment variables if present
-        if let Ok(url) = std::env::var("QDRANT_URL") {
-            config.external_services.qdrant.url = url;
-        }
-
-        if let Ok(api_key) = std::env::var("QDRANT_API_KEY") {
-            config.external_services.qdrant.api_key = Some(api_key);
-        }
-
-        if let Ok(host) = std::env::var("DAEMON_HOST") {
-            config.grpc.server.host = host;
-        }
-
-        if let Ok(port) = std::env::var("DAEMON_PORT") {
-            config.grpc.server.port = port.parse()
-                .map_err(|e| crate::error::DaemonError::Configuration {
-                    message: format!("Invalid port: {}", e)
-                })?;
-        }
-
-        Ok(config)
-    }
 
     /// Save configuration to file
     #[allow(dead_code)]
@@ -3181,6 +3175,7 @@ impl Default for LargeOperationStreamConfig {
 // =============================================================================
 
 /// Get configuration value as string with default
+#[allow(dead_code)]
 pub fn get_config_string(path: &str, default: &str) -> String {
     config().lock().unwrap().get_string(path, default)
 }

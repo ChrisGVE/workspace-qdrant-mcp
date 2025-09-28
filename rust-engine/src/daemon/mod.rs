@@ -22,8 +22,11 @@ use std::env;
 struct ProjectInfo {
     name: String,
     root_path: PathBuf,
+    #[allow(dead_code)]
     git_repository: Option<String>,
+    #[allow(dead_code)]
     git_branch: Option<String>,
+    #[allow(dead_code)]
     identifier: String, // Unique identifier for disambiguation
 }
 
