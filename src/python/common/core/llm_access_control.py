@@ -38,27 +38,27 @@ from enum import Enum
 
 try:
     from .collection_types import (
-        CollectionType, 
-        CollectionInfo, 
+        CollectionType,
+        CollectionInfo,
         CollectionTypeClassifier,
         SYSTEM_PREFIX,
-        LIBRARY_PREFIX, 
+        LIBRARY_PREFIX,
         GLOBAL_COLLECTIONS
     )
     from .collection_naming import CollectionNamingManager, CollectionType as NamingCollectionType
-    from .config import get_config
+    from .config import get_config, ConfigManager
 except ImportError:
     # For direct imports when not used as a package
     from collection_types import (
-        CollectionType, 
-        CollectionInfo, 
+        CollectionType,
+        CollectionInfo,
         CollectionTypeClassifier,
         SYSTEM_PREFIX,
-        LIBRARY_PREFIX, 
+        LIBRARY_PREFIX,
         GLOBAL_COLLECTIONS
     )
     from collection_naming import CollectionNamingManager, CollectionType as NamingCollectionType
-    from config import Config
+    from config import get_config, ConfigManager
 
 
 class AccessViolationType(Enum):
@@ -105,10 +105,10 @@ class LLMAccessController:
     collections while providing helpful error messages and alternatives.
     """
     
-    def __init__(self, config: Optional[Config] = None):
+    def __init__(self, config: Optional[ConfigManager] = None):
         """
         Initialize the LLM access controller.
-        
+
         Args:
             config: Optional configuration object for context
         """
@@ -501,7 +501,7 @@ class LLMAccessController:
 
 # Module-level convenience functions
 
-def can_llm_create_collection(name: str, config: Optional[Config] = None) -> bool:
+def can_llm_create_collection(name: str, config: Optional[ConfigManager] = None) -> bool:
     """
     Check if LLM can create a collection with the given name.
     
@@ -516,7 +516,7 @@ def can_llm_create_collection(name: str, config: Optional[Config] = None) -> boo
     return controller.can_llm_create_collection(name)
 
 
-def can_llm_delete_collection(name: str, config: Optional[Config] = None) -> bool:
+def can_llm_delete_collection(name: str, config: Optional[ConfigManager] = None) -> bool:
     """
     Check if LLM can delete a collection with the given name.
     
@@ -531,7 +531,7 @@ def can_llm_delete_collection(name: str, config: Optional[Config] = None) -> boo
     return controller.can_llm_delete_collection(name)
 
 
-def validate_llm_collection_access(operation: str, name: str, config: Optional[Config] = None) -> None:
+def validate_llm_collection_access(operation: str, name: str, config: Optional[ConfigManager] = None) -> None:
     """
     Validate LLM access for collection operations.
     
@@ -547,7 +547,7 @@ def validate_llm_collection_access(operation: str, name: str, config: Optional[C
     controller.validate_llm_collection_access(operation, name)
 
 
-def get_forbidden_collection_patterns(config: Optional[Config] = None) -> List[str]:
+def get_forbidden_collection_patterns(config: Optional[ConfigManager] = None) -> List[str]:
     """
     Get list of forbidden collection patterns for LLM.
     

@@ -67,7 +67,7 @@ from .collection_types import (
     CollectionType,
     COLLECTION_TYPES_AVAILABLE
 )
-from .config import get_config
+from .config import get_config, ConfigManager
 
 # Import LLM access control system
 try:
@@ -161,7 +161,7 @@ class WorkspaceCollectionManager:
         ```
     """
 
-    def __init__(self, client: QdrantClient, config: Config) -> None:
+    def __init__(self, client: QdrantClient, config: ConfigManager) -> None:
         """Initialize the collection manager.
 
         Args:
@@ -176,8 +176,8 @@ class WorkspaceCollectionManager:
         # Initialize collection type classifier and naming manager
         self.type_classifier = CollectionTypeClassifier()
         self.naming_manager = CollectionNamingManager(
-            global_collections=config.workspace.global_collections,
-            valid_project_suffixes=config.workspace.effective_collection_types
+            global_collections=config.get("workspace.global_collections", []),
+            valid_project_suffixes=config.get("workspace.collection_types", [])
         )
 
     def _get_current_project_name(self) -> Optional[str]:
@@ -293,9 +293,9 @@ class WorkspaceCollectionManager:
                 'project_info': self._project_info,
                 'project_names': project_names,
                 'config_info': {
-                    'effective_collection_types': self.config.workspace.effective_collection_types,
-                    'global_collections': self.config.workspace.global_collections,
-                    'auto_create_collections': self.config.workspace.auto_create_collections
+                    'effective_collection_types': self.config.get("workspace.collection_types", []),
+                    'global_collections': self.config.get("workspace.global_collections", []),
+                    'auto_create_collections': self.config.get("workspace.auto_create_collections", False)
                 },
                 'all_collections': all_names,
                 'workspace_collections': workspace_collections,
@@ -325,15 +325,17 @@ class WorkspaceCollectionManager:
             return "Excluded: memexd daemon collection (ends with -code)"
         
         # Check inclusion criteria
-        if collection_name in self.config.workspace.global_collections:
+        if collection_name in self.config.get("workspace.global_collections", []):
             return "Included: global collection"
-            
-        for suffix in self.config.workspace.effective_collection_types:
+
+        for suffix in self.config.get("workspace.collection_types", []):
             if collection_name.endswith(f"-{suffix}"):
                 return f"Included: ends with configured suffix '{suffix}'"
-        
+
         # Check project-based inclusion
-        if not self.config.workspace.effective_collection_types and not self.config.workspace.global_collections:
+        effective_collection_types = self.config.get("workspace.collection_types", [])
+        global_collections = self.config.get("workspace.global_collections", [])
+        if not effective_collection_types and not global_collections:
             project_names = self._get_all_project_names()
             
             for project_name in project_names:
@@ -407,12 +409,12 @@ class WorkspaceCollectionManager:
         
         collections_to_create = []
 
-        if self.config.workspace.auto_create_collections:
+        if self.config.get("workspace.auto_create_collections", False):
             # Multi-tenant collection creation when auto_create_collections=True
             # Creates shared collections with metadata-based project isolation
 
             # Shared workspace collections (one per type, multi-tenant)
-            for suffix in self.config.workspace.effective_collection_types:
+            for suffix in self.config.get("workspace.collection_types", []):
                 collection_name = suffix  # Direct collection name, no project prefix
                 collections_to_create.append(
                     CollectionConfig(
@@ -421,7 +423,7 @@ class WorkspaceCollectionManager:
                         collection_type=suffix,
                         project_name=None,  # Multi-tenant, no single project owner
                         vector_size=self._get_vector_size(),
-                        enable_sparse_vectors=self.config.embedding.enable_sparse_vectors,
+                        enable_sparse_vectors=self.config.get("embedding.enable_sparse_vectors", True),
                     )
                 )
                 logger.info(
@@ -432,14 +434,14 @@ class WorkspaceCollectionManager:
                 )
 
             # Global collections (unchanged)
-            for global_collection in self.config.workspace.global_collections:
+            for global_collection in self.config.get("workspace.global_collections", []):
                 collections_to_create.append(
                     CollectionConfig(
                         name=global_collection,
                         description=f"Global {global_collection} collection",
                         collection_type="global",
                         vector_size=self._get_vector_size(),
-                        enable_sparse_vectors=self.config.embedding.enable_sparse_vectors,
+                        enable_sparse_vectors=self.config.get("embedding.enable_sparse_vectors", True),
                     )
                 )
 
@@ -788,17 +790,19 @@ class WorkspaceCollectionManager:
                 return False
 
             # Include global collections
-            if collection_name in self.config.workspace.global_collections:
+            if collection_name in self.config.get("workspace.global_collections", []):
                 return True
 
             # Include project collections (ending with configured suffixes)
-            for suffix in self.config.workspace.effective_collection_types:
+            for suffix in self.config.get("workspace.collection_types", []):
                 if collection_name.endswith(f"-{suffix}"):
                     return True
 
             # When no specific configuration is provided, use the actual project name to identify collections
             # This provides accurate workspace isolation based on the current project context
-            if not self.config.workspace.effective_collection_types and not self.config.workspace.global_collections:
+            effective_collection_types = self.config.get("workspace.collection_types", [])
+            global_collections = self.config.get("workspace.global_collections", [])
+            if not effective_collection_types and not global_collections:
                 # Get project information from stored project info or fallback to detection
                 project_names = self._get_all_project_names()
                 
@@ -1057,7 +1061,7 @@ class WorkspaceCollectionManager:
                 return True
 
             # Check if it's a global/shared collection
-            if collection_name in self.config.workspace.global_collections:
+            if collection_name in self.config.get("workspace.global_collections", []):
                 return True
 
             # Check system and library collections (available to all projects)
@@ -1178,7 +1182,7 @@ class WorkspaceCollectionManager:
             "nomic-ai/nomic-embed-text-v1.5": 768,
         }
 
-        return model_sizes.get(self.config.embedding.model, 384)
+        return model_sizes.get(self.config.get("embedding.model", "sentence-transformers/all-MiniLM-L6-v2"), 384)
 
     async def _optimize_metadata_indexing(
         self, collections: list[CollectionConfig]
@@ -1300,7 +1304,7 @@ class MemoryCollectionManager:
     that memory collections appear in appropriate search scopes.
     """
     
-    def __init__(self, workspace_client: QdrantClient, config: Config) -> None:
+    def __init__(self, workspace_client: QdrantClient, config: ConfigManager) -> None:
         """
         Initialize the memory collection manager.
         
@@ -1311,15 +1315,13 @@ class MemoryCollectionManager:
         self.workspace_client = workspace_client
         self.config = config
         self.naming_manager = CollectionNamingManager(
-            global_collections=config.workspace.global_collections,
-            valid_project_suffixes=config.workspace.effective_collection_types
+            global_collections=config.get("workspace.global_collections", []),
+            valid_project_suffixes=config.get("workspace.collection_types", [])
         )
         self.type_classifier = CollectionTypeClassifier()
         
         # Memory collection configuration
-        self.memory_collection = "memory"  # Default memory collection name from config
-        if hasattr(config, 'memory_collection'):
-            self.memory_collection = config.memory_collection
+        self.memory_collection = config.get("memory_collection", "memory")
     
     async def ensure_memory_collections_exist(self, project: str) -> dict:
         """
@@ -1427,7 +1429,7 @@ class MemoryCollectionManager:
                 collection_type="system_memory",
                 project_name=None,
                 vector_size=self._get_vector_size(),
-                enable_sparse_vectors=self.config.embedding.enable_sparse_vectors,
+                enable_sparse_vectors=self.config.get("embedding.enable_sparse_vectors", True),
             )
             
             self._create_memory_collection(collection_config)
@@ -1487,7 +1489,7 @@ class MemoryCollectionManager:
                 collection_type="project_memory",
                 project_name=project_name,
                 vector_size=self._get_vector_size(),
-                enable_sparse_vectors=self.config.embedding.enable_sparse_vectors,
+                enable_sparse_vectors=self.config.get("embedding.enable_sparse_vectors", True),
             )
             
             self._create_memory_collection(collection_config)
@@ -1680,7 +1682,7 @@ class MemoryCollectionManager:
             "nomic-ai/nomic-embed-text-v1.5": 768,
         }
 
-        return model_sizes.get(self.config.embedding.model, 384)
+        return model_sizes.get(self.config.get("embedding.model", "sentence-transformers/all-MiniLM-L6-v2"), 384)
 
 
 class CollectionSelector:
@@ -1699,7 +1701,7 @@ class CollectionSelector:
         - Works with metadata-based tenant isolation
     """
 
-    def __init__(self, client: QdrantClient, config: Config, project_detector=None):
+    def __init__(self, client: QdrantClient, config: ConfigManager, project_detector=None):
         """Initialize the collection selector with required dependencies."""
         self.client = client
         self.config = config
