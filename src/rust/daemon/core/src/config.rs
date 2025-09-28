@@ -121,7 +121,7 @@ impl DaemonConfig {
     }
 }
 
-/// Processing engine configuration (backward compatible)
+/// Processing engine configuration
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Config {
     /// Maximum number of concurrent tasks
@@ -258,35 +258,6 @@ impl Default for Config {
     }
 }
 
-/// Legacy engine configuration (for backward compatibility)
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct EngineConfig {
-    pub chunk_size: usize,
-}
-
-impl EngineConfig {
-    pub fn new() -> Self {
-        Self {
-            chunk_size: 1000,
-        }
-    }
-}
-
-impl Default for EngineConfig {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
-/// Convert legacy config to new config
-impl From<EngineConfig> for Config {
-    fn from(legacy: EngineConfig) -> Self {
-        Self {
-            chunk_size: legacy.chunk_size,
-            ..Default::default()
-        }
-    }
-}
 
 #[cfg(test)]
 mod tests {
@@ -359,17 +330,6 @@ mod tests {
         assert!(config.validate().is_err());
     }
     
-    #[test]
-    fn test_legacy_config_conversion() {
-        let legacy = EngineConfig {
-            chunk_size: 2000,
-        };
-        
-        let config: Config = legacy.into();
-        assert_eq!(config.chunk_size, 2000);
-        // Other fields should be defaults
-        assert_eq!(config.max_concurrent_tasks, Some(4));
-    }
     
     #[test]
     fn test_duration_helpers() {

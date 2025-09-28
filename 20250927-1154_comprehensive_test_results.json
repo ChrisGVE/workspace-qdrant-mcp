@@ -1,0 +1,59 @@
+{
+  "test_summary": {
+    "total_scenarios": 1,
+    "successful_scenarios": 0,
+    "success_rate": 0.0,
+    "overall_compliance_score": 0.0,
+    "total_execution_time_ms": 0.315,
+    "test_timestamp": "2025-09-27T09:57:17.468247+00:00"
+  },
+  "component_analysis": {
+    "daemon": {
+      "total": 1,
+      "successful": 0
+    },
+    "server": {
+      "total": 1,
+      "successful": 0
+    },
+    "integration": {
+      "total": 1,
+      "successful": 0
+    }
+  },
+  "performance_summary": {
+    "fastest_scenario": "quick_mcp_server_validation",
+    "slowest_scenario": "quick_mcp_server_validation",
+    "average_execution_time_ms": 0.315
+  },
+  "scenario_results": [
+    {
+      "name": "quick_mcp_server_validation",
+      "success": false,
+      "execution_time_ms": 0.315,
+      "compliance_score": 0.0,
+      "error_details": "Step 1 failed: MCP server not available",
+      "step_count": 1,
+      "performance_metrics": {}
+    }
+  ],
+  "recommendations": {
+    "overall": [
+      "\u274c Low test success rate - significant issues require investigation",
+      "\u26a0\ufe0f Protocol compliance needs improvement"
+    ],
+    "detailed": []
+  },
+  "conclusion": {
+    "system_status": "critical",
+    "ready_for_production": false,
+    "primary_concerns": [
+      "Step 1 failed: MCP server not available"
+    ],
+    "strengths": [
+      "Comprehensive testing framework available",
+      "FastMCP integration working",
+      "Protocol compliance validation functional"
+    ]
+  }
+}

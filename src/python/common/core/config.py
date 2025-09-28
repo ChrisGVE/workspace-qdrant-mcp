@@ -762,3 +762,26 @@ def reset_config() -> None:
 
 
 # End of ConfigManager implementation
+
+# Import and alias enhanced config for compatibility
+try:
+    from .enhanced_config import (
+        EnhancedConfig as Config,
+        QdrantConfig,
+        EmbeddingConfig,
+        WorkspaceConfig,
+        SecurityConfig,
+        MonitoringConfig,
+        PerformanceConfig,
+        DevelopmentConfig
+    )
+except ImportError:
+    # Fallback for cases where enhanced_config is not available
+    Config = ConfigManager
+    QdrantConfig = None
+    EmbeddingConfig = None
+    WorkspaceConfig = None
+    SecurityConfig = None
+    MonitoringConfig = None
+    PerformanceConfig = None
+    DevelopmentConfig = None

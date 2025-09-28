@@ -162,5 +162,3 @@ def generate_completion_script(shell: Shell, prog_name: str) -> None:
         handle_cli_error(CLIError(f"Error generating completion script: {e}"))
 
 
-# Alias for backward compatibility
-cli = init_app

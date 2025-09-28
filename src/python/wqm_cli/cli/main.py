@@ -271,8 +271,6 @@ def handle_async_command(coro: Coroutine[Any, Any, Any], debug: bool = False) ->
         raise typer.Exit(1)
 
 
-# Make cli available for backward compatibility
-cli = app
 
 if __name__ == "__main__":
     app()

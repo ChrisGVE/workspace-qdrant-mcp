@@ -1757,7 +1757,7 @@ impl DaemonConfig {
             init_config(config_path)?;
         }
 
-        // Create a DaemonConfig from the global config for backward compatibility
+        // Create a DaemonConfig from the global config
         let config_guard = config().lock().unwrap();
 
         // Create DaemonConfig with basic values for immediate compatibility
@@ -1775,7 +1775,7 @@ impl DaemonConfig {
         config.grpc.server.host = config_guard.get_string("grpc.server.host", "127.0.0.1");
         config.grpc.server.port = config_guard.get_u16("grpc.server.port", 50051);
 
-        // Add more mappings as needed for backward compatibility
+        // Add more mappings as needed
 
         // Validate the configuration
         config.validate()?;

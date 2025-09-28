@@ -992,8 +992,6 @@ impl FileWatcher {
     }
 }
 
-/// Convenience type alias for the old Watcher struct (for backward compatibility)
-pub type Watcher = FileWatcher;
 
 /// Example usage of the FileWatcher integrated with ProcessingEngine
 /// 

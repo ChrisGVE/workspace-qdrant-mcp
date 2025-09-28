@@ -222,7 +222,6 @@ class EnhancedConfig(BaseSettings):
         # Load configuration files and environment variables
         self._config_files_loaded = []
         self._load_configuration_files()
-        self._load_legacy_env_vars()
         self._load_nested_env_vars()
 
         # Validate configuration
@@ -401,48 +400,6 @@ class EnhancedConfig(BaseSettings):
                 c.strip() for c in global_collections.split(",") if c.strip()
             ]
 
-    def _load_legacy_env_vars(self) -> None:
-        """Load legacy environment variables for backward compatibility."""
-        legacy_mappings = [
-            # Legacy Qdrant config
-            ("QDRANT_URL", lambda v: setattr(self.qdrant, "url", v)),
-            ("QDRANT_API_KEY", lambda v: setattr(self.qdrant, "api_key", v)),
-            # Legacy embedding config
-            ("FASTEMBED_MODEL", lambda v: setattr(self.embedding, "model", v)),
-            (
-                "ENABLE_SPARSE_VECTORS",
-                lambda v: setattr(
-                    self.embedding, "enable_sparse_vectors", v.lower() == "true"
-                ),
-            ),
-            ("CHUNK_SIZE", lambda v: setattr(self.embedding, "chunk_size", int(v))),
-            (
-                "CHUNK_OVERLAP",
-                lambda v: setattr(self.embedding, "chunk_overlap", int(v)),
-            ),
-            ("BATCH_SIZE", lambda v: setattr(self.embedding, "batch_size", int(v))),
-            # Legacy workspace config
-            ("GITHUB_USER", lambda v: setattr(self.workspace, "github_user", v)),
-        ]
-
-        for env_var, setter in legacy_mappings:
-            value = os.getenv(env_var)
-            if value is not None:
-                try:
-                    setter(value)
-                except (ValueError, TypeError) as e:
-                    logger.warning(f"Invalid legacy value for {env_var}: {value} - {e}")
-
-        # Handle legacy list variables
-        if collection_types := os.getenv("COLLECTION_TYPES"):
-            self.workspace.collection_types = [
-                c.strip() for c in collection_types.split(",") if c.strip()
-            ]
-
-        if global_collections := os.getenv("GLOBAL_COLLECTIONS"):
-            self.workspace.global_collections = [
-                c.strip() for c in global_collections.split(",") if c.strip()
-            ]
 
     @property
     def is_valid(self) -> bool:
@@ -558,5 +515,7 @@ class EnhancedConfig(BaseSettings):
         return summary
 
 
-# Backward compatibility: alias to enhanced config
+# Alias for compatibility
 Config = EnhancedConfig
+
+

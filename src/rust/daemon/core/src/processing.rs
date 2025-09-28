@@ -2031,8 +2031,6 @@ pub struct ResourceMetrics {
     pub file_handles_open: usize,
 }
 
-/// Backward compatibility alias
-pub type PipelineStats = PipelineMetrics;
 
 
 /// Real-time metrics collector and aggregator

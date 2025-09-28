@@ -31,7 +31,7 @@ __url__ = "https://github.com/your-org/workspace-qdrant-mcp"
 
 import os
 
-# Core module alias for backward compatibility with tests
+# Core module import
 try:
     from common import core
 except ImportError:

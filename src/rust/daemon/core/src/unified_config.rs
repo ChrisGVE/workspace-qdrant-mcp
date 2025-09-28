@@ -2,8 +2,7 @@
 //!
 //! This module provides integration with the Python unified configuration system,
 //! allowing the Rust daemon to load configuration from the same sources as the
-//! Python MCP server while maintaining backwards compatibility with existing
-//! TOML configuration files.
+//! Python MCP server and supports existing TOML configuration files.
 
 use crate::config::DaemonConfig;
 use crate::storage::{StorageConfig, TransportMode, Http2Config};

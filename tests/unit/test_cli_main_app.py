@@ -389,12 +389,6 @@ class TestCLIAppStructure:
         result = CliRunner().invoke(app, ["invalid-command"])
         assert result.exit_code != 0
 
-    def test_app_backward_compatibility(self):
-        """Test backward compatibility with cli alias."""
-        from wqm_cli.cli.main import cli, app
-
-        # cli should be an alias for app
-        assert cli is app
 
     def test_main_module_execution(self):
         """Test module can be executed as main."""
