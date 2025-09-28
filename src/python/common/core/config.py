@@ -298,7 +298,7 @@ class ConfigManager:
         # Get path to the default configuration asset
         current_file = Path(__file__)
         project_root = current_file.parent.parent.parent.parent.parent
-        asset_file = project_root / "assets" / "default_config.yaml"
+        asset_file = project_root / "assets" / "default_configuration.yaml"
 
         try:
             if asset_file.exists():
