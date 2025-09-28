@@ -10,3 +10,4 @@ deployment:
 # Override specific settings for development
 logging:
   level: "debug"
+  json_format: false
