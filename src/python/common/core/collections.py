@@ -67,7 +67,7 @@ from .collection_types import (
     CollectionType,
     COLLECTION_TYPES_AVAILABLE
 )
-from .config import Config
+from .config import get_config
 
 # Import LLM access control system
 try:

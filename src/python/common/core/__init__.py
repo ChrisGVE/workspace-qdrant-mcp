@@ -2,7 +2,7 @@
 
 from .client import QdrantWorkspaceClient
 from .collections import WorkspaceCollectionManager
-from .config import Config
+from .config import get_config, ConfigManager
 from .embeddings import EmbeddingService
 from .hybrid_search import HybridSearchEngine, RRFFusionRanker
 from .incremental_processor import (
@@ -41,7 +41,8 @@ from .priority_queue_manager import (
 
 __all__ = [
     "QdrantWorkspaceClient",
-    "Config",
+    "get_config",
+    "ConfigManager",
     "WorkspaceCollectionManager",
     "EmbeddingService",
     "BM25SparseEncoder",

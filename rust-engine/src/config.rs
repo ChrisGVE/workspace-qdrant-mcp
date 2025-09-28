@@ -1514,191 +1514,76 @@ impl ConfigManager {
         self.get(path)?.as_object()
     }
 
-    /// Create all possible configuration labels with defaults
+    /// Load comprehensive default configuration from asset file
     fn create_defaults() -> HashMap<String, ConfigValue> {
+        // Try to load from the default config asset
+        let project_root = std::env::current_dir()
+            .unwrap_or_else(|_| std::path::PathBuf::from("."));
+        let asset_file = project_root.join("assets").join("default_config.yaml");
+
+        if let Ok(content) = std::fs::read_to_string(&asset_file) {
+            if let Ok(yaml_value) = serde_yaml::from_str::<YamlValue>(&content) {
+                if let Some(config) = Self::yaml_to_config_value(&yaml_value).as_object() {
+                    // Extract only the Rust-specific section and map common sections
+                    let mut rust_config = HashMap::new();
+
+                    // Map common sections from the asset file
+                    if let Some(qdrant) = config.get("qdrant") {
+                        rust_config.insert("qdrant".to_string(), qdrant.clone());
+                    }
+                    if let Some(grpc) = config.get("grpc") {
+                        rust_config.insert("grpc".to_string(), grpc.clone());
+                    }
+                    if let Some(embedding) = config.get("embedding") {
+                        rust_config.insert("embedding".to_string(), embedding.clone());
+                    }
+                    if let Some(workspace) = config.get("workspace") {
+                        rust_config.insert("workspace".to_string(), workspace.clone());
+                    }
+                    if let Some(performance) = config.get("performance") {
+                        rust_config.insert("performance".to_string(), performance.clone());
+                    }
+                    if let Some(logging) = config.get("logging") {
+                        rust_config.insert("logging".to_string(), logging.clone());
+                    }
+                    if let Some(auto_ingestion) = config.get("auto_ingestion") {
+                        rust_config.insert("auto_ingestion".to_string(), auto_ingestion.clone());
+                    }
+
+                    // Add Rust-specific configurations
+                    if let Some(rust_section) = config.get("rust") {
+                        if let Some(rust_obj) = rust_section.as_object() {
+                            for (key, value) in rust_obj {
+                                rust_config.insert(key.clone(), value.clone());
+                            }
+                        }
+                    }
+
+                    return rust_config;
+                }
+            }
+        }
+
+        // Fallback to minimal hardcoded defaults if asset loading fails
         let mut defaults = HashMap::new();
 
-        // 1. System Architecture & Core Settings
-        let mut system = HashMap::new();
-        system.insert("project_name".to_string(), ConfigValue::String("workspace-qdrant-mcp".to_string()));
-        system.insert("version".to_string(), ConfigValue::String("v2.0".to_string()));
-
-        let mut components = HashMap::new();
-        let mut rust_daemon = HashMap::new();
-        rust_daemon.insert("enabled".to_string(), ConfigValue::Boolean(true));
-        components.insert("rust_daemon".to_string(), ConfigValue::Object(rust_daemon));
-
-        let mut python_mcp_server = HashMap::new();
-        python_mcp_server.insert("enabled".to_string(), ConfigValue::Boolean(true));
-        components.insert("python_mcp_server".to_string(), ConfigValue::Object(python_mcp_server));
-
-        let mut cli_utility = HashMap::new();
-        cli_utility.insert("enabled".to_string(), ConfigValue::Boolean(true));
-        components.insert("cli_utility".to_string(), ConfigValue::Object(cli_utility));
-
-        let mut context_injector = HashMap::new();
-        context_injector.insert("enabled".to_string(), ConfigValue::Boolean(true));
-        components.insert("context_injector".to_string(), ConfigValue::Object(context_injector));
-
-        system.insert("components".to_string(), ConfigValue::Object(components));
-        defaults.insert("system".to_string(), ConfigValue::Object(system));
-
-        // 2. Memory Collection Configuration
-        let mut memory = HashMap::new();
-        memory.insert("collection_name".to_string(), ConfigValue::String("llm_rules".to_string()));
-
-        let mut authority_levels = HashMap::new();
-        let mut absolute = HashMap::new();
-        absolute.insert("enabled".to_string(), ConfigValue::Boolean(true));
-        authority_levels.insert("absolute".to_string(), ConfigValue::Object(absolute));
-        let mut default_auth = HashMap::new();
-        default_auth.insert("enabled".to_string(), ConfigValue::Boolean(true));
-        authority_levels.insert("default".to_string(), ConfigValue::Object(default_auth));
-        memory.insert("authority_levels".to_string(), ConfigValue::Object(authority_levels));
-
-        let mut conversational_updates = HashMap::new();
-        conversational_updates.insert("enabled".to_string(), ConfigValue::Boolean(true));
-        conversational_updates.insert("auto_conflict_detection".to_string(), ConfigValue::Boolean(true));
-        conversational_updates.insert("immediate_activation".to_string(), ConfigValue::Boolean(true));
-        memory.insert("conversational_updates".to_string(), ConfigValue::Object(conversational_updates));
-
-        let mut conflict_resolution = HashMap::new();
-        conflict_resolution.insert("strategy".to_string(), ConfigValue::String("merge_conditional".to_string()));
-        conflict_resolution.insert("user_prompt_timeout".to_string(), ConfigValue::Integer(30000));
-        memory.insert("conflict_resolution".to_string(), ConfigValue::Object(conflict_resolution));
-
-        let mut token_management = HashMap::new();
-        token_management.insert("max_tokens".to_string(), ConfigValue::Integer(2000));
-        token_management.insert("optimization_enabled".to_string(), ConfigValue::Boolean(true));
-        token_management.insert("trim_interactive".to_string(), ConfigValue::Boolean(true));
-        memory.insert("token_management".to_string(), ConfigValue::Object(token_management));
-
-        let mut rule_scope = HashMap::new();
-        rule_scope.insert("all_sessions".to_string(), ConfigValue::Boolean(true));
-        rule_scope.insert("project_specific".to_string(), ConfigValue::Boolean(true));
-        rule_scope.insert("temporary_rules".to_string(), ConfigValue::Boolean(true));
-        rule_scope.insert("temporary_rule_duration".to_string(), ConfigValue::Integer(86400000));
-        memory.insert("rule_scope".to_string(), ConfigValue::Object(rule_scope));
-
-        let mut session_initialization = HashMap::new();
-        session_initialization.insert("rule_injection_enabled".to_string(), ConfigValue::Boolean(true));
-        session_initialization.insert("conflict_detection_on_startup".to_string(), ConfigValue::Boolean(true));
-        session_initialization.insert("startup_timeout".to_string(), ConfigValue::Integer(10000));
-        memory.insert("session_initialization".to_string(), ConfigValue::Object(session_initialization));
-
-        defaults.insert("memory".to_string(), ConfigValue::Object(memory));
-
-        // 3. Collection Management & Multi-tenancy
-        let mut collections = HashMap::new();
-        collections.insert("root_name".to_string(), ConfigValue::String("project".to_string()));
-        collections.insert("types".to_string(), ConfigValue::Array(vec![]));
-
-        let mut project_content = HashMap::new();
-        project_content.insert("enabled".to_string(), ConfigValue::Boolean(true));
-        project_content.insert("name".to_string(), ConfigValue::String("project_content".to_string()));
-        collections.insert("project_content".to_string(), ConfigValue::Object(project_content));
-
-        let mut naming = HashMap::new();
-        naming.insert("collision_detection".to_string(), ConfigValue::Boolean(true));
-        naming.insert("validation_strict".to_string(), ConfigValue::Boolean(true));
-        collections.insert("naming".to_string(), ConfigValue::Object(naming));
-
-        let mut multi_tenancy = HashMap::new();
-        multi_tenancy.insert("isolation_strategy".to_string(), ConfigValue::String("metadata_filtering".to_string()));
-        multi_tenancy.insert("cross_project_search".to_string(), ConfigValue::Boolean(true));
-        multi_tenancy.insert("tenant_metadata_fields".to_string(), ConfigValue::Array(vec![
-            ConfigValue::String("project_id".to_string()),
-            ConfigValue::String("project_path".to_string()),
-            ConfigValue::String("git_repository".to_string()),
-        ]));
-        collections.insert("multi_tenancy".to_string(), ConfigValue::Object(multi_tenancy));
-
-        defaults.insert("collections".to_string(), ConfigValue::Object(collections));
-
-        // 4. Project Detection & Management - Continuing the defaults...
-        let mut project_detection = HashMap::new();
-
-        let mut git_detection = HashMap::new();
-        git_detection.insert("enabled".to_string(), ConfigValue::Boolean(true));
-        git_detection.insert("priority".to_string(), ConfigValue::Integer(1));
-        git_detection.insert("require_initialized".to_string(), ConfigValue::Boolean(true));
-        git_detection.insert("scan_parent_directories".to_string(), ConfigValue::Boolean(true));
-        git_detection.insert("max_parent_scan_depth".to_string(), ConfigValue::Integer(10));
-        project_detection.insert("git_detection".to_string(), ConfigValue::Object(git_detection));
-
-        let mut github_integration = HashMap::new();
-        github_integration.insert("user".to_string(), ConfigValue::String("".to_string()));
-        let mut submodule_handling = HashMap::new();
-        submodule_handling.insert("treat_as_independent_projects".to_string(), ConfigValue::Boolean(true));
-        submodule_handling.insert("ignore_external_submodules".to_string(), ConfigValue::Boolean(true));
-        submodule_handling.insert("track_ownership_changes".to_string(), ConfigValue::Boolean(true));
-        github_integration.insert("submodule_handling".to_string(), ConfigValue::Object(submodule_handling));
-        project_detection.insert("github_integration".to_string(), ConfigValue::Object(github_integration));
-
-        let mut custom_indicators = HashMap::new();
-        custom_indicators.insert("enabled".to_string(), ConfigValue::Boolean(true));
-        custom_indicators.insert("priority".to_string(), ConfigValue::Integer(2));
-        let mut additional_patterns = HashMap::new();
-        additional_patterns.insert("custom_indicators".to_string(), ConfigValue::Array(vec![]));
-        custom_indicators.insert("additional_patterns".to_string(), ConfigValue::Object(additional_patterns));
-        project_detection.insert("custom_indicators".to_string(), ConfigValue::Object(custom_indicators));
-
-        let mut project_naming = HashMap::new();
-        project_naming.insert("root_name_strategy".to_string(), ConfigValue::String("directory_name".to_string()));
-        project_naming.insert("collection_auto_creation".to_string(), ConfigValue::Boolean(true));
-        project_naming.insert("prevent_project_explosion".to_string(), ConfigValue::Boolean(true));
-        project_detection.insert("naming".to_string(), ConfigValue::Object(project_naming));
-
-        defaults.insert("project_detection".to_string(), ConfigValue::Object(project_detection));
-
-        // 11. gRPC & Communication Settings (Legacy compatibility)
-        let mut grpc = HashMap::new();
-
-        let mut server = HashMap::new();
-        server.insert("enabled".to_string(), ConfigValue::Boolean(true));
-        server.insert("host".to_string(), ConfigValue::String("127.0.0.1".to_string()));
-        server.insert("port".to_string(), ConfigValue::Integer(50051));
-        server.insert("max_concurrent_streams".to_string(), ConfigValue::Integer(100));
-        server.insert("max_message_size".to_string(), ConfigValue::Integer(16 * 1024 * 1024));
-        grpc.insert("server".to_string(), ConfigValue::Object(server));
-
-        let mut client = HashMap::new();
-        client.insert("connection_timeout".to_string(), ConfigValue::Integer(5000));
-        client.insert("request_timeout".to_string(), ConfigValue::Integer(30000));
-        client.insert("keepalive_interval".to_string(), ConfigValue::Integer(30000));
-        client.insert("keepalive_timeout".to_string(), ConfigValue::Integer(5000));
-        client.insert("max_retry_attempts".to_string(), ConfigValue::Integer(3));
-        client.insert("retry_backoff".to_string(), ConfigValue::Integer(1000));
-        grpc.insert("client".to_string(), ConfigValue::Object(client));
-
-        defaults.insert("grpc".to_string(), ConfigValue::Object(grpc));
-
-        // 12. External Service Configuration
-        let mut external_services = HashMap::new();
-
+        // Basic Qdrant configuration
         let mut qdrant = HashMap::new();
         qdrant.insert("url".to_string(), ConfigValue::String("http://localhost:6333".to_string()));
-        qdrant.insert("api_key".to_string(), ConfigValue::Null);
         qdrant.insert("timeout".to_string(), ConfigValue::Integer(30000));
-        qdrant.insert("max_retries".to_string(), ConfigValue::Integer(3));
-        external_services.insert("qdrant".to_string(), ConfigValue::Object(qdrant));
+        defaults.insert("qdrant".to_string(), ConfigValue::Object(qdrant));
 
-        let mut embeddings = HashMap::new();
-        embeddings.insert("model".to_string(), ConfigValue::String("sentence-transformers/all-MiniLM-L6-v2".to_string()));
-        embeddings.insert("cache_dir".to_string(), ConfigValue::Null);
-        external_services.insert("embeddings".to_string(), ConfigValue::Object(embeddings));
+        // Basic gRPC configuration
+        let mut grpc = HashMap::new();
+        grpc.insert("enabled".to_string(), ConfigValue::Boolean(true));
+        grpc.insert("host".to_string(), ConfigValue::String("127.0.0.1".to_string()));
+        grpc.insert("port".to_string(), ConfigValue::Integer(50051));
+        defaults.insert("grpc".to_string(), ConfigValue::Object(grpc));
 
-        defaults.insert("external_services".to_string(), ConfigValue::Object(external_services));
-
-        // Add remaining sections with minimal defaults for now
-        // They can be expanded as needed
-        defaults.insert("lsp_integration".to_string(), ConfigValue::Object(HashMap::new()));
-        defaults.insert("document_processing".to_string(), ConfigValue::Object(HashMap::new()));
-        defaults.insert("search".to_string(), ConfigValue::Object(HashMap::new()));
-        defaults.insert("performance".to_string(), ConfigValue::Object(HashMap::new()));
-        defaults.insert("platform".to_string(), ConfigValue::Object(HashMap::new()));
-        defaults.insert("cli".to_string(), ConfigValue::Object(HashMap::new()));
-        defaults.insert("monitoring".to_string(), ConfigValue::Object(HashMap::new()));
+        // Basic performance configuration
+        let mut performance = HashMap::new();
+        performance.insert("max_concurrent_tasks".to_string(), ConfigValue::Integer(4));
+        defaults.insert("performance".to_string(), ConfigValue::Object(performance));
 
         defaults
     }
