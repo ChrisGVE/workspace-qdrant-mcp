@@ -22,9 +22,9 @@ Performance Characteristics:
 Example:
     ```python
     from workspace_qdrant_mcp.core.embeddings import EmbeddingService
-    from workspace_qdrant_mcp.core.config import Config
+    from workspace_qdrant_mcp.core.config import get_config
 
-    config = Config()
+    config = get_config()
     service = EmbeddingService(config)
     await service.initialize()
 
@@ -50,7 +50,7 @@ from typing import Optional, Union
 from fastembed import TextEmbedding
 from fastembed.sparse import SparseTextEmbedding
 
-from .config import Config
+from .config import get_config, ConfigManager
 from .sparse_vectors import BM25SparseEncoder
 
 # logger imported from loguru
@@ -102,7 +102,7 @@ class EmbeddingService:
         ```
     """
 
-    def __init__(self, config: Config) -> None:
+    def __init__(self, config: ConfigManager) -> None:
         """Initialize the embedding service with configuration.
 
         Args:
@@ -123,14 +123,14 @@ class EmbeddingService:
         try:
             # Initialize dense embedding model
             logger.info(
-                "Initializing dense embedding model: %s", self.config.embedding.model
+                "Initializing dense embedding model: %s", self.config.get("embedding.model", "sentence-transformers/all-MiniLM-L6-v2")
             )
             # Try to use run_in_executor for async loading, fall back to sync if mocked
             loop = asyncio.get_event_loop()
             executor_result = loop.run_in_executor(
                 None,
                 lambda: TextEmbedding(
-                    model_name=self.config.embedding.model,
+                    model_name=self.config.get("embedding.model", "sentence-transformers/all-MiniLM-L6-v2"),
                     max_length=512,  # Reasonable limit for document chunks
                 ),
             )
@@ -143,7 +143,7 @@ class EmbeddingService:
                 self.dense_model = executor_result
 
             # Initialize sparse embedding model if enabled
-            if self.config.embedding.enable_sparse_vectors:
+            if self.config.get("embedding.enable_sparse_vectors", True):
                 logger.info("Initializing enhanced BM25 sparse encoder")
                 self.bm25_encoder = BM25SparseEncoder(use_fastembed=True)
                 await self.bm25_encoder.initialize()
@@ -178,7 +178,7 @@ class EmbeddingService:
         text = self._preprocess_text(text)
 
         if include_sparse is None:
-            include_sparse = self.config.embedding.enable_sparse_vectors
+            include_sparse = self.config.get("embedding.enable_sparse_vectors", True)
 
         result = {}
 
@@ -221,7 +221,7 @@ class EmbeddingService:
         processed_texts = [self._preprocess_text(text) for text in texts]
 
         if include_sparse is None:
-            include_sparse = self.config.embedding.enable_sparse_vectors
+            include_sparse = self.config.get("embedding.enable_sparse_vectors", True)
 
         try:
             # Generate dense embeddings for all texts
@@ -327,7 +327,7 @@ class EmbeddingService:
         if not documents:
             return []
 
-        batch_size = batch_size or self.config.embedding.batch_size
+        batch_size = batch_size or self.config.get("embedding.batch_size", 32)
         results = []
 
         # Process in batches
@@ -347,7 +347,7 @@ class EmbeddingService:
                     embedded_doc["sparse_vector"] = embeddings["sparse"][j]
 
                 # Add embedding metadata
-                embedded_doc["embedding_model"] = self.config.embedding.model
+                embedded_doc["embedding_model"] = self.config.get("embedding.model", "sentence-transformers/all-MiniLM-L6-v2")
                 embedded_doc["embedding_timestamp"] = asyncio.get_event_loop().time()
                 embedded_doc["content_hash"] = self._hash_content(
                     doc.get(content_field, "")
@@ -398,8 +398,8 @@ class EmbeddingService:
                 logger.info("Chunk {i}: {len(chunk)} characters")
             ```
         """
-        chunk_size = chunk_size or self.config.embedding.chunk_size
-        chunk_overlap = chunk_overlap or self.config.embedding.chunk_overlap
+        chunk_size = chunk_size or self.config.get("embedding.chunk_size", 1000)
+        chunk_overlap = chunk_overlap or self.config.get("embedding.chunk_overlap", 200)
         separators = separators or [". ", "\n\n", "\n", " "]
 
         if len(text) <= chunk_size:
@@ -510,28 +510,28 @@ class EmbeddingService:
             sparse_info = self.bm25_encoder.get_model_info()
 
         return {
-            "model_name": self.config.embedding.model,
+            "model_name": self.config.get("embedding.model", "sentence-transformers/all-MiniLM-L6-v2"),
             "vector_size": self._get_vector_size() if self.initialized else None,
-            "sparse_enabled": self.config.embedding.enable_sparse_vectors,
+            "sparse_enabled": self.config.get("embedding.enable_sparse_vectors", True),
             "initialized": self.initialized,
             "dense_model": {
-                "name": self.config.embedding.model,
+                "name": self.config.get("embedding.model", "sentence-transformers/all-MiniLM-L6-v2"),
                 "loaded": self.dense_model is not None,
                 "dimensions": 384
-                if "all-MiniLM-L6-v2" in self.config.embedding.model
+                if "all-MiniLM-L6-v2" in self.config.get("embedding.model", "sentence-transformers/all-MiniLM-L6-v2")
                 else (
                     768
                     if (
-                        "bge-base-en" in self.config.embedding.model
-                        or "all-mpnet-base-v2" in self.config.embedding.model
-                        or "jina-embeddings-v2-base" in self.config.embedding.model
-                        or "gte-base" in self.config.embedding.model
+                        "bge-base-en" in self.config.get("embedding.model", "sentence-transformers/all-MiniLM-L6-v2")
+                        or "all-mpnet-base-v2" in self.config.get("embedding.model", "sentence-transformers/all-MiniLM-L6-v2")
+                        or "jina-embeddings-v2-base" in self.config.get("embedding.model", "sentence-transformers/all-MiniLM-L6-v2")
+                        or "gte-base" in self.config.get("embedding.model", "sentence-transformers/all-MiniLM-L6-v2")
                     )
                     else (
                         1024
                         if (
-                            "bge-large" in self.config.embedding.model
-                            or "bge-m3" in self.config.embedding.model
+                            "bge-large" in self.config.get("embedding.model", "sentence-transformers/all-MiniLM-L6-v2")
+                            or "bge-m3" in self.config.get("embedding.model", "sentence-transformers/all-MiniLM-L6-v2")
                         )
                         else 384
                     )
@@ -539,16 +539,16 @@ class EmbeddingService:
             },
             "sparse_model": {
                 "name": "Enhanced BM25"
-                if self.config.embedding.enable_sparse_vectors
+                if self.config.get("embedding.enable_sparse_vectors", True)
                 else None,
                 "loaded": self.bm25_encoder is not None,
-                "enabled": self.config.embedding.enable_sparse_vectors,
+                "enabled": self.config.get("embedding.enable_sparse_vectors", True),
                 **sparse_info,
             },
             "config": {
-                "chunk_size": self.config.embedding.chunk_size,
-                "chunk_overlap": self.config.embedding.chunk_overlap,
-                "batch_size": self.config.embedding.batch_size,
+                "chunk_size": self.config.get("embedding.chunk_size", 1000),
+                "chunk_overlap": self.config.get("embedding.chunk_overlap", 200),
+                "batch_size": self.config.get("embedding.batch_size", 32),
             },
         }
 
