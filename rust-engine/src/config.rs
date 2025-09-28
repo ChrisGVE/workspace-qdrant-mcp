@@ -335,6 +335,17 @@ impl ConfigManager {
         None
     }
 
+    /// Get configuration value with Result-based error handling
+    pub fn get_config(&self, path: &str) -> Result<&ConfigValue, crate::error::DaemonError> {
+        use crate::error::DaemonError;
+        match self.get(path) {
+            Some(value) => Ok(value),
+            None => Err(DaemonError::ConfigKeyNotFound {
+                path: path.to_string(),
+            }),
+        }
+    }
+
     /// Get string value with default
     pub fn get_string(&self, path: &str, default: &str) -> String {
         self.get(path)
@@ -1598,21 +1609,27 @@ impl DaemonConfig {
 
     /// Validate configuration
     fn validate_config() -> DaemonResult<()> {
-        let config_guard = config().lock().unwrap();
-
-        // Validate required configuration paths
-        let qdrant_url = config_guard.get_string("qdrant.url", "");
-        if qdrant_url.is_empty() {
-            return Err(crate::error::DaemonError::Configuration {
+        // Validate required configuration paths using simple Result-based API
+        crate::config::get_config("qdrant.url")
+            .map_err(|_| crate::error::DaemonError::Configuration {
                 message: "qdrant.url is required".to_string()
-            });
-        }
+            })?;
 
         // Validate server configuration
-        let server_port = config_guard.get_u16("server.port", 0);
-        if server_port == 0 {
+        let port_value = crate::config::get_config("server.port")
+            .map_err(|_| crate::error::DaemonError::Configuration {
+                message: "server.port is required".to_string()
+            })?;
+
+        if let Some(port_i64) = port_value.as_i64() {
+            if port_i64 <= 0 || port_i64 > 65535 {
+                return Err(crate::error::DaemonError::Configuration {
+                    message: "server.port must be between 1 and 65535".to_string()
+                });
+            }
+        } else {
             return Err(crate::error::DaemonError::Configuration {
-                message: "server.port must be greater than 0".to_string()
+                message: "server.port must be a valid port number".to_string()
             });
         }
 
@@ -2753,6 +2770,11 @@ pub fn get_config_u64(path: &str, default: u64) -> u64 {
 // =============================================================================
 // RESULT-BASED CONFIGURATION FUNCTIONS (IDIOMATIC RUST)
 // =============================================================================
+
+/// Get configuration value with Result-based error handling (simple)
+pub fn get_config(path: &str) -> Result<ConfigValue, crate::error::DaemonError> {
+    config().lock().unwrap().get_config(path).map(|v| v.clone())
+}
 
 /// Get configuration string with Result-based error handling (idiomatic Rust)
 pub fn try_get_config_string(path: &str) -> Result<String, crate::error::DaemonError> {
