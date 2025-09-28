@@ -28,7 +28,7 @@ import sys
 sys.path.insert(0, str(Path(__file__).parent.parent.parent / "src" / "python"))
 
 from common.core.client import QdrantWorkspaceClient, create_qdrant_client
-from common.core.config import Config
+from common.core.config import get_config, ConfigManager
 
 
 class TestQdrantWorkspaceClientInit:
@@ -36,7 +36,7 @@ class TestQdrantWorkspaceClientInit:
 
     def test_client_init_with_config(self):
         """Test client initialization with valid config."""
-        config = Mock(spec=Config)
+        config = Mock(spec=ConfigManager)
         config.qdrant_url = "http://localhost:6333"
         config.qdrant_api_key = None
         config.embedding_model = "sentence-transformers/all-MiniLM-L6-v2"
@@ -53,7 +53,7 @@ class TestQdrantWorkspaceClientInit:
 
     def test_client_init_initializes_embedding_service(self):
         """Test that embedding service is initialized during client creation."""
-        config = Mock(spec=Config)
+        config = Mock(spec=ConfigManager)
 
         with patch('common.core.client.EmbeddingService') as MockEmbeddingService:
             mock_embedding_service = Mock()
@@ -66,7 +66,7 @@ class TestQdrantWorkspaceClientInit:
 
     def test_client_init_sets_default_attributes(self):
         """Test that client sets all required default attributes."""
-        config = Mock(spec=Config)
+        config = Mock(spec=ConfigManager)
         client = QdrantWorkspaceClient(config)
 
         # Check all attributes are properly initialized
@@ -85,7 +85,7 @@ class TestClientInitialization:
     @pytest.mark.asyncio
     async def test_initialize_success_with_ssl(self):
         """Test successful initialization with SSL configuration."""
-        config = Mock(spec=Config)
+        config = Mock(spec=ConfigManager)
         config.qdrant_url = "https://example.com:6333"
         config.qdrant_api_key = "test-key"
         config.use_ssl = True
@@ -125,7 +125,7 @@ class TestClientInitialization:
     @pytest.mark.asyncio
     async def test_initialize_success_without_ssl(self):
         """Test successful initialization without SSL."""
-        config = Mock(spec=Config)
+        config = Mock(spec=ConfigManager)
         config.qdrant_url = "http://localhost:6333"
         config.qdrant_api_key = None
         config.use_ssl = False
@@ -158,7 +158,7 @@ class TestClientInitialization:
     @pytest.mark.asyncio
     async def test_initialize_already_initialized(self):
         """Test that re-initialization is skipped."""
-        config = Mock(spec=Config)
+        config = Mock(spec=ConfigManager)
         client = QdrantWorkspaceClient(config)
         client.initialized = True
 
@@ -169,7 +169,7 @@ class TestClientInitialization:
     @pytest.mark.asyncio
     async def test_initialize_qdrant_connection_failure(self):
         """Test handling of Qdrant connection failure."""
-        config = Mock(spec=Config)
+        config = Mock(spec=ConfigManager)
         config.qdrant_url = "http://localhost:6333"
         config.qdrant_api_key = None
         config.use_ssl = False
@@ -187,7 +187,7 @@ class TestClientInitialization:
     @pytest.mark.asyncio
     async def test_initialize_project_detection_failure(self):
         """Test handling when project detection fails."""
-        config = Mock(spec=Config)
+        config = Mock(spec=ConfigManager)
         config.qdrant_url = "http://localhost:6333"
         config.qdrant_api_key = None
         config.use_ssl = False
@@ -220,7 +220,7 @@ class TestClientStatus:
     @pytest.mark.asyncio
     async def test_get_status_success(self):
         """Test successful status retrieval."""
-        config = Mock(spec=Config)
+        config = Mock(spec=ConfigManager)
         config.qdrant = Mock()
         config.qdrant.url = "http://localhost:6333"
         config.embedding = Mock()
@@ -262,7 +262,7 @@ class TestClientStatus:
     @pytest.mark.asyncio
     async def test_get_status_not_initialized(self):
         """Test status when client is not initialized."""
-        config = Mock(spec=Config)
+        config = Mock(spec=ConfigManager)
         client = QdrantWorkspaceClient(config)
         # Don't initialize
 
@@ -273,7 +273,7 @@ class TestClientStatus:
     @pytest.mark.asyncio
     async def test_get_status_qdrant_error(self):
         """Test status when Qdrant client has issues."""
-        config = Mock(spec=Config)
+        config = Mock(spec=ConfigManager)
         client = QdrantWorkspaceClient(config)
 
         client.initialized = True
@@ -292,7 +292,7 @@ class TestClientStatus:
     @pytest.mark.asyncio
     async def test_get_status_collection_manager_error(self):
         """Test status when collection manager has issues."""
-        config = Mock(spec=Config)
+        config = Mock(spec=ConfigManager)
         client = QdrantWorkspaceClient(config)
 
         client.initialized = True
