@@ -366,6 +366,7 @@ mod tests {
                 ignore_patterns: vec![],
                 recursive: true,
             },
+            auto_ingestion: crate::config::AutoIngestionConfig::default(),
             metrics: MetricsConfig {
                 enabled: false,
                 collection_interval_secs: 60,
