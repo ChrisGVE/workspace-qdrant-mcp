@@ -10,6 +10,7 @@ repository = "https://github.com/workspace-qdrant-mcp/workspace-qdrant-mcp"
 [lib]
 name = "workspace_qdrant_daemon"
 path = "src/lib.rs"
+crate-type = ["lib"]
 
 [[bin]]
 name = "workspace-qdrant-daemon"
