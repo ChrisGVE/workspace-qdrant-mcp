@@ -4,18 +4,9 @@
 
 deployment:
   develop: true
-  # Optional: Override base_path if needed
-  # base_path: /path/to/custom/base
+  # Override base path to point to project root when running from rust-engine directory
+  base_path: "/Users/chris/dev/ai/claude-code-cfg/mcp/workspace-qdrant-mcp"
 
-# Example: Override other settings for development
-grpc:
-  server:
-    host: "127.0.0.1"
-    port: 50051
-
+# Override specific settings for development
 logging:
   level: "debug"
-  file_path: null
-  json_format: false
-  max_file_size_mb: 100
-  max_files: 5

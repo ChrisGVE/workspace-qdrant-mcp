@@ -472,8 +472,13 @@ impl ConfigManager {
 
     /// Load comprehensive default configuration from asset file
     fn create_defaults() -> HashMap<String, ConfigValue> {
+        Self::create_defaults_with_user_config(&HashMap::new())
+    }
+
+    fn create_defaults_with_user_config(user_config: &HashMap<String, ConfigValue>) -> HashMap<String, ConfigValue> {
         // Try to load from the default config asset using deployment-aware path resolution
-        let assets_dir = Self::get_asset_base_path(None);
+        // Pass user config to enable deployment-aware path resolution
+        let assets_dir = Self::get_asset_base_path(Some(user_config));
         let asset_file = assets_dir.join("default_configuration.yaml");
 
         if let Ok(content) = std::fs::read_to_string(&asset_file) {
@@ -563,8 +568,8 @@ fn load_config(config_path: Option<&Path>) -> DaemonResult<ConfigManager> {
         None => HashMap::new(),
     };
 
-    // Load defaults
-    let defaults = ConfigManager::create_defaults();
+    // Load defaults - pass user config to enable deployment-aware path resolution
+    let defaults = ConfigManager::create_defaults_with_user_config(&yaml_config);
 
     // Create merged configuration
     let config_manager = ConfigManager::new(yaml_config, defaults);
