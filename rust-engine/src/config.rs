@@ -2687,6 +2687,46 @@ pub mod common {
 }
 
 // =============================================================================
+// CONFIGURATION-LEVEL COLLECTION NAME GENERATION
+// =============================================================================
+
+impl WorkspaceConfig {
+    /// Generate complete collection name with suffix handling at configuration level
+    pub fn get_collection_name(&self, project_name: &str, collection_type: &str) -> String {
+        if let Some(basename) = &self.collection_basename {
+            format!("{}-{}", basename, collection_type)
+        } else {
+            format!("{}-{}", project_name, collection_type)
+        }
+    }
+
+    /// Get all available collection types for a project
+    pub fn get_collection_types(&self) -> &Vec<String> {
+        &self.collection_types
+    }
+
+    /// Get complete collection names for all types
+    pub fn get_all_collection_names(&self, project_name: &str) -> Vec<String> {
+        self.collection_types
+            .iter()
+            .map(|collection_type| self.get_collection_name(project_name, collection_type))
+            .collect()
+    }
+}
+
+impl AutoIngestionConfig {
+    /// Generate complete project collection name with suffix handling at configuration level
+    pub fn get_project_collection_name(&self, project_name: &str) -> String {
+        format!("{}-{}", project_name, self.project_collection)
+    }
+
+    /// Get the base project collection suffix
+    pub fn get_project_collection_suffix(&self) -> &str {
+        &self.project_collection
+    }
+}
+
+// =============================================================================
 // TESTS
 // =============================================================================
 
@@ -2785,7 +2825,8 @@ mod tests {
 
         // Test 1: Load default configuration
         println!("\n1. Testing default configuration loading...");
-        let config = load_configuration(None).unwrap();
+        init_config(None).unwrap();
+        let config = config().lock().unwrap();
 
         // Test workspace configuration fields
         println!("\n2. Testing workspace configuration dot notation access:");
@@ -2839,5 +2880,95 @@ auto_ingestion:
         println!("✓ Auto-ingestion project_collection field renamed correctly");
         println!("✓ Configuration merging structure validated");
         println!("✓ Collection naming pattern ready for implementation");
+    }
+
+    #[test]
+    fn test_workspace_config_collection_name_generation() {
+        // Test with collection_basename set
+        let workspace_config_with_basename = WorkspaceConfig {
+            collection_basename: Some("test_project".to_string()),
+            collection_types: vec!["code".to_string(), "docs".to_string(), "tests".to_string()],
+            memory_collection_name: "memory".to_string(),
+            auto_create_collections: true,
+        };
+
+        assert_eq!(
+            workspace_config_with_basename.get_collection_name("my_project", "code"),
+            "test_project-code"
+        );
+        assert_eq!(
+            workspace_config_with_basename.get_collection_name("my_project", "docs"),
+            "test_project-docs"
+        );
+
+        // Test with collection_basename as None (use project name)
+        let workspace_config_without_basename = WorkspaceConfig {
+            collection_basename: None,
+            collection_types: vec!["code".to_string(), "docs".to_string()],
+            memory_collection_name: "memory".to_string(),
+            auto_create_collections: true,
+        };
+
+        assert_eq!(
+            workspace_config_without_basename.get_collection_name("my_project", "code"),
+            "my_project-code"
+        );
+        assert_eq!(
+            workspace_config_without_basename.get_collection_name("different_project", "docs"),
+            "different_project-docs"
+        );
+    }
+
+    #[test]
+    fn test_workspace_config_get_all_collection_names() {
+        let workspace_config = WorkspaceConfig {
+            collection_basename: Some("test_project".to_string()),
+            collection_types: vec!["code".to_string(), "docs".to_string(), "tests".to_string()],
+            memory_collection_name: "memory".to_string(),
+            auto_create_collections: true,
+        };
+
+        let all_names = workspace_config.get_all_collection_names("my_project");
+        assert_eq!(all_names, vec!["test_project-code", "test_project-docs", "test_project-tests"]);
+
+        // Test with None basename
+        let workspace_config_no_basename = WorkspaceConfig {
+            collection_basename: None,
+            collection_types: vec!["content".to_string(), "memory".to_string()],
+            memory_collection_name: "memory".to_string(),
+            auto_create_collections: false,
+        };
+
+        let all_names_no_basename = workspace_config_no_basename.get_all_collection_names("workspace-qdrant-mcp");
+        assert_eq!(all_names_no_basename, vec!["workspace-qdrant-mcp-content", "workspace-qdrant-mcp-memory"]);
+    }
+
+    #[test]
+    fn test_auto_ingestion_config_project_collection_name() {
+        let auto_ingestion_config = AutoIngestionConfig {
+            enabled: true,
+            project_collection: "projects_content".to_string(),
+            auto_create_watches: true,
+            project_path: None,
+            include_source_files: true,
+            include_patterns: vec![],
+            exclude_patterns: vec![],
+            max_depth: 10,
+            recursive: true,
+        };
+
+        assert_eq!(
+            auto_ingestion_config.get_project_collection_name("my_project"),
+            "my_project-projects_content"
+        );
+        assert_eq!(
+            auto_ingestion_config.get_project_collection_name("workspace-qdrant-mcp"),
+            "workspace-qdrant-mcp-projects_content"
+        );
+
+        assert_eq!(
+            auto_ingestion_config.get_project_collection_suffix(),
+            "projects_content"
+        );
     }
 }
