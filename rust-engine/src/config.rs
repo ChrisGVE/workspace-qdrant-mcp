@@ -567,7 +567,49 @@ fn load_config(config_path: Option<&Path>) -> DaemonResult<ConfigManager> {
 
 /// Minimal configuration wrapper that provides direct access to ConfigManager
 #[derive(Debug, Clone)]
-pub struct DaemonConfig {}
+pub struct DaemonConfig {
+    pub system: SystemConfig,
+    pub grpc: GrpcConfig,
+}
+
+/// System configuration for legacy compatibility
+#[derive(Debug, Clone)]
+pub struct SystemConfig {
+    pub project_name: String,
+}
+
+/// gRPC configuration wrapper for legacy compatibility
+#[derive(Debug, Clone)]
+pub struct GrpcConfig {
+    pub server: GrpcServerConfig,
+}
+
+/// gRPC server configuration for legacy compatibility
+#[derive(Debug, Clone)]
+pub struct GrpcServerConfig {
+    pub enabled: bool,
+    pub port: u16,
+}
+
+impl Default for DaemonConfig {
+    fn default() -> Self {
+        Self::load(None).unwrap_or_else(|_| {
+            // If loading fails, initialize with defaults only
+            let _ = init_config(None);
+            DaemonConfig {
+                system: SystemConfig {
+                    project_name: "default".to_string(),
+                },
+                grpc: GrpcConfig {
+                    server: GrpcServerConfig {
+                        enabled: true,
+                        port: 50051,
+                    },
+                },
+            }
+        })
+    }
+}
 
 impl DaemonConfig {
     /// Load configuration using the lua-config pattern
@@ -578,7 +620,18 @@ impl DaemonConfig {
         // Validate the configuration
         Self::validate_config()?;
 
-        Ok(Self {})
+        let config_guard = config().lock().unwrap();
+        Ok(Self {
+            system: SystemConfig {
+                project_name: config_guard.get_string("system.project_name", "workspace-qdrant-mcp"),
+            },
+            grpc: GrpcConfig {
+                server: GrpcServerConfig {
+                    enabled: config_guard.get_bool("grpc.enabled", true),
+                    port: config_guard.get_u16("grpc.port", 50051),
+                },
+            },
+        })
     }
 
     /// Validate configuration
@@ -619,6 +672,7 @@ impl DaemonConfig {
         QdrantConfig {
             url: config_guard.get_string("qdrant.url", "http://localhost:6333"),
             api_key: config_guard.get("qdrant.api_key").and_then(|v| v.as_string()),
+            max_retries: config_guard.get_u32("qdrant.max_retries", 3),
             default_collection: CollectionConfig {
                 vector_size: config_guard.get_u64("qdrant.default_collection.vector_size", 384) as usize,
                 shard_number: config_guard.get_u32("qdrant.default_collection.shard_number", 1),
@@ -633,6 +687,17 @@ impl DaemonConfig {
         AutoIngestionConfig {
             enabled: config_guard.get_bool("auto_ingestion.enabled", true),
             target_collection_suffix: config_guard.get_string("auto_ingestion.target_collection_suffix", ""),
+            auto_create_watches: config_guard.get_bool("auto_ingestion.auto_create_watches", true),
+            project_path: config_guard.get("auto_ingestion.project_path").and_then(|v| v.as_string()),
+            include_source_files: config_guard.get_bool("auto_ingestion.include_source_files", false),
+            include_patterns: config_guard.get_array("workspace.custom_include_patterns")
+                .map(|arr| arr.iter().filter_map(|v| v.as_string()).collect())
+                .unwrap_or_else(|| vec![]),
+            exclude_patterns: config_guard.get_array("workspace.custom_exclude_patterns")
+                .map(|arr| arr.iter().filter_map(|v| v.as_string()).collect())
+                .unwrap_or_else(|| vec![]),
+            max_depth: config_guard.get_u64("auto_ingestion.max_depth", 10) as usize,
+            recursive: config_guard.get_bool("auto_ingestion.recursive", true),
         }
     }
 
@@ -641,6 +706,9 @@ impl DaemonConfig {
         let config_guard = config().lock().unwrap();
         ProcessingConfig {
             max_concurrent_tasks: config_guard.get_u64("performance.max_concurrent_tasks", 4) as usize,
+            supported_extensions: config_guard.get_array("auto_ingestion.supported_extensions")
+                .map(|arr| arr.iter().filter_map(|v| v.as_string()).collect())
+                .unwrap_or_else(|| vec![".txt".to_string(), ".md".to_string(), ".py".to_string(), ".rs".to_string()]),
         }
     }
 
@@ -649,26 +717,56 @@ impl DaemonConfig {
         let config_guard = config().lock().unwrap();
         FileWatcherConfig {
             enabled: config_guard.get_bool("auto_ingestion.auto_create_watches", true),
+            ignore_patterns: config_guard.get_array("auto_ingestion.ignore_patterns")
+                .map(|arr| arr.iter().filter_map(|v| v.as_string()).collect())
+                .unwrap_or_else(|| vec!["*.tmp".to_string(), "*.log".to_string()]),
+            recursive: config_guard.get_bool("auto_ingestion.recursive", true),
+            max_watched_dirs: config_guard.get_u64("auto_ingestion.max_watched_dirs", 100) as usize,
+            debounce_ms: config_guard.get_u64("auto_ingestion.debounce_ms", 1000),
         }
     }
 
     /// Get server configuration
     pub fn server(&self) -> ServerConfig {
         let config_guard = config().lock().unwrap();
+        let max_message_size = config_guard.get_u64("grpc.max_message_length", 100 * 1024 * 1024) as usize;
         ServerConfig {
             host: config_guard.get_string("server.host", "127.0.0.1"),
             port: config_guard.get_u16("server.port", 8000),
-            max_connections: config_guard.get_u32("performance.max_concurrent_tasks", 4),
+            max_connections: config_guard.get_u32("performance.max_concurrent_tasks", 4) as usize,
+            request_timeout_secs: config_guard.get_u64("performance.default_timeout_secs", 30),
+            connection_timeout_secs: config_guard.get_u64("grpc.connection_timeout_secs", 10),
+            streaming: self.streaming(),
             message: MessageConfig {
                 service_limits: ServiceLimits {
                     memory_service: ServiceLimit {
-                        max_incoming: config_guard.get_u64("grpc.max_message_length", 100 * 1024 * 1024) as usize,
-                        max_outgoing: config_guard.get_u64("grpc.max_message_length", 100 * 1024 * 1024) as usize,
+                        max_incoming: max_message_size,
+                        max_outgoing: max_message_size,
+                        enable_validation: true,
                     },
                     system_service: ServiceLimit {
-                        max_incoming: config_guard.get_u64("grpc.max_message_length", 100 * 1024 * 1024) as usize,
-                        max_outgoing: config_guard.get_u64("grpc.max_message_length", 100 * 1024 * 1024) as usize,
+                        max_incoming: max_message_size,
+                        max_outgoing: max_message_size,
+                        enable_validation: true,
                     },
+                    document_processor: ServiceLimit {
+                        max_incoming: max_message_size,
+                        max_outgoing: max_message_size,
+                        enable_validation: true,
+                    },
+                    search_service: ServiceLimit {
+                        max_incoming: max_message_size,
+                        max_outgoing: max_message_size,
+                        enable_validation: true,
+                    },
+                },
+                max_frame_size: max_message_size as u32,
+                initial_window_size: (max_message_size / 4) as u32,
+                enable_size_validation: config_guard.get_bool("grpc.message.enable_size_validation", true),
+                max_incoming_message_size: max_message_size,
+                max_outgoing_message_size: max_message_size,
+                monitoring: MessageMonitoringConfig {
+                    oversized_alert_threshold: config_guard.get_f64("grpc.message.monitoring.oversized_alert_threshold", 0.8),
                 },
             },
         }
@@ -680,14 +778,42 @@ impl DaemonConfig {
         SecurityConfig {
             tls: TlsConfig {
                 enabled: config_guard.get_bool("security.tls.enabled", false),
+                cert_file: config_guard.get("security.tls.cert_file").and_then(|v| v.as_string()),
+                key_file: config_guard.get("security.tls.key_file").and_then(|v| v.as_string()),
+                ca_cert_file: config_guard.get("security.tls.ca_cert_file").and_then(|v| v.as_string()),
+                client_cert_verification: ClientCertVerification::None, // Default no verification
             },
             auth: AuthConfig {
                 jwt: JwtConfig {
                     secret_or_key_file: config_guard.get_string("security.auth.jwt.secret_or_key_file", "changeme_jwt_secret"),
+                    expiration_secs: config_guard.get_u64("security.auth.jwt.expiration_secs", 3600),
                 },
                 api_key: ApiKeyConfig {
                     enabled: config_guard.get_bool("security.auth.api_key.enabled", false),
+                    key_permissions: HashMap::new(), // Default empty permissions
+                    valid_keys: config_guard.get_array("security.auth.api_key.valid_keys")
+                        .map(|arr| arr.iter().filter_map(|v| v.as_string()).collect())
+                        .unwrap_or_else(|| vec![]),
+                    header_name: config_guard.get_string("security.auth.api_key.header_name", "x-api-key"),
                 },
+                enable_service_auth: config_guard.get_bool("security.auth.enable_service_auth", false),
+                authorization: AuthorizationConfig {
+                    enabled: config_guard.get_bool("security.authorization.enabled", false),
+                    service_permissions: ServicePermissions {
+                        document_processor: vec!["read".to_string(), "write".to_string()],
+                        search_service: vec!["read".to_string()],
+                        memory_service: vec!["read".to_string(), "write".to_string()],
+                        system_service: vec!["read".to_string()],
+                    },
+                    default_permissions: vec!["read".to_string()],
+                },
+            },
+            audit: SecurityAuditConfig {
+                enabled: config_guard.get_bool("security.audit.enabled", false),
+                log_auth_events: config_guard.get_bool("security.audit.log_auth_events", true),
+                log_auth_failures: config_guard.get_bool("security.audit.log_auth_failures", true),
+                log_rate_limit_events: config_guard.get_bool("security.audit.log_rate_limit_events", true),
+                log_suspicious_patterns: config_guard.get_bool("security.audit.log_suspicious_patterns", true),
             },
         }
     }
@@ -707,8 +833,72 @@ impl DaemonConfig {
         Self::validate_config()
     }
 
+    /// Get metrics configuration
+    pub fn metrics(&self) -> MetricsConfig {
+        let config_guard = config().lock().unwrap();
+        MetricsConfig {
+            enabled: config_guard.get_bool("logging.enable_metrics", false),
+            collection_interval_secs: config_guard.get_u64("logging.metrics_interval_secs", 60),
+        }
+    }
+
+    /// Get streaming configuration
+    pub fn streaming(&self) -> StreamingConfig {
+        let config_guard = config().lock().unwrap();
+        StreamingConfig {
+            enabled: config_guard.get_bool("grpc.streaming.enabled", true),
+            stream_buffer_size: config_guard.get_u64("grpc.streaming.buffer_size", 1024) as usize,
+            enable_flow_control: config_guard.get_bool("grpc.streaming.enable_flow_control", true),
+            enable_server_streaming: config_guard.get_bool("grpc.streaming.enable_server_streaming", true),
+            enable_client_streaming: config_guard.get_bool("grpc.streaming.enable_client_streaming", true),
+            max_concurrent_streams: config_guard.get_u32("grpc.streaming.max_concurrent_streams", 100),
+            stream_timeout_secs: config_guard.get_u64("grpc.streaming.stream_timeout_secs", 300),
+            large_operations: LargeOperationConfig {
+                large_operation_chunk_size: config_guard.get_u64("grpc.streaming.large_operations.chunk_size", 1024 * 1024) as usize,
+            },
+            progress: StreamProgressConfig {
+                enabled: config_guard.get_bool("grpc.streaming.progress.enabled", true),
+                progress_update_interval_ms: config_guard.get_u64("grpc.streaming.progress.update_interval_ms", 1000),
+                enable_progress_callbacks: config_guard.get_bool("grpc.streaming.progress.enable_callbacks", true),
+                enable_progress_tracking: config_guard.get_bool("grpc.streaming.progress.enable_tracking", true),
+                progress_threshold: config_guard.get_u64("grpc.streaming.progress.threshold", 1024) as usize,
+            },
+            health: StreamHealthConfig {
+                enabled: config_guard.get_bool("grpc.streaming.health.enabled", true),
+                enable_auto_recovery: config_guard.get_bool("grpc.streaming.health.enable_auto_recovery", true),
+                enable_health_monitoring: config_guard.get_bool("grpc.streaming.health.enable_monitoring", true),
+                health_check_interval_secs: config_guard.get_u64("grpc.streaming.health.check_interval_secs", 30),
+            },
+        }
+    }
+
+    /// Get compression configuration
+    pub fn compression(&self) -> CompressionConfig {
+        let config_guard = config().lock().unwrap();
+        CompressionConfig {
+            enabled: config_guard.get_bool("grpc.compression.enabled", true),
+            enable_gzip: config_guard.get_bool("grpc.compression.enable_gzip", true),
+            enable_compression_monitoring: config_guard.get_bool("grpc.compression.enable_monitoring", false),
+            compression_level: config_guard.get_u32("grpc.compression.level", 6),
+            compression_threshold: config_guard.get_u64("grpc.compression.threshold", 1024) as usize,
+            adaptive: AdaptiveCompressionConfig {
+                enable_adaptive: config_guard.get_bool("grpc.compression.adaptive.enable", true),
+                text_compression_level: config_guard.get_u32("grpc.compression.adaptive.text_level", 9),
+                binary_compression_level: config_guard.get_u32("grpc.compression.adaptive.binary_level", 6),
+                structured_compression_level: config_guard.get_u32("grpc.compression.adaptive.structured_level", 6),
+            },
+            performance: CompressionPerformanceConfig {
+                enable_failure_alerting: config_guard.get_bool("grpc.compression.performance.enable_failure_alerting", true),
+                enable_time_monitoring: config_guard.get_bool("grpc.compression.performance.enable_time_monitoring", true),
+                slow_compression_threshold_ms: config_guard.get_u64("grpc.compression.performance.slow_threshold_ms", 1000),
+                enable_ratio_tracking: config_guard.get_bool("grpc.compression.performance.enable_ratio_tracking", true),
+                poor_ratio_threshold: config_guard.get_f64("grpc.compression.performance.poor_ratio_threshold", 0.9),
+            },
+        }
+    }
+
     /// Get raw configuration manager for direct access
-    pub fn raw(&self) -> std::sync::MutexGuard<ConfigManager> {
+    pub fn raw(&self) -> std::sync::MutexGuard<'_, ConfigManager> {
         config().lock().unwrap()
     }
 }
@@ -731,6 +921,7 @@ pub struct QdrantConfig {
     pub url: String,
     pub api_key: Option<String>,
     pub default_collection: CollectionConfig,
+    pub max_retries: u32,
 }
 
 /// Collection configuration for Qdrant
@@ -746,24 +937,42 @@ pub struct CollectionConfig {
 pub struct AutoIngestionConfig {
     pub enabled: bool,
     pub target_collection_suffix: String,
+    pub auto_create_watches: bool,
+    pub project_path: Option<String>,
+    pub include_source_files: bool,
+    pub include_patterns: Vec<String>,
+    pub exclude_patterns: Vec<String>,
+    pub max_depth: usize,
+    pub recursive: bool,
 }
 
 /// Processing configuration values
 #[derive(Debug, Clone)]
 pub struct ProcessingConfig {
     pub max_concurrent_tasks: usize,
+    pub supported_extensions: Vec<String>,
 }
 
 /// File watcher configuration values
 #[derive(Debug, Clone)]
 pub struct FileWatcherConfig {
     pub enabled: bool,
+    pub ignore_patterns: Vec<String>,
+    pub recursive: bool,
+    pub max_watched_dirs: usize,
+    pub debounce_ms: u64,
 }
 
 /// Message configuration values
 #[derive(Debug, Clone)]
 pub struct MessageConfig {
     pub service_limits: ServiceLimits,
+    pub max_frame_size: u32,
+    pub initial_window_size: u32,
+    pub enable_size_validation: bool,
+    pub max_incoming_message_size: usize,
+    pub max_outgoing_message_size: usize,
+    pub monitoring: MessageMonitoringConfig,
 }
 
 /// Service limits configuration
@@ -771,6 +980,8 @@ pub struct MessageConfig {
 pub struct ServiceLimits {
     pub memory_service: ServiceLimit,
     pub system_service: ServiceLimit,
+    pub document_processor: ServiceLimit,
+    pub search_service: ServiceLimit,
 }
 
 /// Individual service limit
@@ -778,30 +989,53 @@ pub struct ServiceLimits {
 pub struct ServiceLimit {
     pub max_incoming: usize,
     pub max_outgoing: usize,
+    pub enable_validation: bool,
 }
 
 /// Compression configuration
 #[derive(Debug, Clone)]
 pub struct CompressionConfig {
     pub enabled: bool,
+    pub enable_gzip: bool,
+    pub enable_compression_monitoring: bool,
+    pub performance: CompressionPerformanceConfig,
+    pub compression_level: u32,
+    pub adaptive: AdaptiveCompressionConfig,
+    pub compression_threshold: usize,
 }
 
 /// Streaming configuration
 #[derive(Debug, Clone)]
 pub struct StreamingConfig {
     pub enabled: bool,
+    pub stream_buffer_size: usize,
+    pub enable_flow_control: bool,
+    pub progress: StreamProgressConfig,
+    pub health: StreamHealthConfig,
+    pub enable_server_streaming: bool,
+    pub enable_client_streaming: bool,
+    pub max_concurrent_streams: u32,
+    pub large_operations: LargeOperationConfig,
+    pub stream_timeout_secs: u64,
 }
 
 /// Stream progress configuration
 #[derive(Debug, Clone)]
 pub struct StreamProgressConfig {
     pub enabled: bool,
+    pub progress_update_interval_ms: u64,
+    pub enable_progress_callbacks: bool,
+    pub enable_progress_tracking: bool,
+    pub progress_threshold: usize,
 }
 
 /// Stream health configuration
 #[derive(Debug, Clone)]
 pub struct StreamHealthConfig {
     pub enabled: bool,
+    pub enable_auto_recovery: bool,
+    pub enable_health_monitoring: bool,
+    pub health_check_interval_secs: u64,
 }
 
 /// Security configuration
@@ -809,24 +1043,33 @@ pub struct StreamHealthConfig {
 pub struct SecurityConfig {
     pub tls: TlsConfig,
     pub auth: AuthConfig,
+    pub audit: SecurityAuditConfig,
 }
 
 /// TLS configuration
 #[derive(Debug, Clone)]
 pub struct TlsConfig {
     pub enabled: bool,
+    pub cert_file: Option<String>,
+    pub key_file: Option<String>,
+    pub ca_cert_file: Option<String>,
+    pub client_cert_verification: ClientCertVerification,
 }
 
 /// JWT configuration
 #[derive(Debug, Clone)]
 pub struct JwtConfig {
     pub secret_or_key_file: String,
+    pub expiration_secs: u64,
 }
 
 /// API key configuration
 #[derive(Debug, Clone)]
 pub struct ApiKeyConfig {
     pub enabled: bool,
+    pub key_permissions: HashMap<String, Vec<String>>,
+    pub valid_keys: Vec<String>,
+    pub header_name: String,
 }
 
 /// Authentication configuration
@@ -834,18 +1077,26 @@ pub struct ApiKeyConfig {
 pub struct AuthConfig {
     pub jwt: JwtConfig,
     pub api_key: ApiKeyConfig,
+    pub enable_service_auth: bool,
+    pub authorization: AuthorizationConfig,
 }
 
 /// Authorization configuration
 #[derive(Debug, Clone)]
 pub struct AuthorizationConfig {
     pub enabled: bool,
+    pub service_permissions: ServicePermissions,
+    pub default_permissions: Vec<String>,
 }
 
 /// Security audit configuration
 #[derive(Debug, Clone)]
 pub struct SecurityAuditConfig {
     pub enabled: bool,
+    pub log_auth_events: bool,
+    pub log_auth_failures: bool,
+    pub log_rate_limit_events: bool,
+    pub log_suspicious_patterns: bool,
 }
 
 /// Client certificate verification
@@ -861,8 +1112,11 @@ pub enum ClientCertVerification {
 pub struct ServerConfig {
     pub host: String,
     pub port: u16,
-    pub max_connections: u32,
+    pub max_connections: usize,
     pub message: MessageConfig,
+    pub request_timeout_secs: u64,
+    pub connection_timeout_secs: u64,
+    pub streaming: StreamingConfig,
 }
 
 /// Transport configuration
@@ -881,6 +1135,100 @@ pub struct UnixSocketConfig {
 #[derive(Debug, Clone)]
 pub struct LocalLatencyConfig {
     pub enabled: bool,
+}
+
+/// Service permissions configuration
+#[derive(Debug, Clone)]
+pub struct ServicePermissions {
+    pub document_processor: Vec<String>,
+    pub search_service: Vec<String>,
+    pub memory_service: Vec<String>,
+    pub system_service: Vec<String>,
+}
+
+/// Metrics configuration
+#[derive(Debug, Clone)]
+pub struct MetricsConfig {
+    pub enabled: bool,
+    pub collection_interval_secs: u64,
+}
+
+/// Message monitoring configuration
+#[derive(Debug, Clone)]
+pub struct MessageMonitoringConfig {
+    pub oversized_alert_threshold: f64,
+}
+
+/// Compression performance configuration
+#[derive(Debug, Clone)]
+pub struct CompressionPerformanceConfig {
+    pub enable_failure_alerting: bool,
+    pub enable_time_monitoring: bool,
+    pub slow_compression_threshold_ms: u64,
+    pub enable_ratio_tracking: bool,
+    pub poor_ratio_threshold: f64,
+}
+
+/// Large operation configuration
+#[derive(Debug, Clone)]
+pub struct LargeOperationConfig {
+    pub large_operation_chunk_size: usize,
+}
+
+/// Adaptive compression configuration
+#[derive(Debug, Clone)]
+pub struct AdaptiveCompressionConfig {
+    pub enable_adaptive: bool,
+    pub text_compression_level: u32,
+    pub binary_compression_level: u32,
+    pub structured_compression_level: u32,
+}
+
+// =============================================================================
+// GLOBAL CONVENIENCE FUNCTIONS FOR BACKWARD COMPATIBILITY
+// =============================================================================
+
+/// Get configuration string value with dot notation
+pub fn get_config_string(path: &str, default: &str) -> String {
+    config().lock().unwrap().get_string(path, default)
+}
+
+/// Get configuration boolean value with dot notation
+pub fn get_config_bool(path: &str, default: bool) -> bool {
+    config().lock().unwrap().get_bool(path, default)
+}
+
+/// Get configuration u16 value with dot notation
+pub fn get_config_u16(path: &str, default: u16) -> u16 {
+    config().lock().unwrap().get_u16(path, default)
+}
+
+/// Get configuration u64 value with dot notation
+pub fn get_config_u64(path: &str, default: u64) -> u64 {
+    config().lock().unwrap().get_u64(path, default)
+}
+
+/// Common configuration utilities module for legacy compatibility
+pub mod common {
+    /// Get configuration string value with default
+    pub fn get_config_string(path: &str, default: &str) -> String {
+        super::get_config_string(path, default)
+    }
+
+    /// Get configuration boolean value with default
+    pub fn get_config_bool(path: &str, default: bool) -> bool {
+        super::get_config_bool(path, default)
+    }
+
+    /// Get project name from configuration
+    pub fn project_name() -> String {
+        super::get_config_string("system.project_name", "workspace-qdrant-mcp")
+    }
+
+    /// Check if Rust daemon is enabled
+    pub fn rust_daemon_enabled() -> bool {
+        super::get_config_bool("grpc.enabled", true)
+    }
 }
 
 // =============================================================================
