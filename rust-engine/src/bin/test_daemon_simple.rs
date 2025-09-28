@@ -7,7 +7,7 @@ async fn main() {
     println!("Testing daemon initialization with memory database...");
 
     // Create a configuration with a simple memory database
-    let mut config = DaemonConfig::default();
+    let config = DaemonConfig::default();
 
     // Override the database path to use a memory database
     println!("Using default config with memory database");

@@ -2,7 +2,7 @@
 //! Test daemon configuration loading
 //! This verifies that the daemon can load configuration without the "missing field server" error
 
-use workspace_qdrant_daemon::config::{DaemonConfig, init_config};
+use workspace_qdrant_daemon::config::DaemonConfig;
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("=== Testing Daemon Configuration Loading ===\n");
