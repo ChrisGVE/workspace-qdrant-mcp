@@ -1,7 +1,5 @@
 //! Configuration management for the Workspace Qdrant Daemon
 
-#![allow(dead_code)]
-
 use crate::error::DaemonResult;
 use serde::{Deserialize, Serialize};
 use std::fmt;
@@ -1273,8 +1271,10 @@ impl Default for MonitoringConfig {
 pub enum ConfigValue {
     String(String),
     Integer(i64),
+    #[allow(dead_code)] // Reserved for future float config values
     Float(f64),
     Boolean(bool),
+    #[allow(dead_code)] // Reserved for future array config values
     Array(Vec<ConfigValue>),
     Object(HashMap<String, ConfigValue>),
     Null,
@@ -3175,7 +3175,6 @@ impl Default for LargeOperationStreamConfig {
 // =============================================================================
 
 /// Get configuration value as string with default
-#[allow(dead_code)]
 pub fn get_config_string(path: &str, default: &str) -> String {
     config().lock().unwrap().get_string(path, default)
 }

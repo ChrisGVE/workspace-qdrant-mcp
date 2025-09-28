@@ -4,6 +4,8 @@
 //! Provides gRPC services for document processing, search operations, memory management,
 //! and system administration.
 
+#![allow(dead_code)] // Allow unused library functions in binary crate
+
 use anyhow::Result;
 use clap::Parser;
 use std::net::SocketAddr;
