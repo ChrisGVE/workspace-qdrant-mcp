@@ -22,7 +22,7 @@ Supported Formats:
     - YAML configuration files: workspace_qdrant_config.yaml (shared with daemon)
     - Prefixed environment variables: WORKSPACE_QDRANT_*
     - Nested configuration: WORKSPACE_QDRANT_QDRANT__URL
-    - Legacy variables: QDRANT_URL, FASTEMBED_MODEL (backward compatibility)
+    - Legacy variables: QDRANT_URL, FASTEMBED_MODEL
     - Configuration files: .env with UTF-8 encoding
     - Unit conversions: 32MB → 33554432, 45s → 45000ms
 
@@ -761,4 +761,4 @@ def reset_config() -> None:
         ConfigManager.reset_instance()
 
 
-# End of ConfigManager implementation - all backward compatibility removed
+# End of ConfigManager implementation
