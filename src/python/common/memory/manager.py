@@ -10,7 +10,7 @@ from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional, Tuple
 
 from ..core.client import QdrantWorkspaceClient
-from ..core.config import Config
+from ..core.config import get_config, ConfigManager
 from ..core.embeddings import EmbeddingService
 from .claude_integration import ClaudeCodeIntegration
 from .conflict_detector import ConflictDetector
@@ -46,7 +46,7 @@ class MemoryManager:
 
     def __init__(
         self,
-        config: Config | None = None,
+        config: ConfigManager | None = None,
         qdrant_client: QdrantWorkspaceClient | None = None,
         embedding_service: EmbeddingService | None = None,
     ):
@@ -58,7 +58,7 @@ class MemoryManager:
             qdrant_client: Qdrant client instance
             embedding_service: Embedding service instance
         """
-        self.config = config or Config()
+        self.config = config or get_config()
 
         # Initialize core components
         if qdrant_client:

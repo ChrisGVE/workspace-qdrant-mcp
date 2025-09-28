@@ -60,7 +60,7 @@ from rich.table import Table
 from rich.text import Text
 
 from common.core.client import QdrantWorkspaceClient
-from common.core.config import Config
+from common.core.config import get_config
 from common.utils.config_validator import ConfigValidator
 
 # Configure logging
@@ -887,7 +887,7 @@ def main(
         monitor = None
         try:
             # Load configuration
-            config = Config()
+            config = get_config()
 
             # Create health monitor
             monitor = HealthMonitor(
