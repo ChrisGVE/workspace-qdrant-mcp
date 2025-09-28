@@ -1519,7 +1519,7 @@ impl ConfigManager {
         // Try to load from the default config asset
         let project_root = std::env::current_dir()
             .unwrap_or_else(|_| std::path::PathBuf::from("."));
-        let asset_file = project_root.join("assets").join("default_config.yaml");
+        let asset_file = project_root.join("assets").join("default_configuration.yaml");
 
         if let Ok(content) = std::fs::read_to_string(&asset_file) {
             if let Ok(yaml_value) = serde_yaml::from_str::<YamlValue>(&content) {
