@@ -12,6 +12,16 @@ pub enum DaemonError {
     #[error("Configuration error: {message}")]
     Configuration { message: String },
 
+    #[error("Configuration key not found: {path}")]
+    ConfigKeyNotFound { path: String },
+
+    #[error("Configuration type mismatch: expected {expected_type} at {path}, found {actual_type}")]
+    ConfigTypeMismatch {
+        path: String,
+        expected_type: String,
+        actual_type: String
+    },
+
     #[error("Database error: {0}")]
     Database(#[from] sqlx::Error),
 
@@ -262,6 +272,13 @@ impl Clone for DaemonError {
             DaemonError::FileWatcher(ref err) => DaemonError::Internal { message: format!("File watcher error: {}", err) },
             DaemonError::Git(ref err) => DaemonError::Internal { message: format!("Git error: {}", err) },
             DaemonError::Http(ref err) => DaemonError::NetworkConnection { message: format!("HTTP error: {}", err) },
+            // New configuration error variants
+            DaemonError::ConfigKeyNotFound { path } => DaemonError::ConfigKeyNotFound { path: path.clone() },
+            DaemonError::ConfigTypeMismatch { path, expected_type, actual_type } => DaemonError::ConfigTypeMismatch {
+                path: path.clone(),
+                expected_type: expected_type.clone(),
+                actual_type: actual_type.clone(),
+            },
         }
     }
 }
