@@ -290,93 +290,42 @@ class ConfigManager:
         # Only self._config (merged result) is kept
 
     def _create_comprehensive_defaults(self) -> Dict[str, Any]:
-        """Create comprehensive default configuration with ALL possible labels.
+        """Load comprehensive default configuration from asset file.
 
         Returns:
             Dict containing all possible configuration paths with default values
         """
+        # Get path to the default configuration asset
+        current_file = Path(__file__)
+        project_root = current_file.parent.parent.parent.parent.parent
+        asset_file = project_root / "assets" / "default_config.yaml"
+
+        try:
+            if asset_file.exists():
+                with asset_file.open("r", encoding="utf-8") as f:
+                    asset_config = yaml.safe_load(f)
+
+                if isinstance(asset_config, dict):
+                    # Remove Rust-specific section as it's not needed in Python
+                    asset_config.pop("rust", None)
+                    return asset_config
+                else:
+                    logger.warning(f"Asset config is not a dictionary: {type(asset_config)}")
+            else:
+                logger.warning(f"Default config asset not found: {asset_file}")
+        except Exception as e:
+            logger.error(f"Error loading default config asset {asset_file}: {e}")
+
+        # Fallback to minimal hardcoded defaults if asset loading fails
         return {
-            # Server configuration
-            "server": {
-                "host": "127.0.0.1",
-                "port": 8000,
-                "debug": False,
-            },
-
-            # Qdrant database configuration
-            "qdrant": {
-                "url": "http://localhost:6333",
-                "api_key": None,
-                "timeout": 30000,  # milliseconds
-                "prefer_grpc": True,
-                "transport": "grpc",
-            },
-
-            # Embedding service configuration
-            "embedding": {
-                "model": "sentence-transformers/all-MiniLM-L6-v2",
-                "enable_sparse_vectors": True,
-                "chunk_size": 800,
-                "chunk_overlap": 120,
-                "batch_size": 50,
-            },
-
-            # Workspace management configuration
-            "workspace": {
-                "collection_types": [],
-                "global_collections": [],
-                "github_user": None,
-                "auto_create_collections": False,
-                "memory_collection_name": "__memory",
-                "code_collection_name": "__code",
-                "custom_include_patterns": [],
-                "custom_exclude_patterns": [],
-                "custom_project_indicators": {},
-            },
-
-            # gRPC communication configuration
-            "grpc": {
-                "enabled": True,
-                "host": "127.0.0.1",
-                "port": 50051,
-                "fallback_to_direct": True,
-                "connection_timeout": 10000,  # milliseconds
-                "max_retries": 3,
-                "retry_backoff_multiplier": 1.5,
-                "health_check_interval": 30000,  # milliseconds
-                "max_message_length": 104857600,  # 100MB in bytes
-                "keepalive_time": 30000,  # milliseconds
-            },
-
-            # Auto-ingestion configuration
-            "auto_ingestion": {
-                "enabled": True,
-                "auto_create_watches": True,
-                "include_common_files": True,
-                "include_source_files": False,
-                "target_collection_suffix": "scratchbook",
-                "max_files_per_batch": 5,
-                "batch_delay_seconds": 2.0,
-                "max_file_size_mb": 52428800,  # 50MB in bytes
-                "debounce_seconds": 10000,  # milliseconds
-            },
-
-            # Logging configuration
-            "logging": {
-                "level": "info",
-                "use_file_logging": False,
-                "log_file": None,
-                "enable_metrics": False,
-                "metrics_interval_secs": 60000,  # milliseconds
-            },
-
-            # Performance configuration
-            "performance": {
-                "max_concurrent_tasks": 4,
-                "default_timeout_ms": 30000,  # milliseconds
-                "enable_preemption": True,
-                "chunk_size": 1000,
-            },
+            "server": {"host": "127.0.0.1", "port": 8000, "debug": False},
+            "qdrant": {"url": "http://localhost:6333", "api_key": None, "timeout": 30000},
+            "embedding": {"model": "sentence-transformers/all-MiniLM-L6-v2", "chunk_size": 800},
+            "workspace": {"collection_types": [], "global_collections": []},
+            "grpc": {"enabled": True, "host": "127.0.0.1", "port": 50051},
+            "auto_ingestion": {"enabled": True, "target_collection_suffix": "scratchbook"},
+            "logging": {"level": "info", "use_file_logging": False},
+            "performance": {"max_concurrent_tasks": 4, "default_timeout_ms": 30000},
         }
 
     def _apply_unit_conversions(self, config: Dict[str, Any]) -> Dict[str, Any]:
@@ -680,20 +629,12 @@ class ConfigManager:
     def _load_environment_variables(self) -> Dict[str, Any]:
         """Load configuration from environment variables.
 
-        Supports both new prefixed variables (WORKSPACE_QDRANT_*) and legacy variables.
+        Supports prefixed variables (WORKSPACE_QDRANT_*).
 
         Returns:
             Dict containing environment variable configuration
         """
-        env_config = {}
-
-        # Load prefixed environment variables
-        env_config.update(self._load_prefixed_env_vars())
-
-        # Load legacy environment variables for backward compatibility
-        env_config.update(self._load_legacy_env_vars())
-
-        return env_config
+        return self._load_prefixed_env_vars()
 
     def _load_prefixed_env_vars(self) -> Dict[str, Any]:
         """Load prefixed environment variables (WORKSPACE_QDRANT_*).
@@ -733,50 +674,6 @@ class ConfigManager:
 
         return env_config
 
-    def _load_legacy_env_vars(self) -> Dict[str, Any]:
-        """Load legacy environment variables for backward compatibility.
-
-        Returns:
-            Dict containing legacy environment configuration
-        """
-        env_config = {}
-
-        # Legacy Qdrant configuration
-        if url := os.getenv("QDRANT_URL"):
-            if "qdrant" not in env_config:
-                env_config["qdrant"] = {}
-            env_config["qdrant"]["url"] = url
-
-        if api_key := os.getenv("QDRANT_API_KEY"):
-            if "qdrant" not in env_config:
-                env_config["qdrant"] = {}
-            env_config["qdrant"]["api_key"] = api_key
-
-        # Legacy embedding configuration
-        if model := os.getenv("FASTEMBED_MODEL"):
-            if "embedding" not in env_config:
-                env_config["embedding"] = {}
-            env_config["embedding"]["model"] = model
-
-        if sparse := os.getenv("ENABLE_SPARSE_VECTORS"):
-            if "embedding" not in env_config:
-                env_config["embedding"] = {}
-            env_config["embedding"]["enable_sparse_vectors"] = sparse.lower() == "true"
-
-        # Legacy workspace configuration
-        if collection_types := os.getenv("COLLECTION_TYPES"):
-            if "workspace" not in env_config:
-                env_config["workspace"] = {}
-            env_config["workspace"]["collection_types"] = [
-                c.strip() for c in collection_types.split(",") if c.strip()
-            ]
-
-        if github_user := os.getenv("GITHUB_USER"):
-            if "workspace" not in env_config:
-                env_config["workspace"] = {}
-            env_config["workspace"]["github_user"] = github_user
-
-        return env_config
 
     def _set_nested_value(self, config: Dict[str, Any], path: str, value: Any) -> None:
         """Set nested value in configuration dictionary.
@@ -864,445 +761,4 @@ def reset_config() -> None:
         ConfigManager.reset_instance()
 
 
-# Legacy compatibility classes for backward compatibility
-class LegacyConfigBase:
-    """Base class for legacy configuration compatibility."""
-
-    def __init__(self, config_manager: ConfigManager, path: str):
-        self._config_manager = config_manager
-        self._path = path
-
-    def __getattr__(self, name: str) -> Any:
-        """Get attribute from configuration using dot notation."""
-        if self._path:
-            full_path = f"{self._path}.{name}"
-        else:
-            full_path = name
-
-        value = self._config_manager.get(full_path)
-
-        # If value is a dict, return a new LegacyConfigBase for chaining
-        if isinstance(value, dict):
-            return LegacyConfigBase(self._config_manager, full_path)
-
-        return value
-
-
-class QdrantConfig(LegacyConfigBase):
-    """Legacy compatibility for Qdrant configuration access.
-
-    Provides backward compatibility for code that uses config.qdrant.url patterns.
-    """
-
-    def __init__(self, config_manager: ConfigManager):
-        super().__init__(config_manager, "qdrant")
-
-    @property
-    def url(self) -> str:
-        return self._config_manager.get("qdrant.url")
-
-    @property
-    def api_key(self) -> Optional[str]:
-        return self._config_manager.get("qdrant.api_key")
-
-    @property
-    def timeout(self) -> int:
-        # Convert milliseconds to seconds for backward compatibility
-        return self._config_manager.get("qdrant.timeout") // 1000
-
-    @property
-    def prefer_grpc(self) -> bool:
-        return self._config_manager.get("qdrant.prefer_grpc")
-
-
-class EmbeddingConfig(LegacyConfigBase):
-    """Legacy compatibility for embedding configuration access."""
-
-    def __init__(self, config_manager: ConfigManager):
-        super().__init__(config_manager, "embedding")
-
-    @property
-    def model(self) -> str:
-        return self._config_manager.get("embedding.model")
-
-    @property
-    def enable_sparse_vectors(self) -> bool:
-        return self._config_manager.get("embedding.enable_sparse_vectors")
-
-    @property
-    def chunk_size(self) -> int:
-        return self._config_manager.get("embedding.chunk_size")
-
-    @property
-    def chunk_overlap(self) -> int:
-        return self._config_manager.get("embedding.chunk_overlap")
-
-    @property
-    def batch_size(self) -> int:
-        return self._config_manager.get("embedding.batch_size")
-
-
-class WorkspaceConfig(LegacyConfigBase):
-    """Legacy compatibility for workspace configuration access."""
-
-    def __init__(self, config_manager: ConfigManager):
-        super().__init__(config_manager, "workspace")
-
-    @property
-    def collection_types(self) -> List[str]:
-        return self._config_manager.get("workspace.collection_types", [])
-
-    @property
-    def global_collections(self) -> List[str]:
-        return self._config_manager.get("workspace.global_collections", [])
-
-    @property
-    def github_user(self) -> Optional[str]:
-        return self._config_manager.get("workspace.github_user")
-
-    @property
-    def auto_create_collections(self) -> bool:
-        return self._config_manager.get("workspace.auto_create_collections", False)
-
-    @property
-    def memory_collection_name(self) -> str:
-        return self._config_manager.get("workspace.memory_collection_name", "__memory")
-
-    @property
-    def code_collection_name(self) -> str:
-        return self._config_manager.get("workspace.code_collection_name", "__code")
-
-    @property
-    def custom_include_patterns(self) -> List[str]:
-        return self._config_manager.get("workspace.custom_include_patterns", [])
-
-    @property
-    def custom_exclude_patterns(self) -> List[str]:
-        return self._config_manager.get("workspace.custom_exclude_patterns", [])
-
-    @property
-    def custom_project_indicators(self) -> Dict[str, Any]:
-        return self._config_manager.get("workspace.custom_project_indicators", {})
-
-    @property
-    def effective_collection_types(self) -> List[str]:
-        """Get effective collection types."""
-        return self.collection_types
-
-    def create_pattern_manager(self):
-        """Create a PatternManager instance with custom patterns from this config.
-
-        Returns:
-            PatternManager instance configured with custom patterns
-        """
-        # Lazy import to avoid circular dependency
-        from .pattern_manager import PatternManager
-
-        return PatternManager(
-            custom_include_patterns=self.custom_include_patterns,
-            custom_exclude_patterns=self.custom_exclude_patterns,
-            custom_project_indicators=self.custom_project_indicators
-        )
-
-
-class GrpcConfig(LegacyConfigBase):
-    """Legacy compatibility for gRPC configuration access."""
-
-    def __init__(self, config_manager: ConfigManager):
-        super().__init__(config_manager, "grpc")
-
-    @property
-    def enabled(self) -> bool:
-        return self._config_manager.get("grpc.enabled", True)
-
-    @property
-    def host(self) -> str:
-        return self._config_manager.get("grpc.host", "127.0.0.1")
-
-    @property
-    def port(self) -> int:
-        return self._config_manager.get("grpc.port", 50051)
-
-    @property
-    def fallback_to_direct(self) -> bool:
-        return self._config_manager.get("grpc.fallback_to_direct", True)
-
-    @property
-    def connection_timeout(self) -> float:
-        # Convert milliseconds to seconds for backward compatibility
-        return self._config_manager.get("grpc.connection_timeout", 10000) / 1000.0
-
-    @property
-    def max_retries(self) -> int:
-        return self._config_manager.get("grpc.max_retries", 3)
-
-    @property
-    def retry_backoff_multiplier(self) -> float:
-        return self._config_manager.get("grpc.retry_backoff_multiplier", 1.5)
-
-    @property
-    def health_check_interval(self) -> float:
-        # Convert milliseconds to seconds for backward compatibility
-        return self._config_manager.get("grpc.health_check_interval", 30000) / 1000.0
-
-    @property
-    def max_message_length(self) -> int:
-        return self._config_manager.get("grpc.max_message_length", 104857600)
-
-    @property
-    def keepalive_time(self) -> int:
-        # Convert milliseconds to seconds for backward compatibility
-        return self._config_manager.get("grpc.keepalive_time", 30000) // 1000
-
-
-class AutoIngestionConfig(LegacyConfigBase):
-    """Legacy compatibility for auto-ingestion configuration access."""
-
-    def __init__(self, config_manager: ConfigManager):
-        super().__init__(config_manager, "auto_ingestion")
-
-    @property
-    def enabled(self) -> bool:
-        return self._config_manager.get("auto_ingestion.enabled", True)
-
-    @property
-    def auto_create_watches(self) -> bool:
-        return self._config_manager.get("auto_ingestion.auto_create_watches", True)
-
-    @property
-    def include_common_files(self) -> bool:
-        return self._config_manager.get("auto_ingestion.include_common_files", True)
-
-    @property
-    def include_source_files(self) -> bool:
-        return self._config_manager.get("auto_ingestion.include_source_files", False)
-
-    @property
-    def target_collection_suffix(self) -> str:
-        return self._config_manager.get("auto_ingestion.target_collection_suffix", "scratchbook")
-
-    @property
-    def max_files_per_batch(self) -> int:
-        return self._config_manager.get("auto_ingestion.max_files_per_batch", 5)
-
-    @property
-    def batch_delay_seconds(self) -> float:
-        return self._config_manager.get("auto_ingestion.batch_delay_seconds", 2.0)
-
-    @property
-    def max_file_size_mb(self) -> int:
-        # Convert bytes to MB for backward compatibility
-        return self._config_manager.get("auto_ingestion.max_file_size_mb", 52428800) // (1024 * 1024)
-
-    @property
-    def debounce_seconds(self) -> int:
-        # Convert milliseconds to seconds for backward compatibility
-        return self._config_manager.get("auto_ingestion.debounce_seconds", 10000) // 1000
-
-
-class Config:
-    """Legacy compatibility wrapper for the new dictionary-based configuration.
-
-    Provides backward compatibility for existing code that uses the old Pydantic-based
-    Config class while delegating to the new ConfigManager under the hood.
-
-    This class maintains the same interface as the original Config class but uses
-    the new dictionary-based configuration system internally.
-    """
-
-    def __init__(self, config_file: Optional[str] = None, **kwargs) -> None:
-        """Initialize configuration with backward compatibility.
-
-        Args:
-            config_file: Path to YAML configuration file
-            **kwargs: Override values for configuration parameters
-        """
-        self._config_manager = get_config(config_file, **kwargs)
-
-        # Create legacy config objects
-        self._qdrant = QdrantConfig(self._config_manager)
-        self._embedding = EmbeddingConfig(self._config_manager)
-        self._workspace = WorkspaceConfig(self._config_manager)
-        self._grpc = GrpcConfig(self._config_manager)
-        self._auto_ingestion = AutoIngestionConfig(self._config_manager)
-
-    @property
-    def host(self) -> str:
-        return self._config_manager.get("server.host", "127.0.0.1")
-
-    @property
-    def port(self) -> int:
-        return self._config_manager.get("server.port", 8000)
-
-    @property
-    def debug(self) -> bool:
-        return self._config_manager.get("server.debug", False)
-
-    @property
-    def qdrant(self) -> QdrantConfig:
-        return self._qdrant
-
-    @property
-    def embedding(self) -> EmbeddingConfig:
-        return self._embedding
-
-    @property
-    def workspace(self) -> WorkspaceConfig:
-        return self._workspace
-
-    @property
-    def grpc(self) -> GrpcConfig:
-        return self._grpc
-
-    @property
-    def auto_ingestion(self) -> AutoIngestionConfig:
-        return self._auto_ingestion
-
-    @classmethod
-    def from_yaml(cls, config_file: str, **kwargs) -> "Config":
-        """Create Config instance from YAML file.
-
-        Args:
-            config_file: Path to YAML configuration file
-            **kwargs: Additional configuration overrides
-
-        Returns:
-            Config instance with YAML configuration loaded
-        """
-        return cls(config_file=config_file, **kwargs)
-
-    def to_yaml(self, file_path: Optional[str] = None) -> str:
-        """Export current configuration to YAML format.
-
-        Args:
-            file_path: Optional path to save YAML file
-
-        Returns:
-            YAML string representation of the configuration
-        """
-        config_dict = self._config_manager.get_all()
-        yaml_str = yaml.dump(config_dict, default_flow_style=False, sort_keys=False)
-
-        if file_path:
-            Path(file_path).write_text(yaml_str, encoding="utf-8")
-
-        return yaml_str
-
-    @property
-    def qdrant_client_config(self) -> Dict[str, Any]:
-        """Get Qdrant client configuration dictionary for QdrantClient initialization.
-
-        Returns:
-            dict: Configuration dictionary for QdrantClient
-        """
-        config = {
-            "url": self.qdrant.url,
-            "timeout": self.qdrant.timeout,
-            "prefer_grpc": self.qdrant.prefer_grpc,
-        }
-
-        if self.qdrant.api_key:
-            config["api_key"] = self.qdrant.api_key
-
-        return config
-
-    def validate_config(self) -> List[str]:
-        """Validate configuration and return list of issues.
-
-        Returns:
-            List[str]: List of validation error messages
-        """
-        return self._config_manager.validate()
-
-    def get_auto_ingestion_diagnostics(self) -> Dict[str, Any]:
-        """Get diagnostic information about auto-ingestion configuration.
-
-        Returns:
-            Dict containing diagnostic information
-        """
-        target_suffix = self.auto_ingestion.target_collection_suffix
-        available_types = self.workspace.effective_collection_types
-        auto_create = self.workspace.auto_create_collections
-
-        status = "valid"
-        recommendations = []
-
-        if self.auto_ingestion.enabled:
-            if target_suffix:
-                if available_types and target_suffix not in available_types:
-                    status = "invalid_target_suffix"
-                    recommendations.append(
-                        f"Add '{target_suffix}' to workspace.collection_types: {available_types}"
-                    )
-                elif not available_types and not auto_create:
-                    status = "missing_collection_config"
-                    recommendations.extend([
-                        f"Add '{target_suffix}' to workspace.collection_types",
-                        "OR enable workspace.auto_create_collections"
-                    ])
-            elif not target_suffix and available_types:
-                status = "missing_target_suffix"
-                recommendations.append(
-                    f"Set auto_ingestion.target_collection_suffix to one of: {available_types}"
-                )
-            elif not target_suffix and not available_types and not auto_create:
-                status = "no_collection_config"
-                recommendations.extend([
-                    "Set auto_ingestion.target_collection_suffix (e.g., 'scratchbook')",
-                    "Add the suffix to workspace.collection_types",
-                    "OR enable workspace.auto_create_collections"
-                ])
-        else:
-            status = "disabled"
-
-        return {
-            "enabled": self.auto_ingestion.enabled,
-            "target_suffix": target_suffix,
-            "available_types": available_types,
-            "auto_create": auto_create,
-            "configuration_status": status,
-            "recommendations": recommendations,
-            "summary": self._get_auto_ingestion_summary(status, target_suffix, available_types)
-        }
-
-    def _get_auto_ingestion_summary(self, status: str, target_suffix: str, available_types: List[str]) -> str:
-        """Get a human-readable summary of auto-ingestion configuration status."""
-        if status == "disabled":
-            return "Auto-ingestion is disabled"
-        elif status == "valid":
-            if target_suffix:
-                return f"Auto-ingestion configured to use collection suffix '{target_suffix}'"
-            else:
-                return "Auto-ingestion enabled with fallback collection selection"
-        elif status == "invalid_target_suffix":
-            return f"Target suffix '{target_suffix}' not found in configured types {available_types}"
-        elif status == "missing_collection_config":
-            return f"Target suffix '{target_suffix}' specified but no collections configured to create it"
-        elif status == "missing_target_suffix":
-            return f"No target suffix specified but types available: {available_types}"
-        elif status == "no_collection_config":
-            return "Auto-ingestion enabled but no collection configuration found"
-        else:
-            return f"Unknown configuration status: {status}"
-
-    def get_effective_auto_ingestion_behavior(self) -> str:
-        """Get a user-friendly description of how auto-ingestion will behave.
-
-        Returns:
-            str: Human-readable description of auto-ingestion behavior
-        """
-        if not self.auto_ingestion.enabled:
-            return "Auto-ingestion is disabled. No automatic file processing will occur."
-
-        target_suffix = self.auto_ingestion.target_collection_suffix
-        available_types = self.workspace.effective_collection_types
-        auto_create = self.workspace.auto_create_collections
-
-        if target_suffix and available_types and target_suffix in available_types:
-            return f"Will use collection '{{project-name}}-{target_suffix}' for auto-ingestion."
-        elif target_suffix and auto_create:
-            return f"Will create and use collection '{{project-name}}-{target_suffix}' for auto-ingestion."
-        elif not target_suffix:
-            return "Will use intelligent fallback selection for auto-ingestion collections."
-        else:
-            return f"Configuration may need adjustment. Target suffix '{target_suffix}' specified but not in available types."
+# End of ConfigManager implementation - all backward compatibility removed

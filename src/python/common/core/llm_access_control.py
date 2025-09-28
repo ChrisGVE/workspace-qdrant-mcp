@@ -46,7 +46,7 @@ try:
         GLOBAL_COLLECTIONS
     )
     from .collection_naming import CollectionNamingManager, CollectionType as NamingCollectionType
-    from .config import Config
+    from .config import get_config
 except ImportError:
     # For direct imports when not used as a package
     from collection_types import (
