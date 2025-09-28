@@ -709,5 +709,3 @@ class DatabaseWatchConfigManager:
             return False
 
 
-# Alias for backward compatibility
-PersistentWatchConfigManager = DatabaseWatchConfigManager

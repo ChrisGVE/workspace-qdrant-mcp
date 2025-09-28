@@ -37,13 +37,12 @@ from ..core.client import QdrantWorkspaceClient
 # )
 # TODO: These functions don't exist - fix imports after Task 175 integration
 
-# Temporary implementations for compatibility
 def build_project_collection_name(project: str, suffix: str) -> str:
-    """Temporary implementation - build project collection name"""
+    """Build project collection name"""
     return f"{project.replace('-', '_')}-{suffix}"
 
 def normalize_collection_name_component(name: str) -> str:
-    """Temporary implementation - normalize collection name component"""
+    """Normalize collection name component"""
     return name.replace('-', '_').replace(' ', '_')
 from ..core.config import AutoIngestionConfig
 from ..utils.project_detection import ProjectDetector
@@ -65,8 +64,7 @@ except ImportError:
 class ProjectPatterns:
     """Project-specific file patterns for automatic ingestion.
 
-    This class now uses PatternManager when available, falling back to
-    hardcoded patterns for compatibility.
+    This class uses PatternManager when available, with fallback patterns.
     """
 
     @classmethod
@@ -76,7 +74,7 @@ class ProjectPatterns:
             try:
                 pattern_manager = PatternManager()
                 # TODO: In future, get these from PatternManager's document patterns
-                # For now, return compatible patterns
+                # Return standard patterns
                 return [
                     "*.md", "*.txt", "*.rst", "*.pdf", "*.epub",
                     "*.docx", "*.odt", "*.rtf"
@@ -97,7 +95,7 @@ class ProjectPatterns:
             try:
                 pattern_manager = PatternManager()
                 # TODO: In future, get language-specific patterns from PatternManager
-                # For now, return compatible patterns from fallback
+                # Return standard patterns from fallback
                 pass
             except Exception as e:
                 logger.debug(f"Failed to use PatternManager for language patterns: {e}")
@@ -127,7 +125,7 @@ class ProjectPatterns:
 
     @classmethod
     def get_all_source_patterns(cls) -> Dict[str, List[str]]:
-        """Get all source patterns by language (for backward compatibility)."""
+        """Get all source patterns by language."""
         if PATTERN_MANAGER_AVAILABLE:
             try:
                 pattern_manager = PatternManager()
@@ -145,15 +143,15 @@ class ProjectPatterns:
         ]
         return {lang: cls.get_source_patterns_for_language(lang) for lang in languages}
 
-    # Backward compatibility properties
+    # Standard properties
     @property
     def COMMON_DOC_PATTERNS(self) -> List[str]:
-        """Backward compatibility property."""
+        """Get common documentation patterns."""
         return self.get_common_doc_patterns()
 
     @property
     def SOURCE_PATTERNS(self) -> Dict[str, List[str]]:
-        """Backward compatibility property."""
+        """Get all source patterns."""
         return self.get_all_source_patterns()
 
     # Universal ignore patterns
