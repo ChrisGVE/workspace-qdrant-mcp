@@ -11,22 +11,20 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("Test 1: Loading daemon config with defaults");
     let config = DaemonConfig::load(None)?;
     println!("  ✓ Successfully loaded default configuration");
-    println!("  - Qdrant URL: {}", config.qdrant().url);
-    println!("  - gRPC Host: {}", config.server().host);
-    println!("  - gRPC Port: {}", config.server().port);
+    println!("  - Qdrant URL: {}", workspace_qdrant_daemon::config::get_config_string("external_services.qdrant.url", "http://localhost:6333"));
+    println!("  - gRPC Host: {}", workspace_qdrant_daemon::config::get_config_string("grpc.server.host", "127.0.0.1"));
+    println!("  - gRPC Port: {}", workspace_qdrant_daemon::config::get_config_u64("grpc.server.port", 50051));
 
     // Test 2: Validate configuration
     println!("\nTest 2: Validating configuration");
     config.validate()?;
     println!("  ✓ Configuration validation passed");
 
-    // Test 3: Test legacy compatibility methods
-    println!("\nTest 3: Testing legacy compatibility methods");
-    let server_config = config.server();
-    let qdrant_config = config.qdrant();
-    println!("  - Server host: {}", server_config.host);
-    println!("  - Server port: {}", server_config.port);
-    println!("  - Qdrant URL: {}", qdrant_config.url);
+    // Test 3: Test lua-style config access
+    println!("\nTest 3: Testing lua-style config access");
+    println!("  - Server host: {}", workspace_qdrant_daemon::config::get_config_string("grpc.server.host", "127.0.0.1"));
+    println!("  - Server port: {}", workspace_qdrant_daemon::config::get_config_u64("grpc.server.port", 50051));
+    println!("  - Qdrant URL: {}", workspace_qdrant_daemon::config::get_config_string("external_services.qdrant.url", "http://localhost:6333"));
     println!("  ✓ Legacy compatibility methods work");
 
     // Test 4: Test with minimal YAML config

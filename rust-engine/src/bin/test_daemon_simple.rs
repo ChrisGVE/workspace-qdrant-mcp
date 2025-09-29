@@ -12,13 +12,12 @@ async fn main() {
     // Override the database path to use a memory database
     println!("Using default config with memory database");
 
-    // Test what the database config looks like
-    let database_config = config.database();
-    println!("Original database path: {}", database_config.sqlite_path);
+    // Test what the database config looks like using lua-style config
+    println!("Original database path: {}", workspace_qdrant_daemon::config::get_config_string("database.sqlite_path", ":memory:"));
 
     // Create a simple test config that should work
     let test_config = DaemonConfig::default();
-    println!("Test config database path: {}", test_config.database().sqlite_path);
+    println!("Test config database path: {}", workspace_qdrant_daemon::config::get_config_string("database.sqlite_path", ":memory:"));
 
     // Try the daemon init
     println!("\nInitializing daemon...");
