@@ -11,8 +11,8 @@ from typing import Any, Dict, List, Optional
 
 import typer
 
+from common.core.config import get_config_manager
 from common.core.daemon_client import get_daemon_client, with_daemon_client
-from common.core.yaml_config import load_config
 from common.grpc.ingestion_pb2 import SearchMode
 from loguru import logger
 from common.utils.project_detection import ProjectDetector
@@ -204,7 +204,7 @@ async def _search_project(
 
     async def search_operation(daemon_client):
         # Detect current project
-        config = load_config()
+        config = get_config_manager()
         detector = ProjectDetector()  # Simplified constructor
         project_info = detector.get_project_info(str(Path.cwd()))
         current_project = project_info["main_project"]
