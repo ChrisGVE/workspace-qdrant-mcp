@@ -1,0 +1,706 @@
+[38;2;127;132;156m   1[0m [38;2;205;214;244m# Comprehensive Testing & LLM Integration PRD[0m
+[38;2;127;132;156m   2[0m 
+[38;2;127;132;156m   3[0m [38;2;205;214;244m**Version:** 1.0[0m
+[38;2;127;132;156m   4[0m [38;2;205;214;244m**Date:** 2025-09-29[0m
+[38;2;127;132;156m   5[0m [38;2;205;214;244m**Status:** Testing & Integration Specification[0m
+[38;2;127;132;156m   6[0m [38;2;205;214;244m**Target Code Version:** v0.3.0dev0[0m
+[38;2;127;132;156m   7[0m 
+[38;2;127;132;156m   8[0m [38;2;205;214;244m## Executive Summary[0m
+[38;2;127;132;156m   9[0m 
+[38;2;127;132;156m  10[0m [38;2;205;214;244mThis PRD defines comprehensive testing across four domains of the workspace-qdrant-mcp system:[0m
+[38;2;127;132;156m  11[0m [38;2;205;214;244m1. **Daemon Testing** - Rust ingestion engine[0m
+[38;2;127;132;156m  12[0m [38;2;205;214;244m2. **MCP Server Testing** - Python interface layer[0m
+[38;2;127;132;156m  13[0m [38;2;205;214;244m3. **CLI Testing** - wqm command-line utility  [0m
+[38;2;127;132;156m  14[0m [38;2;205;214;244m4. **Integration Testing** - Cross-component workflows[0m
+[38;2;127;132;156m  15[0m [38;2;205;214;244m5. **LLM Context Injection** - Memory rule integration with LLM tools[0m
+[38;2;127;132;156m  16[0m 
+[38;2;127;132;156m  17[0m [38;2;205;214;244mEach domain will be tested under three conditions:[0m
+[38;2;127;132;156m  18[0m [38;2;205;214;244m- **Nominal**: Expected usage patterns and standard workflows[0m
+[38;2;127;132;156m  19[0m [38;2;205;214;244m- **Edge Cases**: Boundary conditions, unusual inputs, corner cases[0m
+[38;2;127;132;156m  20[0m [38;2;205;214;244m- **Stress**: High load, rapid changes, resource constraints[0m
+[38;2;127;132;156m  21[0m 
+[38;2;127;132;156m  22[0m [38;2;205;214;244m## 1. Daemon Testing (Rust Engine)[0m
+[38;2;127;132;156m  23[0m 
+[38;2;127;132;156m  24[0m [38;2;205;214;244m### 1.1 File Ingestion Testing[0m
+[38;2;127;132;156m  25[0m 
+[38;2;127;132;156m  26[0m [38;2;205;214;244m#### Nominal Conditions[0m
+[38;2;127;132;156m  27[0m [38;2;205;214;244m- Single file ingestion (PDF, text, markdown, code)[0m
+[38;2;127;132;156m  28[0m [38;2;205;214;244m- Batch ingestion of 10-100 files[0m
+[38;2;127;132;156m  29[0m [38;2;205;214;244m- Standard document formats (PDF, EPUB, DOCX, TXT, MD)[0m
+[38;2;127;132;156m  30[0m [38;2;205;214;244m- Code files with LSP analysis (Python, Rust, JavaScript, Go)[0m
+[38;2;127;132;156m  31[0m [38;2;205;214;244m- Metadata extraction and storage[0m
+[38;2;127;132;156m  32[0m [38;2;205;214;244m- Embedding generation for all content types[0m
+[38;2;127;132;156m  33[0m 
+[38;2;127;132;156m  34[0m [38;2;205;214;244m#### Edge Cases[0m
+[38;2;127;132;156m  35[0m [38;2;205;214;244m- Zero-byte files[0m
+[38;2;127;132;156m  36[0m [38;2;205;214;244m- Extremely large files (>100MB PDFs, >10MB text files)[0m
+[38;2;127;132;156m  37[0m [38;2;205;214;244m- Corrupted or malformed files (invalid PDFs, broken EPUB)[0m
+[38;2;127;132;156m  38[0m [38;2;205;214;244m- Files with special characters in names[0m
+[38;2;127;132;156m  39[0m [38;2;205;214;244m- Files without extensions[0m
+[38;2;127;132;156m  40[0m [38;2;205;214;244m- Symlinked files and circular symlinks[0m
+[38;2;127;132;156m  41[0m [38;2;205;214;244m- Files that change during ingestion[0m
+[38;2;127;132;156m  42[0m [38;2;205;214;244m- Nested directory structures (20+ levels deep)[0m
+[38;2;127;132;156m  43[0m [38;2;205;214;244m- Unicode filenames and content[0m
+[38;2;127;132;156m  44[0m [38;2;205;214;244m- Files with incomplete metadata[0m
+[38;2;127;132;156m  45[0m 
+[38;2;127;132;156m  46[0m [38;2;205;214;244m#### Stress Conditions[0m
+[38;2;127;132;156m  47[0m [38;2;205;214;244m- 10,000+ files ingested simultaneously[0m
+[38;2;127;132;156m  48[0m [38;2;205;214;244m- Rapid file additions (100+ files/second)[0m
+[38;2;127;132;156m  49[0m [38;2;205;214;244m- Multiple folders watched simultaneously (10+ folders)[0m
+[38;2;127;132;156m  50[0m [38;2;205;214;244m- Very large files processed concurrently (5x 500MB PDFs)[0m
+[38;2;127;132;156m  51[0m [38;2;205;214;244m- Memory-constrained environment (<512MB available)[0m
+[38;2;127;132;156m  52[0m [38;2;205;214;244m- Disk I/O saturation[0m
+[38;2;127;132;156m  53[0m [38;2;205;214;244m- Network interruptions during remote file access[0m
+[38;2;127;132;156m  54[0m 
+[38;2;127;132;156m  55[0m [38;2;205;214;244m### 1.2 File Watching Testing[0m
+[38;2;127;132;156m  56[0m 
+[38;2;127;132;156m  57[0m [38;2;205;214;244m#### Nominal Conditions[0m
+[38;2;127;132;156m  58[0m [38;2;205;214;244m- Single folder watch with periodic changes[0m
+[38;2;127;132;156m  59[0m [38;2;205;214;244m- Project folder auto-watching on MCP startup[0m
+[38;2;127;132;156m  60[0m [38;2;205;214;244m- Library folder watch via wqm configuration[0m
+[38;2;127;132;156m  61[0m [38;2;205;214;244m- File creation, modification, deletion detection[0m
+[38;2;127;132;156m  62[0m [38;2;205;214;244m- Debouncing of rapid changes (edit-save cycles)[0m
+[38;2;127;132;156m  63[0m [38;2;205;214;244m- Watch persistence across daemon restarts[0m
+[38;2;127;132;156m  64[0m 
+[38;2;127;132;156m  65[0m [38;2;205;214;244m#### Edge Cases[0m
+[38;2;127;132;156m  66[0m [38;2;205;214;244m- Watched folder deleted while watching[0m
+[38;2;127;132;156m  67[0m [38;2;205;214;244m- Watched folder renamed/moved[0m
+[38;2;127;132;156m  68[0m [38;2;205;214;244m- Permission changes on watched folders[0m
+[38;2;127;132;156m  69[0m [38;2;205;214;244m- Folder contains >100,000 files[0m
+[38;2;127;132;156m  70[0m [38;2;205;214;244m- Nested watched folders (parent and child both watched)[0m
+[38;2;127;132;156m  71[0m [38;2;205;214;244m- Symbolic links in watched folders[0m
+[38;2;127;132;156m  72[0m [38;2;205;214;244m- Files created then immediately deleted[0m
+[38;2;127;132;156m  73[0m [38;2;205;214;244m- Rapid rename operations (file1 -> file2 -> file3)[0m
+[38;2;127;132;156m  74[0m 
+[38;2;127;132;156m  75[0m [38;2;205;214;244m#### Stress Conditions[0m
+[38;2;127;132;156m  76[0m [38;2;205;214;244m- 20+ folders watched simultaneously[0m
+[38;2;127;132;156m  77[0m [38;2;205;214;244m- 1000+ file changes/minute in watched folder[0m
+[38;2;127;132;156m  78[0m [38;2;205;214;244m- Multiple projects with overlapping watched paths[0m
+[38;2;127;132;156m  79[0m [38;2;205;214;244m- Watch system during low memory conditions[0m
+[38;2;127;132;156m  80[0m [38;2;205;214;244m- File changes during daemon shutdown[0m
+[38;2;127;132;156m  81[0m [38;2;205;214;244m- Continuous high-frequency changes for extended periods (hours)[0m
+[38;2;127;132;156m  82[0m [38;2;205;214;244m- Git operations (checkout, rebase) causing mass file changes[0m
+[38;2;127;132;156m  83[0m 
+[38;2;127;132;156m  84[0m [38;2;205;214;244m### 1.3 LSP Integration Testing[0m
+[38;2;127;132;156m  85[0m 
+[38;2;127;132;156m  86[0m [38;2;205;214;244m#### Nominal Conditions[0m
+[38;2;127;132;156m  87[0m [38;2;205;214;244m- LSP server detection for common languages (Python, Rust, JS, Go)[0m
+[38;2;127;132;156m  88[0m [38;2;205;214;244m- Symbol extraction from code files[0m
+[38;2;127;132;156m  89[0m [38;2;205;214;244m- Hover information capture[0m
+[38;2;127;132;156m  90[0m [38;2;205;214;244m- Definition/reference tracking[0m
+[38;2;127;132;156m  91[0m [38;2;205;214;244m- Code structure analysis (functions, classes, modules)[0m
+[38;2;127;132;156m  92[0m 
+[38;2;127;132;156m  93[0m [38;2;205;214;244m#### Edge Cases[0m
+[38;2;127;132;156m  94[0m [38;2;205;214;244m- Language server not installed[0m
+[38;2;127;132;156m  95[0m [38;2;205;214;244m- Language server crashes during analysis[0m
+[38;2;127;132;156m  96[0m [38;2;205;214;244m- Files with syntax errors[0m
+[38;2;127;132;156m  97[0m [38;2;205;214;244m- Mixed-language files (HTML with JS/CSS)[0m
+[38;2;127;132;156m  98[0m [38;2;205;214;244m- Very large code files (>10,000 lines)[0m
+[38;2;127;132;156m  99[0m [38;2;205;214;244m- Files with unusual encoding[0m
+[38;2;127;132;156m 100[0m [38;2;205;214;244m- Projects without language server configuration[0m
+[38;2;127;132;156m 101[0m 
+[38;2;127;132;156m 102[0m [38;2;205;214;244m#### Stress Conditions[0m
+[38;2;127;132;156m 103[0m [38;2;205;214;244m- 1000+ code files analyzed concurrently[0m
+[38;2;127;132;156m 104[0m [38;2;205;214;244m- LSP server memory exhaustion[0m
+[38;2;127;132;156m 105[0m [38;2;205;214;244m- Analysis during active file editing[0m
+[38;2;127;132;156m 106[0m [38;2;205;214;244m- Multiple language servers running simultaneously[0m
+[38;2;127;132;156m 107[0m [38;2;205;214;244m- Projects with complex dependency graphs[0m
+[38;2;127;132;156m 108[0m 
+[38;2;127;132;156m 109[0m [38;2;205;214;244m### 1.4 State Management Testing[0m
+[38;2;127;132;156m 110[0m 
+[38;2;127;132;156m 111[0m [38;2;205;214;244m#### Nominal Conditions[0m
+[38;2;127;132;156m 112[0m [38;2;205;214;244m- SQLite state persistence across restarts[0m
+[38;2;127;132;156m 113[0m [38;2;205;214;244m- Transaction rollback on errors[0m
+[38;2;127;132;156m 114[0m [38;2;205;214;244m- State recovery after crashes[0m
+[38;2;127;132;156m 115[0m [38;2;205;214;244m- Ingestion queue persistence[0m
+[38;2;127;132;156m 116[0m [38;2;205;214;244m- Processing status tracking[0m
+[38;2;127;132;156m 117[0m 
+[38;2;127;132;156m 118[0m [38;2;205;214;244m#### Edge Cases[0m
+[38;2;127;132;156m 119[0m [38;2;205;214;244m- Database corruption detection[0m
+[38;2;127;132;156m 120[0m [38;2;205;214;244m- Concurrent access from multiple processes[0m
+[38;2;127;132;156m 121[0m [38;2;205;214;244m- Database locked during critical operations[0m
+[38;2;127;132;156m 122[0m [38;2;205;214;244m- Very large state database (>1GB)[0m
+[38;2;127;132;156m 123[0m [38;2;205;214;244m- Missing database on startup[0m
+[38;2;127;132;156m 124[0m [38;2;205;214;244m- Schema version mismatches[0m
+[38;2;127;132;156m 125[0m 
+[38;2;127;132;156m 126[0m [38;2;205;214;244m#### Stress Conditions[0m
+[38;2;127;132;156m 127[0m [38;2;205;214;244m- Thousands of concurrent transactions[0m
+[38;2;127;132;156m 128[0m [38;2;205;214;244m- Rapid state updates (100+ updates/second)[0m
+[38;2;127;132;156m 129[0m [38;2;205;214;244m- State operations during low disk space[0m
+[38;2;127;132;156m 130[0m [38;2;205;214;244m- Database operations during system sleep/wake[0m
+[38;2;127;132;156m 131[0m [38;2;205;214;244m- Long-running transactions[0m
+[38;2;127;132;156m 132[0m 
+[38;2;127;132;156m 133[0m [38;2;205;214;244m### 1.5 gRPC Communication Testing[0m
+[38;2;127;132;156m 134[0m 
+[38;2;127;132;156m 135[0m [38;2;205;214;244m#### Nominal Conditions[0m
+[38;2;127;132;156m 136[0m [38;2;205;214;244m- Standard request/response patterns[0m
+[38;2;127;132;156m 137[0m [38;2;205;214;244m- Streaming responses for long operations[0m
+[38;2;127;132;156m 138[0m [38;2;205;214;244m- Connection establishment and teardown[0m
+[38;2;127;132;156m 139[0m [38;2;205;214;244m- Error propagation from daemon to MCP[0m
+[38;2;127;132;156m 140[0m 
+[38;2;127;132;156m 141[0m [38;2;205;214;244m#### Edge Cases[0m
+[38;2;127;132;156m 142[0m [38;2;205;214;244m- Connection lost mid-operation[0m
+[38;2;127;132;156m 143[0m [38;2;205;214;244m- gRPC server unavailable[0m
+[38;2;127;132;156m 144[0m [38;2;205;214;244m- Malformed requests from MCP[0m
+[38;2;127;132;156m 145[0m [38;2;205;214;244m- Timeout during long operations[0m
+[38;2;127;132;156m 146[0m [38;2;205;214;244m- Multiple MCP clients connecting[0m
+[38;2;127;132;156m 147[0m 
+[38;2;127;132;156m 148[0m [38;2;205;214;244m#### Stress Conditions[0m
+[38;2;127;132;156m 149[0m [38;2;205;214;244m- 1000+ concurrent gRPC requests[0m
+[38;2;127;132;156m 150[0m [38;2;205;214;244m- Large message payloads (>10MB)[0m
+[38;2;127;132;156m 151[0m [38;2;205;214;244m- Rapid connection/disconnection cycles[0m
+[38;2;127;132;156m 152[0m [38;2;205;214;244m- Network latency simulation[0m
+[38;2;127;132;156m 153[0m [38;2;205;214;244m- Resource exhaustion scenarios[0m
+[38;2;127;132;156m 154[0m 
+[38;2;127;132;156m 155[0m [38;2;205;214;244m## 2. MCP Server Testing (Python Interface)[0m
+[38;2;127;132;156m 156[0m 
+[38;2;127;132;156m 157[0m [38;2;205;214;244m### 2.1 Search Operations Testing[0m
+[38;2;127;132;156m 158[0m 
+[38;2;127;132;156m 159[0m [38;2;205;214;244m#### Nominal Conditions[0m
+[38;2;127;132;156m 160[0m [38;2;205;214;244m- Hybrid search (dense + sparse vectors)[0m
+[38;2;127;132;156m 161[0m [38;2;205;214;244m- Project-scoped search[0m
+[38;2;127;132;156m 162[0m [38;2;205;214;244m- Collection-specific search[0m
+[38;2;127;132;156m 163[0m [38;2;205;214;244m- Global search across all collections[0m
+[38;2;127;132;156m 164[0m [38;2;205;214;244m- Search with metadata filters[0m
+[38;2;127;132;156m 165[0m [38;2;205;214;244m- Multi-query search patterns[0m
+[38;2;127;132;156m 166[0m 
+[38;2;127;132;156m 167[0m [38;2;205;214;244m#### Edge Cases[0m
+[38;2;127;132;156m 168[0m [38;2;205;214;244m- Empty query strings[0m
+[38;2;127;132;156m 169[0m [38;2;205;214;244m- Extremely long queries (>1000 words)[0m
+[38;2;127;132;156m 170[0m [38;2;205;214;244m- Queries with special characters[0m
+[38;2;127;132;156m 171[0m [38;2;205;214;244m- Search in empty collections[0m
+[38;2;127;132;156m 172[0m [38;2;205;214;244m- Search with no results[0m
+[38;2;127;132;156m 173[0m [38;2;205;214;244m- Unicode query strings[0m
+[38;2;127;132;156m 174[0m [38;2;205;214;244m- Queries matching all documents[0m
+[38;2;127;132;156m 175[0m 
+[38;2;127;132;156m 176[0m [38;2;205;214;244m#### Stress Conditions[0m
+[38;2;127;132;156m 177[0m [38;2;205;214;244m- 1000+ concurrent search requests[0m
+[38;2;127;132;156m 178[0m [38;2;205;214;244m- Search across collections with millions of documents[0m
+[38;2;127;132;156m 179[0m [38;2;205;214;244m- Complex filters with many conditions[0m
+[38;2;127;132;156m 180[0m [38;2;205;214;244m- Repeated identical queries (cache testing)[0m
+[38;2;127;132;156m 181[0m [38;2;205;214;244m- Search during active ingestion[0m
+[38;2;127;132;156m 182[0m 
+[38;2;127;132;156m 183[0m [38;2;205;214;244m### 2.2 Document Management Testing[0m
+[38;2;127;132;156m 184[0m 
+[38;2;127;132;156m 185[0m [38;2;205;214;244m#### Nominal Conditions[0m
+[38;2;127;132;156m 186[0m [38;2;205;214;244m- Add document to collection[0m
+[38;2;127;132;156m 187[0m [38;2;205;214;244m- Update existing document[0m
+[38;2;127;132;156m 188[0m [38;2;205;214;244m- Delete document[0m
+[38;2;127;132;156m 189[0m [38;2;205;214;244m- Batch document operations[0m
+[38;2;127;132;156m 190[0m [38;2;205;214;244m- Document metadata updates[0m
+[38;2;127;132;156m 191[0m 
+[38;2;127;132;156m 192[0m [38;2;205;214;244m#### Edge Cases[0m
+[38;2;127;132;156m 193[0m [38;2;205;214;244m- Adding document to non-existent collection[0m
+[38;2;127;132;156m 194[0m [38;2;205;214;244m- Updating non-existent document[0m
+[38;2;127;132;156m 195[0m [38;2;205;214;244m- Empty document content[0m
+[38;2;127;132;156m 196[0m [38;2;205;214;244m- Document with missing required metadata[0m
+[38;2;127;132;156m 197[0m [38;2;205;214;244m- Duplicate document detection[0m
+[38;2;127;132;156m 198[0m 
+[38;2;127;132;156m 199[0m [38;2;205;214;244m#### Stress Conditions[0m
+[38;2;127;132;156m 200[0m [38;2;205;214;244m- 1000+ document additions simultaneously[0m
+[38;2;127;132;156m 201[0m [38;2;205;214;244m- Rapid add/delete cycles[0m
+[38;2;127;132;156m 202[0m [38;2;205;214;244m- Large batch operations (10,000+ documents)[0m
+[38;2;127;132;156m 203[0m [38;2;205;214;244m- Concurrent updates to same document[0m
+[38;2;127;132;156m 204[0m [38;2;205;214;244m- Operations during collection deletion[0m
+[38;2;127;132;156m 205[0m 
+[38;2;127;132;156m 206[0m [38;2;205;214;244m### 2.3 Memory/Rules Collection Testing[0m
+[38;2;127;132;156m 207[0m 
+[38;2;127;132;156m 208[0m [38;2;205;214;244m#### Nominal Conditions[0m
+[38;2;127;132;156m 209[0m [38;2;205;214;244m- Add memory rule via conversation[0m
+[38;2;127;132;156m 210[0m [38;2;205;214;244m- Update existing rule[0m
+[38;2;127;132;156m 211[0m [38;2;205;214;244m- Conflict detection between rules[0m
+[38;2;127;132;156m 212[0m [38;2;205;214;244m- Rule authority levels (absolute vs default)[0m
+[38;2;127;132;156m 213[0m [38;2;205;214;244m- Token usage tracking[0m
+[38;2;127;132;156m 214[0m [38;2;205;214;244m- Rule injection into LLM context[0m
+[38;2;127;132;156m 215[0m 
+[38;2;127;132;156m 216[0m [38;2;205;214;244m#### Edge Cases[0m
+[38;2;127;132;156m 217[0m [38;2;205;214;244m- Contradictory rules[0m
+[38;2;127;132;156m 218[0m [38;2;205;214;244m- Rules exceeding token limits[0m
+[38;2;127;132;156m 219[0m [38;2;205;214;244m- Malformed rule content[0m
+[38;2;127;132;156m 220[0m [38;2;205;214;244m- Rules with circular dependencies[0m
+[38;2;127;132;156m 221[0m [38;2;205;214;244m- Empty or whitespace-only rules[0m
+[38;2;127;132;156m 222[0m 
+[38;2;127;132;156m 223[0m [38;2;205;214;244m#### Stress Conditions[0m
+[38;2;127;132;156m 224[0m [38;2;205;214;244m- 1000+ rules in memory collection[0m
+[38;2;127;132;156m 225[0m [38;2;205;214;244m- Rapid rule additions[0m
+[38;2;127;132;156m 226[0m [38;2;205;214;244m- Complex rule conflict resolution[0m
+[38;2;127;132;156m 227[0m [38;2;205;214;244m- Large rule content (approaching token limits)[0m
+[38;2;127;132;156m 228[0m 
+[38;2;127;132;156m 229[0m [38;2;205;214;244m### 2.4 Collection Management Testing[0m
+[38;2;127;132;156m 230[0m 
+[38;2;127;132;156m 231[0m [38;2;205;214;244m#### Nominal Conditions[0m
+[38;2;127;132;156m 232[0m [38;2;205;214;244m- List available collections[0m
+[38;2;127;132;156m 233[0m [38;2;205;214;244m- Create new collection[0m
+[38;2;127;132;156m 234[0m [38;2;205;214;244m- Delete collection[0m
+[38;2;127;132;156m 235[0m [38;2;205;214;244m- Collection statistics[0m
+[38;2;127;132;156m 236[0m [38;2;205;214;244m- Project collection detection[0m
+[38;2;127;132;156m 237[0m 
+[38;2;127;132;156m 238[0m [38;2;205;214;244m#### Edge Cases[0m
+[38;2;127;132;156m 239[0m [38;2;205;214;244m- Collection with reserved name[0m
+[38;2;127;132;156m 240[0m [38;2;205;214;244m- Create existing collection[0m
+[38;2;127;132;156m 241[0m [38;2;205;214;244m- Delete non-empty collection[0m
+[38;2;127;132;156m 242[0m [38;2;205;214;244m- Collections with special characters[0m
+[38;2;127;132;156m 243[0m [38;2;205;214;244m- Very long collection names[0m
+[38;2;127;132;156m 244[0m 
+[38;2;127;132;156m 245[0m [38;2;205;214;244m#### Stress Conditions[0m
+[38;2;127;132;156m 246[0m [38;2;205;214;244m- Managing 1000+ collections[0m
+[38;2;127;132;156m 247[0m [38;2;205;214;244m- Rapid collection creation/deletion[0m
+[38;2;127;132;156m 248[0m [38;2;205;214;244m- Collection operations during searches[0m
+[38;2;127;132;156m 249[0m 
+[38;2;127;132;156m 250[0m [38;2;205;214;244m### 2.5 MCP Protocol Testing[0m
+[38;2;127;132;156m 251[0m 
+[38;2;127;132;156m 252[0m [38;2;205;214;244m#### Nominal Conditions[0m
+[38;2;127;132;156m 253[0m [38;2;205;214;244m- Tool call handling[0m
+[38;2;127;132;156m 254[0m [38;2;205;214;244m- Resource access[0m
+[38;2;127;132;156m 255[0m [38;2;205;214;244m- Prompt templates[0m
+[38;2;127;132;156m 256[0m [38;2;205;214;244m- Error responses[0m
+[38;2;127;132;156m 257[0m [38;2;205;214;244m- Capability negotiation[0m
+[38;2;127;132;156m 258[0m 
+[38;2;127;132;156m 259[0m [38;2;205;214;244m#### Edge Cases[0m
+[38;2;127;132;156m 260[0m [38;2;205;214;244m- Invalid tool parameters[0m
+[38;2;127;132;156m 261[0m [38;2;205;214;244m- Unknown tool names[0m
+[38;2;127;132;156m 262[0m [38;2;205;214;244m- Malformed MCP messages[0m
+[38;2;127;132;156m 263[0m [38;2;205;214;244m- Unsupported protocol versions[0m
+[38;2;127;132;156m 264[0m [38;2;205;214;244m- Resource not found[0m
+[38;2;127;132;156m 265[0m 
+[38;2;127;132;156m 266[0m [38;2;205;214;244m#### Stress Conditions[0m
+[38;2;127;132;156m 267[0m [38;2;205;214;244m- Rapid tool invocations[0m
+[38;2;127;132;156m 268[0m [38;2;205;214;244m- Large tool parameters[0m
+[38;2;127;132;156m 269[0m [38;2;205;214;244m- Concurrent tool calls[0m
+[38;2;127;132;156m 270[0m [38;2;205;214;244m- Tool calls during server shutdown[0m
+[38;2;127;132;156m 271[0m 
+[38;2;127;132;156m 272[0m [38;2;205;214;244m## 3. CLI Testing (wqm Utility)[0m
+[38;2;127;132;156m 273[0m 
+[38;2;127;132;156m 274[0m [38;2;205;214;244m### 3.1 Service Management Testing[0m
+[38;2;127;132;156m 275[0m 
+[38;2;127;132;156m 276[0m [38;2;205;214;244m#### Nominal Conditions[0m
+[38;2;127;132;156m 277[0m [38;2;205;214;244m- wqm service start/stop/restart[0m
+[38;2;127;132;156m 278[0m [38;2;205;214;244m- Service status checking[0m
+[38;2;127;132;156m 279[0m [38;2;205;214;244m- Service installation (systemd/launchd)[0m
+[38;2;127;132;156m 280[0m [38;2;205;214;244m- Service uninstallation[0m
+[38;2;127;132;156m 281[0m [38;2;205;214;244m- Auto-start configuration[0m
+[38;2;127;132;156m 282[0m 
+[38;2;127;132;156m 283[0m [38;2;205;214;244m#### Edge Cases[0m
+[38;2;127;132;156m 284[0m [38;2;205;214;244m- Service already running when starting[0m
+[38;2;127;132;156m 285[0m [38;2;205;214;244m- Service not running when stopping[0m
+[38;2;127;132;156m 286[0m [38;2;205;214;244m- Service crashed during operation[0m
+[38;2;127;132;156m 287[0m [38;2;205;214;244m- Permission issues during installation[0m
+[38;2;127;132;156m 288[0m [38;2;205;214;244m- Platform-specific service variations[0m
+[38;2;127;132;156m 289[0m 
+[38;2;127;132;156m 290[0m [38;2;205;214;244m#### Stress Conditions[0m
+[38;2;127;132;156m 291[0m [38;2;205;214;244m- Rapid start/stop cycles[0m
+[38;2;127;132;156m 292[0m [38;2;205;214;244m- Multiple service commands concurrently[0m
+[38;2;127;132;156m 293[0m [38;2;205;214;244m- Service management during system resource exhaustion[0m
+[38;2;127;132;156m 294[0m 
+[38;2;127;132;156m 295[0m [38;2;205;214;244m### 3.2 Library Management Testing[0m
+[38;2;127;132;156m 296[0m 
+[38;2;127;132;156m 297[0m [38;2;205;214;244m#### Nominal Conditions[0m
+[38;2;127;132;156m 298[0m [38;2;205;214;244m- Create library collection[0m
+[38;2;127;132;156m 299[0m [38;2;205;214;244m- Add documents to library[0m
+[38;2;127;132;156m 300[0m [38;2;205;214;244m- Configure folder watching for library[0m
+[38;2;127;132;156m 301[0m [38;2;205;214;244m- List library collections[0m
+[38;2;127;132;156m 302[0m [38;2;205;214;244m- Remove library collection[0m
+[38;2;127;132;156m 303[0m 
+[38;2;127;132;156m 304[0m [38;2;205;214;244m#### Edge Cases[0m
+[38;2;127;132;156m 305[0m [38;2;205;214;244m- Library name conflicts with existing collection[0m
+[38;2;127;132;156m 306[0m [38;2;205;214;244m- Library with underscore prefix[0m
+[38;2;127;132;156m 307[0m [38;2;205;214;244m- Add invalid file to library[0m
+[38;2;127;132;156m 308[0m [38;2;205;214;244m- Watch non-existent folder[0m
+[38;2;127;132;156m 309[0m 
+[38;2;127;132;156m 310[0m [38;2;205;214;244m#### Stress Conditions[0m
+[38;2;127;132;156m 311[0m [38;2;205;214;244m- Create 100+ libraries[0m
+[38;2;127;132;156m 312[0m [38;2;205;214;244m- Bulk document addition to libraries[0m
+[38;2;127;132;156m 313[0m [38;2;205;214;244m- Watch multiple library folders[0m
+[38;2;127;132;156m 314[0m 
+[38;2;127;132;156m 315[0m [38;2;205;214;244m### 3.3 Admin Commands Testing[0m
+[38;2;127;132;156m 316[0m 
+[38;2;127;132;156m 317[0m [38;2;205;214;244m#### Nominal Conditions[0m
+[38;2;127;132;156m 318[0m [38;2;205;214;244m- List all collections[0m
+[38;2;127;132;156m 319[0m [38;2;205;214;244m- Show collection details[0m
+[38;2;127;132;156m 320[0m [38;2;205;214;244m- Database status[0m
+[38;2;127;132;156m 321[0m [38;2;205;214;244m- Configuration display[0m
+[38;2;127;132;156m 322[0m [38;2;205;214;244m- Health check[0m
+[38;2;127;132;156m 323[0m 
+[38;2;127;132;156m 324[0m [38;2;205;214;244m#### Edge Cases[0m
+[38;2;127;132;156m 325[0m [38;2;205;214;244m- Admin commands when daemon not running[0m
+[38;2;127;132;156m 326[0m [38;2;205;214;244m- Admin commands with invalid parameters[0m
+[38;2;127;132;156m 327[0m [38;2;205;214;244m- Database locked during admin operations[0m
+[38;2;127;132;156m 328[0m 
+[38;2;127;132;156m 329[0m [38;2;205;214;244m#### Stress Conditions[0m
+[38;2;127;132;156m 330[0m [38;2;205;214;244m- Admin commands under high system load[0m
+[38;2;127;132;156m 331[0m [38;2;205;214;244m- Concurrent admin operations[0m
+[38;2;127;132;156m 332[0m 
+[38;2;127;132;156m 333[0m [38;2;205;214;244m### 3.4 Search Commands Testing[0m
+[38;2;127;132;156m 334[0m 
+[38;2;127;132;156m 335[0m [38;2;205;214;244m#### Nominal Conditions[0m
+[38;2;127;132;156m 336[0m [38;2;205;214;244m- Search project collections[0m
+[38;2;127;132;156m 337[0m [38;2;205;214;244m- Search specific collection[0m
+[38;2;127;132;156m 338[0m [38;2;205;214;244m- Search with filters[0m
+[38;2;127;132;156m 339[0m [38;2;205;214;244m- Search output formatting (table, JSON)[0m
+[38;2;127;132;156m 340[0m 
+[38;2;127;132;156m 341[0m [38;2;205;214;244m#### Edge Cases[0m
+[38;2;127;132;156m 342[0m [38;2;205;214;244m- Search with no results[0m
+[38;2;127;132;156m 343[0m [38;2;205;214;244m- Search before daemon initialization[0m
+[38;2;127;132;156m 344[0m [38;2;205;214;244m- Search during active ingestion[0m
+[38;2;127;132;156m 345[0m 
+[38;2;127;132;156m 346[0m [38;2;205;214;244m#### Stress Conditions[0m
+[38;2;127;132;156m 347[0m [38;2;205;214;244m- Complex search queries[0m
+[38;2;127;132;156m 348[0m [38;2;205;214;244m- Multiple concurrent searches via CLI[0m
+[38;2;127;132;156m 349[0m 
+[38;2;127;132;156m 350[0m [38;2;205;214;244m### 3.5 Configuration Commands Testing[0m
+[38;2;127;132;156m 351[0m 
+[38;2;127;132;156m 352[0m [38;2;205;214;244m#### Nominal Conditions[0m
+[38;2;127;132;156m 353[0m [38;2;205;214;244m- Show configuration[0m
+[38;2;127;132;156m 354[0m [38;2;205;214;244m- Validate configuration[0m
+[38;2;127;132;156m 355[0m [38;2;205;214;244m- Configuration path display[0m
+[38;2;127;132;156m 356[0m 
+[38;2;127;132;156m 357[0m [38;2;205;214;244m#### Edge Cases[0m
+[38;2;127;132;156m 358[0m [38;2;205;214;244m- Invalid configuration file[0m
+[38;2;127;132;156m 359[0m [38;2;205;214;244m- Missing configuration file[0m
+[38;2;127;132;156m 360[0m [38;2;205;214;244m- Configuration with unknown keys[0m
+[38;2;127;132;156m 361[0m 
+[38;2;127;132;156m 362[0m [38;2;205;214;244m#### Stress Conditions[0m
+[38;2;127;132;156m 363[0m [38;2;205;214;244m- Configuration operations during daemon activity[0m
+[38;2;127;132;156m 364[0m 
+[38;2;127;132;156m 365[0m [38;2;205;214;244m## 4. Integration Testing (Cross-Component)[0m
+[38;2;127;132;156m 366[0m 
+[38;2;127;132;156m 367[0m [38;2;205;214;244m### 4.1 MCP Server + Daemon Integration[0m
+[38;2;127;132;156m 368[0m 
+[38;2;127;132;156m 369[0m [38;2;205;214;244m#### Nominal Conditions[0m
+[38;2;127;132;156m 370[0m [38;2;205;214;244m- MCP server triggers daemon ingestion[0m
+[38;2;127;132;156m 371[0m [38;2;205;214;244m- Search results from daemon-ingested content[0m
+[38;2;127;132;156m 372[0m [38;2;205;214;244m- Real-time file watching updates reflected in search[0m
+[38;2;127;132;156m 373[0m [38;2;205;214;244m- gRPC communication under normal load[0m
+[38;2;127;132;156m 374[0m 
+[38;2;127;132;156m 375[0m [38;2;205;214;244m#### Edge Cases[0m
+[38;2;127;132;156m 376[0m [38;2;205;214;244m- Daemon unavailable when MCP starts[0m
+[38;2;127;132;156m 377[0m [38;2;205;214;244m- Daemon crashes during MCP operation[0m
+[38;2;127;132;156m 378[0m [38;2;205;214;244m- gRPC connection lost mid-operation[0m
+[38;2;127;132;156m 379[0m [38;2;205;214;244m- Conflicting operations from MCP and CLI[0m
+[38;2;127;132;156m 380[0m 
+[38;2;127;132;156m 381[0m [38;2;205;214;244m#### Stress Conditions[0m
+[38;2;127;132;156m 382[0m [38;2;205;214;244m- High concurrent load on both components[0m
+[38;2;127;132;156m 383[0m [38;2;205;214;244m- Large data transfers over gRPC[0m
+[38;2;127;132;156m 384[0m [38;2;205;214;244m- Extended operation scenarios (hours/days)[0m
+[38;2;127;132;156m 385[0m 
+[38;2;127;132;156m 386[0m [38;2;205;214;244m### 4.2 CLI + Daemon Integration[0m
+[38;2;127;132;156m 387[0m 
+[38;2;127;132;156m 388[0m [38;2;205;214;244m#### Nominal Conditions[0m
+[38;2;127;132;156m 389[0m [38;2;205;214;244m- CLI commands control daemon lifecycle[0m
+[38;2;127;132;156m 390[0m [38;2;205;214;244m- CLI triggers ingestion via daemon[0m
+[38;2;127;132;156m 391[0m [38;2;205;214;244m- CLI reads daemon state[0m
+[38;2;127;132;156m 392[0m [38;2;205;214;244m- Service management via CLI[0m
+[38;2;127;132;156m 393[0m 
+[38;2;127;132;156m 394[0m [38;2;205;214;244m#### Edge Cases[0m
+[38;2;127;132;156m 395[0m [38;2;205;214;244m- CLI commands when daemon in inconsistent state[0m
+[38;2;127;132;156m 396[0m [38;2;205;214;244m- Daemon state changes during CLI command[0m
+[38;2;127;132;156m 397[0m [38;2;205;214;244m- Multiple CLI instances operating simultaneously[0m
+[38;2;127;132;156m 398[0m 
+[38;2;127;132;156m 399[0m [38;2;205;214;244m#### Stress Conditions[0m
+[38;2;127;132;156m 400[0m [38;2;205;214;244m- Rapid CLI command sequences[0m
+[38;2;127;132;156m 401[0m [38;2;205;214;244m- CLI operations during high daemon load[0m
+[38;2;127;132;156m 402[0m [38;2;205;214;244m- Concurrent CLI operations from multiple terminals[0m
+[38;2;127;132;156m 403[0m 
+[38;2;127;132;156m 404[0m [38;2;205;214;244m### 4.3 Full System Integration[0m
+[38;2;127;132;156m 405[0m 
+[38;2;127;132;156m 406[0m [38;2;205;214;244m#### Nominal Conditions[0m
+[38;2;127;132;156m 407[0m [38;2;205;214;244m- Complete workflow: Start daemon → MCP server connects → Ingest files → Search via MCP → CLI admin[0m
+[38;2;127;132;156m 408[0m [38;2;205;214;244m- Project switching scenarios[0m
+[38;2;127;132;156m 409[0m [38;2;205;214;244m- Multi-user concurrent access[0m
+[38;2;127;132;156m 410[0m [38;2;205;214;244m- Backup and restore operations[0m
+[38;2;127;132;156m 411[0m 
+[38;2;127;132;156m 412[0m [38;2;205;214;244m#### Edge Cases[0m
+[38;2;127;132;156m 413[0m [38;2;205;214;244m- Component failures during workflow[0m
+[38;2;127;132;156m 414[0m [38;2;205;214;244m- Partial system startup[0m
+[38;2;127;132;156m 415[0m [38;2;205;214;244m- Recovery from various failure modes[0m
+[38;2;127;132;156m 416[0m [38;2;205;214;244m- Mixed version components[0m
+[38;2;127;132;156m 417[0m 
+[38;2;127;132;156m 418[0m [38;2;205;214;244m#### Stress Conditions[0m
+[38;2;127;132;156m 419[0m [38;2;205;214;244m- All components under high load simultaneously[0m
+[38;2;127;132;156m 420[0m [38;2;205;214;244m- Extended runtime testing (24+ hours)[0m
+[38;2;127;132;156m 421[0m [38;2;205;214;244m- Resource exhaustion scenarios[0m
+[38;2;127;132;156m 422[0m [38;2;205;214;244m- Network instability simulation[0m
+[38;2;127;132;156m 423[0m 
+[38;2;127;132;156m 424[0m [38;2;205;214;244m### 4.4 Real-World Workflow Testing[0m
+[38;2;127;132;156m 425[0m 
+[38;2;127;132;156m 426[0m [38;2;205;214;244m#### Scenarios[0m
+[38;2;127;132;156m 427[0m [38;2;205;214;244m1. **Active Development**: MCP running, file watching active, frequent searches, code changes, git operations[0m
+[38;2;127;132;156m 428[0m [38;2;205;214;244m2. **Library Ingestion**: Bulk document import, metadata completion workflow, search validation[0m
+[38;2;127;132;156m 429[0m [38;2;205;214;244m3. **Memory Management**: Conversational rule updates, conflict resolution, rule injection testing[0m
+[38;2;127;132;156m 430[0m [38;2;205;214;244m4. **Multi-Project**: Switch between projects, collection isolation verification[0m
+[38;2;127;132;156m 431[0m [38;2;205;214;244m5. **Recovery**: Crash recovery, interrupted operations, state consistency checks[0m
+[38;2;127;132;156m 432[0m 
+[38;2;127;132;156m 433[0m [38;2;205;214;244m## 5. LLM Context Injection (New Domain)[0m
+[38;2;127;132;156m 434[0m 
+[38;2;127;132;156m 435[0m [38;2;205;214;244m### 5.1 Research Phase[0m
+[38;2;127;132;156m 436[0m 
+[38;2;127;132;156m 437[0m [38;2;205;214;244m#### Objectives[0m
+[38;2;127;132;156m 438[0m [38;2;205;214;244m- Research Claude Code CLI context injection mechanisms[0m
+[38;2;127;132;156m 439[0m [38;2;205;214;244m- Research Codex/GitHub Copilot context injection[0m
+[38;2;127;132;156m 440[0m [38;2;205;214;244m- Research Gemini CLI context injection[0m
+[38;2;127;132;156m 441[0m [38;2;205;214;244m- Research other major LLM CLI tools (Cursor, Windsurf, etc.)[0m
+[38;2;127;132;156m 442[0m [38;2;205;214;244m- Identify common patterns and best practices[0m
+[38;2;127;132;156m 443[0m [38;2;205;214;244m- Evaluate injection timing (pre-session, on-demand, continuous)[0m
+[38;2;127;132;156m 444[0m [38;2;205;214;244m- Study memory/token budget implications[0m
+[38;2;127;132;156m 445[0m 
+[38;2;127;132;156m 446[0m [38;2;205;214;244m#### Deliverables[0m
+[38;2;127;132;156m 447[0m [38;2;205;214;244m- Comprehensive research document covering:[0m
+[38;2;127;132;156m 448[0m [38;2;205;214;244m  - Each LLM tool's context injection API/mechanism[0m
+[38;2;127;132;156m 449[0m [38;2;205;214;244m  - Timing and lifecycle of context injection[0m
+[38;2;127;132;156m 450[0m [38;2;205;214;244m  - Token budget considerations[0m
+[38;2;127;132;156m 451[0m [38;2;205;214;244m  - Best practices for rule formatting[0m
+[38;2;127;132;156m 452[0m [38;2;205;214;244m  - Integration complexity assessment[0m
+[38;2;127;132;156m 453[0m [38;2;205;214;244m  - Recommended approach for workspace-qdrant-mcp[0m
+[38;2;127;132;156m 454[0m 
+[38;2;127;132;156m 455[0m [38;2;205;214;244m#### Testing During Research[0m
+[38;2;127;132;156m 456[0m [38;2;205;214;244m- Experimental implementations for each platform[0m
+[38;2;127;132;156m 457[0m [38;2;205;214;244m- Measure injection overhead[0m
+[38;2;127;132;156m 458[0m [38;2;205;214;244m- Test rule persistence across sessions[0m
+[38;2;127;132;156m 459[0m [38;2;205;214;244m- Verify rule precedence and conflict handling[0m
+[38;2;127;132;156m 460[0m 
+[38;2;127;132;156m 461[0m [38;2;205;214;244m### 5.2 Implementation Phase[0m
+[38;2;127;132;156m 462[0m 
+[38;2;127;132;156m 463[0m [38;2;205;214;244m#### 5.2.1 Context Injector Component[0m
+[38;2;127;132;156m 464[0m 
+[38;2;127;132;156m 465[0m [38;2;205;214;244m##### Nominal Conditions[0m
+[38;2;127;132;156m 466[0m [38;2;205;214;244m- Fetch rules from memory collection via daemon[0m
+[38;2;127;132;156m 467[0m [38;2;205;214;244m- Format rules for target LLM tool[0m
+[38;2;127;132;156m 468[0m [38;2;205;214;244m- Inject rules into LLM context before first user prompt[0m
+[38;2;127;132;156m 469[0m [38;2;205;214;244m- Support multiple LLM tools (Claude, Codex, Gemini, etc.)[0m
+[38;2;127;132;156m 470[0m [38;2;205;214;244m- Configuration-driven tool selection[0m
+[38;2;127;132;156m 471[0m 
+[38;2;127;132;156m 472[0m [38;2;205;214;244m##### Edge Cases[0m
+[38;2;127;132;156m 473[0m [38;2;205;214;244m- Memory collection empty[0m
+[38;2;127;132;156m 474[0m [38;2;205;214;244m- Rules exceed token budget[0m
+[38;2;127;132;156m 475[0m [38;2;205;214;244m- LLM tool not responding[0m
+[38;2;127;132;156m 476[0m [38;2;205;214;244m- Injection timing conflicts[0m
+[38;2;127;132;156m 477[0m [38;2;205;214;244m- Rule formatting errors for specific LLM[0m
+[38;2;127;132;156m 478[0m 
+[38;2;127;132;156m 479[0m [38;2;205;214;244m##### Stress Conditions[0m
+[38;2;127;132;156m 480[0m [38;2;205;214;244m- Large rule sets (approaching token limits)[0m
+[38;2;127;132;156m 481[0m [38;2;205;214;244m- Rapid session initialization[0m
+[38;2;127;132;156m 482[0m [38;2;205;214;244m- Multiple simultaneous injections[0m
+[38;2;127;132;156m 483[0m [38;2;205;214;244m- Injection during system resource constraints[0m
+[38;2;127;132;156m 484[0m 
+[38;2;127;132;156m 485[0m [38;2;205;214;244m#### 5.2.2 Rule Fetching and Formatting[0m
+[38;2;127;132;156m 486[0m 
+[38;2;127;132;156m 487[0m [38;2;205;214;244m##### Nominal Conditions[0m
+[38;2;127;132;156m 488[0m [38;2;205;214;244m- Retrieve all active rules from memory collection[0m
+[38;2;127;132;156m 489[0m [38;2;205;214;244m- Filter by authority level (absolute vs default)[0m
+[38;2;127;132;156m 490[0m [38;2;205;214;244m- Apply project-specific rules[0m
+[38;2;127;132;156m 491[0m [38;2;205;214;244m- Format for LLM-specific context (Claude system prompts, Codex comments, etc.)[0m
+[38;2;127;132;156m 492[0m [38;2;205;214;244m- Token counting and budget management[0m
+[38;2;127;132;156m 493[0m 
+[38;2;127;132;156m 494[0m [38;2;205;214;244m##### Edge Cases[0m
+[38;2;127;132;156m 495[0m [38;2;205;214;244m- Rules with conflicting authorities[0m
+[38;2;127;132;156m 496[0m [38;2;205;214;244m- Project-specific rule overrides[0m
+[38;2;127;132;156m 497[0m [38;2;205;214;244m- Temporary rule expiration[0m
+[38;2;127;132;156m 498[0m [38;2;205;214;244m- Rule content with special characters[0m
+[38;2;127;132;156m 499[0m 
+[38;2;127;132;156m 500[0m [38;2;205;214;244m##### Stress Conditions[0m
+[38;2;127;132;156m 501[0m [38;2;205;214;244m- Complex rule sets with many conditions[0m
+[38;2;127;132;156m 502[0m [38;2;205;214;244m- Large number of rules (100+)[0m
+[38;2;127;132;156m 503[0m [38;2;205;214;244m- Frequent rule updates during sessions[0m
+[38;2;127;132;156m 504[0m 
+[38;2;127;132;156m 505[0m [38;2;205;214;244m#### 5.2.3 Multi-Tool Support[0m
+[38;2;127;132;156m 506[0m 
+[38;2;127;132;156m 507[0m [38;2;205;214;244m##### Nominal Conditions[0m
+[38;2;127;132;156m 508[0m [38;2;205;214;244m- Claude Code integration (primary)[0m
+[38;2;127;132;156m 509[0m [38;2;205;214;244m- Codex/GitHub Copilot integration[0m
+[38;2;127;132;156m 510[0m [38;2;205;214;244m- Gemini CLI integration[0m
+[38;2;127;132;156m 511[0m [38;2;205;214;244m- Cursor, Windsurf, and other tools (as researched)[0m
+[38;2;127;132;156m 512[0m [38;2;205;214;244m- Auto-detection of active LLM tool[0m
+[38;2;127;132;156m 513[0m [38;2;205;214;244m- Manual tool selection override[0m
+[38;2;127;132;156m 514[0m 
+[38;2;127;132;156m 515[0m [38;2;205;214;244m##### Edge Cases[0m
+[38;2;127;132;156m 516[0m [38;2;205;214;244m- Multiple LLM tools active simultaneously[0m
+[38;2;127;132;156m 517[0m [38;2;205;214;244m- LLM tool version incompatibilities[0m
+[38;2;127;132;156m 518[0m [38;2;205;214;244m- Tool-specific context format requirements[0m
+[38;2;127;132;156m 519[0m [38;2;205;214;244m- Tool not supporting context injection[0m
+[38;2;127;132;156m 520[0m 
+[38;2;127;132;156m 521[0m [38;2;205;214;244m##### Stress Conditions[0m
+[38;2;127;132;156m 522[0m [38;2;205;214;244m- Switching between tools rapidly[0m
+[38;2;127;132;156m 523[0m [38;2;205;214;244m- Tool crashes during injection[0m
+[38;2;127;132;156m 524[0m [38;2;205;214;244m- Tool updates changing injection API[0m
+[38;2;127;132;156m 525[0m 
+[38;2;127;132;156m 526[0m [38;2;205;214;244m#### 5.2.4 Hook/Trigger Integration[0m
+[38;2;127;132;156m 527[0m 
+[38;2;127;132;156m 528[0m [38;2;205;214;244m##### Nominal Conditions[0m
+[38;2;127;132;156m 529[0m [38;2;205;214;244m- Pre-session trigger (before first user prompt)[0m
+[38;2;127;132;156m 530[0m [38;2;205;214;244m- On-demand trigger (manual refresh)[0m
+[38;2;127;132;156m 531[0m [38;2;205;214;244m- Post-update trigger (after rule changes)[0m
+[38;2;127;132;156m 532[0m [38;2;205;214;244m- Tool-specific trigger mechanisms[0m
+[38;2;127;132;156m 533[0m 
+[38;2;127;132;156m 534[0m [38;2;205;214;244m##### Edge Cases[0m
+[38;2;127;132;156m 535[0m [38;2;205;214;244m- Missed trigger events[0m
+[38;2;127;132;156m 536[0m [38;2;205;214;244m- Trigger during injection[0m
+[38;2;127;132;156m 537[0m [38;2;205;214;244m- Multiple concurrent triggers[0m
+[38;2;127;132;156m 538[0m [38;2;205;214;244m- Tool not supporting triggers[0m
+[38;2;127;132;156m 539[0m 
+[38;2;127;132;156m 540[0m [38;2;205;214;244m##### Stress Conditions[0m
+[38;2;127;132;156m 541[0m [38;2;205;214;244m- High-frequency triggers[0m
+[38;2;127;132;156m 542[0m [38;2;205;214;244m- Trigger during system load[0m
+[38;2;127;132;156m 543[0m [38;2;205;214;244m- Trigger failures and retries[0m
+[38;2;127;132;156m 544[0m 
+[38;2;127;132;156m 545[0m [38;2;205;214;244m#### 5.2.5 Token Budget Management[0m
+[38;2;127;132;156m 546[0m 
+[38;2;127;132;156m 547[0m [38;2;205;214;244m##### Nominal Conditions[0m
+[38;2;127;132;156m 548[0m [38;2;205;214;244m- Calculate token usage for rule set[0m
+[38;2;127;132;156m 549[0m [38;2;205;214;244m- Warn when approaching limits[0m
+[38;2;127;132;156m 550[0m [38;2;205;214;244m- Automatic rule prioritization[0m
+[38;2;127;132;156m 551[0m [38;2;205;214;244m- Interactive trimming for over-budget rules[0m
+[38;2;127;132;156m 552[0m [38;2;205;214;244m- Per-tool token budget configuration[0m
+[38;2;127;132;156m 553[0m 
+[38;2;127;132;156m 554[0m [38;2;205;214;244m##### Edge Cases[0m
+[38;2;127;132;156m 555[0m [38;2;205;214;244m- Budget exceeded by single rule[0m
+[38;2;127;132;156m 556[0m [38;2;205;214;244m- Budget changes during session[0m
+[38;2;127;132;156m 557[0m [38;2;205;214;244m- Tool-specific token counting differences[0m
+[38;2;127;132;156m 558[0m [38;2;205;214;244m- Rules with embedded token estimates[0m
+[38;2;127;132;156m 559[0m 
+[38;2;127;132;156m 560[0m [38;2;205;214;244m##### Stress Conditions[0m
+[38;2;127;132;156m 561[0m [38;2;205;214;244m- Minimal token budgets (<500 tokens)[0m
+[38;2;127;132;156m 562[0m [38;2;205;214;244m- Large rule sets requiring aggressive trimming[0m
+[38;2;127;132;156m 563[0m [38;2;205;214;244m- Real-time token tracking[0m
+[38;2;127;132;156m 564[0m 
+[38;2;127;132;156m 565[0m [38;2;205;214;244m### 5.3 Testing Scenarios[0m
+[38;2;127;132;156m 566[0m 
+[38;2;127;132;156m 567[0m [38;2;205;214;244m#### Integration Testing[0m
+[38;2;127;132;156m 568[0m [38;2;205;214;244m1. Rule injection with Claude Code CLI[0m
+[38;2;127;132;156m 569[0m [38;2;205;214;244m2. Rule injection with Codex[0m
+[38;2;127;132;156m 570[0m [38;2;205;214;244m3. Rule injection with Gemini[0m
+[38;2;127;132;156m 571[0m [38;2;205;214;244m4. Rule updates mid-session[0m
+[38;2;127;132;156m 572[0m [38;2;205;214;244m5. Multi-tool switching scenarios[0m
+[38;2;127;132;156m 573[0m [38;2;205;214;244m6. Rule conflict resolution visible in LLM behavior[0m
+[38;2;127;132;156m 574[0m 
+[38;2;127;132;156m 575[0m [38;2;205;214;244m#### Validation Testing[0m
+[38;2;127;132;156m 576[0m [38;2;205;214;244m1. Verify rules actually affect LLM behavior[0m
+[38;2;127;132;156m 577[0m [38;2;205;214;244m2. Measure injection overhead[0m
+[38;2;127;132;156m 578[0m [38;2;205;214;244m3. Test token budget accuracy[0m
+[38;2;127;132;156m 579[0m [38;2;205;214;244m4. Validate rule persistence[0m
+[38;2;127;132;156m 580[0m [38;2;205;214;244m5. Check rule precedence handling[0m
+[38;2;127;132;156m 581[0m 
+[38;2;127;132;156m 582[0m [38;2;205;214;244m#### End-to-End Testing[0m
+[38;2;127;132;156m 583[0m [38;2;205;214;244m1. Full workflow: Add rule conversationally → Inject → Observe behavior change[0m
+[38;2;127;132;156m 584[0m [38;2;205;214;244m2. Cross-session rule persistence[0m
+[38;2;127;132;156m 585[0m [38;2;205;214;244m3. Project-specific rule activation[0m
+[38;2;127;132;156m 586[0m [38;2;205;214;244m4. Authority level enforcement[0m
+[38;2;127;132;156m 587[0m 
+[38;2;127;132;156m 588[0m [38;2;205;214;244m## Success Criteria[0m
+[38;2;127;132;156m 589[0m 
+[38;2;127;132;156m 590[0m [38;2;205;214;244m### Daemon Testing[0m
+[38;2;127;132;156m 591[0m [38;2;205;214;244m- All file formats ingest correctly[0m
+[38;2;127;132;156m 592[0m [38;2;205;214;244m- File watching detects changes within 2 seconds[0m
+[38;2;127;132;156m 593[0m [38;2;205;214;244m- LSP integration extracts code structure accurately[0m
+[38;2;127;132;156m 594[0m [38;2;205;214;244m- State recovers cleanly from all crash scenarios[0m
+[38;2;127;132;156m 595[0m [38;2;205;214;244m- Stress tests maintain <500MB memory usage under 10,000 file load[0m
+[38;2;127;132;156m 596[0m 
+[38;2;127;132;156m 597[0m [38;2;205;214;244m### MCP Server Testing[0m
+[38;2;127;132;156m 598[0m [38;2;205;214;244m- Search returns results in <100ms for 95% of queries[0m
+[38;2;127;132;156m 599[0m [38;2;205;214;244m- Memory rules inject successfully into all supported LLM tools[0m
+[38;2;127;132;156m 600[0m [38;2;205;214;244m- All MCP tools function correctly under nominal conditions[0m
+[38;2;127;132;156m 601[0m [38;2;205;214;244m- Error handling provides clear messages for all edge cases[0m
+[38;2;127;132;156m 602[0m [38;2;205;214;244m- Stress tests handle 100+ concurrent operations[0m
+[38;2;127;132;156m 603[0m 
+[38;2;127;132;156m 604[0m [38;2;205;214;244m### CLI Testing[0m
+[38;2;127;132;156m 605[0m [38;2;205;214;244m- All commands work across supported platforms[0m
+[38;2;127;132;156m 606[0m [38;2;205;214;244m- Service management functions reliably[0m
+[38;2;127;132;156m 607[0m [38;2;205;214;244m- Admin operations complete in <1 second[0m
+[38;2;127;132;156m 608[0m [38;2;205;214;244m- CLI output formatting is consistent and clear[0m
+[38;2;127;132;156m 609[0m 
+[38;2;127;132;156m 610[0m [38;2;205;214;244m### Integration Testing[0m
+[38;2;127;132;156m 611[0m [38;2;205;214;244m- Components communicate reliably via gRPC[0m
+[38;2;127;132;156m 612[0m [38;2;205;214;244m- State consistency maintained across all components[0m
+[38;2;127;132;156m 613[0m [38;2;205;214;244m- Failure recovery works for all tested scenarios[0m
+[38;2;127;132;156m 614[0m [38;2;205;214;244m- 24-hour stress test completes without critical failures[0m
+[38;2;127;132;156m 615[0m 
+[38;2;127;132;156m 616[0m [38;2;205;214;244m### LLM Context Injection[0m
+[38;2;127;132;156m 617[0m [38;2;205;214;244m- Rules inject successfully before first user prompt[0m
+[38;2;127;132;156m 618[0m [38;2;205;214;244m- Rule changes reflect in current session[0m
+[38;2;127;132;156m 619[0m [38;2;205;214;244m- Token budget management prevents context overflow[0m
+[38;2;127;132;156m 620[0m [38;2;205;214;244m- Support for 3+ major LLM tools implemented[0m
+[38;2;127;132;156m 621[0m [38;2;205;214;244m- Behavioral changes visible and correct after rule injection[0m
+[38;2;127;132;156m 622[0m 
+[38;2;127;132;156m 623[0m [38;2;205;214;244m## Test Execution Strategy[0m
+[38;2;127;132;156m 624[0m 
+[38;2;127;132;156m 625[0m [38;2;205;214;244m### Phase 1: Individual Domain Testing (Parallel)[0m
+[38;2;127;132;156m 626[0m [38;2;205;214;244m- Daemon tests: 3 days[0m
+[38;2;127;132;156m 627[0m [38;2;205;214;244m- MCP Server tests: 2 days[0m
+[38;2;127;132;156m 628[0m [38;2;205;214;244m- CLI tests: 2 days[0m
+[38;2;127;132;156m 629[0m [38;2;205;214;244m- Total: 3 days (parallel execution)[0m
+[38;2;127;132;156m 630[0m 
+[38;2;127;132;156m 631[0m [38;2;205;214;244m### Phase 2: Integration Testing[0m
+[38;2;127;132;156m 632[0m [38;2;205;214;244m- Cross-component tests: 2 days[0m
+[38;2;127;132;156m 633[0m [38;2;205;214;244m- Real-world workflows: 1 day[0m
+[38;2;127;132;156m 634[0m [38;2;205;214;244m- Total: 3 days[0m
+[38;2;127;132;156m 635[0m 
+[38;2;127;132;156m 636[0m [38;2;205;214;244m### Phase 3: LLM Context Injection[0m
+[38;2;127;132;156m 637[0m [38;2;205;214;244m- Research phase: 3 days[0m
+[38;2;127;132;156m 638[0m [38;2;205;214;244m- Implementation: 3 days[0m
+[38;2;127;132;156m 639[0m [38;2;205;214;244m- Testing: 2 days[0m
+[38;2;127;132;156m 640[0m [38;2;205;214;244m- Total: 8 days[0m
+[38;2;127;132;156m 641[0m 
+[38;2;127;132;156m 642[0m [38;2;205;214;244m### Phase 4: Stress and Endurance Testing[0m
+[38;2;127;132;156m 643[0m [38;2;205;214;244m- 24-hour stability test: 2 days setup + 1 day monitoring[0m
+[38;2;127;132;156m 644[0m [38;2;205;214;244m- High-load scenarios: 1 day[0m
+[38;2;127;132;156m 645[0m [38;2;205;214;244m- Total: 4 days[0m
+[38;2;127;132;156m 646[0m 
+[38;2;127;132;156m 647[0m [38;2;205;214;244m**Total Estimated Duration**: 18 days with parallel execution[0m
+[38;2;127;132;156m 648[0m 
+[38;2;127;132;156m 649[0m [38;2;205;214;244m## Test Reporting[0m
+[38;2;127;132;156m 650[0m 
+[38;2;127;132;156m 651[0m [38;2;205;214;244mFor each test domain, document:[0m
+[38;2;127;132;156m 652[0m [38;2;205;214;244m1. Test results (pass/fail/partial)[0m
+[38;2;127;132;156m 653[0m [38;2;205;214;244m2. Performance metrics (latency, throughput, memory usage)[0m
+[38;2;127;132;156m 654[0m [38;2;205;214;244m3. Edge case handling outcomes[0m
+[38;2;127;132;156m 655[0m [38;2;205;214;244m4. Stress test limits identified[0m
+[38;2;127;132;156m 656[0m [38;2;205;214;244m5. Issues discovered and severity[0m
+[38;2;127;132;156m 657[0m [38;2;205;214;244m6. Recommendations for improvements[0m
+[38;2;127;132;156m 658[0m 
+[38;2;127;132;156m 659[0m [38;2;205;214;244m## Appendix: Feature Checklist[0m
+[38;2;127;132;156m 660[0m 
+[38;2;127;132;156m 661[0m [38;2;205;214;244m### Daemon Features[0m
+[38;2;127;132;156m 662[0m [38;2;205;214;244m- [ ] File ingestion (PDF, EPUB, DOCX, TXT, MD, code)[0m
+[38;2;127;132;156m 663[0m [38;2;205;214;244m- [ ] LSP integration (Python, Rust, JS, Go, TypeScript)[0m
+[38;2;127;132;156m 664[0m [38;2;205;214;244m- [ ] File watching (project auto, library configured)[0m
+[38;2;127;132;156m 665[0m [38;2;205;214;244m- [ ] Embedding generation (FastEmbed)[0m
+[38;2;127;132;156m 666[0m [38;2;205;214;244m- [ ] State persistence (SQLite)[0m
+[38;2;127;132;156m 667[0m [38;2;205;214;244m- [ ] gRPC server[0m
+[38;2;127;132;156m 668[0m [38;2;205;214;244m- [ ] Metadata extraction[0m
+[38;2;127;132;156m 669[0m [38;2;205;214;244m- [ ] Version management[0m
+[38;2;127;132;156m 670[0m [38;2;205;214;244m- [ ] Graceful lifecycle (shutdown, restart)[0m
+[38;2;127;132;156m 671[0m [38;2;205;214;244m- [ ] Queue management[0m
+[38;2;127;132;156m 672[0m [38;2;205;214;244m- [ ] Error handling and recovery[0m
+[38;2;127;132;156m 673[0m 
+[38;2;127;132;156m 674[0m [38;2;205;214;244m### MCP Server Features[0m
+[38;2;127;132;156m 675[0m [38;2;205;214;244m- [ ] Hybrid search (dense + sparse)[0m
+[38;2;127;132;156m 676[0m [38;2;205;214;244m- [ ] Collection management[0m
+[38;2;127;132;156m 677[0m [38;2;205;214;244m- [ ] Document CRUD operations[0m
+[38;2;127;132;156m 678[0m [38;2;205;214;244m- [ ] Memory rules management[0m
+[38;2;127;132;156m 679[0m [38;2;205;214;244m- [ ] Project detection[0m
+[38;2;127;132;156m 680[0m [38;2;205;214;244m- [ ] Multi-tenant isolation[0m
+[38;2;127;132;156m 681[0m [38;2;205;214;244m- [ ] Token budget management[0m
+[38;2;127;132;156m 682[0m [38;2;205;214;244m- [ ] Conflict resolution[0m
+[38;2;127;132;156m 683[0m [38;2;205;214;244m- [ ] gRPC client[0m
+[38;2;127;132;156m 684[0m [38;2;205;214;244m- [ ] MCP protocol implementation[0m
+[38;2;127;132;156m 685[0m 
+[38;2;127;132;156m 686[0m [38;2;205;214;244m### CLI Features[0m
+[38;2;127;132;156m 687[0m [38;2;205;214;244m- [ ] Service management (start, stop, status, install)[0m
+[38;2;127;132;156m 688[0m [38;2;205;214;244m- [ ] Library management (create, add, watch, list)[0m
+[38;2;127;132;156m 689[0m [38;2;205;214;244m- [ ] Search commands[0m
+[38;2;127;132;156m 690[0m [38;2;205;214;244m- [ ] Admin commands (status, health, collections)[0m
+[38;2;127;132;156m 691[0m [38;2;205;214;244m- [ ] Configuration commands (show, validate, path)[0m
+[38;2;127;132;156m 692[0m [38;2;205;214;244m- [ ] Ingestion commands[0m
+[38;2;127;132;156m 693[0m [38;2;205;214;244m- [ ] Watch configuration[0m
+[38;2;127;132;156m 694[0m 
+[38;2;127;132;156m 695[0m [38;2;205;214;244m### LLM Context Injection Features (To Be Implemented)[0m
+[38;2;127;132;156m 696[0m [38;2;205;214;244m- [ ] Rule fetching from memory collection[0m
+[38;2;127;132;156m 697[0m [38;2;205;214;244m- [ ] Multi-tool support (Claude, Codex, Gemini, etc.)[0m
+[38;2;127;132;156m 698[0m [38;2;205;214;244m- [ ] Token budget management[0m
+[38;2;127;132;156m 699[0m [38;2;205;214;244m- [ ] Rule formatting per LLM tool[0m
+[38;2;127;132;156m 700[0m [38;2;205;214;244m- [ ] Pre-session injection trigger[0m
+[38;2;127;132;156m 701[0m [38;2;205;214;244m- [ ] On-demand rule refresh[0m
+[38;2;127;132;156m 702[0m [38;2;205;214;244m- [ ] Auto-detection of active LLM tool[0m
+[38;2;127;132;156m 703[0m [38;2;205;214;244m- [ ] Hook/trigger integration[0m
+[38;2;127;132;156m 704[0m [38;2;205;214;244m- [ ] Rule conflict resolution for injection[0m
+[38;2;127;132;156m 705[0m [38;2;205;214;244m- [ ] Session-specific rule activation[0m
+[38;2;127;132;156m 706[0m 
