@@ -22,7 +22,7 @@ from pydantic import BaseModel, Field, ValidationError
 from watchdog.observers import Observer
 from watchdog.events import FileSystemEventHandler
 
-from .yaml_config import WorkspaceConfig, load_config
+from .config import get_config_manager
 from .resource_manager import ResourceLimits
 from ..utils.project_detection import ProjectDetector
 from loguru import logger
