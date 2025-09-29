@@ -41,7 +41,7 @@ from qdrant_client import QdrantClient
 
 from loguru import logger
 from .collections import WorkspaceCollectionManager, MemoryCollectionManager
-from .config import get_config, ConfigManager
+from .config import get_config_string, get_config_bool, get_config_dict, get_config
 from .embeddings import EmbeddingService
 from .ssl_config import create_secure_qdrant_config, get_ssl_manager
 
@@ -97,18 +97,16 @@ class QdrantWorkspaceClient:
         ```
     """
 
-    def __init__(self, config: ConfigManager) -> None:
-        """Initialize the workspace client with configuration.
+    def __init__(self) -> None:
+        """Initialize the workspace client with lua-style configuration access.
 
-        Args:
-            config: Configuration object containing Qdrant connection settings,
-                   embedding model configuration, and workspace preferences
+        Configuration is accessed directly through get_config() functions
+        without requiring a ConfigManager instance to be passed.
         """
-        self.config = config
         self.client: QdrantClient | None = None
         self.collection_manager: WorkspaceCollectionManager | None = None
         self.memory_collection_manager: MemoryCollectionManager | None = None
-        self.embedding_service = EmbeddingService(config)
+        self.embedding_service = EmbeddingService()
         # Lazy import to avoid circular dependency
         self.project_detector = None
         self.project_info: dict | None = None
@@ -145,16 +143,16 @@ class QdrantWorkspaceClient:
             ssl_manager = get_ssl_manager()
 
             # Determine environment from config or fall back to development
-            environment = getattr(self.config, "environment", "development")
+            environment = get_config_string("deployment.environment", "development")
 
             # Get authentication credentials from config if available
-            auth_token = self.config.get("security.qdrant_auth_token")
-            api_key = self.config.get("security.qdrant_api_key")
+            auth_token = get_config_string("security.qdrant_auth_token")
+            api_key = get_config_string("security.qdrant_api_key")
 
             # Create secure client configuration
             secure_config = create_secure_qdrant_config(
-                base_config=self.config.get("qdrant_client_config", {}),
-                url=self.config.get("qdrant.url", "http://localhost:6333"),
+                base_config=get_config_dict("qdrant_client_config", {}),
+                url=get_config_string("qdrant.url", "http://localhost:6333"),
                 environment=environment,
                 auth_token=auth_token,
                 api_key=api_key,
@@ -185,7 +183,7 @@ class QdrantWorkspaceClient:
                     return self.client.get_collections()
             
             if (
-                ssl_manager.is_localhost_url(self.config.get("qdrant.url", "http://localhost:6333"))
+                ssl_manager.is_localhost_url(get_config_string("qdrant.url", "http://localhost:6333"))
                 and environment == "development"
             ):
                 with ssl_manager.for_localhost():
@@ -918,24 +916,19 @@ class QdrantWorkspaceClient:
         self.initialized = False
 
 
-def create_qdrant_client(config_data) -> QdrantWorkspaceClient:
-    """Create a QdrantWorkspaceClient instance from configuration data.
+def create_qdrant_client(config_data=None) -> QdrantWorkspaceClient:
+    """Create a QdrantWorkspaceClient instance with lua-style configuration.
 
-    This is a factory function that creates and initializes a workspace client
-    from configuration data. It's used throughout the CLI and tools for
-    consistent client creation.
+    This is a factory function that creates a workspace client using
+    the lua-style configuration pattern. Configuration is accessed
+    directly via get_config() functions.
 
     Args:
-        config_data: Configuration data that should be compatible with Config.qdrant_client_config
+        config_data: Deprecated parameter for backward compatibility
 
     Returns:
         QdrantWorkspaceClient: Initialized client instance
     """
-    from .config import get_config, ConfigManager
-
-    # Create config instance
-    config = get_config()
-
-    # Create and return the client
-    client = QdrantWorkspaceClient(config)
+    # Create and return the client (no config parameter needed)
+    client = QdrantWorkspaceClient()
     return client
