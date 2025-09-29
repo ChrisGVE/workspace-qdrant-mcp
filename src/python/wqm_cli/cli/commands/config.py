@@ -20,7 +20,7 @@ from rich.panel import Panel
 from rich.table import Table
 from rich.text import Text
 
-from common.core.config import Config
+from common.core.config import get_config_manager
 from common.core.unified_config import UnifiedConfigManager, ConfigFormat, ConfigValidationError, ConfigFormatError
 from common.core.ingestion_config import IngestionConfigManager, IngestionConfig
 from loguru import logger
@@ -71,7 +71,7 @@ def show_config(
 ):
     """Show current configuration."""
     try:
-        config = Config()
+        config = get_config_manager()
         config_dict = config.model_dump()
         
         if section:
@@ -102,7 +102,7 @@ def get_config_value(
 ):
     """Get a specific configuration value."""
     try:
-        config = Config()
+        config = get_config_manager()
         config_dict = config.model_dump()
         
         # Navigate nested keys
@@ -282,7 +282,7 @@ def validate_config(
                 return
             
         # Load and validate current configuration
-        config = Config()
+        config = get_config_manager()
         
         # Perform validation
         validation_results = []
