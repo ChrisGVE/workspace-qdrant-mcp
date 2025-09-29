@@ -234,11 +234,15 @@ class TestWatchLifecycle:
     """Test complete watch lifecycle (requires daemon)."""
 
     @pytest.fixture
-    def daemon_required(self):
-        """Mark tests that require daemon."""
-        pytest.skip("Daemon not running - skipping daemon-dependent test")
+    def daemon_running(self, watch_env):
+        """Check if daemon is running, skip if not."""
+        # Check daemon status
+        return_code, stdout, stderr = watch_env.run_cli_command("service status")
+        if return_code != 0 or "not running" in (stdout + stderr).lower():
+            pytest.skip("Daemon not running - skipping daemon-dependent test")
+        return True
 
-    def test_add_watch_folder(self, watch_env, daemon_required):
+    def test_add_watch_folder(self, watch_env, daemon_running):
         """Test adding a folder to watch."""
         # Create test folder
         test_folder = watch_env.create_watch_folder("test_watch_1")
@@ -252,7 +256,7 @@ class TestWatchLifecycle:
         output = stdout + stderr
         assert len(output) > 0
 
-    def test_list_active_watches(self, watch_env, daemon_required):
+    def test_list_active_watches(self, watch_env, daemon_running):
         """Test listing active watches."""
         return_code, stdout, stderr = watch_env.run_cli_command("watch list")
 
@@ -260,7 +264,7 @@ class TestWatchLifecycle:
         output = stdout + stderr
         assert len(output) > 0
 
-    def test_watch_status(self, watch_env, daemon_required):
+    def test_watch_status(self, watch_env, daemon_running):
         """Test getting watch status."""
         return_code, stdout, stderr = watch_env.run_cli_command("watch status")
 
@@ -268,7 +272,7 @@ class TestWatchLifecycle:
         output = stdout + stderr
         assert len(output) > 0
 
-    def test_pause_watch(self, watch_env, daemon_required):
+    def test_pause_watch(self, watch_env, daemon_running):
         """Test pausing a watch."""
         return_code, stdout, stderr = watch_env.run_cli_command("watch pause --all")
 
@@ -276,7 +280,7 @@ class TestWatchLifecycle:
         output = stdout + stderr
         assert len(output) > 0
 
-    def test_resume_watch(self, watch_env, daemon_required):
+    def test_resume_watch(self, watch_env, daemon_running):
         """Test resuming a paused watch."""
         return_code, stdout, stderr = watch_env.run_cli_command("watch resume --all")
 
@@ -284,7 +288,7 @@ class TestWatchLifecycle:
         output = stdout + stderr
         assert len(output) > 0
 
-    def test_remove_watch(self, watch_env, daemon_required):
+    def test_remove_watch(self, watch_env, daemon_running):
         """Test removing a watch."""
         # Create and add watch
         test_folder = watch_env.create_watch_folder("test_watch_remove")
@@ -304,11 +308,15 @@ class TestFileDetection:
     """Test file detection and ingestion (requires daemon)."""
 
     @pytest.fixture
-    def daemon_required(self):
-        """Mark tests that require daemon."""
-        pytest.skip("Daemon not running - skipping daemon-dependent test")
+    def daemon_running(self, watch_env):
+        """Check if daemon is running, skip if not."""
+        # Check daemon status
+        return_code, stdout, stderr = watch_env.run_cli_command("service status")
+        if return_code != 0 or "not running" in (stdout + stderr).lower():
+            pytest.skip("Daemon not running - skipping daemon-dependent test")
+        return True
 
-    def test_detect_new_file(self, watch_env, daemon_required):
+    def test_detect_new_file(self, watch_env, daemon_running):
         """Test detection of newly created file."""
         # Create watched folder
         test_folder = watch_env.create_watch_folder("test_detection")
@@ -328,7 +336,7 @@ class TestFileDetection:
         # This would need to check ingestion logs or Qdrant
         assert test_file.exists()
 
-    def test_detect_file_modification(self, watch_env, daemon_required):
+    def test_detect_file_modification(self, watch_env, daemon_running):
         """Test detection of file modifications."""
         # Create watched folder and file
         test_folder = watch_env.create_watch_folder("test_modification")
@@ -351,7 +359,7 @@ class TestFileDetection:
         assert test_file.exists()
         assert "Modified content" in test_file.read_text()
 
-    def test_detect_file_deletion(self, watch_env, daemon_required):
+    def test_detect_file_deletion(self, watch_env, daemon_running):
         """Test detection of file deletions."""
         # Create watched folder and file
         test_folder = watch_env.create_watch_folder("test_deletion")
@@ -377,11 +385,15 @@ class TestMultipleFolders:
     """Test watching multiple folders simultaneously."""
 
     @pytest.fixture
-    def daemon_required(self):
-        """Mark tests that require daemon."""
-        pytest.skip("Daemon not running - skipping daemon-dependent test")
+    def daemon_running(self, watch_env):
+        """Check if daemon is running, skip if not."""
+        # Check daemon status
+        return_code, stdout, stderr = watch_env.run_cli_command("service status")
+        if return_code != 0 or "not running" in (stdout + stderr).lower():
+            pytest.skip("Daemon not running - skipping daemon-dependent test")
+        return True
 
-    def test_watch_multiple_folders(self, watch_env, daemon_required):
+    def test_watch_multiple_folders(self, watch_env, daemon_running):
         """Test adding multiple folders to watch."""
         # Create multiple folders
         folder1 = watch_env.create_watch_folder("multi_watch_1")
@@ -401,7 +413,7 @@ class TestMultipleFolders:
         output = stdout + stderr
         assert len(output) > 0
 
-    def test_watch_nested_folders(self, watch_env, daemon_required):
+    def test_watch_nested_folders(self, watch_env, daemon_running):
         """Test watching nested folder structures."""
         # Create nested structure
         parent = watch_env.create_watch_folder("nested_parent")
