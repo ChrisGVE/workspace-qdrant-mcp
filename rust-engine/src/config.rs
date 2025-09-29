@@ -1641,96 +1641,18 @@ impl DaemonConfig {
         Ok(())
     }
 
-    /// Get database configuration - returns values directly
-    pub fn database(&self) -> DatabaseConfig {
-        let config_guard = config().lock().unwrap();
-        DatabaseConfig {
-            max_connections: config_guard.get_i32("database.max_connections", 10),
-            sqlite_path: config_guard.get_string("database.sqlite_path", ":memory:"),
-            connection_timeout_secs: config_guard.get_u64("database.connection_timeout_secs", 30),
-            enable_wal: config_guard.get_bool("database.enable_wal", false),
-        }
-    }
+    // REMOVED: database() shim method - use get_config_* functions directly
 
-    /// Get Qdrant configuration - returns values directly
-    pub fn qdrant(&self) -> QdrantConfig {
-        let config_guard = config().lock().unwrap();
-        QdrantConfig {
-            url: config_guard.get_string("qdrant.url", "http://localhost:6333"),
-            api_key: config_guard.get("qdrant.api_key").and_then(|v| v.as_string()),
-            max_retries: config_guard.get_u32("qdrant.max_retries", 3),
-            default_collection: CollectionConfig {
-                vector_size: config_guard.get_u64("qdrant.default_collection.vector_size", 384) as usize,
-                shard_number: config_guard.get_u32("qdrant.default_collection.shard_number", 1),
-                replication_factor: config_guard.get_u32("qdrant.default_collection.replication_factor", 1),
-                distance_metric: config_guard.get_string("qdrant.default_collection.distance_metric", "Cosine"),
-                enable_indexing: config_guard.get_bool("qdrant.default_collection.enable_indexing", true),
-            },
-        }
-    }
+    // REMOVED: qdrant() shim method - use get_config_* functions directly
 
-    /// Get auto-ingestion configuration - returns values directly
-    pub fn auto_ingestion(&self) -> AutoIngestionConfig {
-        let config_guard = config().lock().unwrap();
-        AutoIngestionConfig {
-            enabled: config_guard.get_bool("auto_ingestion.enabled", true),
-            project_collection: config_guard.get_string("auto_ingestion.project_collection", "projects_content"),
-            auto_create_watches: config_guard.get_bool("auto_ingestion.auto_create_watches", true),
-            project_path: config_guard.get("auto_ingestion.project_path").and_then(|v| v.as_string()),
-            include_source_files: config_guard.get_bool("auto_ingestion.include_source_files", false),
-            include_patterns: config_guard.get_array("workspace.custom_include_patterns")
-                .map(|arr| arr.iter().filter_map(|v| v.as_string()).collect())
-                .unwrap_or_else(|| vec![]),
-            exclude_patterns: config_guard.get_array("workspace.custom_exclude_patterns")
-                .map(|arr| arr.iter().filter_map(|v| v.as_string()).collect())
-                .unwrap_or_else(|| vec![]),
-            max_depth: config_guard.get_u64("auto_ingestion.max_depth", 10) as usize,
-            recursive: config_guard.get_bool("auto_ingestion.recursive", true),
-        }
-    }
+    // REMOVED: auto_ingestion() shim method - use get_config_* functions directly
 
-    /// Get workspace configuration - returns values directly
-    pub fn workspace(&self) -> WorkspaceConfig {
-        let config_guard = config().lock().unwrap();
-        WorkspaceConfig {
-            collection_basename: config_guard.get("workspace.collection_basename").and_then(|v| v.as_string()),
-            collection_types: config_guard.get_array("workspace.collection_types")
-                .map(|arr| arr.iter().filter_map(|v| v.as_string()).collect())
-                .unwrap_or_else(|| vec![]),
-            memory_collection_name: config_guard.get_string("workspace.memory_collection_name", "memory"),
-            auto_create_collections: config_guard.get_bool("workspace.auto_create_collections", true),
-        }
-    }
+    // REMOVED: workspace() shim method - use get_config_* functions directly
 
-    /// Get processing configuration
-    pub fn processing(&self) -> ProcessingConfig {
-        let config_guard = config().lock().unwrap();
-        ProcessingConfig {
-            max_concurrent_tasks: config_guard.get_u64("performance.max_concurrent_tasks", 4) as usize,
-            supported_extensions: config_guard.get_array("auto_ingestion.supported_extensions")
-                .map(|arr| arr.iter().filter_map(|v| v.as_string()).collect())
-                .unwrap_or_else(|| vec![".txt".to_string(), ".md".to_string(), ".py".to_string(), ".rs".to_string()]),
-            default_chunk_size: config_guard.get_u64("processing.default_chunk_size", 1000) as usize,
-            default_chunk_overlap: config_guard.get_u64("processing.default_chunk_overlap", 200) as usize,
-            max_file_size_bytes: config_guard.get_u64("processing.max_file_size_bytes", 10 * 1024 * 1024),
-            enable_lsp: config_guard.get_bool("processing.enable_lsp", false),
-            lsp_timeout_secs: config_guard.get_u32("processing.lsp_timeout_secs", 30),
-        }
-    }
+    // REMOVED: processing() shim method - use get_config_* functions directly
 
-    /// Get file watcher configuration
-    pub fn file_watcher(&self) -> FileWatcherConfig {
-        let config_guard = config().lock().unwrap();
-        FileWatcherConfig {
-            enabled: config_guard.get_bool("auto_ingestion.auto_create_watches", true),
-            ignore_patterns: config_guard.get_array("auto_ingestion.ignore_patterns")
-                .map(|arr| arr.iter().filter_map(|v| v.as_string()).collect())
-                .unwrap_or_else(|| vec!["*.tmp".to_string(), "*.log".to_string()]),
-            recursive: config_guard.get_bool("auto_ingestion.recursive", true),
-            max_watched_dirs: config_guard.get_u64("auto_ingestion.max_watched_dirs", 100) as usize,
-            debounce_ms: config_guard.get_u64("auto_ingestion.debounce_ms", 1000),
-        }
-    }
+    // REMOVED: file_watcher() shim method - was reading from wrong path (auto_ingestion.auto_create_watches)
+    // Use get_config_bool("document_processing.file_watching.enabled", false) instead
 
     /// Get server configuration
     pub fn server(&self) -> ServerConfig {
