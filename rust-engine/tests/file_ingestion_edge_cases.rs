@@ -11,6 +11,14 @@
 //! - Deep nested directories (20+ levels)
 //! - Unicode filenames/content
 //! - Incomplete metadata
+//!
+//! ## Important Implementation Note
+//! The current daemon implementation uses `fs::read_to_string()` which means:
+//! - Only UTF-8 valid text files can be fully processed
+//! - Binary files or files with invalid UTF-8 will return "error" status
+//! - This is by design for a text-based document processor
+//! - All edge cases are handled gracefully without crashing
+//! - Note: ASCII null bytes (\x00) ARE valid UTF-8 and will be processed successfully
 
 use std::fs::{self, File};
 use std::io::Write;
@@ -95,7 +103,8 @@ mod fixtures {
     /// Create a file with special characters in name
     pub fn create_special_char_file(dir: &Path, name: &str) -> PathBuf {
         let path = dir.join(name);
-        File::create(&path).expect("Failed to create special char file");
+        let mut file = File::create(&path).expect("Failed to create special char file");
+        file.write_all(b"Valid content").expect("Failed to write content");
         path
     }
 
@@ -150,12 +159,13 @@ mod fixtures {
         Ok((link1, link2))
     }
 
-    /// Create a corrupted PDF-like file (invalid PDF header)
+    /// Create a corrupted PDF-like file (invalid PDF header with binary content)
     pub fn create_corrupted_pdf(dir: &Path, name: &str) -> PathBuf {
         let path = dir.join(name);
         let mut file = File::create(&path).expect("Failed to create corrupted PDF");
-        // Write invalid PDF header
-        file.write_all(b"%PDF-INVALID\nCorrupted content").expect("Failed to write");
+        // Write invalid PDF header with binary content (invalid UTF-8)
+        file.write_all(&[0x25, 0x50, 0x44, 0x46, 0xFF, 0xFE, 0x00, 0x01])
+            .expect("Failed to write");
         path
     }
 
@@ -169,10 +179,11 @@ mod fixtures {
         path
     }
 
-    /// Create a file with null bytes in content
+    /// Create a file with null bytes in content (valid UTF-8, as null is ASCII 0)
     pub fn create_null_byte_content_file(dir: &Path, name: &str) -> PathBuf {
         let path = dir.join(name);
         let mut file = File::create(&path).expect("Failed to create null byte file");
+        // Write content with null bytes (valid UTF-8 since null is ASCII character 0)
         file.write_all(b"Content\x00with\x00null\x00bytes").expect("Failed to write");
         path
     }
@@ -332,8 +343,10 @@ mod corrupted_file_tests {
 
         let result = processor.process_document(corrupted_pdf.to_str().unwrap()).await;
 
-        // Corrupted files should be handled gracefully (not crash)
+        // Corrupted binary files should be handled gracefully (returns "error" for invalid UTF-8)
         assert!(result.is_ok(), "Corrupted PDF should be handled gracefully");
+        // Binary files with invalid UTF-8 will return "error" status
+        assert_eq!(result.unwrap(), "error", "Binary/invalid UTF-8 files return 'error' status");
     }
 
     #[tokio::test]
@@ -350,8 +363,11 @@ mod corrupted_file_tests {
 
         let result = processor.process_document(null_byte_file.to_str().unwrap()).await;
 
-        // Files with null bytes should be handled
+        // Files with null bytes are valid UTF-8 (null is ASCII character 0)
         assert!(result.is_ok(), "File with null bytes should be handled");
+        // Null bytes are valid UTF-8, so the file should be processed successfully
+        let document_id = result.unwrap();
+        assert_eq!(document_id.len(), 36, "Null byte file should return valid document ID");
     }
 
     #[tokio::test]
@@ -760,6 +776,7 @@ mod error_recovery_tests {
         let corrupted = fixtures::create_corrupted_pdf(temp_dir.path(), "corrupted.pdf");
         let result1 = processor.process_document(corrupted.to_str().unwrap()).await;
         assert!(result1.is_ok(), "Corrupted file should be handled");
+        assert_eq!(result1.unwrap(), "error", "Corrupted binary file returns 'error'");
 
         // Process valid file after corrupted one
         let valid_file = temp_dir.path().join("valid.txt");
@@ -788,7 +805,8 @@ mod error_recovery_tests {
 
         // Create mix of valid and invalid files
         let valid = temp_dir.path().join("valid.txt");
-        File::create(&valid).expect("Failed to create valid file");
+        let mut valid_file = File::create(&valid).expect("Failed to create valid file");
+        valid_file.write_all(b"Valid content").expect("Failed to write");
 
         let zero = fixtures::create_zero_byte_file(temp_dir.path(), "zero.txt");
         let nonexistent = "/nonexistent/file.txt";
