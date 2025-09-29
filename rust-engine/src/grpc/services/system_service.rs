@@ -148,7 +148,7 @@ impl SystemService for SystemServiceImpl {
     ) -> Result<Response<ConfigResponse>, Status> {
         debug!("Configuration requested");
 
-        let config = self.daemon.config();
+        let _config = self.daemon.config(); // Keep for future use
 
         // Convert configuration to string map
         let mut configuration = std::collections::HashMap::new();
