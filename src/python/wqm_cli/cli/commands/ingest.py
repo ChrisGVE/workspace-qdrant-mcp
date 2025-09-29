@@ -437,9 +437,9 @@ async def _generate_yaml_metadata(
         # Create workflow - this still needs direct client as YAML metadata workflow
         # is not yet integrated with daemon gRPC API
         from common.core.client import create_qdrant_client
-        from common.core.config import Config
+        from common.core.config import get_config_manager
 
-        config = Config()
+        config = get_config_manager()
         client = create_qdrant_client(config.qdrant_client_config)
         workflow = YamlMetadataWorkflow(client)
 
@@ -486,9 +486,9 @@ async def _ingest_yaml_metadata(path: str, dry_run: bool, force: bool):
         # Create workflow - this still needs direct client as YAML metadata workflow
         # is not yet integrated with daemon gRPC API
         from common.core.client import create_qdrant_client
-        from common.core.config import Config
+        from common.core.config import get_config_manager
 
-        config = Config()
+        config = get_config_manager()
         client = create_qdrant_client(config.qdrant_client_config)
         workflow = YamlMetadataWorkflow(client)
 

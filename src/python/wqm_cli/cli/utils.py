@@ -421,12 +421,12 @@ def get_configured_client(config=None) -> QdrantClient:
     """
     try:
         # Import here to avoid circular imports
-        from common.core.config import Config
+        from common.core.config import get_config_manager
         from common.core.ssl_config import get_ssl_manager
         import warnings
         
         if config is None:
-            config = Config()
+            config = get_config_manager()
             
         ssl_manager = get_ssl_manager()
         
