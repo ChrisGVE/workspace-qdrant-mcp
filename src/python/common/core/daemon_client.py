@@ -80,7 +80,7 @@ from ..grpc.ingestion_pb2 import (
 )
 from ..grpc.ingestion_pb2_grpc import IngestServiceStub
 from loguru import logger
-from .yaml_config import WorkspaceConfig, load_config
+from .config import get_config_manager
 # TEMP: Comment out service_discovery import to fix syntax errors
 # from .service_discovery import discover_daemon_endpoint, ServiceEndpoint
 
@@ -109,9 +109,9 @@ class DaemonClient:
     Automatically discovers the correct daemon instance for the current project context.
     """
 
-    def __init__(self, config: Optional[WorkspaceConfig] = None, project_path: Optional[str] = None):
+    def __init__(self, config_manager=None, project_path: Optional[str] = None):
         """Initialize daemon client with configuration and optional project context."""
-        self.config = config or load_config()
+        self.config = config_manager or get_config_manager()
         self.project_path = project_path or os.getcwd()
         self.channel: Optional[grpc.aio.Channel] = None
         self.stub: Optional[IngestServiceStub] = None
@@ -124,8 +124,9 @@ class DaemonClient:
             return
 
         # First, attempt service discovery for project-specific daemon
-        grpc_config = self.config.daemon.grpc
-        preferred_endpoint = (grpc_config.host, grpc_config.port)
+        grpc_host = self.config.get("grpc.host", "localhost")
+        grpc_port = self.config.get("grpc.port", 50051)
+        preferred_endpoint = (grpc_host, grpc_port)
         
         logger.info("Attempting service discovery for daemon connection", 
                    project_path=self.project_path)
@@ -242,9 +243,10 @@ class DaemonClient:
                 "discovery_strategy": "service_discovery"
             })
         else:
-            grpc_config = self.config.daemon.grpc
+            grpc_host = self.config.get("grpc.host", "localhost")
+            grpc_port = self.config.get("grpc.port", 50051)
             info.update({
-                "endpoint": f"{grpc_config.host}:{grpc_config.port}",
+                "endpoint": f"{grpc_host}:{grpc_port}",
                 "discovery_strategy": "configuration"
             })
         
@@ -667,29 +669,29 @@ _daemon_client: Optional[DaemonClient] = None
 
 
 def get_daemon_client(
-    config: Optional[WorkspaceConfig] = None, 
+    config_manager=None,
     project_path: Optional[str] = None
 ) -> DaemonClient:
     """Get the global daemon client instance with optional project context."""
     global _daemon_client
 
-    if _daemon_client is None or config is not None or project_path is not None:
-        _daemon_client = DaemonClient(config, project_path)
+    if _daemon_client is None or config_manager is not None or project_path is not None:
+        _daemon_client = DaemonClient(config_manager, project_path)
 
     return _daemon_client
 
 
 async def with_daemon_client(
-    operation, 
-    config: Optional[WorkspaceConfig] = None,
+    operation,
+    config_manager=None,
     project_path: Optional[str] = None
 ):
     """Execute an operation with a connected daemon client."""
-    client = get_daemon_client(config, project_path)
+    client = get_daemon_client(config_manager, project_path)
     async with client.connection():
         return await operation(client)
 
 
-def create_project_client(project_path: str, config: Optional[WorkspaceConfig] = None) -> DaemonClient:
+def create_project_client(project_path: str, config_manager=None) -> DaemonClient:
     """Create a new daemon client for a specific project path."""
-    return DaemonClient(config, project_path)
+    return DaemonClient(config_manager, project_path)
