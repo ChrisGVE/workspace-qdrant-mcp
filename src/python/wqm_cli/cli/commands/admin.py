@@ -15,7 +15,7 @@ import psutil
 import typer
 
 from common.core.client import QdrantWorkspaceClient, create_qdrant_client
-from common.core.config import Config
+from common.core.config import get_config_manager
 from loguru import logger
 from common.utils.project_detection import ProjectDetector
 # Lazy import to avoid CLI startup issues
@@ -209,7 +209,7 @@ def cleanup_migration_history(
 async def _system_status(verbose: bool, json_output: bool) -> None:
     """Show comprehensive system status."""
     try:
-        config = Config()
+        config = get_config_manager()
         status_data = await _collect_status_data(config)
 
         if json_output:
@@ -236,7 +236,7 @@ async def _watch_status(verbose: bool) -> None:
             clear_cmd = ["clear"] if os.name == "posix" else ["cls"]
             subprocess.run(clear_cmd, check=False, capture_output=False)
 
-            config = Config()
+            config = get_config_manager()
             status_data = await _collect_status_data(config)
             _display_status_panel(status_data, verbose)
 
@@ -249,7 +249,7 @@ async def _watch_status(verbose: bool) -> None:
         print("\nStatus monitoring stopped")
 
 
-async def _collect_status_data(config: Config) -> dict[str, Any]:
+async def _collect_status_data(config) -> dict[str, Any]:
     """Collect comprehensive status information."""
     from datetime import datetime
 
@@ -428,7 +428,7 @@ def _display_status_panel(status_data: dict[str, Any], verbose: bool) -> None:
 async def _config_management(show: bool, validate: bool, path: str | None) -> None:
     """Configuration management operations."""
     try:
-        config = Config()
+        config = get_config_manager()
 
         if show:
             print("Current Configuration")
@@ -527,7 +527,7 @@ async def _restart_engine(config_path: str | None) -> None:
 async def _list_collections(project: str | None, stats: bool, library: bool) -> None:
     """List and manage collections."""
     try:
-        config = Config()
+        config = get_config_manager()
         # Use configured client to get collections
         raw_client = get_configured_client(config)
 
@@ -605,7 +605,7 @@ async def _health_check(deep: bool, timeout: int) -> None:
     # Basic connectivity
     print("Testing Qdrant connectivity...")
     try:
-        config = Config()
+        config = get_config_manager()
         # Use configured client for health check
         raw_client = get_configured_client(config)
 
