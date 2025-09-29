@@ -28,8 +28,8 @@ from rich.progress import (
 )
 from rich.table import Table
 
+from common.core.config import get_config_manager
 from common.core.daemon_client import get_daemon_client, with_daemon_client
-from common.core.yaml_config import load_config
 from .ingestion_engine import DocumentIngestionEngine, IngestionResult, IngestionStats
 from .parsers import SecurityConfig, WebIngestionInterface, create_secure_web_parser
 
@@ -252,11 +252,13 @@ async def _run_ingestion(
     try:
         # Initialize daemon client
         console.print("🚀 Connecting to daemon...", style="blue")
-        config = load_config()
+        config = get_config_manager()
         daemon_client = get_daemon_client(config)
         await daemon_client.connect()
 
-        console.print(f"✅ Connected to daemon at {config.daemon.grpc.host}:{config.daemon.grpc.port}", style="green")
+        grpc_host = config.get("grpc.host", "localhost")
+        grpc_port = config.get("grpc.port", 50051)
+        console.print(f"✅ Connected to daemon at {grpc_host}:{grpc_port}", style="green")
 
         # Show system status
         system_status = await daemon_client.get_system_status()
@@ -685,11 +687,13 @@ async def _run_web_ingestion(
 
         # Initialize daemon client
         console.print("🚀 Connecting to daemon...", style="blue")
-        config = load_config()
+        config = get_config_manager()
         daemon_client = get_daemon_client(config)
         await daemon_client.connect()
 
-        console.print(f"✅ Connected to daemon at {config.daemon.grpc.host}:{config.daemon.grpc.port}", style="green")
+        grpc_host = config.get("grpc.host", "localhost")
+        grpc_port = config.get("grpc.port", 50051)
+        console.print(f"✅ Connected to daemon at {grpc_host}:{grpc_port}", style="green")
 
         # Show system status
         system_status = await daemon_client.get_system_status()
