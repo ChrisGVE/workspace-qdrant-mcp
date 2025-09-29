@@ -59,7 +59,7 @@ from rich.table import Table
 from rich.text import Text
 
 from common.core.client import QdrantWorkspaceClient
-from common.core.config import Config
+from common.core.config import get_config_manager
 from common.core.embeddings import EmbeddingService
 from common.utils.config_validator import ConfigValidator
 from common.utils.project_detection import ProjectDetector
@@ -159,7 +159,7 @@ class DiagnosticTool:
 
     def __init__(
         self,
-        config: Config,
+        config,
         verbose: bool = False,
         benchmark: bool = False,
         component_filter: str | None = None,
@@ -1574,7 +1574,7 @@ def main(
 
     try:
         # Load configuration
-        config = Config()
+        config = get_config_manager()
 
         # Create diagnostic tool
         diagnostic_tool = DiagnosticTool(

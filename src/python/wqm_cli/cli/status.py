@@ -62,7 +62,7 @@ from rich.text import Text
 from rich.tree import Tree
 
 from common.core.client import QdrantWorkspaceClient
-from common.core.config import Config
+from common.core.config import get_config_manager
 from loguru import logger
 # TEMPORARY FIX: Comment out grpc_tools import that causes CLI to hang
 # This needs to be fixed properly by making grpc_tools imports lazy or conditional
