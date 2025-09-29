@@ -772,27 +772,34 @@ _global_config: Optional[ConfigManager] = None
 _config_lock = threading.Lock()
 
 
-def get_config(config_file: Optional[str] = None, **kwargs) -> ConfigManager:
-    """Get global configuration instance (thread-safe).
+def get_config(path: str = None, default: Any = None) -> Any:
+    """Get configuration value using lua-style dot notation path (pure function).
 
-    This function provides the global read-only configuration structure
-    as specified by the user requirements.
+    This function provides the pure lua-style configuration access pattern
+    matching the Rust implementation: get_config("exact.yaml.path")
 
     Args:
-        config_file: Path to YAML configuration file (only used on first call)
-        **kwargs: Override values (only used on first call)
+        path: Dot-separated configuration path (e.g., "qdrant.url", "embedding.model")
+             If None, returns the entire configuration dictionary
+        default: Default value if path is not found
 
     Returns:
-        ConfigManager: Global configuration instance
+        Any: Configuration value with appropriate type (dict, list, str, int, float, bool)
     """
     global _global_config
 
+    # Initialize global config if not already done
     if _global_config is None:
         with _config_lock:
             if _global_config is None:
-                _global_config = ConfigManager.get_instance(config_file, **kwargs)
+                _global_config = ConfigManager.get_instance()
 
-    return _global_config
+    # If no path specified, return entire config
+    if path is None:
+        return _global_config.get_all()
+
+    # Use the existing dot notation access
+    return _global_config.get(path, default)
 
 
 def reset_config() -> None:
@@ -802,6 +809,130 @@ def reset_config() -> None:
     with _config_lock:
         _global_config = None
         ConfigManager.reset_instance()
+
+
+# Lua-style helper functions matching Rust API
+def get_config_string(path: str, default: str = "") -> str:
+    """Get configuration string value with default (lua-style).
+
+    Args:
+        path: Dot-separated configuration path
+        default: Default string value if path not found
+
+    Returns:
+        str: Configuration string value
+    """
+    value = get_config(path, default)
+    return str(value) if value is not None else default
+
+
+def get_config_bool(path: str, default: bool = False) -> bool:
+    """Get configuration boolean value with default (lua-style).
+
+    Args:
+        path: Dot-separated configuration path
+        default: Default boolean value if path not found
+
+    Returns:
+        bool: Configuration boolean value
+    """
+    value = get_config(path, default)
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, str):
+        return value.lower() in ("true", "1", "yes", "on")
+    return bool(value) if value is not None else default
+
+
+def get_config_int(path: str, default: int = 0) -> int:
+    """Get configuration integer value with default (lua-style).
+
+    Args:
+        path: Dot-separated configuration path
+        default: Default integer value if path not found
+
+    Returns:
+        int: Configuration integer value
+    """
+    value = get_config(path, default)
+    if isinstance(value, int):
+        return value
+    if isinstance(value, (str, float)):
+        try:
+            return int(value)
+        except (ValueError, TypeError):
+            return default
+    return default
+
+
+def get_config_float(path: str, default: float = 0.0) -> float:
+    """Get configuration float value with default (lua-style).
+
+    Args:
+        path: Dot-separated configuration path
+        default: Default float value if path not found
+
+    Returns:
+        float: Configuration float value
+    """
+    value = get_config(path, default)
+    if isinstance(value, (int, float)):
+        return float(value)
+    if isinstance(value, str):
+        try:
+            return float(value)
+        except (ValueError, TypeError):
+            return default
+    return default
+
+
+def get_config_list(path: str, default: List[Any] = None) -> List[Any]:
+    """Get configuration list value with default (lua-style).
+
+    Args:
+        path: Dot-separated configuration path
+        default: Default list value if path not found
+
+    Returns:
+        List[Any]: Configuration list value
+    """
+    if default is None:
+        default = []
+    value = get_config(path, default)
+    return value if isinstance(value, list) else default
+
+
+def get_config_dict(path: str, default: Dict[str, Any] = None) -> Dict[str, Any]:
+    """Get configuration dictionary value with default (lua-style).
+
+    Args:
+        path: Dot-separated configuration path
+        default: Default dictionary value if path not found
+
+    Returns:
+        Dict[str, Any]: Configuration dictionary value
+    """
+    if default is None:
+        default = {}
+    value = get_config(path, default)
+    return value if isinstance(value, dict) else default
+
+
+# Legacy compatibility function - deprecated
+def get_config_manager(config_file: Optional[str] = None, **kwargs) -> ConfigManager:
+    """Get global configuration manager instance (DEPRECATED).
+
+    Use get_config(path) instead for lua-style access.
+    This function is kept for backward compatibility only.
+    """
+    global _global_config
+
+    if _global_config is None:
+        with _config_lock:
+            if _global_config is None:
+                _global_config = ConfigManager.get_instance(config_file, **kwargs)
+
+    return _global_config
 
 
 # End of ConfigManager implementation
