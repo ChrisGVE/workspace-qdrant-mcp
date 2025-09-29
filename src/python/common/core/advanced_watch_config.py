@@ -1,18 +1,18 @@
 """
-Advanced watch configuration options and validation.
+Advanced watch configuration options with lua-style configuration access.
 
-This module provides enhanced configuration capabilities for file watching,
+This module provides lua-style configuration access functions for enhanced file watching,
 including advanced pattern matching, collection targeting, and performance tuning options.
+All configuration is accessed through get_config() functions matching the Rust pattern.
 """
 
 import fnmatch
 from loguru import logger
 import re
-from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple, cast
 
-from pydantic import BaseModel, Field, field_validator
+from .config import get_config_dict, get_config_list, get_config_int, get_config_string, get_config_bool
 
 # Import LSP detector for dynamic extension detection
 try:
@@ -65,545 +65,281 @@ except ImportError:
             "*.tmp", "*.temp", "*.log", "*.swp", "*.swo"
         ]
 
-# logger imported from loguru
+
+# =============================================================================
+# LUA-STYLE CONFIGURATION ACCESS FUNCTIONS
+# =============================================================================
+
+# File filtering configuration functions
+def get_file_filter_include_patterns() -> List[str]:
+    """Get file filter include patterns using lua-style configuration access."""
+    return get_config_list("auto_ingestion.file_filters.include_patterns", _get_advanced_default_patterns())
 
 
-class FileFilterConfig(BaseModel):
-    """Advanced file filtering configuration."""
-
-    include_patterns: list[str] = Field(
-        default_factory=_get_advanced_default_patterns,
-        description="File patterns to include (glob patterns)",
-    )
-    exclude_patterns: list[str] = Field(
-        default_factory=_get_advanced_default_exclude_patterns,
-        description="File patterns to exclude (glob patterns)",
-    )
-    mime_types: list[str] = Field(
-        default_factory=list,
-        description="MIME types to include (e.g., 'text/plain', 'application/pdf')",
-    )
-    size_limits: dict[str, int] = Field(
-        default_factory=lambda: {
-            "min_bytes": 1,
-            "max_bytes": 100 * 1024 * 1024,
-        },  # 100MB max
-        description="File size constraints in bytes",
-    )
-    regex_patterns: dict[str, str] = Field(
-        default_factory=dict,
-        description="Advanced regex patterns: {'include': 'pattern', 'exclude': 'pattern'}",
-    )
-
-    @field_validator("include_patterns", "exclude_patterns")
-    @classmethod
-    def validate_patterns(cls, v: list[str]) -> list[str]:
-        """Validate glob patterns."""
-        if not v:
-            raise ValueError("Pattern lists cannot be empty")
-
-        for pattern in v:
-            if not isinstance(pattern, str) or not pattern.strip():
-                raise ValueError("All patterns must be non-empty strings")
-            # Test if it's a valid glob pattern
-            try:
-                fnmatch.fnmatch("test.txt", pattern)
-            except Exception:
-                raise ValueError(f"Invalid glob pattern: {pattern}")
-        return v
-
-    @field_validator("regex_patterns")
-    @classmethod
-    def validate_regex_patterns(cls, v: dict[str, str]) -> dict[str, str]:
-        """Validate regex patterns."""
-        for key, pattern in v.items():
-            if key not in ["include", "exclude"]:
-                raise ValueError("Regex patterns must have keys 'include' or 'exclude'")
-            try:
-                re.compile(pattern)
-            except re.error as e:
-                raise ValueError(f"Invalid regex pattern '{pattern}': {e}")
-        return v
+def get_file_filter_exclude_patterns() -> List[str]:
+    """Get file filter exclude patterns using lua-style configuration access."""
+    return get_config_list("auto_ingestion.file_filters.exclude_patterns", _get_advanced_default_exclude_patterns())
 
 
-class RecursiveConfig(BaseModel):
-    """Recursive directory scanning configuration."""
-
-    enabled: bool = Field(default=True, description="Enable recursive scanning")
-    max_depth: int = Field(
-        default=-1,
-        ge=-1,
-        le=20,
-        description="Maximum recursion depth (-1 for unlimited, max 20)",
-    )
-    follow_symlinks: bool = Field(default=False, description="Follow symbolic links")
-    skip_hidden: bool = Field(default=True, description="Skip hidden directories")
-    exclude_dirs: list[str] = Field(
-        default_factory=lambda: [".git", ".svn", ".hg", "node_modules", "__pycache__"],
-        description="Directory names to exclude from recursion",
-    )
-
-    @field_validator("exclude_dirs")
-    @classmethod
-    def validate_exclude_dirs(cls, v: list[str]) -> list[str]:
-        """Validate excluded directory patterns."""
-        for dirname in v:
-            if not isinstance(dirname, str) or not dirname.strip():
-                raise ValueError("Excluded directory names must be non-empty strings")
-        return v
+def get_file_filter_mime_types() -> List[str]:
+    """Get file filter MIME types using lua-style configuration access."""
+    return get_config_list("auto_ingestion.file_filters.mime_types", [])
 
 
-class PerformanceConfig(BaseModel):
-    """Performance and resource management configuration."""
-
-    update_frequency_ms: int = Field(
-        default=1000,
-        ge=100,
-        le=60000,
-        description="File system check frequency in milliseconds (100ms-60s)",
-    )
-    debounce_seconds: int = Field(
-        default=5,
-        ge=1,
-        le=300,
-        description="Debounce delay before processing changes (1-300 seconds)",
-    )
-    batch_processing: bool = Field(
-        default=True, description="Process multiple file changes in batches"
-    )
-    batch_size: int = Field(
-        default=10,
-        ge=1,
-        le=100,
-        description="Maximum number of files to process in one batch",
-    )
-    memory_limit_mb: int = Field(
-        default=256,
-        ge=64,
-        le=2048,
-        description="Memory usage limit in MB for file content caching",
-    )
-    max_concurrent_ingestions: int = Field(
-        default=5, ge=1, le=20, description="Maximum concurrent file ingestions"
-    )
+def get_file_filter_size_limits() -> Dict[str, int]:
+    """Get file filter size limits using lua-style configuration access."""
+    return get_config_dict("auto_ingestion.file_filters.size_limits", {
+        "min_bytes": 1,
+        "max_bytes": 100 * 1024 * 1024,  # 100MB max
+    })
 
 
-class CollectionTargeting(BaseModel):
-    """Collection targeting and routing configuration."""
-
-    default_collection: str = Field(
-        ..., min_length=1, description="Default target collection"
-    )
-    routing_rules: list[dict[str, Any]] = Field(
-        default_factory=list,
-        description="Rules for routing files to different collections",
-    )
-    collection_prefixes: dict[str, str] = Field(
-        default_factory=dict,
-        description="Collection prefixes based on file characteristics",
-    )
-
-    @field_validator("routing_rules")
-    @classmethod
-    def validate_routing_rules(cls, v: list[dict[str, Any]]) -> list[dict[str, Any]]:
-        """Validate collection routing rules."""
-        required_keys = {"pattern", "collection"}
-        for rule in v:
-            if not isinstance(rule, dict):
-                raise ValueError("Routing rules must be dictionaries")
-
-            rule_keys = set(rule.keys())
-            if not required_keys.issubset(rule_keys):
-                raise ValueError(f"Routing rules must contain keys: {required_keys}")
-
-            # Validate pattern
-            pattern = rule.get("pattern")
-            if not isinstance(pattern, str) or not pattern.strip():
-                raise ValueError("Routing rule patterns must be non-empty strings")
-
-            # Validate collection
-            collection = rule.get("collection")
-            if not isinstance(collection, str) or not collection.strip():
-                raise ValueError("Routing rule collections must be non-empty strings")
-
-        return v
+def get_file_filter_regex_patterns() -> Dict[str, str]:
+    """Get file filter regex patterns using lua-style configuration access."""
+    return get_config_dict("auto_ingestion.file_filters.regex_patterns", {})
 
 
-@dataclass
-class AdvancedWatchConfig:
-    """Complete advanced watch configuration."""
+# Recursive scanning configuration functions
+def get_recursive_config_enabled() -> bool:
+    """Get recursive scanning enabled setting using lua-style configuration access."""
+    return get_config_bool("auto_ingestion.recursive.enabled", True)
 
-    # Basic configuration
-    id: str
-    path: str
-    enabled: bool = True
 
-    # File filtering
-    file_filters: FileFilterConfig = field(default_factory=FileFilterConfig)
+def get_recursive_config_max_depth() -> int:
+    """Get recursive scanning max depth using lua-style configuration access."""
+    return get_config_int("auto_ingestion.recursive.max_depth", -1)
 
-    # Recursion settings
-    recursive: RecursiveConfig = field(default_factory=RecursiveConfig)
 
-    # Performance settings
-    performance: PerformanceConfig = field(default_factory=PerformanceConfig)
+def get_recursive_config_follow_symlinks() -> bool:
+    """Get recursive scanning follow symlinks setting using lua-style configuration access."""
+    return get_config_bool("auto_ingestion.recursive.follow_symlinks", False)
 
-    # Collection targeting
-    collection_config: CollectionTargeting = field(
-        default_factory=lambda: CollectionTargeting(default_collection="default")
-    )
 
-    # LSP-based extension detection
-    lsp_based_extensions: bool = True
-    lsp_detection_cache_ttl: int = 300
-    lsp_fallback_enabled: bool = True
-    lsp_include_build_tools: bool = True
-    lsp_include_infrastructure: bool = True
+def get_recursive_config_skip_hidden() -> bool:
+    """Get recursive scanning skip hidden setting using lua-style configuration access."""
+    return get_config_bool("auto_ingestion.recursive.skip_hidden", True)
 
-    # Processing options
-    auto_ingest: bool = True
-    preserve_timestamps: bool = True
-    create_backup_on_error: bool = False
 
-    # Metadata and tracking
-    created_at: str = field(default="")
-    last_modified: str = field(default="")
-    version: str = field(default="1.0")
-    tags: list[str] = field(default_factory=list)
+def get_recursive_config_exclude_dirs() -> List[str]:
+    """Get recursive scanning exclude directories using lua-style configuration access."""
+    return get_config_list("auto_ingestion.recursive.exclude_dirs", [".git", ".svn", ".hg", "node_modules", "__pycache__"])
 
-    def validate(self) -> list[str]:
-        """Validate the complete configuration."""
-        issues = []
 
-        # Validate path
+# Performance configuration functions
+def get_performance_config_update_frequency() -> int:
+    """Get performance update frequency using lua-style configuration access."""
+    return get_config_int("auto_ingestion.performance.update_frequency_ms", 1000)
+
+
+def get_performance_config_debounce_seconds() -> int:
+    """Get performance debounce seconds using lua-style configuration access."""
+    return get_config_int("auto_ingestion.performance.debounce_seconds", 5)
+
+
+def get_performance_config_batch_processing() -> bool:
+    """Get performance batch processing setting using lua-style configuration access."""
+    return get_config_bool("auto_ingestion.performance.batch_processing", True)
+
+
+def get_performance_config_batch_size() -> int:
+    """Get performance batch size using lua-style configuration access."""
+    return get_config_int("auto_ingestion.performance.batch_size", 10)
+
+
+def get_performance_config_memory_limit() -> int:
+    """Get performance memory limit using lua-style configuration access."""
+    return get_config_int("auto_ingestion.performance.memory_limit_mb", 256)
+
+
+def get_performance_config_max_concurrent() -> int:
+    """Get performance max concurrent ingestions using lua-style configuration access."""
+    return get_config_int("auto_ingestion.performance.max_concurrent_ingestions", 5)
+
+
+# Collection targeting configuration functions
+def get_collection_targeting_default() -> str:
+    """Get default collection for targeting using lua-style configuration access."""
+    return get_config_string("auto_ingestion.collection_targeting.default_collection", "default")
+
+
+def get_collection_targeting_routing_rules() -> List[Dict[str, Any]]:
+    """Get collection targeting routing rules using lua-style configuration access."""
+    return get_config_list("auto_ingestion.collection_targeting.routing_rules", [])
+
+
+def get_collection_targeting_prefixes() -> Dict[str, str]:
+    """Get collection targeting prefixes using lua-style configuration access."""
+    return get_config_dict("auto_ingestion.collection_targeting.collection_prefixes", {})
+
+
+# LSP configuration functions
+def get_lsp_based_extensions_enabled() -> bool:
+    """Get LSP-based extension detection setting using lua-style configuration access."""
+    return get_config_bool("auto_ingestion.lsp.enabled", True)
+
+
+def get_lsp_detection_cache_ttl() -> int:
+    """Get LSP detection cache TTL using lua-style configuration access."""
+    return get_config_int("auto_ingestion.lsp.cache_ttl", 300)
+
+
+def get_lsp_fallback_enabled() -> bool:
+    """Get LSP fallback enabled setting using lua-style configuration access."""
+    return get_config_bool("auto_ingestion.lsp.fallback_enabled", True)
+
+
+def get_lsp_include_build_tools() -> bool:
+    """Get LSP include build tools setting using lua-style configuration access."""
+    return get_config_bool("auto_ingestion.lsp.include_build_tools", True)
+
+
+def get_lsp_include_infrastructure() -> bool:
+    """Get LSP include infrastructure setting using lua-style configuration access."""
+    return get_config_bool("auto_ingestion.lsp.include_infrastructure", True)
+
+
+# Processing options functions
+def get_auto_ingest_enabled() -> bool:
+    """Get auto-ingestion enabled setting using lua-style configuration access."""
+    return get_config_bool("auto_ingestion.enabled", True)
+
+
+def get_preserve_timestamps() -> bool:
+    """Get preserve timestamps setting using lua-style configuration access."""
+    return get_config_bool("auto_ingestion.preserve_timestamps", True)
+
+
+def get_create_backup_on_error() -> bool:
+    """Get create backup on error setting using lua-style configuration access."""
+    return get_config_bool("auto_ingestion.create_backup_on_error", False)
+
+
+# =============================================================================
+# VALIDATION FUNCTIONS (NO LONGER CLASS-BASED)
+# =============================================================================
+
+def validate_patterns(patterns: List[str]) -> bool:
+    """Validate glob patterns."""
+    if not patterns:
+        return False
+
+    for pattern in patterns:
+        if not isinstance(pattern, str) or not pattern.strip():
+            return False
+        # Test if it's a valid glob pattern
         try:
-            path = Path(self.path)
-            if not path.exists():
-                issues.append(f"Watch path does not exist: {self.path}")
-            elif not path.is_dir():
-                issues.append(f"Watch path is not a directory: {self.path}")
-        except Exception as e:
-            issues.append(f"Invalid path format: {e}")
-
-        # Validate component configurations
-        try:
-            self.file_filters.dict()
-        except Exception as e:
-            issues.append(f"File filters validation failed: {e}")
-
-        try:
-            self.recursive.dict()
-        except Exception as e:
-            issues.append(f"Recursive configuration validation failed: {e}")
-
-        try:
-            self.performance.dict()
-        except Exception as e:
-            issues.append(f"Performance configuration validation failed: {e}")
-
-        try:
-            self.collection_config.dict()
-        except Exception as e:
-            issues.append(f"Collection configuration validation failed: {e}")
-
-        return issues
-
-    def get_effective_patterns(self) -> tuple[list[str], list[str]]:
-        """
-        Get effective include and exclude patterns, optionally enhanced with LSP detection.
-        
-        Returns:
-            Tuple of (include_patterns, exclude_patterns)
-        """
-        # Start with configured patterns
-        include_patterns = list(self.file_filters.include_patterns)
-        exclude_patterns = list(self.file_filters.exclude_patterns)
-        
-        # Add LSP-based patterns if enabled and detector is available
-        if self.lsp_based_extensions and get_default_detector is not None:
-            try:
-                detector = get_default_detector()
-                detector.cache_ttl = self.lsp_detection_cache_ttl
-                
-                # Get LSP-detected extensions
-                lsp_extensions = detector.get_supported_extensions(
-                    include_fallbacks=self.lsp_fallback_enabled
-                )
-                
-                # Convert extensions to glob patterns
-                lsp_patterns = [f"*{ext}" for ext in lsp_extensions if ext.startswith('.')]
-                
-                # Add non-extension patterns (like Dockerfile, Makefile)
-                for ext in lsp_extensions:
-                    if not ext.startswith('.'):
-                        lsp_patterns.append(ext)
-                
-                # Optionally add build tool patterns
-                if self.lsp_include_build_tools:
-                    build_patterns = []
-                    for patterns in detector.BUILD_TOOL_EXTENSIONS.values():
-                        for pattern in patterns:
-                            if pattern.startswith('*.'):
-                                build_patterns.append(pattern)
-                            elif not pattern.startswith('.'):
-                                build_patterns.append(pattern)
-                    lsp_patterns.extend(build_patterns)
-                
-                # Optionally add infrastructure patterns  
-                if self.lsp_include_infrastructure:
-                    infra_patterns = []
-                    for patterns in detector.INFRASTRUCTURE_EXTENSIONS.values():
-                        for pattern in patterns:
-                            if pattern.startswith('*.'):
-                                infra_patterns.append(pattern)
-                            elif not pattern.startswith('.'):
-                                infra_patterns.append(pattern)
-                    lsp_patterns.extend(infra_patterns)
-                
-                # Merge patterns, avoiding duplicates
-                all_patterns = set(include_patterns + lsp_patterns)
-                include_patterns = sorted(list(all_patterns))
-                
-                logger.debug(f"Enhanced patterns with LSP detection: {len(lsp_patterns)} LSP patterns added")
-                
-            except Exception as e:
-                logger.warning(f"Failed to get LSP-based patterns: {e}")
-                # Fall back to original patterns
-        
-        return (include_patterns, exclude_patterns)
-
-    def should_process_file(self, file_path: Path) -> Tuple[bool, str]:
-        """
-        Determine if a file should be processed based on configuration.
-
-        Returns:
-            Tuple of (should_process, reason)
-        """
-        # Check file existence
-        if not file_path.exists() or not file_path.is_file():
-            return False, "File does not exist or is not a file"
-
-        # Check size limits
-        try:
-            size = file_path.stat().st_size
-            min_size = self.file_filters.size_limits.get("min_bytes", 0)
-            max_size = self.file_filters.size_limits.get("max_bytes", float("inf"))
-
-            if size < min_size:
-                return False, f"File too small ({size} < {min_size} bytes)"
-            if size > max_size:
-                return False, f"File too large ({size} > {max_size} bytes)"
-        except Exception as e:
-            return False, f"Cannot get file size: {e}"
-
-        # Check include patterns
-        include_match = False
-        for pattern in self.file_filters.include_patterns:
-            if fnmatch.fnmatch(file_path.name, pattern) or fnmatch.fnmatch(
-                str(file_path), pattern
-            ):
-                include_match = True
-                break
-
-        if not include_match:
-            return False, "File does not match include patterns"
-
-        # Check exclude patterns
-        for pattern in self.file_filters.exclude_patterns:
-            if fnmatch.fnmatch(file_path.name, pattern) or fnmatch.fnmatch(
-                str(file_path), pattern
-            ):
-                return False, f"File matches exclude pattern: {pattern}"
-
-        # Check regex patterns if specified
-        if self.file_filters.regex_patterns:
-            file_str = str(file_path)
-
-            # Check include regex
-            if "include" in self.file_filters.regex_patterns:
-                pattern = self.file_filters.regex_patterns["include"]
-                if not re.search(pattern, file_str):
-                    return False, f"File does not match include regex: {pattern}"
-
-            # Check exclude regex
-            if "exclude" in self.file_filters.regex_patterns:
-                pattern = self.file_filters.regex_patterns["exclude"]
-                if re.search(pattern, file_str):
-                    return False, f"File matches exclude regex: {pattern}"
-
-        return True, "File passes all filters"
-
-    def get_target_collection(self, file_path: Path) -> str:
-        """Determine target collection for a file based on routing rules."""
-
-        # Check routing rules first
-        for rule in self.collection_config.routing_rules:
-            pattern = rule["pattern"]
-            collection = cast(str, rule["collection"])
-
-            # Support different rule types
-            rule_type = rule.get("type", "glob")
-
-            if rule_type == "glob":
-                if fnmatch.fnmatch(file_path.name, pattern) or fnmatch.fnmatch(
-                    str(file_path), pattern
-                ):
-                    return collection
-            elif rule_type == "regex":
-                if re.search(pattern, str(file_path)):
-                    return collection
-            elif rule_type == "extension":
-                if file_path.suffix.lower() == pattern.lower():
-                    return collection
-
-        # Check collection prefixes
-        for (
-            prefix_key,
-            prefix_value,
-        ) in self.collection_config.collection_prefixes.items():
-            if prefix_key == "extension" and file_path.suffix:
-                return (
-                    f"{prefix_value}{file_path.suffix[1:]}"  # Remove dot from extension
-                )
-            elif prefix_key == "directory" and file_path.parent.name:
-                return f"{prefix_value}{file_path.parent.name}"
-
-        # Return default collection
-        return self.collection_config.default_collection
-
-    def to_dict(self) -> Dict[str, Any]:
-        """Convert to dictionary representation."""
-        return {
-            "id": self.id,
-            "path": self.path,
-            "enabled": self.enabled,
-            "file_filters": self.file_filters.dict(),
-            "recursive": self.recursive.dict(),
-            "performance": self.performance.dict(),
-            "collection_config": self.collection_config.dict(),
-            "auto_ingest": self.auto_ingest,
-            "preserve_timestamps": self.preserve_timestamps,
-            "create_backup_on_error": self.create_backup_on_error,
-            "created_at": self.created_at,
-            "last_modified": self.last_modified,
-            "version": self.version,
-            "tags": self.tags,
-        }
-
-    @classmethod
-    def from_dict(cls, data: Dict[str, Any]) -> "AdvancedWatchConfig":
-        """Create from dictionary representation."""
-        # Handle nested configurations
-        file_filters_data = data.get("file_filters", {})
-        recursive_data = data.get("recursive", {})
-        performance_data = data.get("performance", {})
-        collection_config_data = data.get("collection_config", {})
-
-        return cls(
-            id=data["id"],
-            path=data["path"],
-            enabled=data.get("enabled", True),
-            file_filters=FileFilterConfig(**file_filters_data),
-            recursive=RecursiveConfig(**recursive_data),
-            performance=PerformanceConfig(**performance_data),
-            collection_config=CollectionTargeting(**collection_config_data),
-            auto_ingest=data.get("auto_ingest", True),
-            preserve_timestamps=data.get("preserve_timestamps", True),
-            create_backup_on_error=data.get("create_backup_on_error", False),
-            created_at=data.get("created_at", ""),
-            last_modified=data.get("last_modified", ""),
-            version=data.get("version", "1.0"),
-            tags=data.get("tags", []),
-        )
+            fnmatch.fnmatch("test.txt", pattern)
+        except Exception:
+            return False
+    return True
 
 
-class AdvancedConfigValidator:
-    """Validator for advanced watch configurations."""
-
-    @staticmethod
-    def validate_patterns(patterns: List[str]) -> List[str]:
-        """Validate glob patterns and return issues."""
-        issues = []
-
-        for pattern in patterns:
-            try:
-                # Test if it's a valid glob pattern
-                fnmatch.fnmatch("test.txt", pattern)
-            except Exception as e:
-                issues.append(f"Invalid glob pattern '{pattern}': {e}")
-
-        return issues
-
-    @staticmethod
-    def validate_regex(pattern: str) -> Optional[str]:
-        """Validate regex pattern and return error if invalid."""
+def validate_regex_patterns(regex_patterns: Dict[str, str]) -> bool:
+    """Validate regex patterns."""
+    for key, pattern in regex_patterns.items():
+        if key not in ["include", "exclude"]:
+            return False
         try:
             re.compile(pattern)
-            return None
-        except re.error as e:
-            return f"Invalid regex pattern: {e}"
+        except re.error:
+            return False
+    return True
 
-    @staticmethod
-    def validate_collection_routing(routing_rules: List[Dict[str, Any]]) -> List[str]:
-        """Validate collection routing rules."""
-        issues = []
 
-        required_keys = {"pattern", "collection"}
-        valid_types = {"glob", "regex", "extension"}
+def validate_path(path: str) -> List[str]:
+    """Validate watch path and return any issues."""
+    issues = []
+    try:
+        path_obj = Path(path)
+        if not path_obj.exists():
+            issues.append(f"Watch path does not exist: {path}")
+        elif not path_obj.is_dir():
+            issues.append(f"Watch path is not a directory: {path}")
+    except Exception as e:
+        issues.append(f"Invalid path format: {e}")
+    return issues
 
-        for i, rule in enumerate(routing_rules):
-            rule_prefix = f"Rule {i + 1}: "
 
-            # Check required keys
-            rule_keys = set(rule.keys())
-            missing_keys = required_keys - rule_keys
-            if missing_keys:
-                issues.append(f"{rule_prefix}Missing required keys: {missing_keys}")
-                continue
+def validate_routing_rules(routing_rules: List[Dict[str, Any]]) -> List[str]:
+    """Validate collection routing rules and return any issues."""
+    issues = []
+    required_keys = {"pattern", "collection"}
 
-            # Validate rule type
-            rule_type = rule.get("type", "glob")
-            if rule_type not in valid_types:
-                issues.append(
-                    f"{rule_prefix}Invalid rule type '{rule_type}'. Valid types: {valid_types}"
-                )
+    for i, rule in enumerate(routing_rules):
+        if not isinstance(rule, dict):
+            issues.append(f"Routing rule {i} must be a dictionary")
+            continue
 
-            # Validate pattern based on type
-            pattern = rule.get("pattern", "")
-            if rule_type == "regex":
-                error = AdvancedConfigValidator.validate_regex(pattern)
-                if error:
-                    issues.append(f"{rule_prefix}{error}")
-            elif rule_type in ["glob", "extension"]:
-                if not pattern or not isinstance(pattern, str):
-                    issues.append(f"{rule_prefix}Pattern must be a non-empty string")
+        rule_keys = set(rule.keys())
+        if not required_keys.issubset(rule_keys):
+            issues.append(f"Routing rule {i} must contain keys: {required_keys}")
+            continue
 
-        return issues
+        # Validate pattern
+        pattern = rule.get("pattern")
+        if not isinstance(pattern, str) or not pattern.strip():
+            issues.append(f"Routing rule {i} pattern must be a non-empty string")
 
-    @staticmethod
-    def validate_performance_settings(
-        performance_config: PerformanceConfig,
-    ) -> List[str]:
-        """Validate performance configuration settings."""
-        issues = []
+        # Validate collection
+        collection = rule.get("collection")
+        if not isinstance(collection, str) or not collection.strip():
+            issues.append(f"Routing rule {i} collection must be a non-empty string")
 
-        # Check for conflicting settings
-        if performance_config.batch_processing and performance_config.batch_size < 1:
-            issues.append("Batch processing enabled but batch size is less than 1")
+    return issues
 
-        if (
-            performance_config.debounce_seconds > 60
-            and performance_config.update_frequency_ms < 5000
-        ):
-            issues.append(
-                "High debounce delay with low update frequency may cause delays"
-            )
 
-        if (
-            performance_config.max_concurrent_ingestions > 10
-            and performance_config.memory_limit_mb < 512
-        ):
-            issues.append(
-                "High concurrency with low memory limit may cause performance issues"
-            )
+def validate_complete_config(path: str) -> List[str]:
+    """Validate complete advanced watch configuration and return any issues."""
+    issues = []
 
-        return issues
+    # Validate path
+    issues.extend(validate_path(path))
+
+    # Validate file filter patterns
+    include_patterns = get_file_filter_include_patterns()
+    if not validate_patterns(include_patterns):
+        issues.append("Invalid include patterns in file filters")
+
+    exclude_patterns = get_file_filter_exclude_patterns()
+    if not validate_patterns(exclude_patterns):
+        issues.append("Invalid exclude patterns in file filters")
+
+    # Validate regex patterns
+    regex_patterns = get_file_filter_regex_patterns()
+    if regex_patterns and not validate_regex_patterns(regex_patterns):
+        issues.append("Invalid regex patterns in file filters")
+
+    # Validate routing rules
+    routing_rules = get_collection_targeting_routing_rules()
+    issues.extend(validate_routing_rules(routing_rules))
+
+    # Validate performance settings
+    max_depth = get_recursive_config_max_depth()
+    if max_depth < -1 or max_depth > 20:
+        issues.append("Recursive max depth must be between -1 and 20")
+
+    update_frequency = get_performance_config_update_frequency()
+    if update_frequency < 100 or update_frequency > 60000:
+        issues.append("Update frequency must be between 100ms and 60s")
+
+    debounce_seconds = get_performance_config_debounce_seconds()
+    if debounce_seconds < 1 or debounce_seconds > 300:
+        issues.append("Debounce seconds must be between 1 and 300")
+
+    batch_size = get_performance_config_batch_size()
+    if batch_size < 1 or batch_size > 100:
+        issues.append("Batch size must be between 1 and 100")
+
+    memory_limit = get_performance_config_memory_limit()
+    if memory_limit < 64 or memory_limit > 2048:
+        issues.append("Memory limit must be between 64MB and 2048MB")
+
+    max_concurrent = get_performance_config_max_concurrent()
+    if max_concurrent < 1 or max_concurrent > 20:
+        issues.append("Max concurrent ingestions must be between 1 and 20")
+
+    # Performance optimization warnings
+    if max_concurrent > 10 and memory_limit < 512:
+        issues.append("High concurrency with low memory limit may cause performance issues")
+
+    return issues

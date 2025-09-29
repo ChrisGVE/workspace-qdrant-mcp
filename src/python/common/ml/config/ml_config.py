@@ -1,291 +1,445 @@
 """
-ML Configuration Management System
+ML Configuration Management System with lua-style configuration access.
 
-Provides comprehensive configuration management for ML pipelines,
-experiments, and model deployment with validation and type safety.
+Provides lua-style configuration access for ML pipelines, experiments,
+and model deployment. All configuration is accessed through get_config()
+functions matching the Rust pattern.
 """
 
 import os
 from typing import Any, Dict, List, Optional, Union
 from pathlib import Path
-from dataclasses import dataclass, field
-from enum import Enum
 import yaml
-from pydantic import BaseModel, Field, validator
+
+# Import lua-style configuration functions
+from ...core.config import (
+    get_config_string, get_config_bool, get_config_int, get_config_float,
+    get_config_list, get_config_dict
+)
 
 
-class MLTaskType(str, Enum):
-    """Supported ML task types."""
-    CLASSIFICATION = "classification"
-    REGRESSION = "regression"
-    CLUSTERING = "clustering"
-    RECOMMENDATION = "recommendation"
-    DOCUMENT_SIMILARITY = "document_similarity"
+# =============================================================================
+# LUA-STYLE ML CONFIGURATION ACCESS FUNCTIONS
+# =============================================================================
+
+# ML Model Configuration Functions
+def get_ml_model_type() -> str:
+    """Get ML model type using lua-style configuration access."""
+    return get_config_string("ml.model.type", "random_forest")
 
 
-class ModelType(str, Enum):
-    """Supported model types."""
-    RANDOM_FOREST = "random_forest"
-    GRADIENT_BOOSTING = "gradient_boosting"
-    SVM = "svm"
-    LOGISTIC_REGRESSION = "logistic_regression"
-    LINEAR_REGRESSION = "linear_regression"
-    KMEANS = "kmeans"
-    DBSCAN = "dbscan"
-    NEURAL_NETWORK = "neural_network"
+def get_ml_task_type() -> str:
+    """Get ML task type using lua-style configuration access."""
+    return get_config_string("ml.task.type", "classification")
 
 
-class FeatureSelectionMethod(str, Enum):
-    """Feature selection methods."""
-    MUTUAL_INFO = "mutual_info"
-    CHI2 = "chi2"
-    F_SCORE = "f_score"
-    RECURSIVE_ELIMINATION = "recursive_elimination"
-    LASSO = "lasso"
-    TREE_IMPORTANCE = "tree_importance"
+def get_ml_hyperparameters() -> Dict[str, Any]:
+    """Get ML model hyperparameters using lua-style configuration access."""
+    return get_config_dict("ml.model.hyperparameters", {})
 
 
-class MLModelConfig(BaseModel):
-    """Configuration for ML model parameters."""
-
-    model_type: ModelType
-    task_type: MLTaskType
-    hyperparameters: Dict[str, Any] = Field(default_factory=dict)
-    feature_selection_method: Optional[FeatureSelectionMethod] = None
-    max_features: Optional[int] = None
-
-    class Config:
-        use_enum_values = True
+def get_ml_feature_selection_method() -> Optional[str]:
+    """Get ML feature selection method using lua-style configuration access."""
+    method = get_config_string("ml.features.selection_method", "")
+    return method if method else None
 
 
-class MLExperimentConfig(BaseModel):
-    """Configuration for ML experiments and hyperparameter tuning."""
-
-    name: str
-    description: Optional[str] = None
-    model_configs: List[MLModelConfig]
-
-    # Hyperparameter tuning configuration
-    tuning_method: str = Field(default="random_search", pattern="^(grid_search|random_search|bayesian)$")
-    cv_folds: int = Field(default=5, ge=2, le=20)
-    scoring_metric: str = "accuracy"
-    max_iter: int = Field(default=100, ge=1)
-    n_jobs: int = Field(default=-1, ge=-1)
-
-    # Training configuration
-    test_size: float = Field(default=0.2, gt=0.0, lt=1.0)
-    random_state: int = Field(default=42, ge=0)
-    stratify: bool = True
-
-    # Feature engineering
-    scale_features: bool = True
-    handle_missing: str = Field(default="impute", pattern="^(drop|impute|flag)$")
-    categorical_encoding: str = Field(default="onehot", pattern="^(onehot|label|target)$")
-
-    # Model validation
-    min_accuracy: float = Field(default=0.6, ge=0.0, le=1.0)
-    min_precision: float = Field(default=0.6, ge=0.0, le=1.0)
-    min_recall: float = Field(default=0.6, ge=0.0, le=1.0)
-
-    @validator('model_configs')
-    def validate_model_configs(cls, v):
-        if not v:
-            raise ValueError("At least one model configuration is required")
-        return v
+def get_ml_max_features() -> Optional[int]:
+    """Get ML max features using lua-style configuration access."""
+    max_features = get_config_int("ml.features.max_features", 0)
+    return max_features if max_features > 0 else None
 
 
-class MLConfig(BaseModel):
-    """Main ML configuration class."""
-
-    # General settings
-    project_name: str = Field(min_length=1)
-    version: str = "1.0.0"
-    data_directory: Path = Field(default_factory=lambda: Path("./data"))
-    model_directory: Path = Field(default_factory=lambda: Path("./models"))
-    artifacts_directory: Path = Field(default_factory=lambda: Path("./artifacts"))
-
-    # Database configuration
-    registry_url: Optional[str] = None
-    tracking_uri: Optional[str] = None
-
-    # Monitoring configuration
-    enable_monitoring: bool = True
-    drift_detection_threshold: float = Field(default=0.05, ge=0.0, le=1.0)
-    performance_alert_threshold: float = Field(default=0.1, ge=0.0, le=1.0)
-    monitoring_interval: int = Field(default=3600, ge=60)  # seconds
-
-    # Resource limits
-    max_memory_gb: float = Field(default=4.0, ge=0.5)
-    max_cpu_cores: int = Field(default=4, ge=1)
-    training_timeout: int = Field(default=3600, ge=60)  # seconds
-
-    # Experiment configuration
-    experiments: List[MLExperimentConfig] = Field(default_factory=list)
-
-    # Deployment configuration
-    deployment_environment: str = Field(default="development", pattern="^(development|staging|production)$")
-    auto_deploy: bool = False
-    deployment_approval_required: bool = True
-
-    class Config:
-        json_encoders = {Path: str}
-        use_enum_values = True
-
-    @validator('data_directory', 'model_directory', 'artifacts_directory')
-    def ensure_path_exists(cls, v):
-        if not v.exists():
-            v.mkdir(parents=True, exist_ok=True)
-        return v
-
-    @classmethod
-    def from_yaml(cls, config_path: Union[str, Path]) -> 'MLConfig':
-        """Load configuration from YAML file."""
-        config_path = Path(config_path)
-        if not config_path.exists():
-            raise FileNotFoundError(f"Configuration file not found: {config_path}")
-
-        with open(config_path, 'r') as f:
-            config_data = yaml.safe_load(f)
-
-        return cls(**config_data)
-
-    def to_yaml(self, config_path: Union[str, Path]) -> None:
-        """Save configuration to YAML file."""
-        config_path = Path(config_path)
-        config_path.parent.mkdir(parents=True, exist_ok=True)
-
-        # Convert to dict and handle Path objects
-        config_dict = self.dict()
-        for key, value in config_dict.items():
-            if isinstance(value, Path):
-                config_dict[key] = str(value)
-
-        with open(config_path, 'w') as f:
-            yaml.dump(config_dict, f, default_flow_style=False, indent=2)
-
-    def get_experiment_config(self, experiment_name: str) -> Optional[MLExperimentConfig]:
-        """Get experiment configuration by name."""
-        for exp in self.experiments:
-            if exp.name == experiment_name:
-                return exp
-        return None
-
-    def add_experiment(self, experiment: MLExperimentConfig) -> None:
-        """Add new experiment configuration."""
-        # Check for duplicate names
-        existing_names = [exp.name for exp in self.experiments]
-        if experiment.name in existing_names:
-            raise ValueError(f"Experiment with name '{experiment.name}' already exists")
-
-        self.experiments.append(experiment)
-
-    def validate_configuration(self) -> Dict[str, List[str]]:
-        """Validate the entire configuration and return any issues."""
-        issues = {"errors": [], "warnings": []}
-
-        # Check directory permissions
-        for directory in [self.data_directory, self.model_directory, self.artifacts_directory]:
-            if not os.access(directory, os.R_OK | os.W_OK):
-                issues["errors"].append(f"Insufficient permissions for directory: {directory}")
-
-        # Check resource limits
-        if self.max_memory_gb > 32.0:
-            issues["warnings"].append(f"Memory limit is very high: {self.max_memory_gb}GB")
-
-        if self.max_cpu_cores > os.cpu_count():
-            issues["warnings"].append(
-                f"CPU cores limit ({self.max_cpu_cores}) exceeds system cores ({os.cpu_count()})"
-            )
-
-        # Validate experiments
-        experiment_names = [exp.name for exp in self.experiments]
-        if len(experiment_names) != len(set(experiment_names)):
-            issues["errors"].append("Duplicate experiment names found")
-
-        # Check deployment configuration
-        if self.deployment_environment == "production" and not self.deployment_approval_required:
-            issues["warnings"].append("Production deployment without approval required")
-
-        return issues
+# ML Experiment Configuration Functions
+def get_ml_experiment_name() -> str:
+    """Get ML experiment name using lua-style configuration access."""
+    return get_config_string("ml.experiment.name", "default_experiment")
 
 
-@dataclass
-class MLPerformanceMetrics:
-    """Performance metrics for model evaluation."""
-    accuracy: float
-    precision: float
-    recall: float
-    f1_score: float
-    roc_auc: Optional[float] = None
-    mean_squared_error: Optional[float] = None
-    mean_absolute_error: Optional[float] = None
-    training_time: float = 0.0
-    inference_time: float = 0.0
-
-    def meets_requirements(self, config: MLExperimentConfig) -> bool:
-        """Check if metrics meet minimum requirements."""
-        return (
-            self.accuracy >= config.min_accuracy and
-            self.precision >= config.min_precision and
-            self.recall >= config.min_recall
-        )
-
-    def to_dict(self) -> Dict[str, float]:
-        """Convert metrics to dictionary."""
-        return {
-            "accuracy": self.accuracy,
-            "precision": self.precision,
-            "recall": self.recall,
-            "f1_score": self.f1_score,
-            "roc_auc": self.roc_auc,
-            "mean_squared_error": self.mean_squared_error,
-            "mean_absolute_error": self.mean_absolute_error,
-            "training_time": self.training_time,
-            "inference_time": self.inference_time,
-        }
+def get_ml_experiment_description() -> str:
+    """Get ML experiment description using lua-style configuration access."""
+    return get_config_string("ml.experiment.description", "")
 
 
-def create_default_config(project_name: str) -> MLConfig:
-    """Create a default ML configuration for a project."""
+def get_ml_tuning_method() -> str:
+    """Get ML hyperparameter tuning method using lua-style configuration access."""
+    return get_config_string("ml.experiment.tuning.method", "random_search")
 
-    # Default classification experiment
-    classification_config = MLExperimentConfig(
-        name="document_classification",
-        description="Document classification using vector embeddings",
-        model_configs=[
-            MLModelConfig(
-                model_type=ModelType.RANDOM_FOREST,
-                task_type=MLTaskType.CLASSIFICATION,
-                hyperparameters={
-                    "n_estimators": [100, 200, 300],
-                    "max_depth": [10, 20, None],
-                    "min_samples_split": [2, 5, 10],
-                    "min_samples_leaf": [1, 2, 4],
-                },
-                feature_selection_method=FeatureSelectionMethod.TREE_IMPORTANCE,
-                max_features=1000
-            ),
-            MLModelConfig(
-                model_type=ModelType.GRADIENT_BOOSTING,
-                task_type=MLTaskType.CLASSIFICATION,
-                hyperparameters={
-                    "n_estimators": [100, 200],
-                    "learning_rate": [0.05, 0.1, 0.15],
-                    "max_depth": [3, 5, 7],
-                    "subsample": [0.8, 0.9, 1.0],
-                },
-                feature_selection_method=FeatureSelectionMethod.TREE_IMPORTANCE,
-                max_features=1000
-            ),
-        ],
-        scoring_metric="f1_weighted",
-        cv_folds=5,
-        max_iter=50
-    )
 
-    return MLConfig(
-        project_name=project_name,
-        experiments=[classification_config],
-        enable_monitoring=True,
-        deployment_environment="development"
-    )
+def get_ml_cv_folds() -> int:
+    """Get ML cross-validation folds using lua-style configuration access."""
+    return get_config_int("ml.experiment.tuning.cv_folds", 5)
+
+
+def get_ml_scoring_metric() -> str:
+    """Get ML scoring metric using lua-style configuration access."""
+    return get_config_string("ml.experiment.tuning.scoring_metric", "accuracy")
+
+
+def get_ml_max_iter() -> int:
+    """Get ML max iterations using lua-style configuration access."""
+    return get_config_int("ml.experiment.tuning.max_iter", 100)
+
+
+def get_ml_n_jobs() -> int:
+    """Get ML number of jobs using lua-style configuration access."""
+    return get_config_int("ml.experiment.tuning.n_jobs", -1)
+
+
+# Training Configuration Functions
+def get_ml_test_size() -> float:
+    """Get ML test size using lua-style configuration access."""
+    return get_config_float("ml.training.test_size", 0.2)
+
+
+def get_ml_random_state() -> int:
+    """Get ML random state using lua-style configuration access."""
+    return get_config_int("ml.training.random_state", 42)
+
+
+def get_ml_stratify() -> bool:
+    """Get ML stratify setting using lua-style configuration access."""
+    return get_config_bool("ml.training.stratify", True)
+
+
+# Feature Engineering Configuration Functions
+def get_ml_scale_features() -> bool:
+    """Get ML scale features setting using lua-style configuration access."""
+    return get_config_bool("ml.features.scale_features", True)
+
+
+def get_ml_handle_missing() -> str:
+    """Get ML handle missing values method using lua-style configuration access."""
+    return get_config_string("ml.features.handle_missing", "impute")
+
+
+def get_ml_categorical_encoding() -> str:
+    """Get ML categorical encoding method using lua-style configuration access."""
+    return get_config_string("ml.features.categorical_encoding", "onehot")
+
+
+# Model Validation Configuration Functions
+def get_ml_min_accuracy() -> float:
+    """Get ML minimum accuracy threshold using lua-style configuration access."""
+    return get_config_float("ml.validation.min_accuracy", 0.6)
+
+
+def get_ml_min_precision() -> float:
+    """Get ML minimum precision threshold using lua-style configuration access."""
+    return get_config_float("ml.validation.min_precision", 0.6)
+
+
+def get_ml_min_recall() -> float:
+    """Get ML minimum recall threshold using lua-style configuration access."""
+    return get_config_float("ml.validation.min_recall", 0.6)
+
+
+# Storage and Logging Configuration Functions
+def get_ml_storage_enabled() -> bool:
+    """Get ML storage enabled setting using lua-style configuration access."""
+    return get_config_bool("ml.storage.enabled", True)
+
+
+def get_ml_storage_backend() -> str:
+    """Get ML storage backend using lua-style configuration access."""
+    return get_config_string("ml.storage.backend", "local")
+
+
+def get_ml_storage_path() -> str:
+    """Get ML storage path using lua-style configuration access."""
+    return get_config_string("ml.storage.path", "./ml_models")
+
+
+def get_ml_logging_enabled() -> bool:
+    """Get ML logging enabled setting using lua-style configuration access."""
+    return get_config_bool("ml.logging.enabled", True)
+
+
+def get_ml_logging_level() -> str:
+    """Get ML logging level using lua-style configuration access."""
+    return get_config_string("ml.logging.level", "info")
+
+
+def get_ml_experiment_tracking_enabled() -> bool:
+    """Get ML experiment tracking enabled setting using lua-style configuration access."""
+    return get_config_bool("ml.experiment.tracking.enabled", False)
+
+
+def get_ml_experiment_tracking_backend() -> str:
+    """Get ML experiment tracking backend using lua-style configuration access."""
+    return get_config_string("ml.experiment.tracking.backend", "mlflow")
+
+
+# Model Serving Configuration Functions
+def get_ml_serving_enabled() -> bool:
+    """Get ML model serving enabled setting using lua-style configuration access."""
+    return get_config_bool("ml.serving.enabled", False)
+
+
+def get_ml_serving_host() -> str:
+    """Get ML model serving host using lua-style configuration access."""
+    return get_config_string("ml.serving.host", "127.0.0.1")
+
+
+def get_ml_serving_port() -> int:
+    """Get ML model serving port using lua-style configuration access."""
+    return get_config_int("ml.serving.port", 8080)
+
+
+def get_ml_serving_workers() -> int:
+    """Get ML model serving workers using lua-style configuration access."""
+    return get_config_int("ml.serving.workers", 1)
+
+
+def get_ml_serving_timeout() -> int:
+    """Get ML model serving timeout using lua-style configuration access."""
+    return get_config_int("ml.serving.timeout", 30)
+
+
+# Auto ML Configuration Functions
+def get_ml_automl_enabled() -> bool:
+    """Get ML AutoML enabled setting using lua-style configuration access."""
+    return get_config_bool("ml.automl.enabled", False)
+
+
+def get_ml_automl_time_limit() -> int:
+    """Get ML AutoML time limit using lua-style configuration access."""
+    return get_config_int("ml.automl.time_limit", 3600)
+
+
+def get_ml_automl_metric() -> str:
+    """Get ML AutoML optimization metric using lua-style configuration access."""
+    return get_config_string("ml.automl.metric", "accuracy")
+
+
+def get_ml_automl_algorithms() -> List[str]:
+    """Get ML AutoML algorithms list using lua-style configuration access."""
+    return get_config_list("ml.automl.algorithms", [
+        "random_forest", "gradient_boosting", "logistic_regression"
+    ])
+
+
+# =============================================================================
+# VALIDATION FUNCTIONS (NO LONGER CLASS-BASED)
+# =============================================================================
+
+def validate_ml_task_type(task_type: str) -> bool:
+    """Validate ML task type."""
+    valid_types = [
+        "classification", "regression", "clustering",
+        "recommendation", "document_similarity"
+    ]
+    return task_type in valid_types
+
+
+def validate_ml_model_type(model_type: str) -> bool:
+    """Validate ML model type."""
+    valid_types = [
+        "random_forest", "gradient_boosting", "svm",
+        "logistic_regression", "linear_regression", "kmeans",
+        "dbscan", "neural_network"
+    ]
+    return model_type in valid_types
+
+
+def validate_ml_feature_selection_method(method: str) -> bool:
+    """Validate ML feature selection method."""
+    valid_methods = [
+        "mutual_info", "chi2", "f_score",
+        "recursive_elimination", "lasso", "tree_importance"
+    ]
+    return method in valid_methods
+
+
+def validate_ml_tuning_method(method: str) -> bool:
+    """Validate ML hyperparameter tuning method."""
+    valid_methods = ["grid_search", "random_search", "bayesian"]
+    return method in valid_methods
+
+
+def validate_ml_handle_missing(method: str) -> bool:
+    """Validate ML missing value handling method."""
+    valid_methods = ["drop", "impute", "flag"]
+    return method in valid_methods
+
+
+def validate_ml_categorical_encoding(method: str) -> bool:
+    """Validate ML categorical encoding method."""
+    valid_methods = ["onehot", "label", "target"]
+    return method in valid_methods
+
+
+def validate_ml_storage_backend(backend: str) -> bool:
+    """Validate ML storage backend."""
+    valid_backends = ["local", "s3", "gcs", "azure"]
+    return backend in valid_backends
+
+
+def validate_ml_experiment_tracking_backend(backend: str) -> bool:
+    """Validate ML experiment tracking backend."""
+    valid_backends = ["mlflow", "wandb", "neptune", "tensorboard"]
+    return backend in valid_backends
+
+
+def validate_ml_config() -> List[str]:
+    """Validate complete ML configuration and return any issues."""
+    issues = []
+
+    # Validate task type
+    task_type = get_ml_task_type()
+    if not validate_ml_task_type(task_type):
+        issues.append(f"Invalid ML task type: {task_type}")
+
+    # Validate model type
+    model_type = get_ml_model_type()
+    if not validate_ml_model_type(model_type):
+        issues.append(f"Invalid ML model type: {model_type}")
+
+    # Validate feature selection method if set
+    feature_method = get_ml_feature_selection_method()
+    if feature_method and not validate_ml_feature_selection_method(feature_method):
+        issues.append(f"Invalid ML feature selection method: {feature_method}")
+
+    # Validate tuning method
+    tuning_method = get_ml_tuning_method()
+    if not validate_ml_tuning_method(tuning_method):
+        issues.append(f"Invalid ML tuning method: {tuning_method}")
+
+    # Validate CV folds
+    cv_folds = get_ml_cv_folds()
+    if cv_folds < 2 or cv_folds > 20:
+        issues.append("ML CV folds must be between 2 and 20")
+
+    # Validate max iterations
+    max_iter = get_ml_max_iter()
+    if max_iter < 1:
+        issues.append("ML max iterations must be at least 1")
+
+    # Validate test size
+    test_size = get_ml_test_size()
+    if test_size <= 0.0 or test_size >= 1.0:
+        issues.append("ML test size must be between 0.0 and 1.0 (exclusive)")
+
+    # Validate missing value handling
+    handle_missing = get_ml_handle_missing()
+    if not validate_ml_handle_missing(handle_missing):
+        issues.append(f"Invalid ML handle missing method: {handle_missing}")
+
+    # Validate categorical encoding
+    categorical_encoding = get_ml_categorical_encoding()
+    if not validate_ml_categorical_encoding(categorical_encoding):
+        issues.append(f"Invalid ML categorical encoding: {categorical_encoding}")
+
+    # Validate thresholds
+    min_accuracy = get_ml_min_accuracy()
+    if min_accuracy < 0.0 or min_accuracy > 1.0:
+        issues.append("ML minimum accuracy must be between 0.0 and 1.0")
+
+    min_precision = get_ml_min_precision()
+    if min_precision < 0.0 or min_precision > 1.0:
+        issues.append("ML minimum precision must be between 0.0 and 1.0")
+
+    min_recall = get_ml_min_recall()
+    if min_recall < 0.0 or min_recall > 1.0:
+        issues.append("ML minimum recall must be between 0.0 and 1.0")
+
+    # Validate storage backend if enabled
+    if get_ml_storage_enabled():
+        storage_backend = get_ml_storage_backend()
+        if not validate_ml_storage_backend(storage_backend):
+            issues.append(f"Invalid ML storage backend: {storage_backend}")
+
+    # Validate experiment tracking backend if enabled
+    if get_ml_experiment_tracking_enabled():
+        tracking_backend = get_ml_experiment_tracking_backend()
+        if not validate_ml_experiment_tracking_backend(tracking_backend):
+            issues.append(f"Invalid ML experiment tracking backend: {tracking_backend}")
+
+    # Validate serving configuration if enabled
+    if get_ml_serving_enabled():
+        serving_port = get_ml_serving_port()
+        if serving_port < 1 or serving_port > 65535:
+            issues.append("ML serving port must be between 1 and 65535")
+
+        serving_workers = get_ml_serving_workers()
+        if serving_workers < 1:
+            issues.append("ML serving workers must be at least 1")
+
+        serving_timeout = get_ml_serving_timeout()
+        if serving_timeout < 1:
+            issues.append("ML serving timeout must be at least 1 second")
+
+    # Validate AutoML configuration if enabled
+    if get_ml_automl_enabled():
+        automl_time_limit = get_ml_automl_time_limit()
+        if automl_time_limit < 60:
+            issues.append("ML AutoML time limit must be at least 60 seconds")
+
+        automl_algorithms = get_ml_automl_algorithms()
+        if not automl_algorithms:
+            issues.append("ML AutoML algorithms list cannot be empty")
+
+        for algorithm in automl_algorithms:
+            if not validate_ml_model_type(algorithm):
+                issues.append(f"Invalid ML AutoML algorithm: {algorithm}")
+
+    return issues
+
+
+# =============================================================================
+# UTILITY FUNCTIONS
+# =============================================================================
+
+def get_ml_config_summary() -> Dict[str, Any]:
+    """Get a summary of current ML configuration."""
+    return {
+        "model": {
+            "type": get_ml_model_type(),
+            "task_type": get_ml_task_type(),
+            "hyperparameters": get_ml_hyperparameters(),
+            "feature_selection": get_ml_feature_selection_method(),
+            "max_features": get_ml_max_features(),
+        },
+        "experiment": {
+            "name": get_ml_experiment_name(),
+            "description": get_ml_experiment_description(),
+            "tuning_method": get_ml_tuning_method(),
+            "cv_folds": get_ml_cv_folds(),
+            "scoring_metric": get_ml_scoring_metric(),
+            "max_iter": get_ml_max_iter(),
+            "n_jobs": get_ml_n_jobs(),
+        },
+        "training": {
+            "test_size": get_ml_test_size(),
+            "random_state": get_ml_random_state(),
+            "stratify": get_ml_stratify(),
+        },
+        "features": {
+            "scale_features": get_ml_scale_features(),
+            "handle_missing": get_ml_handle_missing(),
+            "categorical_encoding": get_ml_categorical_encoding(),
+        },
+        "validation": {
+            "min_accuracy": get_ml_min_accuracy(),
+            "min_precision": get_ml_min_precision(),
+            "min_recall": get_ml_min_recall(),
+        },
+        "storage": {
+            "enabled": get_ml_storage_enabled(),
+            "backend": get_ml_storage_backend(),
+            "path": get_ml_storage_path(),
+        },
+        "serving": {
+            "enabled": get_ml_serving_enabled(),
+            "host": get_ml_serving_host(),
+            "port": get_ml_serving_port(),
+            "workers": get_ml_serving_workers(),
+            "timeout": get_ml_serving_timeout(),
+        },
+        "automl": {
+            "enabled": get_ml_automl_enabled(),
+            "time_limit": get_ml_automl_time_limit(),
+            "metric": get_ml_automl_metric(),
+            "algorithms": get_ml_automl_algorithms(),
+        },
+    }
