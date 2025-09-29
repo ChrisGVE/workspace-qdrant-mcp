@@ -18,7 +18,6 @@ from typing import Dict, List, Optional, Tuple, Any
 from contextlib import asynccontextmanager
 
 from common.utils.project_detection import ProjectDetector
-from common.core.yaml_config import WorkspaceConfig
 
 # logger imported from loguru
 
