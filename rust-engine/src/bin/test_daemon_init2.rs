@@ -1,4 +1,4 @@
-use workspace_qdrant_daemon::config::DaemonConfig;
+use workspace_qdrant_daemon::config::{DaemonConfig, get_config_string};
 use workspace_qdrant_daemon::daemon::WorkspaceDaemon;
 use std::path::Path;
 
@@ -21,9 +21,9 @@ async fn main() {
         }
     };
 
-    // Test database path
-    let database_config = config.database();
-    println!("Database path: {}", database_config.sqlite_path);
+    // Test database path using lua-style configuration
+    let database_path = get_config_string("database.sqlite_path", ":memory:");
+    println!("Database path: {}", database_path);
 
     // Now try to initialize the daemon
     println!("\n2. Initializing daemon...");

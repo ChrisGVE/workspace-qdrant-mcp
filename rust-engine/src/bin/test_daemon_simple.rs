@@ -1,4 +1,4 @@
-use workspace_qdrant_daemon::config::DaemonConfig;
+use workspace_qdrant_daemon::config::{DaemonConfig, get_config_string};
 use workspace_qdrant_daemon::daemon::WorkspaceDaemon;
 use std::error::Error;
 
@@ -7,17 +7,17 @@ async fn main() {
     println!("Testing daemon initialization with memory database...");
 
     // Create a configuration with a simple memory database
-    let config = DaemonConfig::default();
+    let _config = DaemonConfig::default();
 
     // Override the database path to use a memory database
     println!("Using default config with memory database");
 
     // Test what the database config looks like using lua-style config
-    println!("Original database path: {}", workspace_qdrant_daemon::config::get_config_string("database.sqlite_path", ":memory:"));
+    println!("Original database path: {}", get_config_string("database.sqlite_path", ":memory:"));
 
     // Create a simple test config that should work
     let test_config = DaemonConfig::default();
-    println!("Test config database path: {}", workspace_qdrant_daemon::config::get_config_string("database.sqlite_path", ":memory:"));
+    println!("Test config database path: {}", get_config_string("database.sqlite_path", ":memory:"));
 
     // Try the daemon init
     println!("\nInitializing daemon...");
