@@ -34,7 +34,7 @@ from rich.table import Table
 from rich.text import Text
 
 from loguru import logger
-from ..utils import create_command_app, handle_async_command
+from ..utils import create_command_app, handle_async
 
 # Initialize app and logger
 service_app = create_command_app(
@@ -1264,7 +1264,7 @@ def install_service(
             )
             raise typer.Exit(1)
 
-    handle_async_command(_install())
+    handle_async(_install())
 
 
 @service_app.command("uninstall")
@@ -1294,7 +1294,7 @@ def uninstall_service() -> None:
             )
             raise typer.Exit(1)
 
-    handle_async_command(_uninstall())
+    handle_async(_uninstall())
 
 
 @service_app.command("start")
@@ -1329,7 +1329,7 @@ def start_service() -> None:
             )
             raise typer.Exit(1)
 
-    handle_async_command(_start())
+    handle_async(_start())
 
 
 @service_app.command("stop")
@@ -1359,7 +1359,7 @@ def stop_service() -> None:
             )
             raise typer.Exit(1)
 
-    handle_async_command(_stop())
+    handle_async(_stop())
 
 
 @service_app.command("restart")
@@ -1389,7 +1389,7 @@ def restart_service() -> None:
             )
             raise typer.Exit(1)
 
-    handle_async_command(_restart())
+    handle_async(_restart())
 
 
 @service_app.command("status")
@@ -1449,7 +1449,7 @@ def get_status(
             )
             raise typer.Exit(1)
 
-    handle_async_command(_status())
+    handle_async(_status())
 
 
 @service_app.command("logs")
@@ -1485,4 +1485,4 @@ def get_logs(
             )
             raise typer.Exit(1)
 
-    handle_async_command(_logs())
+    handle_async(_logs())
