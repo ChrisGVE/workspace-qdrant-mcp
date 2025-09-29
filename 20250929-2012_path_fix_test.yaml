@@ -1,0 +1,7 @@
+[38;2;127;132;156m   1[0m [38;2;205;214;244m# Test file for config path fixes in test assertions[0m
+[38;2;127;132;156m   2[0m 
+[38;2;127;132;156m   3[0m [38;2;205;214;244mTest assertions fixed:[0m
+[38;2;127;132;156m   4[0m [38;2;205;214;244m1. "document_processing.file_watching.enabled" -> "auto_ingestion.auto_create_watches"  [0m
+[38;2;127;132;156m   5[0m [38;2;205;214;244m2. "document_processing.file_watching.project_folders.auto_monitor" -> "auto_ingestion.enabled"[0m
+[38;2;127;132;156m   6[0m 
+[38;2;127;132;156m   7[0m [38;2;205;214;244mThese paths now align with default_configuration.yaml structure.[0m
