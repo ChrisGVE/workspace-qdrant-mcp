@@ -94,14 +94,14 @@ impl WorkspaceDaemon {
 
         // Initialize file watcher if enabled
         // Fixed: Use correct path from default_configuration.yaml
-        let watcher = if get_config_bool("document_processing.file_watching.enabled", false) {
-            // Create temporary config struct using lua-style config access
+        let watcher = if get_config_bool("auto_ingestion.auto_create_watches", true) {
+            // Create temporary config using lua-style config access
             let file_watcher_config = crate::config::FileWatcherConfig {
-                enabled: get_config_bool("document_processing.file_watching.enabled", false),
+                enabled: true, // Already checked above
                 ignore_patterns: vec!["target/".to_string(), "node_modules/".to_string(), ".git/".to_string()],
-                recursive: get_config_bool("document_processing.file_watching.recursive", true),
-                max_watched_dirs: get_config_u64("document_processing.file_watching.max_dirs", 100) as usize,
-                debounce_ms: get_config_u64("document_processing.file_watching.debounce_ms", 500),
+                recursive: true,
+                max_watched_dirs: 100,
+                debounce_ms: get_config_u64("auto_ingestion.debounce", 10000) / 1000, // Convert from ms to s
             };
             Some(Arc::new(Mutex::new(
                 watcher::FileWatcher::new(&file_watcher_config, Arc::clone(&processing)).await?
@@ -845,7 +845,7 @@ mod tests {
         // When no project path is provided, start should complete without attempting to create watches
         // We can't test the full start() method because it involves the runtime manager
         // Instead, let's verify the file watching configuration is correct
-        assert!(get_config_bool("document_processing.file_watching.enabled", false));
-        assert!(get_config_bool("document_processing.file_watching.project_folders.auto_monitor", false));
+        assert!(get_config_bool("auto_ingestion.auto_create_watches", true));
+        assert!(get_config_bool("auto_ingestion.enabled", true));
     }
 }
