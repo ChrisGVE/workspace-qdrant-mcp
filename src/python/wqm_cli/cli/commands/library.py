@@ -11,8 +11,8 @@ from typing import Any, Dict, List, Optional
 import typer
 
 from common.core.collection_naming import CollectionNameError, validate_collection_name
+from common.core.config import get_config_manager
 from common.core.daemon_client import get_daemon_client, with_daemon_client
-from common.core.yaml_config import load_config
 from loguru import logger
 from ..utils import (
     confirm,
@@ -134,7 +134,7 @@ def copy_library(
 async def _list_libraries(stats: bool, sort_by: str, format: str):
     """List all library collections."""
     try:
-        config = load_config()
+        config = get_config_manager()
         
         async def _operation(client):
             # Get all collections
@@ -267,7 +267,7 @@ async def _create_library(
             print(f"Error: Invalid collection name: {e}")
             raise typer.Exit(1)
 
-        config = load_config()
+        config = get_config_manager()
         
         async def _operation(client):
             # Check if collection already exists
@@ -337,7 +337,7 @@ async def _remove_library(name: str, force: bool, backup: bool):
             collection_name = name
             display_name = name[1:]
 
-        config = load_config()
+        config = get_config_manager()
         
         async def _operation(client):
             # Check if collection exists and get info
@@ -396,7 +396,7 @@ async def _remove_library(name: str, force: bool, backup: bool):
 async def _library_status(name: str | None, detailed: bool, health_check: bool):
     """Show library statistics and health."""
     try:
-        config = load_config()
+        config = get_config_manager()
 
         if name:
             # Status for specific library
@@ -449,7 +449,7 @@ async def _library_info(name: str, show_samples: bool, show_schema: bool):
         collection_name = name if name.startswith("_") else f"_{name}"
         display_name = name[1:] if name.startswith("_") else name
 
-        config = load_config()
+        config = get_config_manager()
 
         print(f"Library Info: {display_name}")
 
