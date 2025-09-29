@@ -1,0 +1,1 @@
+"""Edge case tests for MCP server."""
