@@ -51,22 +51,60 @@ impl WorkspaceDaemon {
         info!("Initializing Workspace Daemon with config: {:?}", config);
 
         // Initialize state management
-        // TODO: Update DaemonState::new to use lua-style config internally
+        // Create temporary config struct using lua-style config access
+        let db_config = crate::config::DatabaseConfig {
+            max_connections: get_config_u64("database.max_connections", 10) as i32,
+            sqlite_path: get_config_string("database.sqlite_path", ":memory:"),
+            connection_timeout_secs: get_config_u64("database.connection_timeout_secs", 30),
+            enable_wal: get_config_bool("database.enable_wal", false),
+        };
         let state = Arc::new(RwLock::new(
-            state::DaemonState::new(&config.database()).await?
+            state::DaemonState::new(&db_config).await?
         ));
 
         // Initialize document processor
-        // TODO: Update DocumentProcessor::new to use lua-style config internally
+        // Create temporary config structs using lua-style config access
+        let processing_config = crate::config::ProcessingConfig {
+            max_concurrent_tasks: get_config_u64("document_processing.performance.max_concurrent_tasks", 4) as usize,
+            supported_extensions: vec![".txt".to_string(), ".md".to_string(), ".py".to_string(), ".rs".to_string()],
+            default_chunk_size: get_config_u64("document_processing.chunking.default_chunk_size", 1000) as usize,
+            default_chunk_overlap: get_config_u64("document_processing.chunking.default_chunk_overlap", 200) as usize,
+            max_file_size_bytes: get_config_u64("document_processing.chunking.max_file_size_bytes", 10 * 1024 * 1024),
+            enable_lsp: get_config_bool("lsp_integration.enabled", false),
+            lsp_timeout_secs: get_config_u64("lsp_integration.timeout", 30) as u32,
+        };
+        let qdrant_config = crate::config::QdrantConfig {
+            url: get_config_string("external_services.qdrant.url", "http://localhost:6333"),
+            api_key: {
+                let key = get_config_string("external_services.qdrant.api_key", "");
+                if key.is_empty() { None } else { Some(key) }
+            },
+            max_retries: get_config_u64("external_services.qdrant.max_retries", 3) as u32,
+            default_collection: crate::config::CollectionConfig {
+                vector_size: get_config_u64("collections.vector_size", 384) as usize,
+                shard_number: get_config_u64("collections.shard_number", 1) as u32,
+                replication_factor: get_config_u64("collections.replication_factor", 1) as u32,
+                distance_metric: get_config_string("collections.distance_metric", "Cosine"),
+                enable_indexing: get_config_bool("collections.enable_indexing", true),
+            },
+        };
         let processing = Arc::new(
-            processing::DocumentProcessor::new(&config.processing(), &config.qdrant()).await?
+            processing::DocumentProcessor::new(&processing_config, &qdrant_config).await?
         );
 
         // Initialize file watcher if enabled
         // Fixed: Use correct path from default_configuration.yaml
         let watcher = if get_config_bool("document_processing.file_watching.enabled", false) {
+            // Create temporary config struct using lua-style config access
+            let file_watcher_config = crate::config::FileWatcherConfig {
+                enabled: get_config_bool("document_processing.file_watching.enabled", false),
+                ignore_patterns: vec!["target/".to_string(), "node_modules/".to_string(), ".git/".to_string()],
+                recursive: get_config_bool("document_processing.file_watching.recursive", true),
+                max_watched_dirs: get_config_u64("document_processing.file_watching.max_dirs", 100) as usize,
+                debounce_ms: get_config_u64("document_processing.file_watching.debounce_ms", 500),
+            };
             Some(Arc::new(Mutex::new(
-                watcher::FileWatcher::new(&config.file_watcher(), Arc::clone(&processing)).await?
+                watcher::FileWatcher::new(&file_watcher_config, Arc::clone(&processing)).await?
             )))
         } else {
             None

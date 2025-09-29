@@ -152,11 +152,13 @@ impl SystemService for SystemServiceImpl {
 
         // Convert configuration to string map
         let mut configuration = std::collections::HashMap::new();
-        configuration.insert("server.host".to_string(), config.server().host.clone());
-        configuration.insert("server.port".to_string(), config.server().port.to_string());
-        configuration.insert("qdrant.url".to_string(), config.qdrant().url.clone());
-        configuration.insert("database.sqlite_path".to_string(), config.database().sqlite_path.clone());
-        configuration.insert("processing.max_concurrent_tasks".to_string(), config.processing().max_concurrent_tasks.to_string());
+        // Use lua-style config access instead of hardcoded structs
+        configuration.insert("server.host".to_string(), crate::config::get_config_string("grpc.server.host", "127.0.0.1"));
+        configuration.insert("server.port".to_string(), crate::config::get_config_u64("grpc.server.port", 50051).to_string());
+        // Use lua-style config access instead of hardcoded structs
+        configuration.insert("qdrant.url".to_string(), crate::config::get_config_string("external_services.qdrant.url", "http://localhost:6333"));
+        configuration.insert("database.sqlite_path".to_string(), crate::config::get_config_string("database.sqlite_path", ":memory:"));
+        configuration.insert("processing.max_concurrent_tasks".to_string(), crate::config::get_config_u64("document_processing.performance.max_concurrent_tasks", 4).to_string());
 
         let response = ConfigResponse {
             configuration,
