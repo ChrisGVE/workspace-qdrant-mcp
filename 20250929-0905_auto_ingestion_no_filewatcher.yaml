@@ -1,0 +1,40 @@
+# Configuration for auto-ingestion without file watcher blocking
+# Based on corrected structure from assets/default_configuration.yaml
+
+# Core external services
+external_services:
+  qdrant:
+    url: "http://localhost:6333"
+
+# Auto-ingestion configuration (matches default config structure)
+auto_ingestion:
+  enabled: true
+  auto_create_watches: true
+  include_common_files: true
+  include_source_files: true
+  project_collection: "projects_content"
+  max_files_per_batch: 5
+  batch_delay: 2s
+  max_file_size: 50MB
+  debounce: 10s
+
+# Workspace configuration with correct include/exclude pattern paths
+workspace:
+  collection_basename: null
+  collection_types: []
+  custom_include_patterns: ["*.py", "*.rs", "*.md"]
+  custom_exclude_patterns: ["*.tmp", "*.log"]
+
+# File watcher DISABLED to isolate auto-ingestion testing
+file_watcher:
+  enabled: false
+
+# Logging configuration
+logging:
+  level: "debug"
+  enable_console: true
+  json_format: false
+
+# Database configuration
+database:
+  sqlite_path: ":memory:"

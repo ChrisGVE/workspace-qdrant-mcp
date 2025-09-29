@@ -1,0 +1,24 @@
+# Working test configuration for auto-ingestion debugging
+# This tests auto-ingestion with minimal required configuration
+
+system:
+  project_name: "workspace-qdrant-mcp"
+  database:
+    sqlite_path: ":memory:"
+  auto_ingestion:
+    enabled: true
+    auto_create_watches: true
+    include_source_files: true
+    include_patterns: ["*.py", "*.rs", "*.md"]
+    exclude_patterns: ["*.tmp", "*.log"]
+  file_watcher:
+    enabled: false
+
+external_services:
+  qdrant:
+    url: "http://localhost:6333"
+
+logging:
+  level: "debug"
+  enable_console: true
+  json_format: false
