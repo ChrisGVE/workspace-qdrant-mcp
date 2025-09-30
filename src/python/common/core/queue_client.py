@@ -659,3 +659,187 @@ class SQLiteQueueClient:
                 "tenant_id": row["tenant_id"],
                 "branch": row["branch"],
             }
+
+    async def enqueue_batch(
+        self,
+        items: List[Dict[str, Any]],
+        max_queue_depth: Optional[int] = None,
+        overflow_strategy: str = "reject"
+    ) -> Tuple[int, List[str]]:
+        """
+        Enqueue multiple files as a batch with priority calculation.
+
+        Args:
+            items: List of dictionaries with keys:
+                - file_path: str (required)
+                - collection: str (required)
+                - priority: int (required, 0-10)
+                - operation: QueueOperation (optional, defaults to INGEST)
+                - tenant_id: str (optional, defaults to "default")
+                - branch: str (optional, defaults to "main")
+            max_queue_depth: Maximum queue size (None = unlimited)
+            overflow_strategy: Strategy when queue full ("reject" or "replace_lowest")
+
+        Returns:
+            Tuple of (successful_count, failed_paths)
+
+        Raises:
+            ValueError: If queue depth exceeded and overflow_strategy="reject"
+        """
+        if not items:
+            return 0, []
+
+        # Validate all items first
+        for item in items:
+            if "file_path" not in item or "collection" not in item or "priority" not in item:
+                raise ValueError("Each item must have file_path, collection, and priority")
+            if not (0 <= item["priority"] <= 10):
+                raise ValueError(f"Priority must be 0-10, got {item['priority']}")
+
+        async with self.connection_pool.get_connection_async() as conn:
+            # Check queue depth if limit specified
+            if max_queue_depth is not None:
+                cursor = conn.execute("SELECT COUNT(*) FROM ingestion_queue")
+                current_depth = cursor.fetchone()[0]
+
+                if current_depth + len(items) > max_queue_depth:
+                    if overflow_strategy == "reject":
+                        raise ValueError(
+                            f"Queue depth limit ({max_queue_depth}) would be exceeded. "
+                            f"Current: {current_depth}, Adding: {len(items)}"
+                        )
+                    elif overflow_strategy == "replace_lowest":
+                        # Remove lowest priority items to make space
+                        items_to_remove = (current_depth + len(items)) - max_queue_depth
+                        conn.execute(f"""
+                            DELETE FROM ingestion_queue
+                            WHERE file_absolute_path IN (
+                                SELECT file_absolute_path
+                                FROM ingestion_queue
+                                ORDER BY priority ASC, queued_timestamp DESC
+                                LIMIT {items_to_remove}
+                            )
+                        """)
+                        logger.info(
+                            f"Removed {items_to_remove} lowest priority items due to "
+                            f"queue depth limit"
+                        )
+
+            # Batch insert
+            successful = 0
+            failed = []
+
+            insert_query = """
+                INSERT OR REPLACE INTO ingestion_queue (
+                    file_absolute_path, collection_name, tenant_id, branch,
+                    operation, priority, queued_timestamp
+                ) VALUES (?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+            """
+
+            for item in items:
+                try:
+                    operation = item.get("operation", QueueOperation.INGEST).value \
+                        if isinstance(item.get("operation"), QueueOperation) \
+                        else item.get("operation", "ingest")
+
+                    conn.execute(insert_query, (
+                        item["file_path"],
+                        item["collection"],
+                        item.get("tenant_id", "default"),
+                        item.get("branch", "main"),
+                        operation,
+                        item["priority"]
+                    ))
+                    successful += 1
+                except Exception as e:
+                    logger.error(f"Failed to enqueue {item['file_path']}: {e}")
+                    failed.append(item["file_path"])
+
+            conn.commit()
+
+            logger.info(
+                f"Batch enqueue completed: {successful} successful, {len(failed)} failed"
+            )
+
+            return successful, failed
+
+    async def purge_completed_items(
+        self,
+        retention_hours: int = 24,
+        tenant_id: Optional[str] = None,
+        branch: Optional[str] = None
+    ) -> int:
+        """
+        Purge completed items based on retention policy.
+
+        Removes entries from messages table older than retention period.
+        Note: ingestion_queue items are removed immediately on completion,
+        this purges historical error/completion logs.
+
+        Args:
+            retention_hours: Keep messages newer than this many hours
+            tenant_id: Optional tenant filter
+            branch: Optional branch filter
+
+        Returns:
+            Number of messages purged
+        """
+        query = """
+            DELETE FROM messages
+            WHERE created_timestamp < datetime('now', ? || ' hours')
+        """
+
+        params = [f"-{retention_hours}"]
+
+        # Add filters if specified
+        # Note: messages table doesn't have tenant_id/branch,
+        # we filter by file_path pattern if needed
+        if tenant_id or branch:
+            logger.warning(
+                "tenant_id/branch filtering not directly supported for message purging"
+            )
+
+        async with self.connection_pool.get_connection_async() as conn:
+            cursor = conn.execute(query, tuple(params))
+            conn.commit()
+
+            purged_count = cursor.rowcount
+            logger.info(
+                f"Purged {purged_count} messages older than {retention_hours} hours"
+            )
+
+            return purged_count
+
+    async def get_queue_depth(
+        self,
+        tenant_id: Optional[str] = None,
+        branch: Optional[str] = None
+    ) -> int:
+        """
+        Get current queue depth (item count).
+
+        Args:
+            tenant_id: Optional tenant filter
+            branch: Optional branch filter
+
+        Returns:
+            Number of items in queue
+        """
+        query = "SELECT COUNT(*) FROM ingestion_queue"
+        conditions = []
+        params = []
+
+        if tenant_id:
+            conditions.append("tenant_id = ?")
+            params.append(tenant_id)
+
+        if branch:
+            conditions.append("branch = ?")
+            params.append(branch)
+
+        if conditions:
+            query += " WHERE " + " AND ".join(conditions)
+
+        async with self.connection_pool.get_connection_async() as conn:
+            cursor = conn.execute(query, tuple(params))
+            return cursor.fetchone()[0]

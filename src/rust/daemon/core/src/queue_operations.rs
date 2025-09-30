@@ -613,6 +613,157 @@ impl QueueManager {
 
         Ok(deleted_count)
     }
+
+    /// Enqueue multiple files as a batch with priority calculation
+    pub async fn enqueue_batch(
+        &self,
+        items: Vec<QueueItem>,
+        max_queue_depth: Option<i64>,
+        overflow_strategy: &str,
+    ) -> QueueResult<(i64, Vec<String>)> {
+        if items.is_empty() {
+            return Ok((0, Vec::new()));
+        }
+
+        // Validate all items first
+        for item in &items {
+            if !(0..=10).contains(&item.priority) {
+                return Err(QueueError::InvalidPriority(item.priority));
+            }
+        }
+
+        // Check queue depth if limit specified
+        if let Some(max_depth) = max_queue_depth {
+            let current_depth = self.get_queue_depth(None, None).await?;
+
+            if current_depth + items.len() as i64 > max_depth {
+                if overflow_strategy == "reject" {
+                    return Err(QueueError::InvalidOperation(format!(
+                        "Queue depth limit ({}) would be exceeded. Current: {}, Adding: {}",
+                        max_depth,
+                        current_depth,
+                        items.len()
+                    )));
+                } else if overflow_strategy == "replace_lowest" {
+                    // Remove lowest priority items to make space
+                    let items_to_remove = (current_depth + items.len() as i64) - max_depth;
+
+                    let delete_query = format!(
+                        "DELETE FROM ingestion_queue WHERE file_absolute_path IN \
+                         (SELECT file_absolute_path FROM ingestion_queue \
+                          ORDER BY priority ASC, queued_timestamp DESC LIMIT {})",
+                        items_to_remove
+                    );
+
+                    sqlx::query(&delete_query).execute(&self.pool).await?;
+
+                    info!(
+                        "Removed {} lowest priority items due to queue depth limit",
+                        items_to_remove
+                    );
+                }
+            }
+        }
+
+        // Batch insert
+        let mut successful = 0i64;
+        let mut failed = Vec::new();
+
+        for item in items {
+            let result = sqlx::query(
+                r#"
+                INSERT OR REPLACE INTO ingestion_queue (
+                    file_absolute_path, collection_name, tenant_id, branch,
+                    operation, priority, queued_timestamp
+                ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, CURRENT_TIMESTAMP)
+                "#,
+            )
+            .bind(&item.file_absolute_path)
+            .bind(&item.collection_name)
+            .bind(&item.tenant_id)
+            .bind(&item.branch)
+            .bind(item.operation.as_str())
+            .bind(item.priority)
+            .execute(&self.pool)
+            .await;
+
+            match result {
+                Ok(_) => successful += 1,
+                Err(e) => {
+                    error!("Failed to enqueue {}: {}", item.file_absolute_path, e);
+                    failed.push(item.file_absolute_path);
+                }
+            }
+        }
+
+        info!(
+            "Batch enqueue completed: {} successful, {} failed",
+            successful,
+            failed.len()
+        );
+
+        Ok((successful, failed))
+    }
+
+    /// Purge completed items based on retention policy
+    pub async fn purge_completed_items(
+        &self,
+        retention_hours: i32,
+        _tenant_id: Option<&str>,
+        _branch: Option<&str>,
+    ) -> QueueResult<u64> {
+        let query = format!(
+            "DELETE FROM messages WHERE created_timestamp < datetime('now', '-{} hours')",
+            retention_hours
+        );
+
+        let result = sqlx::query(&query).execute(&self.pool).await?;
+
+        let purged_count = result.rows_affected();
+        info!(
+            "Purged {} messages older than {} hours",
+            purged_count, retention_hours
+        );
+
+        Ok(purged_count)
+    }
+
+    /// Get current queue depth (item count)
+    pub async fn get_queue_depth(
+        &self,
+        tenant_id: Option<&str>,
+        branch: Option<&str>,
+    ) -> QueueResult<i64> {
+        let mut query = String::from("SELECT COUNT(*) FROM ingestion_queue");
+        let mut conditions = Vec::new();
+
+        if tenant_id.is_some() {
+            conditions.push("tenant_id = ?");
+        }
+
+        if branch.is_some() {
+            conditions.push("branch = ?");
+        }
+
+        if !conditions.is_empty() {
+            query.push_str(" WHERE ");
+            query.push_str(&conditions.join(" AND "));
+        }
+
+        let mut query_builder = sqlx::query_scalar::<_, i64>(&query);
+
+        if let Some(tid) = tenant_id {
+            query_builder = query_builder.bind(tid);
+        }
+
+        if let Some(br) = branch {
+            query_builder = query_builder.bind(br);
+        }
+
+        let count = query_builder.fetch_one(&self.pool).await?;
+
+        Ok(count)
+    }
 }
 
 #[cfg(test)]
