@@ -18,6 +18,7 @@ pub mod logging;
 pub mod daemon_state;
 pub mod patterns;
 pub mod processing;
+pub mod queue_config;
 pub mod service_discovery;
 pub mod storage;
 pub mod unified_config;
