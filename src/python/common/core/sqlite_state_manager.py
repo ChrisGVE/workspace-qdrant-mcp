@@ -2061,6 +2061,46 @@ class SQLiteStateManager:
             logger.error(f"Failed to reschedule queue item {queue_id}: {e}")
             return False
 
+    async def update_retry(
+        self, queue_id: str, retry_count: int, retry_after: datetime
+    ) -> bool:
+        """
+        Update retry count and schedule time for a queue item.
+        
+        Args:
+            queue_id: Queue item identifier
+            retry_count: New retry count value
+            retry_after: New scheduled time for retry
+            
+        Returns:
+            True if updated successfully, False if queue_id not found
+        """
+        try:
+            async with self.transaction() as conn:
+                cursor = conn.execute(
+                    """
+                    UPDATE processing_queue 
+                    SET attempts = ?, scheduled_at = ?
+                    WHERE queue_id = ?
+                    """,
+                    (retry_count, retry_after.isoformat(), queue_id),
+                )
+
+                success = cursor.rowcount > 0
+                if success:
+                    logger.debug(
+                        f"Updated retry for queue item {queue_id}: "
+                        f"attempts={retry_count}, scheduled_at={retry_after.isoformat()}"
+                    )
+                else:
+                    logger.warning(f"Queue item not found for retry update: {queue_id}")
+
+                return success
+
+        except Exception as e:
+            logger.error(f"Failed to update retry for queue item {queue_id}: {e}")
+            return False
+
     async def get_queue_stats(self, collection: Optional[str] = None) -> Dict[str, int]:
         """Get processing queue statistics."""
         try:
@@ -2118,6 +2158,212 @@ class SQLiteStateManager:
 
         except Exception as e:
             logger.error(f"Failed to clear processing queue: {e}")
+            return 0
+
+    async def queue_stats(
+        self, tenant_id: Optional[str] = None, branch: Optional[str] = None
+    ) -> Dict[str, Any]:
+        """
+        Get comprehensive queue statistics with optional filtering.
+
+        Args:
+            tenant_id: Optional tenant identifier for filtering
+            branch: Optional branch identifier for filtering
+
+        Returns:
+            Dictionary containing:
+                - total_items: Total number of items in queue
+                - by_priority: Dict with counts per priority level
+                - oldest_item: Datetime of oldest queued item (or None)
+                - average_wait_time: Average wait time in seconds (or 0)
+        """
+        try:
+            with self._lock:
+                # Build base query with optional filters
+                where_clauses = []
+                params = []
+
+                # Add tenant_id filter if provided
+                if tenant_id is not None:
+                    where_clauses.append("json_extract(metadata, '$.tenant_id') = ?")
+                    params.append(tenant_id)
+
+                # Add branch filter if provided
+                if branch is not None:
+                    where_clauses.append("json_extract(metadata, '$.branch') = ?")
+                    params.append(branch)
+
+                where_sql = " WHERE " + " AND ".join(where_clauses) if where_clauses else ""
+
+                # Get total items count
+                total_sql = f"SELECT COUNT(*) as total FROM processing_queue{where_sql}"
+                cursor = self.connection.execute(total_sql, params)
+                total_items = cursor.fetchone()["total"]
+
+                # Get counts by priority
+                priority_sql = f"""
+                    SELECT priority, COUNT(*) as count 
+                    FROM processing_queue
+                    {where_sql}
+                    GROUP BY priority
+                """
+                cursor = self.connection.execute(priority_sql, params)
+                priority_rows = cursor.fetchall()
+
+                # Build by_priority dict
+                by_priority = {
+                    ProcessingPriority.LOW.value: 0,
+                    ProcessingPriority.NORMAL.value: 0,
+                    ProcessingPriority.HIGH.value: 0,
+                    ProcessingPriority.URGENT.value: 0,
+                }
+                for row in priority_rows:
+                    priority = row["priority"]
+                    count = row["count"]
+                    if priority in by_priority:
+                        by_priority[priority] = count
+
+                # Get oldest item timestamp
+                oldest_sql = f"""
+                    SELECT MIN(created_at) as oldest
+                    FROM processing_queue
+                    {where_sql}
+                """
+                cursor = self.connection.execute(oldest_sql, params)
+                oldest_row = cursor.fetchone()
+                oldest_item = None
+                if oldest_row and oldest_row["oldest"]:
+                    try:
+                        oldest_str = oldest_row["oldest"]
+                        # Handle both ISO format and SQLite datetime format
+                        if "T" in oldest_str:
+                            oldest_str = oldest_str.replace("Z", "+00:00")
+                            oldest_item = datetime.fromisoformat(oldest_str)
+                        else:
+                            # SQLite datetime format
+                            oldest_item = datetime.strptime(oldest_str, "%Y-%m-%d %H:%M:%S")
+                    except (ValueError, TypeError) as e:
+                        logger.warning(f"Failed to parse oldest_item timestamp: {e}")
+                        oldest_item = None
+
+                # Calculate average wait time
+                average_wait_time = 0.0
+                if total_items > 0 and oldest_item:
+                    wait_sql = f"""
+                        SELECT created_at
+                        FROM processing_queue
+                        {where_sql}
+                    """
+                    cursor = self.connection.execute(wait_sql, params)
+                    wait_rows = cursor.fetchall()
+
+                    now = datetime.now(timezone.utc)
+                    total_wait = 0.0
+                    valid_items = 0
+
+                    for row in wait_rows:
+                        try:
+                            created_str = row["created_at"]
+                            if "T" in created_str:
+                                created_str = created_str.replace("Z", "+00:00")
+                                created_at = datetime.fromisoformat(created_str)
+                            else:
+                                created_at = datetime.strptime(created_str, "%Y-%m-%d %H:%M:%S")
+                                # Assume UTC if no timezone info
+                                created_at = created_at.replace(tzinfo=timezone.utc)
+
+                            wait_time = (now - created_at).total_seconds()
+                            total_wait += wait_time
+                            valid_items += 1
+                        except (ValueError, TypeError) as e:
+                            logger.warning(f"Failed to parse created_at timestamp: {e}")
+                            continue
+
+                    if valid_items > 0:
+                        average_wait_time = total_wait / valid_items
+
+                return {
+                    "total_items": total_items,
+                    "by_priority": by_priority,
+                    "oldest_item": oldest_item,
+                    "average_wait_time": average_wait_time,
+                }
+
+        except Exception as e:
+            logger.error(f"Failed to get queue statistics: {e}")
+            return {
+                "total_items": 0,
+                "by_priority": {
+                    ProcessingPriority.LOW.value: 0,
+                    ProcessingPriority.NORMAL.value: 0,
+                    ProcessingPriority.HIGH.value: 0,
+                    ProcessingPriority.URGENT.value: 0,
+                },
+                "oldest_item": None,
+                "average_wait_time": 0.0,
+            }
+
+
+
+    async def update_priority(
+        self, queue_ids: Union[str, List[str]], new_priority: int
+    ) -> int:
+        """
+        Update priority for one or more queue items.
+
+        Args:
+            queue_ids: Single queue_id (string) or list of queue_ids to update
+            new_priority: New priority value (1-4 corresponding to ProcessingPriority enum)
+
+        Returns:
+            Number of queue items updated
+
+        Raises:
+            ValueError: If priority is not in valid range (1-4)
+        """
+        # Validate priority range
+        valid_priorities = [p.value for p in ProcessingPriority]
+        if new_priority not in valid_priorities:
+            raise ValueError(
+                f"Invalid priority {new_priority}. Must be one of {valid_priorities} "
+                f"(LOW=1, NORMAL=2, HIGH=3, URGENT=4)"
+            )
+
+        # Normalize to list
+        if isinstance(queue_ids, str):
+            queue_ids = [queue_ids]
+
+        if not queue_ids:
+            logger.warning("No queue_ids provided to update_priority")
+            return 0
+
+        try:
+            async with self.transaction() as conn:
+                # Use parameterized query with IN clause
+                placeholders = ",".join("?" * len(queue_ids))
+                cursor = conn.execute(
+                    f"""
+                    UPDATE processing_queue 
+                    SET priority = ?
+                    WHERE queue_id IN ({placeholders})
+                    """,
+                    [new_priority] + list(queue_ids),
+                )
+
+                updated_count = cursor.rowcount
+                if updated_count > 0:
+                    logger.debug(
+                        f"Updated priority to {new_priority} for {updated_count} queue item(s)"
+                    )
+                else:
+                    logger.warning(
+                        f"No queue items found matching provided queue_ids"
+                    )
+
+                return updated_count
+
+        except Exception as e:
+            logger.error(f"Failed to update priority for queue items: {e}")
             return 0
 
     # System State Management
@@ -3282,6 +3528,73 @@ class SQLiteStateManager:
         except Exception as e:
             logger.error(f"Failed to get LSP analysis stats: {e}")
             return {"error": str(e)}
+
+    async def get_current_branch(self, project_root: Path) -> str:
+        """
+        Get the current Git branch for a project, sanitized for collection names.
+        
+        Args:
+            project_root: Path to the project root directory
+            
+        Returns:
+            Sanitized branch name, "detached" for detached HEAD, "main" if not a git repo
+        """
+        try:
+            # Execute git rev-parse to get current branch
+            result = subprocess.run(
+                ["git", "rev-parse", "--abbrev-ref", "HEAD"],
+                cwd=str(project_root),
+                capture_output=True,
+                text=True,
+                timeout=5.0
+            )
+            
+            if result.returncode == 0:
+                branch = result.stdout.strip()
+                
+                # Handle detached HEAD state
+                if branch == "HEAD":
+                    # Try to get commit hash
+                    hash_result = subprocess.run(
+                        ["git", "rev-parse", "--short", "HEAD"],
+                        cwd=str(project_root),
+                        capture_output=True,
+                        text=True,
+                        timeout=5.0
+                    )
+                    if hash_result.returncode == 0:
+                        commit_hash = hash_result.stdout.strip()
+                        branch = f"detached-{commit_hash}"
+                    else:
+                        branch = "detached"
+                
+                # Sanitize branch name for collection names
+                # Replace special characters with underscores
+                sanitized = re.sub(r"[^a-zA-Z0-9_-]", "_", branch)
+                
+                # Ensure it does not start with underscore or hyphen
+                sanitized = re.sub(r"^[_-]+", "", sanitized)
+                
+                # Ensure it is not empty
+                if not sanitized:
+                    sanitized = "main"
+                
+                logger.debug(f"Git branch for {project_root}: {branch} -> {sanitized}")
+                return sanitized
+            else:
+                # Git command failed, likely not a git repository
+                logger.debug(f"Not a git repository: {project_root}")
+                return "main"
+                
+        except subprocess.TimeoutExpired:
+            logger.warning(f"Git command timeout for {project_root}")
+            return "main"
+        except FileNotFoundError:
+            logger.debug(f"Git not found in PATH")
+            return "main"
+        except Exception as e:
+            logger.error(f"Error getting git branch for {project_root}: {e}")
+            return "main"
 
     @classmethod
     def migrate_from_legacy_path(cls, legacy_db_path: str) -> bool:
