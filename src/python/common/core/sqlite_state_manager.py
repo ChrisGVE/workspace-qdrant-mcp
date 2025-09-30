@@ -35,8 +35,11 @@ Example:
 """
 
 import asyncio
+import hashlib
 import json
 # Use unified logging system to prevent console interference in MCP mode
+import re
+import subprocess
 from loguru import logger
 import sqlite3
 import threading
@@ -903,6 +906,59 @@ class SQLiteStateManager:
         except (json.JSONDecodeError, TypeError) as e:
             logger.warning(f"Failed to deserialize JSON data: {e}")
             return None
+
+    async def calculate_tenant_id(self, project_root: Path) -> str:
+        """
+        Calculate a consistent tenant ID for a project.
+
+        Uses git remote URL if available (sanitized), otherwise falls back to
+        a hash of the project root path.
+
+        Args:
+            project_root: Path to the project root directory
+
+        Returns:
+            Consistent tenant_id string for the project
+        """
+        try:
+            # Try to get git remote URL
+            result = subprocess.run(
+                ["git", "remote", "get-url", "origin"],
+                cwd=str(project_root),
+                capture_output=True,
+                text=True,
+                timeout=5,
+            )
+
+            if result.returncode == 0 and result.stdout.strip():
+                remote_url = result.stdout.strip()
+                # Sanitize the URL to create a valid tenant ID
+                # Remove protocol prefixes
+                sanitized = re.sub(r'^(https?://|git@|ssh://)', '', remote_url)
+                # Replace special characters with underscores
+                sanitized = re.sub(r'[:/\.]+', '_', sanitized)
+                # Remove .git suffix if present
+                sanitized = re.sub(r'_git$', '', sanitized)
+                # Convert to lowercase and remove leading/trailing underscores
+                tenant_id = sanitized.lower().strip('_')
+                logger.debug(f"Generated tenant_id from git remote: {tenant_id}")
+                return tenant_id
+            else:
+                logger.debug(f"No git remote found for {project_root}, using path hash")
+
+        except subprocess.TimeoutExpired:
+            logger.warning(f"Git command timeout for {project_root}, using path hash")
+        except FileNotFoundError:
+            logger.debug(f"Git not found in PATH, using path hash for {project_root}")
+        except Exception as e:
+            logger.warning(f"Error getting git remote for {project_root}: {e}, using path hash")
+
+        # Fallback: use hash of project root path
+        path_str = str(project_root.resolve())
+        path_hash = hashlib.sha256(path_str.encode('utf-8')).hexdigest()[:16]
+        tenant_id = f"path_{path_hash}"
+        logger.debug(f"Generated tenant_id from path hash: {tenant_id}")
+        return tenant_id
 
     # Multi-Component Communication Support Methods
 
@@ -1995,6 +2051,95 @@ class SQLiteStateManager:
             logger.error(f"Failed to get next queue item: {e}")
             return None
 
+
+    async def dequeue(
+        self,
+        batch_size: int = 10,
+        tenant_id: Optional[str] = None,
+        branch: Optional[str] = None,
+        retry_from: Optional[datetime] = None,
+    ) -> List[ProcessingQueueItem]:
+        """
+        Dequeue multiple items from processing queue with priority ordering.
+
+        Args:
+            batch_size: Number of items to retrieve (default: 10)
+            tenant_id: Optional tenant ID filter (checks metadata)
+            branch: Optional branch filter (checks metadata)
+            retry_from: Optional datetime to filter scheduled items from
+
+        Returns:
+            List of ProcessingQueueItem objects ordered by priority DESC, scheduled_at ASC
+        """
+        try:
+            with self._lock:
+                # Build SQL query with filters
+                sql = """
+                    SELECT queue_id, file_path, collection, priority, created_at,
+                           scheduled_at, attempts, metadata
+                    FROM processing_queue
+                    WHERE scheduled_at <= CURRENT_TIMESTAMP
+                """
+
+                params = []
+
+                # Add retry_from filter if provided
+                if retry_from:
+                    sql += " AND scheduled_at >= ?"
+                    params.append(retry_from.isoformat())
+
+                # Order by priority DESC, scheduled_at ASC for proper queue behavior
+                sql += " ORDER BY priority DESC, scheduled_at ASC LIMIT ?"
+                params.append(batch_size)
+
+                cursor = self.connection.execute(sql, params)
+                rows = cursor.fetchall()
+
+                if not rows:
+                    return []
+
+                # Convert rows to ProcessingQueueItem objects
+                items = []
+                for row in rows:
+                    metadata = self._deserialize_json(row["metadata"])
+
+                    # Apply tenant_id filter if provided
+                    if tenant_id and metadata:
+                        if metadata.get("tenant_id") != tenant_id:
+                            continue
+
+                    # Apply branch filter if provided
+                    if branch and metadata:
+                        if metadata.get("branch") != branch:
+                            continue
+
+                    items.append(
+                        ProcessingQueueItem(
+                            queue_id=row["queue_id"],
+                            file_path=row["file_path"],
+                            collection=row["collection"],
+                            priority=ProcessingPriority(row["priority"]),
+                            created_at=datetime.fromisoformat(
+                                row["created_at"].replace("Z", "+00:00")
+                            ),
+                            scheduled_at=datetime.fromisoformat(
+                                row["scheduled_at"].replace("Z", "+00:00")
+                            ),
+                            attempts=row["attempts"],
+                            metadata=metadata,
+                        )
+                    )
+
+                logger.debug(
+                    f"Dequeued {len(items)} items from processing queue "
+                    f"(requested: {batch_size}, tenant_id: {tenant_id}, branch: {branch})"
+                )
+                return items
+
+        except Exception as e:
+            logger.error(f"Failed to dequeue items from processing queue: {e}")
+            return []
+
     async def mark_queue_item_processing(self, queue_id: str) -> bool:
         """Mark a queue item as being processed."""
         try:
@@ -2026,6 +2171,32 @@ class SQLiteStateManager:
 
         except Exception as e:
             logger.error(f"Failed to remove from processing queue {queue_id}: {e}")
+            return False
+
+    async def remove_from_queue(self, queue_id: str) -> bool:
+        """
+        Remove item from processing queue.
+        
+        Args:
+            queue_id: Unique identifier for the queue item to remove.
+            
+        Returns:
+            True if item was deleted, False if not found or on error.
+        """
+        try:
+            async with self.transaction() as conn:
+                cursor = conn.execute(
+                    "DELETE FROM processing_queue WHERE queue_id = ?", (queue_id,)
+                )
+
+                success = cursor.rowcount > 0
+                if success:
+                    logger.debug(f"Removed from queue: {queue_id}")
+
+                return success
+
+        except Exception as e:
+            logger.error(f"Failed to remove from queue {queue_id}: {e}")
             return False
 
     async def reschedule_queue_item(
