@@ -20,6 +20,7 @@ pub mod patterns;
 pub mod processing;
 pub mod queue_config;
 pub mod queue_operations;
+pub mod queue_error_handler;
 pub mod service_discovery;
 pub mod storage;
 pub mod unified_config;
