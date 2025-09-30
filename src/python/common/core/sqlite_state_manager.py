@@ -491,6 +491,26 @@ class SQLiteStateManager:
             "CREATE INDEX idx_processing_queue_priority ON processing_queue(priority DESC, scheduled_at ASC)",
             "CREATE INDEX idx_processing_queue_file_path ON processing_queue(file_path)",
             "CREATE INDEX idx_processing_queue_scheduled_at ON processing_queue(scheduled_at)",
+            # Ingestion queue table (new queue system with tenant/branch support)
+            """
+            CREATE TABLE IF NOT EXISTS ingestion_queue (
+                file_absolute_path TEXT PRIMARY KEY NOT NULL,
+                collection_name TEXT NOT NULL,
+                tenant_id TEXT DEFAULT 'default',
+                branch TEXT DEFAULT 'main',
+                operation TEXT NOT NULL CHECK (operation IN ('ingest', 'update', 'delete')),
+                priority INTEGER NOT NULL DEFAULT 5 CHECK (priority BETWEEN 0 AND 10),
+                queued_timestamp TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                retry_count INTEGER NOT NULL DEFAULT 0,
+                retry_from TEXT,
+                error_message_id INTEGER,
+                metadata TEXT,
+                FOREIGN KEY (retry_from) REFERENCES ingestion_queue(file_absolute_path) ON DELETE SET NULL
+            )
+            """,
+            # Indexes for ingestion_queue
+            "CREATE INDEX IF NOT EXISTS idx_ingestion_queue_priority_time ON ingestion_queue(priority DESC, queued_timestamp ASC)",
+            "CREATE INDEX IF NOT EXISTS idx_ingestion_queue_collection ON ingestion_queue(collection_name, tenant_id, branch)",
             # System state table for tracking overall system status
             """
             CREATE TABLE system_state (
@@ -2330,6 +2350,106 @@ class SQLiteStateManager:
         except Exception as e:
             logger.error(f"Failed to clear processing queue: {e}")
             return 0
+
+    async def enqueue(
+        self,
+        file_path: str,
+        collection: str,
+        priority: int,
+        tenant_id: str,
+        branch: str,
+        metadata: Optional[Dict] = None,
+    ) -> str:
+        """
+        Enqueue a file to the ingestion queue.
+
+        Handles UNIQUE constraint violations gracefully by updating the priority
+        of existing items instead of raising an error.
+
+        Args:
+            file_path: Absolute path to the file to enqueue
+            collection: Target collection name
+            priority: Priority level (0-10, where 10 is highest)
+            tenant_id: Tenant identifier for multi-tenancy support
+            branch: Branch identifier for multi-branch support
+            metadata: Optional metadata dictionary to store with the queue item
+
+        Returns:
+            Queue ID (file_absolute_path) of the enqueued item
+
+        Raises:
+            ValueError: If priority is out of valid range (0-10)
+        """
+        try:
+            # Validate priority
+            if not 0 <= priority <= 10:
+                raise ValueError(f"Priority must be between 0 and 10, got {priority}")
+
+            # Normalize file path to absolute path
+            file_absolute_path = str(Path(file_path).resolve())
+
+            # File path serves as queue ID
+            queue_id = file_absolute_path
+
+            async with self.transaction() as conn:
+                # Try to insert the new queue item
+                # If it already exists (UNIQUE constraint on file_absolute_path),
+                # update its priority instead
+                try:
+                    conn.execute(
+                        """
+                        INSERT INTO ingestion_queue
+                        (file_absolute_path, collection_name, tenant_id, branch,
+                         operation, priority, metadata)
+                        VALUES (?, ?, ?, ?, 'ingest', ?, ?)
+                        """,
+                        (
+                            file_absolute_path,
+                            collection,
+                            tenant_id,
+                            branch,
+                            priority,
+                            self._serialize_json(metadata) if metadata else None,
+                        ),
+                    )
+                    logger.debug(
+                        f"Enqueued file: {file_absolute_path} "
+                        f"(collection={collection}, priority={priority}, "
+                        f"tenant={tenant_id}, branch={branch})"
+                    )
+                except sqlite3.IntegrityError as e:
+                    # Handle UNIQUE constraint violation by updating priority
+                    if "UNIQUE constraint" in str(e) or "PRIMARY KEY" in str(e):
+                        conn.execute(
+                            """
+                            UPDATE ingestion_queue
+                            SET priority = ?, queued_timestamp = CURRENT_TIMESTAMP,
+                                metadata = COALESCE(?, metadata)
+                            WHERE file_absolute_path = ?
+                            """,
+                            (
+                                priority,
+                                self._serialize_json(metadata) if metadata else None,
+                                file_absolute_path,
+                            ),
+                        )
+                        logger.debug(
+                            f"Updated existing queue item: {file_absolute_path} "
+                            f"(new priority={priority})"
+                        )
+                    else:
+                        # Re-raise if it's a different integrity error
+                        raise
+
+            return queue_id
+
+        except ValueError:
+            # Re-raise validation errors
+            raise
+        except Exception as e:
+            logger.error(f"Failed to enqueue file {file_path}: {e}")
+            raise
+
 
     async def queue_stats(
         self, tenant_id: Optional[str] = None, branch: Optional[str] = None
