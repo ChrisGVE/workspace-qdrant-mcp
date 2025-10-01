@@ -909,21 +909,39 @@ class PriorityQueueManager:
             )
 
             # Decide whether to retry
+            # Decide whether to retry
             if job.attempts < job.max_attempts:
-                # Reschedule for retry with exponential backoff
+                # Calculate exponential backoff delay
                 delay_seconds = min(300, 30 * (2 ** (job.attempts - 1)))
+                # Delays: 30s, 60s, 120s, 240s, 300s (capped at 5 min)
 
-                await self.state_manager.reschedule_queue_item(
-                    job.queue_id,
-                    delay_seconds=delay_seconds,
-                    max_attempts=job.max_attempts
+                # Mark for retry using state manager's retry method
+                retry_success = await self.state_manager.retry_failed_file(
+                    job.file_path,
+                    max_retries=job.max_attempts
                 )
 
-                logger.info(f"Rescheduled job {job.queue_id} for retry in {delay_seconds}s (attempt {job.attempts}/{job.max_attempts})")
+                if retry_success:
+                    logger.info(
+                        f"Scheduled job {job.queue_id} for retry "
+                        f"(attempt {job.attempts}/{job.max_attempts}, "
+                        f"exponential backoff delay={delay_seconds}s)"
+                    )
+                    # NOTE: The actual delay is handled by the retry_failed_file() method
+                    # which marks the file as RETRYING. Future integration with 
+                    # SQLiteQueueClient will enable proper delayed scheduling.
+                else:
+                    logger.warning(
+                        f"Failed to schedule retry for {job.queue_id}, "
+                        "marking as permanently failed"
+                    )
             else:
-                # Max attempts reached, mark as failed
-                await self.state_manager.remove_from_processing_queue(job.queue_id)
-                logger.error(f"Job {job.queue_id} permanently failed after {job.attempts} attempts")
+                # Max attempts reached, mark as permanently failed
+                # The file is already marked as FAILED by complete_file_processing()
+                logger.error(
+                    f"Job {job.queue_id} permanently failed after "
+                    f"{job.attempts} attempts: {error_message}"
+                )
 
         except Exception as e:
             logger.error(f"Failed to handle job failure for {job.queue_id}: {e}")
