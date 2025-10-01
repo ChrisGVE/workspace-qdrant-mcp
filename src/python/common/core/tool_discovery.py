@@ -39,9 +39,10 @@ import platform
 import shutil
 import subprocess
 from pathlib import Path
-from typing import Dict, List, Optional
+from typing import Any, Dict, List, Optional
 
 from loguru import logger
+import re
 
 
 class ToolDiscovery:
@@ -667,3 +668,97 @@ class ToolDiscovery:
             )
 
         return lsp_paths
+
+    def discover_tree_sitter_cli(self) -> Optional[Dict[str, Any]]:
+        """Discover tree-sitter CLI executable.
+
+        Searches for the tree-sitter CLI in custom paths and system PATH,
+        validates it's executable, and retrieves version information.
+
+        Returns:
+            Dictionary with path, version, and found status if discovered:
+            {
+                "path": "/usr/local/bin/tree-sitter",
+                "version": "0.20.8",
+                "found": True
+            }
+            Returns None if tree-sitter CLI is not found.
+        """
+        logger.debug("Discovering tree-sitter CLI")
+
+        # Search for tree-sitter executable
+        tree_sitter_path = self.find_executable("tree-sitter")
+
+        if not tree_sitter_path:
+            logger.warning("tree-sitter CLI not found in PATH or custom paths")
+            return None
+
+        # Validate executable
+        if not self.validate_executable(tree_sitter_path):
+            logger.warning(
+                f"Found tree-sitter at '{tree_sitter_path}' but it's not executable"
+            )
+            return None
+
+        # Get version information
+        version_output = self.get_version(tree_sitter_path, "--version")
+
+        if not version_output:
+            logger.warning(
+                f"Found tree-sitter at '{tree_sitter_path}' but couldn't get version"
+            )
+            return None
+
+        # Parse version from output
+        # Expected format: "tree-sitter 0.20.8" or just "0.20.8"
+        version = self._parse_tree_sitter_version(version_output)
+
+        if not version:
+            logger.warning(
+                f"Could not parse version from tree-sitter output: {version_output}"
+            )
+            # Still return with raw output as version
+            version = version_output
+
+        logger.info(
+            f"Discovered tree-sitter CLI at '{tree_sitter_path}' version {version}"
+        )
+
+        return {
+            "path": tree_sitter_path,
+            "version": version,
+            "found": True
+        }
+
+    def _parse_tree_sitter_version(self, version_output: str) -> Optional[str]:
+        """Parse tree-sitter version string.
+
+        Extracts version number from tree-sitter --version output.
+        Handles formats like:
+        - "tree-sitter 0.20.8"
+        - "0.20.8"
+        - "tree-sitter version 0.20.8"
+
+        Args:
+            version_output: Raw version output from tree-sitter --version
+
+        Returns:
+            Parsed version string (e.g., "0.20.8") or None if parsing failed
+        """
+        if not version_output:
+            return None
+
+        # Try to extract version number pattern (e.g., 0.20.8)
+        # Match semantic version: major.minor.patch with optional suffix
+        version_pattern = r'(\d+\.\d+\.\d+(?:-[a-zA-Z0-9.]+)?)'
+        match = re.search(version_pattern, version_output)
+
+        if match:
+            version = match.group(1)
+            logger.debug(f"Parsed tree-sitter version: {version}")
+            return version
+
+        # If no match, return None
+        logger.debug(f"Could not parse version from: {version_output}")
+        return None
+
