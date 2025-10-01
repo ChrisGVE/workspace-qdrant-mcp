@@ -710,11 +710,92 @@ class MissingMetadataTracker:
 
     # Tool-Available Requeuing Methods
 
+    def calculate_requeue_priority(
+        self,
+        file_path: str,
+        file_branch: str,
+        current_project_root: Optional[str] = None,
+        current_branch: Optional[str] = None,
+    ) -> int:
+        """
+        Calculate priority for requeuing based on project context.
+
+        Determines the requeue priority based on whether the file is in the current
+        project and whether it's on the same branch. Higher priority for files more
+        relevant to the current context.
+
+        Priority levels:
+        - HIGH (8): File in current project (same project root)
+        - NORMAL (5): File on same branch as current (but different project)
+        - LOW (2): Other files
+
+        Args:
+            file_path: Absolute path to the file
+            file_branch: Branch the file is associated with
+            current_project_root: Current project root path (optional)
+            current_branch: Current branch name (optional)
+
+        Returns:
+            Priority value (0-10) where higher is more urgent
+
+        Example:
+            ```python
+            priority = tracker.calculate_requeue_priority(
+                file_path="/home/user/myproject/src/main.py",
+                file_branch="main",
+                current_project_root="/home/user/myproject",
+                current_branch="main"
+            )
+            # Returns 8 (HIGH) because file is in current project
+            ```
+        """
+        # Validate and normalize paths
+        try:
+            file_absolute_path = Path(file_path).resolve()
+        except Exception as e:
+            logger.warning(f"Failed to resolve file path {file_path}: {e}")
+            return 5  # Default to NORMAL priority
+
+        # HIGH priority: File in current project
+        if current_project_root:
+            try:
+                project_root_path = Path(current_project_root).resolve()
+                # Check if file is within current project root
+                try:
+                    # Use relative_to to check if file is under project root
+                    file_absolute_path.relative_to(project_root_path)
+                    logger.debug(
+                        f"File {file_path} is in current project {current_project_root}, "
+                        f"assigning HIGH priority (8)"
+                    )
+                    return 8  # HIGH priority
+                except ValueError:
+                    # File is not under project root
+                    pass
+            except Exception as e:
+                logger.warning(f"Failed to resolve project root {current_project_root}: {e}")
+
+        # NORMAL priority: File on same branch
+        if current_branch and file_branch == current_branch:
+            logger.debug(
+                f"File {file_path} is on current branch {current_branch}, "
+                f"assigning NORMAL priority (5)"
+            )
+            return 5  # NORMAL priority
+
+        # LOW priority: Other files
+        logger.debug(
+            f"File {file_path} is not in current project or branch, "
+            f"assigning LOW priority (2)"
+        )
+        return 2  # LOW priority
+
     async def requeue_when_tools_available(
         self,
         tool_type: str,
         language: Optional[str] = None,
-        priority: int = 5,
+        current_project_root: Optional[str] = None,
+        priority: Optional[int] = None,
     ) -> Dict[str, Any]:
         """
         Requeue files when tools become available.
