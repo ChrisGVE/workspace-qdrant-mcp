@@ -65,6 +65,7 @@ from .incremental_processor import (
     FileChangeInfo,
     ChangeType
 )
+from .queue_client import SQLiteQueueClient
 
 # logger imported from loguru
 
@@ -277,6 +278,13 @@ class PriorityQueueManager:
         self.processing_hooks: List[Callable] = []
         self.monitoring_hooks: List[Callable] = []
 
+        # Queue client for priority updates
+        self.queue_client: Optional[SQLiteQueueClient] = None
+
+        # Priority transition tracking
+        self._last_activity_level: Optional[MCPActivityLevel] = None
+        self._last_priority_adjustment: Optional[datetime] = None
+
     async def initialize(self) -> bool:
         """
         Initialize the priority queue system.
@@ -295,11 +303,16 @@ class PriorityQueueManager:
                 if not await self.state_manager.initialize():
                     raise RuntimeError("Failed to initialize state manager")
 
+            # Initialize queue client for priority updates
+            self.queue_client = SQLiteQueueClient()
+            await self.queue_client.initialize()
+
             # Initialize processing mode and resources
             await self._initialize_processing_resources()
 
             # Start activity detection
             self.mcp_activity.session_start_time = datetime.now(timezone.utc)
+            self._last_activity_level = self.mcp_activity.activity_level
 
             # Start monitoring tasks
             self._monitoring_task = asyncio.create_task(self._monitoring_loop())
@@ -687,6 +700,7 @@ class PriorityQueueManager:
     async def _update_processing_mode(self):
         """Update processing mode based on MCP activity and system resources."""
         old_mode = self.processing_mode
+        old_activity_level = self._last_activity_level
 
         # Check system resources
         cpu_percent = psutil.cpu_percent(interval=1)
@@ -715,6 +729,16 @@ class PriorityQueueManager:
         if old_mode != self.processing_mode:
             logger.info(f"Processing mode changed: {old_mode.value} -> {self.processing_mode.value}")
             await self._configure_executor()
+
+        # Handle priority transitions on significant activity level changes
+        if old_activity_level and old_activity_level != self.mcp_activity.activity_level:
+            await self._handle_activity_level_transition(
+                old_activity_level,
+                self.mcp_activity.activity_level
+            )
+
+        # Update tracking
+        self._last_activity_level = self.mcp_activity.activity_level
 
     async def _configure_executor(self):
         """Configure executor and concurrency limits based on processing mode."""
@@ -759,6 +783,117 @@ class PriorityQueueManager:
         self.job_semaphore = asyncio.Semaphore(config["max_workers"])
 
         logger.info(f"Configured executor: {type(self.executor).__name__} with {config['max_workers']} workers")
+
+
+    async def _handle_activity_level_transition(
+        self,
+        old_level: MCPActivityLevel,
+        new_level: MCPActivityLevel
+    ):
+        """
+        Handle priority transitions when MCP activity level changes.
+
+        Args:
+            old_level: Previous activity level
+            new_level: New activity level
+        """
+        # Check rate limiting: don't adjust more than once per minute
+        now = datetime.now(timezone.utc)
+        if self._last_priority_adjustment:
+            time_since_last = (now - self._last_priority_adjustment).total_seconds()
+            if time_since_last < 60:
+                logger.debug(
+                    f"Skipping priority adjustment, last adjustment was {time_since_last:.1f}s ago"
+                )
+                return
+
+        # Determine priority adjustment direction
+        priority_delta = 0
+
+        # Transition to higher activity: boost priorities
+        inactive_low = {MCPActivityLevel.INACTIVE, MCPActivityLevel.LOW}
+        active_high = {MCPActivityLevel.MODERATE, MCPActivityLevel.HIGH, MCPActivityLevel.BURST}
+
+        if old_level in inactive_low and new_level in active_high:
+            priority_delta = 1
+            logger.info(
+                f"MCP activity increased ({old_level.value} → {new_level.value}), "
+                "boosting queue priorities"
+            )
+
+        # Transition to lower activity: lower priorities
+        elif old_level in active_high and new_level in inactive_low:
+            priority_delta = -1
+            logger.info(
+                f"MCP activity decreased ({old_level.value} → {new_level.value}), "
+                "lowering queue priorities"
+            )
+
+        # Apply priority adjustments if needed
+        if priority_delta != 0:
+            adjusted = await self._adjust_queue_priorities(priority_delta)
+            logger.info(f"Adjusted priorities for {adjusted} queue items")
+            self._last_priority_adjustment = now
+
+    async def _adjust_queue_priorities(self, priority_delta: int) -> int:
+        """
+        Adjust priorities for all pending queue items.
+
+        Args:
+            priority_delta: Amount to adjust priorities (+1 or -1)
+
+        Returns:
+            Number of items adjusted
+        """
+        if not self.queue_client:
+            logger.warning("Queue client not initialized, skipping priority adjustment")
+            return 0
+
+        try:
+            # Get current queue items (pending only)
+            queue_items = await self.queue_client.dequeue_batch(batch_size=1000)
+
+            if not queue_items:
+                logger.debug("No queue items to adjust")
+                return 0
+
+            adjusted_count = 0
+
+            for item in queue_items:
+                current_priority = item.priority
+
+                # Calculate new priority
+                new_priority = current_priority + priority_delta
+
+                # Clamp to valid range (1-9, excluding 0 and 10 which are special)
+                # Priority 0 = never process, 10 = emergency
+                new_priority = max(1, min(9, new_priority))
+
+                # Only update if priority actually changed
+                if new_priority != current_priority:
+                    try:
+                        success = await self.queue_client.update_priority(
+                            file_path=item.file_absolute_path,
+                            new_priority=new_priority
+                        )
+
+                        if success:
+                            adjusted_count += 1
+                            logger.debug(
+                                f"Updated priority: {item.file_absolute_path} "
+                                f"{current_priority} → {new_priority}"
+                            )
+
+                    except Exception as e:
+                        logger.warning(
+                            f"Failed to update priority for {item.file_absolute_path}: {e}"
+                        )
+
+            return adjusted_count
+
+        except Exception as e:
+            logger.error(f"Error adjusting queue priorities: {e}")
+            return 0
 
     @asynccontextmanager
     async def _get_concurrency_limiter(self):
@@ -821,15 +956,17 @@ class PriorityQueueManager:
     # --- Job Processing Methods ---
 
     async def _process_single_job(self, job: ProcessingJob) -> Optional[ProcessingJob]:
-        """Process a single job from the queue."""
+        """
+        Process a single job from the queue.
+
+        Note: Queue cleanup is handled automatically by complete_file_processing(),
+        which removes the item from both processing_queue and ingestion_queue tables.
+        """
         start_time = time.time()
         job_success = False
 
         try:
             logger.info(f"Processing job {job.queue_id}: {job.file_path}")
-
-            # Mark job as processing in database
-            await self.state_manager.mark_queue_item_processing(job.queue_id)
 
             # Check if file exists
             if not Path(job.file_path).exists():
@@ -851,9 +988,6 @@ class PriorityQueueManager:
                 success=True,
                 document_id=job.metadata.get("document_id")
             )
-
-            # Remove from processing queue
-            await self.state_manager.remove_from_processing_queue(job.queue_id)
 
             job_success = True
             processing_time = time.time() - start_time
