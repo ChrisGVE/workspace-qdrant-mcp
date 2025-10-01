@@ -470,13 +470,8 @@ class PriorityQueueManager:
                 logger.info("Backpressure detected, skipping batch processing")
                 return completed_jobs
 
-            # Get next items from queue
-            queue_items = []
-            for _ in range(batch_size):
-                item = await self.state_manager.get_next_queue_item()
-                if not item:
-                    break
-                queue_items.append(item)
+            # Get next items from queue using batch dequeue
+            queue_items = await self.state_manager.dequeue(batch_size=batch_size)
 
             if not queue_items:
                 return completed_jobs
