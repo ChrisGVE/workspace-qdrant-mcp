@@ -10,6 +10,9 @@ use std::collections::HashMap;
 use thiserror::Error;
 use tracing::{debug, error, info, warn};
 
+// Import MissingTool from queue_processor module
+use crate::queue_processor::MissingTool;
+
 /// Queue operation errors
 #[derive(Error, Debug)]
 pub enum QueueError {
@@ -85,6 +88,23 @@ impl QueueItem {
     }
 }
 
+/// Missing metadata queue item representation
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct MissingMetadataItem {
+    pub queue_id: String,
+    pub file_absolute_path: String,
+    pub collection_name: String,
+    pub tenant_id: String,
+    pub branch: String,
+    pub operation: QueueOperation,
+    pub priority: i32,
+    pub missing_tools: Vec<MissingTool>,
+    pub queued_timestamp: DateTime<Utc>,
+    pub retry_count: i32,
+    pub last_check_timestamp: Option<DateTime<Utc>>,
+    pub metadata: Option<String>,
+}
+
 /// Collection type enumeration
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "kebab-case")]
@@ -156,6 +176,14 @@ impl QueueManager {
     /// Create a new queue manager with existing connection pool
     pub fn new(pool: SqlitePool) -> Self {
         Self { pool }
+    }
+
+    /// Initialize the missing_metadata_queue table
+    pub async fn init_missing_metadata_queue(&self) -> QueueResult<()> {
+        let schema = include_str!("../../../../python/common/core/missing_metadata_queue_schema.sql");
+        sqlx::query(schema).execute(&self.pool).await?;
+        debug!("Missing metadata queue table initialized");
+        Ok(())
     }
 
     /// Enqueue a file for processing
@@ -415,6 +443,237 @@ impl QueueManager {
             tx.commit().await?;
             Ok((false, error_message_id))
         }
+    }
+
+    /// Move item to missing_metadata_queue
+    pub async fn move_to_missing_metadata_queue(
+        &self,
+        item: &QueueItem,
+        missing_tools: &[MissingTool],
+    ) -> QueueResult<String> {
+        // Generate queue_id using hash of file path, tenant_id, and branch
+        let queue_id = format!(
+            "{:x}",
+            md5::compute(format!(
+                "{}||{}||{}||{}",
+                item.file_absolute_path,
+                item.tenant_id,
+                item.branch,
+                Utc::now().timestamp_millis()
+            ))
+        );
+
+        // Serialize missing_tools to JSON
+        let missing_tools_json = serde_json::to_string(missing_tools)?;
+
+        // Build metadata JSON if needed (placeholder for now)
+        let metadata_json = None::<String>;
+
+        // Insert into missing_metadata_queue (using INSERT OR REPLACE for UNIQUE constraint)
+        let query = r#"
+            INSERT OR REPLACE INTO missing_metadata_queue (
+                queue_id, file_absolute_path, collection_name, tenant_id, branch,
+                operation, priority, missing_tools, queued_timestamp, retry_count, metadata
+            ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)
+        "#;
+
+        sqlx::query(query)
+            .bind(&queue_id)
+            .bind(&item.file_absolute_path)
+            .bind(&item.collection_name)
+            .bind(&item.tenant_id)
+            .bind(&item.branch)
+            .bind(item.operation.as_str())
+            .bind(item.priority)
+            .bind(&missing_tools_json)
+            .bind(item.queued_timestamp.to_rfc3339())
+            .bind(item.retry_count)
+            .bind(metadata_json)
+            .execute(&self.pool)
+            .await?;
+
+        // Remove from main ingestion_queue
+        self.mark_complete(&item.file_absolute_path).await?;
+
+        info!(
+            "Moved to missing_metadata_queue: {} (missing tools: {})",
+            item.file_absolute_path,
+            missing_tools
+                .iter()
+                .map(|t| t.to_string())
+                .collect::<Vec<_>>()
+                .join(", ")
+        );
+
+        Ok(queue_id)
+    }
+
+    /// Get items from missing_metadata_queue
+    pub async fn get_missing_metadata_items(
+        &self,
+        limit: i32,
+    ) -> QueueResult<Vec<MissingMetadataItem>> {
+        let query = r#"
+            SELECT
+                queue_id, file_absolute_path, collection_name, tenant_id, branch,
+                operation, priority, missing_tools, queued_timestamp,
+                retry_count, last_check_timestamp, metadata
+            FROM missing_metadata_queue
+            ORDER BY priority DESC, queued_timestamp ASC
+            LIMIT ?1
+        "#;
+
+        let rows = sqlx::query(query)
+            .bind(limit)
+            .fetch_all(&self.pool)
+            .await?;
+
+        let mut items = Vec::new();
+
+        for row in rows {
+            let operation_str: String = row.try_get("operation")?;
+            let operation = QueueOperation::from_str(&operation_str)?;
+
+            let missing_tools_json: String = row.try_get("missing_tools")?;
+            let missing_tools: Vec<MissingTool> = serde_json::from_str(&missing_tools_json)?;
+
+            let queued_timestamp_str: String = row.try_get("queued_timestamp")?;
+            let queued_timestamp = DateTime::parse_from_rfc3339(&queued_timestamp_str)
+                .map_err(|e| {
+                    QueueError::Database(sqlx::Error::Decode(Box::new(std::io::Error::new(
+                        std::io::ErrorKind::InvalidData,
+                        format!("Failed to parse timestamp: {}", e),
+                    ))))
+                })?
+                .with_timezone(&Utc);
+
+            let last_check_timestamp: Option<String> = row.try_get("last_check_timestamp")?;
+            let last_check_timestamp = last_check_timestamp
+                .and_then(|s| DateTime::parse_from_rfc3339(&s).ok())
+                .map(|dt| dt.with_timezone(&Utc));
+
+            items.push(MissingMetadataItem {
+                queue_id: row.try_get("queue_id")?,
+                file_absolute_path: row.try_get("file_absolute_path")?,
+                collection_name: row.try_get("collection_name")?,
+                tenant_id: row.try_get("tenant_id")?,
+                branch: row.try_get("branch")?,
+                operation,
+                priority: row.try_get("priority")?,
+                missing_tools,
+                queued_timestamp,
+                retry_count: row.try_get("retry_count")?,
+                last_check_timestamp,
+                metadata: row.try_get("metadata")?,
+            });
+        }
+
+        debug!(
+            "Retrieved {} items from missing_metadata_queue",
+            items.len()
+        );
+
+        Ok(items)
+    }
+
+    /// Retry missing metadata item by moving back to ingestion_queue
+    pub async fn retry_missing_metadata_item(&self, queue_id: &str) -> QueueResult<bool> {
+        // Start transaction
+        let mut tx = self.pool.begin().await?;
+
+        // Get the item from missing_metadata_queue
+        let query = r#"
+            SELECT
+                file_absolute_path, collection_name, tenant_id, branch,
+                operation, priority, retry_count
+            FROM missing_metadata_queue
+            WHERE queue_id = ?1
+        "#;
+
+        let row = sqlx::query(query)
+            .bind(queue_id)
+            .fetch_optional(&mut *tx)
+            .await?;
+
+        if let Some(row) = row {
+            let file_path: String = row.try_get("file_absolute_path")?;
+            let collection: String = row.try_get("collection_name")?;
+            let tenant_id: String = row.try_get("tenant_id")?;
+            let branch: String = row.try_get("branch")?;
+            let operation_str: String = row.try_get("operation")?;
+            let operation = QueueOperation::from_str(&operation_str)?;
+            let priority: i32 = row.try_get("priority")?;
+            let retry_count: i32 = row.try_get("retry_count")?;
+
+            // Insert back into ingestion_queue (with incremented retry_count)
+            let insert_query = r#"
+                INSERT OR REPLACE INTO ingestion_queue (
+                    file_absolute_path, collection_name, tenant_id, branch,
+                    operation, priority, retry_count
+                ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)
+            "#;
+
+            sqlx::query(insert_query)
+                .bind(&file_path)
+                .bind(&collection)
+                .bind(&tenant_id)
+                .bind(&branch)
+                .bind(operation.as_str())
+                .bind(priority)
+                .bind(retry_count + 1)
+                .execute(&mut *tx)
+                .await?;
+
+            // Update last_check_timestamp in missing_metadata_queue
+            let update_query = r#"
+                UPDATE missing_metadata_queue
+                SET last_check_timestamp = ?1, retry_count = retry_count + 1
+                WHERE queue_id = ?2
+            "#;
+
+            sqlx::query(update_query)
+                .bind(Utc::now().to_rfc3339())
+                .bind(queue_id)
+                .execute(&mut *tx)
+                .await?;
+
+            // Don't delete from missing_metadata_queue yet - let processing decide if successful
+            tx.commit().await?;
+
+            info!("Retrying item from missing_metadata_queue: {}", file_path);
+            Ok(true)
+        } else {
+            warn!("Queue item not found in missing_metadata_queue: {}", queue_id);
+            tx.commit().await?;
+            Ok(false)
+        }
+    }
+
+    /// Remove item from missing_metadata_queue
+    pub async fn remove_from_missing_metadata_queue(&self, queue_id: &str) -> QueueResult<bool> {
+        let query = "DELETE FROM missing_metadata_queue WHERE queue_id = ?1";
+
+        let result = sqlx::query(query)
+            .bind(queue_id)
+            .execute(&self.pool)
+            .await?;
+
+        let deleted = result.rows_affected() > 0;
+
+        if deleted {
+            debug!("Removed from missing_metadata_queue: {}", queue_id);
+        } else {
+            warn!("Queue item not found in missing_metadata_queue: {}", queue_id);
+        }
+
+        Ok(deleted)
+    }
+
+    /// Get missing metadata queue depth
+    pub async fn get_missing_metadata_queue_depth(&self) -> QueueResult<i64> {
+        let query = "SELECT COUNT(*) FROM missing_metadata_queue";
+        let count: i64 = sqlx::query_scalar(query).fetch_one(&self.pool).await?;
+        Ok(count)
     }
 
     /// Get queue statistics
@@ -782,7 +1041,7 @@ mod tests {
         let pool = config.create_pool().await.unwrap();
 
         // Initialize schema
-        sqlx::query(include_str!("../../../../../python/common/core/queue_schema.sql"))
+        sqlx::query(include_str!("../../../../python/common/core/queue_schema.sql"))
             .execute(&pool)
             .await
             .unwrap();
@@ -835,5 +1094,79 @@ mod tests {
             .await;
 
         assert!(result.is_err());
+    }
+
+    #[tokio::test]
+    async fn test_missing_metadata_queue() {
+        let temp_dir = tempdir().unwrap();
+        let db_path = temp_dir.path().join("test_missing_metadata.db");
+
+        let config = QueueConnectionConfig::with_database_path(&db_path);
+        let pool = config.create_pool().await.unwrap();
+
+        // Initialize schemas
+        sqlx::query(include_str!("../../../../python/common/core/queue_schema.sql"))
+            .execute(&pool)
+            .await
+            .unwrap();
+
+        let manager = QueueManager::new(pool);
+        manager.init_missing_metadata_queue().await.unwrap();
+
+        // Create a queue item
+        manager
+            .enqueue_file(
+                "/test/file.rs",
+                "test-collection",
+                "default",
+                "main",
+                QueueOperation::Ingest,
+                5,
+                None,
+            )
+            .await
+            .unwrap();
+
+        // Dequeue it
+        let items = manager.dequeue_batch(10, None, None).await.unwrap();
+        assert_eq!(items.len(), 1);
+        let item = &items[0];
+
+        // Create missing tools
+        let missing_tools = vec![MissingTool::LspServer {
+            language: "rust".to_string(),
+        }];
+
+        // Move to missing_metadata_queue
+        let queue_id = manager
+            .move_to_missing_metadata_queue(item, &missing_tools)
+            .await
+            .unwrap();
+
+        assert!(!queue_id.is_empty());
+
+        // Verify item removed from main queue
+        let main_items = manager.dequeue_batch(10, None, None).await.unwrap();
+        assert_eq!(main_items.len(), 0);
+
+        // Verify item in missing_metadata_queue
+        let missing_items = manager.get_missing_metadata_items(10).await.unwrap();
+        assert_eq!(missing_items.len(), 1);
+        assert_eq!(missing_items[0].file_absolute_path, "/test/file.rs");
+        assert_eq!(missing_items[0].missing_tools.len(), 1);
+
+        // Test queue depth
+        let depth = manager.get_missing_metadata_queue_depth().await.unwrap();
+        assert_eq!(depth, 1);
+
+        // Test removal
+        let removed = manager
+            .remove_from_missing_metadata_queue(&queue_id)
+            .await
+            .unwrap();
+        assert!(removed);
+
+        let depth_after = manager.get_missing_metadata_queue_depth().await.unwrap();
+        assert_eq!(depth_after, 0);
     }
 }

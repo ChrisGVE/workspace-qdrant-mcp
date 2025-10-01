@@ -833,21 +833,24 @@ impl QueueProcessor {
 
     /// Move item to missing_metadata_queue
     async fn move_to_missing_metadata_queue(
-        _queue_manager: &QueueManager,
+        queue_manager: &QueueManager,
         item: &QueueItem,
         missing_tools: &[MissingTool],
     ) -> ProcessorResult<()> {
-        // TODO: Implement missing_metadata_queue table insertion
-        // For now, log the missing tools
-        let tools_str = missing_tools
-            .iter()
-            .map(|t| t.to_string())
-            .collect::<Vec<_>>()
-            .join(", ");
+        // Call QueueManager's method to move item to missing_metadata_queue
+        queue_manager
+            .move_to_missing_metadata_queue(item, missing_tools)
+            .await
+            .map_err(|e| ProcessorError::QueueOperation(e))?;
 
-        warn!(
-            "Moving to missing_metadata_queue: {} (missing tools: {})",
-            item.file_absolute_path, tools_str
+        info!(
+            "Moved to missing_metadata_queue: {} (missing tools: {})",
+            item.file_absolute_path,
+            missing_tools
+                .iter()
+                .map(|t| t.to_string())
+                .collect::<Vec<_>>()
+                .join(", ")
         );
         Ok(())
     }
