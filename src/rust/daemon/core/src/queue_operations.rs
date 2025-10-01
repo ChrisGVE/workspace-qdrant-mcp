@@ -229,12 +229,16 @@ impl QueueManager {
     }
 
     /// Dequeue a batch of items for processing
+    ///
+    /// Filters out items with future retry_from timestamps to implement exponential backoff.
     pub async fn dequeue_batch(
         &self,
         batch_size: i32,
         tenant_id: Option<&str>,
         branch: Option<&str>,
     ) -> QueueResult<Vec<QueueItem>> {
+        let now = Utc::now().to_rfc3339();
+
         let mut query = String::from(
             r#"
             SELECT
@@ -246,6 +250,9 @@ impl QueueManager {
         );
 
         let mut conditions = Vec::new();
+
+        // Add retry_from filter to skip items scheduled for future retry
+        conditions.push("(retry_from IS NULL OR retry_from <= ?)");
 
         if tenant_id.is_some() {
             conditions.push("tenant_id = ?");
@@ -263,6 +270,9 @@ impl QueueManager {
         query.push_str(" ORDER BY priority DESC, queued_timestamp ASC LIMIT ?");
 
         let mut query_builder = sqlx::query(&query);
+
+        // Bind the current timestamp for retry_from comparison
+        query_builder = query_builder.bind(&now);
 
         if let Some(tid) = tenant_id {
             query_builder = query_builder.bind(tid);
@@ -299,6 +309,90 @@ impl QueueManager {
         debug!("Dequeued {} items from queue", items.len());
 
         Ok(items)
+    }
+
+    /// Update retry_from timestamp for exponential backoff
+    ///
+    /// Sets when an item should be retried after a processing failure.
+    pub async fn update_retry_from(
+        &self,
+        file_path: &str,
+        retry_from: DateTime<Utc>,
+        retry_count: i32,
+    ) -> QueueResult<bool> {
+        let query = r#"
+            UPDATE ingestion_queue
+            SET retry_from = ?1,
+                retry_count = ?2
+            WHERE file_absolute_path = ?3
+        "#;
+
+        let result = sqlx::query(query)
+            .bind(retry_from.to_rfc3339())
+            .bind(retry_count)
+            .bind(file_path)
+            .execute(&self.pool)
+            .await?;
+
+        let updated = result.rows_affected() > 0;
+
+        if updated {
+            debug!(
+                "Updated retry_from for {}: {} (retry_count={})",
+                file_path,
+                retry_from.to_rfc3339(),
+                retry_count
+            );
+        } else {
+            warn!("File not found in queue: {}", file_path);
+        }
+
+        Ok(updated)
+    }
+
+    /// Mark a file as failed (max retries exceeded)
+    pub async fn mark_failed(
+        &self,
+        file_path: &str,
+        error_message: &str,
+    ) -> QueueResult<bool> {
+        // Start transaction
+        let mut tx = self.pool.begin().await?;
+
+        // Insert error message
+        let error_query = r#"
+            INSERT INTO messages (
+                error_type, error_message, file_path, collection_name
+            ) VALUES ('MAX_RETRIES_EXCEEDED', ?1, ?2, (
+                SELECT collection_name FROM ingestion_queue
+                WHERE file_absolute_path = ?3
+            ))
+        "#;
+
+        sqlx::query(error_query)
+            .bind(error_message)
+            .bind(file_path)
+            .bind(file_path)
+            .execute(&mut *tx)
+            .await?;
+
+        // Remove from queue
+        let delete_query = "DELETE FROM ingestion_queue WHERE file_absolute_path = ?1";
+        let result = sqlx::query(delete_query)
+            .bind(file_path)
+            .execute(&mut *tx)
+            .await?;
+
+        let deleted = result.rows_affected() > 0;
+
+        if deleted {
+            warn!("Marked as failed and removed from queue: {}", file_path);
+        } else {
+            warn!("File not found in queue when marking failed: {}", file_path);
+        }
+
+        tx.commit().await?;
+        Ok(deleted)
     }
 
     /// Update priority for a queued file
@@ -1094,6 +1188,102 @@ mod tests {
             .await;
 
         assert!(result.is_err());
+    }
+
+    #[tokio::test]
+    async fn test_update_retry_from() {
+        let temp_dir = tempdir().unwrap();
+        let db_path = temp_dir.path().join("test_retry_from.db");
+
+        let config = QueueConnectionConfig::with_database_path(&db_path);
+        let pool = config.create_pool().await.unwrap();
+
+        // Initialize schema (with migration)
+        sqlx::query(include_str!("../../../../python/common/core/schema/queue_retry_timestamp_migration.sql"))
+            .execute(&pool)
+            .await
+            .unwrap();
+
+        let manager = QueueManager::new(pool);
+
+        // Enqueue a file
+        manager
+            .enqueue_file(
+                "/test/file.txt",
+                "test-collection",
+                "default",
+                "main",
+                QueueOperation::Ingest,
+                5,
+                None,
+            )
+            .await
+            .unwrap();
+
+        // Update retry_from to future timestamp
+        let future_time = Utc::now() + chrono::Duration::hours(1);
+        let updated = manager
+            .update_retry_from("/test/file.txt", future_time, 1)
+            .await
+            .unwrap();
+        assert!(updated);
+
+        // Dequeue should skip the item (retry_from is in the future)
+        let items = manager.dequeue_batch(10, None, None).await.unwrap();
+        assert_eq!(items.len(), 0);
+
+        // Update retry_from to past timestamp
+        let past_time = Utc::now() - chrono::Duration::hours(1);
+        manager
+            .update_retry_from("/test/file.txt", past_time, 1)
+            .await
+            .unwrap();
+
+        // Dequeue should return the item now
+        let items = manager.dequeue_batch(10, None, None).await.unwrap();
+        assert_eq!(items.len(), 1);
+    }
+
+    #[tokio::test]
+    async fn test_mark_failed() {
+        let temp_dir = tempdir().unwrap();
+        let db_path = temp_dir.path().join("test_mark_failed.db");
+
+        let config = QueueConnectionConfig::with_database_path(&db_path);
+        let pool = config.create_pool().await.unwrap();
+
+        // Initialize schema
+        sqlx::query(include_str!("../../../../python/common/core/queue_schema.sql"))
+            .execute(&pool)
+            .await
+            .unwrap();
+
+        let manager = QueueManager::new(pool);
+
+        // Enqueue a file
+        manager
+            .enqueue_file(
+                "/test/file.txt",
+                "test-collection",
+                "default",
+                "main",
+                QueueOperation::Ingest,
+                5,
+                None,
+            )
+            .await
+            .unwrap();
+
+        // Mark as failed
+        let removed = manager
+            .mark_failed("/test/file.txt", "Max retries exceeded")
+            .await
+            .unwrap();
+        assert!(removed);
+
+        // Verify removed from queue
+        let items = manager.dequeue_batch(10, None, None).await.unwrap();
+        assert_eq!(items.len(), 0);
     }
 
     #[tokio::test]
