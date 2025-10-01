@@ -53,6 +53,8 @@ from pathlib import Path
 from typing import Dict, List, Optional, Tuple
 
 from .sqlite_state_manager import SQLiteStateManager
+from .language_support_parser import LanguageSupportParser
+from .language_support_loader import LanguageSupportLoader
 
 
 class LanguageSupportManager:
@@ -176,29 +178,15 @@ class LanguageSupportManager:
 
             logger.info(f"Loading language support from {yaml_path}")
 
-            # TODO: Import and use LanguageSupportParser once implemented (subtask 347.2)
-            # For now, we'll prepare the interface
-            # from .language_support_parser import LanguageSupportParser
-            # parser = LanguageSupportParser()
-            # parsed_data = await parser.parse(yaml_path)
+            # Parse YAML using LanguageSupportParser
+            parser = LanguageSupportParser()
+            config = parser.parse_yaml(yaml_path)
+            logger.debug(f"Parsed YAML configuration with {len(config.file_extensions)} file extensions")
 
-            # Placeholder: Will be replaced when parser is implemented
-            logger.warning("LanguageSupportParser not yet implemented, using placeholder")
-            parsed_data = {
-                "languages": [],
-                "lsp_servers": {},
-                "tree_sitter_grammars": {},
-                "file_extensions": {}
-            }
-
-            # TODO: Import and use LanguageSupportLoader once implemented (subtask 347.3)
-            # from .language_support_loader import LanguageSupportLoader
-            # loader = LanguageSupportLoader(self.state_manager)
-            # languages_loaded = await loader.load_languages(parsed_data)
-
-            # Placeholder: Will be replaced when loader is implemented
-            logger.warning("LanguageSupportLoader not yet implemented, using placeholder")
-            languages_loaded = 0
+            # Load languages into database using LanguageSupportLoader
+            loader = LanguageSupportLoader(self.state_manager)
+            languages_loaded = await loader.load_languages(config)
+            logger.debug(f"Loaded {languages_loaded} languages into database")
 
             # Calculate YAML hash for version tracking
             with open(yaml_path, 'rb') as f:
