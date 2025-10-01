@@ -237,7 +237,7 @@ class DatabaseTransaction:
 class SQLiteStateManager:
     """SQLite-based state persistence manager with crash recovery."""
 
-    SCHEMA_VERSION = 4  # Updated for language support schema additions
+    SCHEMA_VERSION = 5  # Updated for ingestion_queue table addition
     WAL_CHECKPOINT_INTERVAL = 300  # 5 minutes
     MAINTENANCE_INTERVAL = 3600  # 1 hour
 
@@ -891,6 +891,37 @@ class SQLiteStateManager:
                     conn.execute(sql)
 
                 logger.info("Successfully migrated to schema version 4 (added language support tables)")
+
+            # Migrate from version 4 to version 5 - Add ingestion_queue table
+            if from_version <= 4 and to_version >= 5:
+                logger.info("Applying migration: v4 -> v5 (ingestion queue table)")
+                ingestion_queue_sql = [
+                    # Add ingestion_queue table with tenant/branch support
+                    """
+                    CREATE TABLE IF NOT EXISTS ingestion_queue (
+                        file_absolute_path TEXT PRIMARY KEY NOT NULL,
+                        collection_name TEXT NOT NULL,
+                        tenant_id TEXT DEFAULT 'default',
+                        branch TEXT DEFAULT 'main',
+                        operation TEXT NOT NULL CHECK (operation IN ('ingest', 'update', 'delete')),
+                        priority INTEGER NOT NULL DEFAULT 5 CHECK (priority BETWEEN 0 AND 10),
+                        queued_timestamp TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                        retry_count INTEGER NOT NULL DEFAULT 0,
+                        retry_from TEXT,
+                        error_message_id INTEGER,
+                        metadata TEXT,
+                        FOREIGN KEY (retry_from) REFERENCES ingestion_queue(file_absolute_path) ON DELETE SET NULL
+                    )
+                    """,
+                    # Add indexes for ingestion_queue
+                    "CREATE INDEX IF NOT EXISTS idx_ingestion_queue_priority_time ON ingestion_queue(priority DESC, queued_timestamp ASC)",
+                    "CREATE INDEX IF NOT EXISTS idx_ingestion_queue_collection ON ingestion_queue(collection_name, tenant_id, branch)",
+                ]
+
+                for sql in ingestion_queue_sql:
+                    conn.execute(sql)
+
+                logger.info("Successfully migrated to schema version 5 (added ingestion_queue table)")
 
             # Record the migration
             conn.execute(
