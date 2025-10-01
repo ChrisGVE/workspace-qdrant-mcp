@@ -711,11 +711,11 @@ impl WatchManager {
     pub async fn start_all_watches(&self) -> WatchingQueueResult<()> {
         let queue_manager = Arc::new(QueueManager::new(self.pool.clone()));
 
-        // Query watch configurations
+        // Query watch configurations (using correct column names: watch_id, debounce_seconds)
         let rows = sqlx::query(
             r#"
-            SELECT id, path, collection, patterns, ignore_patterns,
-                   recursive, debounce_seconds, status
+            SELECT watch_id, path, collection, patterns, ignore_patterns,
+                   recursive, debounce_seconds, enabled
             FROM watch_folders
             WHERE enabled = TRUE
             "#
@@ -724,13 +724,13 @@ impl WatchManager {
         .await?;
 
         for row in rows {
-            let id: String = row.get("id");
+            let id: String = row.get("watch_id");
             let path: String = row.get("path");
             let collection: String = row.get("collection");
             let patterns_json: String = row.get("patterns");
             let ignore_patterns_json: String = row.get("ignore_patterns");
             let recursive: bool = row.get("recursive");
-            let debounce_seconds: i64 = row.get("debounce_seconds");
+            let debounce_seconds: f64 = row.get("debounce_seconds");
 
             let patterns: Vec<String> = serde_json::from_str(&patterns_json)
                 .unwrap_or_else(|_| vec!["*".to_string()]);
@@ -744,7 +744,7 @@ impl WatchManager {
                 patterns,
                 ignore_patterns,
                 recursive,
-                debounce_ms: (debounce_seconds as u64) * 1000,
+                debounce_ms: (debounce_seconds * 1000.0) as u64,
                 enabled: true,
             };
 
