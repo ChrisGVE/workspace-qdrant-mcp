@@ -5,6 +5,7 @@
 //! logic, and performance monitoring.
 
 use chrono::{DateTime, Duration as ChronoDuration, Utc};
+use serde::{Deserialize, Serialize};
 use sqlx::SqlitePool;
 use std::path::Path;
 use std::sync::Arc;
@@ -19,6 +20,38 @@ use crate::queue_operations::{QueueError, QueueItem, QueueManager, QueueOperatio
 use crate::{DocumentProcessor, EmbeddingGenerator, EmbeddingConfig};
 use crate::storage::{StorageClient, StorageConfig, DocumentPoint};
 
+/// Enumeration of tools that might be missing during processing
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub enum MissingTool {
+    /// LSP server not available for the specified language
+    LspServer { language: String },
+    /// Tree-sitter parser not available for the specified language
+    TreeSitterParser { language: String },
+    /// Embedding model not loaded or unavailable
+    EmbeddingModel { reason: String },
+    /// Qdrant connection unavailable
+    QdrantConnection { reason: String },
+}
+
+impl std::fmt::Display for MissingTool {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            MissingTool::LspServer { language } => {
+                write!(f, "LSP server unavailable for language: {}", language)
+            }
+            MissingTool::TreeSitterParser { language } => {
+                write!(f, "Tree-sitter parser unavailable for language: {}", language)
+            }
+            MissingTool::EmbeddingModel { reason } => {
+                write!(f, "Embedding model unavailable: {}", reason)
+            }
+            MissingTool::QdrantConnection { reason } => {
+                write!(f, "Qdrant connection unavailable: {}", reason)
+            }
+        }
+    }
+}
+
 /// Queue processor errors
 #[derive(Error, Debug)]
 pub enum ProcessorError {
@@ -30,6 +63,9 @@ pub enum ProcessorError {
 
     #[error("Tool unavailable: {0}")]
     ToolUnavailable(String),
+
+    #[error("Tools unavailable: {0:?}")]
+    ToolsUnavailable(Vec<MissingTool>),
 
     #[error("Configuration error: {0}")]
     Configuration(String),
@@ -414,9 +450,15 @@ impl QueueProcessor {
         }
 
         // Check tool availability before processing
-        match Self::check_tool_availability(item, storage_client).await {
-            Ok(true) => {
-                // Tools available, process the item
+        match Self::check_tool_availability(
+            item,
+            embedding_generator,
+            storage_client,
+        )
+        .await
+        {
+            Ok(()) => {
+                // All tools available, process the item
                 match Self::execute_operation(
                     item,
                     document_processor,
@@ -439,13 +481,13 @@ impl QueueProcessor {
                     }
                 }
             }
-            Ok(false) => {
+            Err(ProcessorError::ToolsUnavailable(missing_tools)) => {
                 // Tools missing - move to missing_metadata_queue
                 warn!(
-                    "Tools unavailable for {}, moving to missing_metadata_queue",
-                    item.file_absolute_path
+                    "Tools unavailable for {}: {:?}, moving to missing_metadata_queue",
+                    item.file_absolute_path, missing_tools
                 );
-                Self::move_to_missing_metadata_queue(queue_manager, item).await?;
+                Self::move_to_missing_metadata_queue(queue_manager, item, &missing_tools).await?;
                 queue_manager
                     .mark_complete(&item.file_absolute_path)
                     .await?;
@@ -458,21 +500,146 @@ impl QueueProcessor {
         }
     }
 
+    /// Detect language from file path
+    fn detect_language(file_path: &Path) -> Option<String> {
+        file_path
+            .extension()
+            .and_then(|ext| ext.to_str())
+            .map(|ext| match ext.to_lowercase().as_str() {
+                "rs" => "rust",
+                "py" => "python",
+                "js" | "mjs" => "javascript",
+                "ts" => "typescript",
+                "json" => "json",
+                "yaml" | "yml" => "yaml",
+                "toml" => "toml",
+                "c" | "h" => "c",
+                "cpp" | "cc" | "cxx" | "hpp" => "cpp",
+                "java" => "java",
+                "go" => "go",
+                "rb" => "ruby",
+                "php" => "php",
+                "sh" | "bash" => "bash",
+                "css" => "css",
+                "html" | "htm" => "html",
+                "xml" => "xml",
+                "sql" => "sql",
+                ext => ext,
+            })
+            .map(String::from)
+    }
+
+    /// Determine if file requires LSP server
+    fn requires_lsp(file_path: &Path) -> bool {
+        // Code files typically benefit from LSP analysis
+        // Plain text, markdown, and binary files do not
+        if let Some(ext) = file_path.extension().and_then(|e| e.to_str()) {
+            !matches!(
+                ext.to_lowercase().as_str(),
+                "txt" | "md" | "markdown" | "pdf" | "epub" | "docx" | "log"
+            )
+        } else {
+            false
+        }
+    }
+
+    /// Determine if file requires tree-sitter parser
+    fn requires_parser(file_path: &Path) -> bool {
+        // Code files need tree-sitter for structure extraction
+        // Plain text and documents do not
+        if let Some(ext) = file_path.extension().and_then(|e| e.to_str()) {
+            matches!(
+                ext.to_lowercase().as_str(),
+                "rs" | "py" | "js" | "mjs" | "ts" | "json" | "yaml" | "yml" | "toml"
+                    | "c" | "h" | "cpp" | "cc" | "cxx" | "hpp" | "java" | "go" | "rb"
+                    | "php" | "sh" | "bash"
+            )
+        } else {
+            false
+        }
+    }
+
     /// Check if required tools are available for processing
     async fn check_tool_availability(
-        _item: &QueueItem,
+        item: &QueueItem,
+        embedding_generator: &Arc<EmbeddingGenerator>,
         storage_client: &Arc<StorageClient>,
-    ) -> ProcessorResult<bool> {
-        // Check Qdrant connection
+    ) -> ProcessorResult<()> {
+        let mut missing_tools = Vec::new();
+        let file_path = Path::new(&item.file_absolute_path);
+
+        // 1. Detect file language from extension
+        let language = Self::detect_language(file_path);
+
+        // 2. Check LSP server availability for this language (if needed)
+        if Self::requires_lsp(file_path) {
+            if let Some(lang) = &language {
+                // For now, we don't have LSP integration in the processor
+                // This will be implemented in future tasks
+                debug!(
+                    "LSP check for language '{}' - currently not integrated",
+                    lang
+                );
+                // Note: When LSP is integrated, uncomment:
+                // if !lsp_manager.is_available(lang).await {
+                //     missing_tools.push(MissingTool::LspServer {
+                //         language: lang.clone(),
+                //     });
+                // }
+            }
+        }
+
+        // 3. Check tree-sitter parser availability (if needed)
+        if Self::requires_parser(file_path) {
+            if let Some(lang) = &language {
+                // Tree-sitter parsers are statically compiled into DocumentProcessor
+                // Check if the language is supported
+                let supported_languages = ["rust", "python", "javascript", "json"];
+                if !supported_languages.contains(&lang.as_str()) {
+                    debug!(
+                        "Tree-sitter parser for '{}' not available (supported: {:?})",
+                        lang, supported_languages
+                    );
+                    missing_tools.push(MissingTool::TreeSitterParser {
+                        language: lang.clone(),
+                    });
+                }
+            }
+        }
+
+        // 4. Check embedding model is loaded
+        // The embedding generator is always created, but we check if it can generate embeddings
+        // For now, we assume it's ready if it was constructed successfully
+        // In a real implementation, you'd check if the model is loaded:
+        // if !embedding_generator.is_ready().await {
+        //     missing_tools.push(MissingTool::EmbeddingModel {
+        //         reason: "Model not loaded".to_string(),
+        //     });
+        // }
+        debug!("Embedding generator availability check - assuming ready");
+
+        // 5. Check Qdrant connection
         match storage_client.test_connection().await {
-            Ok(_) => Ok(true),
+            Ok(_) => {
+                debug!("Qdrant connection check passed");
+            }
             Err(e) => {
                 warn!("Qdrant connection check failed: {}", e);
-                Err(ProcessorError::ToolUnavailable(format!(
-                    "Qdrant unavailable: {}",
-                    e
-                )))
+                missing_tools.push(MissingTool::QdrantConnection {
+                    reason: e.to_string(),
+                });
             }
+        }
+
+        // Return result based on missing tools
+        if missing_tools.is_empty() {
+            Ok(())
+        } else {
+            info!(
+                "Tool availability check failed for {}: {:?}",
+                item.file_absolute_path, missing_tools
+            );
+            Err(ProcessorError::ToolsUnavailable(missing_tools))
         }
     }
 
@@ -545,7 +712,7 @@ impl QueueProcessor {
         for chunk in document_content.chunks {
             // Generate embeddings for chunk
             let embedding_result = embedding_generator
-                .generate_embedding(&chunk.content)
+                .generate_embedding(&chunk.content, "bge-small-en-v1.5")
                 .await
                 .map_err(|e| ProcessorError::Embedding(e.to_string()))?;
 
@@ -668,11 +835,19 @@ impl QueueProcessor {
     async fn move_to_missing_metadata_queue(
         _queue_manager: &QueueManager,
         item: &QueueItem,
+        missing_tools: &[MissingTool],
     ) -> ProcessorResult<()> {
         // TODO: Implement missing_metadata_queue table insertion
+        // For now, log the missing tools
+        let tools_str = missing_tools
+            .iter()
+            .map(|t| t.to_string())
+            .collect::<Vec<_>>()
+            .join(", ");
+
         warn!(
-            "Moving to missing_metadata_queue: {} (missing tools)",
-            item.file_absolute_path
+            "Moving to missing_metadata_queue: {} (missing tools: {})",
+            item.file_absolute_path, tools_str
         );
         Ok(())
     }
@@ -686,7 +861,9 @@ impl QueueProcessor {
     ) -> ProcessorResult<()> {
         let error_message = error.to_string();
         let error_type = match error {
-            ProcessorError::ToolUnavailable(_) => "TOOL_UNAVAILABLE",
+            ProcessorError::ToolUnavailable(_) | ProcessorError::ToolsUnavailable(_) => {
+                "TOOL_UNAVAILABLE"
+            }
             ProcessorError::ProcessingFailed(_) => "PROCESSING_FAILED",
             ProcessorError::FileNotFound(_) => "FILE_NOT_FOUND",
             ProcessorError::Storage(_) => "STORAGE_ERROR",
@@ -785,7 +962,7 @@ impl QueueProcessor {
 
         // Track error by type
         let error_type = match error {
-            ProcessorError::ToolUnavailable(_) => {
+            ProcessorError::ToolUnavailable(_) | ProcessorError::ToolsUnavailable(_) => {
                 m.items_missing_metadata += 1;
                 "tool_unavailable"
             }
@@ -871,5 +1048,86 @@ mod tests {
         assert_eq!(metrics.throughput_per_minute(), 1200.0);
         assert!(metrics.meets_target(1000));
         assert!(!metrics.meets_target(1500));
+    }
+
+    #[test]
+    fn test_language_detection() {
+        assert_eq!(
+            QueueProcessor::detect_language(Path::new("test.rs")),
+            Some("rust".to_string())
+        );
+        assert_eq!(
+            QueueProcessor::detect_language(Path::new("test.py")),
+            Some("python".to_string())
+        );
+        assert_eq!(
+            QueueProcessor::detect_language(Path::new("test.js")),
+            Some("javascript".to_string())
+        );
+        assert_eq!(
+            QueueProcessor::detect_language(Path::new("test.unknown")),
+            Some("unknown".to_string())
+        );
+        assert_eq!(QueueProcessor::detect_language(Path::new("test")), None);
+    }
+
+    #[test]
+    fn test_requires_lsp() {
+        // Code files should require LSP
+        assert!(QueueProcessor::requires_lsp(Path::new("test.rs")));
+        assert!(QueueProcessor::requires_lsp(Path::new("test.py")));
+
+        // Plain text and documents should not
+        assert!(!QueueProcessor::requires_lsp(Path::new("test.txt")));
+        assert!(!QueueProcessor::requires_lsp(Path::new("test.md")));
+        assert!(!QueueProcessor::requires_lsp(Path::new("test.pdf")));
+    }
+
+    #[test]
+    fn test_requires_parser() {
+        // Code files should require parser
+        assert!(QueueProcessor::requires_parser(Path::new("test.rs")));
+        assert!(QueueProcessor::requires_parser(Path::new("test.py")));
+        assert!(QueueProcessor::requires_parser(Path::new("test.json")));
+
+        // Plain text and documents should not
+        assert!(!QueueProcessor::requires_parser(Path::new("test.txt")));
+        assert!(!QueueProcessor::requires_parser(Path::new("test.md")));
+        assert!(!QueueProcessor::requires_parser(Path::new("test.pdf")));
+    }
+
+    #[test]
+    fn test_missing_tool_display() {
+        let lsp_tool = MissingTool::LspServer {
+            language: "rust".to_string(),
+        };
+        assert_eq!(
+            lsp_tool.to_string(),
+            "LSP server unavailable for language: rust"
+        );
+
+        let parser_tool = MissingTool::TreeSitterParser {
+            language: "python".to_string(),
+        };
+        assert_eq!(
+            parser_tool.to_string(),
+            "Tree-sitter parser unavailable for language: python"
+        );
+
+        let embedding_tool = MissingTool::EmbeddingModel {
+            reason: "Model not loaded".to_string(),
+        };
+        assert_eq!(
+            embedding_tool.to_string(),
+            "Embedding model unavailable: Model not loaded"
+        );
+
+        let qdrant_tool = MissingTool::QdrantConnection {
+            reason: "Connection refused".to_string(),
+        };
+        assert_eq!(
+            qdrant_tool.to_string(),
+            "Qdrant connection unavailable: Connection refused"
+        );
     }
 }
