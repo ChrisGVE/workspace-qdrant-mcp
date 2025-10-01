@@ -53,6 +53,7 @@ Example:
     ```
 """
 
+import asyncio
 import sqlite3
 from datetime import datetime, timezone
 from pathlib import Path
@@ -724,10 +725,17 @@ class MissingMetadataTracker:
         For LSP tools, requires language parameter to check language-specific server.
         For tree-sitter, checks global CLI availability and requeues all files.
 
+        Priority calculation (when priority not explicitly provided):
+        - Uses calculate_requeue_priority() to determine priority based on context
+        - Files in current project: HIGH priority (8)
+        - Files on same branch: NORMAL priority (5)
+        - Other files: LOW priority (2)
+
         Args:
             tool_type: Type of tool to check ('lsp' or 'tree_sitter')
             language: Language name (required for 'lsp', ignored for 'tree_sitter')
-            priority: Queue priority (0-10, default 5=NORMAL)
+            current_project_root: Current project root for priority calculation (optional)
+            priority: Explicit priority override (0-10), ignores priority calculation if set
 
         Returns:
             Dictionary with requeuing results:
@@ -804,12 +812,31 @@ class MissingMetadataTracker:
             )
             return result
 
+        # Get current branch for priority calculation
+        current_branch = None
+        if current_project_root and priority is None:
+            try:
+                current_branch = await self.state_manager.get_current_branch(
+                    Path(current_project_root)
+                )
+            except Exception as e:
+                logger.debug(f"Could not get current branch: {e}")
+
         # Requeue files based on tool type
         try:
             if tool_type == "lsp":
-                requeue_result = await self._requeue_for_language_lsp(language, priority)
+                requeue_result = await self._requeue_for_language_lsp(
+                    language,
+                    current_project_root=current_project_root,
+                    current_branch=current_branch,
+                    explicit_priority=priority
+                )
             else:  # tree_sitter
-                requeue_result = await self._requeue_files_missing_tree_sitter(priority)
+                requeue_result = await self._requeue_files_missing_tree_sitter(
+                    current_project_root=current_project_root,
+                    current_branch=current_branch,
+                    explicit_priority=priority
+                )
 
             result.update(requeue_result)
 
@@ -855,14 +882,20 @@ class MissingMetadataTracker:
             return []
 
     async def _requeue_for_language_lsp(
-        self, language: str, priority: int
+        self,
+        language: str,
+        current_project_root: Optional[str] = None,
+        current_branch: Optional[str] = None,
+        explicit_priority: Optional[int] = None,
     ) -> Dict[str, int]:
         """
         Requeue files for a specific language when LSP becomes available.
 
         Args:
             language: Language name
-            priority: Queue priority (0-10)
+            current_project_root: Current project root for priority calculation (optional)
+            current_branch: Current branch for priority calculation (optional)
+            explicit_priority: Explicit priority override (0-10), ignores calculation if set
 
         Returns:
             Dictionary with counts:
@@ -899,7 +932,18 @@ class MissingMetadataTracker:
 
             for file_info in batch:
                 file_path = file_info["file_absolute_path"]
-                branch = file_info["branch"]
+                file_branch = file_info["branch"]
+
+                # Calculate priority if not explicitly provided
+                if explicit_priority is not None:
+                    priority = explicit_priority
+                else:
+                    priority = self.calculate_requeue_priority(
+                        file_path=file_path,
+                        file_branch=file_branch,
+                        current_project_root=current_project_root,
+                        current_branch=current_branch,
+                    )
 
                 try:
                     # Enqueue the file for processing
@@ -910,11 +954,15 @@ class MissingMetadataTracker:
                         collection=f"default-{language}",  # Collection name based on language
                         priority=priority,
                         tenant_id="default",  # Default tenant
-                        branch=branch,
+                        branch=file_branch,
                         metadata={"requeued_for": "lsp", "language": language},
                     )
 
                     files_requeued += 1
+                    logger.debug(
+                        f"Requeued file {file_path} with priority {priority} "
+                        f"(branch={file_branch}, language={language})"
+                    )
 
                     # Remove from tracking after successful enqueue
                     removed = await self.remove_tracked_file(file_path)
@@ -935,13 +983,18 @@ class MissingMetadataTracker:
         }
 
     async def _requeue_files_missing_tree_sitter(
-        self, priority: int
+        self,
+        current_project_root: Optional[str] = None,
+        current_branch: Optional[str] = None,
+        explicit_priority: Optional[int] = None,
     ) -> Dict[str, int]:
         """
         Requeue all files missing tree-sitter when CLI becomes available.
 
         Args:
-            priority: Queue priority (0-10)
+            current_project_root: Current project root for priority calculation (optional)
+            current_branch: Current branch for priority calculation (optional)
+            explicit_priority: Explicit priority override (0-10), ignores calculation if set
 
         Returns:
             Dictionary with counts:
@@ -976,7 +1029,18 @@ class MissingMetadataTracker:
             for file_info in batch:
                 file_path = file_info["file_absolute_path"]
                 language = file_info["language_name"]
-                branch = file_info["branch"]
+                file_branch = file_info["branch"]
+
+                # Calculate priority if not explicitly provided
+                if explicit_priority is not None:
+                    priority = explicit_priority
+                else:
+                    priority = self.calculate_requeue_priority(
+                        file_path=file_path,
+                        file_branch=file_branch,
+                        current_project_root=current_project_root,
+                        current_branch=current_branch,
+                    )
 
                 try:
                     # Enqueue the file for processing
@@ -985,11 +1049,15 @@ class MissingMetadataTracker:
                         collection=f"default-{language}",  # Collection name based on language
                         priority=priority,
                         tenant_id="default",  # Default tenant
-                        branch=branch,
+                        branch=file_branch,
                         metadata={"requeued_for": "tree_sitter", "language": language},
                     )
 
                     files_requeued += 1
+                    logger.debug(
+                        f"Requeued file {file_path} with priority {priority} "
+                        f"(branch={file_branch}, language={language})"
+                    )
 
                     # Remove from tracking after successful enqueue
                     removed = await self.remove_tracked_file(file_path)
