@@ -6,6 +6,8 @@ use serde::{Deserialize, Serialize};
 use std::time::Duration;
 use std::path::PathBuf;
 use crate::storage::StorageConfig;
+use crate::queue_processor::ProcessorConfig;
+use chrono::Duration as ChronoDuration;
 
 /// Auto-ingestion configuration
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -63,6 +65,136 @@ impl Default for LoggingConfig {
     }
 }
 
+/// Queue processor configuration section
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct QueueProcessorSettings {
+    /// Number of items to dequeue per batch
+    #[serde(default = "default_batch_size")]
+    pub batch_size: i32,
+
+    /// Poll interval in milliseconds
+    #[serde(default = "default_poll_interval_ms")]
+    pub poll_interval_ms: u64,
+
+    /// Maximum retry attempts before marking failed
+    #[serde(default = "default_max_retries")]
+    pub max_retries: i32,
+
+    /// Retry delays in seconds [1m, 5m, 15m, 1h]
+    #[serde(default = "default_retry_delays_seconds")]
+    pub retry_delays_seconds: Vec<u64>,
+
+    /// Target throughput (docs/min) for monitoring
+    #[serde(default = "default_target_throughput")]
+    pub target_throughput: u64,
+
+    /// Enable detailed metrics logging
+    #[serde(default = "default_enable_metrics")]
+    pub enable_metrics: bool,
+}
+
+fn default_batch_size() -> i32 { 10 }
+fn default_poll_interval_ms() -> u64 { 500 }
+fn default_max_retries() -> i32 { 5 }
+fn default_retry_delays_seconds() -> Vec<u64> { vec![60, 300, 900, 3600] }
+fn default_target_throughput() -> u64 { 1000 }
+fn default_enable_metrics() -> bool { true }
+
+impl Default for QueueProcessorSettings {
+    fn default() -> Self {
+        Self {
+            batch_size: default_batch_size(),
+            poll_interval_ms: default_poll_interval_ms(),
+            max_retries: default_max_retries(),
+            retry_delays_seconds: default_retry_delays_seconds(),
+            target_throughput: default_target_throughput(),
+            enable_metrics: default_enable_metrics(),
+        }
+    }
+}
+
+impl QueueProcessorSettings {
+    /// Validate configuration settings
+    pub fn validate(&self) -> Result<(), String> {
+        if self.batch_size <= 0 {
+            return Err("batch_size must be greater than 0".to_string());
+        }
+        if self.batch_size > 1000 {
+            return Err("batch_size should not exceed 1000".to_string());
+        }
+
+        if self.poll_interval_ms == 0 {
+            return Err("poll_interval_ms must be greater than 0".to_string());
+        }
+        if self.poll_interval_ms > 60_000 {
+            return Err("poll_interval_ms should not exceed 60 seconds".to_string());
+        }
+
+        if self.max_retries < 0 {
+            return Err("max_retries must be non-negative".to_string());
+        }
+        if self.max_retries > 20 {
+            return Err("max_retries should not exceed 20".to_string());
+        }
+
+        if self.retry_delays_seconds.is_empty() {
+            return Err("retry_delays_seconds cannot be empty".to_string());
+        }
+
+        Ok(())
+    }
+
+    /// Apply environment variable overrides
+    pub fn apply_env_overrides(&mut self) {
+        use std::env;
+
+        if let Ok(val) = env::var("WQM_QUEUE_BATCH_SIZE") {
+            if let Ok(parsed) = val.parse() {
+                self.batch_size = parsed;
+            }
+        }
+
+        if let Ok(val) = env::var("WQM_QUEUE_POLL_INTERVAL_MS") {
+            if let Ok(parsed) = val.parse() {
+                self.poll_interval_ms = parsed;
+            }
+        }
+
+        if let Ok(val) = env::var("WQM_QUEUE_MAX_RETRIES") {
+            if let Ok(parsed) = val.parse() {
+                self.max_retries = parsed;
+            }
+        }
+
+        if let Ok(val) = env::var("WQM_QUEUE_TARGET_THROUGHPUT") {
+            if let Ok(parsed) = val.parse() {
+                self.target_throughput = parsed;
+            }
+        }
+
+        if let Ok(val) = env::var("WQM_QUEUE_ENABLE_METRICS") {
+            self.enable_metrics = val.to_lowercase() == "true" || val == "1";
+        }
+    }
+}
+
+/// Convert QueueProcessorSettings to ProcessorConfig
+impl From<QueueProcessorSettings> for ProcessorConfig {
+    fn from(settings: QueueProcessorSettings) -> Self {
+        ProcessorConfig {
+            batch_size: settings.batch_size,
+            poll_interval_ms: settings.poll_interval_ms,
+            max_retries: settings.max_retries,
+            retry_delays: settings.retry_delays_seconds
+                .into_iter()
+                .map(|s| ChronoDuration::seconds(s as i64))
+                .collect(),
+            target_throughput: settings.target_throughput,
+            enable_metrics: settings.enable_metrics,
+        }
+    }
+}
+
 /// Complete daemon configuration that matches the TOML structure
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct DaemonConfig {
@@ -90,6 +222,9 @@ pub struct DaemonConfig {
     pub qdrant: StorageConfig,
     /// Enhanced logging configuration
     pub logging: LoggingConfig,
+    /// Queue processor configuration
+    #[serde(default)]
+    pub queue_processor: QueueProcessorSettings,
 }
 
 impl Default for DaemonConfig {
@@ -107,6 +242,7 @@ impl Default for DaemonConfig {
             project_path: None,
             qdrant: StorageConfig::default(),
             logging: LoggingConfig::default(),
+            queue_processor: QueueProcessorSettings::default(),
         }
     }
 }
@@ -167,7 +303,7 @@ impl Config {
             metrics_interval_secs: 60,
         }
     }
-    
+
     /// Create configuration optimized for high throughput
     pub fn high_throughput() -> Self {
         Self {
@@ -180,7 +316,7 @@ impl Config {
             metrics_interval_secs: 30,
         }
     }
-    
+
     /// Create configuration optimized for responsiveness (MCP servers)
     pub fn responsive() -> Self {
         Self {
@@ -193,7 +329,7 @@ impl Config {
             metrics_interval_secs: 10,
         }
     }
-    
+
     /// Create configuration for resource-constrained environments
     pub fn low_resource() -> Self {
         Self {
@@ -206,17 +342,17 @@ impl Config {
             metrics_interval_secs: 300,
         }
     }
-    
+
     /// Get default timeout as Duration
     pub fn default_timeout(&self) -> Option<Duration> {
         self.default_timeout_ms.map(Duration::from_millis)
     }
-    
+
     /// Get metrics interval as Duration
     pub fn metrics_interval(&self) -> Duration {
         Duration::from_secs(self.metrics_interval_secs)
     }
-    
+
     /// Validate configuration settings
     pub fn validate(&self) -> Result<(), String> {
         if let Some(max_concurrent) = self.max_concurrent_tasks {
@@ -227,7 +363,7 @@ impl Config {
                 return Err("max_concurrent_tasks should not exceed 100".to_string());
             }
         }
-        
+
         if let Some(timeout) = self.default_timeout_ms {
             if timeout == 0 {
                 return Err("default_timeout_ms must be greater than 0".to_string());
@@ -236,18 +372,18 @@ impl Config {
                 return Err("default_timeout_ms should not exceed 5 minutes".to_string());
             }
         }
-        
+
         if self.chunk_size == 0 {
             return Err("chunk_size must be greater than 0".to_string());
         }
         if self.chunk_size > 10_000 {
             return Err("chunk_size should not exceed 10,000".to_string());
         }
-        
+
         if !matches!(self.log_level.as_str(), "trace" | "debug" | "info" | "warn" | "error") {
             return Err("log_level must be one of: trace, debug, info, warn, error".to_string());
         }
-        
+
         Ok(())
     }
 }
@@ -262,7 +398,7 @@ impl Default for Config {
 #[cfg(test)]
 mod tests {
     use super::*;
-    
+
     #[test]
     fn test_config_creation() {
         let config = Config::new();
@@ -272,7 +408,7 @@ mod tests {
         assert_eq!(config.chunk_size, 1000);
         // LSP configuration is handled separately via LspConfig
     }
-    
+
     #[test]
     fn test_high_throughput_config() {
         let config = Config::high_throughput();
@@ -280,7 +416,7 @@ mod tests {
         assert_eq!(config.default_timeout_ms, Some(10_000));
         assert_eq!(config.chunk_size, 2000);
     }
-    
+
     #[test]
     fn test_responsive_config() {
         let config = Config::responsive();
@@ -289,7 +425,7 @@ mod tests {
         assert_eq!(config.chunk_size, 500);
         // LSP configuration is handled separately via LspConfig
     }
-    
+
     #[test]
     fn test_low_resource_config() {
         let config = Config::low_resource();
@@ -298,39 +434,39 @@ mod tests {
         assert!(!config.enable_preemption);
         assert!(!config.enable_metrics);
     }
-    
+
     #[test]
     fn test_config_validation() {
         let mut config = Config::new();
         assert!(config.validate().is_ok());
-        
+
         // Test invalid max_concurrent_tasks
         config.max_concurrent_tasks = Some(0);
         assert!(config.validate().is_err());
-        
+
         config.max_concurrent_tasks = Some(150);
         assert!(config.validate().is_err());
-        
+
         // Reset and test invalid timeout
         config.max_concurrent_tasks = Some(4);
         config.default_timeout_ms = Some(0);
         assert!(config.validate().is_err());
-        
+
         // Test invalid chunk size
         config.default_timeout_ms = Some(30_000);
         config.chunk_size = 0;
         assert!(config.validate().is_err());
-        
+
         config.chunk_size = 20_000;
         assert!(config.validate().is_err());
-        
+
         // Test invalid log level
         config.chunk_size = 1000;
         config.log_level = "invalid".to_string();
         assert!(config.validate().is_err());
     }
-    
-    
+
+
     #[test]
     fn test_duration_helpers() {
         let config = Config {
@@ -338,14 +474,79 @@ mod tests {
             metrics_interval_secs: 120,
             ..Default::default()
         };
-        
+
         assert_eq!(config.default_timeout(), Some(Duration::from_millis(5000)));
         assert_eq!(config.metrics_interval(), Duration::from_secs(120));
-        
+
         let config_no_timeout = Config {
             default_timeout_ms: None,
             ..Default::default()
         };
         assert_eq!(config_no_timeout.default_timeout(), None);
+    }
+
+    #[test]
+    fn test_queue_processor_settings_defaults() {
+        let settings = QueueProcessorSettings::default();
+        assert_eq!(settings.batch_size, 10);
+        assert_eq!(settings.poll_interval_ms, 500);
+        assert_eq!(settings.max_retries, 5);
+        assert_eq!(settings.retry_delays_seconds, vec![60, 300, 900, 3600]);
+        assert_eq!(settings.target_throughput, 1000);
+        assert!(settings.enable_metrics);
+    }
+
+    #[test]
+    fn test_queue_processor_settings_validation() {
+        let mut settings = QueueProcessorSettings::default();
+        assert!(settings.validate().is_ok());
+
+        // Test invalid batch_size
+        settings.batch_size = 0;
+        assert!(settings.validate().is_err());
+
+        settings.batch_size = 2000;
+        assert!(settings.validate().is_err());
+
+        // Reset and test invalid poll_interval
+        settings.batch_size = 10;
+        settings.poll_interval_ms = 0;
+        assert!(settings.validate().is_err());
+
+        settings.poll_interval_ms = 100_000;
+        assert!(settings.validate().is_err());
+
+        // Test invalid max_retries
+        settings.poll_interval_ms = 500;
+        settings.max_retries = -1;
+        assert!(settings.validate().is_err());
+
+        settings.max_retries = 50;
+        assert!(settings.validate().is_err());
+
+        // Test empty retry_delays
+        settings.max_retries = 5;
+        settings.retry_delays_seconds = vec![];
+        assert!(settings.validate().is_err());
+    }
+
+    #[test]
+    fn test_daemon_config_includes_queue_processor() {
+        let config = DaemonConfig::default();
+        assert_eq!(config.queue_processor.batch_size, 10);
+        assert_eq!(config.queue_processor.poll_interval_ms, 500);
+    }
+
+    #[test]
+    fn test_queue_processor_settings_conversion() {
+        let settings = QueueProcessorSettings::default();
+        let processor_config: ProcessorConfig = settings.into();
+
+        assert_eq!(processor_config.batch_size, 10);
+        assert_eq!(processor_config.poll_interval_ms, 500);
+        assert_eq!(processor_config.max_retries, 5);
+        assert_eq!(processor_config.retry_delays.len(), 4);
+        assert_eq!(processor_config.target_throughput, 1000);
+        assert!(processor_config.enable_metrics);
     }
 }
