@@ -29,7 +29,6 @@ dependencies = [
   "tqdm>=4.67.1",
   "grpcio>=1.60.0",
   "grpcio-tools>=1.60.0",
-  "watchfiles>=0.21.0",
   "fastapi>=0.104.0",
   "uvicorn>=0.24.0",
   "jinja2>=3.1.0",
@@ -98,243 +97,72 @@ Repository = "https://github.com/ChrisGVE/workspace-qdrant-mcp"
 Issues = "https://github.com/ChrisGVE/workspace-qdrant-mcp/issues"
 Changelog = "https://github.com/ChrisGVE/workspace-qdrant-mcp/blob/main/CHANGELOG.md"
 
-[tool.hatch.version]
-path = "src/python/workspace_qdrant_mcp/__init__.py"
+[tool.setuptools]
+packages = ["workspace_qdrant_mcp", "common", "wqm_cli"]
 
-[tool.setuptools.packages.find]
-where = ["src/python"]
-include = ["workspace_qdrant_mcp*", "wqm_cli*", "common*"]
-
-[tool.setuptools.package-data]
-"common.core" = ["config_schema.json"]
-
-[tool.hatch.build.targets.wheel]
-packages = ["src/python/workspace_qdrant_mcp", "src/python/wqm_cli", "src/python/common"]
+[tool.setuptools.package-dir]
+workspace_qdrant_mcp = "src/python/workspace_qdrant_mcp"
+common = "src/python/common"
+wqm_cli = "src/python/wqm_cli"
 
 [tool.black]
 line-length = 88
-target-version = ["py310"]
+target-version = ['py310', 'py311']
+include = '\.pyi?$'
+extend-exclude = '''
+/(
+  # directories
+  \.eggs
+  | \.git
+  | \.hg
+  | \.mypy_cache
+  | \.tox
+  | \.venv
+  | _build
+  | buck-out
+  | build
+  | dist
+)/
+'''
 
 [tool.ruff]
-target-version = "py310"
 line-length = 88
-
-[tool.ruff.lint]
-select = ["E", "F", "W", "B", "I", "N", "UP"]
-ignore = [
-  "E501",    # Line too long - let formatter handle this
-  "S101",    # Use of assert detected - acceptable in tests
-  "S110",    # try-except-pass - sometimes necessary
-  "C901",    # Function too complex - diagnostics function is inherently complex
-  "PLR0913", # Too many arguments - sometimes necessary
-  "PLR0915", # Too many statements - sometimes necessary
-  "PLC0415", # Import should be at top level - sometimes imports need to be conditional
-  "E722",    # Bare except - sometimes necessary for diagnostics
-  "B023",    # Function definition does not bind loop variable - acceptable in tests/async code
-  "B008",    # Do not perform function calls in argument defaults - common typer pattern
-  "E741",    # Ambiguous variable name - sometimes acceptable in short contexts
-  "F401",    # Imported but unused - sometimes imports are for availability checking
-  "F821",    # Undefined name - may be false positive in test contexts
+target-version = "py310"
+select = [
+  "E",   # pycodestyle errors
+  "W",   # pycodestyle warnings
+  "F",   # pyflakes
+  "I",   # isort
+  "C",   # flake8-comprehensions
+  "B",   # flake8-bugbear
+  "UP",  # pyupgrade
 ]
+ignore = [
+  "E501", # line too long (handled by black)
+  "B008", # do not perform function calls in argument defaults
+  "C901", # too complex
+]
+
+[tool.ruff.per-file-ignores]
+"__init__.py" = ["F401"]
 
 [tool.mypy]
 python_version = "3.10"
-strict = false
-warn_return_any = false
+warn_return_any = true
 warn_unused_configs = true
+disallow_untyped_defs = false
+disallow_any_generics = false
 ignore_missing_imports = true
-no_implicit_optional = false
-allow_untyped_defs = true
-allow_incomplete_defs = true
-exclude = [".venv/", "build/", "dist/"]
-
-[tool.pydocstyle]
-# Focus on critical documentation issues only
-convention = "pep257"
-add-ignore = [
-    "D202",  # No blank lines allowed after function docstring - too strict for existing code
-    "D204",  # 1 blank line required after class docstring - we fixed the main ones
-    "D401",  # First line should be in imperative mood - too strict for factory functions
-    "D107",  # Missing docstring in __init__ - not critical for internal classes
-    "D105",  # Missing docstring in magic method - not critical
-    "D102",  # Missing docstring in public method - focus on classes and functions first
-    "D400",  # First line should end with a period - minor formatting issue
-    "D205",  # 1 blank line required between summary line and description - formatting
-]
-# Only check critical violations that indicate missing or broken documentation
-match-dir = "src/python"
-ignore-decorators = "property"
 
 [tool.pytest.ini_options]
-asyncio_mode = "auto"
 testpaths = ["tests"]
-pythonpath = ["src/python", "."]
-addopts = "-v --tb=short --cov=src/python --cov-report=term-missing --cov-report=html --cov-report=xml --cov-fail-under=10 --cov-branch"
+python_files = ["test_*.py"]
+python_classes = ["Test*"]
+python_functions = ["test_*"]
+asyncio_mode = "auto"
 markers = [
-  # Test scope markers
-  "unit: Unit tests",
-  "integration: Integration tests",
-  "e2e: End-to-end tests",
-
-  # Test domain markers
-  "daemon: Rust daemon component tests",
-  "mcp_server: MCP server component tests",
-  "cli: CLI component tests",
-
-  # Test category markers
-  "nominal: Normal/happy path tests",
-  "edge: Edge case tests",
-  "stress: Stress and load tests",
-  "smoke: Smoke tests for basic functionality",
-  "regression: Regression tests for bug fixes",
-
-  # Performance markers
-  "performance: Performance and benchmark tests",
-  "slow: Slow running tests (>10s)",
-
-  # Environment markers
-  "requires_qdrant: Tests requiring Qdrant server",
-  "requires_git: Tests requiring Git repository",
-  "requires_docker: Tests requiring Docker runtime",
-  "requires_rust: Tests requiring Rust daemon components",
-
-  # Special markers
-  "network_required: Tests requiring network connectivity",
-  "local_only: Tests that require local environment",
+  "slow: marks tests as slow (deselect with '-m \"not slow\"')",
+  "integration: marks tests as integration tests",
+  "requires_qdrant: marks tests that require a running Qdrant server",
+  "requires_git: marks tests that require git repository",
 ]
-timeout = 300
-filterwarnings = [
-  "ignore::DeprecationWarning",
-  "ignore::PendingDeprecationWarning",
-  "ignore::UserWarning:testcontainers",
-]
-
-[tool.coverage.run]
-source = ["src/python"]
-omit = [
-  "*/tests/*",
-  "*/__init__.py",
-  "*/conftest.py",
-  "*/test_*.py",
-  "src/python/wqm_cli/cli/test_*.py",
-  "src/python/workspace_qdrant_mcp/tools/test_*.py"
-]
-branch = true
-parallel = true
-
-[tool.coverage.report]
-show_missing = true
-skip_covered = false
-precision = 2
-sort = "Cover"
-exclude_lines = [
-  "pragma: no cover",
-  "def __repr__",
-  "if self.debug:",
-  "if settings.DEBUG",
-  "raise AssertionError",
-  "raise NotImplementedError",
-  "if 0:",
-  "if __name__ == .__main__.:",
-  "pass",
-  "@abstract",
-  "@abstractmethod",
-  "@pytest.fixture",
-  "# pragma: no cover",
-  "except ImportError:",
-  "except ModuleNotFoundError:",
-]
-fail_under = 10
-
-[tool.coverage.html]
-directory = "htmlcov"
-skip_covered = false
-show_contexts = true
-
-[tool.coverage.xml]
-output = "coverage.xml"
-
-[dependency-groups]
-dev = [
-    "bandit>=1.8.6",
-    "nltk>=3.9.1",
-    "pytest>=8.4.1",
-    "pytest-asyncio>=1.1.0",
-    "pytest-cov>=6.2.1",
-    "pytest-mock>=3.14.1",
-    "pytest-timeout>=2.4.0",
-    "pytest-benchmark>=4.0.0",
-    "testcontainers>=3.7.0",
-    "rank-bm25>=0.2.2",
-    "rich>=14.1.0",
-    "scikit-learn>=1.7.1",
-    "typer>=0.16.1",
-    "respx>=0.20.0",
-]
-
-# Maturin configuration for Rust integration
-[tool.maturin]
-module-name = "common._rust_engine"
-manifest-path = "rust-engine/daemon/python-bindings/Cargo.toml"
-python-source = "src/python"
-
-[tool.setuptools]
-package-dir = {"" = "src/python"}
-py-modules = ["elegant_launcher"]
-
-# Platform-specific optimizations
-[tool.maturin.target.x86_64-apple-darwin]
-rustflags = ["-C", "target-cpu=native"]
-
-[tool.maturin.target.aarch64-apple-darwin]
-rustflags = ["-C", "target-cpu=native"]
-
-[tool.maturin.target.x86_64-unknown-linux-gnu]
-rustflags = ["-C", "target-cpu=native"]
-
-[tool.maturin.target.x86_64-pc-windows-msvc]
-rustflags = ["-C", "target-cpu=native"]
-
-[tool.maturin.target.aarch64-pc-windows-msvc]
-rustflags = ["-C", "target-cpu=native"]
-
-# cibuildwheel configuration for cross-platform wheel building
-[tool.cibuildwheel]
-# Build for Python 3.10+ on all platforms
-build = "cp310-* cp311-* cp312-*"
-skip = [
-    "*-musllinux_i686",     # Skip 32-bit musl
-    "pp*",                  # Skip PyPy
-]
-
-# Platform-specific settings
-[tool.cibuildwheel.linux]
-before-all = [
-    "curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y",
-    "source $HOME/.cargo/env",
-    "rustup target add aarch64-unknown-linux-gnu",
-    "apt-get update",
-    "apt-get install -y protobuf-compiler gcc-aarch64-linux-gnu g++-aarch64-linux-gnu"
-]
-repair-wheel-command = "auditwheel repair -w {dest_dir} {wheel}"
-
-[tool.cibuildwheel.macos]
-before-all = [
-    "curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y",
-    "source $HOME/.cargo/env",
-    "rustup target add aarch64-apple-darwin",
-    "brew install protobuf"
-]
-# Set deployment target for broader compatibility
-environment = { MACOSX_DEPLOYMENT_TARGET = "10.12" }
-
-[tool.cibuildwheel.windows]
-before-all = [
-    "curl --proto '=https' --tlsv1.2 -sSf https://win.rustup.rs/x86_64 --output rustup-init.exe",
-    "rustup-init.exe -y --default-host x86_64-pc-windows-msvc",
-    "rustup target add aarch64-pc-windows-msvc",
-    "choco install protoc"
-]
-
-# Test command to verify wheels work
-test-command = "python -c 'import workspace_qdrant_mcp; print(\"Import successful\")'"

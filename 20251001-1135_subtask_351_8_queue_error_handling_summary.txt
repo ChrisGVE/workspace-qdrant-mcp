@@ -1,0 +1,177 @@
+Subtask 351.8: Queue Error Handling Implementation Summary
+===========================================================
+
+Date: 2025-10-01 11:35
+Status: PARTIALLY COMPLETE - User has made significant progress
+
+## Current State of Implementation
+
+### What Has Been Completed:
+
+1. **File Watcher Integration with State Manager** ✅
+   - File watcher (file_watcher.py) has been modified to directly use SQLiteStateManager
+   - Removed callback-based architecture in favor of direct queue operations
+   - Added `_trigger_operation` method that enqueues files directly (lines 532-589)
+   - Basic try-except error handling in place
+
+2. **Error Handling Infrastructure** ✅
+   - Comprehensive error handler already exists: queue_error_handler.py
+   - Implements error classification, retry strategies, circuit breaker
+   - Support for ErrorCategory (Transient, Permanent, RateLimit, Resource)
+   - ErrorType enum with 16 specific error types and categorization
+   - RetryConfig with exponential backoff and jitter
+   - CircuitBreakerConfig and state management
+   - ErrorMetrics for monitoring
+
+3. **Test Suite** ✅
+   - Created comprehensive test file: test_file_watcher_queue_error_handling.py
+   - Tests cover:
+     * Database locked errors with retry
+     * Validation errors without retry
+     * Runtime errors
+     * Generic exceptions
+     * Error statistics tracking
+     * Watcher resilience
+     * Circuit breaker pattern
+
+### What Remains To Be Done:
+
+1. **Enhance FileWatcher Class** ❌
+   - Add QueueErrorStatistics dataclass to track errors
+   - Add error_stats instance variable to FileWatcher.__init__
+   - Add configuration parameters for retry logic:
+     * max_retries (default: 3)
+     * backoff_base (default: 1.0s)
+     * backoff_max (default: 30.0s)
+     * circuit_breaker_threshold (default: 10)
+     * circuit_breaker_reset_timeout (default: 60.0s)
+
+2. **Implement Retry Logic in _trigger_operation** ❌
+   Current implementation (lines 532-589):
+   ```python
+   try:
+       # ... detection and enqueue logic ...
+       queue_id = await self.state_manager.enqueue(...)
+   except Exception as e:
+       logger.error(f"Error enqueueing file {file_path} for {operation}: {e}")
+       raise
+   ```
+
+   Needs to become:
+   ```python
+   for attempt in range(self.config.max_retries + 1):
+       try:
+           # ... detection and enqueue logic ...
+           queue_id = await self.state_manager.enqueue(...)
+           # Success - update stats and return
+           break
+       except sqlite3.OperationalError as e:
+           # Handle database locked with retry
+       except ValueError as e:
+           # Handle validation errors (no retry)
+       except RuntimeError as e:
+           # Handle state manager not initialized
+       except Exception as e:
+           # Generic fallback
+   ```
+
+3. **Add Helper Methods to FileWatcher** ❌
+   - `_calculate_backoff(attempt: int) -> float`
+     * Exponential backoff with jitter
+     * Use config.backoff_base, backoff_max
+   - `_check_circuit_breaker() -> bool`
+     * Check if consecutive failures exceed threshold
+     * Check if reset timeout has elapsed
+   - `_trip_circuit_breaker()`
+     * Set circuit breaker state to open
+     * Record timestamp
+   - `_reset_circuit_breaker()`
+     * Clear circuit breaker state after success
+   - `_record_failure(file_path, collection, operation, error)`
+     * Update error statistics
+     * Increment consecutive failures
+     * Log with full context
+
+4. **Add Statistics Methods** ❌
+   - `get_error_statistics() -> Dict[str, Any]`
+   - `reset_error_statistics()`
+   - Update WatchManager to include error stats in:
+     * `get_watch_status()`
+     * Add `get_all_error_statistics()`
+     * Add `reset_all_error_statistics()`
+
+5. **Update WatchConfiguration Dataclass** ❌
+   Add fields to WatchConfiguration:
+   ```python
+   # Queue error handling configuration
+   max_retries: int = 3
+   backoff_base: float = 1.0  # Base delay in seconds
+   backoff_max: float = 30.0  # Maximum delay
+   circuit_breaker_threshold: int = 10  # Consecutive failures to trip
+   circuit_breaker_reset_timeout: float = 60.0  # Seconds before reset
+   ```
+
+## Implementation Strategy
+
+Since the user has made significant modifications to file_watcher.py, we need to:
+
+1. Read the current file completely
+2. Add QueueErrorStatistics dataclass at the top (after imports)
+3. Update WatchConfiguration to include error handling config
+4. Add error_stats to FileWatcher.__init__
+5. Replace _trigger_operation method with retry logic version
+6. Add helper methods for backoff, circuit breaker, failure recording
+7. Add get_error_statistics and reset_error_statistics methods
+8. Update WatchManager methods to include error statistics
+
+## Key Requirements from Task Description
+
+✅ Wrap all state_manager.enqueue() calls in try-except blocks
+❌ Handle specific errors:
+   - sqlite3.OperationalError (database locked, etc.)
+   - ValueError (invalid priority, validation errors)
+   - RuntimeError (state manager not initialized)
+   - Generic Exception as fallback
+
+❌ Implement fallback strategies:
+   - Log error with full context (file, collection, operation)
+   - Increment error counter in config
+   - Continue watching (don't crash watcher)
+   - Retry logic with exponential backoff (max 3 retries)
+
+❌ Add error statistics to watch config
+❌ Expose errors through get_statistics() method
+
+✅ File watcher must never crash due to queue errors (basic protection in place)
+❌ Clear error messages with actionable information (needs enhancement)
+❌ Statistics tracking for monitoring (needs implementation)
+❌ Circuit breaker pattern for repeated failures (needs implementation)
+
+## Files Modified/Created
+
+Created:
+- tests/unit/test_file_watcher_queue_error_handling.py
+
+Needs Modification:
+- src/python/common/core/file_watcher.py
+
+Already Exists (no changes needed):
+- src/python/common/core/queue_error_handler.py
+
+## Next Steps
+
+1. Carefully read entire file_watcher.py to understand user's modifications
+2. Add QueueErrorStatistics and config fields
+3. Enhance _trigger_operation with full retry logic
+4. Add all helper methods
+5. Test the implementation
+6. Verify file watcher never crashes
+7. Mark subtask as complete
+
+## Notes
+
+- User has already made significant architectural changes
+- Current basic error handling exists but needs enhancement
+- Must preserve user's recent work (operation type detection, etc.)
+- Should use existing queue_error_handler.py patterns for consistency
+- Test file is comprehensive and should guide implementation
