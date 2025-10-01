@@ -17,6 +17,8 @@ use workspace_qdrant_core::{
     ProcessingEngine, config::{Config, DaemonConfig},
     LoggingConfig, initialize_logging,
     unified_config::{UnifiedConfigManager, UnifiedConfigError},
+    queue_processor::{QueueProcessor, ProcessorConfig},
+    queue_config::QueueConnectionConfig,
     // Removed unused imports: ErrorRecovery, ErrorRecoveryStrategy, track_async_operation, LoggingErrorMonitor
 };
 
@@ -207,18 +209,18 @@ fn init_logging(log_level: &str, foreground: bool) -> Result<(), Box<dyn std::er
 /// Create PID file with current process ID, with project-specific naming support
 fn create_pid_file(pid_file: &Path, project_id: Option<&String>) -> Result<(), Box<dyn std::error::Error>> {
     let pid = process::id();
-    
+
     // Create parent directory if it doesn't exist
     if let Some(parent) = pid_file.parent() {
         if !parent.exists() {
             fs::create_dir_all(parent)?;
         }
     }
-    
+
     // Write PID file atomically
     let temp_file = pid_file.with_extension("tmp");
     fs::write(&temp_file, format!("{}\n", pid))?;
-    
+
     // Set appropriate permissions (readable by owner and group)
     #[cfg(unix)]
     {
@@ -227,10 +229,10 @@ fn create_pid_file(pid_file: &Path, project_id: Option<&String>) -> Result<(), B
         perms.set_mode(0o644);
         fs::set_permissions(&temp_file, perms)?;
     }
-    
+
     // Atomically move temp file to final location
     fs::rename(&temp_file, pid_file)?;
-    
+
     let project_info = project_id.map(|id| format!(" for project {}", id)).unwrap_or_default();
     info!("Created PID file at {} with PID {}{}", pid_file.display(), pid, project_info);
     Ok(())
@@ -246,7 +248,7 @@ fn remove_pid_file(pid_file: &Path) {
     } else {
         info!("Removed PID file {}", pid_file.display());
     }
-    
+
     // Also clean up any temporary files
     let temp_file = pid_file.with_extension("tmp");
     if temp_file.exists() {
@@ -261,7 +263,7 @@ fn check_existing_instance(pid_file: &Path, project_id: Option<&String>) -> Resu
     if pid_file.exists() {
         let pid_content = fs::read_to_string(pid_file)?;
         let pid: u32 = pid_content.trim().parse()?;
-        
+
         // Check if process with this PID is still running and is memexd
         #[cfg(unix)]
         {
@@ -269,11 +271,11 @@ fn check_existing_instance(pid_file: &Path, project_id: Option<&String>) -> Resu
             let output = Command::new("ps")
                 .args(["-p", &pid.to_string(), "-o", "comm="])
                 .output()?;
-            
+
             if output.status.success() && !output.stdout.is_empty() {
                 let stdout = String::from_utf8_lossy(&output.stdout);
                 let process_name = stdout.trim();
-                
+
                 // Check if it's actually a memexd process
                 if process_name.contains("memexd") {
                     let project_info = project_id.map(|id| format!(" for project {}", id)).unwrap_or_default();
@@ -291,7 +293,7 @@ fn check_existing_instance(pid_file: &Path, project_id: Option<&String>) -> Resu
                 }
             }
         }
-        
+
         // Windows process detection
         #[cfg(windows)]
         {
@@ -299,7 +301,7 @@ fn check_existing_instance(pid_file: &Path, project_id: Option<&String>) -> Resu
             let output = Command::new("tasklist")
                 .args(["/FI", &format!("PID eq {}", pid), "/FO", "CSV", "/NH"])
                 .output()?;
-            
+
             if output.status.success() && !output.stdout.is_empty() {
                 let stdout = String::from_utf8_lossy(&output.stdout);
                 if !stdout.trim().is_empty() && stdout.contains("memexd") {
@@ -317,7 +319,7 @@ fn check_existing_instance(pid_file: &Path, project_id: Option<&String>) -> Resu
                 }
             }
         }
-        
+
         // PID file exists but process is not running - remove stale file
         warn!("Found stale PID file {}, removing it", pid_file.display());
         fs::remove_file(pid_file)?;
@@ -403,7 +405,7 @@ async fn setup_signal_handlers() -> Result<(), Box<dyn std::error::Error>> {
     {
         let mut sigterm = signal::unix::signal(signal::unix::SignalKind::terminate())?;
         let mut sigint = signal::unix::signal(signal::unix::SignalKind::interrupt())?;
-        
+
         tokio::select! {
             _ = sigterm.recv() => {
                 info!("Received SIGTERM, initiating graceful shutdown");
@@ -416,65 +418,165 @@ async fn setup_signal_handlers() -> Result<(), Box<dyn std::error::Error>> {
             }
         }
     }
-    
+
     #[cfg(not(unix))]
     {
         // On non-Unix systems (Windows), only handle Ctrl+C
         signal::ctrl_c().await?;
         info!("Received Ctrl+C, initiating graceful shutdown");
     }
-    
+
     Ok(())
+}
+
+/// Initialize queue processor with SQLite connection
+async fn initialize_queue_processor() -> Result<QueueProcessor, Box<dyn std::error::Error>> {
+    use std::env;
+
+    // Determine database location (same as daemon state manager)
+    let db_path = if let Ok(home) = env::var("HOME") {
+        PathBuf::from(home)
+            .join(".local")
+            .join("share")
+            .join("workspace-qdrant")
+            .join("state.db")
+    } else {
+        std::env::temp_dir()
+            .join("workspace-qdrant")
+            .join("state.db")
+    };
+
+    info!("Initializing queue processor with database: {}", db_path.display());
+
+    // Create queue connection config
+    let queue_config = QueueConnectionConfig::with_database_path(&db_path);
+
+    // Create SQLite pool
+    let pool = queue_config.create_pool().await
+        .map_err(|e| format!("Failed to create SQLite pool: {}", e))?;
+
+    // Initialize queue schema (if not already initialized)
+    sqlx::query(
+        "CREATE TABLE IF NOT EXISTS ingestion_queue (
+            file_absolute_path TEXT PRIMARY KEY,
+            collection_name TEXT NOT NULL,
+            tenant_id TEXT NOT NULL,
+            branch TEXT NOT NULL,
+            operation TEXT NOT NULL,
+            priority INTEGER NOT NULL,
+            queued_timestamp TEXT NOT NULL,
+            retry_count INTEGER NOT NULL DEFAULT 0,
+            retry_from TEXT,
+            error_message_id INTEGER,
+            FOREIGN KEY (error_message_id) REFERENCES error_log(error_id)
+        )"
+    )
+    .execute(&pool)
+    .await
+    .map_err(|e| format!("Failed to initialize queue schema: {}", e))?;
+
+    info!("Queue schema initialized successfully");
+
+    // Create processor configuration with default values
+    let processor_config = ProcessorConfig {
+        batch_size: 10,
+        poll_interval_ms: 500,
+        max_retries: 5,
+        retry_delays: vec![
+            chrono::Duration::minutes(1),
+            chrono::Duration::minutes(5),
+            chrono::Duration::minutes(15),
+            chrono::Duration::hours(1),
+        ],
+        target_throughput: 1000, // 1000+ docs/min
+        enable_metrics: true,
+    };
+
+    info!(
+        "Queue processor configuration: batch_size={}, poll_interval={}ms, max_retries={}",
+        processor_config.batch_size,
+        processor_config.poll_interval_ms,
+        processor_config.max_retries
+    );
+
+    // Create queue processor
+    let processor = QueueProcessor::new(pool, processor_config);
+
+    Ok(processor)
 }
 
 /// Main daemon loop
 async fn run_daemon(_config: Config, daemon_config: DaemonConfig, args: DaemonArgs) -> Result<(), Box<dyn std::error::Error>> {
     let project_info = args.project_id.as_ref().map(|id| format!(" for project {}", id)).unwrap_or_default();
     info!("Starting memexd daemon (version 0.2.0){}", project_info);
-    
+
     // Check for existing instances
     check_existing_instance(&args.pid_file, args.project_id.as_ref())?;
-    
+
     // Create PID file
     create_pid_file(&args.pid_file, args.project_id.as_ref())?;
-    
+
     // Ensure PID file is cleaned up on exit
     let pid_file_cleanup = args.pid_file.clone();
     let _cleanup_guard = scopeguard::guard((), move |_| {
         remove_pid_file(&pid_file_cleanup);
     });
-    
+
+    // Initialize the queue processor FIRST (before processing engine)
+    info!("Initializing queue processor...");
+    let mut queue_processor = initialize_queue_processor().await.map_err(|e| {
+        error!("Failed to initialize queue processor: {}", e);
+        e
+    })?;
+
+    // Start the queue processor in background
+    info!("Starting queue processor...");
+    queue_processor.start().map_err(|e| {
+        error!("Failed to start queue processor: {}", e);
+        Box::new(e) as Box<dyn std::error::Error>
+    })?;
+
+    info!("Queue processor started successfully");
+
     // Initialize the processing engine with daemon configuration
     info!("Initializing ProcessingEngine with daemon configuration");
     let mut engine = ProcessingEngine::with_daemon_config(daemon_config);
-    
+
     // Start the engine with IPC support
     info!("Starting ProcessingEngine with IPC support");
     let _ipc_client = engine.start_with_ipc().await.map_err(|e| {
         error!("Failed to start processing engine: {}", e);
         e
     })?;
-    
+
     info!("ProcessingEngine started successfully");
     info!("IPC client available for Python integration");
-    
+
     // Set up graceful shutdown handling
     let shutdown_future = setup_signal_handlers();
-    
+
     // Main daemon loop
     info!("memexd daemon is running. Send SIGTERM or SIGINT to stop.");
-    
+
     // Wait for shutdown signal
     if let Err(e) = shutdown_future.await {
         error!("Error in signal handling: {}", e);
     }
-    
-    // Graceful shutdown
+
+    // Graceful shutdown - stop queue processor first
+    info!("Shutting down queue processor...");
+    if let Err(e) = queue_processor.stop().await {
+        error!("Error during queue processor shutdown: {}", e);
+    } else {
+        info!("Queue processor shutdown complete");
+    }
+
+    // Then shutdown processing engine
     info!("Shutting down ProcessingEngine...");
     if let Err(e) = engine.shutdown().await {
         error!("Error during engine shutdown: {}", e);
     }
-    
+
     info!("memexd daemon shutdown complete");
     Ok(())
 }
@@ -546,24 +648,24 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     }
 
     let args = parse_args()?;
-    
+
     // Initialize comprehensive logging early
     init_logging(&args.log_level, args.foreground)?;
-    
+
     info!("memexd daemon starting up");
     info!("Command-line arguments: {:?}", args);
-    
+
     // Load configuration
     let (config, daemon_config) = load_config(&args).map_err(|e| {
         error!("Failed to load configuration: {}", e);
         e
     })?;
-    
+
     // Run the daemon
     if let Err(e) = run_daemon(config, daemon_config, args).await {
         error!("Daemon failed: {}", e);
         process::exit(1);
     }
-    
+
     Ok(())
 }
