@@ -2,7 +2,7 @@
 File watching system for automatic library collection ingestion.
 
 This module provides file system monitoring capabilities for library collections,
-enabling automatic ingestion of new and modified files with sophisticated 
+enabling automatic ingestion of new and modified files with sophisticated
 language-aware filtering.
 """
 
@@ -18,6 +18,7 @@ from typing import Any, Dict, List, Optional, Set
 from watchfiles import Change, awatch
 
 from .language_filters import LanguageAwareFilter
+from .sqlite_state_manager import SQLiteStateManager
 
 # logger imported from loguru
 
@@ -79,14 +80,14 @@ class FileWatcher:
     """
     File system watcher for a single directory.
 
-    Monitors a directory for changes and triggers ingestion callbacks
-    for files matching specified patterns.
+    Monitors a directory for changes and enqueues files for ingestion
+    using the state manager queue system.
     """
 
     def __init__(
         self,
         config: WatchConfiguration,
-        ingestion_callback: Callable[[str, str], None],
+        state_manager: SQLiteStateManager,
         event_callback: Callable[[WatchEvent], None] | None = None,
         filter_config_path: str | None = None,
     ):
@@ -95,23 +96,26 @@ class FileWatcher:
 
         Args:
             config: Watch configuration
-            ingestion_callback: Callback for file ingestion (file_path, collection)
+            state_manager: SQLite state manager for queue operations
             event_callback: Optional callback for watch events
             filter_config_path: Path to language filter configuration directory
         """
         self.config = config
-        self.ingestion_callback = ingestion_callback
+        self.state_manager = state_manager
         self.event_callback = event_callback
         self._running = False
         self._task: asyncio.Task | None = None
         self._debounce_tasks: dict[str, asyncio.Task] = {}
-        
+
+        # Cache for project root detection (per file path)
+        self._project_root_cache: dict[str, Path] = {}
+
         # Initialize language-aware filtering
         self.language_filter: LanguageAwareFilter | None = None
         if config.use_language_filtering:
             self.language_filter = LanguageAwareFilter(filter_config_path)
             # Load configuration asynchronously when starting
-        
+
         logger.debug(f"FileWatcher initialized with language filtering: {config.use_language_filtering}")
 
     async def start(self) -> None:
@@ -173,7 +177,7 @@ class FileWatcher:
     def is_running(self) -> bool:
         """Check if watcher is currently running."""
         return self._running and self._task is not None and not self._task.done()
-    
+
     def get_filter_statistics(self) -> Dict[str, Any]:
         """Get language filtering statistics if available."""
         if self.language_filter:
@@ -190,13 +194,45 @@ class FileWatcher:
                 "files_processed": self.config.files_processed,
                 "filter_method": "basic_patterns"
             }
-    
+
     def reset_filter_statistics(self) -> None:
         """Reset filtering statistics."""
         if self.language_filter:
             self.language_filter.reset_statistics()
         self.config.files_filtered = 0
         self.config.files_processed = 0
+
+    def _find_project_root(self, file_path: Path) -> Path:
+        """
+        Find project root by walking up directory tree looking for .git directory.
+
+        Args:
+            file_path: Path to file
+
+        Returns:
+            Project root path (directory containing .git) or file's parent directory
+        """
+        # Check cache first
+        file_path_str = str(file_path)
+        if file_path_str in self._project_root_cache:
+            return self._project_root_cache[file_path_str]
+
+        # Walk up directory tree
+        current = file_path.parent if file_path.is_file() else file_path
+
+        while current != current.parent:  # Stop at filesystem root
+            if (current / ".git").exists():
+                # Found git repository
+                self._project_root_cache[file_path_str] = current
+                logger.debug(f"Found project root for {file_path}: {current}")
+                return current
+            current = current.parent
+
+        # No .git found, use file's parent directory
+        fallback = file_path.parent if file_path.is_file() else file_path
+        self._project_root_cache[file_path_str] = fallback
+        logger.debug(f"No .git found for {file_path}, using parent: {fallback}")
+        return fallback
 
     async def _watch_loop(self) -> None:
         """Main watching loop."""
@@ -219,11 +255,96 @@ class FileWatcher:
             self.config.status = "error"
             self.config.errors_count += 1
 
+    def _determine_operation_type(self, change_type: Change, file_path: Path) -> str:
+        """
+        Determine the operation type for a file change event.
+
+        This method maps watchfiles Change types to queue operation types,
+        handling race conditions where files may be deleted between detection
+        and processing.
+
+        Args:
+            change_type: The watchfiles Change type (added, modified, deleted)
+            file_path: Path to the file being changed
+
+        Returns:
+            Operation type string: 'ingest', 'update', or 'delete'
+
+        Logic:
+            - Change.added → 'ingest' (new file added to watch directory)
+            - Change.modified + file exists → 'update' (existing file modified)
+            - Change.modified + file missing → 'delete' (file deleted during processing)
+            - Change.deleted → 'delete' (file explicitly deleted)
+
+        Edge cases handled:
+            - Race condition: File deleted between event and this check
+            - Symlinks: Checked via exists() which follows symlinks by default
+            - Broken symlinks: Treated as delete since target is unavailable
+            - Permission errors: Default to 'update' to allow queue processor to handle
+            - Special files: Filtered earlier in _handle_changes(), won't reach here
+
+        Note:
+            This method performs filesystem checks and should be called
+            during the debounce period to handle transient file states.
+            It's called AFTER filtering, so we know the file is relevant.
+        """
+        if change_type == Change.added:
+            operation = 'ingest'
+            logger.debug(f"Operation type 'ingest' determined for added file: {file_path}")
+            return operation
+        elif change_type == Change.deleted:
+            operation = 'delete'
+            logger.debug(f"Operation type 'delete' determined for deleted file: {file_path}")
+            return operation
+        elif change_type == Change.modified:
+            # Check if file still exists to disambiguate modify vs delete
+            # This handles race conditions where a file is deleted between
+            # the event being generated and this method being called
+            try:
+                # Check for symlinks first
+                if file_path.is_symlink():
+                    # Symlink exists - check if target exists
+                    if file_path.exists():
+                        operation = 'update'
+                        logger.debug(f"Operation type 'update' determined for modified symlink: {file_path}")
+                    else:
+                        # Broken symlink - treat as delete
+                        operation = 'delete'
+                        logger.debug(f"Operation type 'delete' determined for broken symlink: {file_path}")
+                elif file_path.exists():
+                    operation = 'update'
+                    logger.debug(f"Operation type 'update' determined for modified file: {file_path}")
+                else:
+                    # File was deleted between event and check
+                    operation = 'delete'
+                    logger.debug(
+                        f"Operation type 'delete' determined for modified file "
+                        f"(race condition - file no longer exists): {file_path}"
+                    )
+                return operation
+            except (OSError, PermissionError) as e:
+                # If we can't check the file (permissions, disk error, etc.),
+                # assume it's an update and let the queue processor handle errors
+                logger.warning(
+                    f"Could not check file existence for {file_path}: {e}. "
+                    f"Defaulting to 'update' operation."
+                )
+                return 'update'
+        else:
+            # Unknown change type - default to ingest for safety
+            logger.warning(f"Unknown change type {change_type} for {file_path}, defaulting to 'ingest'")
+            return 'ingest'
+
     async def _handle_changes(self, changes: set[tuple]) -> None:
         """Handle file system changes."""
         for change_info in changes:
             change_type, file_path = change_info
             file_path = Path(file_path)
+
+            # Handle deletions differently since file no longer exists
+            if change_type == Change.deleted:
+                await self._handle_deletion(file_path)
+                continue
 
             # Skip if not a file
             if not file_path.is_file():
@@ -266,7 +387,83 @@ class FileWatcher:
                 change_type in (Change.added, Change.modified)
                 and self.config.auto_ingest
             ):
-                await self._debounce_ingestion(str(file_path))
+                await self._debounce_ingestion(str(file_path), change_type)
+
+    async def _handle_deletion(self, file_path: Path) -> None:
+        """
+        Handle file deletion events.
+
+        Deletions are enqueued immediately with high priority for timely
+        vector DB cleanup. Since the file is already deleted, we can't read
+        its metadata, but we can still determine if it should be processed
+        based on file patterns.
+
+        Args:
+            file_path: Path to the deleted file
+        """
+        # Check if we would have processed this file based on patterns
+        # Since file is deleted, we can only check the path/extension
+        should_process = False
+
+        if self.language_filter:
+            # Language filter can check patterns even without file access
+            # It will use file extension and path patterns
+            should_process, reason = self.language_filter.should_process_file(
+                file_path,
+                allow_missing=True
+            )
+            if not should_process:
+                self.config.files_filtered += 1
+                logger.debug(f"Language filter rejected deletion of {file_path}: {reason}")
+                return
+        else:
+            # Fallback to basic pattern matching (works on path alone)
+            if not self._matches_patterns(file_path):
+                self.config.files_filtered += 1
+                return
+
+            if self._matches_ignore_patterns(file_path):
+                self.config.files_filtered += 1
+                return
+
+            should_process = True
+
+        if not should_process or not self.config.auto_ingest:
+            return
+
+        # Create deletion event
+        event = WatchEvent(
+            change_type="deleted",
+            file_path=str(file_path),
+            collection=self.config.collection,
+        )
+
+        # Notify event callback
+        if self.event_callback:
+            try:
+                self.event_callback(event)
+            except Exception as e:
+                logger.error(f"Error in event callback: {e}")
+
+        # Enqueue deletion with high priority
+        try:
+            logger.info(
+                f"Processing deletion: {file_path} from collection {self.config.collection}"
+            )
+
+            await self._trigger_operation(
+                str(file_path.resolve()),
+                self.config.collection,
+                "delete"
+            )
+
+            # Update stats
+            self.config.files_processed += 1
+            self.config.last_activity = datetime.now(timezone.utc).isoformat()
+
+        except Exception as e:
+            logger.error(f"Error processing deletion for {file_path}: {e}")
+            self.config.errors_count += 1
 
     def _matches_patterns(self, file_path: Path) -> bool:
         """Check if file matches include patterns."""
@@ -293,7 +490,7 @@ class FileWatcher:
         else:
             return "unknown"
 
-    async def _debounce_ingestion(self, file_path: str) -> None:
+    async def _debounce_ingestion(self, file_path: str, change_type: Change) -> None:
         """Debounce file ingestion to avoid processing rapid changes."""
         # Cancel existing debounce task for this file
         if file_path in self._debounce_tasks:
@@ -301,16 +498,22 @@ class FileWatcher:
 
         # Create new debounce task
         self._debounce_tasks[file_path] = asyncio.create_task(
-            self._delayed_ingestion(file_path)
+            self._delayed_ingestion(file_path, change_type)
         )
 
-    async def _delayed_ingestion(self, file_path: str) -> None:
+    async def _delayed_ingestion(self, file_path: str, change_type: Change) -> None:
         """Perform delayed file ingestion after debounce period."""
         try:
             await asyncio.sleep(self.config.debounce_seconds)
 
-            # Trigger ingestion
-            await self._trigger_ingestion(file_path)
+            # Trigger ingestion (add/update operations)
+            # Determine operation type after debounce period
+            # File state may have changed during the delay
+            path_obj = Path(file_path)
+            operation = self._determine_operation_type(change_type, path_obj)
+
+            # Trigger operation with determined type
+            await self._trigger_operation(file_path, self.config.collection, operation)
 
             # Update stats
             self.config.files_processed += 1
@@ -326,15 +529,63 @@ class FileWatcher:
             # Clean up task reference
             self._debounce_tasks.pop(file_path, None)
 
-    async def _trigger_ingestion(self, file_path: str) -> None:
-        """Trigger the ingestion callback."""
+    async def _trigger_operation(
+        self,
+        file_path: str,
+        collection: str,
+        operation: str
+    ) -> None:
+        """
+        Trigger file operation by enqueuing to state manager.
+
+        Replaces the old callback pattern with direct queue operations.
+
+        Args:
+            file_path: Absolute path to file
+            collection: Target collection name
+            operation: Operation type ('ingest', 'update', or 'delete')
+        """
         try:
-            if asyncio.iscoroutinefunction(self.ingestion_callback):
-                await self.ingestion_callback(file_path, self.config.collection)
-            else:
-                self.ingestion_callback(file_path, self.config.collection)
+            # Detect project root
+            file_path_obj = Path(file_path)
+            project_root = self._find_project_root(file_path_obj)
+
+            # Calculate tenant_id and branch
+            tenant_id = await self.state_manager.calculate_tenant_id(project_root)
+            branch = await self.state_manager.get_current_branch(project_root)
+
+            # Default priority: 5 (NORMAL)
+            # Higher priority for deletions
+            priority = 8 if operation == "delete" else 5
+
+            # Build metadata with event information
+            metadata = {
+                "watch_id": self.config.id,
+                "watch_path": self.config.path,
+                "operation": operation,
+                "event_type": "file_change",
+                "detected_at": datetime.now(timezone.utc).isoformat(),
+                "project_root": str(project_root),
+            }
+
+            # Enqueue file for processing
+            queue_id = await self.state_manager.enqueue(
+                file_path=file_path,
+                collection=collection,
+                priority=priority,
+                tenant_id=tenant_id,
+                branch=branch,
+                metadata=metadata,
+            )
+
+            logger.debug(
+                f"Enqueued file for {operation}: {file_path} "
+                f"(collection={collection}, priority={priority}, "
+                f"tenant={tenant_id}, branch={branch}, queue_id={queue_id})"
+            )
+
         except Exception as e:
-            logger.error(f"Error in ingestion callback for {file_path}: {e}")
+            logger.error(f"Error enqueueing file {file_path} for {operation}: {e}")
             raise
 
 
@@ -347,7 +598,7 @@ class WatchManager:
     """
 
     def __init__(
-        self, 
+        self,
         config_file: str | None = None,
         filter_config_path: str | None = None
     ):
@@ -368,13 +619,13 @@ class WatchManager:
 
         self.watchers: dict[str, FileWatcher] = {}
         self.configurations: dict[str, WatchConfiguration] = {}
-        self.ingestion_callback: Callable[[str, str], None] | None = None
+        self.state_manager: SQLiteStateManager | None = None
         self.event_callback: Callable[[WatchEvent], None] | None = None
         self.filter_config_path = filter_config_path
 
-    def set_ingestion_callback(self, callback: Callable[[str, str], None]) -> None:
-        """Set the ingestion callback for all watchers."""
-        self.ingestion_callback = callback
+    def set_state_manager(self, state_manager: SQLiteStateManager) -> None:
+        """Set the state manager for all watchers."""
+        self.state_manager = state_manager
 
     def set_event_callback(self, callback: Callable[[WatchEvent], None]) -> None:
         """Set the event callback for all watchers."""
@@ -456,8 +707,8 @@ class WatchManager:
         self.configurations[watch_id] = config
         await self.save_configurations()
 
-        # Start watching if callbacks are set
-        if self.ingestion_callback:
+        # Start watching if state_manager is set
+        if self.state_manager:
             await self._start_watcher(watch_id)
 
         logger.info(f"Added watch {watch_id} for {path} -> {collection}")
@@ -482,8 +733,8 @@ class WatchManager:
 
     async def start_all_watches(self) -> None:
         """Start all configured watches."""
-        if not self.ingestion_callback:
-            logger.warning("No ingestion callback set, cannot start watches")
+        if not self.state_manager:
+            logger.warning("No state manager set, cannot start watches")
             return
 
         for watch_id in self.configurations:
@@ -536,7 +787,7 @@ class WatchManager:
         # Create and start watcher
         watcher = FileWatcher(
             config=config,
-            ingestion_callback=self.ingestion_callback,
+            state_manager=self.state_manager,
             event_callback=self.event_callback,
             filter_config_path=self.filter_config_path,
         )
@@ -574,18 +825,18 @@ class WatchManager:
             configs = [c for c in configs if c.collection == collection]
 
         return sorted(configs, key=lambda c: c.created_at)
-    
+
     def get_all_filter_statistics(self) -> Dict[str, Any]:
         """Get filtering statistics from all watchers."""
         all_stats = {}
         total_files_checked = 0
         total_files_processed = 0
         total_files_filtered = 0
-        
+
         for watch_id, watcher in self.watchers.items():
             watcher_stats = watcher.get_filter_statistics()
             all_stats[watch_id] = watcher_stats
-            
+
             if watcher_stats.get("language_filtering", False):
                 detailed_stats = watcher_stats.get("detailed_stats", {})
                 total_files_checked += detailed_stats.get("total_files_checked", 0)
@@ -594,7 +845,7 @@ class WatchManager:
             else:
                 total_files_processed += watcher_stats.get("files_processed", 0)
                 total_files_filtered += watcher_stats.get("files_filtered", 0)
-        
+
         return {
             "individual_watchers": all_stats,
             "summary": {
@@ -605,7 +856,7 @@ class WatchManager:
                 "filter_efficiency": total_files_filtered / max(1, total_files_checked) if total_files_checked > 0 else 0.0
             }
         }
-    
+
     def reset_all_filter_statistics(self) -> None:
         """Reset filtering statistics for all watchers."""
         for watcher in self.watchers.values():
