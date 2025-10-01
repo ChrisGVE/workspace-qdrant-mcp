@@ -8,12 +8,19 @@ language-aware filtering.
 
 import asyncio
 import json
+import sqlite3
 from loguru import logger
 from collections.abc import Callable
 from dataclasses import asdict, dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Set
+from typing import TYPE_CHECKING
+from .sqlite_state_manager import ProcessingPriority
+
+if TYPE_CHECKING:
+    from .priority_queue_manager import PriorityQueueManager
+
 
 from watchfiles import Change, awatch
 
@@ -44,6 +51,7 @@ class WatchConfiguration:
     auto_ingest: bool = True
     recursive: bool = True
     debounce_seconds: int = 5
+    user_triggered: bool = False  # New: marks if watch is user-triggered
     created_at: str = field(
         default_factory=lambda: datetime.now(timezone.utc).isoformat()
     )
@@ -53,6 +61,10 @@ class WatchConfiguration:
     errors_count: int = 0
     files_filtered: int = 0  # New: track filtered files
     use_language_filtering: bool = True  # New: enable/disable language-aware filtering
+    # Error statistics
+    queue_errors_count: int = 0
+    last_queue_error: str | None = None
+    consecutive_queue_errors: int = 0
 
     def to_dict(self) -> dict[str, Any]:
         """Convert to dictionary for JSON serialization."""
@@ -71,9 +83,21 @@ class WatchEvent:
     change_type: str  # added, modified, deleted
     file_path: str
     collection: str
+    priority: int | None = None  # New: calculated priority
     timestamp: str = field(
         default_factory=lambda: datetime.now(timezone.utc).isoformat()
     )
+
+
+
+# Code file extensions that get priority boost when user-triggered
+CODE_FILE_EXTENSIONS = {
+    '.py', '.js', '.ts', '.jsx', '.tsx', '.rs', '.go', '.java', '.c', '.cpp',
+    '.h', '.hpp', '.cs', '.php', '.rb', '.swift', '.kt', '.scala', '.m', '.mm',
+    '.sh', '.bash', '.zsh', '.zsh', '.fish', '.ps1', '.r', '.jl', '.dart', '.lua',
+    '.vim', '.el', '.clj', '.ex', '.exs', '.erl', '.hrl', '.fs', '.fsx',
+    '.vb', '.sql', '.pl', '.pm', '.t'
+}
 
 
 class FileWatcher:
@@ -87,22 +111,27 @@ class FileWatcher:
     def __init__(
         self,
         config: WatchConfiguration,
-        state_manager: SQLiteStateManager,
+        state_manager: SQLiteStateManager | None = None,
+        ingestion_callback: Callable | None = None,
         event_callback: Callable[[WatchEvent], None] | None = None,
         filter_config_path: str | None = None,
+        priority_queue_manager: Optional["PriorityQueueManager"] = None,
     ):
         """
         Initialize file watcher.
 
         Args:
             config: Watch configuration
-            state_manager: SQLite state manager for queue operations
+            state_manager: SQLite state manager for queue operations (optional)
+            ingestion_callback: Optional callback for custom ingestion logic
             event_callback: Optional callback for watch events
             filter_config_path: Path to language filter configuration directory
         """
         self.config = config
         self.state_manager = state_manager
+        self.ingestion_callback = ingestion_callback
         self.event_callback = event_callback
+        self.priority_queue_manager = priority_queue_manager
         self._running = False
         self._task: asyncio.Task | None = None
         self._debounce_tasks: dict[str, asyncio.Task] = {}
@@ -110,13 +139,22 @@ class FileWatcher:
         # Cache for project root detection (per file path)
         self._project_root_cache: dict[str, Path] = {}
 
+        # Cache for tenant_id and branch (with TTL)
+        self._cached_tenant_id: Optional[str] = None
+        self._cached_branch: Optional[str] = None
+        self._cache_timestamp: Optional[datetime] = None
+        self._cache_ttl_seconds: int = 300  # 5 minutes
+
         # Initialize language-aware filtering
         self.language_filter: LanguageAwareFilter | None = None
         if config.use_language_filtering:
             self.language_filter = LanguageAwareFilter(filter_config_path)
             # Load configuration asynchronously when starting
 
-        logger.debug(f"FileWatcher initialized with language filtering: {config.use_language_filtering}")
+        logger.debug(
+            f"FileWatcher initialized with language filtering: {config.use_language_filtering}, "
+            f"priority manager: {priority_queue_manager is not None}"
+        )
 
     async def start(self) -> None:
         """Start watching the directory."""
@@ -133,6 +171,9 @@ class FileWatcher:
                 logger.error(f"Failed to initialize language filtering: {e}")
                 logger.info("Falling back to basic pattern matching")
                 self.language_filter = None
+
+        # Initialize cache
+        await self._refresh_cache()
 
         self._running = True
         self.config.status = "active"
@@ -233,6 +274,144 @@ class FileWatcher:
         self._project_root_cache[file_path_str] = fallback
         logger.debug(f"No .git found for {file_path}, using parent: {fallback}")
         return fallback
+
+
+    async def _refresh_cache(self) -> None:
+        """Refresh cached tenant_id and branch."""
+        try:
+            # Use watch path as project root for cache
+            project_root = Path(self.config.path)
+
+            if self.state_manager:
+                self._cached_tenant_id = await self.state_manager.calculate_tenant_id(project_root)
+                self._cached_branch = await self.state_manager.get_current_branch(project_root)
+                self._cache_timestamp = datetime.now(timezone.utc)
+
+                logger.debug(
+                    f"Cache refreshed: tenant_id={self._cached_tenant_id}, "
+                    f"branch={self._cached_branch}"
+                )
+        except Exception as e:
+            logger.error(f"Failed to refresh cache: {e}")
+            # Keep existing cache values on error
+
+    async def _get_cached_values(self) -> tuple[str, str]:
+        """
+        Get cached tenant_id and branch, refreshing if expired.
+
+        Returns:
+            Tuple of (tenant_id, branch)
+        """
+        now = datetime.now(timezone.utc)
+
+        # Check if cache needs refresh
+        needs_refresh = (
+            self._cache_timestamp is None or
+            self._cached_tenant_id is None or
+            self._cached_branch is None or
+            (now - self._cache_timestamp).total_seconds() > self._cache_ttl_seconds
+        )
+
+        if needs_refresh:
+            await self._refresh_cache()
+
+        # Return cached values or empty strings as fallback
+        return (
+            self._cached_tenant_id or "",
+            self._cached_branch or ""
+        )
+
+    async def _calculate_priority(self, file_path: Path, operation: str) -> int:
+        """
+        Calculate priority for a file operation.
+
+        Uses PriorityQueueManager for dynamic calculation when available,
+        otherwise falls back to enhanced default logic.
+
+        Args:
+            file_path: Path to the file
+            operation: Operation type ('added', 'modified', 'deleted')
+
+        Returns:
+            Priority as integer (0-10)
+        """
+        try:
+            if self.priority_queue_manager:
+                # Use PriorityQueueManager for dynamic calculation
+                from .priority_queue_manager import PriorityCalculationContext
+
+                # Get cached tenant/branch
+                tenant_id, branch = await self._get_cached_values()
+
+                # Get file metadata
+                file_size = 0
+                file_mtime = None
+
+                if file_path.exists():
+                    try:
+                        stat = file_path.stat()
+                        file_size = stat.st_size
+                        file_mtime = datetime.fromtimestamp(stat.st_mtime, tz=timezone.utc)
+                    except (OSError, PermissionError):
+                        pass
+
+                # Create context for priority calculation
+                context = PriorityCalculationContext(
+                    file_path=str(file_path),
+                    collection=self.config.collection,
+                    mcp_activity=self.priority_queue_manager.mcp_activity,
+                    file_modification_time=file_mtime,
+                    file_size=file_size,
+                    is_user_triggered=self.config.user_triggered,
+                    branch=branch,
+                )
+
+                # Calculate dynamic priority
+                priority_enum, score = await self.priority_queue_manager._calculate_dynamic_priority(context)
+
+                # Map ProcessingPriority enum to integer
+                priority_map = {
+                    ProcessingPriority.LOW: 2,
+                    ProcessingPriority.NORMAL: 5,
+                    ProcessingPriority.HIGH: 8,
+                    ProcessingPriority.URGENT: 10,
+                }
+                priority = priority_map.get(priority_enum, 5)
+
+                # Apply deletion boost
+                if operation == "deleted":
+                    priority = min(10, priority + 2)
+
+                logger.debug(
+                    f"Dynamic priority calculated for {file_path}: {priority} "
+                    f"(enum={priority_enum.name}, score={score:.1f}, operation={operation})"
+                )
+
+                return priority
+
+            else:
+                # Fallback: Enhanced default logic without priority manager
+                base_priority = 5  # NORMAL
+
+                # Code file boost when user-triggered
+                if self.config.user_triggered and file_path.suffix.lower() in CODE_FILE_EXTENSIONS:
+                    base_priority = 7
+
+                # Deletion boost
+                if operation == "deleted":
+                    base_priority = min(10, base_priority + 2)
+
+                logger.debug(
+                    f"Fallback priority calculated for {file_path}: {base_priority} "
+                    f"(user_triggered={self.config.user_triggered}, operation={operation})"
+                )
+
+                return base_priority
+
+        except Exception as e:
+            logger.error(f"Error calculating priority for {file_path}: {e}")
+            # Fallback to safe default
+            return 8 if operation == "deleted" else 5
 
     async def _watch_loop(self) -> None:
         """Main watching loop."""
@@ -367,12 +546,16 @@ class FileWatcher:
                     self.config.files_filtered += 1
                     continue
 
-            # Create watch event
+            # Calculate priority for the event
             change_name = self._get_change_name(change_type)
+            priority = await self._calculate_priority(file_path, change_name)
+
+            # Create watch event
             event = WatchEvent(
                 change_type=change_name,
                 file_path=str(file_path),
                 collection=self.config.collection,
+                priority=priority,
             )
 
             # Notify event callback
@@ -428,11 +611,15 @@ class FileWatcher:
         if not should_process or not self.config.auto_ingest:
             return
 
+        # Calculate priority for deletion
+        priority = await self._calculate_priority(file_path, "deleted")
+
         # Create deletion event
         event = WatchEvent(
             change_type="deleted",
             file_path=str(file_path),
             collection=self.config.collection,
+            priority=priority,
         )
 
         # Notify event callback
@@ -442,16 +629,18 @@ class FileWatcher:
             except Exception as e:
                 logger.error(f"Error in event callback: {e}")
 
-        # Enqueue deletion with high priority
+        # Enqueue deletion with calculated priority
         try:
             logger.info(
-                f"Processing deletion: {file_path} from collection {self.config.collection}"
+                f"Processing deletion: {file_path} from collection {self.config.collection} "
+                f"(priority={priority})"
             )
 
             await self._trigger_operation(
                 str(file_path.resolve()),
                 self.config.collection,
-                "delete"
+                "delete",
+                priority
             )
 
             # Update stats
@@ -509,8 +698,11 @@ class FileWatcher:
             path_obj = Path(file_path)
             operation = self._determine_operation_type(change_type, path_obj)
 
-            # Trigger operation with determined type
-            await self._trigger_operation(file_path, self.config.collection, operation)
+            # Calculate priority for this operation
+            priority = await self._calculate_priority(path_obj, operation)
+
+            # Trigger operation with determined type and priority
+            await self._trigger_operation(file_path, self.config.collection, operation, priority)
 
             # Update stats
             self.config.files_processed += 1
@@ -530,60 +722,154 @@ class FileWatcher:
         self,
         file_path: str,
         collection: str,
-        operation: str
+        operation: str,
+        priority: int
     ) -> None:
         """
         Trigger file operation by enqueuing to state manager.
 
-        Replaces the old callback pattern with direct queue operations.
+        Implements sophisticated error handling with retry logic and circuit breaker.
 
         Args:
             file_path: Absolute path to file
             collection: Target collection name
             operation: Operation type ('ingest', 'update', or 'delete')
         """
-        try:
-            # Detect project root
-            file_path_obj = Path(file_path)
-            project_root = self._find_project_root(file_path_obj)
-
-            # Calculate tenant_id and branch
-            tenant_id = await self.state_manager.calculate_tenant_id(project_root)
-            branch = await self.state_manager.get_current_branch(project_root)
-
-            # Default priority: 5 (NORMAL)
-            # Higher priority for deletions
-            priority = 8 if operation == "delete" else 5
-
-            # Build metadata with event information
-            metadata = {
-                "watch_id": self.config.id,
-                "watch_path": self.config.path,
-                "operation": operation,
-                "event_type": "file_change",
-                "detected_at": datetime.now(timezone.utc).isoformat(),
-                "project_root": str(project_root),
-            }
-
-            # Enqueue file for processing
-            queue_id = await self.state_manager.enqueue(
-                file_path=file_path,
-                collection=collection,
-                priority=priority,
-                tenant_id=tenant_id,
-                branch=branch,
-                metadata=metadata,
+        # Check circuit breaker
+        if self.config.consecutive_queue_errors > 5:
+            logger.critical(
+                f"Circuit breaker triggered for watcher {self.config.id}: "
+                f"{self.config.consecutive_queue_errors} consecutive errors. "
+                f"Pausing watcher."
             )
+            self.config.status = "error"
+            await self.pause()
+            return
 
-            logger.debug(
-                f"Enqueued file for {operation}: {file_path} "
-                f"(collection={collection}, priority={priority}, "
-                f"tenant={tenant_id}, branch={branch}, queue_id={queue_id})"
-            )
+        max_retries = 3
+        retry_delays = [0.5, 1.0, 2.0]  # Exponential backoff
+        last_error: Exception | None = None
 
-        except Exception as e:
-            logger.error(f"Error enqueueing file {file_path} for {operation}: {e}")
-            raise
+        for attempt in range(max_retries):
+            try:
+                # Use custom callback if provided, otherwise use state manager
+                if self.ingestion_callback:
+                    await self.ingestion_callback(file_path, collection, operation)
+                elif self.state_manager:
+                    # Detect project root
+                    file_path_obj = Path(file_path)
+                    project_root = self._find_project_root(file_path_obj)
+
+                    # Calculate tenant_id and branch
+                    tenant_id = await self.state_manager.calculate_tenant_id(project_root)
+                    branch = await self.state_manager.get_current_branch(project_root)
+
+                    # Priority passed as parameter (already calculated)
+                    # Build metadata with event information
+                    metadata = {
+                        "watch_id": self.config.id,
+                        "watch_path": self.config.path,
+                        "operation": operation,
+                        "event_type": "file_change",
+                        "detected_at": datetime.now(timezone.utc).isoformat(),
+                        "project_root": str(project_root),
+                    }
+
+                    # Enqueue file for processing
+                    queue_id = await self.state_manager.enqueue(
+                        file_path=file_path,
+                        collection=collection,
+                        priority=priority,
+                        tenant_id=tenant_id,
+                        branch=branch,
+                        metadata=metadata,
+                    )
+
+                    logger.debug(
+                        f"Enqueued file for {operation}: {file_path} "
+                        f"(collection={collection}, priority={priority}, "
+                        f"tenant={tenant_id}, branch={branch}, queue_id={queue_id})"
+                    )
+                else:
+                    raise RuntimeError("Neither ingestion_callback nor state_manager is configured")
+
+                # Success - reset consecutive error counter
+                self.config.consecutive_queue_errors = 0
+                return
+
+            except ValueError as e:
+                # Validation error - don't retry
+                logger.error(
+                    f"Validation error enqueueing {file_path} for {operation}: {e}. "
+                    f"File: {file_path}"
+                )
+                self.config.errors_count += 1
+                self.config.queue_errors_count += 1
+                self.config.last_queue_error = f"{type(e).__name__}: {str(e)}"
+                self.config.consecutive_queue_errors += 1
+                raise
+
+            except RuntimeError as e:
+                # Runtime error - don't retry
+                logger.error(
+                    f"Runtime error enqueueing {file_path} for {operation}: {e}. "
+                    f"File: {file_path}"
+                )
+                self.config.errors_count += 1
+                self.config.queue_errors_count += 1
+                self.config.last_queue_error = f"{type(e).__name__}: {str(e)}"
+                self.config.consecutive_queue_errors += 1
+                raise
+
+            except sqlite3.OperationalError as e:
+                # Transient database error - retry with exponential backoff
+                last_error = e
+                self.config.errors_count += 1
+                self.config.queue_errors_count += 1
+                self.config.last_queue_error = f"{type(e).__name__}: {str(e)}"
+
+                if attempt < max_retries - 1:
+                    delay = retry_delays[attempt]
+                    logger.warning(
+                        f"Database error enqueueing {file_path} for {operation}: {e}. "
+                        f"Retrying in {delay}s (attempt {attempt + 1}/{max_retries}). "
+                        f"File: {file_path}"
+                    )
+                    await asyncio.sleep(delay)
+                else:
+                    logger.error(
+                        f"Failed to enqueue {file_path} after {max_retries} attempts: {e}. "
+                        f"File: {file_path}"
+                    )
+                    self.config.consecutive_queue_errors += 1
+                    raise
+
+            except Exception as e:
+                # Generic error - retry once
+                last_error = e
+                self.config.errors_count += 1
+                self.config.queue_errors_count += 1
+                self.config.last_queue_error = f"{type(e).__name__}: {str(e)}"
+
+                if attempt == 0:
+                    logger.warning(
+                        f"Unexpected error enqueueing {file_path} for {operation}: {e}. "
+                        f"Retrying once. "
+                        f"File: {file_path}"
+                    )
+                    await asyncio.sleep(0.5)
+                else:
+                    logger.error(
+                        f"Failed to enqueue {file_path} after retry: {e}. "
+                        f"File: {file_path}"
+                    )
+                    self.config.consecutive_queue_errors += 1
+                    raise
+
+        # If we get here, all retries failed
+        if last_error:
+            self.config.consecutive_queue_errors += 1
+            raise last_error
 
 
 class WatchManager:
@@ -617,12 +903,17 @@ class WatchManager:
         self.watchers: dict[str, FileWatcher] = {}
         self.configurations: dict[str, WatchConfiguration] = {}
         self.state_manager: SQLiteStateManager | None = None
+        self.ingestion_callback: Callable | None = None
         self.event_callback: Callable[[WatchEvent], None] | None = None
         self.filter_config_path = filter_config_path
 
     def set_state_manager(self, state_manager: SQLiteStateManager) -> None:
         """Set the state manager for all watchers."""
         self.state_manager = state_manager
+
+    def set_ingestion_callback(self, callback: Callable) -> None:
+        """Set the ingestion callback for all watchers."""
+        self.ingestion_callback = callback
 
     def set_event_callback(self, callback: Callable[[WatchEvent], None]) -> None:
         """Set the event callback for all watchers."""
@@ -704,8 +995,8 @@ class WatchManager:
         self.configurations[watch_id] = config
         await self.save_configurations()
 
-        # Start watching if state_manager is set
-        if self.state_manager:
+        # Start watching if state_manager or callback is set
+        if self.state_manager or self.ingestion_callback:
             await self._start_watcher(watch_id)
 
         logger.info(f"Added watch {watch_id} for {path} -> {collection}")
@@ -730,8 +1021,8 @@ class WatchManager:
 
     async def start_all_watches(self) -> None:
         """Start all configured watches."""
-        if not self.state_manager:
-            logger.warning("No state manager set, cannot start watches")
+        if not self.state_manager and not self.ingestion_callback:
+            logger.warning("No state manager or callback set, cannot start watches")
             return
 
         for watch_id in self.configurations:
@@ -785,6 +1076,7 @@ class WatchManager:
         watcher = FileWatcher(
             config=config,
             state_manager=self.state_manager,
+            ingestion_callback=self.ingestion_callback,
             event_callback=self.event_callback,
             filter_config_path=self.filter_config_path,
         )
@@ -858,3 +1150,53 @@ class WatchManager:
         """Reset filtering statistics for all watchers."""
         for watcher in self.watchers.values():
             watcher.reset_filter_statistics()
+
+    def get_error_statistics(self) -> Dict[str, Any]:
+        """
+        Get error statistics aggregated from all watchers.
+
+        Returns:
+            Dictionary containing error statistics for each watcher and summary
+        """
+        watcher_errors = {}
+        total_errors = 0
+        total_queue_errors = 0
+        total_consecutive_errors = 0
+        watchers_in_error_state = 0
+
+        for watch_id, config in self.configurations.items():
+            error_info = {
+                "errors_count": config.errors_count,
+                "queue_errors_count": config.queue_errors_count,
+                "consecutive_queue_errors": config.consecutive_queue_errors,
+                "last_queue_error": config.last_queue_error,
+                "status": config.status,
+            }
+            watcher_errors[watch_id] = error_info
+
+            total_errors += config.errors_count
+            total_queue_errors += config.queue_errors_count
+            total_consecutive_errors += config.consecutive_queue_errors
+            if config.status == "error":
+                watchers_in_error_state += 1
+
+        return {
+            "individual_watchers": watcher_errors,
+            "summary": {
+                "total_watchers": len(self.configurations),
+                "total_errors": total_errors,
+                "total_queue_errors": total_queue_errors,
+                "total_consecutive_errors": total_consecutive_errors,
+                "watchers_in_error_state": watchers_in_error_state,
+            }
+        }
+
+    def reset_error_statistics(self) -> None:
+        """
+        Reset error statistics for all watchers.
+        """
+        for config in self.configurations.values():
+            config.errors_count = 0
+            config.queue_errors_count = 0
+            config.consecutive_queue_errors = 0
+            config.last_queue_error = None
