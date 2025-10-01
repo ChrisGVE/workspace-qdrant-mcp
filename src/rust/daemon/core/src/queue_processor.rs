@@ -895,22 +895,29 @@ impl QueueProcessor {
             .await?;
 
         if will_retry {
-            // Calculate retry delay
+            // Calculate retry delay based on current retry count
             let retry_delay = Self::calculate_retry_delay(item.retry_count, config);
             let retry_from = Utc::now() + retry_delay;
+            
+            // Note: mark_error already incremented retry_count in the database
+            let new_retry_count = item.retry_count + 1;
 
             info!(
                 "Scheduling retry {}/{} for {} at {}",
-                item.retry_count + 1,
+                new_retry_count,
                 config.max_retries,
                 item.file_absolute_path,
                 retry_from
             );
 
-            // Update retry_from timestamp
-            // Note: mark_error already incremented retry_count
-            // We need to update retry_from separately
-            // TODO: Add update_retry_from method to QueueManager if needed
+            // Update retry_from timestamp for exponential backoff
+            queue_manager
+                .update_retry_from(
+                    &item.file_absolute_path,
+                    retry_from,
+                    new_retry_count,
+                )
+                .await?;
 
             Ok(())
         } else {
