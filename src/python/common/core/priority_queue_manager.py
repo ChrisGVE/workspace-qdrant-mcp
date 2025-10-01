@@ -160,6 +160,7 @@ class PriorityCalculationContext:
     is_recently_modified: bool = False
     has_dependencies: bool = False
     processing_history: Dict[str, Any] = field(default_factory=dict)
+    branch: Optional[str] = None
 
 
 @dataclass
@@ -251,6 +252,7 @@ class PriorityQueueManager:
         # Activity tracking
         self.mcp_activity = MCPActivityMetrics()
         self.current_project_root: Optional[str] = None
+        self.current_branch: Optional[str] = None
         self.recent_files: Set[str] = set()
 
         # Processing control
@@ -376,18 +378,18 @@ class PriorityQueueManager:
             raise RuntimeError("Priority Queue Manager not initialized")
 
         try:
-            # Create priority calculation context
-            context = await self._create_priority_context(
-                file_path, collection, user_triggered, metadata or {}
-            )
-
-            # Calculate dynamic priority
-            priority, score = await self._calculate_dynamic_priority(context)
-
             # Calculate tenant_id and branch for new queue system
             project_root = Path(file_path).parent
             tenant_id = await self.state_manager.calculate_tenant_id(project_root)
             branch = await self.state_manager.get_current_branch(project_root)
+
+            # Create priority calculation context
+            context = await self._create_priority_context(
+                file_path, collection, user_triggered, metadata or {}, branch
+            )
+
+            # Calculate dynamic priority
+            priority, score = await self._calculate_dynamic_priority(context)
 
             # Create processing job metadata with queue integration info
             job_metadata = {
@@ -523,7 +525,8 @@ class PriorityQueueManager:
         file_path: str,
         collection: str,
         user_triggered: bool,
-        metadata: Dict[str, Any]
+        metadata: Dict[str, Any],
+        branch: Optional[str]
     ) -> PriorityCalculationContext:
         """Create context for priority calculation."""
         file_path_obj = Path(file_path)
@@ -576,7 +579,8 @@ class PriorityQueueManager:
             is_current_project=is_current_project,
             is_recently_modified=is_recently_modified,
             has_dependencies=False,  # TODO: Implement dependency detection
-            processing_history=processing_history
+            processing_history=processing_history,
+            branch=branch
         )
 
     async def _calculate_dynamic_priority(
@@ -591,6 +595,7 @@ class PriorityQueueManager:
         - Current Project: 0-25 points
         - User Triggered: 0-20 points
         - File Recency: 0-15 points
+        - Current Branch Bonus: 0-10 points
         - Processing History: 0-10 points (penalties for failures)
 
         Returns:
@@ -626,6 +631,10 @@ class PriorityQueueManager:
                 # Linear decay over 60 minutes
                 recency_score = max(0, 15 * (1 - age_minutes / 60))
                 score += recency_score
+
+        # Current Branch Bonus (0-10 points)
+        if context.branch and self.current_branch and context.branch == self.current_branch:
+            score += 10
 
         # Processing History (0 to -10 points for penalties)
         history = context.processing_history
@@ -928,7 +937,7 @@ class PriorityQueueManager:
                         f"exponential backoff delay={delay_seconds}s)"
                     )
                     # NOTE: The actual delay is handled by the retry_failed_file() method
-                    # which marks the file as RETRYING. Future integration with 
+                    # which marks the file as RETRYING. Future integration with
                     # SQLiteQueueClient will enable proper delayed scheduling.
                 else:
                     logger.warning(
@@ -1217,6 +1226,11 @@ class PriorityQueueManager:
         """Set current project root for priority calculations."""
         self.current_project_root = project_root
         logger.info(f"Set current project root: {project_root}")
+
+    def set_current_branch(self, branch: str):
+        """Set current branch for priority calculations."""
+        self.current_branch = branch
+        logger.info(f"Set current branch: {branch}")
 
     async def clear_queue(self, collection: Optional[str] = None) -> int:
         """Clear processing queue items."""
