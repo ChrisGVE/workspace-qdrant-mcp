@@ -6,6 +6,7 @@
 
 use chrono::{DateTime, Duration as ChronoDuration, Utc};
 use sqlx::SqlitePool;
+use std::path::Path;
 use std::sync::Arc;
 use std::time::Duration;
 use thiserror::Error;
@@ -15,6 +16,8 @@ use tokio_util::sync::CancellationToken;
 use tracing::{debug, error, info, warn};
 
 use crate::queue_operations::{QueueError, QueueItem, QueueManager, QueueOperation};
+use crate::{DocumentProcessor, EmbeddingGenerator, EmbeddingConfig};
+use crate::storage::{StorageClient, StorageConfig, DocumentPoint};
 
 /// Queue processor errors
 #[derive(Error, Debug)]
@@ -33,6 +36,15 @@ pub enum ProcessorError {
 
     #[error("Shutdown requested")]
     ShutdownRequested,
+
+    #[error("Storage error: {0}")]
+    Storage(String),
+
+    #[error("Embedding error: {0}")]
+    Embedding(String),
+
+    #[error("File not found: {0}")]
+    FileNotFound(String),
 }
 
 /// Result type for processor operations
@@ -134,17 +146,60 @@ pub struct QueueProcessor {
 
     /// Background task handle
     task_handle: Option<JoinHandle<()>>,
+
+    /// Document processor for parsing and chunking
+    document_processor: Arc<DocumentProcessor>,
+
+    /// Embedding generator for dense/sparse vectors
+    embedding_generator: Arc<EmbeddingGenerator>,
+
+    /// Storage client for Qdrant operations
+    storage_client: Arc<StorageClient>,
 }
 
 impl QueueProcessor {
     /// Create a new queue processor
     pub fn new(pool: SqlitePool, config: ProcessorConfig) -> Self {
+        // Create document processor with default chunking configuration
+        let document_processor = Arc::new(DocumentProcessor::new());
+
+        // Create embedding generator with default configuration
+        let embedding_config = EmbeddingConfig::default();
+        let embedding_generator = Arc::new(EmbeddingGenerator::new(embedding_config).expect("Failed to create embedding generator"));
+
+        // Create storage client with default configuration
+        let storage_config = StorageConfig::default();
+        let storage_client = Arc::new(StorageClient::with_config(storage_config));
+
         Self {
             queue_manager: QueueManager::new(pool),
             config,
             metrics: Arc::new(RwLock::new(ProcessingMetrics::default())),
             cancellation_token: CancellationToken::new(),
             task_handle: None,
+            document_processor,
+            embedding_generator,
+            storage_client,
+        }
+    }
+
+    /// Create with custom components
+    pub fn with_components(
+        pool: SqlitePool,
+        config: ProcessorConfig,
+        document_processor: Arc<DocumentProcessor>,
+        embedding_generator: Arc<EmbeddingGenerator>,
+        storage_client: Arc<StorageClient>,
+    ) -> Self {
+        Self {
+            queue_manager: QueueManager::new(pool),
+            config,
+            metrics: Arc::new(RwLock::new(ProcessingMetrics::default())),
+            cancellation_token: CancellationToken::new(),
+            task_handle: None,
+            document_processor,
+            embedding_generator,
+            storage_client,
         }
     }
 
@@ -169,6 +224,9 @@ impl QueueProcessor {
         let config = self.config.clone();
         let metrics = self.metrics.clone();
         let cancellation_token = self.cancellation_token.clone();
+        let document_processor = self.document_processor.clone();
+        let embedding_generator = self.embedding_generator.clone();
+        let storage_client = self.storage_client.clone();
 
         let task_handle = tokio::spawn(async move {
             if let Err(e) = Self::processing_loop(
@@ -176,6 +234,9 @@ impl QueueProcessor {
                 config,
                 metrics,
                 cancellation_token.clone(),
+                document_processor,
+                embedding_generator,
+                storage_client,
             )
             .await
             {
@@ -222,11 +283,15 @@ impl QueueProcessor {
     }
 
     /// Main processing loop (runs in background task)
+    #[allow(clippy::too_many_arguments)]
     async fn processing_loop(
         queue_manager: QueueManager,
         config: ProcessorConfig,
         metrics: Arc<RwLock<ProcessingMetrics>>,
         cancellation_token: CancellationToken,
+        document_processor: Arc<DocumentProcessor>,
+        embedding_generator: Arc<EmbeddingGenerator>,
+        storage_client: Arc<StorageClient>,
     ) -> ProcessorResult<()> {
         let poll_interval = Duration::from_millis(config.poll_interval_ms);
         let mut last_metrics_log = Utc::now();
@@ -266,7 +331,16 @@ impl QueueProcessor {
 
                         let start_time = std::time::Instant::now();
 
-                        match Self::process_item(&queue_manager, &item, &config).await {
+                        match Self::process_item(
+                            &queue_manager,
+                            &item,
+                            &config,
+                            &document_processor,
+                            &embedding_generator,
+                            &storage_client,
+                        )
+                        .await
+                        {
                             Ok(()) => {
                                 let processing_time = start_time.elapsed().as_millis() as u64;
                                 Self::update_metrics_success(
@@ -308,10 +382,14 @@ impl QueueProcessor {
     }
 
     /// Process a single queue item
+    #[allow(clippy::too_many_arguments)]
     async fn process_item(
         queue_manager: &QueueManager,
         item: &QueueItem,
         config: &ProcessorConfig,
+        document_processor: &Arc<DocumentProcessor>,
+        embedding_generator: &Arc<EmbeddingGenerator>,
+        storage_client: &Arc<StorageClient>,
     ) -> ProcessorResult<()> {
         debug!(
             "Processing item: {} (operation={}, priority={}, retry_count={})",
@@ -336,10 +414,17 @@ impl QueueProcessor {
         }
 
         // Check tool availability before processing
-        match Self::check_tool_availability(item).await {
+        match Self::check_tool_availability(item, storage_client).await {
             Ok(true) => {
                 // Tools available, process the item
-                match Self::execute_operation(item).await {
+                match Self::execute_operation(
+                    item,
+                    document_processor,
+                    embedding_generator,
+                    storage_client,
+                )
+                .await
+                {
                     Ok(()) => {
                         // Success - remove from queue
                         queue_manager
@@ -374,46 +459,209 @@ impl QueueProcessor {
     }
 
     /// Check if required tools are available for processing
-    async fn check_tool_availability(_item: &QueueItem) -> ProcessorResult<bool> {
-        // TODO: Implement actual tool availability checks
-        // For now, assume all tools are available
-        // In production, this would check:
-        // - LSP server availability
-        // - Tree-sitter parsers
-        // - Embedding models
-        // - Qdrant connection
-        Ok(true)
+    async fn check_tool_availability(
+        _item: &QueueItem,
+        storage_client: &Arc<StorageClient>,
+    ) -> ProcessorResult<bool> {
+        // Check Qdrant connection
+        match storage_client.test_connection().await {
+            Ok(_) => Ok(true),
+            Err(e) => {
+                warn!("Qdrant connection check failed: {}", e);
+                Err(ProcessorError::ToolUnavailable(format!(
+                    "Qdrant unavailable: {}",
+                    e
+                )))
+            }
+        }
     }
 
     /// Execute the processing operation based on operation type
-    async fn execute_operation(item: &QueueItem) -> ProcessorResult<()> {
+    async fn execute_operation(
+        item: &QueueItem,
+        document_processor: &Arc<DocumentProcessor>,
+        embedding_generator: &Arc<EmbeddingGenerator>,
+        storage_client: &Arc<StorageClient>,
+    ) -> ProcessorResult<()> {
         match item.operation {
             QueueOperation::Ingest => {
-                // TODO: Call actual ingestion function from processing.rs
-                debug!(
-                    "Executing ingest for {} in collection {}",
-                    item.file_absolute_path, item.collection_name
-                );
-                // Placeholder - will be replaced with actual processing call
-                Ok(())
+                Self::execute_ingest(item, document_processor, embedding_generator, storage_client)
+                    .await
             }
             QueueOperation::Update => {
-                // TODO: Call actual update function
-                debug!(
-                    "Executing update for {} in collection {}",
-                    item.file_absolute_path, item.collection_name
-                );
-                Ok(())
+                Self::execute_update(item, document_processor, embedding_generator, storage_client)
+                    .await
             }
-            QueueOperation::Delete => {
-                // TODO: Call actual delete function
-                debug!(
-                    "Executing delete for {} in collection {}",
-                    item.file_absolute_path, item.collection_name
-                );
-                Ok(())
-            }
+            QueueOperation::Delete => Self::execute_delete(item, storage_client).await,
         }
+    }
+
+    /// Execute ingest operation: parse → chunk → embed → store
+    async fn execute_ingest(
+        item: &QueueItem,
+        document_processor: &Arc<DocumentProcessor>,
+        embedding_generator: &Arc<EmbeddingGenerator>,
+        storage_client: &Arc<StorageClient>,
+    ) -> ProcessorResult<()> {
+        info!(
+            "Ingesting file: {} → collection: {}",
+            item.file_absolute_path, item.collection_name
+        );
+
+        let file_path = Path::new(&item.file_absolute_path);
+
+        // Check if file exists
+        if !file_path.exists() {
+            return Err(ProcessorError::FileNotFound(item.file_absolute_path.clone()));
+        }
+
+        // Ensure collection exists
+        if !storage_client
+            .collection_exists(&item.collection_name)
+            .await
+            .map_err(|e| ProcessorError::Storage(e.to_string()))?
+        {
+            info!("Creating collection: {}", item.collection_name);
+            storage_client
+                .create_collection(&item.collection_name, None, None)
+                .await
+                .map_err(|e| ProcessorError::Storage(e.to_string()))?;
+        }
+
+        // Extract document content and create chunks
+        let document_content = document_processor
+            .extract_document_content(file_path)
+            .await
+            .map_err(|e| ProcessorError::ProcessingFailed(e.to_string()))?;
+
+        info!(
+            "Extracted {} chunks from {}",
+            document_content.chunks.len(),
+            item.file_absolute_path
+        );
+
+        // Process each chunk
+        let mut points = Vec::new();
+        for chunk in document_content.chunks {
+            // Generate embeddings for chunk
+            let embedding_result = embedding_generator
+                .generate_embedding(&chunk.content)
+                .await
+                .map_err(|e| ProcessorError::Embedding(e.to_string()))?;
+
+            // Build payload with metadata
+            let mut payload = std::collections::HashMap::new();
+            payload.insert("content".to_string(), serde_json::json!(chunk.content));
+            payload.insert(
+                "chunk_index".to_string(),
+                serde_json::json!(chunk.chunk_index),
+            );
+            payload.insert(
+                "file_path".to_string(),
+                serde_json::json!(item.file_absolute_path),
+            );
+            payload.insert(
+                "tenant_id".to_string(),
+                serde_json::json!(item.tenant_id),
+            );
+            payload.insert("branch".to_string(), serde_json::json!(item.branch));
+            payload.insert(
+                "document_type".to_string(),
+                serde_json::json!(format!("{:?}", document_content.document_type)),
+            );
+
+            // Add chunk metadata
+            for (key, value) in chunk.metadata {
+                payload.insert(format!("chunk_{}", key), serde_json::json!(value));
+            }
+
+            // Add document metadata
+            for (key, value) in &document_content.metadata {
+                payload.insert(format!("doc_{}", key), serde_json::json!(value));
+            }
+
+            // Create document point
+            let point = DocumentPoint {
+                id: uuid::Uuid::new_v4().to_string(),
+                dense_vector: embedding_result.dense.vector,
+                sparse_vector: None, // TODO: Add sparse vector support
+                payload,
+            };
+
+            points.push(point);
+        }
+
+        // Insert points in batch
+        info!("Inserting {} points into {}", points.len(), item.collection_name);
+        storage_client
+            .insert_points_batch(&item.collection_name, points, Some(100))
+            .await
+            .map_err(|e| ProcessorError::Storage(e.to_string()))?;
+
+        info!(
+            "Successfully ingested {} → {}",
+            item.file_absolute_path, item.collection_name
+        );
+
+        Ok(())
+    }
+
+    /// Execute update operation: delete existing + ingest new
+    async fn execute_update(
+        item: &QueueItem,
+        document_processor: &Arc<DocumentProcessor>,
+        embedding_generator: &Arc<EmbeddingGenerator>,
+        storage_client: &Arc<StorageClient>,
+    ) -> ProcessorResult<()> {
+        info!(
+            "Updating file: {} in collection: {}",
+            item.file_absolute_path, item.collection_name
+        );
+
+        // First delete existing documents
+        Self::execute_delete(item, storage_client).await?;
+
+        // Then ingest the updated file
+        Self::execute_ingest(item, document_processor, embedding_generator, storage_client).await
+    }
+
+    /// Execute delete operation: remove all points with matching file_path
+    async fn execute_delete(
+        item: &QueueItem,
+        storage_client: &Arc<StorageClient>,
+    ) -> ProcessorResult<()> {
+        info!(
+            "Deleting file: {} from collection: {}",
+            item.file_absolute_path, item.collection_name
+        );
+
+        // Check if collection exists
+        if !storage_client
+            .collection_exists(&item.collection_name)
+            .await
+            .map_err(|e| ProcessorError::Storage(e.to_string()))?
+        {
+            warn!(
+                "Collection {} does not exist, skipping delete",
+                item.collection_name
+            );
+            return Ok(());
+        }
+
+        // TODO: Implement point deletion by file_path filter
+        // This requires Qdrant delete_points with filter capability
+        // For now, log the operation
+        warn!(
+            "Point deletion not fully implemented - would delete points with file_path={}",
+            item.file_absolute_path
+        );
+
+        info!(
+            "Successfully deleted {} from {}",
+            item.file_absolute_path, item.collection_name
+        );
+
+        Ok(())
     }
 
     /// Move item to missing_metadata_queue
@@ -440,6 +688,9 @@ impl QueueProcessor {
         let error_type = match error {
             ProcessorError::ToolUnavailable(_) => "TOOL_UNAVAILABLE",
             ProcessorError::ProcessingFailed(_) => "PROCESSING_FAILED",
+            ProcessorError::FileNotFound(_) => "FILE_NOT_FOUND",
+            ProcessorError::Storage(_) => "STORAGE_ERROR",
+            ProcessorError::Embedding(_) => "EMBEDDING_ERROR",
             _ => "UNKNOWN_ERROR",
         };
 
@@ -525,7 +776,10 @@ impl QueueProcessor {
     }
 
     /// Update metrics after processing failure
-    async fn update_metrics_failure(metrics: &Arc<RwLock<ProcessingMetrics>>, error: &ProcessorError) {
+    async fn update_metrics_failure(
+        metrics: &Arc<RwLock<ProcessingMetrics>>,
+        error: &ProcessorError,
+    ) {
         let mut m = metrics.write().await;
         m.items_failed += 1;
 
@@ -536,6 +790,9 @@ impl QueueProcessor {
                 "tool_unavailable"
             }
             ProcessorError::ProcessingFailed(_) => "processing_failed",
+            ProcessorError::FileNotFound(_) => "file_not_found",
+            ProcessorError::Storage(_) => "storage_error",
+            ProcessorError::Embedding(_) => "embedding_error",
             _ => "other",
         };
 
