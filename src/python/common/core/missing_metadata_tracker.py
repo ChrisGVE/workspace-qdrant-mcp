@@ -84,6 +84,7 @@ class MissingMetadataTracker:
             state_manager: Initialized SQLiteStateManager instance for database access
         """
         self.state_manager = state_manager
+        self._cleanup_task: Optional[asyncio.Task] = None
 
     async def track_missing_metadata(
         self,
