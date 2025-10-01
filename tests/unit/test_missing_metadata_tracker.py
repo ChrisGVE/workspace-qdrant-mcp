@@ -3,7 +3,8 @@
 Unit tests for MissingMetadataTracker.
 
 Tests the core functionality of tracking files with missing LSP or Tree-sitter
-metadata, including CRUD operations, filtering, and statistics collection.
+metadata, including CRUD operations, filtering, statistics collection, and
+tool availability detection.
 """
 
 import asyncio
@@ -37,6 +38,34 @@ async def state_manager(temp_db):
 async def tracker(state_manager):
     """Create a missing metadata tracker."""
     return MissingMetadataTracker(state_manager)
+
+
+@pytest.fixture
+async def state_manager_with_languages(state_manager):
+    """Create state manager with sample language data."""
+    async with state_manager.transaction() as conn:
+        # Insert sample languages with various tool configurations
+        conn.execute(
+            """
+            INSERT INTO languages
+            (language_name, lsp_name, lsp_absolute_path, lsp_missing,
+             ts_grammar, ts_cli_absolute_path, ts_missing)
+            VALUES
+            ('python', 'pyright-langserver', '/usr/bin/pyright', 0,
+             'tree-sitter-python', '/usr/bin/tree-sitter', 0),
+            ('rust', 'rust-analyzer', '/usr/bin/rust-analyzer', 0,
+             'tree-sitter-rust', '/usr/bin/tree-sitter', 0),
+            ('javascript', 'typescript-language-server', NULL, 1,
+             'tree-sitter-javascript', '/usr/bin/tree-sitter', 0),
+            ('go', 'gopls', '/usr/bin/gopls', 0,
+             NULL, NULL, 0),
+            ('cpp', 'clangd', NULL, 1,
+             'tree-sitter-cpp', NULL, 1),
+            ('java', NULL, NULL, 0,
+             NULL, NULL, 0)
+            """
+        )
+    yield state_manager
 
 
 class TestMissingMetadataTrackerBasics:
@@ -453,6 +482,214 @@ class TestMissingMetadataTrackerEdgeCases:
         assert files[0]["updated_at"] is not None
         assert len(files[0]["created_at"]) > 0
         assert len(files[0]["updated_at"]) > 0
+
+
+class TestToolAvailabilityDetection:
+    """Test tool availability detection methods."""
+
+    @pytest.mark.asyncio
+    async def test_check_lsp_available_exists(self, state_manager_with_languages):
+        """Test checking LSP availability for language with available LSP."""
+        tracker = MissingMetadataTracker(state_manager_with_languages)
+
+        result = await tracker.check_lsp_available("python")
+
+        assert result["language"] == "python"
+        assert result["available"] is True
+        assert result["path"] == "/usr/bin/pyright"
+
+    @pytest.mark.asyncio
+    async def test_check_lsp_available_missing(self, state_manager_with_languages):
+        """Test checking LSP availability for language with missing LSP."""
+        tracker = MissingMetadataTracker(state_manager_with_languages)
+
+        result = await tracker.check_lsp_available("javascript")
+
+        assert result["language"] == "javascript"
+        assert result["available"] is False
+        assert result["path"] is None
+
+    @pytest.mark.asyncio
+    async def test_check_lsp_available_nonexistent_language(
+        self, state_manager_with_languages
+    ):
+        """Test checking LSP availability for non-existent language."""
+        tracker = MissingMetadataTracker(state_manager_with_languages)
+
+        result = await tracker.check_lsp_available("nonexistent")
+
+        assert result["language"] == "nonexistent"
+        assert result["available"] is False
+        assert result["path"] is None
+
+    @pytest.mark.asyncio
+    async def test_check_lsp_available_empty_db(self, tracker):
+        """Test checking LSP availability with empty database."""
+        result = await tracker.check_lsp_available("python")
+
+        assert result["language"] == "python"
+        assert result["available"] is False
+        assert result["path"] is None
+
+    @pytest.mark.asyncio
+    async def test_check_tree_sitter_available(self, state_manager_with_languages):
+        """Test checking tree-sitter CLI availability when available."""
+        tracker = MissingMetadataTracker(state_manager_with_languages)
+
+        result = await tracker.check_tree_sitter_available()
+
+        assert result["available"] is True
+        assert result["path"] == "/usr/bin/tree-sitter"
+
+    @pytest.mark.asyncio
+    async def test_check_tree_sitter_available_missing(self, tracker):
+        """Test checking tree-sitter CLI availability when not available."""
+        result = await tracker.check_tree_sitter_available()
+
+        assert result["available"] is False
+        assert result["path"] is None
+
+    @pytest.mark.asyncio
+    async def test_check_tools_available_both(self, state_manager_with_languages):
+        """Test checking both LSP and tree-sitter for language with both."""
+        tracker = MissingMetadataTracker(state_manager_with_languages)
+
+        result = await tracker.check_tools_available("python")
+
+        assert result["language"] == "python"
+        assert result["lsp"]["available"] is True
+        assert result["lsp"]["path"] == "/usr/bin/pyright"
+        assert result["tree_sitter"]["available"] is True
+        assert result["tree_sitter"]["path"] == "/usr/bin/tree-sitter"
+
+    @pytest.mark.asyncio
+    async def test_check_tools_available_lsp_only(self, state_manager_with_languages):
+        """Test checking tools for language with LSP but no tree-sitter config."""
+        tracker = MissingMetadataTracker(state_manager_with_languages)
+
+        result = await tracker.check_tools_available("go")
+
+        assert result["language"] == "go"
+        assert result["lsp"]["available"] is True
+        assert result["lsp"]["path"] == "/usr/bin/gopls"
+        assert result["tree_sitter"]["available"] is True
+        assert result["tree_sitter"]["path"] == "/usr/bin/tree-sitter"
+
+    @pytest.mark.asyncio
+    async def test_check_tools_available_missing_lsp(
+        self, state_manager_with_languages
+    ):
+        """Test checking tools for language with missing LSP."""
+        tracker = MissingMetadataTracker(state_manager_with_languages)
+
+        result = await tracker.check_tools_available("javascript")
+
+        assert result["language"] == "javascript"
+        assert result["lsp"]["available"] is False
+        assert result["lsp"]["path"] is None
+        assert result["tree_sitter"]["available"] is True
+        assert result["tree_sitter"]["path"] == "/usr/bin/tree-sitter"
+
+    @pytest.mark.asyncio
+    async def test_check_tools_available_both_missing(
+        self, state_manager_with_languages
+    ):
+        """Test checking tools for language with both tools missing."""
+        tracker = MissingMetadataTracker(state_manager_with_languages)
+
+        result = await tracker.check_tools_available("cpp")
+
+        assert result["language"] == "cpp"
+        assert result["lsp"]["available"] is False
+        assert result["lsp"]["path"] is None
+        # Tree-sitter is global - available since python/rust have it
+        assert result["tree_sitter"]["available"] is True
+        assert result["tree_sitter"]["path"] == "/usr/bin/tree-sitter"
+
+    @pytest.mark.asyncio
+    async def test_get_missing_tools_summary(self, state_manager_with_languages):
+        """Test getting summary of missing tools across all languages."""
+        tracker = MissingMetadataTracker(state_manager_with_languages)
+
+        summary = await tracker.get_missing_tools_summary()
+
+        # Both available: python, rust, go (has LSP, tree-sitter is global)
+        assert "python" in summary["both_available"]
+        assert "rust" in summary["both_available"]
+        assert "go" in summary["both_available"]
+
+        # Missing LSP: javascript, cpp
+        assert "javascript" in summary["missing_lsp"]
+        assert "cpp" in summary["missing_lsp"]
+
+        # Missing tree-sitter: cpp
+        assert "cpp" in summary["missing_tree_sitter"]
+
+        # Java has no tool configuration, should not appear in any list
+        assert "java" not in summary["both_available"]
+        assert "java" not in summary["missing_lsp"]
+        assert "java" not in summary["missing_tree_sitter"]
+
+    @pytest.mark.asyncio
+    async def test_get_missing_tools_summary_empty_db(self, tracker):
+        """Test getting summary with empty database."""
+        summary = await tracker.get_missing_tools_summary()
+
+        assert summary["missing_lsp"] == []
+        assert summary["missing_tree_sitter"] == []
+        assert summary["both_available"] == []
+
+    @pytest.mark.asyncio
+    async def test_get_missing_tools_summary_all_available(self, state_manager):
+        """Test getting summary when all configured tools are available."""
+        # Insert languages with all tools available
+        async with state_manager.transaction() as conn:
+            conn.execute(
+                """
+                INSERT INTO languages
+                (language_name, lsp_name, lsp_absolute_path, lsp_missing,
+                 ts_grammar, ts_cli_absolute_path, ts_missing)
+                VALUES
+                ('python', 'pyright', '/usr/bin/pyright', 0,
+                 'tree-sitter-python', '/usr/bin/tree-sitter', 0),
+                ('rust', 'rust-analyzer', '/usr/bin/rust-analyzer', 0,
+                 'tree-sitter-rust', '/usr/bin/tree-sitter', 0)
+                """
+            )
+
+        tracker = MissingMetadataTracker(state_manager)
+        summary = await tracker.get_missing_tools_summary()
+
+        assert len(summary["both_available"]) == 2
+        assert len(summary["missing_lsp"]) == 0
+        assert len(summary["missing_tree_sitter"]) == 0
+
+    @pytest.mark.asyncio
+    async def test_get_missing_tools_summary_all_missing(self, state_manager):
+        """Test getting summary when all configured tools are missing."""
+        # Insert languages with all tools missing
+        async with state_manager.transaction() as conn:
+            conn.execute(
+                """
+                INSERT INTO languages
+                (language_name, lsp_name, lsp_absolute_path, lsp_missing,
+                 ts_grammar, ts_cli_absolute_path, ts_missing)
+                VALUES
+                ('python', 'pyright', NULL, 1,
+                 'tree-sitter-python', NULL, 1),
+                ('rust', 'rust-analyzer', NULL, 1,
+                 'tree-sitter-rust', NULL, 1)
+                """
+            )
+
+        tracker = MissingMetadataTracker(state_manager)
+        summary = await tracker.get_missing_tools_summary()
+
+        assert len(summary["both_available"]) == 0
+        assert "python" in summary["missing_lsp"]
+        assert "rust" in summary["missing_lsp"]
+        assert "python" in summary["missing_tree_sitter"]
+        assert "rust" in summary["missing_tree_sitter"]
 
 
 if __name__ == "__main__":

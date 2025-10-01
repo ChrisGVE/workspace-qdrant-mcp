@@ -382,3 +382,326 @@ class MissingMetadataTracker:
         except Exception as e:
             logger.error(f"Failed to get tracked file count: {e}")
             return {"total": 0, "missing_lsp": 0, "missing_ts": 0, "missing_both": 0}
+
+
+    # Tool Availability Detection Methods
+
+    async def check_lsp_available(self, language_name: str) -> Dict[str, Any]:
+        """
+        Check if LSP server is available for a language.
+
+        Queries the languages table to determine if an LSP server is available
+        for the specified language. Returns availability status and path if found.
+
+        Args:
+            language_name: Name of the language to check (e.g., "python", "rust")
+
+        Returns:
+            Dictionary with availability information:
+            {
+                "language": str,
+                "available": bool,
+                "path": Optional[str]
+            }
+
+            Returns {"available": False, "path": None} for non-existent languages.
+
+        Example:
+            ```python
+            lsp_status = await tracker.check_lsp_available("python")
+            if lsp_status["available"]:
+                print(f"Python LSP available at: {lsp_status['path']}")
+            else:
+                print("Python LSP not available")
+            ```
+        """
+        try:
+            async with self.state_manager.transaction() as conn:
+                cursor = conn.execute(
+                    """
+                    SELECT language_name, lsp_absolute_path, lsp_missing
+                    FROM languages
+                    WHERE language_name = ?
+                    """,
+                    (language_name,),
+                )
+                row = cursor.fetchone()
+
+                if not row:
+                    logger.debug(f"Language '{language_name}' not found in database")
+                    return {
+                        "language": language_name,
+                        "available": False,
+                        "path": None,
+                    }
+
+                lsp_path = row["lsp_absolute_path"]
+                lsp_missing = bool(row["lsp_missing"])
+
+                # Available if path exists and not marked as missing
+                available = lsp_path is not None and not lsp_missing
+
+                logger.debug(
+                    f"LSP check for '{language_name}': "
+                    f"available={available}, path={lsp_path}"
+                )
+
+                return {
+                    "language": language_name,
+                    "available": available,
+                    "path": lsp_path if available else None,
+                }
+
+        except Exception as e:
+            logger.warning(
+                f"Error checking LSP availability for '{language_name}': {e}",
+                exc_info=True,
+            )
+            return {
+                "language": language_name,
+                "available": False,
+                "path": None,
+            }
+
+    async def check_tree_sitter_available(self) -> Dict[str, Any]:
+        """
+        Check if tree-sitter CLI is available.
+
+        Queries the languages table to find any language with a tree-sitter CLI
+        path set. Since tree-sitter CLI is global (not language-specific), any
+        non-null path indicates availability.
+
+        Returns:
+            Dictionary with availability information:
+            {
+                "available": bool,
+                "path": Optional[str]
+            }
+
+            Returns first found tree-sitter CLI path, or None if unavailable.
+
+        Example:
+            ```python
+            ts_status = await tracker.check_tree_sitter_available()
+            if ts_status["available"]:
+                print(f"Tree-sitter CLI available at: {ts_status['path']}")
+            else:
+                print("Tree-sitter CLI not available")
+            ```
+        """
+        try:
+            async with self.state_manager.transaction() as conn:
+                cursor = conn.execute(
+                    """
+                    SELECT ts_cli_absolute_path, ts_missing
+                    FROM languages
+                    WHERE ts_cli_absolute_path IS NOT NULL
+                    LIMIT 1
+                    """
+                )
+                row = cursor.fetchone()
+
+                if not row:
+                    logger.debug("Tree-sitter CLI not found in database")
+                    return {"available": False, "path": None}
+
+                ts_path = row["ts_cli_absolute_path"]
+                ts_missing = bool(row["ts_missing"])
+
+                # Available if path exists and not marked as missing
+                available = ts_path is not None and not ts_missing
+
+                logger.debug(
+                    f"Tree-sitter check: available={available}, path={ts_path}"
+                )
+
+                return {
+                    "available": available,
+                    "path": ts_path if available else None,
+                }
+
+        except Exception as e:
+            logger.warning(
+                f"Error checking tree-sitter availability: {e}", exc_info=True
+            )
+            return {"available": False, "path": None}
+
+    async def check_tools_available(self, language_name: str) -> Dict[str, Any]:
+        """
+        Check availability of both LSP and tree-sitter for a language.
+
+        Combines LSP and tree-sitter availability checks into a single call.
+        Useful for comprehensive tool availability assessment before processing.
+
+        Args:
+            language_name: Name of the language to check
+
+        Returns:
+            Dictionary with combined availability information:
+            {
+                "language": str,
+                "lsp": {
+                    "available": bool,
+                    "path": Optional[str]
+                },
+                "tree_sitter": {
+                    "available": bool,
+                    "path": Optional[str]
+                }
+            }
+
+        Example:
+            ```python
+            tools_status = await tracker.check_tools_available("rust")
+            print(f"LSP available: {tools_status['lsp']['available']}")
+            print(f"Tree-sitter available: {tools_status['tree_sitter']['available']}")
+            ```
+        """
+        try:
+            # Check LSP availability
+            lsp_status = await self.check_lsp_available(language_name)
+
+            # Check tree-sitter availability
+            ts_status = await self.check_tree_sitter_available()
+
+            result = {
+                "language": language_name,
+                "lsp": {
+                    "available": lsp_status["available"],
+                    "path": lsp_status["path"],
+                },
+                "tree_sitter": {
+                    "available": ts_status["available"],
+                    "path": ts_status["path"],
+                },
+            }
+
+            logger.debug(
+                f"Tools check for '{language_name}': "
+                f"LSP={result['lsp']['available']}, "
+                f"tree-sitter={result['tree_sitter']['available']}"
+            )
+
+            return result
+
+        except Exception as e:
+            logger.warning(
+                f"Error checking tools availability for '{language_name}': {e}",
+                exc_info=True,
+            )
+            return {
+                "language": language_name,
+                "lsp": {"available": False, "path": None},
+                "tree_sitter": {"available": False, "path": None},
+            }
+
+    async def get_missing_tools_summary(self) -> Dict[str, List[str]]:
+        """
+        Get summary of languages grouped by missing tools.
+
+        Queries all languages in the database and groups them by which tools
+        are missing. Useful for reporting and diagnostics.
+
+        Returns:
+            Dictionary with languages grouped by tool availability:
+            {
+                "missing_lsp": ["python", "rust"],
+                "missing_tree_sitter": ["javascript"],
+                "both_available": ["go", "java"]
+            }
+
+            Only includes languages that have at least one tool configured
+            (either LSP or tree-sitter).
+
+        Example:
+            ```python
+            summary = await tracker.get_missing_tools_summary()
+            print(f"Languages missing LSP: {summary['missing_lsp']}")
+            print(f"Languages missing tree-sitter: {summary['missing_tree_sitter']}")
+            print(f"Languages with both tools: {summary['both_available']}")
+            ```
+        """
+        try:
+            async with self.state_manager.transaction() as conn:
+                cursor = conn.execute(
+                    """
+                    SELECT
+                        language_name,
+                        lsp_name,
+                        lsp_absolute_path,
+                        lsp_missing,
+                        ts_grammar,
+                        ts_cli_absolute_path,
+                        ts_missing
+                    FROM languages
+                    WHERE lsp_name IS NOT NULL OR ts_grammar IS NOT NULL
+                    ORDER BY language_name
+                    """
+                )
+                rows = cursor.fetchall()
+
+                missing_lsp: List[str] = []
+                missing_tree_sitter: List[str] = []
+                both_available: List[str] = []
+
+                for row in rows:
+                    language_name = row["language_name"]
+                    has_lsp_config = row["lsp_name"] is not None
+                    lsp_path = row["lsp_absolute_path"]
+                    lsp_missing = bool(row["lsp_missing"])
+                    has_ts_config = row["ts_grammar"] is not None
+                    ts_path = row["ts_cli_absolute_path"]
+                    ts_missing = bool(row["ts_missing"])
+
+                    # Check LSP availability (only if configured)
+                    lsp_available = (
+                        has_lsp_config and lsp_path is not None and not lsp_missing
+                    )
+
+                    # Check tree-sitter availability (only if configured)
+                    ts_available = (
+                        has_ts_config and ts_path is not None and not ts_missing
+                    )
+
+                    # Categorize language based on configured tools
+                    has_any_config = has_lsp_config or has_ts_config
+
+                    if not has_any_config:
+                        continue  # Skip languages with no tool configuration
+
+                    # Determine which tools are missing
+                    lsp_is_missing = has_lsp_config and not lsp_available
+                    ts_is_missing = has_ts_config and not ts_available
+
+                    if lsp_is_missing and ts_is_missing:
+                        # Both configured but both missing
+                        missing_lsp.append(language_name)
+                        missing_tree_sitter.append(language_name)
+                    elif lsp_is_missing:
+                        missing_lsp.append(language_name)
+                    elif ts_is_missing:
+                        missing_tree_sitter.append(language_name)
+                    else:
+                        # All configured tools are available
+                        both_available.append(language_name)
+
+                logger.debug(
+                    f"Missing tools summary: "
+                    f"{len(missing_lsp)} missing LSP, "
+                    f"{len(missing_tree_sitter)} missing tree-sitter, "
+                    f"{len(both_available)} both available"
+                )
+
+                return {
+                    "missing_lsp": missing_lsp,
+                    "missing_tree_sitter": missing_tree_sitter,
+                    "both_available": both_available,
+                }
+
+        except Exception as e:
+            logger.warning(f"Error getting missing tools summary: {e}", exc_info=True)
+            return {
+                "missing_lsp": [],
+                "missing_tree_sitter": [],
+                "both_available": [],
+            }
