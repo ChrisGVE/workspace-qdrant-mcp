@@ -55,12 +55,14 @@ class ToolDiscovery:
     Attributes:
         custom_paths: List of custom paths to search before system PATH
         timeout: Timeout in seconds for subprocess operations
+        project_root: Optional project root directory for local tool discovery
     """
 
     def __init__(
         self,
         config: Optional[Dict] = None,
-        timeout: int = 5
+        timeout: int = 5,
+        project_root: Optional[Path] = None,
     ):
         """Initialize tool discovery system.
 
@@ -68,10 +70,13 @@ class ToolDiscovery:
             config: Optional configuration dictionary containing:
                 - custom_paths: List of custom paths to search
                 - timeout: Override default timeout
+                - project_root: Project root directory for local tool discovery
             timeout: Default timeout in seconds for subprocess operations
+            project_root: Optional project root directory for local tool discovery
         """
         self.timeout = timeout
         self.custom_paths: List[str] = []
+        self.project_root = project_root
 
         if config:
             # Extract custom paths from config
@@ -86,9 +91,15 @@ class ToolDiscovery:
                 self.timeout = config["timeout"]
                 logger.debug(f"Using custom timeout: {self.timeout}s")
 
+            # Set project root if specified
+            if "project_root" in config:
+                self.project_root = Path(config["project_root"])
+                logger.debug(f"Using project root: {self.project_root}")
+
         logger.debug(
             f"ToolDiscovery initialized with timeout={self.timeout}s, "
-            f"custom_paths={len(self.custom_paths)}"
+            f"custom_paths={len(self.custom_paths)}, "
+            f"project_root={self.project_root}"
         )
 
     def find_executable(self, name: str) -> Optional[str]:
@@ -426,208 +437,233 @@ class ToolDiscovery:
         logger.info(f"Discovered {found_count}/{len(build_tools)} build tools")
 
         return build_tools
-def __init__(
-self,
-config: Optional[Dict] = None,
-timeout: int = 5,
-project_root: Optional[Path] = None,
-):
-"""Initialize tool discovery system.
-Args:
-config: Optional configuration dictionary containing:
-- custom_paths: List of custom paths to search
-- timeout: Override default timeout
-- project_root: Project root directory for local tool discovery
-timeout: Default timeout in seconds for subprocess operations
-project_root: Optional project root directory for local tool discovery
-"""
-self.timeout = timeout
-self.custom_paths: List[str] = []
-self.project_root = project_root
-if config:
-# Extract custom paths from config
-if "custom_paths" in config:
-self.custom_paths = config["custom_paths"]
-logger.debug(
-f"Initialized with {len(self.custom_paths)} custom paths"
-)
-# Override timeout if specified
-if "timeout" in config:
-self.timeout = config["timeout"]
-logger.debug(f"Using custom timeout: {self.timeout}s")
-# Set project root if specified
-if "project_root" in config:
-self.project_root = Path(config["project_root"])
-logger.debug(f"Using project root: {self.project_root}")
-logger.debug(
-f"ToolDiscovery initialized with timeout={self.timeout}s, "
-f"custom_paths={len(self.custom_paths)}, "
-f"project_root={self.project_root}"
-)
-def _find_project_local_paths(self, project_root: Optional[Path] = None) -> List[Path]:
-"""Find project-local paths for tool discovery.
-Searches for common project-local tool directories such as:
-- node_modules/.bin (JavaScript/TypeScript)
-- .venv/bin or venv/bin (Python virtual environments)
-- bin/ (generic project binaries)
-Args:
-project_root: Optional project root to override instance project_root
-Returns:
-List of paths to search for project-local tools
-"""
-local_paths: List[Path] = []
-root = project_root or self.project_root
-if not root:
-return local_paths
-# Check for node_modules/.bin (JavaScript/TypeScript LSPs)
-node_bin = root / "node_modules" / ".bin"
-if node_bin.exists() and node_bin.is_dir():
-local_paths.append(node_bin)
-logger.debug(f"Found node_modules/.bin at {node_bin}")
-# Check for Python virtual environments
-for venv_name in [".venv", "venv", "env"]:
-venv_path = root / venv_name
-if venv_path.exists() and venv_path.is_dir():
-# Unix-like systems use bin/
-venv_bin = venv_path / "bin"
-if venv_bin.exists() and venv_bin.is_dir():
-local_paths.append(venv_bin)
-logger.debug(f"Found Python venv bin at {venv_bin}")
-# Windows uses Scripts/
-venv_scripts = venv_path / "Scripts"
-if venv_scripts.exists() and venv_scripts.is_dir():
-local_paths.append(venv_scripts)
-logger.debug(f"Found Python venv Scripts at {venv_scripts}")
-# Check for generic bin/ directory
-bin_path = root / "bin"
-if bin_path.exists() and bin_path.is_dir():
-local_paths.append(bin_path)
-logger.debug(f"Found project bin at {bin_path}")
-return local_paths
-def find_lsp_executable(
-self,
-language_name: str,
-lsp_executable: str,
-project_root: Optional[Path] = None,
-) -> Optional[str]:
-"""Find LSP server executable for a specific language.
-Searches for the LSP executable in the following order:
-1. Project-local paths (node_modules/.bin, .venv/bin, etc.)
-2. Custom paths configured in ToolDiscovery
-3. System PATH
-Args:
-language_name: Name of the language (used for logging)
-lsp_executable: Name of the LSP executable to find
-project_root: Optional project root to override instance project_root
-Returns:
-Absolute path to LSP executable if found, None otherwise
-"""
-# First, try project-local paths
-local_paths = self._find_project_local_paths(project_root)
-for local_path in local_paths:
-potential_path = local_path / lsp_executable
-# Handle Windows executable extensions
-if platform.system() == "Windows":
-for ext in ["", ".exe", ".bat", ".cmd"]:
-candidate = Path(str(potential_path) + ext)
-if candidate.exists() and self.validate_executable(str(candidate)):
-logger.info(
-f"Found LSP '{lsp_executable}' for {language_name} "
-f"in project-local path: {candidate}"
-)
-return str(candidate.resolve())
-else:
-if potential_path.exists() and self.validate_executable(str(potential_path)):
-logger.info(
-f"Found LSP '{lsp_executable}' for {language_name} "
-f"in project-local path: {potential_path}"
-)
-return str(potential_path.resolve())
-# Fall back to global search (custom paths + system PATH)
-result = self.find_executable(lsp_executable)
-if result:
-logger.info(
-f"Found LSP '{lsp_executable}' for {language_name} in global PATH: {result}"
-)
-else:
-logger.warning(
-f"LSP server '{lsp_executable}' for {language_name} not found"
-)
-return result
-def discover_lsp_servers(
-self,
-language_config,
-project_root: Optional[Path] = None,
-) -> Dict[str, Optional[str]]:
-"""Discover LSP servers for languages in configuration.
-Searches for LSP server executables for each language that has an
-LSP configuration. Returns a dictionary mapping language names to
-their LSP executable paths (or None if not found).
-The search order is:
-1. Project-local paths (node_modules/.bin, .venv/bin, etc.)
-2. Custom paths configured in ToolDiscovery
-3. System PATH
-Args:
-language_config: LanguageSupportDatabaseConfig containing language
-definitions with LSP configurations
-project_root: Optional project root to override instance project_root
-Returns:
-Dictionary mapping language name to absolute LSP path or None.
-Example:
-{
-"python": "/usr/local/bin/pyright-langserver",
-"rust": "/usr/bin/rust-analyzer",
-"typescript": None,  # Not found
-}
-Raises:
-ValueError: If language_config is None or invalid
-"""
-if language_config is None:
-raise ValueError("language_config cannot be None")
-if not hasattr(language_config, "languages"):
-raise ValueError(
-"language_config must have 'languages' attribute "
-"(LanguageSupportDatabaseConfig)"
-)
-lsp_paths: Dict[str, Optional[str]] = {}
-found_count = 0
-missing_count = 0
-logger.info(
-f"Discovering LSP servers for {len(language_config.languages)} languages"
-)
-for language in language_config.languages:
-language_name = language.name
-# Skip languages without LSP configuration
-if language.lsp is None:
-logger.debug(f"Language '{language_name}' has no LSP configuration")
-continue
-lsp_executable = language.lsp.executable
-# Find the LSP executable
-lsp_path = self.find_lsp_executable(
-language_name, lsp_executable, project_root
-)
-if lsp_path:
-# Validate the discovered path
-if self.validate_executable(lsp_path):
-lsp_paths[language_name] = lsp_path
-found_count += 1
-else:
-logger.warning(
-f"Found '{lsp_executable}' for {language_name} but it's not executable: {lsp_path}"
-)
-lsp_paths[language_name] = None
-missing_count += 1
-else:
-lsp_paths[language_name] = None
-missing_count += 1
-logger.info(
-f"LSP discovery complete: {found_count} found, {missing_count} missing"
-)
-if missing_count > 0:
-missing_languages = [
-lang for lang, path in lsp_paths.items() if path is None
-]
-logger.warning(
-f"Missing LSP servers for: {', '.join(missing_languages)}"
-)
-return lsp_paths
+
+    def discover_project_tools(self, project_root: Path) -> Dict[str, Dict[str, Optional[str]]]:
+        """Discover all available tools for a project.
+
+        Combines compiler and build tool discovery for a complete picture
+        of available development tools. Optionally uses project-specific
+        paths for discovery.
+
+        Args:
+            project_root: Root directory of the project
+
+        Returns:
+            Dictionary with 'compilers' and 'build_tools' keys, each
+            containing discovery results.
+        """
+        # Temporarily set project root for discovery
+        original_root = self.project_root
+        self.project_root = project_root
+
+        try:
+            return {
+                "compilers": self.discover_compilers(),
+                "build_tools": self.discover_build_tools(),
+            }
+        finally:
+            # Restore original project root
+            self.project_root = original_root
+
+    def _find_project_local_paths(self, project_root: Optional[Path] = None) -> List[Path]:
+        """Find project-local paths for tool discovery.
+
+        Searches for common project-local tool directories such as:
+        - node_modules/.bin (JavaScript/TypeScript)
+        - .venv/bin or venv/bin (Python virtual environments)
+        - bin/ (generic project binaries)
+
+        Args:
+            project_root: Optional project root to override instance project_root
+
+        Returns:
+            List of paths to search for project-local tools
+        """
+        local_paths: List[Path] = []
+        root = project_root or self.project_root
+
+        if not root:
+            return local_paths
+
+        # Check for node_modules/.bin (JavaScript/TypeScript LSPs)
+        node_bin = root / "node_modules" / ".bin"
+        if node_bin.exists() and node_bin.is_dir():
+            local_paths.append(node_bin)
+            logger.debug(f"Found node_modules/.bin at {node_bin}")
+
+        # Check for Python virtual environments
+        for venv_name in [".venv", "venv", "env"]:
+            venv_path = root / venv_name
+            if venv_path.exists() and venv_path.is_dir():
+                # Unix-like systems use bin/
+                venv_bin = venv_path / "bin"
+                if venv_bin.exists() and venv_bin.is_dir():
+                    local_paths.append(venv_bin)
+                    logger.debug(f"Found Python venv bin at {venv_bin}")
+
+                # Windows uses Scripts/
+                venv_scripts = venv_path / "Scripts"
+                if venv_scripts.exists() and venv_scripts.is_dir():
+                    local_paths.append(venv_scripts)
+                    logger.debug(f"Found Python venv Scripts at {venv_scripts}")
+
+        # Check for generic bin/ directory
+        bin_path = root / "bin"
+        if bin_path.exists() and bin_path.is_dir():
+            local_paths.append(bin_path)
+            logger.debug(f"Found project bin at {bin_path}")
+
+        return local_paths
+
+    def find_lsp_executable(
+        self,
+        language_name: str,
+        lsp_executable: str,
+        project_root: Optional[Path] = None,
+    ) -> Optional[str]:
+        """Find LSP server executable for a specific language.
+
+        Searches for the LSP executable in the following order:
+        1. Project-local paths (node_modules/.bin, .venv/bin, etc.)
+        2. Custom paths configured in ToolDiscovery
+        3. System PATH
+
+        Args:
+            language_name: Name of the language (used for logging)
+            lsp_executable: Name of the LSP executable to find
+            project_root: Optional project root to override instance project_root
+
+        Returns:
+            Absolute path to LSP executable if found, None otherwise
+        """
+        # First, try project-local paths
+        local_paths = self._find_project_local_paths(project_root)
+
+        for local_path in local_paths:
+            potential_path = local_path / lsp_executable
+
+            # Handle Windows executable extensions
+            if platform.system() == "Windows":
+                for ext in ["", ".exe", ".bat", ".cmd"]:
+                    candidate = Path(str(potential_path) + ext)
+                    if candidate.exists() and self.validate_executable(str(candidate)):
+                        logger.info(
+                            f"Found LSP '{lsp_executable}' for {language_name} "
+                            f"in project-local path: {candidate}"
+                        )
+                        return str(candidate.resolve())
+            else:
+                if potential_path.exists() and self.validate_executable(str(potential_path)):
+                    logger.info(
+                        f"Found LSP '{lsp_executable}' for {language_name} "
+                        f"in project-local path: {potential_path}"
+                    )
+                    return str(potential_path.resolve())
+
+        # Fall back to global search (custom paths + system PATH)
+        result = self.find_executable(lsp_executable)
+
+        if result:
+            logger.info(
+                f"Found LSP '{lsp_executable}' for {language_name} in global PATH: {result}"
+            )
+        else:
+            logger.warning(
+                f"LSP server '{lsp_executable}' for {language_name} not found"
+            )
+
+        return result
+
+    def discover_lsp_servers(
+        self,
+        language_config,
+        project_root: Optional[Path] = None,
+    ) -> Dict[str, Optional[str]]:
+        """Discover LSP servers for languages in configuration.
+
+        Searches for LSP server executables for each language that has an
+        LSP configuration. Returns a dictionary mapping language names to
+        their LSP executable paths (or None if not found).
+
+        The search order is:
+        1. Project-local paths (node_modules/.bin, .venv/bin, etc.)
+        2. Custom paths configured in ToolDiscovery
+        3. System PATH
+
+        Args:
+            language_config: LanguageSupportDatabaseConfig containing language
+                definitions with LSP configurations
+            project_root: Optional project root to override instance project_root
+
+        Returns:
+            Dictionary mapping language name to absolute LSP path or None.
+            Example:
+            {
+                "python": "/usr/local/bin/pyright-langserver",
+                "rust": "/usr/bin/rust-analyzer",
+                "typescript": None,  # Not found
+            }
+
+        Raises:
+            ValueError: If language_config is None or invalid
+        """
+        if language_config is None:
+            raise ValueError("language_config cannot be None")
+
+        if not hasattr(language_config, "languages"):
+            raise ValueError(
+                "language_config must have 'languages' attribute "
+                "(LanguageSupportDatabaseConfig)"
+            )
+
+        lsp_paths: Dict[str, Optional[str]] = {}
+        found_count = 0
+        missing_count = 0
+
+        logger.info(
+            f"Discovering LSP servers for {len(language_config.languages)} languages"
+        )
+
+        for language in language_config.languages:
+            language_name = language.name
+
+            # Skip languages without LSP configuration
+            if language.lsp is None:
+                logger.debug(f"Language '{language_name}' has no LSP configuration")
+                continue
+
+            lsp_executable = language.lsp.executable
+
+            # Find the LSP executable
+            lsp_path = self.find_lsp_executable(
+                language_name, lsp_executable, project_root
+            )
+
+            if lsp_path:
+                # Validate the discovered path
+                if self.validate_executable(lsp_path):
+                    lsp_paths[language_name] = lsp_path
+                    found_count += 1
+                else:
+                    logger.warning(
+                        f"Found '{lsp_executable}' for {language_name} but it's not executable: {lsp_path}"
+                    )
+                    lsp_paths[language_name] = None
+                    missing_count += 1
+            else:
+                lsp_paths[language_name] = None
+                missing_count += 1
+
+        logger.info(
+            f"LSP discovery complete: {found_count} found, {missing_count} missing"
+        )
+
+        if missing_count > 0:
+            missing_languages = [
+                lang for lang, path in lsp_paths.items() if path is None
+            ]
+            logger.warning(
+                f"Missing LSP servers for: {', '.join(missing_languages)}"
+            )
+
+        return lsp_paths
