@@ -1267,6 +1267,85 @@ class SQLiteStateManager:
             logger.error(f"Failed to enqueue file {file_path}: {e}")
             raise
 
+    async def dequeue(
+        self,
+        batch_size: int = 10,
+        tenant_id: Optional[str] = None,
+        branch: Optional[str] = None,
+    ) -> List[ProcessingQueueItem]:
+        """
+        Retrieve items from ingestion queue by priority (DESC) and scheduled_at (ASC).
+
+        Args:
+            batch_size: Maximum number of items to retrieve
+            tenant_id: Filter by tenant ID
+            branch: Filter by branch
+
+        Returns:
+            List of ProcessingQueueItem objects
+        """
+        if not self._initialized:
+            raise RuntimeError("State manager not initialized")
+
+        try:
+            # Build query with filters
+            query = """
+                SELECT file_absolute_path, collection_name, priority, tenant_id, branch,
+                       metadata, retry_count, queued_timestamp
+                FROM ingestion_queue
+                WHERE 1=1
+            """
+            params = []
+
+            if tenant_id:
+                query += " AND tenant_id = ?"
+                params.append(tenant_id)
+
+            if branch:
+                query += " AND branch = ?"
+                params.append(branch)
+
+            query += " ORDER BY priority DESC, queued_timestamp ASC LIMIT ?"
+            params.append(batch_size)
+
+            with self._lock:
+                cursor = self.connection.execute(query, params)
+                rows = cursor.fetchall()
+
+                items = []
+                for row in rows:
+                    metadata = self._deserialize_json(row["metadata"]) or {}
+
+                    # Map integer priority (0-10) to ProcessingPriority enum
+                    # Priority mapping: 0-2 -> LOW, 3-5 -> NORMAL, 6-8 -> HIGH, 9-10 -> URGENT
+                    int_priority = row["priority"]
+                    if int_priority <= 2:
+                        priority = ProcessingPriority.LOW
+                    elif int_priority <= 5:
+                        priority = ProcessingPriority.NORMAL
+                    elif int_priority <= 8:
+                        priority = ProcessingPriority.HIGH
+                    else:
+                        priority = ProcessingPriority.URGENT
+
+                    item = ProcessingQueueItem(
+                        queue_id=row["file_absolute_path"],  # Use file path as queue ID
+                        file_path=row["file_absolute_path"],
+                        collection=row["collection_name"],
+                        priority=priority,
+                        scheduled_at=datetime.fromisoformat(row["queued_timestamp"]) if row["queued_timestamp"] else None,
+                        metadata=metadata,
+                        attempts=row["retry_count"],
+                        created_at=datetime.fromisoformat(row["queued_timestamp"]) if row["queued_timestamp"] else None,
+                    )
+                    items.append(item)
+
+                return items
+
+        except Exception as e:
+            logger.error(f"Failed to dequeue items: {e}")
+            raise
+
     # Multi-Component Communication Support Methods
 
     async def update_processing_state(
@@ -2319,3 +2398,4 @@ class SQLiteStateManager:
         except Exception as e:
             logger.error(f"Failed to add file to processing queue {file_path}: {e}")
             return ""
+
