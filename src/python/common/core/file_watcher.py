@@ -408,10 +408,7 @@ class FileWatcher:
         if self.language_filter:
             # Language filter can check patterns even without file access
             # It will use file extension and path patterns
-            should_process, reason = self.language_filter.should_process_file(
-                file_path,
-                allow_missing=True
-            )
+            should_process, reason = self.language_filter.should_process_file(file_path)
             if not should_process:
                 self.config.files_filtered += 1
                 logger.debug(f"Language filter rejected deletion of {file_path}: {reason}")
