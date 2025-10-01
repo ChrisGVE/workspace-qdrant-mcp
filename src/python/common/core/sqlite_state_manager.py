@@ -237,7 +237,7 @@ class DatabaseTransaction:
 class SQLiteStateManager:
     """SQLite-based state persistence manager with crash recovery."""
 
-    SCHEMA_VERSION = 3  # Updated for LSP table additions and file metadata extensions
+    SCHEMA_VERSION = 4  # Updated for language support schema additions
     WAL_CHECKPOINT_INTERVAL = 300  # 5 minutes
     MAINTENANCE_INTERVAL = 3600  # 1 hour
 
@@ -657,6 +657,72 @@ class SQLiteStateManager:
             "CREATE INDEX idx_lsp_servers_language ON lsp_servers(language)",
             "CREATE INDEX idx_lsp_servers_status ON lsp_servers(status)",
             "CREATE INDEX idx_lsp_servers_last_health_check ON lsp_servers(last_health_check)",
+            # Language Support Tables (Schema Version 4+)
+            """
+            CREATE TABLE languages (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                language_name TEXT NOT NULL UNIQUE,
+                file_extensions TEXT,  -- JSON array of file extensions
+                lsp_name TEXT,
+                lsp_executable TEXT,
+                lsp_absolute_path TEXT,
+                lsp_missing BOOLEAN NOT NULL DEFAULT 0,
+                ts_grammar TEXT,
+                ts_cli_absolute_path TEXT,
+                ts_missing BOOLEAN NOT NULL DEFAULT 0,
+                created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+            )
+            """,
+            # Indexes for languages
+            "CREATE INDEX idx_languages_language_name ON languages(language_name)",
+            "CREATE INDEX idx_languages_lsp_missing ON languages(lsp_missing)",
+            "CREATE INDEX idx_languages_ts_missing ON languages(ts_missing)",
+            """
+            CREATE TABLE files_missing_metadata (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                file_absolute_path TEXT NOT NULL UNIQUE,
+                language_name TEXT,
+                branch TEXT,
+                missing_lsp_metadata BOOLEAN NOT NULL DEFAULT 0,
+                missing_ts_metadata BOOLEAN NOT NULL DEFAULT 0,
+                created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY (language_name) REFERENCES languages(language_name) ON DELETE SET NULL
+            )
+            """,
+            # Indexes for files_missing_metadata
+            "CREATE INDEX idx_files_missing_metadata_file_path ON files_missing_metadata(file_absolute_path)",
+            "CREATE INDEX idx_files_missing_metadata_language ON files_missing_metadata(language_name)",
+            "CREATE INDEX idx_files_missing_metadata_missing ON files_missing_metadata(language_name, missing_lsp_metadata, missing_ts_metadata)",
+            """
+            CREATE TABLE tools (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                tool_name TEXT NOT NULL UNIQUE,
+                tool_type TEXT NOT NULL CHECK (tool_type IN ('lsp_server', 'tree_sitter_cli')),
+                absolute_path TEXT,
+                version TEXT,
+                missing BOOLEAN NOT NULL DEFAULT 0,
+                last_check_at TIMESTAMP,
+                created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+            )
+            """,
+            # Indexes for tools
+            "CREATE INDEX idx_tools_tool_name ON tools(tool_name)",
+            "CREATE INDEX idx_tools_tool_type_missing ON tools(tool_type, missing)",
+            """
+            CREATE TABLE language_support_version (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                yaml_hash TEXT NOT NULL UNIQUE,
+                loaded_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                language_count INTEGER NOT NULL DEFAULT 0,
+                last_checked_at TIMESTAMP
+            )
+            """,
+            # Indexes for language_support_version
+            "CREATE INDEX idx_language_support_version_yaml_hash ON language_support_version(yaml_hash)",
+            "CREATE INDEX idx_language_support_version_loaded_at ON language_support_version(loaded_at)",
             # Insert initial schema version
             f"INSERT INTO schema_version (version) VALUES ({self.SCHEMA_VERSION})",
         ]
@@ -671,9 +737,10 @@ class SQLiteStateManager:
         """Migrate database schema between versions."""
         logger.info(f"Migrating database schema from {from_version} to {to_version}")
 
-        with self.connection:
+        async with self.transaction() as conn:
             # Migrate from version 1 to version 2 - Add LSP tables
             if from_version == 1 and to_version >= 2:
+                logger.info("Applying migration: v1 -> v2 (LSP integration tables)")
                 migration_sql = [
                     # Add projects table for LSP integration
                     """
@@ -691,7 +758,7 @@ class SQLiteStateManager:
                     """,
                     # Add indexes for projects table
                     "CREATE INDEX idx_projects_name ON projects(name)",
-                    "CREATE INDEX idx_projects_root_path ON projects(root_path)", 
+                    "CREATE INDEX idx_projects_root_path ON projects(root_path)",
                     "CREATE INDEX idx_projects_collection_name ON projects(collection_name)",
                     "CREATE INDEX idx_projects_lsp_enabled ON projects(lsp_enabled)",
                     "CREATE INDEX idx_projects_last_scan ON projects(last_scan)",
@@ -716,14 +783,15 @@ class SQLiteStateManager:
                     "CREATE INDEX idx_lsp_servers_status ON lsp_servers(status)",
                     "CREATE INDEX idx_lsp_servers_last_health_check ON lsp_servers(last_health_check)",
                 ]
-                
+
                 for sql in migration_sql:
-                    self.connection.execute(sql)
-                
+                    conn.execute(sql)
+
                 logger.info("Successfully migrated to schema version 2 (added projects and lsp_servers tables)")
 
             # Migrate from version 2 to version 3 - Add LSP fields to file_processing
             if from_version <= 2 and to_version >= 3:
+                logger.info("Applying migration: v2 -> v3 (LSP file processing fields)")
                 lsp_fields_sql = [
                     # Add LSP-specific columns to file_processing table
                     "ALTER TABLE file_processing ADD COLUMN language_id TEXT",
@@ -738,16 +806,98 @@ class SQLiteStateManager:
                     "CREATE INDEX idx_file_processing_lsp_server_id ON file_processing(lsp_server_id)",
                     "CREATE INDEX idx_file_processing_last_lsp_analysis ON file_processing(last_lsp_analysis)",
                 ]
-                
+
                 for sql in lsp_fields_sql:
-                    self.connection.execute(sql)
-                
+                    conn.execute(sql)
+
                 logger.info("Successfully migrated to schema version 3 (added LSP fields to file_processing)")
 
+            # Migrate from version 3 to version 4 - Add language support tables
+            if from_version <= 3 and to_version >= 4:
+                logger.info("Applying migration: v3 -> v4 (language support schema)")
+                language_support_sql = [
+                    # Add languages table
+                    """
+                    CREATE TABLE languages (
+                        id INTEGER PRIMARY KEY AUTOINCREMENT,
+                        language_name TEXT NOT NULL UNIQUE,
+                        file_extensions TEXT,  -- JSON array of file extensions
+                        lsp_name TEXT,
+                        lsp_executable TEXT,
+                        lsp_absolute_path TEXT,
+                        lsp_missing BOOLEAN NOT NULL DEFAULT 0,
+                        ts_grammar TEXT,
+                        ts_cli_absolute_path TEXT,
+                        ts_missing BOOLEAN NOT NULL DEFAULT 0,
+                        created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                        updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+                    )
+                    """,
+                    # Add indexes for languages
+                    "CREATE INDEX idx_languages_language_name ON languages(language_name)",
+                    "CREATE INDEX idx_languages_lsp_missing ON languages(lsp_missing)",
+                    "CREATE INDEX idx_languages_ts_missing ON languages(ts_missing)",
+                    # Add files_missing_metadata table
+                    """
+                    CREATE TABLE files_missing_metadata (
+                        id INTEGER PRIMARY KEY AUTOINCREMENT,
+                        file_absolute_path TEXT NOT NULL UNIQUE,
+                        language_name TEXT,
+                        branch TEXT,
+                        missing_lsp_metadata BOOLEAN NOT NULL DEFAULT 0,
+                        missing_ts_metadata BOOLEAN NOT NULL DEFAULT 0,
+                        created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                        updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                        FOREIGN KEY (language_name) REFERENCES languages(language_name) ON DELETE SET NULL
+                    )
+                    """,
+                    # Add indexes for files_missing_metadata
+                    "CREATE INDEX idx_files_missing_metadata_file_path ON files_missing_metadata(file_absolute_path)",
+                    "CREATE INDEX idx_files_missing_metadata_language ON files_missing_metadata(language_name)",
+                    "CREATE INDEX idx_files_missing_metadata_missing ON files_missing_metadata(language_name, missing_lsp_metadata, missing_ts_metadata)",
+                    # Add tools table
+                    """
+                    CREATE TABLE tools (
+                        id INTEGER PRIMARY KEY AUTOINCREMENT,
+                        tool_name TEXT NOT NULL UNIQUE,
+                        tool_type TEXT NOT NULL CHECK (tool_type IN ('lsp_server', 'tree_sitter_cli')),
+                        absolute_path TEXT,
+                        version TEXT,
+                        missing BOOLEAN NOT NULL DEFAULT 0,
+                        last_check_at TIMESTAMP,
+                        created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                        updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+                    )
+                    """,
+                    # Add indexes for tools
+                    "CREATE INDEX idx_tools_tool_name ON tools(tool_name)",
+                    "CREATE INDEX idx_tools_tool_type_missing ON tools(tool_type, missing)",
+                    # Add language_support_version table
+                    """
+                    CREATE TABLE language_support_version (
+                        id INTEGER PRIMARY KEY AUTOINCREMENT,
+                        yaml_hash TEXT NOT NULL UNIQUE,
+                        loaded_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                        language_count INTEGER NOT NULL DEFAULT 0,
+                        last_checked_at TIMESTAMP
+                    )
+                    """,
+                    # Add indexes for language_support_version
+                    "CREATE INDEX idx_language_support_version_yaml_hash ON language_support_version(yaml_hash)",
+                    "CREATE INDEX idx_language_support_version_loaded_at ON language_support_version(loaded_at)",
+                ]
+
+                for sql in language_support_sql:
+                    conn.execute(sql)
+
+                logger.info("Successfully migrated to schema version 4 (added language support tables)")
+
             # Record the migration
-            self.connection.execute(
+            conn.execute(
                 "INSERT INTO schema_version (version) VALUES (?)", (to_version,)
             )
+
+        logger.info(f"Database migration completed: v{from_version} -> v{to_version}")
 
     async def _perform_crash_recovery(self):
         """Perform crash recovery operations on startup."""
@@ -760,7 +910,7 @@ class SQLiteStateManager:
             cursor = conn.execute(
                 """
                 SELECT file_path, collection, started_at, retry_count, max_retries
-                FROM file_processing 
+                FROM file_processing
                 WHERE status = ? AND started_at IS NOT NULL
                 """,
                 (FileProcessingStatus.PROCESSING.value,),
@@ -778,8 +928,8 @@ class SQLiteStateManager:
                     # Mark for retry
                     conn.execute(
                         """
-                        UPDATE file_processing 
-                        SET status = ?, retry_count = retry_count + 1, 
+                        UPDATE file_processing
+                        SET status = ?, retry_count = retry_count + 1,
                             updated_at = CURRENT_TIMESTAMP, started_at = NULL,
                             error_message = 'Recovered from crash, retrying'
                         WHERE file_path = ?
@@ -793,7 +943,7 @@ class SQLiteStateManager:
                     )
                     conn.execute(
                         """
-                        INSERT OR REPLACE INTO processing_queue 
+                        INSERT OR REPLACE INTO processing_queue
                         (queue_id, file_path, collection, priority, attempts)
                         VALUES (?, ?, ?, ?, ?)
                         """,
@@ -812,7 +962,7 @@ class SQLiteStateManager:
                     # Max retries exceeded, mark as failed
                     conn.execute(
                         """
-                        UPDATE file_processing 
+                        UPDATE file_processing
                         SET status = ?, updated_at = CURRENT_TIMESTAMP, started_at = NULL,
                             completed_at = CURRENT_TIMESTAMP,
                             error_message = 'Max retries exceeded after crash recovery'
@@ -829,7 +979,7 @@ class SQLiteStateManager:
             # Clean up orphaned queue items
             cursor = conn.execute(
                 """
-                DELETE FROM processing_queue 
+                DELETE FROM processing_queue
                 WHERE file_path NOT IN (SELECT file_path FROM file_processing)
                 """
             )
@@ -997,7 +1147,7 @@ class SQLiteStateManager:
                     # Start processing
                     conn.execute(
                         """
-                        INSERT OR REPLACE INTO file_processing 
+                        INSERT OR REPLACE INTO file_processing
                         (file_path, collection, status, started_at, updated_at, metadata)
                         VALUES (?, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP, ?)
                         """,
@@ -1012,20 +1162,20 @@ class SQLiteStateManager:
                     # Update existing record
                     update_fields = ["status = ?", "updated_at = CURRENT_TIMESTAMP"]
                     params = [status]
-                    
+
                     if document_id:
                         update_fields.append("document_id = ?")
                         params.append(document_id)
-                    
+
                     if metadata:
                         update_fields.append("metadata = ?")
                         params.append(self._serialize_json(metadata))
-                    
+
                     if status in ["completed", "failed"]:
                         update_fields.append("completed_at = CURRENT_TIMESTAMP")
-                    
+
                     params.append(file_path)
-                    
+
                     conn.execute(
                         f"UPDATE file_processing SET {', '.join(update_fields)} WHERE file_path = ?",
                         params,
@@ -1043,23 +1193,23 @@ class SQLiteStateManager:
         try:
             with self._lock:
                 sql = """
-                    SELECT file_path, collection, status, document_id, metadata, 
+                    SELECT file_path, collection, status, document_id, metadata,
                            created_at, updated_at, completed_at
                     FROM file_processing
                 """
-                
+
                 params = []
                 if filter_params:
                     conditions = []
                     for key, value in filter_params.items():
                         conditions.append(f"{key} = ?")
                         params.append(value)
-                    
+
                     if conditions:
                         sql += " WHERE " + " AND ".join(conditions)
-                
+
                 sql += " ORDER BY updated_at DESC"
-                
+
                 cursor = self.connection.execute(sql, params)
                 rows = cursor.fetchall()
 
@@ -1092,10 +1242,10 @@ class SQLiteStateManager:
         try:
             async with self.transaction() as conn:
                 response_time_ms = metadata.get("response_time_ms") if metadata else None
-                
+
                 conn.execute(
                     """
-                    INSERT INTO search_history 
+                    INSERT INTO search_history
                     (query, results_count, source, response_time_ms, metadata)
                     VALUES (?, ?, ?, ?, ?)
                     """,
@@ -1120,17 +1270,17 @@ class SQLiteStateManager:
         try:
             with self._lock:
                 sql = """
-                    SELECT query, results_count, source, response_time_ms, 
+                    SELECT query, results_count, source, response_time_ms,
                            timestamp, metadata
                     FROM search_history
                     ORDER BY timestamp DESC
                 """
-                
+
                 params = []
                 if limit:
                     sql += " LIMIT ?"
                     params.append(limit)
-                
+
                 cursor = self.connection.execute(sql, params)
                 rows = cursor.fetchall()
 
@@ -1158,7 +1308,7 @@ class SQLiteStateManager:
             async with self.transaction() as conn:
                 conn.execute(
                     """
-                    INSERT OR REPLACE INTO memory_rules 
+                    INSERT OR REPLACE INTO memory_rules
                     (rule_id, rule_data, updated_at)
                     VALUES (?, ?, CURRENT_TIMESTAMP)
                     """,
@@ -1199,7 +1349,7 @@ class SQLiteStateManager:
             async with self.transaction() as conn:
                 conn.execute(
                     """
-                    INSERT INTO events 
+                    INSERT INTO events
                     (event_type, file_path, component, data, timestamp)
                     VALUES (?, ?, ?, ?, ?)
                     """,
@@ -1224,7 +1374,7 @@ class SQLiteStateManager:
         try:
             with self._lock:
                 sql = "SELECT event_type, file_path, component, data, timestamp FROM events"
-                
+
                 params = []
                 if filter_params:
                     conditions = []
@@ -1235,12 +1385,12 @@ class SQLiteStateManager:
                         elif key == "type":  # Handle 'type' -> 'event_type' mapping
                             conditions.append("event_type = ?")
                             params.append(value)
-                    
+
                     if conditions:
                         sql += " WHERE " + " AND ".join(conditions)
-                
+
                 sql += " ORDER BY timestamp DESC"
-                
+
                 cursor = self.connection.execute(sql, params)
                 rows = cursor.fetchall()
 
@@ -1268,7 +1418,7 @@ class SQLiteStateManager:
             async with self.transaction() as conn:
                 conn.execute(
                     """
-                    INSERT INTO configuration_history 
+                    INSERT INTO configuration_history
                     (config_data, source, timestamp)
                     VALUES (?, ?, ?)
                     """,
@@ -1318,7 +1468,7 @@ class SQLiteStateManager:
             async with self.transaction() as conn:
                 conn.execute(
                     """
-                    INSERT INTO error_log 
+                    INSERT INTO error_log
                     (error_type, error_message, source, metadata)
                     VALUES (?, ?, ?, ?)
                     """,
@@ -1342,19 +1492,19 @@ class SQLiteStateManager:
         try:
             with self._lock:
                 sql = "SELECT error_type, error_message, source, timestamp, metadata FROM error_log"
-                
+
                 params = []
                 if filter_params:
                     conditions = []
                     for key, value in filter_params.items():
                         conditions.append(f"{key} = ?")
                         params.append(value)
-                    
+
                     if conditions:
                         sql += " WHERE " + " AND ".join(conditions)
-                
+
                 sql += " ORDER BY timestamp DESC"
-                
+
                 cursor = self.connection.execute(sql, params)
                 rows = cursor.fetchall()
 
@@ -1379,7 +1529,7 @@ class SQLiteStateManager:
             async with self.transaction() as conn:
                 conn.execute(
                     """
-                    INSERT INTO performance_metrics 
+                    INSERT INTO performance_metrics
                     (operation, metric_data, timestamp)
                     VALUES (?, ?, ?)
                     """,
@@ -1402,19 +1552,19 @@ class SQLiteStateManager:
         try:
             with self._lock:
                 sql = "SELECT operation, metric_data, timestamp FROM performance_metrics"
-                
+
                 params = []
                 if filter_params:
                     conditions = []
                     for key, value in filter_params.items():
                         conditions.append(f"{key} = ?")
                         params.append(value)
-                    
+
                     if conditions:
                         sql += " WHERE " + " AND ".join(conditions)
-                
+
                 sql += " ORDER BY timestamp DESC"
-                
+
                 cursor = self.connection.execute(sql, params)
                 rows = cursor.fetchall()
 
@@ -1438,7 +1588,7 @@ class SQLiteStateManager:
             async with self.transaction() as conn:
                 conn.execute(
                     """
-                    INSERT INTO resource_usage 
+                    INSERT INTO resource_usage
                     (usage_data, timestamp)
                     VALUES (?, ?)
                     """,
@@ -1474,7 +1624,7 @@ class SQLiteStateManager:
             return []
 
     # Original methods continue here...
-    
+
     # File Processing State Management
 
     async def start_file_processing(
@@ -1492,10 +1642,10 @@ class SQLiteStateManager:
                 # Insert or update file processing record
                 conn.execute(
                     """
-                    INSERT OR REPLACE INTO file_processing 
-                    (file_path, collection, status, priority, started_at, updated_at, 
+                    INSERT OR REPLACE INTO file_processing
+                    (file_path, collection, status, priority, started_at, updated_at,
                      file_size, file_hash, metadata, retry_count)
-                    VALUES (?, ?, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP, ?, ?, ?, 
+                    VALUES (?, ?, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP, ?, ?, ?,
                            COALESCE((SELECT retry_count FROM file_processing WHERE file_path = ?), 0))
                     """,
                     (
@@ -1542,7 +1692,7 @@ class SQLiteStateManager:
                 # Update file processing record
                 cursor = conn.execute(
                     """
-                    UPDATE file_processing 
+                    UPDATE file_processing
                     SET status = ?, completed_at = CURRENT_TIMESTAMP, updated_at = CURRENT_TIMESTAMP,
                         error_message = ?, metadata = ?
                     WHERE file_path = ?
@@ -1570,8 +1720,8 @@ class SQLiteStateManager:
                     # Add to processing history
                     conn.execute(
                         """
-                        INSERT INTO processing_history 
-                        (file_path, collection, status, processing_time_ms, file_size, 
+                        INSERT INTO processing_history
+                        (file_path, collection, status, processing_time_ms, file_size,
                          error_message, metadata)
                         VALUES (?, ?, ?, ?, ?, ?, ?)
                         """,
@@ -1769,7 +1919,7 @@ class SQLiteStateManager:
                 # Mark for retry
                 conn.execute(
                     """
-                    UPDATE file_processing 
+                    UPDATE file_processing
                     SET status = ?, updated_at = CURRENT_TIMESTAMP, max_retries = ?,
                         started_at = NULL, completed_at = NULL, error_message = NULL
                     WHERE file_path = ?
@@ -1792,11 +1942,11 @@ class SQLiteStateManager:
             async with self.transaction() as conn:
                 conn.execute(
                     """
-                    INSERT OR REPLACE INTO watch_folders 
+                    INSERT OR REPLACE INTO watch_folders
                     (watch_id, path, collection, patterns, ignore_patterns, auto_ingest,
-                     recursive, recursive_depth, debounce_seconds, enabled, 
+                     recursive, recursive_depth, debounce_seconds, enabled,
                      created_at, updated_at, metadata)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
                            COALESCE((SELECT created_at FROM watch_folders WHERE watch_id = ?), CURRENT_TIMESTAMP),
                            CURRENT_TIMESTAMP, ?)
                     """,
@@ -1987,7 +2137,7 @@ class SQLiteStateManager:
                 # Ensure file processing record exists
                 conn.execute(
                     """
-                    INSERT OR IGNORE INTO file_processing 
+                    INSERT OR IGNORE INTO file_processing
                     (file_path, collection, status, priority)
                     VALUES (?, ?, ?, ?)
                     """,
@@ -2002,7 +2152,7 @@ class SQLiteStateManager:
                 # Add to queue
                 conn.execute(
                     """
-                    INSERT OR REPLACE INTO processing_queue 
+                    INSERT INTO processing_queue
                     (queue_id, file_path, collection, priority, scheduled_at, metadata)
                     VALUES (?, ?, ?, ?, ?, ?)
                     """,
@@ -2016,1988 +2166,9 @@ class SQLiteStateManager:
                     ),
                 )
 
-            logger.debug(
-                f"Added to processing queue: {file_path} (queue_id: {queue_id})"
-            )
+            logger.debug(f"Added file to processing queue: {file_path} (queue_id: {queue_id})")
             return queue_id
 
         except Exception as e:
-            logger.error(f"Failed to add to processing queue {file_path}: {e}")
-            raise
-
-    async def get_next_queue_item(
-        self, collection: Optional[str] = None, max_attempts: int = 3
-    ) -> Optional[ProcessingQueueItem]:
-        """Get next item from processing queue ordered by priority."""
-        try:
-            with self._lock:
-                sql = """
-                    SELECT queue_id, file_path, collection, priority, created_at, 
-                           scheduled_at, attempts, metadata
-                    FROM processing_queue
-                    WHERE attempts < ? AND scheduled_at <= CURRENT_TIMESTAMP
-                """
-
-                params = [max_attempts]
-
-                if collection:
-                    sql += " AND collection = ?"
-                    params.append(collection)
-
-                sql += " ORDER BY priority DESC, scheduled_at ASC LIMIT 1"
-
-                cursor = self.connection.execute(sql, params)
-                row = cursor.fetchone()
-
-                if not row:
-                    return None
-
-                return ProcessingQueueItem(
-                    queue_id=row["queue_id"],
-                    file_path=row["file_path"],
-                    collection=row["collection"],
-                    priority=ProcessingPriority(row["priority"]),
-                    created_at=datetime.fromisoformat(
-                        row["created_at"].replace("Z", "+00:00")
-                    ),
-                    scheduled_at=datetime.fromisoformat(
-                        row["scheduled_at"].replace("Z", "+00:00")
-                    ),
-                    attempts=row["attempts"],
-                    metadata=self._deserialize_json(row["metadata"]),
-                )
-
-        except Exception as e:
-            logger.error(f"Failed to get next queue item: {e}")
-            return None
-
-
-    async def dequeue(
-        self,
-        batch_size: int = 10,
-        tenant_id: Optional[str] = None,
-        branch: Optional[str] = None,
-        retry_from: Optional[datetime] = None,
-    ) -> List[ProcessingQueueItem]:
-        """
-        Dequeue multiple items from processing queue with priority ordering.
-
-        Args:
-            batch_size: Number of items to retrieve (default: 10)
-            tenant_id: Optional tenant ID filter (checks metadata)
-            branch: Optional branch filter (checks metadata)
-            retry_from: Optional datetime to filter scheduled items from
-
-        Returns:
-            List of ProcessingQueueItem objects ordered by priority DESC, scheduled_at ASC
-        """
-        try:
-            with self._lock:
-                # Build SQL query with filters
-                sql = """
-                    SELECT queue_id, file_path, collection, priority, created_at,
-                           scheduled_at, attempts, metadata
-                    FROM processing_queue
-                    WHERE scheduled_at <= CURRENT_TIMESTAMP
-                """
-
-                params = []
-
-                # Add retry_from filter if provided
-                if retry_from:
-                    sql += " AND scheduled_at >= ?"
-                    params.append(retry_from.isoformat())
-
-                # Order by priority DESC, scheduled_at ASC for proper queue behavior
-                sql += " ORDER BY priority DESC, scheduled_at ASC LIMIT ?"
-                params.append(batch_size)
-
-                cursor = self.connection.execute(sql, params)
-                rows = cursor.fetchall()
-
-                if not rows:
-                    return []
-
-                # Convert rows to ProcessingQueueItem objects
-                items = []
-                for row in rows:
-                    metadata = self._deserialize_json(row["metadata"])
-
-                    # Apply tenant_id filter if provided
-                    if tenant_id and metadata:
-                        if metadata.get("tenant_id") != tenant_id:
-                            continue
-
-                    # Apply branch filter if provided
-                    if branch and metadata:
-                        if metadata.get("branch") != branch:
-                            continue
-
-                    items.append(
-                        ProcessingQueueItem(
-                            queue_id=row["queue_id"],
-                            file_path=row["file_path"],
-                            collection=row["collection"],
-                            priority=ProcessingPriority(row["priority"]),
-                            created_at=datetime.fromisoformat(
-                                row["created_at"].replace("Z", "+00:00")
-                            ),
-                            scheduled_at=datetime.fromisoformat(
-                                row["scheduled_at"].replace("Z", "+00:00")
-                            ),
-                            attempts=row["attempts"],
-                            metadata=metadata,
-                        )
-                    )
-
-                logger.debug(
-                    f"Dequeued {len(items)} items from processing queue "
-                    f"(requested: {batch_size}, tenant_id: {tenant_id}, branch: {branch})"
-                )
-                return items
-
-        except Exception as e:
-            logger.error(f"Failed to dequeue items from processing queue: {e}")
-            return []
-
-    async def mark_queue_item_processing(self, queue_id: str) -> bool:
-        """Mark a queue item as being processed."""
-        try:
-            async with self.transaction() as conn:
-                cursor = conn.execute(
-                    "UPDATE processing_queue SET attempts = attempts + 1 WHERE queue_id = ?",
-                    (queue_id,),
-                )
-
-                return cursor.rowcount > 0
-
-        except Exception as e:
-            logger.error(f"Failed to mark queue item processing {queue_id}: {e}")
-            return False
-
-    async def remove_from_processing_queue(self, queue_id: str) -> bool:
-        """Remove item from processing queue."""
-        try:
-            async with self.transaction() as conn:
-                cursor = conn.execute(
-                    "DELETE FROM processing_queue WHERE queue_id = ?", (queue_id,)
-                )
-
-                success = cursor.rowcount > 0
-                if success:
-                    logger.debug(f"Removed from processing queue: {queue_id}")
-
-                return success
-
-        except Exception as e:
-            logger.error(f"Failed to remove from processing queue {queue_id}: {e}")
-            return False
-
-    async def remove_from_queue(self, queue_id: str) -> bool:
-        """
-        Remove item from processing queue.
-        
-        Args:
-            queue_id: Unique identifier for the queue item to remove.
-            
-        Returns:
-            True if item was deleted, False if not found or on error.
-        """
-        try:
-            async with self.transaction() as conn:
-                cursor = conn.execute(
-                    "DELETE FROM processing_queue WHERE queue_id = ?", (queue_id,)
-                )
-
-                success = cursor.rowcount > 0
-                if success:
-                    logger.debug(f"Removed from queue: {queue_id}")
-
-                return success
-
-        except Exception as e:
-            logger.error(f"Failed to remove from queue {queue_id}: {e}")
-            return False
-
-    async def reschedule_queue_item(
-        self, queue_id: str, delay_seconds: int = 300, max_attempts: int = 3
-    ) -> bool:
-        """Reschedule a queue item for later processing."""
-        try:
-            new_scheduled_at = datetime.now(timezone.utc) + timedelta(
-                seconds=delay_seconds
-            )
-
-            async with self.transaction() as conn:
-                cursor = conn.execute(
-                    """
-                    UPDATE processing_queue 
-                    SET scheduled_at = ?, attempts = CASE 
-                        WHEN attempts >= ? THEN attempts 
-                        ELSE attempts
-                    END
-                    WHERE queue_id = ? AND attempts < ?
-                    """,
-                    (
-                        new_scheduled_at.isoformat(),
-                        max_attempts,
-                        queue_id,
-                        max_attempts,
-                    ),
-                )
-
-                return cursor.rowcount > 0
-
-        except Exception as e:
-            logger.error(f"Failed to reschedule queue item {queue_id}: {e}")
-            return False
-
-    async def update_retry(
-        self, queue_id: str, retry_count: int, retry_after: datetime
-    ) -> bool:
-        """
-        Update retry count and schedule time for a queue item.
-        
-        Args:
-            queue_id: Queue item identifier
-            retry_count: New retry count value
-            retry_after: New scheduled time for retry
-            
-        Returns:
-            True if updated successfully, False if queue_id not found
-        """
-        try:
-            async with self.transaction() as conn:
-                cursor = conn.execute(
-                    """
-                    UPDATE processing_queue 
-                    SET attempts = ?, scheduled_at = ?
-                    WHERE queue_id = ?
-                    """,
-                    (retry_count, retry_after.isoformat(), queue_id),
-                )
-
-                success = cursor.rowcount > 0
-                if success:
-                    logger.debug(
-                        f"Updated retry for queue item {queue_id}: "
-                        f"attempts={retry_count}, scheduled_at={retry_after.isoformat()}"
-                    )
-                else:
-                    logger.warning(f"Queue item not found for retry update: {queue_id}")
-
-                return success
-
-        except Exception as e:
-            logger.error(f"Failed to update retry for queue item {queue_id}: {e}")
-            return False
-
-    async def get_queue_stats(self, collection: Optional[str] = None) -> Dict[str, int]:
-        """Get processing queue statistics."""
-        try:
-            with self._lock:
-                base_sql = "SELECT priority, COUNT(*) as count FROM processing_queue"
-                params = []
-
-                if collection:
-                    base_sql += " WHERE collection = ?"
-                    params.append(collection)
-
-                base_sql += " GROUP BY priority"
-
-                cursor = self.connection.execute(base_sql, params)
-                rows = cursor.fetchall()
-
-                stats = {"total": 0, "low": 0, "normal": 0, "high": 0, "urgent": 0}
-
-                priority_names = {
-                    ProcessingPriority.LOW.value: "low",
-                    ProcessingPriority.NORMAL.value: "normal",
-                    ProcessingPriority.HIGH.value: "high",
-                    ProcessingPriority.URGENT.value: "urgent",
-                }
-
-                for row in rows:
-                    priority = row["priority"]
-                    count = row["count"]
-                    priority_name = priority_names.get(priority, "unknown")
-                    if priority_name != "unknown":
-                        stats[priority_name] = count
-                        stats["total"] += count
-
-                return stats
-
-        except Exception as e:
-            logger.error(f"Failed to get queue stats: {e}")
-            return {"total": 0, "low": 0, "normal": 0, "high": 0, "urgent": 0}
-
-    async def clear_queue(self, collection: Optional[str] = None) -> int:
-        """Clear processing queue items."""
-        try:
-            async with self.transaction() as conn:
-                if collection:
-                    cursor = conn.execute(
-                        "DELETE FROM processing_queue WHERE collection = ?",
-                        (collection,),
-                    )
-                else:
-                    cursor = conn.execute("DELETE FROM processing_queue")
-
-                cleared_count = cursor.rowcount
-                logger.info(f"Cleared {cleared_count} items from processing queue")
-                return cleared_count
-
-        except Exception as e:
-            logger.error(f"Failed to clear processing queue: {e}")
-            return 0
-
-    async def enqueue(
-        self,
-        file_path: str,
-        collection: str,
-        priority: int,
-        tenant_id: str,
-        branch: str,
-        metadata: Optional[Dict] = None,
-    ) -> str:
-        """
-        Enqueue a file to the ingestion queue.
-
-        Handles UNIQUE constraint violations gracefully by updating the priority
-        of existing items instead of raising an error.
-
-        Args:
-            file_path: Absolute path to the file to enqueue
-            collection: Target collection name
-            priority: Priority level (0-10, where 10 is highest)
-            tenant_id: Tenant identifier for multi-tenancy support
-            branch: Branch identifier for multi-branch support
-            metadata: Optional metadata dictionary to store with the queue item
-
-        Returns:
-            Queue ID (file_absolute_path) of the enqueued item
-
-        Raises:
-            ValueError: If priority is out of valid range (0-10)
-        """
-        try:
-            # Validate priority
-            if not 0 <= priority <= 10:
-                raise ValueError(f"Priority must be between 0 and 10, got {priority}")
-
-            # Normalize file path to absolute path
-            file_absolute_path = str(Path(file_path).resolve())
-
-            # File path serves as queue ID
-            queue_id = file_absolute_path
-
-            async with self.transaction() as conn:
-                # Try to insert the new queue item
-                # If it already exists (UNIQUE constraint on file_absolute_path),
-                # update its priority instead
-                try:
-                    conn.execute(
-                        """
-                        INSERT INTO ingestion_queue
-                        (file_absolute_path, collection_name, tenant_id, branch,
-                         operation, priority, metadata)
-                        VALUES (?, ?, ?, ?, 'ingest', ?, ?)
-                        """,
-                        (
-                            file_absolute_path,
-                            collection,
-                            tenant_id,
-                            branch,
-                            priority,
-                            self._serialize_json(metadata) if metadata else None,
-                        ),
-                    )
-                    logger.debug(
-                        f"Enqueued file: {file_absolute_path} "
-                        f"(collection={collection}, priority={priority}, "
-                        f"tenant={tenant_id}, branch={branch})"
-                    )
-                except sqlite3.IntegrityError as e:
-                    # Handle UNIQUE constraint violation by updating priority
-                    if "UNIQUE constraint" in str(e) or "PRIMARY KEY" in str(e):
-                        conn.execute(
-                            """
-                            UPDATE ingestion_queue
-                            SET priority = ?, queued_timestamp = CURRENT_TIMESTAMP,
-                                metadata = COALESCE(?, metadata)
-                            WHERE file_absolute_path = ?
-                            """,
-                            (
-                                priority,
-                                self._serialize_json(metadata) if metadata else None,
-                                file_absolute_path,
-                            ),
-                        )
-                        logger.debug(
-                            f"Updated existing queue item: {file_absolute_path} "
-                            f"(new priority={priority})"
-                        )
-                    else:
-                        # Re-raise if it's a different integrity error
-                        raise
-
-            return queue_id
-
-        except ValueError:
-            # Re-raise validation errors
-            raise
-        except Exception as e:
-            logger.error(f"Failed to enqueue file {file_path}: {e}")
-            raise
-
-
-    async def queue_stats(
-        self, tenant_id: Optional[str] = None, branch: Optional[str] = None
-    ) -> Dict[str, Any]:
-        """
-        Get comprehensive queue statistics with optional filtering.
-
-        Args:
-            tenant_id: Optional tenant identifier for filtering
-            branch: Optional branch identifier for filtering
-
-        Returns:
-            Dictionary containing:
-                - total_items: Total number of items in queue
-                - by_priority: Dict with counts per priority level
-                - oldest_item: Datetime of oldest queued item (or None)
-                - average_wait_time: Average wait time in seconds (or 0)
-        """
-        try:
-            with self._lock:
-                # Build base query with optional filters
-                where_clauses = []
-                params = []
-
-                # Add tenant_id filter if provided
-                if tenant_id is not None:
-                    where_clauses.append("json_extract(metadata, '$.tenant_id') = ?")
-                    params.append(tenant_id)
-
-                # Add branch filter if provided
-                if branch is not None:
-                    where_clauses.append("json_extract(metadata, '$.branch') = ?")
-                    params.append(branch)
-
-                where_sql = " WHERE " + " AND ".join(where_clauses) if where_clauses else ""
-
-                # Get total items count
-                total_sql = f"SELECT COUNT(*) as total FROM processing_queue{where_sql}"
-                cursor = self.connection.execute(total_sql, params)
-                total_items = cursor.fetchone()["total"]
-
-                # Get counts by priority
-                priority_sql = f"""
-                    SELECT priority, COUNT(*) as count 
-                    FROM processing_queue
-                    {where_sql}
-                    GROUP BY priority
-                """
-                cursor = self.connection.execute(priority_sql, params)
-                priority_rows = cursor.fetchall()
-
-                # Build by_priority dict
-                by_priority = {
-                    ProcessingPriority.LOW.value: 0,
-                    ProcessingPriority.NORMAL.value: 0,
-                    ProcessingPriority.HIGH.value: 0,
-                    ProcessingPriority.URGENT.value: 0,
-                }
-                for row in priority_rows:
-                    priority = row["priority"]
-                    count = row["count"]
-                    if priority in by_priority:
-                        by_priority[priority] = count
-
-                # Get oldest item timestamp
-                oldest_sql = f"""
-                    SELECT MIN(created_at) as oldest
-                    FROM processing_queue
-                    {where_sql}
-                """
-                cursor = self.connection.execute(oldest_sql, params)
-                oldest_row = cursor.fetchone()
-                oldest_item = None
-                if oldest_row and oldest_row["oldest"]:
-                    try:
-                        oldest_str = oldest_row["oldest"]
-                        # Handle both ISO format and SQLite datetime format
-                        if "T" in oldest_str:
-                            oldest_str = oldest_str.replace("Z", "+00:00")
-                            oldest_item = datetime.fromisoformat(oldest_str)
-                        else:
-                            # SQLite datetime format
-                            oldest_item = datetime.strptime(oldest_str, "%Y-%m-%d %H:%M:%S")
-                    except (ValueError, TypeError) as e:
-                        logger.warning(f"Failed to parse oldest_item timestamp: {e}")
-                        oldest_item = None
-
-                # Calculate average wait time
-                average_wait_time = 0.0
-                if total_items > 0 and oldest_item:
-                    wait_sql = f"""
-                        SELECT created_at
-                        FROM processing_queue
-                        {where_sql}
-                    """
-                    cursor = self.connection.execute(wait_sql, params)
-                    wait_rows = cursor.fetchall()
-
-                    now = datetime.now(timezone.utc)
-                    total_wait = 0.0
-                    valid_items = 0
-
-                    for row in wait_rows:
-                        try:
-                            created_str = row["created_at"]
-                            if "T" in created_str:
-                                created_str = created_str.replace("Z", "+00:00")
-                                created_at = datetime.fromisoformat(created_str)
-                            else:
-                                created_at = datetime.strptime(created_str, "%Y-%m-%d %H:%M:%S")
-                                # Assume UTC if no timezone info
-                                created_at = created_at.replace(tzinfo=timezone.utc)
-
-                            wait_time = (now - created_at).total_seconds()
-                            total_wait += wait_time
-                            valid_items += 1
-                        except (ValueError, TypeError) as e:
-                            logger.warning(f"Failed to parse created_at timestamp: {e}")
-                            continue
-
-                    if valid_items > 0:
-                        average_wait_time = total_wait / valid_items
-
-                return {
-                    "total_items": total_items,
-                    "by_priority": by_priority,
-                    "oldest_item": oldest_item,
-                    "average_wait_time": average_wait_time,
-                }
-
-        except Exception as e:
-            logger.error(f"Failed to get queue statistics: {e}")
-            return {
-                "total_items": 0,
-                "by_priority": {
-                    ProcessingPriority.LOW.value: 0,
-                    ProcessingPriority.NORMAL.value: 0,
-                    ProcessingPriority.HIGH.value: 0,
-                    ProcessingPriority.URGENT.value: 0,
-                },
-                "oldest_item": None,
-                "average_wait_time": 0.0,
-            }
-
-
-
-    async def update_priority(
-        self, queue_ids: Union[str, List[str]], new_priority: int
-    ) -> int:
-        """
-        Update priority for one or more queue items.
-
-        Args:
-            queue_ids: Single queue_id (string) or list of queue_ids to update
-            new_priority: New priority value (1-4 corresponding to ProcessingPriority enum)
-
-        Returns:
-            Number of queue items updated
-
-        Raises:
-            ValueError: If priority is not in valid range (1-4)
-        """
-        # Validate priority range
-        valid_priorities = [p.value for p in ProcessingPriority]
-        if new_priority not in valid_priorities:
-            raise ValueError(
-                f"Invalid priority {new_priority}. Must be one of {valid_priorities} "
-                f"(LOW=1, NORMAL=2, HIGH=3, URGENT=4)"
-            )
-
-        # Normalize to list
-        if isinstance(queue_ids, str):
-            queue_ids = [queue_ids]
-
-        if not queue_ids:
-            logger.warning("No queue_ids provided to update_priority")
-            return 0
-
-        try:
-            async with self.transaction() as conn:
-                # Use parameterized query with IN clause
-                placeholders = ",".join("?" * len(queue_ids))
-                cursor = conn.execute(
-                    f"""
-                    UPDATE processing_queue 
-                    SET priority = ?
-                    WHERE queue_id IN ({placeholders})
-                    """,
-                    [new_priority] + list(queue_ids),
-                )
-
-                updated_count = cursor.rowcount
-                if updated_count > 0:
-                    logger.debug(
-                        f"Updated priority to {new_priority} for {updated_count} queue item(s)"
-                    )
-                else:
-                    logger.warning(
-                        f"No queue items found matching provided queue_ids"
-                    )
-
-                return updated_count
-
-        except Exception as e:
-            logger.error(f"Failed to update priority for queue items: {e}")
-            return 0
-
-    # System State Management
-
-    async def set_system_state(self, key: str, value: Any) -> bool:
-        """Set system state value."""
-        try:
-            serialized_value = (
-                self._serialize_json(value) if not isinstance(value, str) else value
-            )
-
-            async with self.transaction() as conn:
-                conn.execute(
-                    """
-                    INSERT OR REPLACE INTO system_state (key, value, updated_at)
-                    VALUES (?, ?, CURRENT_TIMESTAMP)
-                    """,
-                    (key, serialized_value),
-                )
-
-            return True
-
-        except Exception as e:
-            logger.error(f"Failed to set system state {key}: {e}")
-            return False
-
-    async def get_system_state(self, key: str, default: Any = None) -> Any:
-        """Get system state value."""
-        try:
-            with self._lock:
-                cursor = self.connection.execute(
-                    "SELECT value FROM system_state WHERE key = ?", (key,)
-                )
-
-                row = cursor.fetchone()
-                if not row:
-                    return default
-
-                value = row["value"]
-
-                # Try to deserialize JSON, fall back to string value
-                try:
-                    return json.loads(value)
-                except (json.JSONDecodeError, TypeError):
-                    return value
-
-        except Exception as e:
-            logger.error(f"Failed to get system state {key}: {e}")
-            return default
-
-    async def delete_system_state(self, key: str) -> bool:
-        """Delete system state value."""
-        try:
-            async with self.transaction() as conn:
-                cursor = conn.execute("DELETE FROM system_state WHERE key = ?", (key,))
-
-                return cursor.rowcount > 0
-
-        except Exception as e:
-            logger.error(f"Failed to delete system state {key}: {e}")
-            return False
-
-    # Analytics and Reporting
-
-    async def get_processing_stats(
-        self, collection: Optional[str] = None, days: int = 7
-    ) -> Dict[str, Any]:
-        """Get processing statistics for the specified time period."""
-        try:
-            cutoff_date = datetime.now(timezone.utc) - timedelta(days=days)
-
-            with self._lock:
-                # File processing stats
-                sql = """
-                    SELECT status, COUNT(*) as count
-                    FROM file_processing
-                    WHERE updated_at >= ?
-                """
-                params = [cutoff_date.isoformat()]
-
-                if collection:
-                    sql += " AND collection = ?"
-                    params.append(collection)
-
-                sql += " GROUP BY status"
-
-                cursor = self.connection.execute(sql, params)
-                status_stats = {
-                    row["status"]: row["count"] for row in cursor.fetchall()
-                }
-
-                # Processing history stats
-                sql = """
-                    SELECT 
-                        COUNT(*) as total_processed,
-                        AVG(processing_time_ms) as avg_processing_time,
-                        SUM(CASE WHEN status = 'completed' THEN 1 ELSE 0 END) as successful,
-                        SUM(CASE WHEN status = 'failed' THEN 1 ELSE 0 END) as failed
-                    FROM processing_history
-                    WHERE created_at >= ?
-                """
-                params = [cutoff_date.isoformat()]
-
-                if collection:
-                    sql += " AND collection = ?"
-                    params.append(collection)
-
-                cursor = self.connection.execute(sql, params)
-                history_stats = cursor.fetchone()
-
-                return {
-                    "period_days": days,
-                    "collection": collection,
-                    "file_status_counts": status_stats,
-                    "total_processed": history_stats["total_processed"] or 0,
-                    "successful": history_stats["successful"] or 0,
-                    "failed": history_stats["failed"] or 0,
-                    "success_rate": (
-                        (history_stats["successful"] or 0)
-                        / max(1, history_stats["total_processed"] or 1)
-                    ),
-                    "avg_processing_time_ms": history_stats["avg_processing_time"] or 0,
-                    "queue_stats": await self.get_queue_stats(collection),
-                }
-
-        except Exception as e:
-            logger.error(f"Failed to get processing stats: {e}")
-            return {
-                "period_days": days,
-                "collection": collection,
-                "file_status_counts": {},
-                "total_processed": 0,
-                "successful": 0,
-                "failed": 0,
-                "success_rate": 0.0,
-                "avg_processing_time_ms": 0.0,
-                "queue_stats": {
-                    "total": 0,
-                    "low": 0,
-                    "normal": 0,
-                    "high": 0,
-                    "urgent": 0,
-                },
-            }
-
-    async def get_failed_files(
-        self, collection: Optional[str] = None, limit: int = 100
-    ) -> List[Dict[str, Any]]:
-        """Get list of failed files with error details."""
-        try:
-            with self._lock:
-                sql = """
-                    SELECT file_path, collection, error_message, retry_count, max_retries,
-                           updated_at, file_size
-                    FROM file_processing
-                    WHERE status = 'failed'
-                """
-                params = []
-
-                if collection:
-                    sql += " AND collection = ?"
-                    params.append(collection)
-
-                sql += " ORDER BY updated_at DESC LIMIT ?"
-                params.append(limit)
-
-                cursor = self.connection.execute(sql, params)
-                rows = cursor.fetchall()
-
-                failed_files = []
-                for row in rows:
-                    failed_files.append(
-                        {
-                            "file_path": row["file_path"],
-                            "collection": row["collection"],
-                            "error_message": row["error_message"],
-                            "retry_count": row["retry_count"],
-                            "max_retries": row["max_retries"],
-                            "failed_at": row["updated_at"],
-                            "file_size": row["file_size"],
-                        }
-                    )
-
-                return failed_files
-
-        except Exception as e:
-            logger.error(f"Failed to get failed files: {e}")
-            return []
-
-    # Cleanup and Maintenance
-
-    async def cleanup_old_records(self, days: int = 30) -> Dict[str, int]:
-        """Clean up old processing records."""
-        try:
-            cutoff_date = datetime.now(timezone.utc) - timedelta(days=days)
-            cleanup_counts = {}
-
-            async with self.transaction() as conn:
-                # Clean up completed file processing records
-                cursor = conn.execute(
-                    """
-                    DELETE FROM file_processing 
-                    WHERE status IN ('completed', 'skipped') AND updated_at < ?
-                    """,
-                    (cutoff_date.isoformat(),),
-                )
-                cleanup_counts["file_processing"] = cursor.rowcount
-
-                # Clean up old processing history
-                cursor = conn.execute(
-                    "DELETE FROM processing_history WHERE created_at < ?",
-                    (cutoff_date.isoformat(),),
-                )
-                cleanup_counts["processing_history"] = cursor.rowcount
-
-                # Clean up orphaned queue items
-                cursor = conn.execute(
-                    """
-                    DELETE FROM processing_queue 
-                    WHERE file_path NOT IN (SELECT file_path FROM file_processing)
-                    """
-                )
-                cleanup_counts["orphaned_queue_items"] = cursor.rowcount
-
-            total_cleaned = sum(cleanup_counts.values())
-            if total_cleaned > 0:
-                logger.info(f"Cleaned up {total_cleaned} old records: {cleanup_counts}")
-
-            return cleanup_counts
-
-        except Exception as e:
-            logger.error(f"Failed to cleanup old records: {e}")
-            return {}
-
-    async def vacuum_database(self) -> bool:
-        """Perform database vacuum to reclaim space."""
-        try:
-            logger.info("Performing database vacuum")
-
-            with self._lock:
-                # Close and reopen connection for VACUUM (required)
-                if self.connection:
-                    self.connection.close()
-
-                temp_connection = sqlite3.connect(str(self.db_path), timeout=30.0)
-                temp_connection.execute("VACUUM")
-                temp_connection.close()
-
-                # Reopen with original settings
-                self.connection = sqlite3.connect(
-                    str(self.db_path),
-                    timeout=30.0,
-                    check_same_thread=False,
-                    isolation_level=None,
-                )
-
-                # Restore settings
-                self.connection.execute("PRAGMA journal_mode=WAL")
-                self.connection.execute("PRAGMA synchronous=NORMAL")
-                self.connection.execute("PRAGMA cache_size=10000")
-                self.connection.execute("PRAGMA temp_store=MEMORY")
-                self.connection.execute("PRAGMA mmap_size=268435456")
-                self.connection.execute("PRAGMA wal_autocheckpoint=1000")
-                self.connection.execute("PRAGMA foreign_keys=ON")
-                self.connection.row_factory = sqlite3.Row
-
-            logger.info("Database vacuum completed")
-            return True
-
-        except Exception as e:
-            logger.error(f"Failed to vacuum database: {e}")
-            return False
-
-    async def get_database_stats(self) -> Dict[str, Any]:
-        """Get database size and statistics."""
-        try:
-            with self._lock:
-                # Get table counts
-                tables = {
-                    "file_processing": "SELECT COUNT(*) FROM file_processing",
-                    "watch_folders": "SELECT COUNT(*) FROM watch_folders",
-                    "processing_queue": "SELECT COUNT(*) FROM processing_queue",
-                    "processing_history": "SELECT COUNT(*) FROM processing_history",
-                    "system_state": "SELECT COUNT(*) FROM system_state",
-                    "events": "SELECT COUNT(*) FROM events",
-                    "search_history": "SELECT COUNT(*) FROM search_history",
-                    "memory_rules": "SELECT COUNT(*) FROM memory_rules",
-                    "configuration_history": "SELECT COUNT(*) FROM configuration_history",
-                    "error_log": "SELECT COUNT(*) FROM error_log",
-                    "performance_metrics": "SELECT COUNT(*) FROM performance_metrics",
-                    "resource_usage": "SELECT COUNT(*) FROM resource_usage",
-                }
-
-                table_counts = {}
-                for table, sql in tables.items():
-                    try:
-                        cursor = self.connection.execute(sql)
-                        table_counts[table] = cursor.fetchone()[0]
-                    except sqlite3.Error as e:
-                        table_counts[table] = f"Error: {e}"
-
-                # Get database size info
-                cursor = self.connection.execute("PRAGMA page_count")
-                page_count = cursor.fetchone()[0]
-
-                cursor = self.connection.execute("PRAGMA page_size")
-                page_size = cursor.fetchone()[0]
-
-                total_size_bytes = page_count * page_size
-
-                # Get WAL info
-                cursor = self.connection.execute("PRAGMA wal_checkpoint")
-                wal_info = cursor.fetchone()
-
-                return {
-                    "database_file": str(self.db_path),
-                    "total_size_bytes": total_size_bytes,
-                    "total_size_mb": round(total_size_bytes / (1024 * 1024), 2),
-                    "page_count": page_count,
-                    "page_size": page_size,
-                    "wal_mode": True,
-                    "wal_pages": wal_info[1] if wal_info else 0,
-                    "table_counts": table_counts,
-                    "schema_version": self.SCHEMA_VERSION,
-                }
-
-        except Exception as e:
-            logger.error(f"Failed to get database stats: {e}")
-            return {"error": str(e)}
-
-    # LSP Integration - Project Management Methods
-    
-    async def create_project(self, project: ProjectRecord) -> Optional[int]:
-        """
-        Create a new project record.
-        
-        Args:
-            project: ProjectRecord to create
-            
-        Returns:
-            Project ID if created successfully, None otherwise
-        """
-        try:
-            async with self.transaction() as conn:
-                cursor = conn.execute(
-                    """
-                    INSERT INTO projects (name, root_path, collection_name, lsp_enabled, 
-                                        last_scan, metadata, created_at, updated_at)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-                    """,
-                    (
-                        project.name,
-                        project.root_path,
-                        project.collection_name,
-                        project.lsp_enabled,
-                        project.last_scan,
-                        json.dumps(project.metadata) if project.metadata else None,
-                        project.created_at,
-                        project.updated_at,
-                    ),
-                )
-                
-                project_id = cursor.lastrowid
-                logger.info(f"Created project: {project.name} with ID {project_id}")
-                return project_id
-                
-        except Exception as e:
-            logger.error(f"Failed to create project {project.name}: {e}")
-            return None
-
-    async def get_project(self, project_id: int) -> Optional[ProjectRecord]:
-        """
-        Get project by ID.
-        
-        Args:
-            project_id: Project ID to retrieve
-            
-        Returns:
-            ProjectRecord if found, None otherwise
-        """
-        try:
-            async with self.transaction() as conn:
-                cursor = conn.execute(
-                    """
-                    SELECT id, name, root_path, collection_name, lsp_enabled, 
-                           last_scan, created_at, updated_at, metadata
-                    FROM projects WHERE id = ?
-                    """,
-                    (project_id,),
-                )
-                
-                row = cursor.fetchone()
-                if row:
-                    return ProjectRecord(
-                        id=row[0],
-                        name=row[1],
-                        root_path=row[2],
-                        collection_name=row[3],
-                        lsp_enabled=bool(row[4]),
-                        last_scan=datetime.fromisoformat(row[5]) if row[5] else None,
-                        created_at=datetime.fromisoformat(row[6]),
-                        updated_at=datetime.fromisoformat(row[7]),
-                        metadata=json.loads(row[8]) if row[8] else None,
-                    )
-                    
-        except Exception as e:
-            logger.error(f"Failed to get project {project_id}: {e}")
-        
-        return None
-        
-    async def get_project_by_path(self, root_path: str) -> Optional[ProjectRecord]:
-        """
-        Get project by root path.
-        
-        Args:
-            root_path: Project root path
-            
-        Returns:
-            ProjectRecord if found, None otherwise
-        """
-        try:
-            async with self.transaction() as conn:
-                cursor = conn.execute(
-                    """
-                    SELECT id, name, root_path, collection_name, lsp_enabled, 
-                           last_scan, created_at, updated_at, metadata
-                    FROM projects WHERE root_path = ?
-                    """,
-                    (root_path,),
-                )
-                
-                row = cursor.fetchone()
-                if row:
-                    return ProjectRecord(
-                        id=row[0],
-                        name=row[1],
-                        root_path=row[2],
-                        collection_name=row[3],
-                        lsp_enabled=bool(row[4]),
-                        last_scan=datetime.fromisoformat(row[5]) if row[5] else None,
-                        created_at=datetime.fromisoformat(row[6]),
-                        updated_at=datetime.fromisoformat(row[7]),
-                        metadata=json.loads(row[8]) if row[8] else None,
-                    )
-                    
-        except Exception as e:
-            logger.error(f"Failed to get project by path {root_path}: {e}")
-        
-        return None
-
-    async def update_project(self, project: ProjectRecord) -> bool:
-        """
-        Update an existing project.
-        
-        Args:
-            project: ProjectRecord with updated values
-            
-        Returns:
-            True if updated successfully
-        """
-        if not project.id:
-            logger.error("Cannot update project without ID")
-            return False
-            
-        try:
-            project.updated_at = datetime.now(timezone.utc)
-            
-            async with self.transaction() as conn:
-                cursor = conn.execute(
-                    """
-                    UPDATE projects 
-                    SET name = ?, root_path = ?, collection_name = ?, 
-                        lsp_enabled = ?, last_scan = ?, metadata = ?, updated_at = ?
-                    WHERE id = ?
-                    """,
-                    (
-                        project.name,
-                        project.root_path,
-                        project.collection_name,
-                        project.lsp_enabled,
-                        project.last_scan,
-                        json.dumps(project.metadata) if project.metadata else None,
-                        project.updated_at,
-                        project.id,
-                    ),
-                )
-                
-                if cursor.rowcount > 0:
-                    logger.info(f"Updated project {project.id}: {project.name}")
-                    return True
-                else:
-                    logger.warning(f"No project found with ID {project.id}")
-                    return False
-                    
-        except Exception as e:
-            logger.error(f"Failed to update project {project.id}: {e}")
-            return False
-
-    async def delete_project(self, project_id: int) -> bool:
-        """
-        Delete a project.
-        
-        Args:
-            project_id: Project ID to delete
-            
-        Returns:
-            True if deleted successfully
-        """
-        try:
-            async with self.transaction() as conn:
-                cursor = conn.execute("DELETE FROM projects WHERE id = ?", (project_id,))
-                
-                if cursor.rowcount > 0:
-                    logger.info(f"Deleted project {project_id}")
-                    return True
-                else:
-                    logger.warning(f"No project found with ID {project_id}")
-                    return False
-                    
-        except Exception as e:
-            logger.error(f"Failed to delete project {project_id}: {e}")
-            return False
-
-    async def list_projects(self, lsp_enabled_only: bool = False) -> List[ProjectRecord]:
-        """
-        List all projects.
-        
-        Args:
-            lsp_enabled_only: If True, only return LSP-enabled projects
-            
-        Returns:
-            List of ProjectRecord objects
-        """
-        projects = []
-        
-        try:
-            async with self.transaction() as conn:
-                query = """
-                    SELECT id, name, root_path, collection_name, lsp_enabled, 
-                           last_scan, created_at, updated_at, metadata
-                    FROM projects
-                """
-                
-                params = []
-                if lsp_enabled_only:
-                    query += " WHERE lsp_enabled = 1"
-                    
-                query += " ORDER BY name"
-                
-                cursor = conn.execute(query, params)
-                
-                for row in cursor:
-                    projects.append(ProjectRecord(
-                        id=row[0],
-                        name=row[1],
-                        root_path=row[2],
-                        collection_name=row[3],
-                        lsp_enabled=bool(row[4]),
-                        last_scan=datetime.fromisoformat(row[5]) if row[5] else None,
-                        created_at=datetime.fromisoformat(row[6]),
-                        updated_at=datetime.fromisoformat(row[7]),
-                        metadata=json.loads(row[8]) if row[8] else None,
-                    ))
-                    
-        except Exception as e:
-            logger.error(f"Failed to list projects: {e}")
-            
-        return projects
-
-    async def update_project_scan_time(self, project_id: int) -> bool:
-        """
-        Update the last scan time for a project.
-        
-        Args:
-            project_id: Project ID to update
-            
-        Returns:
-            True if updated successfully
-        """
-        try:
-            now = datetime.now(timezone.utc)
-            
-            async with self.transaction() as conn:
-                cursor = conn.execute(
-                    "UPDATE projects SET last_scan = ?, updated_at = ? WHERE id = ?",
-                    (now, now, project_id),
-                )
-                
-                if cursor.rowcount > 0:
-                    logger.debug(f"Updated scan time for project {project_id}")
-                    return True
-                else:
-                    logger.warning(f"No project found with ID {project_id}")
-                    return False
-                    
-        except Exception as e:
-            logger.error(f"Failed to update scan time for project {project_id}: {e}")
-            return False
-
-    # LSP Integration - LSP Server Management Methods
-    
-    async def create_lsp_server(self, server: LSPServerRecord) -> Optional[int]:
-        """
-        Create a new LSP server record.
-        
-        Args:
-            server: LSPServerRecord to create
-            
-        Returns:
-            Server ID if created successfully, None otherwise
-        """
-        try:
-            async with self.transaction() as conn:
-                cursor = conn.execute(
-                    """
-                    INSERT INTO lsp_servers (language, server_path, version, capabilities, 
-                                           status, last_health_check, metadata, created_at, updated_at)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-                    """,
-                    (
-                        server.language,
-                        server.server_path,
-                        server.version,
-                        json.dumps(server.capabilities) if server.capabilities else None,
-                        server.status.value,
-                        server.last_health_check,
-                        json.dumps(server.metadata) if server.metadata else None,
-                        server.created_at,
-                        server.updated_at,
-                    ),
-                )
-                
-                server_id = cursor.lastrowid
-                logger.info(f"Created LSP server: {server.language} at {server.server_path} with ID {server_id}")
-                return server_id
-                
-        except Exception as e:
-            logger.error(f"Failed to create LSP server {server.language}: {e}")
-            return None
-
-    async def get_lsp_server(self, server_id: int) -> Optional[LSPServerRecord]:
-        """
-        Get LSP server by ID.
-        
-        Args:
-            server_id: Server ID to retrieve
-            
-        Returns:
-            LSPServerRecord if found, None otherwise
-        """
-        try:
-            async with self.transaction() as conn:
-                cursor = conn.execute(
-                    """
-                    SELECT id, language, server_path, version, capabilities, status, 
-                           last_health_check, created_at, updated_at, metadata
-                    FROM lsp_servers WHERE id = ?
-                    """,
-                    (server_id,),
-                )
-                
-                row = cursor.fetchone()
-                if row:
-                    return LSPServerRecord(
-                        id=row[0],
-                        language=row[1],
-                        server_path=row[2],
-                        version=row[3],
-                        capabilities=json.loads(row[4]) if row[4] else None,
-                        status=LSPServerStatus(row[5]),
-                        last_health_check=datetime.fromisoformat(row[6]) if row[6] else None,
-                        created_at=datetime.fromisoformat(row[7]),
-                        updated_at=datetime.fromisoformat(row[8]),
-                        metadata=json.loads(row[9]) if row[9] else None,
-                    )
-                    
-        except Exception as e:
-            logger.error(f"Failed to get LSP server {server_id}: {e}")
-        
-        return None
-
-    async def get_lsp_server_by_language(self, language: str) -> Optional[LSPServerRecord]:
-        """
-        Get LSP server by language.
-        
-        Args:
-            language: Programming language identifier
-            
-        Returns:
-            LSPServerRecord if found, None otherwise
-        """
-        try:
-            async with self.transaction() as conn:
-                cursor = conn.execute(
-                    """
-                    SELECT id, language, server_path, version, capabilities, status, 
-                           last_health_check, created_at, updated_at, metadata
-                    FROM lsp_servers WHERE language = ? AND status != 'unavailable'
-                    ORDER BY last_health_check DESC
-                    LIMIT 1
-                    """,
-                    (language,),
-                )
-                
-                row = cursor.fetchone()
-                if row:
-                    return LSPServerRecord(
-                        id=row[0],
-                        language=row[1],
-                        server_path=row[2],
-                        version=row[3],
-                        capabilities=json.loads(row[4]) if row[4] else None,
-                        status=LSPServerStatus(row[5]),
-                        last_health_check=datetime.fromisoformat(row[6]) if row[6] else None,
-                        created_at=datetime.fromisoformat(row[7]),
-                        updated_at=datetime.fromisoformat(row[8]),
-                        metadata=json.loads(row[9]) if row[9] else None,
-                    )
-                    
-        except Exception as e:
-            logger.error(f"Failed to get LSP server for language {language}: {e}")
-        
-        return None
-
-    async def update_lsp_server(self, server: LSPServerRecord) -> bool:
-        """
-        Update an existing LSP server.
-        
-        Args:
-            server: LSPServerRecord with updated values
-            
-        Returns:
-            True if updated successfully
-        """
-        if not server.id:
-            logger.error("Cannot update LSP server without ID")
-            return False
-            
-        try:
-            server.updated_at = datetime.now(timezone.utc)
-            
-            async with self.transaction() as conn:
-                cursor = conn.execute(
-                    """
-                    UPDATE lsp_servers 
-                    SET language = ?, server_path = ?, version = ?, capabilities = ?, 
-                        status = ?, last_health_check = ?, metadata = ?, updated_at = ?
-                    WHERE id = ?
-                    """,
-                    (
-                        server.language,
-                        server.server_path,
-                        server.version,
-                        json.dumps(server.capabilities) if server.capabilities else None,
-                        server.status.value,
-                        server.last_health_check,
-                        json.dumps(server.metadata) if server.metadata else None,
-                        server.updated_at,
-                        server.id,
-                    ),
-                )
-                
-                if cursor.rowcount > 0:
-                    logger.info(f"Updated LSP server {server.id}: {server.language}")
-                    return True
-                else:
-                    logger.warning(f"No LSP server found with ID {server.id}")
-                    return False
-                    
-        except Exception as e:
-            logger.error(f"Failed to update LSP server {server.id}: {e}")
-            return False
-
-    async def delete_lsp_server(self, server_id: int) -> bool:
-        """
-        Delete an LSP server.
-        
-        Args:
-            server_id: Server ID to delete
-            
-        Returns:
-            True if deleted successfully
-        """
-        try:
-            async with self.transaction() as conn:
-                cursor = conn.execute("DELETE FROM lsp_servers WHERE id = ?", (server_id,))
-                
-                if cursor.rowcount > 0:
-                    logger.info(f"Deleted LSP server {server_id}")
-                    return True
-                else:
-                    logger.warning(f"No LSP server found with ID {server_id}")
-                    return False
-                    
-        except Exception as e:
-            logger.error(f"Failed to delete LSP server {server_id}: {e}")
-            return False
-
-    async def list_lsp_servers(self, language: str = None, status: LSPServerStatus = None) -> List[LSPServerRecord]:
-        """
-        List LSP servers with optional filtering.
-        
-        Args:
-            language: Filter by programming language
-            status: Filter by server status
-            
-        Returns:
-            List of LSPServerRecord objects
-        """
-        servers = []
-        
-        try:
-            async with self.transaction() as conn:
-                query = """
-                    SELECT id, language, server_path, version, capabilities, status, 
-                           last_health_check, created_at, updated_at, metadata
-                    FROM lsp_servers
-                """
-                
-                conditions = []
-                params = []
-                
-                if language:
-                    conditions.append("language = ?")
-                    params.append(language)
-                    
-                if status:
-                    conditions.append("status = ?")
-                    params.append(status.value)
-                
-                if conditions:
-                    query += " WHERE " + " AND ".join(conditions)
-                    
-                query += " ORDER BY language, created_at"
-                
-                cursor = conn.execute(query, params)
-                
-                for row in cursor:
-                    servers.append(LSPServerRecord(
-                        id=row[0],
-                        language=row[1],
-                        server_path=row[2],
-                        version=row[3],
-                        capabilities=json.loads(row[4]) if row[4] else None,
-                        status=LSPServerStatus(row[5]),
-                        last_health_check=datetime.fromisoformat(row[6]) if row[6] else None,
-                        created_at=datetime.fromisoformat(row[7]),
-                        updated_at=datetime.fromisoformat(row[8]),
-                        metadata=json.loads(row[9]) if row[9] else None,
-                    ))
-                    
-        except Exception as e:
-            logger.error(f"Failed to list LSP servers: {e}")
-            
-        return servers
-
-    async def update_lsp_server_health(self, server_id: int, status: LSPServerStatus) -> bool:
-        """
-        Update the health status of an LSP server.
-        
-        Args:
-            server_id: Server ID to update
-            status: New server status
-            
-        Returns:
-            True if updated successfully
-        """
-        try:
-            now = datetime.now(timezone.utc)
-            
-            async with self.transaction() as conn:
-                cursor = conn.execute(
-                    """
-                    UPDATE lsp_servers 
-                    SET status = ?, last_health_check = ?, updated_at = ? 
-                    WHERE id = ?
-                    """,
-                    (status.value, now, now, server_id),
-                )
-                
-                if cursor.rowcount > 0:
-                    logger.debug(f"Updated health for LSP server {server_id}: {status.value}")
-                    return True
-                else:
-                    logger.warning(f"No LSP server found with ID {server_id}")
-                    return False
-                    
-        except Exception as e:
-            logger.error(f"Failed to update health for LSP server {server_id}: {e}")
-            return False
-
-    async def get_active_lsp_servers(self) -> List[LSPServerRecord]:
-        """
-        Get all currently active LSP servers.
-        
-        Returns:
-            List of active LSPServerRecord objects
-        """
-        return await self.list_lsp_servers(status=LSPServerStatus.ACTIVE)
-
-    # LSP Integration - File Metadata Management Methods
-
-    async def update_file_lsp_metadata(
-        self,
-        file_path: str,
-        language_id: str,
-        lsp_server_id: int,
-        symbols_count: int = 0,
-        lsp_metadata: Optional[Dict[str, Any]] = None,
-    ) -> bool:
-        """
-        Update LSP-specific metadata for a file.
-        
-        Args:
-            file_path: Path to the file
-            language_id: Programming language identifier
-            lsp_server_id: ID of LSP server used for analysis
-            symbols_count: Number of symbols extracted
-            lsp_metadata: Additional LSP-specific metadata
-            
-        Returns:
-            True if updated successfully
-        """
-        try:
-            now = datetime.now(timezone.utc)
-            
-            async with self.transaction() as conn:
-                cursor = conn.execute(
-                    """
-                    UPDATE file_processing 
-                    SET language_id = ?, lsp_extracted = 1, symbols_count = ?, 
-                        lsp_server_id = ?, last_lsp_analysis = ?, lsp_metadata = ?, updated_at = ?
-                    WHERE file_path = ?
-                    """,
-                    (
-                        language_id,
-                        symbols_count,
-                        lsp_server_id,
-                        now,
-                        json.dumps(lsp_metadata) if lsp_metadata else None,
-                        now,
-                        file_path,
-                    ),
-                )
-                
-                if cursor.rowcount > 0:
-                    logger.debug(f"Updated LSP metadata for file {file_path}: {symbols_count} symbols")
-                    return True
-                else:
-                    logger.warning(f"No file processing record found for {file_path}")
-                    return False
-                    
-        except Exception as e:
-            logger.error(f"Failed to update LSP metadata for file {file_path}: {e}")
-            return False
-
-    async def get_file_lsp_metadata(self, file_path: str) -> Optional[Dict[str, Any]]:
-        """
-        Get LSP metadata for a file.
-        
-        Args:
-            file_path: Path to the file
-            
-        Returns:
-            Dictionary with LSP metadata if found, None otherwise
-        """
-        try:
-            async with self.transaction() as conn:
-                cursor = conn.execute(
-                    """
-                    SELECT language_id, lsp_extracted, symbols_count, lsp_server_id, 
-                           last_lsp_analysis, lsp_metadata
-                    FROM file_processing 
-                    WHERE file_path = ?
-                    """,
-                    (file_path,),
-                )
-                
-                row = cursor.fetchone()
-                if row:
-                    return {
-                        "language_id": row[0],
-                        "lsp_extracted": bool(row[1]),
-                        "symbols_count": row[2],
-                        "lsp_server_id": row[3],
-                        "last_lsp_analysis": row[4],
-                        "lsp_metadata": json.loads(row[5]) if row[5] else None,
-                    }
-                    
-        except Exception as e:
-            logger.error(f"Failed to get LSP metadata for file {file_path}: {e}")
-            
-        return None
-
-    async def get_files_by_language(self, language_id: str) -> List[str]:
-        """
-        Get all files for a specific programming language.
-        
-        Args:
-            language_id: Programming language identifier
-            
-        Returns:
-            List of file paths for the specified language
-        """
-        files = []
-        
-        try:
-            async with self.transaction() as conn:
-                cursor = conn.execute(
-                    """
-                    SELECT file_path 
-                    FROM file_processing 
-                    WHERE language_id = ? AND lsp_extracted = 1
-                    ORDER BY last_lsp_analysis DESC
-                    """,
-                    (language_id,),
-                )
-                
-                files = [row[0] for row in cursor]
-                    
-        except Exception as e:
-            logger.error(f"Failed to get files by language {language_id}: {e}")
-            
-        return files
-
-    async def get_files_needing_lsp_analysis(self, language_id: str = None) -> List[str]:
-        """
-        Get files that need LSP analysis.
-        
-        Args:
-            language_id: Optional language filter
-            
-        Returns:
-            List of file paths needing LSP analysis
-        """
-        files = []
-        
-        try:
-            async with self.transaction() as conn:
-                query = """
-                    SELECT file_path 
-                    FROM file_processing 
-                    WHERE lsp_extracted = 0 AND status = 'completed'
-                """
-                
-                params = []
-                if language_id:
-                    query += " AND language_id = ?"
-                    params.append(language_id)
-                    
-                query += " ORDER BY updated_at DESC"
-                
-                cursor = conn.execute(query, params)
-                files = [row[0] for row in cursor]
-                    
-        except Exception as e:
-            logger.error(f"Failed to get files needing LSP analysis: {e}")
-            
-        return files
-
-    async def mark_file_lsp_failed(self, file_path: str, error_message: str) -> bool:
-        """
-        Mark a file as having failed LSP analysis.
-        
-        Args:
-            file_path: Path to the file
-            error_message: Error message describing the failure
-            
-        Returns:
-            True if marked successfully
-        """
-        try:
-            now = datetime.now(timezone.utc)
-            
-            async with self.transaction() as conn:
-                cursor = conn.execute(
-                    """
-                    UPDATE file_processing 
-                    SET lsp_extracted = 0, last_lsp_analysis = ?, updated_at = ?,
-                        lsp_metadata = ?
-                    WHERE file_path = ?
-                    """,
-                    (
-                        now,
-                        now,
-                        json.dumps({"error": error_message, "failed_at": now.isoformat()}),
-                        file_path,
-                    ),
-                )
-                
-                if cursor.rowcount > 0:
-                    logger.warning(f"Marked LSP analysis as failed for {file_path}: {error_message}")
-                    return True
-                else:
-                    logger.warning(f"No file processing record found for {file_path}")
-                    return False
-                    
-        except Exception as e:
-            logger.error(f"Failed to mark LSP failure for file {file_path}: {e}")
-            return False
-
-    async def get_lsp_analysis_stats(self) -> Dict[str, Any]:
-        """
-        Get statistics about LSP analysis across all files.
-        
-        Returns:
-            Dictionary with LSP analysis statistics
-        """
-        try:
-            async with self.transaction() as conn:
-                # Get overall stats
-                cursor = conn.execute(
-                    """
-                    SELECT 
-                        COUNT(*) as total_files,
-                        SUM(CASE WHEN lsp_extracted = 1 THEN 1 ELSE 0 END) as analyzed_files,
-                        SUM(symbols_count) as total_symbols,
-                        COUNT(DISTINCT language_id) as languages_count
-                    FROM file_processing
-                    WHERE language_id IS NOT NULL
-                    """
-                )
-                
-                overall_stats = cursor.fetchone()
-                
-                # Get per-language stats
-                cursor = conn.execute(
-                    """
-                    SELECT 
-                        language_id,
-                        COUNT(*) as file_count,
-                        SUM(CASE WHEN lsp_extracted = 1 THEN 1 ELSE 0 END) as analyzed_count,
-                        SUM(symbols_count) as symbols_count,
-                        AVG(symbols_count) as avg_symbols
-                    FROM file_processing
-                    WHERE language_id IS NOT NULL
-                    GROUP BY language_id
-                    ORDER BY file_count DESC
-                    """
-                )
-                
-                language_stats = [
-                    {
-                        "language": row[0],
-                        "file_count": row[1],
-                        "analyzed_count": row[2],
-                        "symbols_count": row[3],
-                        "avg_symbols": round(row[4], 2) if row[4] else 0,
-                    }
-                    for row in cursor
-                ]
-                
-                return {
-                    "total_files": overall_stats[0],
-                    "analyzed_files": overall_stats[1],
-                    "total_symbols": overall_stats[2],
-                    "languages_count": overall_stats[3],
-                    "analysis_rate": round(overall_stats[1] / overall_stats[0] * 100, 2) if overall_stats[0] > 0 else 0,
-                    "language_breakdown": language_stats,
-                }
-                
-        except Exception as e:
-            logger.error(f"Failed to get LSP analysis stats: {e}")
-            return {"error": str(e)}
-
-    async def get_current_branch(self, project_root: Path) -> str:
-        """
-        Get the current Git branch for a project, sanitized for collection names.
-        
-        Args:
-            project_root: Path to the project root directory
-            
-        Returns:
-            Sanitized branch name, "detached" for detached HEAD, "main" if not a git repo
-        """
-        try:
-            # Execute git rev-parse to get current branch
-            result = subprocess.run(
-                ["git", "rev-parse", "--abbrev-ref", "HEAD"],
-                cwd=str(project_root),
-                capture_output=True,
-                text=True,
-                timeout=5.0
-            )
-            
-            if result.returncode == 0:
-                branch = result.stdout.strip()
-                
-                # Handle detached HEAD state
-                if branch == "HEAD":
-                    # Try to get commit hash
-                    hash_result = subprocess.run(
-                        ["git", "rev-parse", "--short", "HEAD"],
-                        cwd=str(project_root),
-                        capture_output=True,
-                        text=True,
-                        timeout=5.0
-                    )
-                    if hash_result.returncode == 0:
-                        commit_hash = hash_result.stdout.strip()
-                        branch = f"detached-{commit_hash}"
-                    else:
-                        branch = "detached"
-                
-                # Sanitize branch name for collection names
-                # Replace special characters with underscores
-                sanitized = re.sub(r"[^a-zA-Z0-9_-]", "_", branch)
-                
-                # Ensure it does not start with underscore or hyphen
-                sanitized = re.sub(r"^[_-]+", "", sanitized)
-                
-                # Ensure it is not empty
-                if not sanitized:
-                    sanitized = "main"
-                
-                logger.debug(f"Git branch for {project_root}: {branch} -> {sanitized}")
-                return sanitized
-            else:
-                # Git command failed, likely not a git repository
-                logger.debug(f"Not a git repository: {project_root}")
-                return "main"
-                
-        except subprocess.TimeoutExpired:
-            logger.warning(f"Git command timeout for {project_root}")
-            return "main"
-        except FileNotFoundError:
-            logger.debug(f"Git not found in PATH")
-            return "main"
-        except Exception as e:
-            logger.error(f"Error getting git branch for {project_root}: {e}")
-            return "main"
-
-    @classmethod
-    def migrate_from_legacy_path(cls, legacy_db_path: str) -> bool:
-        """Migrate existing database from legacy path to OS-standard location.
-
-        Args:
-            legacy_db_path: Path to existing legacy database file
-
-        Returns:
-            bool: True if migration successful or not needed, False on error
-        """
-        try:
-            legacy_path = Path(legacy_db_path)
-            if not legacy_path.exists():
-                logger.info(f"Legacy database not found at {legacy_path}, no migration needed")
-                return True
-
-            # Get OS-standard location
-            os_dirs = OSDirectories()
-            os_dirs.ensure_directories()
-            new_path = os_dirs.get_state_file("workspace_state.db")
-
-            if new_path.exists():
-                logger.info(f"OS-standard database already exists at {new_path}, skipping migration")
-                return True
-
-            # Perform migration
-            logger.info(f"Migrating database from {legacy_path} to {new_path}")
-
-            # Copy the file
-            import shutil
-            shutil.copy2(legacy_path, new_path)
-
-            # Verify the migration
-            if new_path.exists() and new_path.stat().st_size == legacy_path.stat().st_size:
-                logger.info(f"Database migration successful. Legacy file remains at {legacy_path}")
-                logger.info("You can safely delete the legacy database file after verifying the new location works")
-                return True
-            else:
-                logger.error("Database migration verification failed")
-                # Clean up partial migration
-                if new_path.exists():
-                    new_path.unlink()
-                return False
-
-        except Exception as e:
-            logger.error(f"Database migration failed: {e}")
-            return False
-
-
-# Graceful shutdown handler
-class StateManagerShutdownHandler:
-    """Handles graceful shutdown of state manager."""
-
-    def __init__(self, state_manager: SQLiteStateManager):
-        self.state_manager = state_manager
-        self._shutdown_handlers: List[Callable[[], None]] = []
-
-    def add_shutdown_handler(self, handler: Callable[[], None]):
-        """Add a shutdown handler."""
-        self._shutdown_handlers.append(handler)
-
-    async def shutdown(self):
-        """Perform graceful shutdown."""
-        logger.info("Starting graceful shutdown of state manager")
-
-        # Run custom shutdown handlers
-        for handler in self._shutdown_handlers:
-            try:
-                if asyncio.iscoroutinefunction(handler):
-                    await handler()
-                else:
-                    handler()
-            except Exception as e:
-                logger.error(f"Error in shutdown handler: {e}")
-
-        # Close state manager
-        await self.state_manager.close()
-        logger.info("State manager shutdown completed")
-
-
-# Global state manager instance
-_state_manager: Optional[SQLiteStateManager] = None
-_shutdown_handler: Optional[StateManagerShutdownHandler] = None
-
-
-async def get_state_manager(db_path: str = "workspace_state.db") -> SQLiteStateManager:
-    """Get or create global state manager instance."""
-    global _state_manager, _shutdown_handler
-
-    if _state_manager is None:
-        _state_manager = SQLiteStateManager(db_path)
-
-        if not await _state_manager.initialize():
-            raise RuntimeError("Failed to initialize SQLite state manager")
-
-        # Set up shutdown handler
-        _shutdown_handler = StateManagerShutdownHandler(_state_manager)
-
-        # Register with signal handlers
-        import atexit
-
-        atexit.register(lambda: asyncio.create_task(_shutdown_handler.shutdown()))
-
-    return _state_manager
-
-
-async def shutdown_state_manager():
-    """Shutdown global state manager."""
-    global _state_manager, _shutdown_handler
-
-    if _shutdown_handler:
-        await _shutdown_handler.shutdown()
-        _shutdown_handler = None
-        _state_manager = None
+            logger.error(f"Failed to add file to processing queue {file_path}: {e}")
+            return ""
