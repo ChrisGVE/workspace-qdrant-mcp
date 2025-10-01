@@ -387,6 +387,15 @@ fn load_config(args: &DaemonArgs) -> Result<(Config, DaemonConfig), Box<dyn std:
         daemon_config.qdrant.check_compatibility = false;
     }
 
+    // Apply environment variable overrides to queue processor settings
+    daemon_config.queue_processor.apply_env_overrides();
+
+    // Validate queue processor configuration
+    if let Err(e) = daemon_config.queue_processor.validate() {
+        error!("Invalid queue processor configuration: {}", e);
+        return Err(format!("Invalid queue processor configuration: {}", e).into());
+    }
+
     // Convert to engine config for backward compatibility
     let engine_config = Config::from(daemon_config.clone());
 
@@ -396,6 +405,14 @@ fn load_config(args: &DaemonArgs) -> Result<(Config, DaemonConfig), Box<dyn std:
     }
 
     info!("Configuration loaded successfully - Qdrant transport: {:?}", daemon_config.qdrant.transport);
+    info!(
+        "Queue processor config: batch_size={}, poll_interval={}ms, max_retries={}, target_throughput={} docs/min",
+        daemon_config.queue_processor.batch_size,
+        daemon_config.queue_processor.poll_interval_ms,
+        daemon_config.queue_processor.max_retries,
+        daemon_config.queue_processor.target_throughput
+    );
+
     Ok((engine_config, daemon_config))
 }
 
@@ -429,8 +446,8 @@ async fn setup_signal_handlers() -> Result<(), Box<dyn std::error::Error>> {
     Ok(())
 }
 
-/// Initialize queue processor with SQLite connection
-async fn initialize_queue_processor() -> Result<QueueProcessor, Box<dyn std::error::Error>> {
+/// Initialize queue processor with SQLite connection and daemon configuration
+async fn initialize_queue_processor(daemon_config: &DaemonConfig) -> Result<QueueProcessor, Box<dyn std::error::Error>> {
     use std::env;
 
     // Determine database location (same as daemon state manager)
@@ -477,26 +494,15 @@ async fn initialize_queue_processor() -> Result<QueueProcessor, Box<dyn std::err
 
     info!("Queue schema initialized successfully");
 
-    // Create processor configuration with default values
-    let processor_config = ProcessorConfig {
-        batch_size: 10,
-        poll_interval_ms: 500,
-        max_retries: 5,
-        retry_delays: vec![
-            chrono::Duration::minutes(1),
-            chrono::Duration::minutes(5),
-            chrono::Duration::minutes(15),
-            chrono::Duration::hours(1),
-        ],
-        target_throughput: 1000, // 1000+ docs/min
-        enable_metrics: true,
-    };
+    // Convert queue processor settings from daemon config to ProcessorConfig
+    let processor_config: ProcessorConfig = daemon_config.queue_processor.clone().into();
 
     info!(
-        "Queue processor configuration: batch_size={}, poll_interval={}ms, max_retries={}",
+        "Queue processor configuration: batch_size={}, poll_interval={}ms, max_retries={}, retry_delays={}",
         processor_config.batch_size,
         processor_config.poll_interval_ms,
-        processor_config.max_retries
+        processor_config.max_retries,
+        processor_config.retry_delays.len()
     );
 
     // Create queue processor
@@ -522,9 +528,9 @@ async fn run_daemon(_config: Config, daemon_config: DaemonConfig, args: DaemonAr
         remove_pid_file(&pid_file_cleanup);
     });
 
-    // Initialize the queue processor FIRST (before processing engine)
+    // Initialize the queue processor FIRST (before processing engine) with daemon config
     info!("Initializing queue processor...");
-    let mut queue_processor = initialize_queue_processor().await.map_err(|e| {
+    let mut queue_processor = initialize_queue_processor(&daemon_config).await.map_err(|e| {
         error!("Failed to initialize queue processor: {}", e);
         e
     })?;
