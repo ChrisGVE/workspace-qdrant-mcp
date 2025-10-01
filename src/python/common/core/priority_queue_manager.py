@@ -304,7 +304,7 @@ class PriorityQueueManager:
                     raise RuntimeError("Failed to initialize state manager")
 
             # Initialize queue client for priority updates
-            self.queue_client = SQLiteQueueClient()
+            self.queue_client = SQLiteQueueClient(db_path=str(self.state_manager.db_path))
             await self.queue_client.initialize()
 
             # Initialize processing mode and resources
@@ -911,8 +911,7 @@ class PriorityQueueManager:
         base_size = base_sizes[self.processing_mode]
 
         # Adjust based on queue size
-        queue_stats = await self.state_manager.queue_stats()
-        total_queued = sum(queue_stats.values()) if queue_stats else 0
+        total_queued = await self.queue_client.get_queue_depth() if self.queue_client else 0
 
         if total_queued > 20:
             return min(base_size * 2, 10)  # Increase batch size for large queues
@@ -1200,14 +1199,16 @@ class PriorityQueueManager:
 
     async def _update_queue_statistics(self):
         """Update queue processing statistics."""
-        # Get current queue stats from database
-        queue_stats = await self.state_manager.queue_stats()
-
-        self.statistics.total_items = sum(queue_stats.values()) if queue_stats else 0
-        self.statistics.items_by_priority = {
-            priority.name: queue_stats.get(priority.value, 0)
-            for priority in ProcessingPriority
-        }
+        # Get current queue stats from database via queue client
+        if self.queue_client:
+            queue_stats_dict = await self.queue_client.get_queue_stats()
+            self.statistics.total_items = queue_stats_dict.get("total_items", 0)
+            self.statistics.items_by_priority = {
+                "URGENT": queue_stats_dict.get("urgent_items", 0),
+                "HIGH": queue_stats_dict.get("high_items", 0),
+                "NORMAL": queue_stats_dict.get("normal_items", 0),
+                "LOW": queue_stats_dict.get("low_items", 0),
+            }
 
         # Calculate processing rate (items per minute)
         if self.processing_history:
