@@ -36,6 +36,7 @@ tokio-util = "0.7"
 zip = "2.1"
 epub = "2.0"
 fastrand = "2.0"
+rand = "0.8"
 clap = { version = "4.4", features = ["derive", "string"] }
 scopeguard = "1.2"
 tempfile = "3.8"
