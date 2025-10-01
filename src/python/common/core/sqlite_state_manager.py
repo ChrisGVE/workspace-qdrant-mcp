@@ -1377,6 +1377,83 @@ class SQLiteStateManager:
             logger.error(f"Failed to dequeue items: {e}")
             raise
 
+    async def get_queue_depth(
+        self,
+        tenant_id: Optional[str] = None,
+        branch: Optional[str] = None,
+    ) -> int:
+        """
+        Get the current depth (count) of the ingestion queue.
+
+        Args:
+            tenant_id: Optional filter by tenant ID
+            branch: Optional filter by branch
+
+        Returns:
+            Number of items in the queue matching the filters
+        """
+        if not self._initialized:
+            raise RuntimeError("State manager not initialized")
+
+        try:
+            query = "SELECT COUNT(*) FROM ingestion_queue WHERE 1=1"
+            params = []
+
+            if tenant_id:
+                query += " AND tenant_id = ?"
+                params.append(tenant_id)
+
+            if branch:
+                query += " AND branch = ?"
+                params.append(branch)
+
+            with self._lock:
+                cursor = self.connection.execute(query, params)
+                count = cursor.fetchone()[0]
+                return count
+
+        except Exception as e:
+            logger.error(f"Failed to get queue depth: {e}")
+            raise
+
+    async def remove_from_queue(
+        self,
+        queue_id: str,
+    ) -> bool:
+        """
+        Remove an item from the ingestion queue.
+
+        Args:
+            queue_id: Queue ID (file_absolute_path) of the item to remove
+
+        Returns:
+            True if the item was removed, False if it didn't exist
+
+        Raises:
+            RuntimeError: If state manager not initialized
+        """
+        if not self._initialized:
+            raise RuntimeError("State manager not initialized")
+
+        try:
+            async with self.transaction() as conn:
+                cursor = conn.execute(
+                    "DELETE FROM ingestion_queue WHERE file_absolute_path = ?",
+                    (queue_id,)
+                )
+                deleted = cursor.rowcount > 0
+
+                if deleted:
+                    logger.debug(f"Removed item from queue: {queue_id}")
+                else:
+                    logger.warning(f"Queue item not found: {queue_id}")
+
+                return deleted
+
+        except Exception as e:
+            logger.error(f"Failed to remove from queue {queue_id}: {e}")
+            raise
+
     # Multi-Component Communication Support Methods
 
     async def update_processing_state(
