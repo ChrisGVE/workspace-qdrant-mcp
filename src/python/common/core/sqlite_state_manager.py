@@ -1130,6 +1130,143 @@ class SQLiteStateManager:
         logger.debug(f"Generated tenant_id from path hash: {tenant_id}")
         return tenant_id
 
+    async def get_current_branch(self, project_root: Path) -> str:
+        """
+        Get the current git branch for a project.
+
+        Args:
+            project_root: Path to the project root directory
+
+        Returns:
+            Current branch name, defaults to 'main' if not in a git repository
+        """
+        try:
+            # Try to get current branch from git
+            result = subprocess.run(
+                ["git", "rev-parse", "--abbrev-ref", "HEAD"],
+                cwd=str(project_root),
+                capture_output=True,
+                text=True,
+                timeout=5,
+            )
+
+            if result.returncode == 0 and result.stdout.strip():
+                branch = result.stdout.strip()
+                logger.debug(f"Detected git branch: {branch}")
+                return branch
+            else:
+                logger.debug(f"No git branch found for {project_root}, using default 'main'")
+                return "main"
+
+        except subprocess.TimeoutExpired:
+            logger.warning(f"Git command timeout for {project_root}, using default 'main'")
+            return "main"
+        except FileNotFoundError:
+            logger.debug(f"Git not found in PATH for {project_root}, using default 'main'")
+            return "main"
+        except Exception as e:
+            logger.warning(f"Error getting git branch for {project_root}: {e}, using default 'main'")
+            return "main"
+
+    async def enqueue(
+        self,
+        file_path: str,
+        collection: str,
+        priority: int,
+        tenant_id: str,
+        branch: str,
+        metadata: Optional[Dict] = None,
+    ) -> str:
+        """
+        Enqueue a file to the ingestion queue.
+
+        Handles UNIQUE constraint violations gracefully by updating the priority
+        of existing items instead of raising an error.
+
+        Args:
+            file_path: Absolute path to the file to enqueue
+            collection: Target collection name
+            priority: Priority level (0-10, where 10 is highest)
+            tenant_id: Tenant identifier for multi-tenancy support
+            branch: Branch identifier for multi-branch support
+            metadata: Optional metadata dictionary to store with the queue item
+
+        Returns:
+            Queue ID (file_absolute_path) of the enqueued item
+
+        Raises:
+            ValueError: If priority is out of valid range (0-10)
+        """
+        try:
+            # Validate priority
+            if not 0 <= priority <= 10:
+                raise ValueError(f"Priority must be between 0 and 10, got {priority}")
+
+            # Normalize file path to absolute path
+            file_absolute_path = str(Path(file_path).resolve())
+
+            # File path serves as queue ID
+            queue_id = file_absolute_path
+
+            async with self.transaction() as conn:
+                # Try to insert the new queue item
+                # If it already exists (UNIQUE constraint on file_absolute_path),
+                # update its priority instead
+                try:
+                    conn.execute(
+                        """
+                        INSERT INTO ingestion_queue
+                        (file_absolute_path, collection_name, tenant_id, branch,
+                         operation, priority, metadata)
+                        VALUES (?, ?, ?, ?, 'ingest', ?, ?)
+                        """,
+                        (
+                            file_absolute_path,
+                            collection,
+                            tenant_id,
+                            branch,
+                            priority,
+                            self._serialize_json(metadata) if metadata else None,
+                        ),
+                    )
+                    logger.debug(
+                        f"Enqueued file: {file_absolute_path} "
+                        f"(collection={collection}, priority={priority}, "
+                        f"tenant={tenant_id}, branch={branch})"
+                    )
+                except sqlite3.IntegrityError as e:
+                    # Handle UNIQUE constraint violation by updating priority
+                    if "UNIQUE constraint" in str(e) or "PRIMARY KEY" in str(e):
+                        conn.execute(
+                            """
+                            UPDATE ingestion_queue
+                            SET priority = ?, queued_timestamp = CURRENT_TIMESTAMP,
+                                metadata = COALESCE(?, metadata)
+                            WHERE file_absolute_path = ?
+                            """,
+                            (
+                                priority,
+                                self._serialize_json(metadata) if metadata else None,
+                                file_absolute_path,
+                            ),
+                        )
+                        logger.debug(
+                            f"Updated existing queue item: {file_absolute_path} "
+                            f"(new priority={priority})"
+                        )
+                    else:
+                        # Re-raise if it's a different integrity error
+                        raise
+
+            return queue_id
+
+        except ValueError:
+            # Re-raise validation errors
+            raise
+        except Exception as e:
+            logger.error(f"Failed to enqueue file {file_path}: {e}")
+            raise
+
     # Multi-Component Communication Support Methods
 
     async def update_processing_state(

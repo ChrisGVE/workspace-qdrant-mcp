@@ -384,35 +384,35 @@ class PriorityQueueManager:
             # Calculate dynamic priority
             priority, score = await self._calculate_dynamic_priority(context)
 
-            # Create processing job
-            job = ProcessingJob(
-                queue_id=f"pq_{int(time.time() * 1000000)}_{hash(file_path) % 100000}",
+            # Calculate tenant_id and branch for new queue system
+            project_root = Path(file_path).parent
+            tenant_id = await self.state_manager.calculate_tenant_id(project_root)
+            branch = await self.state_manager.get_current_branch(project_root)
+
+            # Create processing job metadata with queue integration info
+            job_metadata = {
+                **(metadata or {}),
+                "calculated_score": score,
+                "user_triggered": user_triggered,
+                "mcp_activity_level": self.mcp_activity.activity_level.value,
+                "processing_mode": self.processing_mode.value,
+                "tenant_id": tenant_id,
+                "branch": branch
+            }
+
+            # Enqueue using new SQLite queue operations
+            queue_id = await self.state_manager.enqueue(
                 file_path=file_path,
                 collection=collection,
-                priority=priority,
-                calculated_score=score,
-                metadata=metadata or {},
-                processing_context=context
+                priority=priority.value,  # Convert enum to integer
+                tenant_id=tenant_id,
+                branch=branch,
+                metadata=job_metadata
             )
 
-            # Add to SQLite queue
-            queue_id = await self.state_manager.add_to_processing_queue(
-                file_path=file_path,
-                collection=collection,
-                priority=priority,
-                metadata={
-                    **job.metadata,
-                    "calculated_score": score,
-                    "user_triggered": user_triggered,
-                    "mcp_activity_level": self.mcp_activity.activity_level.value,
-                    "processing_mode": self.processing_mode.value
-                }
-            )
-
-            job.queue_id = queue_id
             logger.info(
                 f"Enqueued file: {file_path} (priority: {priority.name}, "
-                f"score: {score:.2f}, queue_id: {queue_id})"
+                f"score: {score:.2f}, queue_id: {queue_id}, tenant: {tenant_id}, branch: {branch})"
             )
 
             # Update statistics
