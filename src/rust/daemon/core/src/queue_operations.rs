@@ -146,6 +146,7 @@ pub struct QueueStats {
     pub newest_item: Option<DateTime<Utc>>,
 }
 
+#[derive(Clone)]
 /// Queue manager for Rust daemon operations
 pub struct QueueManager {
     pool: SqlitePool,

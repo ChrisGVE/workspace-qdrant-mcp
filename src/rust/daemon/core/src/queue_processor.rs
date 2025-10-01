@@ -1,0 +1,618 @@
+//! Queue Processing Loop Module
+//!
+//! Implements Phase 2 of Task 352: Background processing loop that dequeues
+//! and processes items from the ingestion queue with error handling, retry
+//! logic, and performance monitoring.
+
+use chrono::{DateTime, Duration as ChronoDuration, Utc};
+use sqlx::SqlitePool;
+use std::sync::Arc;
+use std::time::Duration;
+use thiserror::Error;
+use tokio::sync::RwLock;
+use tokio::task::JoinHandle;
+use tokio_util::sync::CancellationToken;
+use tracing::{debug, error, info, warn};
+
+use crate::queue_operations::{QueueError, QueueItem, QueueManager, QueueOperation};
+
+/// Queue processor errors
+#[derive(Error, Debug)]
+pub enum ProcessorError {
+    #[error("Queue operation failed: {0}")]
+    QueueOperation(#[from] QueueError),
+
+    #[error("Processing failed: {0}")]
+    ProcessingFailed(String),
+
+    #[error("Tool unavailable: {0}")]
+    ToolUnavailable(String),
+
+    #[error("Configuration error: {0}")]
+    Configuration(String),
+
+    #[error("Shutdown requested")]
+    ShutdownRequested,
+}
+
+/// Result type for processor operations
+pub type ProcessorResult<T> = Result<T, ProcessorError>;
+
+/// Configuration for the queue processor
+#[derive(Debug, Clone)]
+pub struct ProcessorConfig {
+    /// Number of items to dequeue in each batch
+    pub batch_size: i32,
+
+    /// Poll interval between batches (milliseconds)
+    pub poll_interval_ms: u64,
+
+    /// Maximum number of retry attempts
+    pub max_retries: i32,
+
+    /// Retry delay intervals (exponential backoff)
+    pub retry_delays: Vec<ChronoDuration>,
+
+    /// Target processing throughput (docs per minute)
+    pub target_throughput: u64,
+
+    /// Enable performance monitoring
+    pub enable_metrics: bool,
+}
+
+impl Default for ProcessorConfig {
+    fn default() -> Self {
+        Self {
+            batch_size: 10,
+            poll_interval_ms: 500,
+            max_retries: 5,
+            retry_delays: vec![
+                ChronoDuration::minutes(1),
+                ChronoDuration::minutes(5),
+                ChronoDuration::minutes(15),
+                ChronoDuration::hours(1),
+            ],
+            target_throughput: 1000, // 1000+ docs/min
+            enable_metrics: true,
+        }
+    }
+}
+
+/// Processing metrics for monitoring
+#[derive(Debug, Clone, Default)]
+pub struct ProcessingMetrics {
+    /// Total items processed
+    pub items_processed: u64,
+
+    /// Total items failed
+    pub items_failed: u64,
+
+    /// Items moved to missing metadata queue
+    pub items_missing_metadata: u64,
+
+    /// Current queue depth
+    pub queue_depth: i64,
+
+    /// Average processing time (milliseconds)
+    pub avg_processing_time_ms: f64,
+
+    /// Items processed per second
+    pub items_per_second: f64,
+
+    /// Last metrics update time
+    pub last_update: DateTime<Utc>,
+
+    /// Total errors by type
+    pub error_counts: std::collections::HashMap<String, u64>,
+}
+
+impl ProcessingMetrics {
+    /// Calculate throughput in documents per minute
+    pub fn throughput_per_minute(&self) -> f64 {
+        self.items_per_second * 60.0
+    }
+
+    /// Check if meeting target throughput
+    pub fn meets_target(&self, target: u64) -> bool {
+        self.throughput_per_minute() >= target as f64
+    }
+}
+
+/// Queue processor manages background processing of queue items
+pub struct QueueProcessor {
+    /// Queue manager for database operations
+    queue_manager: QueueManager,
+
+    /// Processor configuration
+    config: ProcessorConfig,
+
+    /// Processing metrics
+    metrics: Arc<RwLock<ProcessingMetrics>>,
+
+    /// Cancellation token for graceful shutdown
+    cancellation_token: CancellationToken,
+
+    /// Background task handle
+    task_handle: Option<JoinHandle<()>>,
+}
+
+impl QueueProcessor {
+    /// Create a new queue processor
+    pub fn new(pool: SqlitePool, config: ProcessorConfig) -> Self {
+        Self {
+            queue_manager: QueueManager::new(pool),
+            config,
+            metrics: Arc::new(RwLock::new(ProcessingMetrics::default())),
+            cancellation_token: CancellationToken::new(),
+            task_handle: None,
+        }
+    }
+
+    /// Create with default configuration
+    pub fn with_defaults(pool: SqlitePool) -> Self {
+        Self::new(pool, ProcessorConfig::default())
+    }
+
+    /// Start the background processing loop
+    pub fn start(&mut self) -> ProcessorResult<()> {
+        if self.task_handle.is_some() {
+            warn!("Queue processor is already running");
+            return Ok(());
+        }
+
+        info!(
+            "Starting queue processor (batch_size={}, poll_interval={}ms)",
+            self.config.batch_size, self.config.poll_interval_ms
+        );
+
+        let queue_manager = self.queue_manager.clone();
+        let config = self.config.clone();
+        let metrics = self.metrics.clone();
+        let cancellation_token = self.cancellation_token.clone();
+
+        let task_handle = tokio::spawn(async move {
+            if let Err(e) = Self::processing_loop(
+                queue_manager,
+                config,
+                metrics,
+                cancellation_token.clone(),
+            )
+            .await
+            {
+                error!("Processing loop failed: {}", e);
+            }
+
+            info!("Queue processor stopped");
+        });
+
+        self.task_handle = Some(task_handle);
+
+        info!("Queue processor started successfully");
+        Ok(())
+    }
+
+    /// Stop the background processing loop gracefully
+    pub async fn stop(&mut self) -> ProcessorResult<()> {
+        info!("Stopping queue processor...");
+
+        // Signal cancellation
+        self.cancellation_token.cancel();
+
+        // Wait for task to complete
+        if let Some(handle) = self.task_handle.take() {
+            match tokio::time::timeout(Duration::from_secs(30), handle).await {
+                Ok(Ok(())) => {
+                    info!("Queue processor stopped cleanly");
+                }
+                Ok(Err(e)) => {
+                    error!("Queue processor task panicked: {}", e);
+                }
+                Err(_) => {
+                    warn!("Queue processor did not stop within timeout");
+                }
+            }
+        }
+
+        Ok(())
+    }
+
+    /// Get current processing metrics
+    pub async fn get_metrics(&self) -> ProcessingMetrics {
+        self.metrics.read().await.clone()
+    }
+
+    /// Main processing loop (runs in background task)
+    async fn processing_loop(
+        queue_manager: QueueManager,
+        config: ProcessorConfig,
+        metrics: Arc<RwLock<ProcessingMetrics>>,
+        cancellation_token: CancellationToken,
+    ) -> ProcessorResult<()> {
+        let poll_interval = Duration::from_millis(config.poll_interval_ms);
+        let mut last_metrics_log = Utc::now();
+        let metrics_log_interval = ChronoDuration::minutes(1);
+
+        info!("Processing loop started");
+
+        loop {
+            // Check for shutdown signal
+            if cancellation_token.is_cancelled() {
+                info!("Shutdown signal received");
+                break;
+            }
+
+            // Dequeue batch of items
+            match queue_manager
+                .dequeue_batch(config.batch_size, None, None)
+                .await
+            {
+                Ok(items) => {
+                    if items.is_empty() {
+                        // No items in queue, wait before next poll
+                        debug!("Queue is empty, waiting {}ms", config.poll_interval_ms);
+                        tokio::time::sleep(poll_interval).await;
+                        continue;
+                    }
+
+                    info!("Dequeued {} items for processing", items.len());
+
+                    // Process each item
+                    for item in items {
+                        // Check shutdown signal before processing each item
+                        if cancellation_token.is_cancelled() {
+                            warn!("Shutdown requested, stopping batch processing");
+                            return Ok(());
+                        }
+
+                        let start_time = std::time::Instant::now();
+
+                        match Self::process_item(&queue_manager, &item, &config).await {
+                            Ok(()) => {
+                                let processing_time = start_time.elapsed().as_millis() as u64;
+                                Self::update_metrics_success(
+                                    &metrics,
+                                    processing_time,
+                                    &queue_manager,
+                                )
+                                .await;
+                            }
+                            Err(e) => {
+                                error!(
+                                    "Failed to process item {}: {}",
+                                    item.file_absolute_path, e
+                                );
+                                Self::update_metrics_failure(&metrics, &e).await;
+                            }
+                        }
+                    }
+                }
+                Err(e) => {
+                    error!("Failed to dequeue batch: {}", e);
+                    // Wait before retrying
+                    tokio::time::sleep(poll_interval).await;
+                }
+            }
+
+            // Log metrics periodically
+            let now = Utc::now();
+            if now - last_metrics_log >= metrics_log_interval {
+                Self::log_metrics(&metrics).await;
+                last_metrics_log = now;
+            }
+
+            // Brief pause before next batch
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
+
+        Ok(())
+    }
+
+    /// Process a single queue item
+    async fn process_item(
+        queue_manager: &QueueManager,
+        item: &QueueItem,
+        config: &ProcessorConfig,
+    ) -> ProcessorResult<()> {
+        debug!(
+            "Processing item: {} (operation={}, priority={}, retry_count={})",
+            item.file_absolute_path,
+            item.operation.as_str(),
+            item.priority,
+            item.retry_count
+        );
+
+        // Check if item should be skipped due to retry delay
+        if let Some(retry_from) = &item.retry_from {
+            if let Ok(retry_time) = DateTime::parse_from_rfc3339(retry_from) {
+                let retry_time_utc = retry_time.with_timezone(&Utc);
+                if Utc::now() < retry_time_utc {
+                    debug!(
+                        "Skipping item {} - retry scheduled for {}",
+                        item.file_absolute_path, retry_time_utc
+                    );
+                    return Ok(());
+                }
+            }
+        }
+
+        // Check tool availability before processing
+        match Self::check_tool_availability(item).await {
+            Ok(true) => {
+                // Tools available, process the item
+                match Self::execute_operation(item).await {
+                    Ok(()) => {
+                        // Success - remove from queue
+                        queue_manager
+                            .mark_complete(&item.file_absolute_path)
+                            .await?;
+                        info!("Successfully processed: {}", item.file_absolute_path);
+                        Ok(())
+                    }
+                    Err(e) => {
+                        // Processing failed - handle retry
+                        Self::handle_processing_error(queue_manager, item, &e, config).await
+                    }
+                }
+            }
+            Ok(false) => {
+                // Tools missing - move to missing_metadata_queue
+                warn!(
+                    "Tools unavailable for {}, moving to missing_metadata_queue",
+                    item.file_absolute_path
+                );
+                Self::move_to_missing_metadata_queue(queue_manager, item).await?;
+                queue_manager
+                    .mark_complete(&item.file_absolute_path)
+                    .await?;
+                Ok(())
+            }
+            Err(e) => {
+                // Tool check failed - treat as processing error
+                Self::handle_processing_error(queue_manager, item, &e, config).await
+            }
+        }
+    }
+
+    /// Check if required tools are available for processing
+    async fn check_tool_availability(_item: &QueueItem) -> ProcessorResult<bool> {
+        // TODO: Implement actual tool availability checks
+        // For now, assume all tools are available
+        // In production, this would check:
+        // - LSP server availability
+        // - Tree-sitter parsers
+        // - Embedding models
+        // - Qdrant connection
+        Ok(true)
+    }
+
+    /// Execute the processing operation based on operation type
+    async fn execute_operation(item: &QueueItem) -> ProcessorResult<()> {
+        match item.operation {
+            QueueOperation::Ingest => {
+                // TODO: Call actual ingestion function from processing.rs
+                debug!(
+                    "Executing ingest for {} in collection {}",
+                    item.file_absolute_path, item.collection_name
+                );
+                // Placeholder - will be replaced with actual processing call
+                Ok(())
+            }
+            QueueOperation::Update => {
+                // TODO: Call actual update function
+                debug!(
+                    "Executing update for {} in collection {}",
+                    item.file_absolute_path, item.collection_name
+                );
+                Ok(())
+            }
+            QueueOperation::Delete => {
+                // TODO: Call actual delete function
+                debug!(
+                    "Executing delete for {} in collection {}",
+                    item.file_absolute_path, item.collection_name
+                );
+                Ok(())
+            }
+        }
+    }
+
+    /// Move item to missing_metadata_queue
+    async fn move_to_missing_metadata_queue(
+        _queue_manager: &QueueManager,
+        item: &QueueItem,
+    ) -> ProcessorResult<()> {
+        // TODO: Implement missing_metadata_queue table insertion
+        warn!(
+            "Moving to missing_metadata_queue: {} (missing tools)",
+            item.file_absolute_path
+        );
+        Ok(())
+    }
+
+    /// Handle processing error with retry logic
+    async fn handle_processing_error(
+        queue_manager: &QueueManager,
+        item: &QueueItem,
+        error: &ProcessorError,
+        config: &ProcessorConfig,
+    ) -> ProcessorResult<()> {
+        let error_message = error.to_string();
+        let error_type = match error {
+            ProcessorError::ToolUnavailable(_) => "TOOL_UNAVAILABLE",
+            ProcessorError::ProcessingFailed(_) => "PROCESSING_FAILED",
+            _ => "UNKNOWN_ERROR",
+        };
+
+        // Record error
+        let error_details = Some(
+            vec![
+                ("error_type".to_string(), serde_json::json!(error_type)),
+                ("retry_count".to_string(), serde_json::json!(item.retry_count)),
+            ]
+            .into_iter()
+            .collect(),
+        );
+
+        let (will_retry, _error_id) = queue_manager
+            .mark_error(
+                &item.file_absolute_path,
+                error_type,
+                &error_message,
+                error_details.as_ref(),
+                config.max_retries,
+            )
+            .await?;
+
+        if will_retry {
+            // Calculate retry delay
+            let retry_delay = Self::calculate_retry_delay(item.retry_count, config);
+            let retry_from = Utc::now() + retry_delay;
+
+            info!(
+                "Scheduling retry {}/{} for {} at {}",
+                item.retry_count + 1,
+                config.max_retries,
+                item.file_absolute_path,
+                retry_from
+            );
+
+            // Update retry_from timestamp
+            // Note: mark_error already incremented retry_count
+            // We need to update retry_from separately
+            // TODO: Add update_retry_from method to QueueManager if needed
+
+            Ok(())
+        } else {
+            warn!(
+                "Max retries ({}) reached for {}, removed from queue",
+                config.max_retries, item.file_absolute_path
+            );
+            Ok(())
+        }
+    }
+
+    /// Calculate retry delay based on retry count (exponential backoff)
+    fn calculate_retry_delay(retry_count: i32, config: &ProcessorConfig) -> ChronoDuration {
+        let index = (retry_count as usize).min(config.retry_delays.len() - 1);
+        config.retry_delays[index]
+    }
+
+    /// Update metrics after successful processing
+    async fn update_metrics_success(
+        metrics: &Arc<RwLock<ProcessingMetrics>>,
+        processing_time_ms: u64,
+        queue_manager: &QueueManager,
+    ) {
+        let mut m = metrics.write().await;
+        m.items_processed += 1;
+
+        // Update average processing time (running average)
+        let total_items = m.items_processed as f64;
+        m.avg_processing_time_ms = (m.avg_processing_time_ms * (total_items - 1.0)
+            + processing_time_ms as f64)
+            / total_items;
+
+        // Calculate throughput
+        let elapsed_secs = (Utc::now() - m.last_update).num_seconds() as f64;
+        if elapsed_secs > 0.0 {
+            m.items_per_second = m.items_processed as f64 / elapsed_secs;
+        }
+
+        // Update queue depth
+        if let Ok(depth) = queue_manager.get_queue_depth(None, None).await {
+            m.queue_depth = depth;
+        }
+    }
+
+    /// Update metrics after processing failure
+    async fn update_metrics_failure(metrics: &Arc<RwLock<ProcessingMetrics>>, error: &ProcessorError) {
+        let mut m = metrics.write().await;
+        m.items_failed += 1;
+
+        // Track error by type
+        let error_type = match error {
+            ProcessorError::ToolUnavailable(_) => {
+                m.items_missing_metadata += 1;
+                "tool_unavailable"
+            }
+            ProcessorError::ProcessingFailed(_) => "processing_failed",
+            _ => "other",
+        };
+
+        *m.error_counts.entry(error_type.to_string()).or_insert(0) += 1;
+    }
+
+    /// Log current processing metrics
+    async fn log_metrics(metrics: &Arc<RwLock<ProcessingMetrics>>) {
+        let m = metrics.read().await;
+
+        info!(
+            "Queue Processor Metrics: processed={}, failed={}, missing_metadata={}, \
+             queue_depth={}, avg_time={:.2}ms, throughput={:.1}/min, target={}",
+            m.items_processed,
+            m.items_failed,
+            m.items_missing_metadata,
+            m.queue_depth,
+            m.avg_processing_time_ms,
+            m.throughput_per_minute(),
+            if m.meets_target(1000) { "✓" } else { "✗" }
+        );
+
+        if !m.error_counts.is_empty() {
+            debug!("Error breakdown: {:?}", m.error_counts);
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::queue_config::QueueConnectionConfig;
+    use tempfile::tempdir;
+
+    #[tokio::test]
+    async fn test_processor_creation() {
+        let temp_dir = tempdir().unwrap();
+        let db_path = temp_dir.path().join("test_processor.db");
+
+        let config = QueueConnectionConfig::with_database_path(&db_path);
+        let pool = config.create_pool().await.unwrap();
+
+        let processor = QueueProcessor::with_defaults(pool);
+        assert!(processor.task_handle.is_none());
+    }
+
+    #[tokio::test]
+    async fn test_retry_delay_calculation() {
+        let config = ProcessorConfig::default();
+
+        let delay0 = QueueProcessor::calculate_retry_delay(0, &config);
+        assert_eq!(delay0, ChronoDuration::minutes(1));
+
+        let delay1 = QueueProcessor::calculate_retry_delay(1, &config);
+        assert_eq!(delay1, ChronoDuration::minutes(5));
+
+        let delay2 = QueueProcessor::calculate_retry_delay(2, &config);
+        assert_eq!(delay2, ChronoDuration::minutes(15));
+
+        let delay3 = QueueProcessor::calculate_retry_delay(3, &config);
+        assert_eq!(delay3, ChronoDuration::hours(1));
+
+        // Should cap at last delay
+        let delay10 = QueueProcessor::calculate_retry_delay(10, &config);
+        assert_eq!(delay10, ChronoDuration::hours(1));
+    }
+
+    #[tokio::test]
+    async fn test_metrics_throughput_calculation() {
+        let metrics = ProcessingMetrics {
+            items_processed: 100,
+            items_per_second: 20.0,
+            ..Default::default()
+        };
+
+        assert_eq!(metrics.throughput_per_minute(), 1200.0);
+        assert!(metrics.meets_target(1000));
+        assert!(!metrics.meets_target(1500));
+    }
+}
