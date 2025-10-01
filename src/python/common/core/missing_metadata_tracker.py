@@ -706,3 +706,305 @@ class MissingMetadataTracker:
                 "missing_tree_sitter": [],
                 "both_available": [],
             }
+
+    # Tool-Available Requeuing Methods
+
+    async def requeue_when_tools_available(
+        self,
+        tool_type: str,
+        language: Optional[str] = None,
+        priority: int = 5,
+    ) -> Dict[str, Any]:
+        """
+        Requeue files when tools become available.
+
+        Checks if specified tools are available and requeues tracked files for
+        processing when tools are ready. Supports both LSP and tree-sitter tools.
+
+        For LSP tools, requires language parameter to check language-specific server.
+        For tree-sitter, checks global CLI availability and requeues all files.
+
+        Args:
+            tool_type: Type of tool to check ('lsp' or 'tree_sitter')
+            language: Language name (required for 'lsp', ignored for 'tree_sitter')
+            priority: Queue priority (0-10, default 5=NORMAL)
+
+        Returns:
+            Dictionary with requeuing results:
+            {
+                "tool_type": str,
+                "language": Optional[str],
+                "tool_available": bool,
+                "files_requeued": int,
+                "files_failed": int,
+                "files_removed": int,
+                "errors": List[str]
+            }
+
+        Raises:
+            ValueError: If tool_type is invalid, priority out of range, or
+                       language not provided for LSP tool type
+
+        Example:
+            ```python
+            # Requeue Python files when LSP becomes available
+            result = await tracker.requeue_when_tools_available(
+                tool_type="lsp",
+                language="python",
+                priority=5
+            )
+            print(f"Requeued {result['files_requeued']} files")
+
+            # Requeue all files when tree-sitter becomes available
+            result = await tracker.requeue_when_tools_available(
+                tool_type="tree_sitter",
+                priority=7
+            )
+            ```
+        """
+        # Validate inputs
+        if tool_type not in ("lsp", "tree_sitter"):
+            raise ValueError(f"Invalid tool_type: {tool_type}. Must be 'lsp' or 'tree_sitter'")
+
+        if priority < 0 or priority > 10:
+            raise ValueError(f"Priority must be between 0 and 10, got {priority}")
+
+        if tool_type == "lsp" and not language:
+            raise ValueError("Language parameter required for LSP tool type")
+
+        # Check tool availability
+        tool_available = False
+        tool_path = None
+
+        if tool_type == "lsp":
+            lsp_status = await self.check_lsp_available(language)
+            tool_available = lsp_status["available"]
+            tool_path = lsp_status["path"]
+        else:  # tree_sitter
+            ts_status = await self.check_tree_sitter_available()
+            tool_available = ts_status["available"]
+            tool_path = ts_status["path"]
+
+        result = {
+            "tool_type": tool_type,
+            "language": language,
+            "tool_available": tool_available,
+            "tool_path": tool_path,
+            "files_requeued": 0,
+            "files_failed": 0,
+            "files_removed": 0,
+            "errors": [],
+        }
+
+        # If tool not available, return early
+        if not tool_available:
+            logger.info(
+                f"{tool_type.upper()} {'for ' + language if language else ''} "
+                f"not available, skipping requeue"
+            )
+            return result
+
+        # Requeue files based on tool type
+        try:
+            if tool_type == "lsp":
+                requeue_result = await self._requeue_for_language_lsp(language, priority)
+            else:  # tree_sitter
+                requeue_result = await self._requeue_files_missing_tree_sitter(priority)
+
+            result.update(requeue_result)
+
+            logger.info(
+                f"Requeued {result['files_requeued']} files for {tool_type} "
+                f"{'(' + language + ')' if language else ''}, "
+                f"{result['files_failed']} failed, "
+                f"{result['files_removed']} removed from tracking"
+            )
+
+        except Exception as e:
+            error_msg = f"Failed to requeue files: {e}"
+            logger.error(error_msg, exc_info=True)
+            result["errors"].append(error_msg)
+
+        return result
+
+    async def _get_languages_with_missing_lsp(self) -> List[str]:
+        """
+        Get distinct languages with files missing LSP metadata.
+
+        Returns:
+            List of language names that have files missing LSP metadata
+        """
+        try:
+            with self.state_manager._lock:
+                cursor = self.state_manager.connection.execute(
+                    """
+                    SELECT DISTINCT language_name
+                    FROM files_missing_metadata
+                    WHERE missing_lsp_metadata = 1
+                    ORDER BY language_name
+                    """
+                )
+                rows = cursor.fetchall()
+                languages = [row["language_name"] for row in rows]
+
+                logger.debug(f"Found {len(languages)} languages with files missing LSP")
+                return languages
+
+        except Exception as e:
+            logger.error(f"Failed to get languages with missing LSP: {e}")
+            return []
+
+    async def _requeue_for_language_lsp(
+        self, language: str, priority: int
+    ) -> Dict[str, int]:
+        """
+        Requeue files for a specific language when LSP becomes available.
+
+        Args:
+            language: Language name
+            priority: Queue priority (0-10)
+
+        Returns:
+            Dictionary with counts:
+            {
+                "files_requeued": int,
+                "files_failed": int,
+                "files_removed": int
+            }
+        """
+        files_requeued = 0
+        files_failed = 0
+        files_removed = 0
+
+        # Get files missing LSP for this language
+        files = await self.get_files_missing_metadata(
+            language=language,
+            missing_lsp=True
+        )
+
+        if not files:
+            logger.debug(f"No files found missing LSP for language: {language}")
+            return {
+                "files_requeued": 0,
+                "files_failed": 0,
+                "files_removed": 0,
+            }
+
+        logger.info(f"Processing {len(files)} files missing LSP for {language}")
+
+        # Process in batches of 100
+        batch_size = 100
+        for i in range(0, len(files), batch_size):
+            batch = files[i:i + batch_size]
+
+            for file_info in batch:
+                file_path = file_info["file_absolute_path"]
+                branch = file_info["branch"]
+
+                try:
+                    # Enqueue the file for processing
+                    # Note: We need tenant_id and collection for enqueue
+                    # Using default values for now, may need to be configurable
+                    await self.state_manager.enqueue(
+                        file_path=file_path,
+                        collection=f"default-{language}",  # Collection name based on language
+                        priority=priority,
+                        tenant_id="default",  # Default tenant
+                        branch=branch,
+                        metadata={"requeued_for": "lsp", "language": language},
+                    )
+
+                    files_requeued += 1
+
+                    # Remove from tracking after successful enqueue
+                    removed = await self.remove_tracked_file(file_path)
+                    if removed:
+                        files_removed += 1
+
+                except Exception as e:
+                    logger.warning(
+                        f"Failed to requeue file {file_path}: {e}",
+                        exc_info=False
+                    )
+                    files_failed += 1
+
+        return {
+            "files_requeued": files_requeued,
+            "files_failed": files_failed,
+            "files_removed": files_removed,
+        }
+
+    async def _requeue_files_missing_tree_sitter(
+        self, priority: int
+    ) -> Dict[str, int]:
+        """
+        Requeue all files missing tree-sitter when CLI becomes available.
+
+        Args:
+            priority: Queue priority (0-10)
+
+        Returns:
+            Dictionary with counts:
+            {
+                "files_requeued": int,
+                "files_failed": int,
+                "files_removed": int
+            }
+        """
+        files_requeued = 0
+        files_failed = 0
+        files_removed = 0
+
+        # Get all files missing tree-sitter
+        files = await self.get_files_missing_metadata(missing_ts=True)
+
+        if not files:
+            logger.debug("No files found missing tree-sitter")
+            return {
+                "files_requeued": 0,
+                "files_failed": 0,
+                "files_removed": 0,
+            }
+
+        logger.info(f"Processing {len(files)} files missing tree-sitter")
+
+        # Process in batches of 100
+        batch_size = 100
+        for i in range(0, len(files), batch_size):
+            batch = files[i:i + batch_size]
+
+            for file_info in batch:
+                file_path = file_info["file_absolute_path"]
+                language = file_info["language_name"]
+                branch = file_info["branch"]
+
+                try:
+                    # Enqueue the file for processing
+                    await self.state_manager.enqueue(
+                        file_path=file_path,
+                        collection=f"default-{language}",  # Collection name based on language
+                        priority=priority,
+                        tenant_id="default",  # Default tenant
+                        branch=branch,
+                        metadata={"requeued_for": "tree_sitter", "language": language},
+                    )
+
+                    files_requeued += 1
+
+                    # Remove from tracking after successful enqueue
+                    removed = await self.remove_tracked_file(file_path)
+                    if removed:
+                        files_removed += 1
+
+                except Exception as e:
+                    logger.warning(
+                        f"Failed to requeue file {file_path}: {e}",
+                        exc_info=False
+                    )
+                    files_failed += 1
+
+        return {
+            "files_requeued": files_requeued,
+            "files_failed": files_failed,
+            "files_removed": files_removed,
+        }
