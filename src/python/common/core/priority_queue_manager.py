@@ -23,7 +23,7 @@ Example:
     # Initialize components
     state_manager = SQLiteStateManager("./workspace_state.db")
     await state_manager.initialize()
-    
+
     queue_manager = PriorityQueueManager(
         state_manager=state_manager,
         max_concurrent_jobs=4,
@@ -33,7 +33,7 @@ Example:
 
     # Add files to queue with dynamic priority calculation
     await queue_manager.enqueue_file("/path/to/file.py", "my-project")
-    
+
     # Process queue with resource optimization
     async with queue_manager.get_processing_context() as context:
         await context.process_next_batch()
@@ -71,7 +71,7 @@ from .incremental_processor import (
 
 class MCPActivityLevel(Enum):
     """MCP server activity levels for resource optimization."""
-    
+
     INACTIVE = "inactive"      # No MCP activity detected
     LOW = "low"               # Minimal MCP activity
     MODERATE = "moderate"     # Active user interaction
@@ -81,7 +81,7 @@ class MCPActivityLevel(Enum):
 
 class ProcessingMode(Enum):
     """Processing execution modes based on resource availability."""
-    
+
     CONSERVATIVE = "conservative"  # Single-core, minimal resources
     BALANCED = "balanced"         # Multi-core, moderate resources
     AGGRESSIVE = "aggressive"     # Full multi-core, maximum resources
@@ -90,7 +90,7 @@ class ProcessingMode(Enum):
 
 class QueueHealthStatus(Enum):
     """Queue system health status indicators."""
-    
+
     HEALTHY = "healthy"       # Normal operation
     DEGRADED = "degraded"     # Some issues, but functional
     CRITICAL = "critical"     # Serious issues affecting performance
@@ -100,7 +100,7 @@ class QueueHealthStatus(Enum):
 @dataclass
 class MCPActivityMetrics:
     """Metrics for tracking MCP server activity."""
-    
+
     requests_per_minute: float = 0.0
     active_sessions: int = 0
     last_request_time: Optional[datetime] = None
@@ -109,20 +109,20 @@ class MCPActivityMetrics:
     session_start_time: Optional[datetime] = None
     total_requests: int = 0
     average_request_duration: float = 0.0
-    
+
     def update_activity(self, request_count: int, session_count: int):
         """Update activity metrics with new measurements."""
         now = datetime.now(timezone.utc)
         self.total_requests += request_count
         self.active_sessions = session_count
         self.last_request_time = now if request_count > 0 else self.last_request_time
-        
+
         # Calculate requests per minute
         if self.session_start_time:
             elapsed_minutes = (now - self.session_start_time).total_seconds() / 60.0
             if elapsed_minutes > 0:
                 self.requests_per_minute = self.total_requests / elapsed_minutes
-        
+
         # Determine activity level
         if self.requests_per_minute >= 20:
             self.activity_level = MCPActivityLevel.HIGH
@@ -132,10 +132,10 @@ class MCPActivityMetrics:
             self.activity_level = MCPActivityLevel.LOW
         else:
             self.activity_level = MCPActivityLevel.INACTIVE
-        
+
         # Detect burst activity
         recent_window = timedelta(minutes=2)
-        if (self.last_request_time and 
+        if (self.last_request_time and
             now - self.last_request_time <= recent_window and
             request_count >= 5):
             self.burst_detected = True
@@ -148,7 +148,7 @@ class MCPActivityMetrics:
 @dataclass
 class PriorityCalculationContext:
     """Context information for dynamic priority calculation."""
-    
+
     file_path: str
     collection: str
     mcp_activity: MCPActivityMetrics
@@ -162,10 +162,10 @@ class PriorityCalculationContext:
     processing_history: Dict[str, Any] = field(default_factory=dict)
 
 
-@dataclass 
+@dataclass
 class ProcessingJob:
     """Individual processing job with metadata."""
-    
+
     queue_id: str
     file_path: str
     collection: str
@@ -183,7 +183,7 @@ class ProcessingJob:
 @dataclass
 class QueueStatistics:
     """Comprehensive queue processing statistics."""
-    
+
     total_items: int = 0
     items_by_priority: Dict[str, int] = field(default_factory=dict)
     items_by_status: Dict[str, int] = field(default_factory=dict)
@@ -199,7 +199,7 @@ class QueueStatistics:
 @dataclass
 class ResourceConfiguration:
     """Configuration for resource management and processing limits."""
-    
+
     max_concurrent_jobs: int = 4
     max_memory_mb: int = 1024
     max_cpu_percent: int = 80
@@ -219,11 +219,11 @@ class ResourceConfiguration:
 class PriorityQueueManager:
     """
     Sophisticated priority-based queue management system for MCP-optimized processing.
-    
+
     Provides dynamic priority calculation, resource optimization, and comprehensive
     monitoring for efficient file processing in development workflows.
     """
-    
+
     def __init__(
         self,
         state_manager: SQLiteStateManager,
@@ -234,7 +234,7 @@ class PriorityQueueManager:
     ):
         """
         Initialize Priority Queue Manager.
-        
+
         Args:
             state_manager: SQLite state persistence manager
             incremental_processor: Optional incremental update processor
@@ -247,29 +247,29 @@ class PriorityQueueManager:
         self.resource_config = resource_config or ResourceConfiguration()
         self.mcp_detection_interval = mcp_detection_interval
         self.statistics_retention_hours = statistics_retention_hours
-        
+
         # Activity tracking
         self.mcp_activity = MCPActivityMetrics()
         self.current_project_root: Optional[str] = None
         self.recent_files: Set[str] = set()
-        
+
         # Processing control
         self.processing_mode = ProcessingMode.CONSERVATIVE
         self.executor: Optional[Union[ThreadPoolExecutor, ProcessPoolExecutor]] = None
         self.active_jobs: Dict[str, ProcessingJob] = {}
         self.job_semaphore: Optional[asyncio.Semaphore] = None
-        
+
         # Statistics and monitoring
         self.statistics = QueueStatistics()
         self.processing_history: List[Dict[str, Any]] = []
         self.health_metrics: Dict[str, Any] = {}
-        
+
         # Control flags
         self._initialized = False
         self._shutdown_event = asyncio.Event()
         self._monitoring_task: Optional[asyncio.Task] = None
         self._activity_detection_task: Optional[asyncio.Task] = None
-        
+
         # Callbacks and hooks
         self.priority_calculation_hooks: List[Callable] = []
         self.processing_hooks: List[Callable] = []
@@ -278,38 +278,38 @@ class PriorityQueueManager:
     async def initialize(self) -> bool:
         """
         Initialize the priority queue system.
-        
+
         Returns:
             True if initialization succeeded
         """
         if self._initialized:
             return True
-            
+
         try:
             logger.info("Initializing Priority Queue Manager")
-            
+
             # Ensure state manager is initialized
             if not hasattr(self.state_manager, '_initialized') or not self.state_manager._initialized:
                 if not await self.state_manager.initialize():
                     raise RuntimeError("Failed to initialize state manager")
-            
+
             # Initialize processing mode and resources
             await self._initialize_processing_resources()
-            
+
             # Start activity detection
             self.mcp_activity.session_start_time = datetime.now(timezone.utc)
-            
+
             # Start monitoring tasks
             self._monitoring_task = asyncio.create_task(self._monitoring_loop())
             self._activity_detection_task = asyncio.create_task(self._activity_detection_loop())
-            
+
             # Perform crash recovery
             await self._perform_crash_recovery()
-            
+
             self._initialized = True
             logger.info("Priority Queue Manager initialized successfully")
             return True
-            
+
         except Exception as e:
             logger.error(f"Failed to initialize Priority Queue Manager: {e}")
             await self.shutdown()
@@ -319,12 +319,12 @@ class PriorityQueueManager:
         """Graceful shutdown of queue manager."""
         if not self._initialized:
             return
-            
+
         logger.info("Shutting down Priority Queue Manager")
-        
+
         # Signal shutdown
         self._shutdown_event.set()
-        
+
         # Cancel monitoring tasks
         for task in [self._monitoring_task, self._activity_detection_task]:
             if task and not task.done():
@@ -333,7 +333,7 @@ class PriorityQueueManager:
                     await task
                 except asyncio.CancelledError:
                     pass
-        
+
         # Wait for active jobs to complete (with timeout)
         if self.active_jobs:
             logger.info(f"Waiting for {len(self.active_jobs)} active jobs to complete")
@@ -344,12 +344,12 @@ class PriorityQueueManager:
                 )
             except asyncio.TimeoutError:
                 logger.warning("Timeout waiting for jobs completion, forcing shutdown")
-        
+
         # Cleanup resources
         if self.executor:
             self.executor.shutdown(wait=True)
             self.executor = None
-        
+
         self._initialized = False
         logger.info("Priority Queue Manager shutdown complete")
 
@@ -362,28 +362,28 @@ class PriorityQueueManager:
     ) -> str:
         """
         Add file to processing queue with dynamic priority calculation.
-        
+
         Args:
             file_path: Path to file to be processed
             collection: Target collection name
             user_triggered: Whether this was triggered by user action
             metadata: Optional metadata for the processing job
-            
+
         Returns:
             Queue ID for the enqueued job
         """
         if not self._initialized:
             raise RuntimeError("Priority Queue Manager not initialized")
-            
+
         try:
             # Create priority calculation context
             context = await self._create_priority_context(
                 file_path, collection, user_triggered, metadata or {}
             )
-            
+
             # Calculate dynamic priority
             priority, score = await self._calculate_dynamic_priority(context)
-            
+
             # Create processing job
             job = ProcessingJob(
                 queue_id=f"pq_{int(time.time() * 1000000)}_{hash(file_path) % 100000}",
@@ -394,7 +394,7 @@ class PriorityQueueManager:
                 metadata=metadata or {},
                 processing_context=context
             )
-            
+
             # Add to SQLite queue
             queue_id = await self.state_manager.add_to_processing_queue(
                 file_path=file_path,
@@ -408,53 +408,53 @@ class PriorityQueueManager:
                     "processing_mode": self.processing_mode.value
                 }
             )
-            
+
             job.queue_id = queue_id
             logger.info(
                 f"Enqueued file: {file_path} (priority: {priority.name}, "
                 f"score: {score:.2f}, queue_id: {queue_id})"
             )
-            
+
             # Update statistics
             self.statistics.total_items += 1
             if priority.name not in self.statistics.items_by_priority:
                 self.statistics.items_by_priority[priority.name] = 0
             self.statistics.items_by_priority[priority.name] += 1
-            
+
             return queue_id
-            
+
         except Exception as e:
             logger.error(f"Failed to enqueue file {file_path}: {e}")
             raise
 
     async def process_next_batch(
-        self, 
+        self,
         batch_size: Optional[int] = None
     ) -> List[ProcessingJob]:
         """
         Process the next batch of files from the queue.
-        
+
         Args:
             batch_size: Override batch size based on current processing mode
-            
+
         Returns:
             List of completed processing jobs
         """
         if not self._initialized:
             raise RuntimeError("Priority Queue Manager not initialized")
-            
+
         # Determine batch size based on processing mode
         if batch_size is None:
             batch_size = await self._get_optimal_batch_size()
-        
+
         completed_jobs = []
-        
+
         try:
             # Check resource availability and backpressure
             if await self._check_backpressure():
                 logger.info("Backpressure detected, skipping batch processing")
                 return completed_jobs
-            
+
             # Get next items from queue
             queue_items = []
             for _ in range(batch_size):
@@ -462,12 +462,12 @@ class PriorityQueueManager:
                 if not item:
                     break
                 queue_items.append(item)
-            
+
             if not queue_items:
                 return completed_jobs
-            
+
             logger.info(f"Processing batch of {len(queue_items)} items")
-            
+
             # Create processing jobs
             jobs = []
             for item in queue_items:
@@ -481,7 +481,7 @@ class PriorityQueueManager:
                 )
                 jobs.append(job)
                 self.active_jobs[job.queue_id] = job
-            
+
             # Process jobs concurrently
             if self.processing_mode in [ProcessingMode.CONSERVATIVE]:
                 # Sequential processing for conservative mode
@@ -494,30 +494,30 @@ class PriorityQueueManager:
                 async with self._get_concurrency_limiter():
                     tasks = [self._process_single_job(job) for job in jobs]
                     results = await asyncio.gather(*tasks, return_exceptions=True)
-                    
+
                     for result in results:
                         if isinstance(result, ProcessingJob):
                             completed_jobs.append(result)
                         elif isinstance(result, Exception):
                             logger.error(f"Job processing failed: {result}")
-            
+
             # Update processing statistics
             await self._update_processing_statistics(completed_jobs)
-            
+
             logger.info(f"Completed batch processing: {len(completed_jobs)} jobs")
             return completed_jobs
-            
+
         except Exception as e:
             logger.error(f"Failed to process batch: {e}")
-            
+
             # Clean up active jobs on failure
             for job in [j for j in self.active_jobs.values() if j.queue_id in [qi.queue_id for qi in queue_items]]:
                 await self._handle_job_failure(job, str(e))
-            
+
             return completed_jobs
 
     # --- Priority Calculation Methods ---
-    
+
     async def _create_priority_context(
         self,
         file_path: str,
@@ -527,7 +527,7 @@ class PriorityQueueManager:
     ) -> PriorityCalculationContext:
         """Create context for priority calculation."""
         file_path_obj = Path(file_path)
-        
+
         # Get file metadata
         file_mtime = None
         file_size = 0
@@ -535,7 +535,7 @@ class PriorityQueueManager:
             stat = file_path_obj.stat()
             file_mtime = datetime.fromtimestamp(stat.st_mtime, tz=timezone.utc)
             file_size = stat.st_size
-        
+
         # Determine if this is the current project
         is_current_project = False
         if self.current_project_root:
@@ -544,14 +544,14 @@ class PriorityQueueManager:
                 is_current_project = True
             except ValueError:
                 pass
-        
+
         # Check if recently modified (last 10 minutes)
         is_recently_modified = False
         if file_mtime:
             is_recently_modified = (
                 datetime.now(timezone.utc) - file_mtime
             ).total_seconds() < 600
-        
+
         # Get processing history
         processing_history = {}
         try:
@@ -564,7 +564,7 @@ class PriorityQueueManager:
                 }
         except Exception:
             pass
-        
+
         return PriorityCalculationContext(
             file_path=file_path,
             collection=collection,
@@ -580,24 +580,24 @@ class PriorityQueueManager:
         )
 
     async def _calculate_dynamic_priority(
-        self, 
+        self,
         context: PriorityCalculationContext
     ) -> Tuple[ProcessingPriority, float]:
         """
         Calculate dynamic priority based on multiple factors.
-        
+
         Priority Score Components:
         - MCP Activity Level: 0-40 points
-        - Current Project: 0-25 points  
+        - Current Project: 0-25 points
         - User Triggered: 0-20 points
         - File Recency: 0-15 points
         - Processing History: 0-10 points (penalties for failures)
-        
+
         Returns:
             Tuple of (ProcessingPriority, calculated_score)
         """
         score = 0.0
-        
+
         # MCP Activity Level (0-40 points)
         mcp_multiplier = {
             MCPActivityLevel.INACTIVE: 0.0,
@@ -607,15 +607,15 @@ class PriorityQueueManager:
             MCPActivityLevel.BURST: 1.0
         }
         score += 40 * mcp_multiplier.get(context.mcp_activity.activity_level, 0.0)
-        
+
         # Current Project Bonus (0-25 points)
         if context.is_current_project:
             score += 25
-        
+
         # User Triggered Bonus (0-20 points)
         if context.is_user_triggered:
             score += 20
-        
+
         # File Recency (0-15 points)
         if context.is_recently_modified:
             # More recent files get higher scores
@@ -626,33 +626,33 @@ class PriorityQueueManager:
                 # Linear decay over 60 minutes
                 recency_score = max(0, 15 * (1 - age_minutes / 60))
                 score += recency_score
-        
+
         # Processing History (0 to -10 points for penalties)
         history = context.processing_history
         if history:
             retry_count = history.get("retry_count", 0)
             success_rate = history.get("success_rate", 1.0)
-            
+
             # Penalty for multiple retries
             score -= min(10, retry_count * 2)
-            
+
             # Penalty for low success rate
             if success_rate < 0.5:
                 score -= 5
-        
+
         # File Size Considerations (small adjustment)
         if context.file_size > 10 * 1024 * 1024:  # Files > 10MB
             score -= 2  # Slight penalty for large files
         elif context.file_size < 1024:  # Very small files
             score += 1  # Small boost for quick processing
-        
+
         # Apply hooks for custom priority calculation
         for hook in self.priority_calculation_hooks:
             try:
                 score = await hook(context, score)
             except Exception as e:
                 logger.warning(f"Priority calculation hook failed: {e}")
-        
+
         # Convert score to priority level
         if score >= 70:
             priority = ProcessingPriority.URGENT
@@ -662,46 +662,46 @@ class PriorityQueueManager:
             priority = ProcessingPriority.NORMAL
         else:
             priority = ProcessingPriority.LOW
-        
+
         return priority, score
 
     # --- Resource Management Methods ---
-    
+
     async def _initialize_processing_resources(self):
         """Initialize processing resources based on current activity level."""
         # Detect initial processing mode
         await self._update_processing_mode()
-        
+
         # Initialize executor and semaphore
         await self._configure_executor()
 
     async def _update_processing_mode(self):
         """Update processing mode based on MCP activity and system resources."""
         old_mode = self.processing_mode
-        
+
         # Check system resources
         cpu_percent = psutil.cpu_percent(interval=1)
         memory = psutil.virtual_memory()
-        
+
         # Determine mode based on MCP activity and system load
         if self.mcp_activity.activity_level == MCPActivityLevel.BURST:
             if cpu_percent < 60 and memory.percent < 70:
                 self.processing_mode = ProcessingMode.BURST
             else:
                 self.processing_mode = ProcessingMode.AGGRESSIVE
-                
+
         elif self.mcp_activity.activity_level == MCPActivityLevel.HIGH:
             if cpu_percent < 70 and memory.percent < 80:
                 self.processing_mode = ProcessingMode.AGGRESSIVE
             else:
                 self.processing_mode = ProcessingMode.BALANCED
-                
+
         elif self.mcp_activity.activity_level == MCPActivityLevel.MODERATE:
             self.processing_mode = ProcessingMode.BALANCED
-            
+
         elif self.mcp_activity.activity_level in [MCPActivityLevel.LOW, MCPActivityLevel.INACTIVE]:
             self.processing_mode = ProcessingMode.CONSERVATIVE
-        
+
         # Log mode changes
         if old_mode != self.processing_mode:
             logger.info(f"Processing mode changed: {old_mode.value} -> {self.processing_mode.value}")
@@ -712,7 +712,7 @@ class PriorityQueueManager:
         # Shutdown existing executor
         if self.executor:
             self.executor.shutdown(wait=False)
-            
+
         # Configure based on processing mode
         config_map = {
             ProcessingMode.CONSERVATIVE: {
@@ -732,9 +732,9 @@ class PriorityQueueManager:
                 "use_threads": False
             }
         }
-        
+
         config = config_map[self.processing_mode]
-        
+
         # Create appropriate executor
         if config["use_threads"]:
             self.executor = ThreadPoolExecutor(
@@ -745,10 +745,10 @@ class PriorityQueueManager:
             self.executor = ProcessPoolExecutor(
                 max_workers=config["max_workers"]
             )
-        
+
         # Update semaphore
         self.job_semaphore = asyncio.Semaphore(config["max_workers"])
-        
+
         logger.info(f"Configured executor: {type(self.executor).__name__} with {config['max_workers']} workers")
 
     @asynccontextmanager
@@ -756,7 +756,7 @@ class PriorityQueueManager:
         """Async context manager for controlling job concurrency."""
         if not self.job_semaphore:
             raise RuntimeError("Job semaphore not initialized")
-            
+
         async with self.job_semaphore:
             yield
 
@@ -768,18 +768,18 @@ class PriorityQueueManager:
             ProcessingMode.AGGRESSIVE: 4,
             ProcessingMode.BURST: 6
         }
-        
+
         base_size = base_sizes[self.processing_mode]
-        
+
         # Adjust based on queue size
-        queue_stats = await self.state_manager.get_queue_stats()
+        queue_stats = await self.state_manager.queue_stats()
         total_queued = sum(queue_stats.values()) if queue_stats else 0
-        
+
         if total_queued > 20:
             return min(base_size * 2, 10)  # Increase batch size for large queues
         elif total_queued < 5:
             return max(1, base_size // 2)  # Decrease for small queues
-        
+
         return base_size
 
     async def _check_backpressure(self) -> bool:
@@ -787,45 +787,45 @@ class PriorityQueueManager:
         # Check system resources
         cpu_percent = psutil.cpu_percent()
         memory = psutil.virtual_memory()
-        
+
         # Check if we're over resource thresholds
         cpu_threshold = self.resource_config.max_cpu_percent * self.resource_config.backpressure_threshold
         memory_threshold = (self.resource_config.max_memory_mb * 1024 * 1024) * self.resource_config.backpressure_threshold
-        
+
         if cpu_percent > cpu_threshold:
             logger.warning(f"CPU backpressure detected: {cpu_percent}% > {cpu_threshold}%")
             self.statistics.backpressure_events += 1
             return True
-            
+
         if memory.used > memory_threshold:
             logger.warning(f"Memory backpressure detected: {memory.used / (1024*1024):.1f}MB > {memory_threshold / (1024*1024):.1f}MB")
             self.statistics.backpressure_events += 1
             return True
-        
+
         # Check active job count
         if len(self.active_jobs) >= self.job_semaphore._value * 2:
             logger.info("Job queue backpressure: too many active jobs")
             return True
-        
+
         return False
 
     # --- Job Processing Methods ---
-    
+
     async def _process_single_job(self, job: ProcessingJob) -> Optional[ProcessingJob]:
         """Process a single job from the queue."""
         start_time = time.time()
         job_success = False
-        
+
         try:
             logger.info(f"Processing job {job.queue_id}: {job.file_path}")
-            
+
             # Mark job as processing in database
             await self.state_manager.mark_queue_item_processing(job.queue_id)
-            
+
             # Check if file exists
             if not Path(job.file_path).exists():
                 raise FileNotFoundError(f"File not found: {job.file_path}")
-            
+
             # Process job based on available processor
             if self.incremental_processor:
                 # Use incremental processor for efficient processing
@@ -835,46 +835,46 @@ class PriorityQueueManager:
             else:
                 # Fallback to basic processing
                 await self._process_job_fallback(job)
-            
+
             # Mark job as completed
             await self.state_manager.complete_file_processing(
-                job.file_path, 
+                job.file_path,
                 success=True,
                 document_id=job.metadata.get("document_id")
             )
-            
+
             # Remove from processing queue
             await self.state_manager.remove_from_processing_queue(job.queue_id)
-            
+
             job_success = True
             processing_time = time.time() - start_time
-            
+
             logger.info(f"Completed job {job.queue_id} in {processing_time:.2f}s")
-            
+
             # Update job metadata
             job.metadata.update({
                 "processing_time": processing_time,
                 "completed_at": datetime.now(timezone.utc).isoformat(),
                 "success": True
             })
-            
+
             return job
-            
+
         except Exception as e:
             error_msg = str(e)
             processing_time = time.time() - start_time
-            
+
             logger.error(f"Job {job.queue_id} failed after {processing_time:.2f}s: {error_msg}")
-            
+
             # Handle job failure
             await self._handle_job_failure(job, error_msg)
-            
+
             return None
-        
+
         finally:
             # Remove from active jobs
             self.active_jobs.pop(job.queue_id, None)
-            
+
             # Apply processing hooks
             for hook in self.processing_hooks:
                 try:
@@ -887,10 +887,10 @@ class PriorityQueueManager:
         # This is a basic implementation - in production, this would integrate
         # with the document processing pipeline
         logger.warning(f"Using fallback processing for {job.file_path}")
-        
+
         # Simulate processing time
         await asyncio.sleep(0.1)
-        
+
         # Mark as processed
         await self.state_manager.start_file_processing(job.file_path, job.collection)
         await asyncio.sleep(0.1)  # Simulate actual processing
@@ -900,31 +900,31 @@ class PriorityQueueManager:
         try:
             # Increment attempt count
             job.attempts += 1
-            
+
             # Update file processing record with error
             await self.state_manager.complete_file_processing(
                 job.file_path,
                 success=False,
                 error_message=error_message
             )
-            
+
             # Decide whether to retry
             if job.attempts < job.max_attempts:
                 # Reschedule for retry with exponential backoff
                 delay_seconds = min(300, 30 * (2 ** (job.attempts - 1)))
-                
+
                 await self.state_manager.reschedule_queue_item(
                     job.queue_id,
                     delay_seconds=delay_seconds,
                     max_attempts=job.max_attempts
                 )
-                
+
                 logger.info(f"Rescheduled job {job.queue_id} for retry in {delay_seconds}s (attempt {job.attempts}/{job.max_attempts})")
             else:
                 # Max attempts reached, mark as failed
                 await self.state_manager.remove_from_processing_queue(job.queue_id)
                 logger.error(f"Job {job.queue_id} permanently failed after {job.attempts} attempts")
-        
+
         except Exception as e:
             logger.error(f"Failed to handle job failure for {job.queue_id}: {e}")
 
@@ -934,22 +934,22 @@ class PriorityQueueManager:
             await asyncio.sleep(1)
 
     # --- Activity Detection and Monitoring Methods ---
-    
+
     async def _activity_detection_loop(self):
         """Background loop for detecting MCP activity."""
         logger.info("Starting MCP activity detection loop")
-        
+
         while not self._shutdown_event.is_set():
             try:
                 # Detect MCP activity (this is a simplified implementation)
                 await self._detect_mcp_activity()
-                
+
                 # Update processing mode if needed
                 await self._update_processing_mode()
-                
+
                 # Wait for next detection cycle
                 await asyncio.sleep(self.mcp_detection_interval)
-                
+
             except asyncio.CancelledError:
                 break
             except Exception as e:
@@ -959,7 +959,7 @@ class PriorityQueueManager:
     async def _detect_mcp_activity(self):
         """
         Detect current MCP activity level.
-        
+
         This is a simplified implementation. In production, this would:
         - Monitor MCP server request logs
         - Track active client connections
@@ -968,9 +968,9 @@ class PriorityQueueManager:
         """
         # For now, simulate activity detection based on system load
         # In production, integrate with actual MCP server metrics
-        
+
         current_time = datetime.now(timezone.utc)
-        
+
         # Check for recent file activity in monitored directories
         recent_activity_count = len([
             f for f in self.recent_files
@@ -978,48 +978,48 @@ class PriorityQueueManager:
                 Path(f).stat().st_mtime, tz=timezone.utc
             )).total_seconds() < 300  # 5 minutes
         ]) if self.recent_files else 0
-        
+
         # Update activity metrics
         self.mcp_activity.update_activity(
             request_count=recent_activity_count,
             session_count=1 if recent_activity_count > 0 else 0
         )
-        
+
         # Log activity level changes
         if hasattr(self, '_last_activity_level'):
             if self._last_activity_level != self.mcp_activity.activity_level:
                 logger.info(f"MCP activity level changed: {self._last_activity_level.value} -> {self.mcp_activity.activity_level.value}")
-        
+
         self._last_activity_level = self.mcp_activity.activity_level
 
     async def _monitoring_loop(self):
         """Background monitoring loop for health and statistics."""
         logger.info("Starting monitoring loop")
-        
+
         while not self._shutdown_event.is_set():
             try:
                 # Update health metrics
                 await self._update_health_metrics()
-                
+
                 # Update queue statistics
                 await self._update_queue_statistics()
-                
+
                 # Cleanup old statistics
                 await self._cleanup_old_statistics()
-                
+
                 # Check system health
                 await self._check_system_health()
-                
+
                 # Apply monitoring hooks
                 for hook in self.monitoring_hooks:
                     try:
                         await hook(self.statistics, self.health_metrics)
                     except Exception as e:
                         logger.warning(f"Monitoring hook failed: {e}")
-                
+
                 # Wait for next monitoring cycle
                 await asyncio.sleep(self.resource_config.health_check_interval)
-                
+
             except asyncio.CancelledError:
                 break
             except Exception as e:
@@ -1030,7 +1030,7 @@ class PriorityQueueManager:
         """Update system health metrics."""
         cpu_percent = psutil.cpu_percent()
         memory = psutil.virtual_memory()
-        
+
         self.health_metrics.update({
             "timestamp": datetime.now(timezone.utc).isoformat(),
             "cpu_percent": cpu_percent,
@@ -1045,32 +1045,32 @@ class PriorityQueueManager:
     async def _update_queue_statistics(self):
         """Update queue processing statistics."""
         # Get current queue stats from database
-        queue_stats = await self.state_manager.get_queue_stats()
-        
+        queue_stats = await self.state_manager.queue_stats()
+
         self.statistics.total_items = sum(queue_stats.values()) if queue_stats else 0
         self.statistics.items_by_priority = {
             priority.name: queue_stats.get(priority.value, 0)
             for priority in ProcessingPriority
         }
-        
+
         # Calculate processing rate (items per minute)
         if self.processing_history:
             recent_completions = [
                 entry for entry in self.processing_history
                 if (datetime.now(timezone.utc) - datetime.fromisoformat(entry["timestamp"])).total_seconds() < 3600
             ]
-            
+
             if recent_completions:
                 self.statistics.processing_rate = len(recent_completions) / (60.0)  # per minute
-                
+
                 # Calculate average processing time
                 processing_times = [entry.get("processing_time", 0) for entry in recent_completions]
                 self.statistics.average_processing_time = sum(processing_times) / len(processing_times)
-                
+
                 # Calculate success rate
                 successful = len([entry for entry in recent_completions if entry.get("success", False)])
                 self.statistics.success_rate = successful / len(recent_completions)
-        
+
         self.statistics.last_updated = datetime.now(timezone.utc)
 
     async def _update_processing_statistics(self, completed_jobs: List[ProcessingJob]):
@@ -1087,7 +1087,7 @@ class PriorityQueueManager:
                 "attempts": job.attempts
             }
             self.processing_history.append(entry)
-        
+
         # Keep only recent history to prevent memory bloat
         cutoff_time = datetime.now(timezone.utc) - timedelta(hours=self.statistics_retention_hours)
         self.processing_history = [
@@ -1098,14 +1098,14 @@ class PriorityQueueManager:
     async def _cleanup_old_statistics(self):
         """Clean up old statistics to prevent memory buildup."""
         cutoff_time = datetime.now(timezone.utc) - timedelta(hours=self.statistics_retention_hours)
-        
+
         # Clean processing history
         old_count = len(self.processing_history)
         self.processing_history = [
             entry for entry in self.processing_history
             if datetime.fromisoformat(entry["timestamp"]) > cutoff_time
         ]
-        
+
         cleaned_count = old_count - len(self.processing_history)
         if cleaned_count > 0:
             logger.debug(f"Cleaned up {cleaned_count} old statistics entries")
@@ -1115,13 +1115,13 @@ class PriorityQueueManager:
         # Check resource utilization
         cpu_percent = psutil.cpu_percent()
         memory = psutil.virtual_memory()
-        
+
         # Check backpressure frequency
         recent_backpressure = self.statistics.backpressure_events > 10  # Arbitrary threshold
-        
+
         # Check processing success rate
         low_success_rate = self.statistics.success_rate < 0.8
-        
+
         # Determine health status
         if cpu_percent > 90 or memory.percent > 95 or recent_backpressure:
             self.statistics.health_status = QueueHealthStatus.CRITICAL
@@ -1133,29 +1133,29 @@ class PriorityQueueManager:
             self.statistics.health_status = QueueHealthStatus.HEALTHY
 
     # --- Crash Recovery Methods ---
-    
+
     async def _perform_crash_recovery(self):
         """Perform crash recovery for interrupted processing jobs."""
         logger.info("Performing crash recovery")
-        
+
         try:
             # Find jobs that were marked as processing but never completed
             # This would require additional database queries to identify stale processing records
-            
+
             # For now, just log recovery completion
             # In production, implement sophisticated recovery logic
             logger.info("Crash recovery completed successfully")
-            
+
         except Exception as e:
             logger.error(f"Error during crash recovery: {e}")
 
     # --- Public Interface Methods ---
-    
+
     async def get_queue_status(self) -> Dict[str, Any]:
         """Get current queue status and statistics."""
         if not self._initialized:
             return {"error": "Priority Queue Manager not initialized"}
-        
+
         return {
             "initialized": self._initialized,
             "processing_mode": self.processing_mode.value,
@@ -1204,14 +1204,14 @@ class PriorityQueueManager:
         """Clear processing queue items."""
         if not self._initialized:
             raise RuntimeError("Priority Queue Manager not initialized")
-            
+
         return await self.state_manager.clear_queue(collection)
 
     async def get_health_status(self) -> Dict[str, Any]:
         """Get detailed health status information."""
         if not self._initialized:
             return {"error": "Priority Queue Manager not initialized"}
-        
+
         return {
             "health_status": self.statistics.health_status.value,
             "system_metrics": self.health_metrics,
@@ -1236,7 +1236,7 @@ class PriorityQueueManager:
 
 class ProcessingContextManager:
     """Context manager for batch processing operations."""
-    
+
     def __init__(self, queue_manager: PriorityQueueManager):
         self.queue_manager = queue_manager
         self.start_time = None
@@ -1248,7 +1248,7 @@ class ProcessingContextManager:
     async def __aexit__(self, exc_type, exc_val, exc_tb):
         if exc_type is not None:
             logger.error(f"Processing context error: {exc_val}")
-        
+
         processing_time = time.time() - self.start_time
         logger.info(f"Processing context completed in {processing_time:.2f}s")
 
@@ -1272,5 +1272,5 @@ class ProcessingContextManager:
                 metadata=metadata
             )
             queue_ids.append(queue_id)
-        
+
         return queue_ids
