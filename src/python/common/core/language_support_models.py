@@ -11,20 +11,36 @@ Models:
     ContentSignatures: Shebang and keyword patterns for language detection
     BuildSystem: Build system configuration
     MetadataSchema: Metadata schema definitions
-    LanguageSupportConfig: Root configuration model
+    LanguageSupportConfig: Root configuration model for comprehensive asset file
+
+    LSPDefinition: LSP configuration for database schema (v4 format)
+    TreeSitterDefinition: Tree-sitter configuration for database schema (v4 format)
+    LanguageDefinition: Language definition for database schema (v4 format)
+    LanguageSupportDatabaseConfig: Root configuration for database loader (v4 format)
 
 Example:
     >>> from pathlib import Path
     >>> config = LanguageSupportConfig.from_yaml(Path("language_support.yaml"))
     >>> print(config.file_extensions[".py"])
     'python'
+
+    >>> # V4 database schema format
+    >>> db_config = LanguageSupportDatabaseConfig.from_yaml(Path("language_support_v4.yaml"))
+    >>> print(db_config.languages[0].name)
+    'python'
 """
 
 from __future__ import annotations
 
-from typing import Any
+import re
+from typing import Any, List, Optional
 
 from pydantic import BaseModel, Field, field_validator
+
+
+# =============================================================================
+# COMPREHENSIVE ASSET FILE MODELS (Original/Existing)
+# =============================================================================
 
 
 class ProjectIndicators(BaseModel):
@@ -236,4 +252,250 @@ class LanguageSupportConfig(BaseModel):
         for lang, config in v.items():
             if not config.primary:
                 raise ValueError(f"LSP server for {lang} must have primary field")
+        return v
+
+
+# =============================================================================
+# DATABASE LOADER MODELS (V4 Schema - for database population)
+# =============================================================================
+
+
+class LSPDefinition(BaseModel):
+    """LSP server configuration for database loader (v4 schema).
+
+    Maps to language_name, lsp_name, lsp_executable fields in languages table.
+
+    Attributes:
+        name: LSP server identifier (stored in lsp_name column)
+        executable: LSP executable name (stored in lsp_executable column)
+    """
+
+    name: str = Field(
+        ...,
+        min_length=1,
+        description="LSP server identifier (e.g., 'ruff-lsp', 'rust-analyzer')",
+    )
+    executable: str = Field(
+        ...,
+        min_length=1,
+        description="LSP executable name (e.g., 'ruff-lsp', 'rust-analyzer')",
+    )
+
+    @field_validator("name", "executable")
+    @classmethod
+    def validate_not_empty(cls, v: str) -> str:
+        """Validate that strings are not empty or whitespace only."""
+        if not v or not v.strip():
+            raise ValueError("Value cannot be empty or whitespace only")
+        return v.strip()
+
+
+class TreeSitterDefinition(BaseModel):
+    """Tree-sitter parser configuration for database loader (v4 schema).
+
+    Maps to ts_grammar field in languages table.
+
+    Attributes:
+        grammar: Tree-sitter grammar name (stored in ts_grammar column)
+        repo: Optional GitHub repository URL (not stored in database)
+    """
+
+    grammar: str = Field(
+        ...,
+        min_length=1,
+        description="Tree-sitter grammar name (e.g., 'python', 'rust')",
+    )
+    repo: Optional[str] = Field(
+        None, description="GitHub repository URL for the grammar (optional)"
+    )
+
+    @field_validator("grammar")
+    @classmethod
+    def validate_grammar_not_empty(cls, v: str) -> str:
+        """Validate that grammar name is not empty or whitespace only."""
+        if not v or not v.strip():
+            raise ValueError("Grammar name cannot be empty or whitespace only")
+        return v.strip()
+
+    @field_validator("repo")
+    @classmethod
+    def validate_repo_url(cls, v: Optional[str]) -> Optional[str]:
+        """Validate that repo URL is a valid GitHub URL if provided."""
+        if v is None:
+            return v
+        v = v.strip()
+        if not v:
+            return None
+        # Basic GitHub URL validation
+        if not v.startswith(("http://", "https://")):
+            raise ValueError("Repository URL must start with http:// or https://")
+        if "github.com" not in v:
+            raise ValueError("Repository URL must be a GitHub URL")
+        return v
+
+
+class LanguageDefinition(BaseModel):
+    """
+    Language definition for database loader (v4 schema).
+
+    Maps directly to a row in the languages table in language_support_schema.sql.
+    File extensions are stored as JSON array in the database.
+
+    Database mapping:
+        - name -> language_name (TEXT UNIQUE NOT NULL)
+        - extensions -> file_extensions (TEXT, JSON array)
+        - lsp.name -> lsp_name (TEXT)
+        - lsp.executable -> lsp_executable (TEXT)
+        - treesitter.grammar -> ts_grammar (TEXT)
+
+    Attributes:
+        name: Language name (unique identifier)
+        extensions: List of file extensions (must start with '.')
+        lsp: Optional LSP server configuration
+        treesitter: Optional Tree-sitter parser configuration
+    """
+
+    name: str = Field(
+        ..., min_length=1, description="Language name (e.g., 'python', 'rust')"
+    )
+    extensions: List[str] = Field(
+        ...,
+        min_items=1,
+        description="File extensions for this language (e.g., ['.py', '.pyw'])",
+    )
+    lsp: Optional[LSPDefinition] = Field(
+        None, description="LSP server configuration (optional)"
+    )
+    treesitter: Optional[TreeSitterDefinition] = Field(
+        None, description="Tree-sitter parser configuration (optional)"
+    )
+
+    @field_validator("name")
+    @classmethod
+    def validate_name(cls, v: str) -> str:
+        """Validate language name is not empty and contains only valid characters."""
+        if not v or not v.strip():
+            raise ValueError("Language name cannot be empty or whitespace only")
+        v = v.strip()
+        # Language names should be alphanumeric with hyphens/underscores
+        if not re.match(r"^[a-zA-Z0-9_-]+$", v):
+            raise ValueError(
+                "Language name must contain only alphanumeric characters, hyphens, and underscores"
+            )
+        return v
+
+    @field_validator("extensions")
+    @classmethod
+    def validate_extensions(cls, v: List[str]) -> List[str]:
+        """Validate that all extensions start with '.' and are not empty."""
+        if not v:
+            raise ValueError("At least one file extension is required")
+
+        validated = []
+        for ext in v:
+            ext = ext.strip()
+            if not ext:
+                raise ValueError("File extension cannot be empty or whitespace only")
+            if not ext.startswith("."):
+                raise ValueError(f"File extension must start with '.': {ext}")
+            if len(ext) == 1:
+                raise ValueError("File extension cannot be just '.'")
+            validated.append(ext)
+
+        # Check for duplicates
+        if len(validated) != len(set(validated)):
+            raise ValueError("Duplicate file extensions are not allowed")
+
+        return validated
+
+    def model_post_init(self, __context) -> None:
+        """Post-initialization validation to ensure at least one tool is configured."""
+        if self.lsp is None and self.treesitter is None:
+            raise ValueError(
+                f"Language '{self.name}' must have at least one tool configured (LSP or Tree-sitter)"
+            )
+
+
+class LanguageSupportDatabaseConfig(BaseModel):
+    """
+    Root configuration for language support database loader (v4 schema).
+
+    This is the NEW simplified format for loading language definitions into the
+    database. It replaces the comprehensive asset file structure with a focused
+    list-based format that maps directly to database rows.
+
+    Maps to:
+        - languages table rows (one per language)
+        - language_support_version table (version tracking via hash)
+
+    YAML Example:
+        version: "1.0.0"
+        languages:
+          - name: python
+            extensions: [".py", ".pyw"]
+            lsp:
+              name: ruff-lsp
+              executable: ruff-lsp
+            treesitter:
+              grammar: python
+              repo: https://github.com/tree-sitter/tree-sitter-python
+
+    Attributes:
+        version: Semantic version of the configuration (for change tracking)
+        languages: List of language definitions to load into database
+    """
+
+    version: str = Field(
+        ...,
+        description="Semantic version of the language support configuration (e.g., '1.0.0')",
+    )
+    languages: List[LanguageDefinition] = Field(
+        ..., min_items=1, description="List of language definitions"
+    )
+
+    @field_validator("version")
+    @classmethod
+    def validate_semver(cls, v: str) -> str:
+        """Validate that version follows semantic versioning format."""
+        if not v or not v.strip():
+            raise ValueError("Version cannot be empty or whitespace only")
+
+        v = v.strip()
+        # Validate semantic versioning format: MAJOR.MINOR.PATCH
+        semver_pattern = r"^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)(?:-((?:0|[1-9]\d*|\d*[a-zA-Z-][0-9a-zA-Z-]*)(?:\.(?:0|[1-9]\d*|\d*[a-zA-Z-][0-9a-zA-Z-]*))*))?(?:\+([0-9a-zA-Z-]+(?:\.[0-9a-zA-Z-]+)*))?$"
+
+        if not re.match(semver_pattern, v):
+            raise ValueError(
+                f"Version must follow semantic versioning format (MAJOR.MINOR.PATCH): {v}"
+            )
+
+        return v
+
+    @field_validator("languages")
+    @classmethod
+    def validate_unique_languages(
+        cls, v: List[LanguageDefinition]
+    ) -> List[LanguageDefinition]:
+        """Validate that language names and extensions are unique."""
+        if not v:
+            raise ValueError("At least one language definition is required")
+
+        # Check for duplicate language names
+        names = [lang.name for lang in v]
+        if len(names) != len(set(names)):
+            duplicates = [name for name in names if names.count(name) > 1]
+            raise ValueError(
+                f"Duplicate language names found: {', '.join(set(duplicates))}"
+            )
+
+        # Check for duplicate extensions across languages
+        all_extensions = {}
+        for lang in v:
+            for ext in lang.extensions:
+                if ext in all_extensions:
+                    raise ValueError(
+                        f"Extension '{ext}' is defined for both '{all_extensions[ext]}' and '{lang.name}'"
+                    )
+                all_extensions[ext] = lang.name
+
         return v
