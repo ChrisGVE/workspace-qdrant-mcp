@@ -202,7 +202,7 @@ impl DocumentProcessor {
         })
     }
 
-    async fn extract_document_content(&self, file_path: &Path) -> std::result::Result<DocumentContent, ProcessingError> {
+    pub async fn extract_document_content(&self, file_path: &Path) -> std::result::Result<DocumentContent, ProcessingError> {
         // Detect file type using MIME type and extension
         let document_type = self.detect_document_type(file_path)?;
 
