@@ -1878,6 +1878,16 @@ class SQLiteStateManager:
                     "DELETE FROM processing_queue WHERE file_path = ?", (file_path,)
                 )
 
+                # Clean up new ingestion_queue (uses absolute path as primary key)
+                file_absolute_path = str(Path(file_path).resolve())
+                cursor = conn.execute(
+                    "DELETE FROM ingestion_queue WHERE file_absolute_path = ?",
+                    (file_absolute_path,)
+                )
+
+                if cursor.rowcount > 0:
+                    logger.debug(f"Removed from ingestion queue: {file_absolute_path}")
+
             logger.debug(f"Completed file processing: {file_path} (success: {success})")
             return True
 
