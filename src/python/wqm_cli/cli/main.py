@@ -11,6 +11,9 @@ Usage:
     wqm ingest file document.pdf # Process document
     wqm library create books     # Create library
     wqm watch add ~/docs         # Watch folder
+    wqm messages list            # View error messages
+    wqm queue status             # Monitor queue status
+    wqm tools status             # Check tool availability
 """
 
 import os
@@ -67,7 +70,7 @@ if len(sys.argv) >= 2 and (sys.argv[1] == "--version" or sys.argv[1] == "-v"):
     else:
         # Clean version display - just the version number
         print(version_str)
-    
+
     # Exit without importing typer for lightweight version check
     sys.exit(0)
 
@@ -77,7 +80,6 @@ import typer
 from common.logging.loguru_config import setup_logging
 from loguru import logger
 from .commands.admin import admin_app
-from .commands.config import config_app
 from .commands.ingest import ingest_app
 from .commands.init import init_app
 from .commands.library import library_app
@@ -85,8 +87,11 @@ from .commands.lsp_management import lsp_app
 
 # Import command modules
 from .commands.memory import memory_app
+from .commands.messages import messages_app
+from .commands.queue import queue_app
 from .commands.search import search_app
 from .commands.service import service_app
+from .commands.tools import tools_app
 from .commands.watch import watch_app
 # SECURITY: Web UI temporarily disabled due to critical vulnerabilities
 # from .commands.web import web_app
@@ -114,7 +119,6 @@ app.add_typer(
     memory_app, name="memory", help="Memory rules and LLM behavior management"
 )
 app.add_typer(admin_app, name="admin", help="System administration and configuration")
-app.add_typer(config_app, name="config", help="Configuration management with restart notifications")
 app.add_typer(ingest_app, name="ingest", help="Manual document processing")
 app.add_typer(search_app, name="search", help="Command-line search interface")
 app.add_typer(library_app, name="library", help="Library collection management")
@@ -140,6 +144,16 @@ app.add_typer(
 )
 app.add_typer(
     advanced_features_app, name="wizard", help="Configuration wizards and advanced features"
+)
+# Add new queue management commands
+app.add_typer(
+    messages_app, name="messages", help="View and manage error messages from daemon"
+)
+app.add_typer(
+    queue_app, name="queue", help="Monitor queue status and statistics"
+)
+app.add_typer(
+    tools_app, name="tools", help="Check tool availability status"
 )
 
 
@@ -174,6 +188,9 @@ def main(
         wqm watch add ~/docs --collection=_docs  # Watch folder
         wqm status                         # Show processing status
         wqm status --live --interval 10    # Live monitoring
+        wqm messages list                  # View error messages
+        wqm queue status                   # Monitor queue status
+        wqm tools status                   # Check tool availability
         wqm init                           # Enable shell completion
     """
     # Handle version flag first, before any configuration loading
