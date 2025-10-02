@@ -23,6 +23,9 @@ encoding_rs = "0.8"
 chardet = "0.2"
 mime_guess = "2.0"
 
+# Git integration
+git2 = "0.19"
+
 # Additional core dependencies
 once_cell = "1.19"
 tracing-subscriber = { version = "0.3", features = ["env-filter", "fmt", "chrono", "json"] }
