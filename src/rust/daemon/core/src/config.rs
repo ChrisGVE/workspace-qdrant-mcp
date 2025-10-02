@@ -258,6 +258,59 @@ impl MonitoringConfig {
     }
 }
 
+/// Git integration configuration section
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct GitConfig {
+    /// Enable Git branch detection
+    #[serde(default = "default_enable_branch_detection")]
+    pub enable_branch_detection: bool,
+
+    /// Cache TTL in seconds for branch info
+    #[serde(default = "default_cache_ttl_seconds")]
+    pub cache_ttl_seconds: u64,
+}
+
+fn default_enable_branch_detection() -> bool { true }
+fn default_cache_ttl_seconds() -> u64 { 60 }
+
+impl Default for GitConfig {
+    fn default() -> Self {
+        Self {
+            enable_branch_detection: default_enable_branch_detection(),
+            cache_ttl_seconds: default_cache_ttl_seconds(),
+        }
+    }
+}
+
+impl GitConfig {
+    /// Validate configuration settings
+    pub fn validate(&self) -> Result<(), String> {
+        if self.cache_ttl_seconds == 0 {
+            return Err("cache_ttl_seconds must be greater than 0".to_string());
+        }
+        if self.cache_ttl_seconds > 3600 {
+            return Err("cache_ttl_seconds should not exceed 3600 (1 hour)".to_string());
+        }
+
+        Ok(())
+    }
+
+    /// Apply environment variable overrides
+    pub fn apply_env_overrides(&mut self) {
+        use std::env;
+
+        if let Ok(val) = env::var("WQM_GIT_ENABLE_BRANCH_DETECTION") {
+            self.enable_branch_detection = val.to_lowercase() == "true" || val == "1";
+        }
+
+        if let Ok(val) = env::var("WQM_GIT_CACHE_TTL_SECONDS") {
+            if let Ok(parsed) = val.parse() {
+                self.cache_ttl_seconds = parsed;
+            }
+        }
+    }
+}
+
 /// Complete daemon configuration that matches the TOML structure
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct DaemonConfig {
@@ -291,6 +344,9 @@ pub struct DaemonConfig {
     /// Tool monitoring configuration
     #[serde(default)]
     pub monitoring: MonitoringConfig,
+    /// Git integration configuration
+    #[serde(default)]
+    pub git: GitConfig,
 }
 
 impl Default for DaemonConfig {
@@ -310,6 +366,7 @@ impl Default for DaemonConfig {
             logging: LoggingConfig::default(),
             queue_processor: QueueProcessorSettings::default(),
             monitoring: MonitoringConfig::default(),
+            git: GitConfig::default(),
         }
     }
 }
@@ -458,10 +515,37 @@ mod tests {
     }
 
     #[test]
+    fn test_git_config_defaults() {
+        let config = GitConfig::default();
+        assert!(config.enable_branch_detection);
+        assert_eq!(config.cache_ttl_seconds, 60);
+    }
+
+    #[test]
+    fn test_git_config_validation() {
+        let mut config = GitConfig::default();
+
+        // Valid settings
+        assert!(config.validate().is_ok());
+
+        // Invalid cache_ttl_seconds
+        config.cache_ttl_seconds = 0;
+        assert!(config.validate().is_err());
+        config.cache_ttl_seconds = 3601;
+        assert!(config.validate().is_err());
+        config.cache_ttl_seconds = 60;
+
+        // Valid again
+        assert!(config.validate().is_ok());
+    }
+
+    #[test]
     fn test_daemon_config_defaults() {
         let config = DaemonConfig::default();
         assert_eq!(config.queue_processor.batch_size, 10);
         assert_eq!(config.monitoring.check_interval_hours, 24);
         assert!(config.monitoring.enable_monitoring);
+        assert!(config.git.enable_branch_detection);
+        assert_eq!(config.git.cache_ttl_seconds, 60);
     }
 }
