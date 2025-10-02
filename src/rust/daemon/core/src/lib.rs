@@ -24,6 +24,7 @@ pub mod queue_processor;
 pub mod queue_error_handler;
 pub mod service_discovery;
 pub mod storage;
+pub mod tool_monitor;
 pub mod unified_config;
 pub mod watching;
 pub mod watching_queue;
@@ -67,6 +68,9 @@ pub use crate::queue_operations::{
 };
 pub use crate::watching_queue::{
     FileWatcherQueue, WatchManager, WatchConfig, WatchingQueueStats, WatchingQueueError
+};
+pub use crate::tool_monitor::{
+    ToolMonitor, MonitoringError, MonitoringResult, RequeueStats
 };
 
 /// Core processing errors
