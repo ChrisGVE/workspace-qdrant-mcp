@@ -13,6 +13,7 @@ use tokio::sync::Mutex;
 pub mod config;
 pub mod embedding;
 pub mod error;
+pub mod git_integration;
 pub mod ipc;
 pub mod logging;
 pub mod daemon_state;
@@ -45,6 +46,9 @@ pub use crate::processing::{
 pub use crate::error::{
     WorkspaceError, ErrorSeverity, ErrorRecoveryStrategy,
     CircuitBreaker, ErrorMonitor, ErrorRecovery, Result
+};
+pub use crate::git_integration::{
+    GitBranchDetector, GitError, GitResult, CacheStats
 };
 pub use crate::logging::{
     LoggingConfig, PerformanceMetrics, initialize_logging, initialize_daemon_silence,
