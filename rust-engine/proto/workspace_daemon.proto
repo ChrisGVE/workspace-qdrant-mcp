@@ -6,331 +6,270 @@ package workspace_daemon;
 import "google/protobuf/timestamp.proto";
 import "google/protobuf/empty.proto";
 
-// Document Processing Service
-service DocumentProcessor {
-    // Process a single document
-    rpc ProcessDocument(ProcessDocumentRequest) returns (ProcessDocumentResponse);
+// =============================================================================
+// SERVICE DEFINITIONS
+// =============================================================================
+// This protocol defines 3 services with 15 total RPCs for communication
+// between the Rust daemon and Python components (MCP server, CLI).
+//
+// Design principles:
+// - Single writer pattern: Only daemon writes to Qdrant
+// - Queue-based async processing: File operations via SQLite queue
+// - Direct sync ingestion: Text content via gRPC IngestText
+// - Event-driven refresh: Lightweight signals for state changes
+// =============================================================================
 
-    // Process multiple documents in batch
-    rpc ProcessDocuments(stream ProcessDocumentRequest) returns (stream ProcessDocumentResponse);
+// -----------------------------------------------------------------------------
+// 1. SystemService (7 RPCs)
+// -----------------------------------------------------------------------------
+// Purpose: System health monitoring, status reporting, refresh signaling,
+//          and lifecycle management.
 
-    // Get processing status
-    rpc GetProcessingStatus(ProcessingStatusRequest) returns (ProcessingStatusResponse);
-
-    // Cancel processing operation
-    rpc CancelProcessing(CancelProcessingRequest) returns (google.protobuf.Empty);
-}
-
-// Search Operations Service
-service SearchService {
-    // Perform hybrid search (semantic + keyword)
-    rpc HybridSearch(HybridSearchRequest) returns (HybridSearchResponse);
-
-    // Perform semantic search only
-    rpc SemanticSearch(SemanticSearchRequest) returns (SemanticSearchResponse);
-
-    // Perform keyword search only
-    rpc KeywordSearch(KeywordSearchRequest) returns (KeywordSearchResponse);
-
-    // Get search suggestions
-    rpc GetSuggestions(SuggestionsRequest) returns (SuggestionsResponse);
-}
-
-// Memory Management Service
-service MemoryService {
-    // Add document to memory
-    rpc AddDocument(AddDocumentRequest) returns (AddDocumentResponse);
-
-    // Update existing document
-    rpc UpdateDocument(UpdateDocumentRequest) returns (UpdateDocumentResponse);
-
-    // Remove document from memory
-    rpc RemoveDocument(RemoveDocumentRequest) returns (google.protobuf.Empty);
-
-    // Get document metadata
-    rpc GetDocument(GetDocumentRequest) returns (GetDocumentResponse);
-
-    // List documents with filtering
-    rpc ListDocuments(ListDocumentsRequest) returns (ListDocumentsResponse);
-
-    // Collection management
-    rpc CreateCollection(CreateCollectionRequest) returns (CreateCollectionResponse);
-    rpc DeleteCollection(DeleteCollectionRequest) returns (google.protobuf.Empty);
-    rpc ListCollections(ListCollectionsRequest) returns (ListCollectionsResponse);
-}
-
-// System Administration Service
 service SystemService {
-    // Health check
+    // Quick health check for monitoring/alerting
     rpc HealthCheck(google.protobuf.Empty) returns (HealthCheckResponse);
 
-    // Get system status
+    // Comprehensive system state snapshot
     rpc GetStatus(google.protobuf.Empty) returns (SystemStatusResponse);
 
-    // Get metrics
-    rpc GetMetrics(MetricsRequest) returns (MetricsResponse);
+    // Current performance metrics (no historical data)
+    rpc GetMetrics(google.protobuf.Empty) returns (MetricsResponse);
 
-    // Configuration management
-    rpc GetConfig(google.protobuf.Empty) returns (ConfigResponse);
-    rpc UpdateConfig(UpdateConfigRequest) returns (google.protobuf.Empty);
+    // Signal database state changes for event-driven refresh
+    rpc SendRefreshSignal(RefreshSignalRequest) returns (google.protobuf.Empty);
 
-    // Project management
-    rpc DetectProject(DetectProjectRequest) returns (DetectProjectResponse);
-    rpc ListProjects(google.protobuf.Empty) returns (ListProjectsResponse);
+    // MCP/CLI server lifecycle notifications
+    rpc NotifyServerStatus(ServerStatusNotification) returns (google.protobuf.Empty);
+
+    // Pause all file watchers (master switch)
+    rpc PauseAllWatchers(google.protobuf.Empty) returns (google.protobuf.Empty);
+
+    // Resume all file watchers (master switch)
+    rpc ResumeAllWatchers(google.protobuf.Empty) returns (google.protobuf.Empty);
 }
 
-// Service Discovery Service
-service ServiceDiscovery {
-    // Register a service instance
-    rpc RegisterService(RegisterServiceRequest) returns (RegisterServiceResponse);
+// -----------------------------------------------------------------------------
+// 2. CollectionService (5 RPCs)
+// -----------------------------------------------------------------------------
+// Purpose: Qdrant collection lifecycle and alias management.
+// Note: ListCollections removed - MCP queries Qdrant directly.
 
-    // Deregister a service instance
-    rpc DeregisterService(DeregisterServiceRequest) returns (DeregisterServiceResponse);
+service CollectionService {
+    // Create collection with proper configuration
+    rpc CreateCollection(CreateCollectionRequest) returns (CreateCollectionResponse);
 
-    // List all registered services
-    rpc ListServices(ListServicesRequest) returns (ListServicesResponse);
+    // Delete collection and all its data
+    rpc DeleteCollection(DeleteCollectionRequest) returns (google.protobuf.Empty);
 
-    // Get instances for a specific service
-    rpc GetServiceInstances(GetServiceInstancesRequest) returns (GetServiceInstancesResponse);
+    // Create collection alias (for tenant_id changes)
+    rpc CreateCollectionAlias(CreateAliasRequest) returns (google.protobuf.Empty);
 
-    // Update service health status
-    rpc UpdateServiceHealth(UpdateServiceHealthRequest) returns (UpdateServiceHealthResponse);
+    // Delete collection alias
+    rpc DeleteCollectionAlias(DeleteAliasRequest) returns (google.protobuf.Empty);
 
-    // Get service discovery statistics
-    rpc GetDiscoveryStats(ServiceDiscoveryStatsRequest) returns (ServiceDiscoveryStatsResponse);
+    // Atomically rename alias (safer than delete + create)
+    rpc RenameCollectionAlias(RenameAliasRequest) returns (google.protobuf.Empty);
 }
 
-// Message Types
+// -----------------------------------------------------------------------------
+// 3. DocumentService (3 RPCs)
+// -----------------------------------------------------------------------------
+// Purpose: Direct text ingestion (not file-based).
+// Use case: Content not from files - user input, chat snippets, scraped web
+//           content, manual notes.
 
-// Document Processing Messages
-message ProcessDocumentRequest {
-    string file_path = 1;
-    string project_id = 2;
-    string collection_name = 3;
-    DocumentType document_type = 4;
-    map<string, string> metadata = 5;
-    ProcessingOptions options = 6;
+service DocumentService {
+    // Ingest text content directly (synchronous)
+    rpc IngestText(IngestTextRequest) returns (IngestTextResponse);
+
+    // Update previously ingested text
+    rpc UpdateText(UpdateTextRequest) returns (UpdateTextResponse);
+
+    // Delete ingested text document
+    rpc DeleteText(DeleteTextRequest) returns (google.protobuf.Empty);
 }
 
-message ProcessDocumentResponse {
-    string document_id = 1;
-    ProcessingStatus status = 2;
-    string error_message = 3;
-    int32 chunks_created = 4;
-    map<string, string> extracted_metadata = 5;
-    google.protobuf.Timestamp processed_at = 6;
-}
+// =============================================================================
+// MESSAGE TYPES - SystemService
+// =============================================================================
 
-message ProcessingStatusRequest {
-    string operation_id = 1;
-}
-
-message ProcessingStatusResponse {
-    string operation_id = 1;
-    ProcessingStatus status = 2;
-    int32 total_documents = 3;
-    int32 processed_documents = 4;
-    int32 failed_documents = 5;
-    repeated string error_messages = 6;
-    google.protobuf.Timestamp started_at = 7;
-    google.protobuf.Timestamp updated_at = 8;
-}
-
-message CancelProcessingRequest {
-    string operation_id = 1;
-}
-
-// Search Messages
-message HybridSearchRequest {
-    string query = 1;
-    SearchContext context = 2;
-    SearchOptions options = 3;
-    string project_id = 4;
-    repeated string collection_names = 5;
-}
-
-message HybridSearchResponse {
-    repeated SearchResult results = 1;
-    SearchMetadata metadata = 2;
-    string query_id = 3;
-}
-
-message SemanticSearchRequest {
-    string query = 1;
-    SearchContext context = 2;
-    SearchOptions options = 3;
-    string project_id = 4;
-    repeated string collection_names = 5;
-}
-
-message SemanticSearchResponse {
-    repeated SearchResult results = 1;
-    SearchMetadata metadata = 2;
-    string query_id = 3;
-}
-
-message KeywordSearchRequest {
-    string query = 1;
-    SearchContext context = 2;
-    SearchOptions options = 3;
-    string project_id = 4;
-    repeated string collection_names = 5;
-}
-
-message KeywordSearchResponse {
-    repeated SearchResult results = 1;
-    SearchMetadata metadata = 2;
-    string query_id = 3;
-}
-
-message SuggestionsRequest {
-    string partial_query = 1;
-    SearchContext context = 2;
-    int32 max_suggestions = 3;
-    string project_id = 4;
-}
-
-message SuggestionsResponse {
-    repeated string suggestions = 1;
-    SearchMetadata metadata = 2;
-}
-
-// Memory Management Messages
-message AddDocumentRequest {
-    string file_path = 1;
-    string collection_name = 2;
-    string project_id = 3;
-    DocumentContent content = 4;
-    map<string, string> metadata = 5;
-}
-
-message AddDocumentResponse {
-    string document_id = 1;
-    bool success = 2;
-    string error_message = 3;
-}
-
-message UpdateDocumentRequest {
-    string document_id = 1;
-    DocumentContent content = 2;
-    map<string, string> metadata = 3;
-}
-
-message UpdateDocumentResponse {
-    bool success = 1;
-    string error_message = 2;
-    google.protobuf.Timestamp updated_at = 3;
-}
-
-message RemoveDocumentRequest {
-    string document_id = 1;
-    string collection_name = 2;
-}
-
-message GetDocumentRequest {
-    string document_id = 1;
-    string collection_name = 2;
-}
-
-message GetDocumentResponse {
-    string document_id = 1;
-    DocumentContent content = 2;
-    map<string, string> metadata = 3;
-    google.protobuf.Timestamp created_at = 4;
-    google.protobuf.Timestamp updated_at = 5;
-}
-
-message ListDocumentsRequest {
-    string collection_name = 1;
-    string project_id = 2;
-    int32 limit = 3;
-    int32 offset = 4;
-    DocumentFilter filter = 5;
-}
-
-message ListDocumentsResponse {
-    repeated DocumentInfo documents = 1;
-    int32 total_count = 2;
-    bool has_more = 3;
-}
-
-message CreateCollectionRequest {
-    string collection_name = 1;
-    string project_id = 2;
-    CollectionConfig config = 3;
-}
-
-message CreateCollectionResponse {
-    bool success = 1;
-    string error_message = 2;
-    string collection_id = 3;
-}
-
-message DeleteCollectionRequest {
-    string collection_name = 1;
-    string project_id = 2;
-    bool force = 3;
-}
-
-message ListCollectionsRequest {
-    string project_id = 1;
-}
-
-message ListCollectionsResponse {
-    repeated CollectionInfo collections = 1;
-}
-
-// System Messages
+// HealthCheck Response
 message HealthCheckResponse {
-    ServiceStatus status = 1;
-    repeated ComponentHealth components = 2;
-    google.protobuf.Timestamp timestamp = 3;
+    ServiceStatus status = 1;                     // Overall health
+    repeated ComponentHealth components = 2;      // Per-component status
+    google.protobuf.Timestamp timestamp = 3;      // Check timestamp
 }
 
+message ComponentHealth {
+    string component_name = 1;                    // e.g., "queue_processor", "file_watcher"
+    ServiceStatus status = 2;
+    string message = 3;                           // Human-readable status
+    google.protobuf.Timestamp last_check = 4;
+}
+
+// GetStatus Response
 message SystemStatusResponse {
     ServiceStatus status = 1;
-    SystemMetrics metrics = 2;
-    repeated string active_projects = 3;
-    int32 total_documents = 4;
-    int32 total_collections = 5;
-    google.protobuf.Timestamp uptime_since = 6;
+    SystemMetrics metrics = 2;                    // CPU, memory, disk
+    repeated string active_projects = 3;          // Currently watched projects
+    int32 total_documents = 4;                    // Documents in Qdrant
+    int32 total_collections = 5;                  // Collections in Qdrant
+    google.protobuf.Timestamp uptime_since = 6;   // Daemon start time
 }
 
-message MetricsRequest {
-    google.protobuf.Timestamp since = 1;
-    repeated string metric_names = 2;
+message SystemMetrics {
+    double cpu_usage_percent = 1;
+    int64 memory_usage_bytes = 2;
+    int64 memory_total_bytes = 3;
+    int64 disk_usage_bytes = 4;
+    int64 disk_total_bytes = 5;
+    int32 active_connections = 6;                 // Active gRPC connections
+    int32 pending_operations = 7;                 // Queue depth
 }
 
+// GetMetrics Response
 message MetricsResponse {
     repeated Metric metrics = 1;
     google.protobuf.Timestamp collected_at = 2;
 }
 
-message ConfigResponse {
-    map<string, string> configuration = 1;
-    string version = 2;
+message Metric {
+    string name = 1;                              // e.g., "queue_throughput"
+    string type = 2;                              // "counter", "gauge", "histogram"
+    map<string, string> labels = 3;               // Metric dimensions
+    double value = 4;
+    google.protobuf.Timestamp timestamp = 5;
 }
 
-message UpdateConfigRequest {
-    map<string, string> configuration = 1;
-    bool restart_required = 2;
+// SendRefreshSignal Request
+message RefreshSignalRequest {
+    QueueType queue_type = 1;
+    repeated string lsp_languages = 2;            // For TOOLS_AVAILABLE signal
+    repeated string grammar_languages = 3;        // For TOOLS_AVAILABLE signal
 }
 
-message DetectProjectRequest {
-    string path = 1;
+// NotifyServerStatus Request
+message ServerStatusNotification {
+    ServerState state = 1;                        // UP or DOWN
+    optional string project_name = 2;             // Git repo name or folder name
+    optional string project_root = 3;             // Absolute path to project root
 }
 
-message DetectProjectResponse {
-    ProjectInfo project = 1;
-    bool is_valid_project = 2;
-    repeated string reasons = 3;
+// =============================================================================
+// MESSAGE TYPES - CollectionService
+// =============================================================================
+
+// CreateCollection Request/Response
+message CreateCollectionRequest {
+    string collection_name = 1;
+    string project_id = 2;                        // Optional project association
+    CollectionConfig config = 3;                  // Vector configuration
 }
 
-message ListProjectsResponse {
-    repeated ProjectInfo projects = 1;
+message CreateCollectionResponse {
+    bool success = 1;
+    string error_message = 2;
+    string collection_id = 3;                     // Qdrant's internal ID
 }
 
-// Common Types
+message CollectionConfig {
+    int32 vector_size = 1;                        // Must match embedding model (e.g., 384)
+    string distance_metric = 2;                   // "Cosine", "Euclidean", "Dot"
+    bool enable_indexing = 3;                     // HNSW index activation
+    map<string, string> metadata_schema = 4;      // Expected metadata fields
+}
+
+// DeleteCollection Request
+message DeleteCollectionRequest {
+    string collection_name = 1;
+    string project_id = 2;                        // For validation
+    bool force = 3;                               // Skip confirmation checks
+}
+
+// CreateCollectionAlias Request
+message CreateAliasRequest {
+    string alias_name = 1;                        // The new name
+    string collection_name = 2;                   // Points to this collection
+}
+
+// DeleteCollectionAlias Request
+message DeleteAliasRequest {
+    string alias_name = 1;
+}
+
+// RenameCollectionAlias Request
+message RenameAliasRequest {
+    string old_alias_name = 1;
+    string new_alias_name = 2;
+    string collection_name = 3;                   // The collection it points to
+}
+
+// =============================================================================
+// MESSAGE TYPES - DocumentService
+// =============================================================================
+
+// IngestText Request/Response
+message IngestTextRequest {
+    string content = 1;                           // The text to ingest
+    string collection_basename = 2;               // e.g., "memory", "scratchbook"
+    string tenant_id = 3;                         // Multi-tenant identifier
+    optional string document_id = 4;              // Custom ID (generated if omitted)
+    map<string, string> metadata = 5;             // Additional metadata
+    bool chunk_text = 6;                          // Whether to chunk (default: true)
+}
+
+message IngestTextResponse {
+    string document_id = 1;                       // For future updates/deletes
+    bool success = 2;
+    int32 chunks_created = 3;                     // Number of chunks generated
+    string error_message = 4;
+}
+
+// UpdateText Request/Response
+message UpdateTextRequest {
+    string document_id = 1;                       // From IngestTextResponse
+    string content = 2;                           // New content
+    optional string collection_name = 3;          // If moving to different collection
+    map<string, string> metadata = 4;             // Updated metadata
+}
+
+message UpdateTextResponse {
+    bool success = 1;
+    string error_message = 2;
+    google.protobuf.Timestamp updated_at = 3;
+}
+
+// DeleteText Request
+message DeleteTextRequest {
+    string document_id = 1;
+    string collection_name = 2;                   // For validation
+}
+
+// =============================================================================
+// COMMON ENUMS
+// =============================================================================
+
+enum ServiceStatus {
+    SERVICE_STATUS_UNSPECIFIED = 0;
+    SERVICE_STATUS_HEALTHY = 1;
+    SERVICE_STATUS_DEGRADED = 2;
+    SERVICE_STATUS_UNHEALTHY = 3;
+    SERVICE_STATUS_UNAVAILABLE = 4;
+}
+
+enum QueueType {
+    QUEUE_TYPE_UNSPECIFIED = 0;
+    INGEST_QUEUE = 1;           // New items in ingestion_queue table
+    WATCHED_PROJECTS = 2;        // New project in projects table
+    WATCHED_FOLDERS = 3;         // New watch in watch_folders table
+    TOOLS_AVAILABLE = 4;         // LSP/tree-sitter became available
+}
+
+enum ServerState {
+    SERVER_STATE_UNSPECIFIED = 0;
+    SERVER_STATE_UP = 1;                          // Server started
+    SERVER_STATE_DOWN = 2;                        // Server shutting down
+}
 
 enum DocumentType {
     DOCUMENT_TYPE_UNSPECIFIED = 0;
@@ -352,247 +291,4 @@ enum ProcessingStatus {
     PROCESSING_STATUS_COMPLETED = 3;
     PROCESSING_STATUS_FAILED = 4;
     PROCESSING_STATUS_CANCELLED = 5;
-}
-
-enum SearchContext {
-    SEARCH_CONTEXT_UNSPECIFIED = 0;
-    SEARCH_CONTEXT_PROJECT = 1;      // Current project collections
-    SEARCH_CONTEXT_COLLECTION = 2;   // Specific target collection
-    SEARCH_CONTEXT_GLOBAL = 3;       // User-configured global collections
-    SEARCH_CONTEXT_ALL = 4;          // All available collections
-}
-
-enum ServiceStatus {
-    SERVICE_STATUS_UNSPECIFIED = 0;
-    SERVICE_STATUS_HEALTHY = 1;
-    SERVICE_STATUS_DEGRADED = 2;
-    SERVICE_STATUS_UNHEALTHY = 3;
-    SERVICE_STATUS_UNAVAILABLE = 4;
-}
-
-message ProcessingOptions {
-    bool enable_lsp_analysis = 1;
-    int32 chunk_size = 2;
-    int32 chunk_overlap = 3;
-    bool extract_metadata = 4;
-    bool detect_language = 5;
-    repeated string custom_parsers = 6;
-}
-
-message SearchOptions {
-    int32 limit = 1;
-    float score_threshold = 2;
-    bool include_metadata = 3;
-    bool include_content = 4;
-    RankingOptions ranking = 5;
-}
-
-message RankingOptions {
-    float semantic_weight = 1;    // Weight for semantic search (0.0-1.0)
-    float keyword_weight = 2;     // Weight for keyword search (0.0-1.0)
-    float rrf_constant = 3;       // Reciprocal rank fusion constant
-}
-
-message SearchResult {
-    string document_id = 1;
-    string collection_name = 2;
-    float score = 3;
-    float semantic_score = 4;
-    float keyword_score = 5;
-    string title = 6;
-    string content_snippet = 7;
-    map<string, string> metadata = 8;
-    string file_path = 9;
-    repeated string matched_terms = 10;
-}
-
-message SearchMetadata {
-    int32 total_results = 1;
-    float max_score = 2;
-    google.protobuf.Timestamp search_time = 3;
-    int32 search_duration_ms = 4;
-    repeated string searched_collections = 5;
-}
-
-message DocumentContent {
-    string text = 1;
-    repeated DocumentChunk chunks = 2;
-    map<string, string> extracted_metadata = 3;
-}
-
-message DocumentChunk {
-    string id = 1;
-    string content = 2;
-    int32 start_offset = 3;
-    int32 end_offset = 4;
-    map<string, string> metadata = 5;
-}
-
-message DocumentInfo {
-    string document_id = 1;
-    string file_path = 2;
-    string title = 3;
-    DocumentType document_type = 4;
-    int64 file_size = 5;
-    map<string, string> metadata = 6;
-    google.protobuf.Timestamp created_at = 7;
-    google.protobuf.Timestamp updated_at = 8;
-}
-
-message DocumentFilter {
-    DocumentType document_type = 1;
-    google.protobuf.Timestamp created_after = 2;
-    google.protobuf.Timestamp created_before = 3;
-    map<string, string> metadata_filters = 4;
-    string file_path_pattern = 5;
-}
-
-message CollectionConfig {
-    int32 vector_size = 1;
-    string distance_metric = 2;
-    bool enable_indexing = 3;
-    map<string, string> metadata_schema = 4;
-}
-
-message CollectionInfo {
-    string collection_name = 1;
-    string collection_id = 2;
-    string project_id = 3;
-    int32 document_count = 4;
-    int64 total_size_bytes = 5;
-    CollectionConfig config = 6;
-    google.protobuf.Timestamp created_at = 7;
-}
-
-message ComponentHealth {
-    string component_name = 1;
-    ServiceStatus status = 2;
-    string message = 3;
-    google.protobuf.Timestamp last_check = 4;
-}
-
-message SystemMetrics {
-    double cpu_usage_percent = 1;
-    int64 memory_usage_bytes = 2;
-    int64 memory_total_bytes = 3;
-    int64 disk_usage_bytes = 4;
-    int64 disk_total_bytes = 5;
-    int32 active_connections = 6;
-    int32 pending_operations = 7;
-}
-
-message Metric {
-    string name = 1;
-    string type = 2;
-    map<string, string> labels = 3;
-    double value = 4;
-    google.protobuf.Timestamp timestamp = 5;
-}
-
-message ProjectInfo {
-    string project_id = 1;
-    string name = 2;
-    string root_path = 3;
-    string git_repository = 4;
-    string git_branch = 5;
-    repeated string submodules = 6;
-    map<string, string> metadata = 7;
-    google.protobuf.Timestamp detected_at = 8;
-}
-
-// Service Discovery Messages
-
-message RegisterServiceRequest {
-    ServiceInstanceProto instance = 1;
-}
-
-message RegisterServiceResponse {
-    bool success = 1;
-    string instance_id = 2;
-    string error_message = 3;
-}
-
-message DeregisterServiceRequest {
-    string service_name = 1;
-    string instance_id = 2;
-}
-
-message DeregisterServiceResponse {
-    bool success = 1;
-    string error_message = 2;
-}
-
-message ListServicesRequest {
-    // No fields needed
-}
-
-message ListServicesResponse {
-    repeated string service_names = 1;
-}
-
-message GetServiceInstancesRequest {
-    string service_name = 1;
-    bool healthy_only = 2;
-}
-
-message GetServiceInstancesResponse {
-    repeated ServiceInstanceProto instances = 1;
-}
-
-message UpdateServiceHealthRequest {
-    string service_name = 1;
-    string instance_id = 2;
-    ServiceHealthProto health = 3;
-}
-
-message UpdateServiceHealthResponse {
-    bool success = 1;
-    string error_message = 2;
-}
-
-message ServiceDiscoveryStatsRequest {
-    // No fields needed
-}
-
-message ServiceDiscoveryStatsResponse {
-    uint32 total_services = 1;
-    uint32 total_instances = 2;
-    uint32 healthy_instances = 3;
-    uint32 degraded_instances = 4;
-    uint32 unhealthy_instances = 5;
-    uint32 draining_instances = 6;
-    uint32 unknown_instances = 7;
-}
-
-message ServiceInstanceProto {
-    string id = 1;
-    string name = 2;
-    string version = 3;
-    string address = 4;
-    uint32 weight = 5;
-    ServiceHealthProto health = 6;
-    map<string, string> metadata = 7;
-    repeated string tags = 8;
-    string health_endpoint = 9;
-    uint64 health_interval = 10;
-    uint32 active_connections = 11;
-    uint64 total_requests = 12;
-    google.protobuf.Timestamp registered_at = 13;
-    google.protobuf.Timestamp last_health_check = 14;
-}
-
-enum ServiceHealthProto {
-    SERVICE_HEALTH_UNKNOWN = 0;
-    SERVICE_HEALTH_HEALTHY = 1;
-    SERVICE_HEALTH_DEGRADED = 2;
-    SERVICE_HEALTH_UNHEALTHY = 3;
-    SERVICE_HEALTH_DRAINING = 4;
-}
-
-enum LoadBalancingStrategyProto {
-    LOAD_BALANCING_ROUND_ROBIN = 0;
-    LOAD_BALANCING_WEIGHTED_ROUND_ROBIN = 1;
-    LOAD_BALANCING_LEAST_CONNECTIONS = 2;
-    LOAD_BALANCING_RANDOM = 3;
-    LOAD_BALANCING_HEALTH_WEIGHTED = 4;
 }
