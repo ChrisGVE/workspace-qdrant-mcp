@@ -4,6 +4,8 @@
 //! workspace_daemon proto: SystemService, CollectionService, DocumentService
 
 pub mod collection_service;
+pub mod document_service;
 
 // Re-export service implementations
 pub use collection_service::CollectionServiceImpl;
+pub use document_service::DocumentServiceImpl;
