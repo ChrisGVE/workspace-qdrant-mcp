@@ -14,10 +14,15 @@ use uuid::Uuid;
 
 pub mod proto {
     // Generated protobuf definitions from build.rs
-    tonic::include_proto!("workspace_qdrant.v1");
+    // Package: workspace_daemon - defines SystemService, CollectionService, DocumentService
+    tonic::include_proto!("workspace_daemon");
 }
 
+// Legacy service - to be deprecated
 pub mod service;
+
+// New modular services implementation
+pub mod services;
 
 /// gRPC service errors
 #[derive(Error, Debug)]
@@ -370,31 +375,36 @@ mod tests {
     fn test_protobuf_serialization() {
         use crate::proto::*;
         use prost::Message;
-        
-        // Test ProcessDocumentRequest serialization
-        let request = ProcessDocumentRequest {
-            file_path: "/test/path.txt".to_string(),
-            collection: "test_collection".to_string(),
-            metadata: std::collections::HashMap::new(),
-            document_id: Some("test_doc_id".to_string()),
-            chunk_text: true,
+
+        // Test CreateCollectionRequest serialization
+        let request = CreateCollectionRequest {
+            collection_name: "test_collection".to_string(),
+            project_id: "test_project".to_string(),
+            config: Some(CollectionConfig {
+                vector_size: 384,
+                distance_metric: "Cosine".to_string(),
+                enable_indexing: true,
+                metadata_schema: std::collections::HashMap::new(),
+            }),
         };
-        
+
         // Should be able to serialize and deserialize
         let bytes = prost::Message::encode_to_vec(&request);
         assert!(!bytes.is_empty());
-        
-        let decoded = ProcessDocumentRequest::decode(&bytes[..]).unwrap();
-        assert_eq!(decoded.file_path, "/test/path.txt");
-        assert_eq!(decoded.collection, "test_collection");
-        assert_eq!(decoded.document_id, Some("test_doc_id".to_string()));
-        assert_eq!(decoded.chunk_text, true);
+
+        let decoded = CreateCollectionRequest::decode(&bytes[..]).unwrap();
+        assert_eq!(decoded.collection_name, "test_collection");
+        assert_eq!(decoded.project_id, "test_project");
+        assert!(decoded.config.is_some());
+        let config = decoded.config.unwrap();
+        assert_eq!(config.vector_size, 384);
+        assert_eq!(config.distance_metric, "Cosine");
     }
 
     #[test]
     fn test_grpc_service_instantiation() {
         use crate::service::IngestionService;
-        
+
         // Test that the service can be created
         let _service = IngestionService::new();
         // Service should be valid (no panic on creation)
