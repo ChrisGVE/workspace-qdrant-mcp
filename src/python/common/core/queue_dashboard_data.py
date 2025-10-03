@@ -72,7 +72,7 @@ from .queue_health import QueueHealthCalculator, HealthStatus
 from .queue_trend_analysis import HistoricalTrendAnalyzer
 from .queue_bottleneck_detector import BottleneckDetector
 from .queue_backpressure import BackpressureDetector
-from .error_statistics import ErrorStatisticsCollector
+from .error_message_manager import ErrorMessageManager
 
 
 class WidgetType(str, Enum):
@@ -190,7 +190,7 @@ class QueueDashboardDataProvider:
         self.trend_analyzer: Optional[HistoricalTrendAnalyzer] = None
         self.bottleneck_detector: Optional[BottleneckDetector] = None
         self.backpressure_detector: Optional[BackpressureDetector] = None
-        self.error_stats_collector: Optional[ErrorStatisticsCollector] = None
+        self.error_manager: Optional[ErrorMessageManager] = None
 
         # Widget data cache
         self._widget_cache: Dict[str, Tuple[datetime, DashboardWidget]] = {}
@@ -238,8 +238,8 @@ class QueueDashboardDataProvider:
             await self.bottleneck_detector.initialize()
 
         # Initialize error statistics collector
-        self.error_stats_collector = ErrorStatisticsCollector(db_path=self.db_path)
-        await self.error_stats_collector.initialize()
+        self.error_manager = ErrorMessageManager(db_path=self.db_path)
+        await self.error_manager.initialize()
 
         self._initialized = True
         logger.info("Queue dashboard data provider initialized")
@@ -268,7 +268,7 @@ class QueueDashboardDataProvider:
             await self.bottleneck_detector.close()
 
         if self.error_stats_collector:
-            await self.error_stats_collector.close()
+            await self.error_manager.close()
 
         self._initialized = False
         logger.info("Queue dashboard data provider closed")
@@ -885,7 +885,8 @@ class QueueDashboardDataProvider:
 
     async def _get_error_categories_bar(self) -> DashboardWidget:
         """Generate error categories bar chart."""
-        error_summary = await self.error_stats_collector.get_error_summary()
+        error_stats = await self.error_manager.get_error_stats()
+        error_summary = type('obj', (), {'category_stats': error_stats.get('by_category', {})})()
 
         categories = []
         values = []
@@ -922,7 +923,8 @@ class QueueDashboardDataProvider:
 
     async def _get_recent_errors_table(self) -> DashboardWidget:
         """Generate recent errors table."""
-        recent_errors = await self.error_stats_collector.get_recent_errors(limit=20)
+        recent_errors = await self.error_manager.get_errors(limit=20)
+        recent_errors = [{"timestamp": e.timestamp, "severity": e.severity, "category": e.category, "message": e.message, "file_path": e.file_path} for e in recent_errors]
 
         rows = []
         for error in recent_errors:
