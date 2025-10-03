@@ -82,6 +82,7 @@ MAX_COLLECTION_TYPE_LENGTH = 64
 MAX_TENANT_NAMESPACE_LENGTH = 192
 MAX_CREATED_BY_LENGTH = 64
 MAX_ACCESS_LEVEL_LENGTH = 32
+MAX_BRANCH_LENGTH = 256
 
 
 class CollectionCategory(Enum):
@@ -127,11 +128,18 @@ class MultiTenantMetadataSchema:
         project_id: Stable 12-character identifier for project filtering
         project_name: Human-readable project name
         tenant_namespace: Hierarchical namespace for tenant isolation
+        branch: Git branch name, defaults to "main"
 
         # Collection classification (required for type-based operations)
         collection_type: Workspace collection type (docs, notes, memory, etc.)
         collection_category: System/library/project/global classification
         workspace_scope: Project/shared/global/library accessibility scope
+
+        # Code Analysis Metadata (optional)
+        symbols_defined: List of symbols defined in file
+        symbols_used: List of symbols imported/used
+        imports: List of import statements
+        exports: List of export statements
 
         # Reserved naming and compatibility (for migration support)
         naming_pattern: Original naming convention used
@@ -167,6 +175,13 @@ class MultiTenantMetadataSchema:
     collection_type: str                         # docs, notes, memory, etc.
     collection_category: CollectionCategory     # system/library/project/global
     workspace_scope: WorkspaceScope             # project/shared/global/library
+    branch: str = "main"                         # Git branch name, defaults to "main"
+
+    # === Code Analysis Metadata (Optional) ===
+    symbols_defined: List[str] = field(default_factory=list)  # Symbols defined in file
+    symbols_used: List[str] = field(default_factory=list)     # Symbols imported/used
+    imports: List[str] = field(default_factory=list)          # Import statements
+    exports: List[str] = field(default_factory=list)          # Export statements
 
     # === Reserved Naming and Compatibility ===
     naming_pattern: str = "metadata_based"      # metadata_based, system_prefix, library_prefix, project_pattern
@@ -194,6 +209,10 @@ class MultiTenantMetadataSchema:
 
     def __post_init__(self):
         """Validate and normalize metadata fields after initialization."""
+        # Apply default branch if not provided or empty
+        if not self.branch or not self.branch.strip():
+            self.branch = "main"
+
         # Validate required fields
         self._validate_required_fields()
 
@@ -209,7 +228,7 @@ class MultiTenantMetadataSchema:
     def _validate_required_fields(self):
         """Validate that all required fields are present and non-empty."""
         required_fields = [
-            'project_id', 'project_name', 'tenant_namespace',
+            'project_id', 'project_name', 'tenant_namespace', 'branch',
             'collection_type', 'collection_category', 'workspace_scope'
         ]
 
@@ -233,6 +252,9 @@ class MultiTenantMetadataSchema:
         # Normalize category
         self.category = self.category.strip().lower()
 
+        # Normalize branch (trim whitespace but preserve case)
+        self.branch = self.branch.strip()
+
     def _validate_field_constraints(self):
         """Validate field length and format constraints."""
         # Length constraints
@@ -248,6 +270,9 @@ class MultiTenantMetadataSchema:
         if len(self.created_by) > MAX_CREATED_BY_LENGTH:
             raise ValueError(f"created_by exceeds maximum length of {MAX_CREATED_BY_LENGTH}")
 
+        if len(self.branch) > MAX_BRANCH_LENGTH:
+            raise ValueError(f"branch exceeds maximum length of {MAX_BRANCH_LENGTH}")
+
         # Project ID format validation (12 alphanumeric characters)
         if not re.match(r'^[a-f0-9]{12}$', self.project_id):
             raise ValueError("project_id must be exactly 12 hexadecimal characters")
@@ -255,6 +280,14 @@ class MultiTenantMetadataSchema:
         # Priority range validation
         if not 1 <= self.priority <= 5:
             raise ValueError("priority must be between 1 and 5")
+
+        # Symbol fields validation (must be lists of strings if present)
+        for field_name in ['symbols_defined', 'symbols_used', 'imports', 'exports']:
+            value = getattr(self, field_name)
+            if not isinstance(value, list):
+                raise ValueError(f"{field_name} must be a list")
+            if any(not isinstance(item, str) for item in value):
+                raise ValueError(f"All items in {field_name} must be strings")
 
     def to_qdrant_payload(self) -> Dict[str, Any]:
         """
@@ -268,11 +301,18 @@ class MultiTenantMetadataSchema:
             "project_id": self.project_id,
             "project_name": self.project_name,
             "tenant_namespace": self.tenant_namespace,
+            "branch": self.branch,
 
             # Collection classification (indexed)
             "collection_type": self.collection_type,
             "collection_category": self.collection_category.value,
             "workspace_scope": self.workspace_scope.value,
+
+            # Code analysis metadata
+            "symbols_defined": self.symbols_defined,
+            "symbols_used": self.symbols_used,
+            "imports": self.imports,
+            "exports": self.exports,
 
             # Reserved naming and compatibility
             "naming_pattern": self.naming_pattern,
@@ -320,11 +360,18 @@ class MultiTenantMetadataSchema:
             project_id=payload["project_id"],
             project_name=payload["project_name"],
             tenant_namespace=payload["tenant_namespace"],
+            branch=payload.get("branch", "main"),  # Default to "main" for backwards compatibility
 
             # Collection classification
             collection_type=payload["collection_type"],
             collection_category=collection_category,
             workspace_scope=workspace_scope,
+
+            # Code analysis metadata (optional, default to empty lists)
+            symbols_defined=payload.get("symbols_defined", []),
+            symbols_used=payload.get("symbols_used", []),
+            imports=payload.get("imports", []),
+            exports=payload.get("exports", []),
 
             # Reserved naming and compatibility
             naming_pattern=payload.get("naming_pattern", "metadata_based"),
@@ -356,11 +403,16 @@ class MultiTenantMetadataSchema:
         cls,
         project_name: str,
         collection_type: str,
+        branch: str = "main",
         created_by: str = "user",
         access_level: AccessLevel = AccessLevel.PRIVATE,
         tags: Optional[List[str]] = None,
         category: str = "general",
-        priority: int = 3
+        priority: int = 3,
+        symbols_defined: Optional[List[str]] = None,
+        symbols_used: Optional[List[str]] = None,
+        imports: Optional[List[str]] = None,
+        exports: Optional[List[str]] = None
     ) -> "MultiTenantMetadataSchema":
         """
         Factory method for creating project collection metadata.
@@ -368,11 +420,16 @@ class MultiTenantMetadataSchema:
         Args:
             project_name: Name of the project
             collection_type: Type of collection (docs, notes, etc.)
+            branch: Git branch name, defaults to "main"
             created_by: Who created the collection
             access_level: Access control level
             tags: Organizational tags
             category: General category
             priority: Priority level (1-5)
+            symbols_defined: Symbols defined in file
+            symbols_used: Symbols imported/used
+            imports: Import statements
+            exports: Export statements
 
         Returns:
             MultiTenantMetadataSchema configured for project collection
@@ -385,11 +442,18 @@ class MultiTenantMetadataSchema:
             project_id=project_id,
             project_name=project_name,
             tenant_namespace=f"{project_name}.{collection_type}",
+            branch=branch,
 
             # Collection classification
             collection_type=collection_type,
             collection_category=CollectionCategory.PROJECT,
             workspace_scope=WorkspaceScope.PROJECT,
+
+            # Code analysis metadata
+            symbols_defined=symbols_defined or [],
+            symbols_used=symbols_used or [],
+            imports=imports or [],
+            exports=exports or [],
 
             # Reserved naming
             naming_pattern="project_pattern",
@@ -415,6 +479,7 @@ class MultiTenantMetadataSchema:
         cls,
         collection_name: str,
         collection_type: str = "memory_collection",
+        branch: str = "main",
         created_by: str = "system"
     ) -> "MultiTenantMetadataSchema":
         """
@@ -423,6 +488,7 @@ class MultiTenantMetadataSchema:
         Args:
             collection_name: Full system collection name (with __ prefix)
             collection_type: Type of collection
+            branch: Git branch name, defaults to "main"
             created_by: Who created the collection
 
         Returns:
@@ -440,6 +506,7 @@ class MultiTenantMetadataSchema:
             project_id=project_id,
             project_name="system",
             tenant_namespace=f"system.{collection_type}",
+            branch=branch,
 
             # Collection classification
             collection_type=collection_type,
@@ -471,6 +538,7 @@ class MultiTenantMetadataSchema:
         cls,
         collection_name: str,
         collection_type: str = "code_collection",
+        branch: str = "main",
         created_by: str = "cli"
     ) -> "MultiTenantMetadataSchema":
         """
@@ -479,6 +547,7 @@ class MultiTenantMetadataSchema:
         Args:
             collection_name: Full library collection name (with _ prefix)
             collection_type: Type of collection
+            branch: Git branch name, defaults to "main"
             created_by: Who created the collection
 
         Returns:
@@ -496,6 +565,7 @@ class MultiTenantMetadataSchema:
             project_id=project_id,
             project_name="library",
             tenant_namespace=f"library.{collection_type}",
+            branch=branch,
 
             # Collection classification
             collection_type=collection_type,
@@ -527,6 +597,7 @@ class MultiTenantMetadataSchema:
         cls,
         collection_name: str,
         collection_type: str = "global",
+        branch: str = "main",
         created_by: str = "system"
     ) -> "MultiTenantMetadataSchema":
         """
@@ -535,6 +606,7 @@ class MultiTenantMetadataSchema:
         Args:
             collection_name: Global collection name
             collection_type: Type of collection
+            branch: Git branch name, defaults to "main"
             created_by: Who created the collection
 
         Returns:
@@ -556,6 +628,7 @@ class MultiTenantMetadataSchema:
             project_id=project_id,
             project_name="global",
             tenant_namespace=f"global.{collection_type}",
+            branch=branch,
 
             # Collection classification
             collection_type=collection_type,
@@ -604,6 +677,7 @@ class MultiTenantMetadataSchema:
             "project_id",
             "project_name",
             "tenant_namespace",
+            "branch",
             "collection_type",
             "collection_category",
             "workspace_scope",
@@ -696,5 +770,6 @@ __all__ = [
     'MAX_COLLECTION_TYPE_LENGTH',
     'MAX_TENANT_NAMESPACE_LENGTH',
     'MAX_CREATED_BY_LENGTH',
-    'MAX_ACCESS_LEVEL_LENGTH'
+    'MAX_ACCESS_LEVEL_LENGTH',
+    'MAX_BRANCH_LENGTH'
 ]
