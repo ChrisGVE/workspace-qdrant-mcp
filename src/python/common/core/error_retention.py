@@ -251,6 +251,13 @@ class ErrorRetentionManager:
 
         try:
             async with self.connection_pool.get_connection_async() as conn:
+                # Get initial count for preserved calculation
+                cursor = conn.execute("SELECT COUNT(*) as count FROM messages")
+                initial_count = cursor.fetchone()['count']
+
+                # Track IDs to delete (avoid double-counting)
+                all_deletable_ids = set()
+
                 # Process each severity level
                 for severity, retention_days in policy.severity_specific_retention.items():
                     # Calculate cutoff dates for acknowledged and unacknowledged
@@ -282,52 +289,61 @@ class ErrorRetentionManager:
                     deletable_ids = [row['id'] for row in cursor.fetchall()]
 
                     if deletable_ids:
-                        severity_count = len(deletable_ids)
-                        result.by_severity[severity] = severity_count
-                        result.deleted_count += severity_count
-
-                        if not dry_run:
-                            # Delete messages in batches
-                            placeholders = ','.join('?' * len(deletable_ids))
-                            delete_query = f"DELETE FROM messages WHERE id IN ({placeholders})"
-                            conn.execute(delete_query, deletable_ids)
+                        # Track severity count
+                        result.by_severity[severity] = len(deletable_ids)
+                        # Add to set (prevents double-counting in max_count)
+                        all_deletable_ids.update(deletable_ids)
 
                 # Apply max_count policy if specified
                 if policy.max_count:
-                    count_query = "SELECT COUNT(*) as count FROM messages"
-                    cursor = conn.execute(count_query)
-                    total_count = cursor.fetchone()['count']
+                    # Count current messages minus already identified deletions
+                    current_after_age = initial_count - len(all_deletable_ids)
 
-                    if total_count > policy.max_count:
-                        excess_count = total_count - policy.max_count
+                    if current_after_age > policy.max_count:
+                        excess_count = current_after_age - policy.max_count
 
-                        # Get oldest messages to delete (excluding active retries if configured)
+                        # Get oldest messages to delete (excluding already marked and active retries)
                         oldest_query = """
                             SELECT id FROM messages
                         """
+
+                        # Build WHERE clause
+                        conditions = []
+                        params = []
+
+                        # Exclude already marked for deletion
+                        if all_deletable_ids:
+                            placeholders = ','.join('?' * len(all_deletable_ids))
+                            conditions.append(f"id NOT IN ({placeholders})")
+                            params.extend(all_deletable_ids)
+
+                        # Exclude active retries if configured
                         if policy.preserve_active_retries:
-                            oldest_query += " WHERE retry_count = 0"
+                            conditions.append("retry_count = 0")
+
+                        if conditions:
+                            oldest_query += " WHERE " + " AND ".join(conditions)
 
                         oldest_query += " ORDER BY timestamp ASC LIMIT ?"
+                        params.append(excess_count)
 
-                        cursor = conn.execute(oldest_query, (excess_count,))
+                        cursor = conn.execute(oldest_query, tuple(params))
                         excess_ids = [row['id'] for row in cursor.fetchall()]
 
                         if excess_ids:
-                            result.deleted_count += len(excess_ids)
+                            all_deletable_ids.update(excess_ids)
 
-                            if not dry_run:
-                                placeholders = ','.join('?' * len(excess_ids))
-                                delete_query = f"DELETE FROM messages WHERE id IN ({placeholders})"
-                                conn.execute(delete_query, excess_ids)
+                # Set total deleted count
+                result.deleted_count = len(all_deletable_ids)
+                result.preserved_count = initial_count - result.deleted_count
 
-                # Count preserved messages
-                preserved_query = "SELECT COUNT(*) as count FROM messages"
-                cursor = conn.execute(preserved_query)
-                result.preserved_count = cursor.fetchone()['count']
-
-                if not dry_run:
+                # Actually delete if not dry-run
+                if not dry_run and all_deletable_ids:
+                    placeholders = ','.join('?' * len(all_deletable_ids))
+                    delete_query = f"DELETE FROM messages WHERE id IN ({placeholders})"
+                    conn.execute(delete_query, tuple(all_deletable_ids))
                     conn.commit()
+
                     logger.info(
                         f"Cleanup completed: deleted {result.deleted_count} messages, "
                         f"preserved {result.preserved_count} messages"
