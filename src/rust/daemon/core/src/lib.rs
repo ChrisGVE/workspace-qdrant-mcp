@@ -16,6 +16,7 @@ pub mod embedding;
 pub mod error;
 pub mod file_classification;
 pub mod git_integration;
+pub mod metadata_enrichment;
 pub mod ipc;
 pub mod logging;
 pub mod daemon_state;
@@ -94,6 +95,9 @@ pub use crate::tool_monitor::{
 };
 pub use crate::file_classification::{
     classify_file_type, is_test_directory, FileType
+};
+pub use crate::metadata_enrichment::{
+    enrich_metadata, CollectionType
 };
 
 /// Core processing errors
