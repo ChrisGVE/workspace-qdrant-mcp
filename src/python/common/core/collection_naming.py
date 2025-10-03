@@ -661,17 +661,23 @@ def normalize_collection_name_component(name: str) -> str:
 
 def build_project_collection_name(project_id: str) -> str:
     """
-    Build a project collection name from project ID.
+    Build a project collection name from tenant ID.
 
     Args:
-        project_id: The 12-character hex project ID
+        project_id: The tenant ID (either git remote format like 'github_com_user_repo'
+                    or path hash format like 'path_abc123def456789a')
 
     Returns:
         Formatted collection name (_{project_id})
     """
-    # Validate project ID format
-    if not re.match(r"^[a-f0-9]{12}$", project_id):
-        raise ValueError(f"Invalid project ID format: '{project_id}'. Must be 12 hexadecimal characters.")
+    # Validate tenant ID format
+    # Allow git remote format (alphanumeric + underscores) or path hash format (path_ + 16 hex chars)
+    if not re.match(r"^(?:[a-z0-9_]+|path_[a-f0-9]{16})$", project_id):
+        raise ValueError(
+            f"Invalid tenant ID format: '{project_id}'. "
+            "Must be either git remote format (e.g., 'github_com_user_repo') "
+            "or path hash format (e.g., 'path_abc123def456789a')"
+        )
 
     return f"_{project_id}"
 
