@@ -286,8 +286,25 @@ class ConfigManager:
             merged_kwargs
         ])
 
-        # Step d) Both starting dictionaries are now dropped (garbage collected)
+        # Step d) Check for deprecated settings and issue warnings
+        self._check_deprecated_settings()
+
+        # Both starting dictionaries are now dropped (garbage collected)
         # Only self._config (merged result) is kept
+
+    def _check_deprecated_settings(self) -> None:
+        """Check for deprecated configuration settings and issue warnings."""
+        # Check for deprecated auto_ingestion.project_collection setting
+        if self.has("auto_ingestion.project_collection"):
+            old_value = self.get("auto_ingestion.project_collection")
+            logger.warning(
+                f"DEPRECATED: Configuration setting 'auto_ingestion.project_collection' is deprecated. "
+                f"Found value: '{old_value}'. "
+                f"This setting has been replaced with 'auto_ingestion.auto_create_project_collections' (boolean). "
+                f"Project collections are now auto-created with the pattern '_{project_id}'. "
+                f"Please update your configuration file to use 'auto_create_project_collections: true' instead. "
+                f"The old setting will be ignored."
+            )
 
     def _get_asset_base_path(self, deployment_config: Dict[str, Any] = None) -> Path:
         """Determine the base path for asset files based on deployment configuration.
@@ -366,7 +383,10 @@ class ConfigManager:
             "embedding": {"model": "sentence-transformers/all-MiniLM-L6-v2", "chunk_size": 800},
             "workspace": {"collection_types": [], "global_collections": []},
             "grpc": {"enabled": True, "host": "127.0.0.1", "port": 50051},
-            "auto_ingestion": {"enabled": True, "target_collection_suffix": "scratchbook"},
+            "auto_ingestion": {
+                "enabled": True,
+                "auto_create_project_collections": True,
+            },
             "logging": {"level": "info", "use_file_logging": False},
             "performance": {"max_concurrent_tasks": 4, "default_timeout_ms": 30000},
         }
@@ -936,4 +956,3 @@ def get_config_manager(config_file: Optional[str] = None, **kwargs) -> ConfigMan
 
 
 # End of ConfigManager implementation
-
