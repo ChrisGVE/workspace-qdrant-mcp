@@ -10,45 +10,47 @@ and provides hybrid search combining dense (semantic) and sparse (keyword) vecto
 Key Features:
     - 4 comprehensive tools: store, search, manage, retrieve
     - Content-based routing - parameters determine specific actions
-    - Multi-tenant workspace collections with automatic project isolation
-    - Project-aware workspace management with automatic detection
+    - Single collection per project with metadata-based differentiation
+    - Branch-aware querying with automatic Git branch detection
+    - File type filtering via metadata (code, test, docs, config, data, build, other)
     - Hybrid search combining dense (semantic) and sparse (keyword) vectors
     - Evidence-based performance: 100% precision for symbol/exact search, 94.2% for semantic
     - Comprehensive scratchbook for cross-project note management
     - Production-ready async architecture with comprehensive error handling
 
-Architecture:
-    - Project-scoped collections: {project-name}-{workspace-type}
-    - Automatic metadata injection with project context
-    - Workspace types: notes, docs, scratchbook, knowledge, context, memory
-    - Shared collections for cross-project resources
-    - Enhanced search with project filtering and aggregation
+Architecture (Task 374.6):
+    - Project collections: _{project_id} (single collection per project)
+    - project_id: 12-char hex hash from project path (via calculate_tenant_id)
+    - Branch-scoped queries: All queries filter by Git branch (default: current branch)
+    - File type differentiation via metadata: code, test, docs, config, data, build, other
+    - Shared collections for cross-project resources (memory, libraries)
+    - No collection type suffixes (replaced with metadata filtering)
 
 Tools:
     1. store - Store any content (documents, notes, code, web content)
-    2. search - Hybrid semantic + keyword search with advanced filtering
+    2. search - Hybrid semantic + keyword search with branch and file_type filtering
     3. manage - Collection management, system status, configuration
-    4. retrieve - Direct document retrieval by ID or metadata
+    4. retrieve - Direct document retrieval by ID or metadata with branch filtering
 
 Example Usage:
-    # Store different content types
-    store(content="user notes", source="scratchbook")  # -> project-scratchbook
-    store(file_path="main.py", content="code")         # -> project-code
-    store(url="https://docs.com", content="docs")     # -> project-web
+    # Store different content types (all go to _{project_id} collection)
+    store(content="user notes", source="scratchbook")  # metadata: file_type="other"
+    store(file_path="main.py", content="code")         # metadata: file_type="code"
+    store(url="https://docs.com", content="docs")      # metadata: file_type="docs"
 
-    # Search with various modes
-    search(query="authentication", mode="hybrid")      # Semantic + keyword
-    search(query="def login", mode="exact")           # Exact symbol search
-    search(query="notes", project="my-app")           # Project-scoped
+    # Search with branch and file_type filtering
+    search(query="authentication", mode="hybrid")             # Current branch, all file types
+    search(query="def login", mode="exact", file_type="code") # Current branch, code only
+    search(query="notes", branch="main", file_type="docs")    # main branch, docs only
 
     # Management operations
     manage(action="list_collections")                  # List all collections
     manage(action="workspace_status")                 # System status
-    manage(action="create_collection", name="docs")   # Create collection
+    manage(action="init_project")                     # Create _{project_id} collection
 
-    # Direct retrieval
-    retrieve(document_id="uuid-123")                  # Get by ID
-    retrieve(metadata={"type": "note", "tag": "api"}) # Get by metadata
+    # Direct retrieval with branch filtering
+    retrieve(document_id="uuid-123")                              # Current branch
+    retrieve(metadata={"file_type": "test"}, branch="develop")    # develop branch, tests
 """
 
 import asyncio
@@ -109,6 +111,11 @@ if _detect_stdio_mode():
     # Disable all logging to prevent protocol contamination
     logging.disable(logging.CRITICAL)
 
+# Import project detection and branch utilities after stdio setup
+from common.utils.project_detection import calculate_tenant_id
+from common.utils.git_utils import get_current_branch
+from common.core.collection_naming import build_project_collection_name
+
 # Initialize the FastMCP app
 app = FastMCP("Workspace Qdrant MCP")
 
@@ -145,6 +152,28 @@ def get_project_name() -> str:
 
     # Fallback to directory name
     return Path.cwd().name
+
+def get_project_collection(project_path: Optional[Path] = None) -> str:
+    """
+    Get the project collection name for a given project path.
+
+    Uses Task 374.6 architecture: _{project_id} where project_id is
+    12-char hex hash from calculate_tenant_id().
+
+    Args:
+        project_path: Path to project root. Defaults to current directory.
+
+    Returns:
+        Collection name in format _{project_id}
+    """
+    if project_path is None:
+        project_path = Path.cwd()
+
+    # Generate project ID using calculate_tenant_id from project_detection
+    project_id = calculate_tenant_id(str(project_path))
+
+    # Build collection name using collection_naming module
+    return build_project_collection_name(project_id)
 
 async def initialize_components():
     """Initialize Qdrant client and embedding model."""
@@ -196,29 +225,24 @@ def determine_collection_name(
     collection: str = None,
     project_name: str = None
 ) -> str:
-    """Determine appropriate collection name based on content and context."""
+    """
+    Determine appropriate collection name based on content and context.
+
+    DEPRECATED: This function maintains backwards compatibility but the new
+    architecture (Task 374.6) uses a single _{project_id} collection per project.
+
+    All files now go to the same collection with differentiation via metadata fields:
+    - file_type: "code", "test", "docs", "config", "data", "build", "other"
+    - branch: Current Git branch name
+    - project_id: 12-char hex project identifier
+
+    For MCP server operations, prefer get_project_collection() instead.
+    """
     if collection:
         return collection
 
-    if not project_name:
-        project_name = get_project_name()
-
-    # Content-based routing
-    if source == "scratchbook" or "note" in content.lower():
-        return f"{project_name}-scratchbook"
-    elif file_path:
-        if file_path.endswith(('.py', '.js', '.ts', '.java', '.cpp', '.c', '.h', '.rs', '.go')):
-            return f"{project_name}-code"
-        elif file_path.endswith(('.md', '.txt', '.rst', '.doc', '.docx')):
-            return f"{project_name}-docs"
-        else:
-            return f"{project_name}-files"
-    elif url:
-        return f"{project_name}-web"
-    elif any(keyword in content.lower() for keyword in ['memory', 'remember', 'context']):
-        return f"{project_name}-memory"
-    else:
-        return f"{project_name}-documents"
+    # Use new single-collection architecture
+    return get_project_collection()
 
 async def generate_embeddings(text: str) -> List[float]:
     """Generate embeddings for text."""
@@ -228,6 +252,42 @@ async def generate_embeddings(text: str) -> List[float]:
     # FastEmbed returns generator, convert to list
     embeddings = list(embedding_model.embed([text]))
     return embeddings[0].tolist()
+
+def build_metadata_filters(
+    filters: Dict[str, Any] = None,
+    branch: str = None,
+    file_type: str = None
+) -> Optional[Filter]:
+    """
+    Build Qdrant filter with branch and file_type conditions.
+
+    Args:
+        filters: User-provided metadata filters
+        branch: Git branch to filter by (None = current branch, "*" = all branches)
+        file_type: File type to filter by ("code", "test", "docs", etc.)
+
+    Returns:
+        Qdrant Filter object or None if no filters
+    """
+    conditions = []
+
+    # Add branch filter (always include unless branch="*")
+    if branch != "*":
+        if branch is None:
+            # Detect current branch
+            branch = get_current_branch(Path.cwd())
+        conditions.append(FieldCondition(key="branch", match=MatchValue(value=branch)))
+
+    # Add file_type filter if specified
+    if file_type:
+        conditions.append(FieldCondition(key="file_type", match=MatchValue(value=file_type)))
+
+    # Add user-provided filters
+    if filters:
+        for key, value in filters.items():
+            conditions.append(FieldCondition(key=key, match=MatchValue(value=value)))
+
+    return Filter(must=conditions) if conditions else None
 
 @app.tool()
 async def store(
@@ -245,17 +305,15 @@ async def store(
     Store any type of content in the vector database.
 
     The content and parameters determine the storage location and processing:
-    - source="scratchbook" -> stores in project-scratchbook collection
-    - file_path with code extensions -> stores in project-code collection
-    - url provided -> stores in project-web collection
-    - content with memory keywords -> stores in project-memory collection
-    - default -> stores in project-documents collection
+    - All content for a project goes to single _{project_id} collection
+    - Files differentiated by metadata: file_type, branch, project_id
+    - Legacy collection parameter supported for backwards compatibility
 
     Args:
         content: The text content to store
         title: Optional title for the document
         metadata: Additional metadata to attach
-        collection: Override automatic collection selection
+        collection: Override automatic collection selection (legacy support)
         source: Source type (user_input, scratchbook, file, web, etc.)
         document_type: Type of document (text, code, note, etc.)
         file_path: Path to source file (influences collection choice)
@@ -346,18 +404,28 @@ async def search(
     limit: int = 10,
     score_threshold: float = 0.3,
     filters: Dict[str, Any] = None,
+    branch: str = None,
+    file_type: str = None,
     workspace_type: str = None
 ) -> Dict[str, Any]:
     """
     Search across collections with hybrid semantic + keyword matching.
 
+    NEW: Task 374.7 - Single collection + branch filtering architecture
+    - Searches single _{project_id} collection per project
+    - Filters by Git branch (default: current branch, "*" = all branches)
+    - Filters by file_type when specified (code, test, docs, config, data, build, other)
+    - workspace_type parameter deprecated (use file_type instead)
+
     Search modes and behavior determined by parameters:
     - mode="hybrid" -> combines semantic and keyword search
     - mode="semantic" -> pure vector similarity search
     - mode="exact" -> keyword/symbol exact matching
-    - project_name specified -> searches project-specific collections
-    - workspace_type -> searches specific workspace (notes, docs, code, etc.)
-    - filters -> applies metadata filtering
+    - branch=None -> current Git branch (detected automatically)
+    - branch="main" -> specific branch
+    - branch="*" -> search across all branches
+    - file_type="code" -> only code files
+    - filters -> applies additional metadata filtering
 
     Args:
         query: Search query text
@@ -367,129 +435,106 @@ async def search(
         limit: Maximum number of results to return
         score_threshold: Minimum similarity score (0.0-1.0)
         filters: Additional metadata filters
-        workspace_type: Specific workspace to search (notes, docs, scratchbook, etc.)
+        branch: Git branch to search (None=current, "*"=all branches)
+        file_type: File type filter ("code", "test", "docs", "config", "data", "build", "other")
+        workspace_type: DEPRECATED - use file_type instead
 
     Returns:
         Dict with search results, metadata, and performance info
     """
     await initialize_components()
 
-    # Determine search collections
-    search_collections = []
-    if collection:
-        search_collections = [collection]
-    elif project_name:
-        # Search project-specific collections
-        base_project = project_name or get_project_name()
-        if workspace_type:
-            search_collections = [f"{base_project}-{workspace_type}"]
-        else:
-            # Search all project collections
-            try:
-                all_collections = qdrant_client.get_collections()
-                search_collections = [
-                    col.name for col in all_collections.collections
-                    if col.name.startswith(f"{base_project}-")
-                ]
-            except Exception:
-                search_collections = [f"{base_project}-documents"]
-    else:
-        # Search current project collections
-        current_project = get_project_name()
-        try:
-            all_collections = qdrant_client.get_collections()
-            search_collections = [
-                col.name for col in all_collections.collections
-                if col.name.startswith(f"{current_project}-")
-            ]
-        except Exception:
-            search_collections = [f"{current_project}-documents"]
-
-    if not search_collections:
-        return {
-            "success": False,
-            "error": "No collections found to search",
-            "results": []
+    # Handle deprecated workspace_type parameter
+    if workspace_type and not file_type:
+        # Map workspace_type to file_type
+        workspace_to_file_type = {
+            "code": "code",
+            "docs": "docs",
+            "notes": "other",
+            "scratchbook": "other",
+            "memory": "other",
         }
+        file_type = workspace_to_file_type.get(workspace_type, "other")
 
-    # Build search filters
-    search_filter = None
-    if filters:
-        conditions = []
-        for key, value in filters.items():
-            conditions.append(FieldCondition(key=key, match=MatchValue(value=value)))
-        if conditions:
-            search_filter = Filter(must=conditions)
+    # Determine search collection
+    if collection:
+        search_collection = collection
+    else:
+        # Use single project collection (new architecture)
+        search_collection = get_project_collection()
+
+    # Build metadata filters with branch and file_type
+    search_filter = build_metadata_filters(
+        filters=filters,
+        branch=branch,
+        file_type=file_type
+    )
 
     # Execute search based on mode
     all_results = []
     search_start = datetime.now()
 
     try:
-        for collection_name in search_collections:
-            try:
-                # Ensure collection exists before searching
-                if not await ensure_collection_exists(collection_name):
-                    continue
+        # Ensure collection exists before searching
+        if not await ensure_collection_exists(search_collection):
+            return {
+                "success": False,
+                "error": f"Collection not found: {search_collection}",
+                "results": []
+            }
 
-                if mode in ["semantic", "hybrid"]:
-                    # Generate query embeddings for semantic search
-                    query_embeddings = await generate_embeddings(query)
+        if mode in ["semantic", "hybrid"]:
+            # Generate query embeddings for semantic search
+            query_embeddings = await generate_embeddings(query)
 
-                    # Perform vector search
-                    search_results = qdrant_client.search(
-                        collection_name=collection_name,
-                        query_vector=query_embeddings,
-                        query_filter=search_filter,
-                        limit=limit,
-                        score_threshold=score_threshold
-                    )
+            # Perform vector search
+            search_results = qdrant_client.search(
+                collection_name=search_collection,
+                query_vector=query_embeddings,
+                query_filter=search_filter,
+                limit=limit,
+                score_threshold=score_threshold
+            )
 
-                    # Convert results
-                    for hit in search_results:
-                        result = {
-                            "id": hit.id,
-                            "score": hit.score,
-                            "collection": collection_name,
-                            "content": hit.payload.get("content", ""),
-                            "title": hit.payload.get("title", ""),
-                            "metadata": {k: v for k, v in hit.payload.items() if k != "content"}
-                        }
-                        all_results.append(result)
+            # Convert results
+            for hit in search_results:
+                result = {
+                    "id": hit.id,
+                    "score": hit.score,
+                    "collection": search_collection,
+                    "content": hit.payload.get("content", ""),
+                    "title": hit.payload.get("title", ""),
+                    "metadata": {k: v for k, v in hit.payload.items() if k != "content"}
+                }
+                all_results.append(result)
 
-                if mode in ["exact", "keyword", "hybrid"]:
-                    # For keyword/exact search, use scroll to find text matches
-                    # This is a simplified implementation - in production, you'd want
-                    # to implement proper sparse vector search or use Qdrant's full-text search
-                    scroll_results = qdrant_client.scroll(
-                        collection_name=collection_name,
-                        scroll_filter=search_filter,
-                        limit=limit * 2  # Get more for filtering
-                    )
+        if mode in ["exact", "keyword", "hybrid"]:
+            # For keyword/exact search, use scroll to find text matches
+            # This is a simplified implementation - in production, you'd want
+            # to implement proper sparse vector search or use Qdrant's full-text search
+            scroll_results = qdrant_client.scroll(
+                collection_name=search_collection,
+                scroll_filter=search_filter,
+                limit=limit * 2  # Get more for filtering
+            )
 
-                    # Filter results by keyword match
-                    query_lower = query.lower()
-                    for point in scroll_results[0]:  # scroll returns (points, next_page_offset)
-                        content = point.payload.get("content", "").lower()
-                        if query_lower in content:
-                            # Simple relevance scoring based on keyword frequency
-                            keyword_score = content.count(query_lower) / len(content.split()) if content else 0
+            # Filter results by keyword match
+            query_lower = query.lower()
+            for point in scroll_results[0]:  # scroll returns (points, next_page_offset)
+                content = point.payload.get("content", "").lower()
+                if query_lower in content:
+                    # Simple relevance scoring based on keyword frequency
+                    keyword_score = content.count(query_lower) / len(content.split()) if content else 0
 
-                            result = {
-                                "id": point.id,
-                                "score": min(keyword_score * 10, 1.0),  # Normalize to 0-1
-                                "collection": collection_name,
-                                "content": point.payload.get("content", ""),
-                                "title": point.payload.get("title", ""),
-                                "metadata": {k: v for k, v in point.payload.items() if k != "content"}
-                            }
-                            all_results.append(result)
-
-            except Exception as e:
-                # Continue with other collections if one fails
-                logger = logging.getLogger(__name__)
-                logger.error(f"Search failed for collection {collection_name}: {e}")
-                continue
+                    result = {
+                        "id": point.id,
+                        "score": min(keyword_score * 10, 1.0),  # Normalize to 0-1
+                        "collection": search_collection,
+                        "content": point.payload.get("content", ""),
+                        "title": point.payload.get("title", ""),
+                        "metadata": {k: v for k, v in point.payload.items() if k != "content"}
+                    }
+                    all_results.append(result)
 
         # Sort results by score and deduplicate
         seen_ids = set()
@@ -508,11 +553,15 @@ async def search(
             "success": True,
             "query": query,
             "mode": mode,
-            "collections_searched": search_collections,
+            "collection_searched": search_collection,
             "total_results": len(final_results),
             "results": final_results,
             "search_time_ms": round(search_duration * 1000, 2),
-            "filters_applied": filters or {}
+            "filters_applied": {
+                "branch": branch or get_current_branch(Path.cwd()),
+                "file_type": file_type,
+                "custom": filters or {}
+            }
         }
 
     except Exception as e:
@@ -539,7 +588,7 @@ async def manage(
     - "delete_collection" -> delete collection (name required)
     - "workspace_status" -> system status and health check
     - "collection_info" -> detailed info about specific collection
-    - "init_project" -> initialize project workspace collections
+    - "init_project" -> initialize project collection (single _{project_id})
     - "cleanup" -> remove empty collections and optimize
 
     Args:
@@ -643,13 +692,19 @@ async def manage(
         elif action == "workspace_status":
             # System health check
             current_project = project_name or get_project_name()
+            project_collection = get_project_collection()
 
             # Get collections info
             collections_response = qdrant_client.get_collections()
-            project_collections = [
-                col.name for col in collections_response.collections
-                if col.name.startswith(f"{current_project}-")
-            ]
+
+            # Check for project collection (new architecture: single _{project_id})
+            project_collections = []
+            for col in collections_response.collections:
+                if col.name == project_collection:
+                    project_collections.append(col.name)
+                # Also include legacy collections for backwards compatibility
+                elif col.name.startswith(f"{current_project}-"):
+                    project_collections.append(col.name)
 
             # Get Qdrant cluster info
             cluster_info = qdrant_client.get_cluster_info()
@@ -659,6 +714,8 @@ async def manage(
                 "action": action,
                 "timestamp": datetime.now(timezone.utc).isoformat(),
                 "current_project": current_project,
+                "project_collection": project_collection,
+                "branch": get_current_branch(Path.cwd()),
                 "qdrant_status": "connected",
                 "cluster_info": {
                     "peer_id": cluster_info.peer_id,
@@ -670,22 +727,21 @@ async def manage(
             }
 
         elif action == "init_project":
-            # Initialize standard project workspace collections
+            # Initialize project collection (new architecture: single _{project_id})
             target_project = project_name or get_project_name()
-            workspace_types = ["documents", "scratchbook", "code", "notes", "memory"]
+            project_collection = get_project_collection()
 
             created_collections = []
-            for workspace_type in workspace_types:
-                collection_name = f"{target_project}-{workspace_type}"
-                if await ensure_collection_exists(collection_name):
-                    created_collections.append(collection_name)
+            if await ensure_collection_exists(project_collection):
+                created_collections.append(project_collection)
 
             return {
                 "success": True,
                 "action": action,
                 "project": target_project,
+                "project_collection": project_collection,
                 "collections_created": created_collections,
-                "message": f"Initialized workspace for project '{target_project}'"
+                "message": f"Initialized collection '{project_collection}' for project '{target_project}'"
             }
 
         elif action == "cleanup":
@@ -731,16 +787,24 @@ async def retrieve(
     collection: str = None,
     metadata: Dict[str, Any] = None,
     limit: int = 10,
-    project_name: str = None
+    project_name: str = None,
+    branch: str = None,
+    file_type: str = None
 ) -> Dict[str, Any]:
     """
     Retrieve documents directly by ID or metadata without search ranking.
+
+    NEW: Task 374.7 - Branch and file_type filtering
+    - Filters by Git branch (default: current branch, "*" = all branches)
+    - Filters by file_type when specified
+    - Searches single _{project_id} collection per project
 
     Retrieval methods determined by parameters:
     - document_id specified -> direct ID lookup
     - metadata specified -> filter-based retrieval
     - collection specified -> limits retrieval to specific collection
-    - project_name -> limits to project collections
+    - branch -> filters by Git branch
+    - file_type -> filters by file type
 
     Args:
         document_id: Direct document ID to retrieve
@@ -748,6 +812,8 @@ async def retrieve(
         metadata: Metadata filters for document selection
         limit: Maximum number of documents to retrieve
         project_name: Limit retrieval to project collections
+        branch: Git branch to filter by (None=current, "*"=all branches)
+        file_type: File type filter ("code", "test", "docs", etc.)
 
     Returns:
         Dict with retrieved documents and metadata
@@ -763,105 +829,106 @@ async def retrieve(
     try:
         results = []
 
+        # Determine search collection
+        if collection:
+            search_collection = collection
+        else:
+            # Use single project collection (new architecture)
+            search_collection = get_project_collection()
+
         if document_id:
             # Direct ID retrieval
-            search_collections = []
-            if collection:
-                search_collections = [collection]
-            else:
-                # Search all collections for the ID
-                current_project = project_name or get_project_name()
-                all_collections_response = qdrant_client.get_collections()
-                if project_name:
-                    search_collections = [
-                        col.name for col in all_collections_response.collections
-                        if col.name.startswith(f"{current_project}-")
-                    ]
-                else:
-                    search_collections = [col.name for col in all_collections_response.collections]
+            try:
+                points = qdrant_client.retrieve(
+                    collection_name=search_collection,
+                    ids=[document_id]
+                )
 
-            # Try to retrieve from each collection
-            for col_name in search_collections:
-                try:
-                    points = qdrant_client.retrieve(
-                        collection_name=col_name,
-                        ids=[document_id]
-                    )
+                if points:
+                    point = points[0]
+                    # Apply branch filter to retrieved document
+                    if branch != "*":
+                        effective_branch = branch if branch else get_current_branch(Path.cwd())
+                        doc_branch = point.payload.get("branch")
+                        if doc_branch != effective_branch:
+                            # Document not on requested branch
+                            return {
+                                "success": True,
+                                "total_results": 0,
+                                "results": [],
+                                "query_type": "id_lookup",
+                                "message": f"Document found but not on branch '{effective_branch}'"
+                            }
 
-                    if points:
-                        point = points[0]
-                        result = {
-                            "id": point.id,
-                            "collection": col_name,
-                            "content": point.payload.get("content", ""),
-                            "title": point.payload.get("title", ""),
-                            "metadata": {k: v for k, v in point.payload.items() if k != "content"}
-                        }
-                        results.append(result)
-                        break  # Found the document, stop searching
+                    # Apply file_type filter if specified
+                    if file_type:
+                        doc_file_type = point.payload.get("file_type")
+                        if doc_file_type != file_type:
+                            return {
+                                "success": True,
+                                "total_results": 0,
+                                "results": [],
+                                "query_type": "id_lookup",
+                                "message": f"Document found but not file_type '{file_type}'"
+                            }
 
-                except Exception:
-                    continue  # Try next collection
+                    result = {
+                        "id": point.id,
+                        "collection": search_collection,
+                        "content": point.payload.get("content", ""),
+                        "title": point.payload.get("title", ""),
+                        "metadata": {k: v for k, v in point.payload.items() if k != "content"}
+                    }
+                    results.append(result)
+
+            except Exception:
+                pass  # Collection might not exist or ID not found
 
         elif metadata:
-            # Metadata-based retrieval
-            search_collections = []
-            if collection:
-                search_collections = [collection]
-            else:
-                current_project = project_name or get_project_name()
-                all_collections_response = qdrant_client.get_collections()
-                if project_name:
-                    search_collections = [
-                        col.name for col in all_collections_response.collections
-                        if col.name.startswith(f"{current_project}-")
-                    ]
-                else:
-                    search_collections = [col.name for col in all_collections_response.collections]
+            # Metadata-based retrieval with branch and file_type filters
+            # Build filter conditions including branch and file_type
+            search_filter = build_metadata_filters(
+                filters=metadata,
+                branch=branch,
+                file_type=file_type
+            )
 
-            # Build filter conditions
-            conditions = []
-            for key, value in metadata.items():
-                conditions.append(FieldCondition(key=key, match=MatchValue(value=value)))
+            # Retrieve from collection
+            try:
+                scroll_result = qdrant_client.scroll(
+                    collection_name=search_collection,
+                    scroll_filter=search_filter,
+                    limit=limit
+                )
 
-            search_filter = Filter(must=conditions) if conditions else None
+                points = scroll_result[0]  # scroll returns (points, next_page_offset)
 
-            # Retrieve from each collection
-            for col_name in search_collections:
-                try:
-                    scroll_result = qdrant_client.scroll(
-                        collection_name=col_name,
-                        scroll_filter=search_filter,
-                        limit=limit
-                    )
-
-                    points = scroll_result[0]  # scroll returns (points, next_page_offset)
-
-                    for point in points:
-                        result = {
-                            "id": point.id,
-                            "collection": col_name,
-                            "content": point.payload.get("content", ""),
-                            "title": point.payload.get("title", ""),
-                            "metadata": {k: v for k, v in point.payload.items() if k != "content"}
-                        }
-                        results.append(result)
-
-                        if len(results) >= limit:
-                            break
+                for point in points:
+                    result = {
+                        "id": point.id,
+                        "collection": search_collection,
+                        "content": point.payload.get("content", ""),
+                        "title": point.payload.get("title", ""),
+                        "metadata": {k: v for k, v in point.payload.items() if k != "content"}
+                    }
+                    results.append(result)
 
                     if len(results) >= limit:
                         break
 
-                except Exception:
-                    continue  # Try next collection
+            except Exception:
+                pass  # Collection might not exist
 
         return {
             "success": True,
             "total_results": len(results),
             "results": results,
             "query_type": "id_lookup" if document_id else "metadata_filter",
-            "filters_applied": metadata or {}
+            "filters_applied": {
+                "branch": branch or get_current_branch(Path.cwd()) if branch != "*" else "*",
+                "file_type": file_type,
+                "metadata": metadata or {}
+            }
         }
 
     except Exception as e:
