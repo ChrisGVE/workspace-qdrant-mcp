@@ -55,7 +55,8 @@ try:
         MAX_COLLECTION_TYPE_LENGTH,
         MAX_TENANT_NAMESPACE_LENGTH,
         MAX_CREATED_BY_LENGTH,
-        MAX_ACCESS_LEVEL_LENGTH
+        MAX_ACCESS_LEVEL_LENGTH,
+        MAX_BRANCH_LENGTH
     )
 except ImportError:
     logger.error("Cannot import metadata_schema module")
@@ -236,6 +237,9 @@ class MetadataValidator:
         # Format and constraint validation
         self._validate_formats_and_constraints(metadata, result)
 
+        # Code analysis metadata validation
+        self._validate_code_analysis_fields(metadata, result)
+
         logger.debug(f"Validation completed: valid={result.is_valid}, "
                     f"errors={len(result.errors)}, warnings={len(result.warnings)}")
 
@@ -272,6 +276,24 @@ class MetadataValidator:
                 "Project name contains invalid characters (use letters, numbers, underscore, hyphen)",
                 "INVALID_PROJECT_NAME_CHARS",
                 metadata.project_name
+            )
+
+        # Branch validation
+        if not metadata.branch:
+            result.add_error("branch", "Branch is required", "MISSING_BRANCH")
+        elif not metadata.branch.strip():
+            result.add_error(
+                "branch",
+                "Branch cannot be empty or whitespace only",
+                "EMPTY_BRANCH",
+                metadata.branch
+            )
+        elif len(metadata.branch) > MAX_BRANCH_LENGTH:
+            result.add_error(
+                "branch",
+                f"Branch exceeds maximum length of {MAX_BRANCH_LENGTH}",
+                "BRANCH_TOO_LONG",
+                metadata.branch
             )
 
         # Tenant namespace validation
@@ -554,6 +576,73 @@ class MetadataValidator:
                 suggestion="Set legacy_collection_name to preserve migration history"
             )
 
+    def _validate_code_analysis_fields(self, metadata: MultiTenantMetadataSchema, result: ValidationResult):
+        """Validate code analysis metadata fields (symbols, imports, exports)."""
+
+        # Validate symbols_defined
+        if not isinstance(metadata.symbols_defined, list):
+            result.add_error(
+                "symbols_defined",
+                "symbols_defined must be a list",
+                "INVALID_SYMBOLS_DEFINED_TYPE",
+                type(metadata.symbols_defined).__name__
+            )
+        elif any(not isinstance(item, str) for item in metadata.symbols_defined):
+            result.add_error(
+                "symbols_defined",
+                "All items in symbols_defined must be strings",
+                "INVALID_SYMBOLS_DEFINED_ITEM_TYPE",
+                metadata.symbols_defined
+            )
+
+        # Validate symbols_used
+        if not isinstance(metadata.symbols_used, list):
+            result.add_error(
+                "symbols_used",
+                "symbols_used must be a list",
+                "INVALID_SYMBOLS_USED_TYPE",
+                type(metadata.symbols_used).__name__
+            )
+        elif any(not isinstance(item, str) for item in metadata.symbols_used):
+            result.add_error(
+                "symbols_used",
+                "All items in symbols_used must be strings",
+                "INVALID_SYMBOLS_USED_ITEM_TYPE",
+                metadata.symbols_used
+            )
+
+        # Validate imports
+        if not isinstance(metadata.imports, list):
+            result.add_error(
+                "imports",
+                "imports must be a list",
+                "INVALID_IMPORTS_TYPE",
+                type(metadata.imports).__name__
+            )
+        elif any(not isinstance(item, str) for item in metadata.imports):
+            result.add_error(
+                "imports",
+                "All items in imports must be strings",
+                "INVALID_IMPORTS_ITEM_TYPE",
+                metadata.imports
+            )
+
+        # Validate exports
+        if not isinstance(metadata.exports, list):
+            result.add_error(
+                "exports",
+                "exports must be a list",
+                "INVALID_EXPORTS_TYPE",
+                type(metadata.exports).__name__
+            )
+        elif any(not isinstance(item, str) for item in metadata.exports):
+            result.add_error(
+                "exports",
+                "All items in exports must be strings",
+                "INVALID_EXPORTS_ITEM_TYPE",
+                metadata.exports
+            )
+
     def _validate_formats_and_constraints(self, metadata: MultiTenantMetadataSchema, result: ValidationResult):
         """Validate field formats and constraints."""
 
@@ -716,6 +805,10 @@ class MetadataValidator:
         expected_namespace = f"{metadata.project_name}.{metadata.collection_type}"
         if metadata.tenant_namespace != expected_namespace:
             suggestions['tenant_namespace'] = f"Use '{expected_namespace}'"
+
+        # Branch fix
+        if not metadata.branch or not metadata.branch.strip():
+            suggestions['branch'] = "Use 'main' as default branch"
 
         # Collection category consistency fixes
         if metadata.collection_category == CollectionCategory.LIBRARY and not metadata.mcp_readonly:
