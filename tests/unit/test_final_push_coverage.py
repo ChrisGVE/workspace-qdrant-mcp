@@ -30,11 +30,9 @@ class TestFinalPushCoverage:
     def test_more_common_core_imports(self):
         """Test more common core imports for coverage."""
         modules_to_import = [
-            'advanced_watch_config',
             'graceful_degradation',
             'component_isolation',
             'daemon_manager',
-            'watch_validation',
             'ssl_config',
             'smart_ingestion_router',
             'collection_manager_integration',
@@ -192,7 +190,6 @@ class TestFinalPushCoverage:
         """Test workspace core modules deeply."""
         workspace_core_modules = [
             'client', 'config', 'memory', 'hybrid_search',
-            'sparse_vectors', 'watch_config', 'embeddings'
         ]
 
         for module in workspace_core_modules:

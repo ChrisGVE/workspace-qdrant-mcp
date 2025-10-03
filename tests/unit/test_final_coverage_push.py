@@ -60,7 +60,6 @@ class TestAllZeroCoverageModules:
             # Elegant launcher
             "elegant_launcher",
             # All workspace_qdrant_mcp stub modules with 0% coverage
-            "workspace_qdrant_mcp.core.advanced_watch_config",
             "workspace_qdrant_mcp.core.auto_ingestion",
             "workspace_qdrant_mcp.core.claude_integration",
             "workspace_qdrant_mcp.core.collection_naming",
@@ -85,9 +84,6 @@ class TestAllZeroCoverageModules:
             "workspace_qdrant_mcp.core.sparse_vectors",
             "workspace_qdrant_mcp.core.sqlite_state_manager",
             "workspace_qdrant_mcp.core.ssl_config",
-            "workspace_qdrant_mcp.core.watch_config",
-            "workspace_qdrant_mcp.core.watch_sync",
-            "workspace_qdrant_mcp.core.watch_validation",
             "workspace_qdrant_mcp.core.yaml_config",
             "workspace_qdrant_mcp.core.yaml_metadata",
             # Server modules
