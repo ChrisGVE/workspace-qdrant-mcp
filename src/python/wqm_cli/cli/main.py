@@ -17,6 +17,7 @@ Usage:
     wqm collections list-types   # View collections by type
     wqm errors stats             # Error statistics
     wqm branch list --project ID # List branches in project
+    wqm migrate detect           # Detect old collections
 """
 
 import os
@@ -92,6 +93,7 @@ from .commands.lsp_management import lsp_app
 # Import command modules
 from .commands.memory import memory_app
 from .commands.messages import messages_app
+from .commands.migrate import migrate_app
 from .commands.queue import queue_app
 from .commands.search import search_app
 from .commands.service import service_app
@@ -178,6 +180,10 @@ app.add_typer(
 app.add_typer(
     branch_app, name="branch", help="Git branch management for project collections"
 )
+# Add migration tooling commands
+app.add_typer(
+    migrate_app, name="migrate", help="Migrate old collections to new _{project_id} architecture"
+)
 
 
 @app.callback(invoke_without_command=True)
@@ -217,6 +223,7 @@ def main(
         wqm collections list-types         # View collections by type
         wqm errors stats                   # Error statistics
         wqm branch list --project abc123   # List branches in project
+        wqm migrate detect                 # Detect old collections
         wqm init                           # Enable shell completion
     """
     # Handle version flag first, before any configuration loading
