@@ -140,17 +140,22 @@ class TestBranchSupport:
         for point in mock_points:
             assert point.payload["project_id"] == tenant_id
 
-    def test_branch_detection_integration(self):
+    async def test_branch_detection_integration(self):
         """Test branch detection during ingestion."""
         with tempfile.TemporaryDirectory() as tmpdir:
             project_path = Path(tmpdir)
 
             # Mock git repository on feature branch
-            with patch("common.utils.git_utils.git.Repo") as mock_repo_class:
+            with patch("common.utils.git_utils.Repo") as mock_repo_class:
                 mock_repo = Mock()
-                mock_branch = Mock()
-                mock_branch.name = "feature/new-api"
-                mock_repo.active_branch = mock_branch
+                # Setup mock head attributes for get_current_branch
+                mock_head = Mock()
+                mock_head.commit = Mock()  # Indicates repo has commits
+                mock_head.is_detached = False  # Not in detached HEAD state
+                mock_ref = Mock()
+                mock_ref.name = "feature/new-api"
+                mock_head.ref = mock_ref
+                mock_repo.head = mock_head
                 mock_repo_class.return_value = mock_repo
 
                 branch = get_current_branch(project_path)
@@ -266,7 +271,7 @@ class TestEndToEndWorkflow:
             assert collection_name == "_github_com_test_project"
 
             # 3. Get branch
-            with patch("common.utils.git_utils.git.Repo") as mock_repo_class:
+            with patch("common.utils.git_utils.Repo") as mock_repo_class:
                 mock_repo = Mock()
                 mock_branch = Mock()
                 mock_branch.name = "main"
@@ -331,8 +336,10 @@ class TestArchitectureValidation:
             assert "-scratchbook" not in collection_name
             assert "-web" not in collection_name
 
-            # Should be single collection name
-            assert collection_name.count("_") >= 3  # At least _platform_com_user_repo
+            # Should be single collection name in valid format
+            # Path hash: _path_{16 hex chars} (2 underscores)
+            # Git remote: _{platform}_{domain}_{user}_{repo} (4+ underscores)
+            assert collection_name.count("_") >= 2  # At least 2 underscores for either format
 
     async def test_metadata_based_differentiation(self):
         """Verify file types are differentiated by metadata, not collection."""
