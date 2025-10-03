@@ -427,25 +427,45 @@ embedding:
 # Purpose: Controls project detection, collection organization, and file processing
 # behavior. Defines how the system discovers projects, organizes content, and
 # manages different types of documents across workspaces.
+#
+# COLLECTION ARCHITECTURE:
+# ------------------------
+# 1. PROJECT COLLECTIONS: _{project_id}
+#    - Auto-created for each detected project
+#    - Contains project source code and documentation
+#    - Automatically managed by daemon
+#    - Example: _my_project, _workspace_qdrant_mcp
+#
+# 2. LIBRARY COLLECTIONS: _{library_name}
+#    - User-managed collections for imported libraries
+#    - Stores library documentation and examples
+#    - Manually created using MCP 'manage' tool
+#    - Example: _python_standard_library, _react
+#
+# 3. USER COLLECTIONS: {basename}-{type}
+#    - Optional user-defined collections for custom organization
+#    - Created using collection_basename + collection_types
+#    - Example: myapp-notes, myapp-specs (when basename="myapp")
 workspace:
-  # collection_basename: collection base name used to form the collection name with its type
-  # Purpose: Defines specialized collections within each detected project
-  # Organization pattern: Creates {project_name}-{suffix} collections
-  # Content separation: Allows different content types to be organized separately
-  # Example usage: ["code", "docs", "tests"] creates myproject-code, myproject-docs
-  # Search optimization: Enables targeted search within specific content types
+  # collection_basename: Base name for USER collections (optional)
+  # Purpose: Creates specialized user collections for custom content organization
+  # Collection pattern: {basename}-{type} for each type in collection_types
+  # Use case: Organize project-specific notes, specifications, or research
+  # NOT used for: Project collections (_{project_id}) or library collections (_{library})
+  # Example: If basename="myapp" and types=["notes", "specs"]
+  #          Creates: myapp-notes, myapp-specs
   # Empty default: Prevents automatic creation of potentially unwanted collections
-  # Management overhead: Each collection type multiplies storage and index overhead
-  # Format: string
+  # Format: string or null
   collection_basename: null
 
-  # collection_types: Project-specific collection suffix definitions
-  # Purpose: Defines specialized collections within each detected project
-  # Organization pattern: Creates {collection_basename}-{suffix} collections
-  # Content separation: Allows different content types to be organized separately
-  # Example usage: ["code", "docs", "tests"] creates myproject-code, myproject-docs
-  # Search optimization: Enables targeted search within specific content types
-  # Empty default: Prevents automatic creation of potentially unwanted collections
+  # collection_types: Suffixes for USER collection types (optional)
+  # Purpose: Defines specialized collection types for custom content organization
+  # Collection pattern: Creates {collection_basename}-{suffix} for each type
+  # Use case: Separate different types of user content (notes, specs, research)
+  # NOT used for: Project collections (_{project_id}) or library collections (_{library})
+  # Example: ["notes", "specs", "research"] with basename="myapp"
+  #          Creates: myapp-notes, myapp-specs, myapp-research
+  # Empty default: No user collections created automatically
   # Management overhead: Each collection type multiplies storage and index overhead
   # Format: Array of strings
   collection_types: []
@@ -674,14 +694,16 @@ auto_ingestion:
   # Format: Boolean
   include_source_files: true
 
-  # project_collection: Default collection destination for auto-ingested content
-  # Purpose: Defines which collection receives automatically processed files
-  # Organization: Groups auto-ingested content into designated collections
-  # Collection naming: Results in {project_name}-{suffix} collection names
-  # Content separation: Distinguishes auto-ingested from manually curated content
-  # Search scoping: Enables targeted search within auto-ingested content
-  # Format: String collection suffix
-  project_collection: "projects_content"
+  # auto_create_project_collections: Automatic project collection creation
+  # Purpose: Controls whether project collections (_{project_id}) are auto-created
+  # Zero-configuration: Enables automatic setup for newly detected projects
+  # Project isolation: Each project gets its own dedicated collection
+  # Resource control: Set to false to require manual collection creation
+  # Development convenience: Automatic creation simplifies development workflow
+  # Collection naming: Creates collections with underscore prefix (e.g., _myproject)
+  # Format: Boolean
+  # Default reasoning: true enables seamless project detection and indexing
+  auto_create_project_collections: true
 
   # max_files_per_batch: Batch processing size limit
   # Purpose: Controls maximum number of files processed simultaneously
@@ -1365,333 +1387,333 @@ queue_bottleneck_detection:
   # Format: Boolean
   # Default reasoning: Enabled by default for comprehensive performance analysis
   pipeline_stage_tracking: true
-   1 
-   2 # =============================================================================
-   3 # HISTORICAL TREND ANALYSIS CONFIGURATION
-   4 # =============================================================================
-   5 # Purpose: Controls historical metric tracking, trend analysis, forecasting,
-   6 # and anomaly detection for queue performance metrics. Provides insights into
-   7 # queue behavior over time and enables predictive capacity planning.
-   8 trend_analysis:
-   9   # enabled: Master control for trend analysis
-  10   # Purpose: Enables or disables historical metric tracking and analysis
-  11   # Performance benefit: Identifies patterns, forecasts capacity needs
-  12   # Resource overhead: Minimal storage and CPU for analysis
-  13   # Production value: Essential for capacity planning and anomaly detection
-  14   # Format: Boolean
-  15   # Default reasoning: Enabled for production monitoring and optimization
-  16   enabled: true
-  17 
-  18   # retention_days: Metric data retention period
-  19   # Purpose: How long to retain historical metric data
-  20   # Storage impact: Longer retention increases database size
-  21   # Analysis depth: More history enables better trend identification
-  22   # Cleanup: Automatic daily cleanup removes data older than this
-  23   # Format: Integer days
-  24   # Default reasoning: 30 days provides good historical depth without excessive storage
-  25   retention_days: 30
-  26 
-  27   # default_window_hours: Default analysis window
-  28   # Purpose: Default time window for trend analysis queries
-  29   # Analysis scope: Larger window captures longer-term trends
-  30   # Responsiveness: Smaller window more sensitive to recent changes
-  31   # Format: Integer hours
-  32   # Default reasoning: 24 hours captures daily patterns
-  33   default_window_hours: 24
-  34 
-  35   # anomaly_sensitivity: Z-score threshold for anomaly detection
-  36   # Purpose: Number of standard deviations to classify as anomaly
-  37   # Sensitivity: Lower values detect more anomalies (more false positives)
-  38   # Specificity: Higher values reduce false positives (may miss anomalies)
-  39   # Typical range: 2.0 (sensitive) to 4.0 (conservative)
-  40   # Format: Float standard deviations
-  41   # Default reasoning: 3.0 is statistical standard (99.7% confidence)
-  42   anomaly_sensitivity: 3.0
-  43 
-  44   # stable_slope_threshold: Threshold for stable trend classification
-  45   # Purpose: Maximum absolute slope value to classify trend as stable
-  46   # Trend classification: |slope| < threshold = stable
-  47   # Sensitivity: Lower values make trends more sensitive to change
-  48   # Units: Change per hour in metric's natural units
-  49   # Format: Float
-  50   # Default reasoning: 0.1 allows minor fluctuations without trend classification
-  51   stable_slope_threshold: 0.1
-  52 
-  53   # volatile_coefficient_threshold: Threshold for volatile classification
-  54   # Purpose: Coefficient of variation (std_dev/mean) threshold for volatility
-  55   # Volatility detection: CV > threshold = volatile trend
-  56   # Typical values: 0.3 (moderate) to 0.7 (high tolerance)
-  57   # Format: Float (0-1 range typically)
-  58   # Default reasoning: 0.5 identifies significantly unstable metrics
-  59   volatile_coefficient_threshold: 0.5
-  60 
-  61   # metrics_to_track: List of metrics to track historically
-  62   # Purpose: Defines which queue metrics to store and analyze
-  63   # Storage impact: Each metric multiplies storage requirements
-  64   # Analysis scope: More metrics provide comprehensive monitoring
-  65   # Customization: Add custom metrics as needed
-  66   # Format: List of strings
-  67   # Available metrics:
-  68   #   - queue_size: Number of items in queue
-  69   #   - processing_rate: Items processed per time unit
-  70   #   - error_rate: Percentage of failed operations
-  71   #   - latency: Average queue wait time
-  72   #   - success_rate: Percentage of successful operations
-  73   #   - resource_usage_cpu: CPU utilization percentage
-  74   #   - resource_usage_memory: Memory usage in MB
-  75   metrics_to_track:
-  76     - queue_size
-  77     - processing_rate
-  78     - error_rate
-  79     - latency
-  80     - success_rate
-  81     - resource_usage_cpu
-  82     - resource_usage_memory
-   1 
-   2 # =============================================================================
-   3 # DASHBOARD DATA CONFIGURATION
-   4 # =============================================================================
-   5 # Purpose: Controls dashboard widget data preparation, caching, and layout
-   6 # configuration. Provides formatted data for monitoring dashboards with support
-   7 # for multiple widget types and layout presets.
-   8 dashboard:
-   9   # enabled: Master control for dashboard data preparation
-  10   # Purpose: Enables or disables dashboard widget data generation
-  11   # Monitoring benefit: Provides formatted data for visualization dashboards
-  12   # Resource overhead: Minimal CPU overhead for data formatting and caching
-  13   # Production value: Essential for operational visibility through dashboards
-  14   # Format: Boolean
-  15   # Default reasoning: Enabled for dashboard monitoring capabilities
-  16   enabled: true
-  17 
-  18   # cache_ttl_seconds: Widget data cache time-to-live
-  19   # Purpose: How long to cache prepared widget data before refreshing
-  20   # Performance benefit: Reduces load on monitoring modules by caching results
-  21   # Freshness trade-off: Longer TTL reduces load but shows less current data
-  22   # Real-time updates: Shorter TTL provides more current dashboard data
-  23   # Format: Integer seconds
-  24   # Default reasoning: 30 seconds balances freshness with performance
-  25   cache_ttl_seconds: 30
-  26 
-  27   # default_refresh_interval: Global dashboard refresh interval
-  28   # Purpose: Default interval for dashboard to request fresh data
-  29   # Dashboard responsiveness: How often dashboard UI updates
-  30   # Network efficiency: Longer intervals reduce request frequency
-  31   # Alignment: Should be >= cache_ttl_seconds to benefit from caching
-  32   # Format: Integer seconds
-  33   # Default reasoning: 30 seconds matches cache TTL for efficient updates
-  34   default_refresh_interval: 30
-  35 
-  36   # enable_trend_analysis: Trend data for sparklines and charts
-  37   # Purpose: Enables historical trend data for sparklines and time-series charts
-  38   # Data requirement: Requires trend_analysis.enabled = true
-  39   # Visualization benefit: Provides trend indicators and historical charts
-  40   # Resource overhead: Minimal as trend analysis is already enabled separately
-  41   # Format: Boolean
-  42   # Default reasoning: Enabled to provide rich dashboard visualizations
-  43   enable_trend_analysis: true
-  44 
-  45   # enable_bottleneck_detection: Bottleneck data for dashboard
-  46   # Purpose: Enables bottleneck detection data for performance widgets
-  47   # Data requirement: Requires queue_bottleneck_detection.enabled = true
-  48   # Visualization benefit: Shows slow collections, operations, parsers
-  49   # Resource overhead: Minimal as bottleneck detection is already enabled separately
-  50   # Format: Boolean
-  51   # Default reasoning: Enabled to provide performance optimization insights
-  52   enable_bottleneck_detection: true
-  53 
-  54   # Grid layout configuration
-  55   layout:
-  56     # columns: Grid column count for widget positioning
-  57     # Purpose: Number of columns in dashboard grid layout
-  58     # Layout flexibility: 12 columns allows flexible widget sizing
-  59     # Responsive design: Commonly used grid system (Bootstrap-compatible)
-  60     # Format: Integer > 0
-  61     # Default reasoning: 12-column grid is industry standard
-  62     columns: 12
-  63 
-  64     # row_height: Grid row height in pixels
-  65     # Purpose: Height of each grid row for consistent widget sizing
-  66     # Visual consistency: Fixed row height provides predictable layouts
-  67     # Responsive scaling: Combine with responsive breakpoints
-  68     # Format: Integer pixels
-  69     # Default reasoning: 60px provides reasonable default row height
-  70     row_height: 60
-  71 
-  72     # Responsive breakpoints for different screen sizes
-  73     # Purpose: Defines screen width breakpoints for responsive layouts
-  74     # Mobile support: Smaller breakpoints optimize for mobile devices
-  75     # Desktop optimization: Larger breakpoints use available screen space
-  76     # Format: Object with pixel width values
-  77     breakpoints:
-  78       # lg: Large desktop screens
-  79       lg: 1200
-  80       # md: Medium desktop/tablet landscape
-  81       md: 996
-  82       # sm: Tablet portrait
-  83       sm: 768
-  84       # xs: Mobile devices
-  85       xs: 480
-  86 
-  87   # Widget configuration defaults
-  88   widgets:
-  89     # sparkline_points: Number of data points for sparkline indicators
-  90     # Purpose: How many historical points to show in trend sparklines
-  91     # Trend visibility: More points show longer trends
-  92     # Performance: More points require more data retrieval
-  93     # Format: Integer > 0
-  94     # Default reasoning: 20 points provides good trend visibility
-  95     sparkline_points: 20
-  96 
-  97     # chart_time_window_hours: Default time window for time-series charts
-  98     # Purpose: How many hours of history to show in line charts
-  99     # Historical context: Longer window shows more historical context
- 100     # Data volume: Longer window requires more data points
- 101     # Format: Integer hours
- 102     # Default reasoning: 24 hours shows daily patterns
- 103     chart_time_window_hours: 24
- 104 
- 105     # table_limit_default: Default row limit for table widgets
- 106     # Purpose: Maximum number of rows to show in table widgets
- 107     # Page size: Balance between showing enough data and performance
- 108     # User experience: Avoid overwhelming users with too many rows
- 109     # Format: Integer > 0
- 110     # Default reasoning: 20 rows is reasonable default page size
- 111     table_limit_default: 20
- 112 
- 113   # Color coding thresholds for status indicators
- 114   # Purpose: Defines color codes for different metric value ranges
- 115   # Visual communication: Colors provide quick status assessment
- 116   # Customization: Adjust thresholds based on operational requirements
- 117   color_thresholds:
- 118     # Queue size color coding
- 119     queue_size:
- 120       green_max: 1000      # Queue size below this is green (healthy)
- 121       yellow_max: 5000     # Queue size below this is yellow (warning)
- 122       orange_max: 10000    # Queue size below this is orange (degraded)
- 123       # Above orange_max is red (critical)
- 124 
- 125     # Error rate color coding (percentage)
- 126     error_rate:
- 127       green_max: 1.0       # Error rate below this is green (healthy)
- 128       yellow_max: 5.0      # Error rate below this is yellow (warning)
- 129       orange_max: 10.0     # Error rate below this is orange (degraded)
- 130       # Above orange_max is red (critical)
- 131 
- 132     # Success rate color coding (percentage)
- 133     success_rate:
- 134       green_min: 95.0      # Success rate above this is green (healthy)
- 135       yellow_min: 90.0     # Success rate above this is yellow (warning)
- 136       orange_min: 80.0     # Success rate above this is orange (degraded)
- 137       # Below orange_min is red (critical)
- 138 
- 139     # Health score color coding (0-100)
- 140     health_score:
- 141       green_min: 80.0      # Health score above this is green (healthy)
- 142       yellow_min: 60.0     # Health score above this is yellow (degraded)
- 143       orange_min: 40.0     # Health score above this is orange (unhealthy)
- 144       # Below orange_min is red (critical)
-[38;2;127;132;156m   1[0m 
-[38;2;127;132;156m   2[0m [38;2;205;214;244m# =============================================================================[0m
-[38;2;127;132;156m   3[0m [38;2;205;214;244m# QUEUE ALERTING CONFIGURATION[0m
-[38;2;127;132;156m   4[0m [38;2;205;214;244m# =============================================================================[0m
-[38;2;127;132;156m   5[0m [38;2;205;214;244m# Purpose: Controls alert rule management, threshold monitoring, and notification[0m
-[38;2;127;132;156m   6[0m [38;2;205;214;244m# delivery for queue system monitoring. Enables proactive alerting for queue[0m
-[38;2;127;132;156m   7[0m [38;2;205;214;244m# health issues, performance degradation, and operational anomalies.[0m
-[38;2;127;132;156m   8[0m [38;2;205;214;244mqueue_alerting:[0m
-[38;2;127;132;156m   9[0m [38;2;205;214;244m  # enabled: Master control for alerting system[0m
-[38;2;127;132;156m  10[0m [38;2;205;214;244m  # Purpose: Enables or disables alert rule evaluation and notifications[0m
-[38;2;127;132;156m  11[0m [38;2;205;214;244m  # Monitoring benefit: Proactive alerts for queue issues[0m
-[38;2;127;132;156m  12[0m [38;2;205;214;244m  # Resource overhead: Minimal CPU overhead for rule evaluation[0m
-[38;2;127;132;156m  13[0m [38;2;205;214;244m  # Production value: Essential for operational monitoring and incident response[0m
-[38;2;127;132;156m  14[0m [38;2;205;214;244m  # Format: Boolean[0m
-[38;2;127;132;156m  15[0m [38;2;205;214;244m  # Default reasoning: Enabled for production monitoring and alerting[0m
-[38;2;127;132;156m  16[0m [38;2;205;214;244m  enabled: true[0m
-[38;2;127;132;156m  17[0m 
-[38;2;127;132;156m  18[0m [38;2;205;214;244m  # evaluation_interval: Alert rule evaluation frequency[0m
-[38;2;127;132;156m  19[0m [38;2;205;214;244m  # Purpose: How often to check alert rules and thresholds[0m
-[38;2;127;132;156m  20[0m [38;2;205;214;244m  # Alert responsiveness: More frequent checks detect issues faster[0m
-[38;2;127;132;156m  21[0m [38;2;205;214;244m  # Resource overhead: Frequent evaluation increases CPU usage[0m
-[38;2;127;132;156m  22[0m [38;2;205;214;244m  # Notification timing: Affects how quickly alerts are triggered[0m
-[38;2;127;132;156m  23[0m [38;2;205;214;244m  # Format: Integer seconds[0m
-[38;2;127;132;156m  24[0m [38;2;205;214;244m  # Default reasoning: 60 seconds provides good balance between responsiveness and overhead[0m
-[38;2;127;132;156m  25[0m [38;2;205;214;244m  evaluation_interval: 60[0m
-[38;2;127;132;156m  26[0m 
-[38;2;127;132;156m  27[0m [38;2;205;214;244m  # default_cooldown_minutes: Default alert cooldown period[0m
-[38;2;127;132;156m  28[0m [38;2;205;214;244m  # Purpose: Minimum time between repeated alerts for same condition[0m
-[38;2;127;132;156m  29[0m [38;2;205;214;244m  # Alert fatigue prevention: Prevents spamming with duplicate alerts[0m
-[38;2;127;132;156m  30[0m [38;2;205;214;244m  # Issue persistence: Only re-alerts if issue persists beyond cooldown[0m
-[38;2;127;132;156m  31[0m [38;2;205;214;244m  # Customization: Can be overridden per alert rule[0m
-[38;2;127;132;156m  32[0m [38;2;205;214;244m  # Format: Integer minutes[0m
-[38;2;127;132;156m  33[0m [38;2;205;214;244m  # Default reasoning: 15 minutes prevents alert spam while allowing re-notification[0m
-[38;2;127;132;156m  34[0m [38;2;205;214;244m  default_cooldown_minutes: 15[0m
-[38;2;127;132;156m  35[0m 
-[38;2;127;132;156m  36[0m [38;2;205;214;244m  # max_alert_history_days: Alert history retention period[0m
-[38;2;127;132;156m  37[0m [38;2;205;214;244m  # Purpose: How long to retain alert history in database[0m
-[38;2;127;132;156m  38[0m [38;2;205;214;244m  # Compliance: May be required for audit trails[0m
-[38;2;127;132;156m  39[0m [38;2;205;214;244m  # Troubleshooting: Historical alerts help identify patterns[0m
-[38;2;127;132;156m  40[0m [38;2;205;214;244m  # Storage impact: Longer retention increases database size[0m
-[38;2;127;132;156m  41[0m [38;2;205;214;244m  # Format: Integer days[0m
-[38;2;127;132;156m  42[0m [38;2;205;214;244m  # Default reasoning: 30 days provides good historical depth[0m
-[38;2;127;132;156m  43[0m [38;2;205;214;244m  max_alert_history_days: 30[0m
-[38;2;127;132;156m  44[0m 
-[38;2;127;132;156m  45[0m [38;2;205;214;244m  # retry_attempts: Notification delivery retry attempts[0m
-[38;2;127;132;156m  46[0m [38;2;205;214;244m  # Purpose: Number of times to retry failed notification delivery[0m
-[38;2;127;132;156m  47[0m [38;2;205;214;244m  # Reliability: Handles transient network/service issues[0m
-[38;2;127;132;156m  48[0m [38;2;205;214;244m  # Failure handling: Falls back to logging after all retries exhausted[0m
-[38;2;127;132;156m  49[0m [38;2;205;214;244m  # Format: Integer >= 0[0m
-[38;2;127;132;156m  50[0m [38;2;205;214;244m  # Default reasoning: 3 retries handles most transient failures[0m
-[38;2;127;132;156m  51[0m [38;2;205;214;244m  retry_attempts: 3[0m
-[38;2;127;132;156m  52[0m 
-[38;2;127;132;156m  53[0m [38;2;205;214;244m  # retry_delay_seconds: Base delay between retry attempts[0m
-[38;2;127;132;156m  54[0m [38;2;205;214;244m  # Purpose: Initial delay before first retry (exponential backoff)[0m
-[38;2;127;132;156m  55[0m [38;2;205;214;244m  # Service protection: Prevents overwhelming failing notification services[0m
-[38;2;127;132;156m  56[0m [38;2;205;214;244m  # Backoff progression: Delay increases with each retry attempt[0m
-[38;2;127;132;156m  57[0m [38;2;205;214;244m  # Format: Integer seconds[0m
-[38;2;127;132;156m  58[0m [38;2;205;214;244m  # Default reasoning: 5 seconds provides reasonable initial retry delay[0m
-[38;2;127;132;156m  59[0m [38;2;205;214;244m  retry_delay_seconds: 5[0m
-[38;2;127;132;156m  60[0m 
-[38;2;127;132;156m  61[0m [38;2;205;214;244m  # Notification channel configurations[0m
-[38;2;127;132;156m  62[0m [38;2;205;214;244m  # Purpose: Defines available notification channels and their settings[0m
-[38;2;127;132;156m  63[0m [38;2;205;214;244m  # Flexibility: Multiple channels can be enabled simultaneously[0m
-[38;2;127;132;156m  64[0m [38;2;205;214;244m  # Fallback: Log channel always available as fallback[0m
-[38;2;127;132;156m  65[0m [38;2;205;214;244m  channels:[0m
-[38;2;127;132;156m  66[0m [38;2;205;214;244m    # log: Loguru-based logging channel (always available)[0m
-[38;2;127;132;156m  67[0m [38;2;205;214;244m    log:[0m
-[38;2;127;132;156m  68[0m [38;2;205;214;244m      enabled: true[0m
-[38;2;127;132;156m  69[0m [38;2;205;214;244m      level: "warning"  # Log level for alerts (info, warning, error, critical)[0m
-[38;2;127;132;156m  70[0m 
-[38;2;127;132;156m  71[0m [38;2;205;214;244m    # email: SMTP email notification channel[0m
-[38;2;127;132;156m  72[0m [38;2;205;214;244m    email:[0m
-[38;2;127;132;156m  73[0m [38;2;205;214;244m      enabled: false[0m
-[38;2;127;132;156m  74[0m [38;2;205;214;244m      smtp_host: "smtp.gmail.com"[0m
-[38;2;127;132;156m  75[0m [38;2;205;214;244m      smtp_port: 587[0m
-[38;2;127;132;156m  76[0m [38;2;205;214;244m      smtp_user: null    # Set via environment variable SMTP_USER[0m
-[38;2;127;132;156m  77[0m [38;2;205;214;244m      smtp_password: null  # Set via environment variable SMTP_PASSWORD[0m
-[38;2;127;132;156m  78[0m [38;2;205;214;244m      from_address: "alerts@workspace-qdrant.local"[0m
-[38;2;127;132;156m  79[0m [38;2;205;214;244m      to_addresses: []   # List of recipient email addresses[0m
-[38;2;127;132;156m  80[0m 
-[38;2;127;132;156m  81[0m [38;2;205;214;244m    # webhook: HTTP webhook notification channel[0m
-[38;2;127;132;156m  82[0m [38;2;205;214;244m    webhook:[0m
-[38;2;127;132;156m  83[0m [38;2;205;214;244m      enabled: false[0m
-[38;2;127;132;156m  84[0m [38;2;205;214;244m      url: null          # Webhook endpoint URL[0m
-[38;2;127;132;156m  85[0m [38;2;205;214;244m      method: "POST"     # HTTP method (POST, PUT)[0m
-[38;2;127;132;156m  86[0m [38;2;205;214;244m      headers: {}        # Custom HTTP headers[0m
-[38;2;127;132;156m  87[0m [38;2;205;214;244m      timeout_seconds: 10[0m
-[38;2;127;132;156m  88[0m 
-[38;2;127;132;156m  89[0m [38;2;205;214;244m    # slack: Slack notification channel (requires slack_sdk)[0m
-[38;2;127;132;156m  90[0m [38;2;205;214;244m    slack:[0m
-[38;2;127;132;156m  91[0m [38;2;205;214;244m      enabled: false[0m
-[38;2;127;132;156m  92[0m [38;2;205;214;244m      webhook_url: null  # Slack webhook URL[0m
-[38;2;127;132;156m  93[0m [38;2;205;214;244m      channel: null      # Optional channel override[0m
-[38;2;127;132;156m  94[0m [38;2;205;214;244m      username: "Queue Alerting Bot"[0m
-[38;2;127;132;156m  95[0m 
-[38;2;127;132;156m  96[0m [38;2;205;214;244m    # pagerduty: PagerDuty incident notification (requires pdpyras)[0m
-[38;2;127;132;156m  97[0m [38;2;205;214;244m    pagerduty:[0m
-[38;2;127;132;156m  98[0m [38;2;205;214;244m      enabled: false[0m
-[38;2;127;132;156m  99[0m [38;2;205;214;244m      integration_key: null  # PagerDuty integration key[0m
-[38;2;127;132;156m 100[0m [38;2;205;214;244m      severity_mapping:      # Map alert severity to PagerDuty severity[0m
-[38;2;127;132;156m 101[0m [38;2;205;214;244m        INFO: "info"[0m
-[38;2;127;132;156m 102[0m [38;2;205;214;244m        WARNING: "warning"[0m
-[38;2;127;132;156m 103[0m [38;2;205;214;244m        ERROR: "error"[0m
-[38;2;127;132;156m 104[0m [38;2;205;214;244m        CRITICAL: "critical"[0m
+
+# =============================================================================
+# HISTORICAL TREND ANALYSIS CONFIGURATION
+# =============================================================================
+# Purpose: Controls historical metric tracking, trend analysis, forecasting,
+# and anomaly detection for queue performance metrics. Provides insights into
+# queue behavior over time and enables predictive capacity planning.
+trend_analysis:
+  # enabled: Master control for trend analysis
+  # Purpose: Enables or disables historical metric tracking and analysis
+  # Performance benefit: Identifies patterns, forecasts capacity needs
+  # Resource overhead: Minimal storage and CPU for analysis
+  # Production value: Essential for capacity planning and anomaly detection
+  # Format: Boolean
+  # Default reasoning: Enabled for production monitoring and optimization
+  enabled: true
+
+  # retention_days: Metric data retention period
+  # Purpose: How long to retain historical metric data
+  # Storage impact: Longer retention increases database size
+  # Analysis depth: More history enables better trend identification
+  # Cleanup: Automatic daily cleanup removes data older than this
+  # Format: Integer days
+  # Default reasoning: 30 days provides good historical depth without excessive storage
+  retention_days: 30
+
+  # default_window_hours: Default analysis window
+  # Purpose: Default time window for trend analysis queries
+  # Analysis scope: Larger window captures longer-term trends
+  # Responsiveness: Smaller window more sensitive to recent changes
+  # Format: Integer hours
+  # Default reasoning: 24 hours captures daily patterns
+  default_window_hours: 24
+
+  # anomaly_sensitivity: Z-score threshold for anomaly detection
+  # Purpose: Number of standard deviations to classify as anomaly
+  # Sensitivity: Lower values detect more anomalies (more false positives)
+  # Specificity: Higher values reduce false positives (may miss anomalies)
+  # Typical range: 2.0 (sensitive) to 4.0 (conservative)
+  # Format: Float standard deviations
+  # Default reasoning: 3.0 is statistical standard (99.7% confidence)
+  anomaly_sensitivity: 3.0
+
+  # stable_slope_threshold: Threshold for stable trend classification
+  # Purpose: Maximum absolute slope value to classify trend as stable
+  # Trend classification: |slope| < threshold = stable
+  # Sensitivity: Lower values make trends more sensitive to change
+  # Units: Change per hour in metric's natural units
+  # Format: Float
+  # Default reasoning: 0.1 allows minor fluctuations without trend classification
+  stable_slope_threshold: 0.1
+
+  # volatile_coefficient_threshold: Threshold for volatile classification
+  # Purpose: Coefficient of variation (std_dev/mean) threshold for volatility
+  # Volatility detection: CV > threshold = volatile trend
+  # Typical values: 0.3 (moderate) to 0.7 (high tolerance)
+  # Format: Float (0-1 range typically)
+  # Default reasoning: 0.5 identifies significantly unstable metrics
+  volatile_coefficient_threshold: 0.5
+
+  # metrics_to_track: List of metrics to track historically
+  # Purpose: Defines which queue metrics to store and analyze
+  # Storage impact: Each metric multiplies storage requirements
+  # Analysis scope: More metrics provide comprehensive monitoring
+  # Customization: Add custom metrics as needed
+  # Format: List of strings
+  # Available metrics:
+  #   - queue_size: Number of items in queue
+  #   - processing_rate: Items processed per time unit
+  #   - error_rate: Percentage of failed operations
+  #   - latency: Average queue wait time
+  #   - success_rate: Percentage of successful operations
+  #   - resource_usage_cpu: CPU utilization percentage
+  #   - resource_usage_memory: Memory usage in MB
+  metrics_to_track:
+    - queue_size
+    - processing_rate
+    - error_rate
+    - latency
+    - success_rate
+    - resource_usage_cpu
+    - resource_usage_memory
+
+# =============================================================================
+# DASHBOARD DATA CONFIGURATION
+# =============================================================================
+# Purpose: Controls dashboard widget data preparation, caching, and layout
+# configuration. Provides formatted data for monitoring dashboards with support
+# for multiple widget types and layout presets.
+dashboard:
+  # enabled: Master control for dashboard data preparation
+  # Purpose: Enables or disables dashboard widget data generation
+  # Monitoring benefit: Provides formatted data for visualization dashboards
+  # Resource overhead: Minimal CPU overhead for data formatting and caching
+  # Production value: Essential for operational visibility through dashboards
+  # Format: Boolean
+  # Default reasoning: Enabled for dashboard monitoring capabilities
+  enabled: true
+
+  # cache_ttl_seconds: Widget data cache time-to-live
+  # Purpose: How long to cache prepared widget data before refreshing
+  # Performance benefit: Reduces load on monitoring modules by caching results
+  # Freshness trade-off: Longer TTL reduces load but shows less current data
+  # Real-time updates: Shorter TTL provides more current dashboard data
+  # Format: Integer seconds
+  # Default reasoning: 30 seconds balances freshness with performance
+  cache_ttl_seconds: 30
+
+  # default_refresh_interval: Global dashboard refresh interval
+  # Purpose: Default interval for dashboard to request fresh data
+  # Dashboard responsiveness: How often dashboard UI updates
+  # Network efficiency: Longer intervals reduce request frequency
+  # Alignment: Should be >= cache_ttl_seconds to benefit from caching
+  # Format: Integer seconds
+  # Default reasoning: 30 seconds matches cache TTL for efficient updates
+  default_refresh_interval: 30
+
+  # enable_trend_analysis: Trend data for sparklines and charts
+  # Purpose: Enables historical trend data for sparklines and time-series charts
+  # Data requirement: Requires trend_analysis.enabled = true
+  # Visualization benefit: Provides trend indicators and historical charts
+  # Resource overhead: Minimal as trend analysis is already enabled separately
+  # Format: Boolean
+  # Default reasoning: Enabled to provide rich dashboard visualizations
+  enable_trend_analysis: true
+
+  # enable_bottleneck_detection: Bottleneck data for dashboard
+  # Purpose: Enables bottleneck detection data for performance widgets
+  # Data requirement: Requires queue_bottleneck_detection.enabled = true
+  # Visualization benefit: Shows slow collections, operations, parsers
+  # Resource overhead: Minimal as bottleneck detection is already enabled separately
+  # Format: Boolean
+  # Default reasoning: Enabled to provide performance optimization insights
+  enable_bottleneck_detection: true
+
+  # Grid layout configuration
+  layout:
+    # columns: Grid column count for widget positioning
+    # Purpose: Number of columns in dashboard grid layout
+    # Layout flexibility: 12 columns allows flexible widget sizing
+    # Responsive design: Commonly used grid system (Bootstrap-compatible)
+    # Format: Integer > 0
+    # Default reasoning: 12-column grid is industry standard
+    columns: 12
+
+    # row_height: Grid row height in pixels
+    # Purpose: Height of each grid row for consistent widget sizing
+    # Visual consistency: Fixed row height provides predictable layouts
+    # Responsive scaling: Combine with responsive breakpoints
+    # Format: Integer pixels
+    # Default reasoning: 60px provides reasonable default row height
+    row_height: 60
+
+    # Responsive breakpoints for different screen sizes
+    # Purpose: Defines screen width breakpoints for responsive layouts
+    # Mobile support: Smaller breakpoints optimize for mobile devices
+    # Desktop optimization: Larger breakpoints use available screen space
+    # Format: Object with pixel width values
+    breakpoints:
+      # lg: Large desktop screens
+      lg: 1200
+      # md: Medium desktop/tablet landscape
+      md: 996
+      # sm: Tablet portrait
+      sm: 768
+      # xs: Mobile devices
+      xs: 480
+
+  # Widget configuration defaults
+  widgets:
+    # sparkline_points: Number of data points for sparkline indicators
+    # Purpose: How many historical points to show in trend sparklines
+    # Trend visibility: More points show longer trends
+    # Performance: More points require more data retrieval
+    # Format: Integer > 0
+    # Default reasoning: 20 points provides good trend visibility
+    sparkline_points: 20
+
+    # chart_time_window_hours: Default time window for time-series charts
+    # Purpose: How many hours of history to show in line charts
+    # Historical context: Longer window shows more historical context
+    # Data volume: Longer window requires more data points
+    # Format: Integer hours
+    # Default reasoning: 24 hours shows daily patterns
+    chart_time_window_hours: 24
+
+    # table_limit_default: Default row limit for table widgets
+    # Purpose: Maximum number of rows to show in table widgets
+    # Page size: Balance between showing enough data and performance
+    # User experience: Avoid overwhelming users with too many rows
+    # Format: Integer > 0
+    # Default reasoning: 20 rows is reasonable default page size
+    table_limit_default: 20
+
+  # Color coding thresholds for status indicators
+  # Purpose: Defines color codes for different metric value ranges
+  # Visual communication: Colors provide quick status assessment
+  # Customization: Adjust thresholds based on operational requirements
+  color_thresholds:
+    # Queue size color coding
+    queue_size:
+      green_max: 1000      # Queue size below this is green (healthy)
+      yellow_max: 5000     # Queue size below this is yellow (warning)
+      orange_max: 10000    # Queue size below this is orange (degraded)
+      # Above orange_max is red (critical)
+
+    # Error rate color coding (percentage)
+    error_rate:
+      green_max: 1.0       # Error rate below this is green (healthy)
+      yellow_max: 5.0      # Error rate below this is yellow (warning)
+      orange_max: 10.0     # Error rate below this is orange (degraded)
+      # Above orange_max is red (critical)
+
+    # Success rate color coding (percentage)
+    success_rate:
+      green_min: 95.0      # Success rate above this is green (healthy)
+      yellow_min: 90.0     # Success rate above this is yellow (warning)
+      orange_min: 80.0     # Success rate above this is orange (degraded)
+      # Below orange_min is red (critical)
+
+    # Health score color coding (0-100)
+    health_score:
+      green_min: 80.0      # Health score above this is green (healthy)
+      yellow_min: 60.0     # Health score above this is yellow (degraded)
+      orange_min: 40.0     # Health score above this is orange (unhealthy)
+      # Below orange_min is red (critical)
+
+# =============================================================================
+# QUEUE ALERTING CONFIGURATION
+# =============================================================================
+# Purpose: Controls alert rule management, threshold monitoring, and notification
+# delivery for queue system monitoring. Enables proactive alerting for queue
+# health issues, performance degradation, and operational anomalies.
+queue_alerting:
+  # enabled: Master control for alerting system
+  # Purpose: Enables or disables alert rule evaluation and notifications
+  # Monitoring benefit: Proactive alerts for queue issues
+  # Resource overhead: Minimal CPU overhead for rule evaluation
+  # Production value: Essential for operational monitoring and incident response
+  # Format: Boolean
+  # Default reasoning: Enabled for production monitoring and alerting
+  enabled: true
+
+  # evaluation_interval: Alert rule evaluation frequency
+  # Purpose: How often to check alert rules and thresholds
+  # Alert responsiveness: More frequent checks detect issues faster
+  # Resource overhead: Frequent evaluation increases CPU usage
+  # Notification timing: Affects how quickly alerts are triggered
+  # Format: Integer seconds
+  # Default reasoning: 60 seconds provides good balance between responsiveness and overhead
+  evaluation_interval: 60
+
+  # default_cooldown_minutes: Default alert cooldown period
+  # Purpose: Minimum time between repeated alerts for same condition
+  # Alert fatigue prevention: Prevents spamming with duplicate alerts
+  # Issue persistence: Only re-alerts if issue persists beyond cooldown
+  # Customization: Can be overridden per alert rule
+  # Format: Integer minutes
+  # Default reasoning: 15 minutes prevents alert spam while allowing re-notification
+  default_cooldown_minutes: 15
+
+  # max_alert_history_days: Alert history retention period
+  # Purpose: How long to retain alert history in database
+  # Compliance: May be required for audit trails
+  # Troubleshooting: Historical alerts help identify patterns
+  # Storage impact: Longer retention increases database size
+  # Format: Integer days
+  # Default reasoning: 30 days provides good historical depth
+  max_alert_history_days: 30
+
+  # retry_attempts: Notification delivery retry attempts
+  # Purpose: Number of times to retry failed notification delivery
+  # Reliability: Handles transient network/service issues
+  # Failure handling: Falls back to logging after all retries exhausted
+  # Format: Integer >= 0
+  # Default reasoning: 3 retries handles most transient failures
+  retry_attempts: 3
+
+  # retry_delay_seconds: Base delay between retry attempts
+  # Purpose: Initial delay before first retry (exponential backoff)
+  # Service protection: Prevents overwhelming failing notification services
+  # Backoff progression: Delay increases with each retry attempt
+  # Format: Integer seconds
+  # Default reasoning: 5 seconds provides reasonable initial retry delay
+  retry_delay_seconds: 5
+
+  # Notification channel configurations
+  # Purpose: Defines available notification channels and their settings
+  # Flexibility: Multiple channels can be enabled simultaneously
+  # Fallback: Log channel always available as fallback
+  channels:
+    # log: Loguru-based logging channel (always available)
+    log:
+      enabled: true
+      level: "warning"  # Log level for alerts (info, warning, error, critical)
+
+    # email: SMTP email notification channel
+    email:
+      enabled: false
+      smtp_host: "smtp.gmail.com"
+      smtp_port: 587
+      smtp_user: null    # Set via environment variable SMTP_USER
+      smtp_password: null  # Set via environment variable SMTP_PASSWORD
+      from_address: "alerts@workspace-qdrant.local"
+      to_addresses: []   # List of recipient email addresses
+
+    # webhook: HTTP webhook notification channel
+    webhook:
+      enabled: false
+      url: null          # Webhook endpoint URL
+      method: "POST"     # HTTP method (POST, PUT)
+      headers: {}        # Custom HTTP headers
+      timeout_seconds: 10
+
+    # slack: Slack notification channel (requires slack_sdk)
+    slack:
+      enabled: false
+      webhook_url: null  # Slack webhook URL
+      channel: null      # Optional channel override
+      username: "Queue Alerting Bot"
+
+    # pagerduty: PagerDuty incident notification (requires pdpyras)
+    pagerduty:
+      enabled: false
+      integration_key: null  # PagerDuty integration key
+      severity_mapping:      # Map alert severity to PagerDuty severity
+        INFO: "info"
+        WARNING: "warning"
+        ERROR: "error"
+        CRITICAL: "critical"
