@@ -604,7 +604,8 @@ class QueueAlertingSystem:
         loop = asyncio.get_event_loop()
 
         # Ensure database directory exists
-        await loop.run_in_executor(None, os.makedirs, os.path.dirname(self.db_path), True)
+        db_dir = os.path.dirname(self.db_path)
+        await loop.run_in_executor(None, lambda: os.makedirs(db_dir, exist_ok=True))
 
         # Open database connection (sync operation)
         def _open_connection():
