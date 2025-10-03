@@ -28,6 +28,7 @@ pub mod queue_error_handler;
 pub mod service_discovery;
 pub mod storage;
 pub mod tool_monitor;
+pub mod type_aware_processor;
 pub mod unified_config;
 pub mod watching;
 pub mod watching_queue;
@@ -79,6 +80,9 @@ pub use crate::priority_manager::{
 };
 pub use crate::queue_operations::{
     QueueManager, QueueOperation, QueueItem, QueueError
+};
+pub use crate::type_aware_processor::{
+    CollectionTypeSettings, ConcurrentOperationTracker, get_settings_for_type
 };
 pub use crate::watching_queue::{
     FileWatcherQueue, WatchManager, WatchConfig, WatchingQueueStats, WatchingQueueError
