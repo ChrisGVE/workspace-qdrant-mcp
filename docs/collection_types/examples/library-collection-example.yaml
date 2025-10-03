@@ -1,0 +1,218 @@
+# LIBRARY Collection Configuration Example
+#
+# Library collections use the _ (single underscore) prefix and store programming
+# language library/SDK documentation. They use cumulative deletion and integrate
+# with LSP/Tree-sitter for metadata extraction.
+#
+# Use cases:
+# - Programming language standard libraries
+# - Third-party SDK documentation
+# - API reference documentation
+# - Language-specific code examples
+
+# Required Metadata Fields
+metadata:
+  # Collection name - MUST start with _ (single underscore, not __)
+  # Pattern: ^_[a-zA-Z0-9_-]+$
+  # Length: 2-128 characters
+  collection_name: "_python_stdlib"
+
+  # Creation timestamp - ISO 8601 format
+  created_at: "2025-01-03T10:00:00Z"
+
+  # Collection category - MUST be 'library' for LIBRARY collections
+  collection_category: "library"
+
+  # Primary programming language - REQUIRED for LIBRARY collections
+  # Used for LSP server selection and syntax highlighting
+  # Examples: python, javascript, rust, typescript, java, go
+  language: "python"
+
+# Optional Metadata Fields
+optional_metadata:
+  # Last update timestamp
+  updated_at: "2025-01-03T12:30:00Z"
+
+  # Human-readable description
+  description: "Python standard library documentation and code examples"
+
+  # List of exported symbols (functions, classes, constants)
+  # Automatically extracted via LSP when available
+  symbols:
+    - "os.path"
+    - "sys.argv"
+    - "json.loads"
+    - "asyncio.run"
+    - "pathlib.Path"
+
+  # Library dependencies
+  # Extracted from package metadata when available
+  dependencies:
+    - "setuptools>=40.0"
+    - "pip>=21.0"
+
+  # Library version
+  # Follows semantic versioning
+  version: "3.12.0"
+
+  # MCP read-only access - Default: true
+  # LIBRARY collections are read-only for MCP/LLM
+  mcp_readonly: true
+
+  # LSP integration metadata
+  lsp_server: "pyright"  # LSP server used for this language
+  lsp_version: "1.1.340"
+  tree_sitter_grammar: "python"  # Tree-sitter grammar name
+
+# Performance Settings
+performance:
+  # Larger batch size (100) for LIBRARY collections
+  # Libraries typically have many small documentation files
+  batch_size: 100
+
+  # Higher concurrency (5) for faster ingestion
+  max_concurrent_operations: 5
+
+  # Medium priority weight
+  # LIBRARY collections have priority 3 (between SYSTEM and PROJECT)
+  priority_weight: 3
+
+  # Longer cache TTL (900s = 15min)
+  # Library documentation changes infrequently
+  cache_ttl_seconds: 900
+
+  # Enable all performance optimizations
+  enable_batch_processing: true
+  enable_caching: true
+
+  # Standard retry configuration
+  max_retries: 3
+  retry_delay_seconds: 1
+
+# Deletion Handling
+deletion:
+  # Deletion mode - CUMULATIVE for LIBRARY collections
+  # Library files rarely deleted, but when they are, batched for efficiency
+  mode: "cumulative"
+
+  # Batch cleanup schedule
+  batch_cleanup_schedule: "24 hours or 1000 items"
+
+  # Retention before cleanup
+  retention_hours: 48  # Longer retention for libraries
+
+# Migration Settings
+migration:
+  # Supports legacy format
+  supports_legacy_format: true
+
+  # Legacy patterns
+  legacy_collection_patterns:
+    - "^_[a-zA-Z0-9_-]+$"
+
+  # Migration batch size
+  migration_batch_size: 50
+
+  # Auto-detect enabled
+  auto_detect_legacy: true
+
+  # Preserve legacy metadata
+  preserve_legacy_metadata: true
+
+# Access Control
+access:
+  # CLI manages LIBRARY collections
+  cli_writable: true
+
+  # MCP/LLM has read-only access
+  mcp_readonly: true
+
+  # Included in global search results
+  globally_searchable: true
+
+  # Tenant isolation not required for global libraries
+  tenant_isolated: false
+
+# LSP Integration
+lsp_integration:
+  # Enable LSP-based metadata extraction
+  enabled: true
+
+  # LSP features to use
+  features:
+    - "documentSymbol"  # Extract symbols/exports
+    - "definition"      # Track definitions
+    - "references"      # Find usages
+    - "hover"           # Extract documentation
+
+  # Fallback to Tree-sitter if LSP unavailable
+  fallback_to_tree_sitter: true
+
+  # Queue files for later if LSP unavailable
+  queue_if_unavailable: true
+
+# Tree-sitter Integration
+tree_sitter:
+  # Enable Tree-sitter parsing
+  enabled: true
+
+  # Grammar to use
+  grammar: "python"
+
+  # Query patterns for metadata extraction
+  queries:
+    - "function_definition"
+    - "class_definition"
+    - "import_statement"
+
+# Validation Rules
+validation:
+  # Name must start with _ (but not __)
+  name_pattern: "^_[a-zA-Z0-9_-]+$"
+
+  # Minimum length
+  min_name_length: 2
+
+  # Maximum length
+  max_name_length: 128
+
+  # Required fields
+  required_fields:
+    - collection_name
+    - created_at
+    - collection_category
+    - language
+
+# Example CLI Commands
+commands:
+  # Create LIBRARY collection
+  create: "wqm admin create-collection _python_stdlib"
+
+  # Set language metadata
+  set_language: "wqm admin set-metadata _python_stdlib language=python"
+
+  # List LIBRARY collections
+  list: "wqm collections list-types --verbose"
+
+  # Validate LIBRARY collection
+  validate: "wqm collections validate-types --severity error"
+
+  # Check LSP availability
+  check_lsp: "wqm tools status --language python"
+
+# Example Use Cases
+use_cases:
+  - name: "Python Standard Library"
+    collection_name: "_python_stdlib"
+    language: "python"
+    description: "Complete Python 3.12 standard library documentation"
+
+  - name: "React Documentation"
+    collection_name: "_react_docs"
+    language: "javascript"
+    description: "React.js framework documentation and examples"
+
+  - name: "Rust Standard Library"
+    collection_name: "_rust_std"
+    language: "rust"
+    description: "Rust standard library API reference"

@@ -1,0 +1,259 @@
+# PROJECT Collection Configuration Example
+#
+# Project collections use the {project_id}-{suffix} naming pattern and store
+# project-scoped content. They use dynamic deletion (immediate) for real-time
+# file synchronization.
+#
+# Use cases:
+# - Project documentation
+# - Project code memories
+# - Project notes and context
+# - Workspace-specific content
+
+# Required Metadata Fields
+metadata:
+  # Project name - Human-readable project identifier
+  # Can contain spaces and special characters
+  project_name: "workspace-qdrant-mcp"
+
+  # Project ID - 12-character unique identifier
+  # Pattern: [a-zA-Z0-9]{12}
+  # Generated from project path hash
+  project_id: "a1b2c3d4e5f6"
+
+  # Collection type/suffix
+  # Common values: docs, notes, memory, context, code
+  collection_type: "docs"
+
+  # Creation timestamp - ISO 8601 format
+  created_at: "2025-01-03T10:00:00Z"
+
+# Full collection name: {project_id}-{collection_type}
+# Example: a1b2c3d4e5f6-docs
+
+# Optional Metadata Fields
+optional_metadata:
+  # Last update timestamp
+  updated_at: "2025-01-03T12:30:00Z"
+
+  # Human-readable description
+  description: "Documentation for workspace-qdrant-mcp project"
+
+  # Tenant namespace for multi-tenant isolation
+  # Allows multiple users/teams to have separate project spaces
+  tenant_namespace: "user_chris"
+
+  # Organizational tags
+  # Used for filtering and categorization
+  tags:
+    - "mcp"
+    - "vector-database"
+    - "qdrant"
+    - "python"
+
+  # Priority level (1=lowest, 5=highest)
+  # Default: 3 (medium)
+  # Higher priority = processed sooner
+  priority: 4
+
+  # Git branch name
+  # Automatically detected from project
+  branch: "main"
+
+  # Project path
+  # Absolute path to project root
+  project_path: "/Users/chris/dev/workspace-qdrant-mcp"
+
+  # File type filter
+  # Limits collection to specific file types
+  file_types:
+    - "md"
+    - "py"
+    - "rs"
+    - "yaml"
+
+# Performance Settings
+performance:
+  # Largest batch size (150) for PROJECT collections
+  # Projects can have many files that change together
+  batch_size: 150
+
+  # Highest concurrency (10) for fast updates
+  # Projects need responsive file watching
+  max_concurrent_operations: 10
+
+  # Lower priority weight (2)
+  # Projects are user-specific, less critical than SYSTEM
+  priority_weight: 2
+
+  # Shorter cache TTL (300s = 5min)
+  # Project files change frequently
+  cache_ttl_seconds: 300
+
+  # Enable batch processing for efficiency
+  enable_batch_processing: true
+
+  # Caching useful but short-lived
+  enable_caching: true
+
+  # Standard retry configuration
+  max_retries: 3
+  retry_delay_seconds: 1
+
+# Deletion Handling
+deletion:
+  # Deletion mode - DYNAMIC for PROJECT collections
+  # Files deleted from project are immediately removed from collection
+  mode: "dynamic"
+
+  # Immediate processing
+  # No batch cleanup needed for dynamic deletion
+  immediate: true
+
+  # Sync with file system
+  # Collection reflects actual project state
+  sync_enabled: true
+
+# Migration Settings
+migration:
+  # Supports legacy format
+  supports_legacy_format: true
+
+  # Legacy patterns - old project naming conventions
+  legacy_collection_patterns:
+    - "^[a-zA-Z0-9_-]+-[a-zA-Z0-9_-]+$"
+
+  # Migration batch size
+  migration_batch_size: 100
+
+  # Auto-detect disabled (too many false positives)
+  auto_detect_legacy: false
+
+  # Preserve legacy metadata
+  preserve_legacy_metadata: true
+
+# Access Control
+access:
+  # CLI can write (file watcher integration)
+  cli_writable: true
+
+  # MCP can read and write (for Claude Code)
+  mcp_readonly: false
+
+  # Not included in global search (project-scoped)
+  globally_searchable: false
+
+  # Tenant isolation enabled
+  tenant_isolated: true
+
+  # Branch-specific isolation
+  branch_isolated: true
+
+# Git Integration
+git_integration:
+  # Enable git branch detection
+  enabled: true
+
+  # Track branch changes
+  track_branches: true
+
+  # Ignore patterns (from .gitignore)
+  respect_gitignore: true
+
+  # Submodule handling
+  include_submodules: false
+
+# File Watching
+file_watching:
+  # Enable automatic file watching
+  enabled: true
+
+  # Watch patterns (glob)
+  watch_patterns:
+    - "**/*.md"
+    - "**/*.py"
+    - "**/*.rs"
+    - "**/*.yaml"
+
+  # Ignore patterns
+  ignore_patterns:
+    - "**/node_modules/**"
+    - "**/.git/**"
+    - "**/__pycache__/**"
+    - "**/target/**"
+    - "**/.venv/**"
+
+  # Debounce delay (milliseconds)
+  # Wait this long after file change before processing
+  debounce_ms: 500
+
+# Validation Rules
+validation:
+  # Project ID must be exactly 12 characters
+  project_id_length: 12
+
+  # Collection type/suffix required
+  collection_type_required: true
+
+  # Required fields
+  required_fields:
+    - project_name
+    - project_id
+    - collection_type
+    - created_at
+
+# Example CLI Commands
+commands:
+  # Create PROJECT collection (automatic via file watcher)
+  # Not typically created manually
+
+  # List PROJECT collections
+  list: "wqm collections list-types --format table"
+
+  # Validate PROJECT collection
+  validate: "wqm collections validate-types --severity error"
+
+  # Check project status
+  status: "wqm queue status --verbose"
+
+  # View collection details
+  details: "wqm admin collections"
+
+# Example Collection Names
+examples:
+  # Documentation collection
+  docs: "a1b2c3d4e5f6-docs"
+
+  # Memory/context collection
+  memory: "a1b2c3d4e5f6-memory"
+
+  # Notes collection
+  notes: "a1b2c3d4e5f6-notes"
+
+  # Code snippets collection
+  code: "a1b2c3d4e5f6-code"
+
+  # Test results collection
+  tests: "a1b2c3d4e5f6-tests"
+
+# Multi-Branch Support
+multi_branch:
+  # Enable branch-specific collections
+  enabled: true
+
+  # Branch naming pattern
+  # {project_id}-{collection_type}-{branch}
+  pattern: "{project_id}-{type}-{branch}"
+
+  # Examples:
+  # Main branch: a1b2c3d4e5f6-docs-main
+  # Feature branch: a1b2c3d4e5f6-docs-feature-auth
+  # Dev branch: a1b2c3d4e5f6-docs-dev
+
+  # Branch cleanup
+  # Delete collection when branch is deleted
+  cleanup_on_branch_delete: true
+
+  # Merge strategy
+  # How to handle branch merges
+  merge_strategy: "replace"  # replace, merge, or keep-both

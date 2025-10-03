@@ -1,0 +1,309 @@
+# GLOBAL Collection Configuration Example
+#
+# Global collections use predefined names and are system-wide, always available
+# across all projects and tenants. They use dynamic deletion (immediate) for
+# real-time updates.
+#
+# Predefined names:
+# - algorithms: Algorithm implementations and explanations
+# - codebase: Cross-project code knowledge
+# - context: Global context and memories
+# - documents: System-wide documentation
+# - knowledge: Knowledge base and FAQs
+# - memory: Long-term system memory
+# - projects: Project metadata and relationships
+# - workspace: Workspace-level configuration
+
+# Required Metadata Fields
+metadata:
+  # Collection name - MUST be one of the predefined names
+  # Allowed values: algorithms, codebase, context, documents,
+  #                knowledge, memory, projects, workspace
+  collection_name: "knowledge"
+
+  # Creation timestamp - ISO 8601 format
+  created_at: "2025-01-03T10:00:00Z"
+
+# Optional Metadata Fields
+optional_metadata:
+  # Last update timestamp
+  updated_at: "2025-01-03T12:30:00Z"
+
+  # Human-readable description
+  description: "Global knowledge base for cross-project information"
+
+  # Workspace scope - MUST be 'global' for GLOBAL collections
+  # This field is enforced by validation
+  workspace_scope: "global"
+
+  # Content categories (for knowledge collection)
+  categories:
+    - "best-practices"
+    - "design-patterns"
+    - "troubleshooting"
+    - "tutorials"
+
+  # Visibility level
+  # Controls who can access this global collection
+  visibility: "all"  # all, team, or private
+
+# Performance Settings
+performance:
+  # Largest batch size (200) for GLOBAL collections
+  # Global collections can have extensive content
+  batch_size: 200
+
+  # High concurrency (8) for multi-project access
+  max_concurrent_operations: 8
+
+  # Highest priority weight (5)
+  # GLOBAL collections critical for system-wide operations
+  priority_weight: 5
+
+  # Longest cache TTL (1800s = 30min)
+  # Global content changes infrequently
+  cache_ttl_seconds: 1800
+
+  # Enable all optimizations
+  enable_batch_processing: true
+  enable_caching: true
+
+  # Standard retry configuration
+  max_retries: 3
+  retry_delay_seconds: 1
+
+# Deletion Handling
+deletion:
+  # Deletion mode - DYNAMIC for GLOBAL collections
+  # Immediate deletion for real-time consistency
+  mode: "dynamic"
+
+  # Immediate processing
+  immediate: true
+
+  # Global sync
+  # Changes visible across all projects immediately
+  sync_enabled: true
+
+# Migration Settings
+migration:
+  # Does not support legacy format
+  # GLOBAL collections are newly defined
+  supports_legacy_format: false
+
+  # No legacy patterns
+  legacy_collection_patterns: []
+
+  # No auto-detect
+  auto_detect_legacy: false
+
+# Access Control
+access:
+  # CLI can write
+  cli_writable: true
+
+  # MCP can read and write
+  mcp_readonly: false
+
+  # Globally searchable by definition
+  globally_searchable: true
+
+  # No tenant isolation (system-wide)
+  tenant_isolated: false
+
+  # Cross-project access
+  cross_project_access: true
+
+# Validation Rules
+validation:
+  # Name must be one of predefined values
+  allowed_names:
+    - "algorithms"
+    - "codebase"
+    - "context"
+    - "documents"
+    - "knowledge"
+    - "memory"
+    - "projects"
+    - "workspace"
+
+  # Required fields
+  required_fields:
+    - collection_name
+    - created_at
+
+# Collection-Specific Schemas
+
+# 1. ALGORITHMS Collection
+algorithms:
+  description: "Algorithm implementations and explanations"
+  content_types:
+    - "sorting-algorithms"
+    - "search-algorithms"
+    - "graph-algorithms"
+    - "dynamic-programming"
+    - "data-structures"
+  metadata_fields:
+    - algorithm_name
+    - complexity_time
+    - complexity_space
+    - language
+    - use_cases
+
+# 2. CODEBASE Collection
+codebase:
+  description: "Cross-project code knowledge"
+  content_types:
+    - "code-snippets"
+    - "design-patterns"
+    - "refactoring-examples"
+    - "anti-patterns"
+  metadata_fields:
+    - language
+    - pattern_name
+    - use_case
+    - difficulty_level
+
+# 3. CONTEXT Collection
+context:
+  description: "Global context and memories"
+  content_types:
+    - "system-context"
+    - "user-preferences"
+    - "conversation-history"
+    - "project-relationships"
+  metadata_fields:
+    - context_type
+    - relevance_score
+    - last_accessed
+    - related_projects
+
+# 4. DOCUMENTS Collection
+documents:
+  description: "System-wide documentation"
+  content_types:
+    - "user-guides"
+    - "api-documentation"
+    - "troubleshooting-guides"
+    - "release-notes"
+  metadata_fields:
+    - document_type
+    - version
+    - author
+    - last_reviewed
+
+# 5. KNOWLEDGE Collection
+knowledge:
+  description: "Knowledge base and FAQs"
+  content_types:
+    - "faqs"
+    - "best-practices"
+    - "tutorials"
+    - "troubleshooting"
+    - "glossary"
+  metadata_fields:
+    - category
+    - difficulty
+    - tags
+    - related_topics
+
+# 6. MEMORY Collection
+memory:
+  description: "Long-term system memory"
+  content_types:
+    - "user-preferences"
+    - "learned-patterns"
+    - "important-decisions"
+    - "system-state"
+  metadata_fields:
+    - memory_type
+    - importance
+    - created_date
+    - expires_date
+
+# 7. PROJECTS Collection
+projects:
+  description: "Project metadata and relationships"
+  content_types:
+    - "project-metadata"
+    - "project-relationships"
+    - "project-history"
+    - "project-dependencies"
+  metadata_fields:
+    - project_name
+    - project_id
+    - status
+    - tech_stack
+    - team_members
+
+# 8. WORKSPACE Collection
+workspace:
+  description: "Workspace-level configuration"
+  content_types:
+    - "workspace-settings"
+    - "global-config"
+    - "team-preferences"
+    - "tool-integrations"
+  metadata_fields:
+    - setting_name
+    - setting_value
+    - scope
+    - last_modified
+
+# Example CLI Commands
+commands:
+  # Create GLOBAL collection (typically pre-created)
+  create: "wqm admin create-collection knowledge"
+
+  # List GLOBAL collections
+  list: "wqm collections list-types --format table"
+
+  # Add content to knowledge base
+  add: "wqm store --collection knowledge --content 'FAQ content here'"
+
+  # Search global knowledge
+  search: "wqm search --collection knowledge --query 'how to configure'"
+
+  # Validate GLOBAL collections
+  validate: "wqm collections validate-types --severity error"
+
+# Usage Examples
+
+# Example 1: Store best practice
+best_practice_example:
+  command: "wqm store --collection knowledge"
+  content:
+    title: "Python Error Handling Best Practices"
+    category: "best-practices"
+    language: "python"
+    content: |
+      1. Use specific exception types
+      2. Avoid bare except clauses
+      3. Clean up resources with finally or context managers
+      4. Log errors with context
+      5. Don't silence errors without logging
+
+# Example 2: Store algorithm
+algorithm_example:
+  command: "wqm store --collection algorithms"
+  content:
+    algorithm_name: "Binary Search"
+    complexity_time: "O(log n)"
+    complexity_space: "O(1)"
+    language: "python"
+    use_cases:
+      - "Searching sorted arrays"
+      - "Finding insertion points"
+      - "Range queries"
+
+# Example 3: Global search across all collections
+global_search_example:
+  command: "wqm search --query 'error handling' --limit 10"
+  description: "Searches across all globally searchable collections"
+  returns:
+    - collection: "knowledge"
+      results: "Best practices for error handling"
+    - collection: "documents"
+      results: "Error handling API documentation"
+    - collection: "_python_stdlib"
+      results: "Exception handling in Python"
