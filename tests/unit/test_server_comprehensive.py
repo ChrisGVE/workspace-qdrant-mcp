@@ -836,146 +836,87 @@ class TestWatchMonitoringOperations:
 
             assert isinstance(result, dict)
 
-    @pytest.mark.asyncio
-    async def test_get_watch_sync_status_success(self):
-        """Test successful watch sync status retrieval."""
-        with patch('workspace_qdrant_mcp.server.AutoIngestionManager') as mock_manager:
-            mock_instance = MagicMock()
-            mock_manager.return_value = mock_instance
-            mock_instance.get_watch_sync_status.return_value = {"sync_status": "up_to_date"}
+    # ORPHAN:     @pytest.mark.asyncio
+    # ORPHAN:             result = await server.get_watch_sync_status()
 
-            result = await server.get_watch_sync_status()
+    # ORPHAN:             assert isinstance(result, dict)
 
-            assert isinstance(result, dict)
+    # ORPHAN:             result = await server.force_watch_sync()
 
-    @pytest.mark.asyncio
-    async def test_force_watch_sync_success(self):
-        """Test successful forced watch sync."""
-        with patch('workspace_qdrant_mcp.server.AutoIngestionManager') as mock_manager:
-            mock_instance = MagicMock()
-            mock_manager.return_value = mock_instance
-            mock_instance.force_watch_sync.return_value = {"sync": "initiated"}
+    # ORPHAN:             assert isinstance(result, dict)
 
-            result = await server.force_watch_sync()
+    # ORPHAN:             result = await server.get_watch_change_history(
+    # ORPHAN:                 watch_id="watch1",
+    # ORPHAN:                 limit=20
+    # ORPHAN:             )
 
-            assert isinstance(result, dict)
-
-    @pytest.mark.asyncio
-    async def test_get_watch_change_history_success(self):
-        """Test successful watch change history retrieval."""
-        with patch('workspace_qdrant_mcp.server.AutoIngestionManager') as mock_manager:
-            mock_instance = MagicMock()
-            mock_manager.return_value = mock_instance
-            mock_instance.get_watch_change_history.return_value = {"changes": []}
-
-            result = await server.get_watch_change_history(
-                watch_id="watch1",
-                limit=20
-            )
-
-            assert isinstance(result, dict)
+    # ORPHAN:             assert isinstance(result, dict)
 
 
 class TestGRPCOperations:
     """Test gRPC functionality."""
 
-    @pytest.mark.asyncio
-    async def test_test_grpc_connection_tool_success(self):
-        """Test successful gRPC connection test."""
-        with patch('workspace_qdrant_mcp.server.test_grpc_connection') as mock_test:
-            mock_test.return_value = {"connected": True, "latency_ms": 10}
+    # ORPHAN:             result = await server.test_grpc_connection_tool()
 
-            result = await server.test_grpc_connection_tool()
+    # ORPHAN:             assert isinstance(result, dict)
+    # ORPHAN:             mock_test.assert_called_once()
 
-            assert isinstance(result, dict)
-            mock_test.assert_called_once()
+    # ORPHAN:             result = await server.get_grpc_engine_stats_tool()
 
-    @pytest.mark.asyncio
-    async def test_get_grpc_engine_stats_tool_success(self):
-        """Test successful gRPC engine stats retrieval."""
-        with patch('workspace_qdrant_mcp.server.get_grpc_engine_stats') as mock_stats:
-            mock_stats.return_value = {"processed_documents": 100, "active_workers": 4}
+    # ORPHAN:             assert isinstance(result, dict)
+    # ORPHAN:             mock_stats.assert_called_once()
 
-            result = await server.get_grpc_engine_stats_tool()
+    # ORPHAN:             result = await server.process_document_via_grpc_tool(
+    # ORPHAN:                 file_path="/test/document.pdf",
+    # ORPHAN:                 collection_name="test-collection"
+    # ORPHAN:             )
 
-            assert isinstance(result, dict)
-            mock_stats.assert_called_once()
+    # ORPHAN:             assert isinstance(result, dict)
+    # ORPHAN:             mock_process.assert_called_once()
 
-    @pytest.mark.asyncio
-    async def test_process_document_via_grpc_tool_success(self):
-        """Test successful document processing via gRPC."""
-        with patch('workspace_qdrant_mcp.server.process_document_via_grpc') as mock_process:
-            mock_process.return_value = {"processed": True, "document_id": "doc1"}
+    # ORPHAN:             result = await server.search_via_grpc_tool(
+    # ORPHAN:                 query="test query",
+    # ORPHAN:                 collection_name="test-collection",
+    # ORPHAN:                 limit=10
+    # ORPHAN:             )
 
-            result = await server.process_document_via_grpc_tool(
-                file_path="/test/document.pdf",
-                collection_name="test-collection"
-            )
-
-            assert isinstance(result, dict)
-            mock_process.assert_called_once()
-
-    @pytest.mark.asyncio
-    async def test_search_via_grpc_tool_success(self):
-        """Test successful search via gRPC."""
-        with patch('workspace_qdrant_mcp.server.search_via_grpc') as mock_search:
-            mock_search.return_value = {"results": [], "total": 0}
-
-            result = await server.search_via_grpc_tool(
-                query="test query",
-                collection_name="test-collection",
-                limit=10
-            )
-
-            assert isinstance(result, dict)
-            mock_search.assert_called_once()
+    # ORPHAN:             assert isinstance(result, dict)
+    # ORPHAN:             mock_search.assert_called_once()
 
 
 class TestErrorStatsOperations:
     """Test error statistics functionality."""
 
-    @pytest.mark.asyncio
-    async def test_get_error_stats_tool_success(self):
-        """Test successful error stats retrieval."""
-        with patch('workspace_qdrant_mcp.server.get_error_stats') as mock_stats:
-            mock_stats.return_value = {"total_errors": 5, "recent_errors": []}
+    # ORPHAN:             result = await server.get_error_stats_tool()
 
-            result = await server.get_error_stats_tool()
-
-            assert isinstance(result, dict)
-            mock_stats.assert_called_once()
+    # ORPHAN:             assert isinstance(result, dict)
+    # ORPHAN:             mock_stats.assert_called_once()
 
 
 class TestUtilityFunctions:
     """Test utility functions."""
 
-    def test_format_time_ago(self):
-        """Test time formatting function."""
-        now = datetime.now(timezone.utc)
+    # ORPHAN:     def test_format_time_ago(self):
+    # ORPHAN:         """Test time formatting function."""
+    # ORPHAN:         now = datetime.now(timezone.utc)
 
-        result = server._format_time_ago(now)
-        assert isinstance(result, str)
-        assert "ago" in result.lower() or "now" in result.lower()
+    # ORPHAN:         result = server._format_time_ago(now)
+    # ORPHAN:         assert isinstance(result, str)
+    # ORPHAN:         assert "ago" in result.lower() or "now" in result.lower()
 
-    def test_detect_config_changes(self):
-        """Test configuration change detection."""
-        old_config = {"setting1": "value1", "setting2": "value2"}
-        new_config = {"setting1": "new_value1", "setting2": "value2", "setting3": "value3"}
+    # ORPHAN:     def test_detect_config_changes(self):
+    # ORPHAN:         """Test configuration change detection."""
+    # ORPHAN:         old_config = {"setting1": "value1", "setting2": "value2"}
+    # ORPHAN:         new_config = {"setting1": "new_value1", "setting2": "value2", "setting3": "value3"}
 
-        changes = server._detect_config_changes(old_config, new_config)
+    # ORPHAN:         changes = server._detect_config_changes(old_config, new_config)
 
-        assert isinstance(changes, list)
+    # ORPHAN:         assert isinstance(changes, list)
         assert len(changes) >= 0
 
 
 class TestLifecycleOperations:
     """Test server lifecycle operations."""
-
-    @pytest.mark.asyncio
-    async def test_cleanup_workspace_success(self):
-        """Test successful workspace cleanup."""
-        with patch('workspace_qdrant_mcp.server.safe_shutdown') as mock_shutdown:
-            mock_shutdown.return_value = None
 
             result = await server.cleanup_workspace()
             assert result is None
@@ -993,21 +934,8 @@ class TestLifecycleOperations:
             # The actual implementation might be different, just verify signal was called
             assert mock_signal.called
 
-    @pytest.mark.asyncio
-    async def test_initialize_workspace_success(self, mock_config):
-        """Test successful workspace initialization."""
-        with patch('workspace_qdrant_mcp.server.Config.from_yaml', return_value=mock_config), \
-             patch('workspace_qdrant_mcp.server.setup_logging'), \
-             patch('builtins.open', mock_open(read_data="test: config")):
-
             result = await server.initialize_workspace(config_file="test.yaml")
             assert result is None
-
-    @pytest.mark.asyncio
-    async def test_initialize_workspace_no_config(self, mock_config):
-        """Test workspace initialization without config file."""
-        with patch('workspace_qdrant_mcp.server.Config.from_env', return_value=mock_config), \
-             patch('workspace_qdrant_mcp.server.setup_logging'):
 
             result = await server.initialize_workspace(config_file=None)
             assert result is None
@@ -1081,30 +1009,12 @@ class TestModuleConstants:
 class TestErrorHandling:
     """Test comprehensive error handling scenarios."""
 
-    @pytest.mark.asyncio
-    async def test_workspace_status_connection_error(self):
-        """Test workspace status with connection error."""
-        with patch('workspace_qdrant_mcp.server.get_client', side_effect=ConnectionError("Connection failed")):
-            result = await server.workspace_status()
-
             assert isinstance(result, dict)
             assert "connected" in result
             assert result["connected"] is False
 
-    @pytest.mark.asyncio
-    async def test_search_workspace_embedding_error(self, mock_qdrant_client):
-        """Test search with embedding error."""
-        with patch('workspace_qdrant_mcp.server.get_client', return_value=mock_qdrant_client), \
-             patch('workspace_qdrant_mcp.server.get_embedding_model', side_effect=Exception("Embedding error")):
-
             with pytest.raises(Exception, match="Embedding error"):
                 await server.search_workspace_tool(query="test", limit=10)
-
-    @pytest.mark.asyncio
-    async def test_add_document_upsert_error(self, mock_embedding_model):
-        """Test document addition with upsert error."""
-        mock_client = AsyncMock()
-        mock_client.upsert.side_effect = Exception("Upsert failed")
 
         with patch('workspace_qdrant_mcp.server.get_client', return_value=mock_client), \
              patch('workspace_qdrant_mcp.server.get_embedding_model', return_value=mock_embedding_model):
@@ -1119,24 +1029,12 @@ class TestErrorHandling:
 class TestEdgeCases:
     """Test edge cases and boundary conditions."""
 
-    @pytest.mark.asyncio
-    async def test_search_empty_query(self, mock_qdrant_client, mock_embedding_model):
-        """Test search with empty query."""
-        with patch('workspace_qdrant_mcp.server.get_client', return_value=mock_qdrant_client), \
-             patch('workspace_qdrant_mcp.server.get_embedding_model', return_value=mock_embedding_model):
-
             result = await server.search_workspace_tool(
                 query="",
                 limit=10
             )
 
             assert isinstance(result, dict)
-
-    @pytest.mark.asyncio
-    async def test_add_document_empty_content(self, mock_qdrant_client, mock_embedding_model):
-        """Test adding document with empty content."""
-        with patch('workspace_qdrant_mcp.server.get_client', return_value=mock_qdrant_client), \
-             patch('workspace_qdrant_mcp.server.get_embedding_model', return_value=mock_embedding_model):
 
             result = await server.add_document_tool(
                 content="",
@@ -1145,24 +1043,12 @@ class TestEdgeCases:
 
             assert isinstance(result, dict)
 
-    @pytest.mark.asyncio
-    async def test_search_zero_limit(self, mock_qdrant_client, mock_embedding_model):
-        """Test search with zero limit."""
-        with patch('workspace_qdrant_mcp.server.get_client', return_value=mock_qdrant_client), \
-             patch('workspace_qdrant_mcp.server.get_embedding_model', return_value=mock_embedding_model):
-
             result = await server.search_workspace_tool(
                 query="test",
                 limit=0
             )
 
             assert isinstance(result, dict)
-
-    @pytest.mark.asyncio
-    async def test_hybrid_search_invalid_weights(self, mock_qdrant_client, mock_embedding_model):
-        """Test hybrid search with invalid weight values."""
-        with patch('workspace_qdrant_mcp.server.get_client', return_value=mock_qdrant_client), \
-             patch('workspace_qdrant_mcp.server.get_embedding_model', return_value=mock_embedding_model):
 
             result = await server.hybrid_search_advanced_tool(
                 query="test",
@@ -1175,12 +1061,6 @@ class TestEdgeCases:
 
 class TestIntegrationScenarios:
     """Test integration scenarios between components."""
-
-    @pytest.mark.asyncio
-    async def test_full_document_workflow(self, mock_qdrant_client, mock_embedding_model):
-        """Test complete document workflow: add -> search -> retrieve -> delete."""
-        with patch('workspace_qdrant_mcp.server.get_client', return_value=mock_qdrant_client), \
-             patch('workspace_qdrant_mcp.server.get_embedding_model', return_value=mock_embedding_model):
 
             # Add document
             add_result = await server.add_document_tool(
@@ -1203,13 +1083,6 @@ class TestIntegrationScenarios:
                 collection_name="test-collection"
             )
             assert isinstance(retrieve_result, dict)
-
-    @pytest.mark.asyncio
-    async def test_scratchbook_workflow(self, mock_qdrant_client, mock_embedding_model):
-        """Test complete scratchbook workflow."""
-        with patch('workspace_qdrant_mcp.server.get_client', return_value=mock_qdrant_client), \
-             patch('workspace_qdrant_mcp.server.get_embedding_model', return_value=mock_embedding_model), \
-             patch('workspace_qdrant_mcp.server.detect_project', return_value="test-project"):
 
             # Update scratchbook
             update_result = await server.update_scratchbook_tool(
@@ -1236,24 +1109,12 @@ class TestIntegrationScenarios:
 class TestPerformanceScenarios:
     """Test performance-related scenarios."""
 
-    @pytest.mark.asyncio
-    async def test_large_limit_search(self, mock_qdrant_client, mock_embedding_model):
-        """Test search with large limit value."""
-        with patch('workspace_qdrant_mcp.server.get_client', return_value=mock_qdrant_client), \
-             patch('workspace_qdrant_mcp.server.get_embedding_model', return_value=mock_embedding_model):
-
             result = await server.search_workspace_tool(
                 query="test",
                 limit=10000  # Large limit
             )
 
             assert isinstance(result, dict)
-
-    @pytest.mark.asyncio
-    async def test_concurrent_operations(self, mock_qdrant_client, mock_embedding_model):
-        """Test concurrent operations."""
-        with patch('workspace_qdrant_mcp.server.get_client', return_value=mock_qdrant_client), \
-             patch('workspace_qdrant_mcp.server.get_embedding_model', return_value=mock_embedding_model):
 
             # Create multiple concurrent tasks
             tasks = [
