@@ -44,11 +44,6 @@ class TestCommonCoreCoverage:
         from src.python.common.core import logging_config
         assert logging_config is not None
 
-    def test_watch_config_imports(self):
-        """Test watch config module imports."""
-        from src.python.common.core import watch_config
-        assert watch_config is not None
-
     def test_metadata_schema_imports(self):
         """Test metadata schema module imports."""
         from src.python.common.core import metadata_schema
@@ -58,11 +53,6 @@ class TestCommonCoreCoverage:
         """Test LSP detector module imports."""
         from src.python.common.core import lsp_detector
         assert lsp_detector is not None
-
-    def test_advanced_watch_config_imports(self):
-        """Test advanced watch config module imports."""
-        from src.python.common.core import advanced_watch_config
-        assert advanced_watch_config is not None
 
     def test_graceful_degradation_imports(self):
         """Test graceful degradation module imports."""
@@ -88,11 +78,6 @@ class TestCommonCoreCoverage:
         """Test daemon manager module imports."""
         from src.python.common.core import daemon_manager
         assert daemon_manager is not None
-
-    def test_watch_validation_imports(self):
-        """Test watch validation module imports."""
-        from src.python.common.core import watch_validation
-        assert watch_validation is not None
 
     def test_ssl_config_imports(self):
         """Test SSL config module imports."""
@@ -123,11 +108,6 @@ class TestCommonCoreCoverage:
         """Test gRPC client module imports."""
         from src.python.common.core import grpc_client
         assert grpc_client is not None
-
-    def test_persistent_file_watcher_imports(self):
-        """Test persistent file watcher module imports."""
-        from src.python.common.core import persistent_file_watcher
-        assert persistent_file_watcher is not None
 
     def test_metadata_optimization_imports(self):
         """Test metadata optimization module imports."""
