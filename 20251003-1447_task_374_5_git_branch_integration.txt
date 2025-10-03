@@ -1,0 +1,263 @@
+Git Branch Detection Integration Guide
+Task 374.5 - Implementation Summary
+Date: 2025-10-03 14:47
+
+================================================================================
+IMPLEMENTATION COMPLETE
+================================================================================
+
+This document summarizes the implementation of Git branch detection for
+multi-branch project support in workspace-qdrant-mcp.
+
+================================================================================
+COMPONENTS DELIVERED
+================================================================================
+
+1. Python Implementation (COMPLETE)
+   Location: src/python/common/utils/git_utils.py
+
+   Functions:
+   - get_current_branch(repo_path: Path) -> str
+     * Detects current Git branch from any directory in repository
+     * Returns "main" for all error cases (non-git, detached HEAD, etc.)
+     * Uses GitPython library for reliable Git operations
+     * Comprehensive error handling and logging
+
+   - get_repository_root(repo_path: Path) -> Optional[Path]
+     * Returns Git repository root directory
+     * Returns None for non-git directories
+
+   - is_git_repository(repo_path: Path) -> bool
+     * Checks if path is within a Git repository
+
+   Test Coverage: 24 unit tests, all passing
+   Test Location: tests/unit/utils/test_git_utils.py
+
+2. Rust Implementation (ALREADY COMPLETE)
+   Location: src/rust/daemon/core/src/git_integration.rs
+
+   Components:
+   - GitBranchDetector struct with caching (60s TTL)
+   - get_current_branch() async method
+   - detect_branch_change() for branch switching detection
+   - invalidate_cache() for cache management
+   - Comprehensive error handling with GitError enum
+
+   Exported: Yes, via lib.rs (line 57-59)
+   Test Coverage: 10 Rust unit tests (lines 304-500)
+
+3. Metadata Integration (ALREADY EXISTS)
+   Location: src/python/common/core/metadata_schema.py
+
+   The MultiTenantMetadataSchema already includes:
+   - branch: str = "main" (line 131)
+   - Branch field in metadata schema
+   - Validation for branch length (MAX_BRANCH_LENGTH = 256)
+
+================================================================================
+USAGE EXAMPLES
+================================================================================
+
+Python Usage:
+-------------
+
+from pathlib import Path
+from common.utils.git_utils import get_current_branch
+
+# Detect branch for metadata
+repo_path = Path("/path/to/repository")
+branch = get_current_branch(repo_path)  # Returns "feature/auth" or "main"
+
+# Use in metadata creation
+metadata = MultiTenantMetadataSchema.create_for_project(
+    project_name="my-project",
+    collection_type="docs",
+    branch=branch,  # Use detected branch
+    created_by="user"
+)
+
+Rust Usage:
+-----------
+
+use workspace_qdrant_core::GitBranchDetector;
+
+// Create detector with caching
+let detector = GitBranchDetector::new();
+
+// Detect branch (cached for 60 seconds)
+let branch = detector.get_current_branch(&repo_path).await?;
+
+// Detect branch changes
+if let Some(new_branch) = detector.detect_branch_change(&repo_path, &last_branch).await? {
+    println!("Branch changed to: {}", new_branch);
+}
+
+================================================================================
+INTEGRATION POINTS
+================================================================================
+
+1. Document Ingestion Pipeline
+   When processing files, detect branch and include in metadata:
+
+   from common.utils.git_utils import get_current_branch
+
+   def process_file(file_path: Path):
+       repo_root = get_repository_root(file_path)
+       branch = get_current_branch(repo_root or file_path)
+
+       metadata = MultiTenantMetadataSchema(
+           # ... other fields ...
+           branch=branch
+       )
+
+2. Daemon File Watcher (Rust)
+   When file events occur, detect branch changes:
+
+   let detector = GitBranchDetector::new();
+   let current_branch = detector.get_current_branch(&project_root).await?;
+
+   // Store in document metadata
+   let metadata = DocumentMetadata {
+       branch: current_branch,
+       // ... other fields ...
+   };
+
+3. Collection Naming
+   Collections can be scoped by branch if needed:
+
+   collection_name = f"{project_name}-{collection_type}-{branch}"
+   # Example: "workspace-qdrant-mcp-docs-feature-auth"
+
+================================================================================
+EDGE CASES HANDLED
+================================================================================
+
+Both Python and Rust implementations handle:
+
+1. Non-Git directories → return "main"
+2. Git repo with no commits → return "main"
+3. Detached HEAD state → return "main"
+4. Permission errors → return "main" (with error log)
+5. Invalid paths → return "main"
+6. Symlinks → resolved and handled correctly
+7. Subdirectories → walks up to find repository root
+
+All error cases default to "main" to ensure:
+- No exceptions/panics in production
+- Consistent behavior across Python and Rust
+- Graceful degradation
+
+================================================================================
+TESTING
+================================================================================
+
+Python Tests (24 tests):
+- Branch detection in git repositories
+- Non-git directories
+- Detached HEAD state
+- Empty repositories (no commits)
+- Branch switching
+- Subdirectory detection
+- Symlink handling
+- Relative path handling
+- Multiple call consistency
+- Error case handling
+
+Run tests:
+  uv run pytest tests/unit/utils/test_git_utils.py -v
+
+Rust Tests (10 tests in git_integration.rs):
+- Branch detection in git repo
+- Non-git directory handling
+- Detached HEAD handling
+- Branch switching detection
+- Cache functionality
+- Cache expiration
+- Subdirectory detection
+- Branch change detection
+- Cache statistics
+
+Run tests:
+  cargo test --package workspace-qdrant-core git_integration
+
+================================================================================
+PERFORMANCE CONSIDERATIONS
+================================================================================
+
+Python:
+- Uses GitPython library (native Git operations)
+- No caching (stateless function calls)
+- Fast for individual operations (~1-5ms per call)
+- Suitable for request-time branch detection
+
+Rust:
+- Uses git2-rs (libgit2 bindings)
+- Includes caching with 60-second TTL
+- Very fast with caching (~0.1ms cache hits)
+- Suitable for high-frequency daemon operations
+- Cache invalidation available for manual control
+
+================================================================================
+DEPENDENCIES
+================================================================================
+
+Python:
+- GitPython>=3.1.0 (already in pyproject.toml)
+
+Rust:
+- git2 = "0.18" (already in Cargo.toml)
+- tokio with sync feature (already present)
+- thiserror for error types (already present)
+
+No additional dependencies needed.
+
+================================================================================
+COMPLETION STATUS
+================================================================================
+
+✅ Python git_utils.py implementation
+✅ Python comprehensive test suite (24 tests)
+✅ Rust git_integration.rs implementation (pre-existing)
+✅ Rust comprehensive test suite (10 tests)
+✅ Rust module exported from lib.rs
+✅ Metadata schema branch field exists
+✅ Documentation and usage examples
+✅ All tests passing
+
+READY FOR INTEGRATION INTO INGESTION PIPELINE
+
+================================================================================
+NEXT STEPS (For Future Tasks)
+================================================================================
+
+1. Update document ingestion pipeline to call get_current_branch()
+   - Modify file processing to detect and store branch
+   - Update metadata creation to use detected branch
+
+2. Update Rust daemon to use GitBranchDetector
+   - Create GitBranchDetector instance in daemon
+   - Call get_current_branch() during file processing
+   - Store branch in document metadata
+
+3. Update collection creation to optionally scope by branch
+   - Add branch-scoped collection option to configuration
+   - Modify collection naming to include branch if configured
+
+4. Add branch filtering to search operations
+   - Filter results by branch in metadata
+   - Add branch parameter to search API
+
+5. Documentation updates
+   - Update PRD with branch detection details
+   - Add branch usage to user documentation
+   - Include branch examples in API documentation
+
+================================================================================
+TASK 374.5 - COMPLETE
+================================================================================
+
+All required components have been implemented and tested. The Git branch
+detection functionality is ready for integration into the ingestion pipeline.
+
+Python and Rust implementations behave identically and handle all edge cases
+gracefully with comprehensive error handling and logging.
