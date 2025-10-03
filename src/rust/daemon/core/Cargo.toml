@@ -27,6 +27,11 @@ mime_guess = "2.0"
 # Git integration
 git2 = "0.19"
 
+# Hashing and collections
+sha2 = "0.10"
+phf = { version = "0.11", features = ["macros"] }
+md5 = "0.7"
+
 # Additional core dependencies
 once_cell = "1.19"
 tracing-subscriber = { version = "0.3", features = ["env-filter", "fmt", "chrono", "json"] }
@@ -45,7 +50,6 @@ clap = { version = "4.4", features = ["derive", "string"] }
 scopeguard = "1.2"
 tempfile = "3.8"
 atty = "0.2"
-md5 = "0.7"
 
 # ML/Embedding dependencies (optional - can be disabled)
 ort = { version = "2.0.0-rc.10", features = ["download-binaries"], optional = true }
