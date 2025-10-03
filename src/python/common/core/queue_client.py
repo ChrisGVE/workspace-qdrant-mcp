@@ -47,6 +47,7 @@ from typing import Any, Dict, List, Optional, Tuple
 from loguru import logger
 
 from .queue_connection import QueueConnectionPool, ConnectionConfig
+from .collection_types import CollectionTypeClassifier
 
 
 class QueueOperation(Enum):
@@ -71,6 +72,7 @@ class QueueItem:
         retry_count: int = 0,
         retry_from: Optional[str] = None,
         error_message_id: Optional[int] = None,
+        collection_type: Optional[str] = None,
     ):
         self.file_absolute_path = file_absolute_path
         self.collection_name = collection_name
@@ -82,6 +84,7 @@ class QueueItem:
         self.retry_count = retry_count
         self.retry_from = retry_from
         self.error_message_id = error_message_id
+        self.collection_type = collection_type
 
     @classmethod
     def from_db_row(cls, row: sqlite3.Row) -> "QueueItem":
@@ -97,6 +100,7 @@ class QueueItem:
             retry_count=row["retry_count"],
             retry_from=row["retry_from"],
             error_message_id=row["error_message_id"],
+            collection_type=row.get("collection_type"),  # May be None for legacy items
         )
 
     def to_dict(self) -> Dict[str, Any]:
@@ -112,6 +116,7 @@ class QueueItem:
             "retry_count": self.retry_count,
             "retry_from": self.retry_from,
             "error_message_id": self.error_message_id,
+            "collection_type": self.collection_type,
         }
 
 
@@ -201,11 +206,16 @@ class SQLiteQueueClient:
         # Normalize file path
         file_absolute_path = str(Path(file_path).resolve())
 
+        # Detect collection type
+        classifier = CollectionTypeClassifier()
+        collection_type_enum = classifier.classify_collection_type(collection)
+        collection_type = collection_type_enum.value  # Convert enum to string
+
         query = """
             INSERT INTO ingestion_queue (
                 file_absolute_path, collection_name, tenant_id, branch,
-                operation, priority, retry_from
-            ) VALUES (?, ?, ?, ?, ?, ?, ?)
+                operation, priority, retry_from, collection_type
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
         """
 
         async with self.connection_pool.get_connection_async() as conn:
@@ -217,13 +227,14 @@ class SQLiteQueueClient:
                     branch,
                     operation.value,
                     priority,
-                    retry_from
+                    retry_from,
+                    collection_type
                 ))
                 conn.commit()
 
                 logger.debug(
                     f"Enqueued file: {file_absolute_path} "
-                    f"(collection={collection}, priority={priority})"
+                    f"(collection={collection}, priority={priority}, type={collection_type})"
                 )
 
                 return file_absolute_path
@@ -259,7 +270,7 @@ class SQLiteQueueClient:
             SELECT
                 file_absolute_path, collection_name, tenant_id, branch,
                 operation, priority, queued_timestamp, retry_count,
-                retry_from, error_message_id
+                retry_from, error_message_id, collection_type
             FROM ingestion_queue
         """
 
@@ -732,9 +743,11 @@ class SQLiteQueueClient:
             insert_query = """
                 INSERT OR REPLACE INTO ingestion_queue (
                     file_absolute_path, collection_name, tenant_id, branch,
-                    operation, priority, queued_timestamp
-                ) VALUES (?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+                    operation, priority, queued_timestamp, collection_type
+                ) VALUES (?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP, ?)
             """
+
+            classifier = CollectionTypeClassifier()
 
             for item in items:
                 try:
@@ -742,13 +755,18 @@ class SQLiteQueueClient:
                         if isinstance(item.get("operation"), QueueOperation) \
                         else item.get("operation", "ingest")
 
+                    # Detect collection type
+                    collection_type_enum = classifier.classify_collection_type(item["collection"])
+                    collection_type = collection_type_enum.value
+
                     conn.execute(insert_query, (
                         item["file_path"],
                         item["collection"],
                         item.get("tenant_id", "default"),
                         item.get("branch", "main"),
                         operation,
-                        item["priority"]
+                        item["priority"],
+                        collection_type
                     ))
                     successful += 1
                 except Exception as e:

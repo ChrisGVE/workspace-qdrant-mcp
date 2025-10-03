@@ -34,6 +34,9 @@ CREATE TABLE IF NOT EXISTS ingestion_queue (
     -- Error tracking reference
     error_message_id INTEGER,
 
+    -- Collection type classification (system, library, project, global)
+    collection_type VARCHAR,
+
     -- Foreign key constraints
     FOREIGN KEY (retry_from) REFERENCES ingestion_queue(file_absolute_path) ON DELETE SET NULL,
     FOREIGN KEY (error_message_id) REFERENCES messages(id) ON DELETE SET NULL
@@ -54,6 +57,9 @@ CREATE INDEX IF NOT EXISTS idx_ingestion_queue_operation
 
 CREATE INDEX IF NOT EXISTS idx_ingestion_queue_error
     ON ingestion_queue(error_message_id) WHERE error_message_id IS NOT NULL;
+
+CREATE INDEX IF NOT EXISTS idx_ingestion_queue_collection_type
+    ON ingestion_queue(collection_type) WHERE collection_type IS NOT NULL;
 
 -- =============================================================================
 -- COLLECTION METADATA TABLE (Subtask 344.2)
