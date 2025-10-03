@@ -672,7 +672,7 @@ def build_project_collection_name(project_id: str) -> str:
     """
     # Validate tenant ID format
     # Allow git remote format (alphanumeric + underscores) or path hash format (path_ + 16 hex chars)
-    if not re.match(r"^(?:[a-z0-9_]+|path_[a-f0-9]{16})$", project_id):
+    if not re.match(r"^(?:path_[a-f0-9]{16}|[a-z]+_[a-z]+_[a-z0-9_]+)$", project_id):
         raise ValueError(
             f"Invalid tenant ID format: '{project_id}'. "
             "Must be either git remote format (e.g., 'github_com_user_repo') "

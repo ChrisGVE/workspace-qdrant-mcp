@@ -546,27 +546,29 @@ class CollectionMigrator:
                 detection_reason = "Partial match: Matches global pattern"
 
         elif detected_type == CollectionType.PROJECT:
-            if "-" in collection_name and not collection_name.startswith("_"):
-                # Validate project pattern more strictly
-                parts = collection_name.split("-")
-                if len(parts) >= 2 and all(part for part in parts):
-                    confidence = 0.9
-                    detection_reason = "Strong match: Project collection pattern '{project}-{suffix}'"
+            # New architecture: PROJECT collections use _{project_id} format
+            if collection_name.startswith("_") and not collection_name.startswith("__"):
+                # Validate against PROJECT_PATTERN (path hash OR git remote with 2+ underscores)
+                import re
+                project_pattern = re.compile(r"^_(?:path_[a-f0-9]{16}|[a-z]+_[a-z]+_[a-z0-9_]+)$")
+                if project_pattern.match(collection_name):
+                    confidence = 1.0
+                    detection_reason = "Exact match: Project collection pattern '_{project_id}'"
                 else:
                     confidence = 0.6
-                    detection_reason = "Partial match: Contains dash but irregular pattern"
+                    detection_reason = "Partial match: Starts with '_' but irregular project_id format"
             else:
                 confidence = 0.4
-                detection_reason = "Weak match: Classified as project but missing pattern"
+                detection_reason = "Weak match: Classified as project but missing '_' prefix"
 
         else:  # UNKNOWN
             confidence = 0.0
             detection_reason = "No match: Collection name doesn't match any known pattern"
 
             # Try to suggest possible types based on name characteristics
-            if collection_name.startswith("_"):
+            if collection_name.startswith("_") and not collection_name.startswith("__"):
+                # Could be LIBRARY or PROJECT (both use _ prefix)
                 alternatives.append((CollectionType.LIBRARY, 0.5))
-            if "-" in collection_name:
                 alternatives.append((CollectionType.PROJECT, 0.4))
 
         # Determine if manual intervention is needed
