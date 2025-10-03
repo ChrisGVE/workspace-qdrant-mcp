@@ -37,10 +37,10 @@ from qdrant_client.models import (
 )
 from tabulate import tabulate
 
-from ....common.core.client import QdrantWorkspaceClient
-from ....common.core.collection_naming import build_project_collection_name
-from ....common.core.config import get_config
-from ....common.utils.git_utils import get_current_branch
+from common.core.client import QdrantWorkspaceClient
+from common.core.collection_naming import build_project_collection_name
+from common.core.config import get_config
+from common.utils.git_utils import get_current_branch
 
 # Create Typer app for branch commands
 branch_app = typer.Typer(
