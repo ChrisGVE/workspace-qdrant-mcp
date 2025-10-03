@@ -4,6 +4,8 @@ Unified gRPC client for workspace-qdrant-mcp daemon communication.
 This module provides a single interface for all components (CLI, MCP server, web UI)
 to communicate with the daemon, eliminating direct Qdrant client usage and code duplication.
 Includes automatic service discovery for multi-instance daemon support.
+
+Enhanced with DocumentService and CollectionService support for Task 375.1.
 """
 
 import asyncio
@@ -17,6 +19,7 @@ import grpc
 from google.protobuf.empty_pb2 import Empty
 from google.protobuf.timestamp_pb2 import Timestamp
 
+# Legacy IngestService imports (to be deprecated)
 from ..grpc.ingestion_pb2 import (
     # Memory operations
     AddMemoryRuleRequest,
@@ -79,6 +82,27 @@ from ..grpc.ingestion_pb2 import (
     WatchStatus,
 )
 from ..grpc.ingestion_pb2_grpc import IngestServiceStub
+
+# New workspace_daemon protocol imports
+from ..grpc.generated.workspace_daemon_pb2 import (
+    CreateCollectionRequest as NewCreateCollectionRequest,
+    CreateCollectionResponse as NewCreateCollectionResponse,
+    DeleteCollectionRequest as NewDeleteCollectionRequest,
+    IngestTextRequest,
+    IngestTextResponse,
+    UpdateTextRequest,
+    UpdateTextResponse,
+    DeleteTextRequest,
+    CollectionConfig,
+    CreateAliasRequest,
+    DeleteAliasRequest,
+    RenameAliasRequest,
+)
+from ..grpc.generated.workspace_daemon_pb2_grpc import (
+    DocumentServiceStub,
+    CollectionServiceStub,
+)
+
 from loguru import logger
 from .config import get_config_manager
 # TEMP: Comment out service_discovery import to fix syntax errors
@@ -107,6 +131,8 @@ class DaemonClient:
     Provides a single interface for all workspace-qdrant-mcp operations,
     replacing direct Qdrant client usage throughout the codebase.
     Automatically discovers the correct daemon instance for the current project context.
+
+    Enhanced with DocumentService and CollectionService support (Task 375.1).
     """
 
     def __init__(self, config_manager=None, project_path: Optional[str] = None):
@@ -114,9 +140,16 @@ class DaemonClient:
         self.config = config_manager or get_config_manager()
         self.project_path = project_path or os.getcwd()
         self.channel: Optional[grpc.aio.Channel] = None
+
+        # Legacy stub (to be deprecated)
         self.stub: Optional[IngestServiceStub] = None
+
+        # New service stubs
+        self.document_service: Optional[DocumentServiceStub] = None
+        self.collection_service: Optional[CollectionServiceStub] = None
+
         self._connected = False
-        self._discovered_endpoint: Optional[ServiceEndpoint] = None
+        self._discovered_endpoint: Optional[Any] = None  # ServiceEndpoint type when available
 
     async def connect(self) -> None:
         """Establish connection to daemon using service discovery."""
@@ -127,29 +160,35 @@ class DaemonClient:
         grpc_host = self.config.get("grpc.host", "localhost")
         grpc_port = self.config.get("grpc.port", 50051)
         preferred_endpoint = (grpc_host, grpc_port)
-        
-        logger.info("Attempting service discovery for daemon connection", 
+
+        logger.info("Attempting service discovery for daemon connection",
                    project_path=self.project_path)
-        
+
         # Try to discover daemon endpoint for this project
-        discovered_endpoint = await discover_daemon_endpoint(
-            self.project_path, 
-            preferred_endpoint
-        )
-        
+        # TEMP: Service discovery disabled until implementation complete
+        # discovered_endpoint = await discover_daemon_endpoint(
+        #     self.project_path,
+        #     preferred_endpoint
+        # )
+        discovered_endpoint = None
+
         if discovered_endpoint:
             address = discovered_endpoint.address
             self._discovered_endpoint = discovered_endpoint
-            logger.info("Using discovered daemon endpoint", 
-                       address=address, 
+            logger.info("Using discovered daemon endpoint",
+                       address=address,
                        project_id=discovered_endpoint.project_id)
         else:
             # Fallback to configured endpoint
-            address = f"{grpc_config.host}:{grpc_config.port}"
-            logger.warning("Service discovery failed, using configured endpoint", 
+            address = f"{grpc_host}:{grpc_port}"
+            logger.warning("Service discovery failed, using configured endpoint",
                           address=address)
 
         try:
+            # Get gRPC configuration with proper defaults
+            grpc_config_dict = self.config.get("grpc", {})
+            max_message_size_mb = grpc_config_dict.get("max_message_size_mb", 100)
+
             # Create channel with appropriate options
             options = [
                 ("grpc.keepalive_time_ms", 30000),
@@ -160,16 +199,20 @@ class DaemonClient:
                 ("grpc.http2.min_ping_interval_without_data_ms", 300000),
                 (
                     "grpc.max_receive_message_length",
-                    grpc_config.max_message_size_mb * 1024 * 1024,
+                    max_message_size_mb * 1024 * 1024,
                 ),
                 (
                     "grpc.max_send_message_length",
-                    grpc_config.max_message_size_mb * 1024 * 1024,
+                    max_message_size_mb * 1024 * 1024,
                 ),
             ]
 
             self.channel = grpc.aio.insecure_channel(address, options=options)
+
+            # Initialize all service stubs
             self.stub = IngestServiceStub(self.channel)
+            self.document_service = DocumentServiceStub(self.channel)
+            self.collection_service = CollectionServiceStub(self.channel)
 
             # Test connection with health check
             await self.health_check()
@@ -191,6 +234,8 @@ class DaemonClient:
                 await self.channel.close()
                 self.channel = None
                 self.stub = None
+                self.document_service = None
+                self.collection_service = None
             raise DaemonConnectionError(f"Failed to connect to daemon: {e}")
 
     async def disconnect(self) -> None:
@@ -199,6 +244,8 @@ class DaemonClient:
             await self.channel.close()
             self.channel = None
             self.stub = None
+            self.document_service = None
+            self.collection_service = None
             self._connected = False
             self._discovered_endpoint = None
             logger.info("Disconnected from daemon")
@@ -233,7 +280,7 @@ class DaemonClient:
             "project_path": self.project_path,
             "discovery_used": self._discovered_endpoint is not None,
         }
-        
+
         if self._discovered_endpoint:
             info.update({
                 "endpoint": self._discovered_endpoint.address,
@@ -249,8 +296,454 @@ class DaemonClient:
                 "endpoint": f"{grpc_host}:{grpc_port}",
                 "discovery_strategy": "configuration"
             })
-        
+
         return info
+
+    # =========================================================================
+    # NEW: DocumentService methods (Task 375.1)
+    # =========================================================================
+
+    async def ingest_text(
+        self,
+        content: str,
+        collection_basename: str,
+        tenant_id: str,
+        document_id: Optional[str] = None,
+        metadata: Optional[Dict[str, str]] = None,
+        chunk_text: bool = True,
+    ) -> IngestTextResponse:
+        """
+        Ingest text content directly via DocumentService.
+
+        This method provides synchronous text ingestion without file-based processing.
+        Use cases: user input, chat snippets, scraped web content, manual notes.
+
+        Args:
+            content: The text content to ingest
+            collection_basename: Base collection name (e.g., "memory", "scratchbook")
+            tenant_id: Multi-tenant identifier for collection scoping
+            document_id: Optional custom document ID (generated if omitted)
+            metadata: Additional metadata to attach to the document
+            chunk_text: Whether to chunk the text (default: True)
+
+        Returns:
+            IngestTextResponse with document_id, success status, and chunks_created count
+
+        Raises:
+            DaemonConnectionError: If daemon is not connected or ingestion fails
+        """
+        self._ensure_connected()
+
+        if not self.document_service:
+            raise DaemonConnectionError(
+                "DocumentService not available. Daemon may not support new protocol."
+            )
+
+        # Apply LLM access control validation
+        full_collection_name = f"{collection_basename}_{tenant_id}"
+        try:
+            validate_llm_collection_access('write', full_collection_name, self.config)
+        except LLMAccessControlError as e:
+            logger.warning("LLM access control blocked text ingestion: %s", str(e))
+            raise DaemonConnectionError(f"Text ingestion blocked: {str(e)}") from e
+
+        request = IngestTextRequest(
+            content=content,
+            collection_basename=collection_basename,
+            tenant_id=tenant_id,
+            document_id=document_id or "",
+            metadata=metadata or {},
+            chunk_text=chunk_text,
+        )
+
+        try:
+            response = await self.document_service.IngestText(request)
+            logger.info(
+                "Text ingested successfully",
+                document_id=response.document_id,
+                chunks_created=response.chunks_created,
+                collection=full_collection_name,
+            )
+            return response
+        except grpc.RpcError as e:
+            error_msg = f"Failed to ingest text: {e.code()}: {e.details()}"
+            logger.error(error_msg)
+            raise DaemonConnectionError(error_msg) from e
+
+    async def update_text(
+        self,
+        document_id: str,
+        content: str,
+        collection_name: Optional[str] = None,
+        metadata: Optional[Dict[str, str]] = None,
+    ) -> UpdateTextResponse:
+        """
+        Update previously ingested text document via DocumentService.
+
+        Args:
+            document_id: The document ID returned from ingest_text()
+            content: New text content
+            collection_name: Optional new collection name (for moving documents)
+            metadata: Updated metadata
+
+        Returns:
+            UpdateTextResponse with success status and updated_at timestamp
+
+        Raises:
+            DaemonConnectionError: If daemon is not connected or update fails
+        """
+        self._ensure_connected()
+
+        if not self.document_service:
+            raise DaemonConnectionError(
+                "DocumentService not available. Daemon may not support new protocol."
+            )
+
+        request = UpdateTextRequest(
+            document_id=document_id,
+            content=content,
+            collection_name=collection_name or "",
+            metadata=metadata or {},
+        )
+
+        try:
+            response = await self.document_service.UpdateText(request)
+            logger.info(
+                "Text updated successfully",
+                document_id=document_id,
+                collection=collection_name,
+            )
+            return response
+        except grpc.RpcError as e:
+            error_msg = f"Failed to update text: {e.code()}: {e.details()}"
+            logger.error(error_msg)
+            raise DaemonConnectionError(error_msg) from e
+
+    async def delete_text(
+        self,
+        document_id: str,
+        collection_name: str,
+    ) -> None:
+        """
+        Delete ingested text document via DocumentService.
+
+        Args:
+            document_id: The document ID to delete
+            collection_name: Collection containing the document
+
+        Raises:
+            DaemonConnectionError: If daemon is not connected or deletion fails
+        """
+        self._ensure_connected()
+
+        if not self.document_service:
+            raise DaemonConnectionError(
+                "DocumentService not available. Daemon may not support new protocol."
+            )
+
+        request = DeleteTextRequest(
+            document_id=document_id,
+            collection_name=collection_name,
+        )
+
+        try:
+            await self.document_service.DeleteText(request)
+            logger.info(
+                "Text deleted successfully",
+                document_id=document_id,
+                collection=collection_name,
+            )
+        except grpc.RpcError as e:
+            error_msg = f"Failed to delete text: {e.code()}: {e.details()}"
+            logger.error(error_msg)
+            raise DaemonConnectionError(error_msg) from e
+
+    # =========================================================================
+    # NEW: CollectionService methods (Task 375.1)
+    # =========================================================================
+
+    async def create_collection_v2(
+        self,
+        collection_name: str,
+        project_id: str = "",
+        vector_size: int = 384,
+        distance_metric: str = "Cosine",
+        enable_indexing: bool = True,
+        metadata_schema: Optional[Dict[str, str]] = None,
+    ) -> NewCreateCollectionResponse:
+        """
+        Create a collection via CollectionService (new protocol).
+
+        This method uses the new workspace_daemon protocol for collection creation.
+        For legacy compatibility, use create_collection() method.
+
+        Args:
+            collection_name: Name of the collection to create
+            project_id: Optional project association
+            vector_size: Embedding vector dimension (default: 384 for all-MiniLM-L6-v2)
+            distance_metric: "Cosine", "Euclidean", or "Dot" (default: "Cosine")
+            enable_indexing: Enable HNSW indexing (default: True)
+            metadata_schema: Expected metadata fields
+
+        Returns:
+            NewCreateCollectionResponse with success status and collection_id
+
+        Raises:
+            DaemonConnectionError: If daemon is not connected or creation fails
+        """
+        self._ensure_connected()
+
+        if not self.collection_service:
+            raise DaemonConnectionError(
+                "CollectionService not available. Daemon may not support new protocol."
+            )
+
+        # Apply LLM access control validation
+        try:
+            validate_llm_collection_access('create', collection_name, self.config)
+        except LLMAccessControlError as e:
+            logger.warning("LLM access control blocked collection creation: %s", str(e))
+            raise DaemonConnectionError(f"Collection creation blocked: {str(e)}") from e
+
+        config = CollectionConfig(
+            vector_size=vector_size,
+            distance_metric=distance_metric,
+            enable_indexing=enable_indexing,
+            metadata_schema=metadata_schema or {},
+        )
+
+        request = NewCreateCollectionRequest(
+            collection_name=collection_name,
+            project_id=project_id,
+            config=config,
+        )
+
+        try:
+            response = await self.collection_service.CreateCollection(request)
+            if response.success:
+                logger.info(
+                    "Collection created successfully",
+                    collection_name=collection_name,
+                    collection_id=response.collection_id,
+                )
+            else:
+                logger.error(
+                    "Collection creation failed",
+                    collection_name=collection_name,
+                    error=response.error_message,
+                )
+            return response
+        except grpc.RpcError as e:
+            error_msg = f"Failed to create collection: {e.code()}: {e.details()}"
+            logger.error(error_msg)
+            raise DaemonConnectionError(error_msg) from e
+
+    async def delete_collection_v2(
+        self,
+        collection_name: str,
+        project_id: str = "",
+        force: bool = False,
+    ) -> None:
+        """
+        Delete a collection via CollectionService (new protocol).
+
+        This method uses the new workspace_daemon protocol for collection deletion.
+        For legacy compatibility, use delete_collection() method.
+
+        Args:
+            collection_name: Name of the collection to delete
+            project_id: Project ID for validation
+            force: Skip confirmation checks (default: False)
+
+        Raises:
+            DaemonConnectionError: If daemon is not connected or deletion fails
+        """
+        self._ensure_connected()
+
+        if not self.collection_service:
+            raise DaemonConnectionError(
+                "CollectionService not available. Daemon may not support new protocol."
+            )
+
+        # Apply LLM access control validation
+        try:
+            validate_llm_collection_access('delete', collection_name, self.config)
+        except LLMAccessControlError as e:
+            logger.warning("LLM access control blocked collection deletion: %s", str(e))
+            raise DaemonConnectionError(f"Collection deletion blocked: {str(e)}") from e
+
+        request = NewDeleteCollectionRequest(
+            collection_name=collection_name,
+            project_id=project_id,
+            force=force,
+        )
+
+        try:
+            await self.collection_service.DeleteCollection(request)
+            logger.info(
+                "Collection deleted successfully",
+                collection_name=collection_name,
+            )
+        except grpc.RpcError as e:
+            error_msg = f"Failed to delete collection: {e.code()}: {e.details()}"
+            logger.error(error_msg)
+            raise DaemonConnectionError(error_msg) from e
+
+    async def collection_exists(
+        self,
+        collection_name: str,
+    ) -> bool:
+        """
+        Check if a collection exists.
+
+        This is a convenience method that queries Qdrant directly via the legacy
+        ListCollections RPC. For the new protocol, MCP server queries Qdrant directly.
+
+        Args:
+            collection_name: Name of the collection to check
+
+        Returns:
+            True if collection exists, False otherwise
+
+        Raises:
+            DaemonConnectionError: If daemon is not connected or query fails
+        """
+        self._ensure_connected()
+
+        try:
+            # Use legacy method since new protocol expects MCP to query Qdrant directly
+            response = await self.list_collections(include_stats=False)
+            return any(c.name == collection_name for c in response.collections)
+        except Exception as e:
+            logger.warning(
+                "Failed to check collection existence",
+                collection_name=collection_name,
+                error=str(e),
+            )
+            return False
+
+    async def create_collection_alias(
+        self,
+        alias_name: str,
+        collection_name: str,
+    ) -> None:
+        """
+        Create a collection alias via CollectionService.
+
+        Use case: Tenant ID changes - create alias to maintain compatibility.
+
+        Args:
+            alias_name: The new alias name
+            collection_name: The collection this alias points to
+
+        Raises:
+            DaemonConnectionError: If daemon is not connected or creation fails
+        """
+        self._ensure_connected()
+
+        if not self.collection_service:
+            raise DaemonConnectionError(
+                "CollectionService not available. Daemon may not support new protocol."
+            )
+
+        request = CreateAliasRequest(
+            alias_name=alias_name,
+            collection_name=collection_name,
+        )
+
+        try:
+            await self.collection_service.CreateCollectionAlias(request)
+            logger.info(
+                "Collection alias created successfully",
+                alias_name=alias_name,
+                collection_name=collection_name,
+            )
+        except grpc.RpcError as e:
+            error_msg = f"Failed to create collection alias: {e.code()}: {e.details()}"
+            logger.error(error_msg)
+            raise DaemonConnectionError(error_msg) from e
+
+    async def delete_collection_alias(
+        self,
+        alias_name: str,
+    ) -> None:
+        """
+        Delete a collection alias via CollectionService.
+
+        Args:
+            alias_name: The alias name to delete
+
+        Raises:
+            DaemonConnectionError: If daemon is not connected or deletion fails
+        """
+        self._ensure_connected()
+
+        if not self.collection_service:
+            raise DaemonConnectionError(
+                "CollectionService not available. Daemon may not support new protocol."
+            )
+
+        request = DeleteAliasRequest(alias_name=alias_name)
+
+        try:
+            await self.collection_service.DeleteCollectionAlias(request)
+            logger.info(
+                "Collection alias deleted successfully",
+                alias_name=alias_name,
+            )
+        except grpc.RpcError as e:
+            error_msg = f"Failed to delete collection alias: {e.code()}: {e.details()}"
+            logger.error(error_msg)
+            raise DaemonConnectionError(error_msg) from e
+
+    async def rename_collection_alias(
+        self,
+        old_alias_name: str,
+        new_alias_name: str,
+        collection_name: str,
+    ) -> None:
+        """
+        Atomically rename a collection alias via CollectionService.
+
+        This is safer than delete + create as it's atomic.
+
+        Args:
+            old_alias_name: Current alias name
+            new_alias_name: New alias name
+            collection_name: The collection it points to
+
+        Raises:
+            DaemonConnectionError: If daemon is not connected or rename fails
+        """
+        self._ensure_connected()
+
+        if not self.collection_service:
+            raise DaemonConnectionError(
+                "CollectionService not available. Daemon may not support new protocol."
+            )
+
+        request = RenameAliasRequest(
+            old_alias_name=old_alias_name,
+            new_alias_name=new_alias_name,
+            collection_name=collection_name,
+        )
+
+        try:
+            await self.collection_service.RenameCollectionAlias(request)
+            logger.info(
+                "Collection alias renamed successfully",
+                old_alias=old_alias_name,
+                new_alias=new_alias_name,
+                collection_name=collection_name,
+            )
+        except grpc.RpcError as e:
+            error_msg = f"Failed to rename collection alias: {e.code()}: {e.details()}"
+            logger.error(error_msg)
+            raise DaemonConnectionError(error_msg) from e
+
+    # =========================================================================
+    # Legacy IngestService methods (maintained for backward compatibility)
+    # =========================================================================
 
     # Document processing operations
 
@@ -264,7 +757,7 @@ class DaemonClient:
     ) -> ProcessDocumentResponse:
         """Process a single document."""
         self._ensure_connected()
-        
+
         # Apply LLM access control validation for collection writes
         try:
             validate_llm_collection_access('write', collection, self.config)
@@ -295,7 +788,7 @@ class DaemonClient:
     ) -> Iterator[ProcessFolderProgress]:
         """Process all documents in a folder."""
         self._ensure_connected()
-        
+
         # Apply LLM access control validation for collection writes (unless dry run)
         if not dry_run:
             try:
@@ -444,9 +937,9 @@ class DaemonClient:
         description: str = "",
         metadata: Optional[Dict[str, str]] = None,
     ) -> CreateCollectionResponse:
-        """Create a new collection."""
+        """Create a new collection (legacy method)."""
         self._ensure_connected()
-        
+
         # Apply LLM access control validation for collection creation
         try:
             validate_llm_collection_access('create', collection_name, self.config)
@@ -465,9 +958,9 @@ class DaemonClient:
     async def delete_collection(
         self, collection_name: str, confirm: bool = False
     ) -> DeleteCollectionResponse:
-        """Delete a collection."""
+        """Delete a collection (legacy method)."""
         self._ensure_connected()
-        
+
         # Apply LLM access control validation for collection deletion
         try:
             validate_llm_collection_access('delete', collection_name, self.config)
