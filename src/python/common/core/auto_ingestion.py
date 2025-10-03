@@ -14,6 +14,21 @@ Key Features:
     - Integration with existing WatchToolsManager infrastructure
     - Single collection per project with metadata-based file type differentiation
 
+Collection Architecture (Task 374.6):
+    - ONE collection per project: _{project_id} format
+    - project_id generated from project root path using calculate_tenant_id()
+    - All file types (code, docs, tests, config, etc.) go to same collection
+    - Files differentiated by metadata fields:
+        * file_type: "code", "test", "docs", "config", "data", "build", "other"
+        * branch: Current git branch (from get_current_branch())
+        * project_id: Unique project identifier (from calculate_tenant_id())
+    - No collection type suffixes (e.g., NO {project}-code, {project}-docs)
+
+Metadata Enrichment:
+    Note: Metadata enrichment (project_id, branch, file_type) happens at actual
+    ingestion points (memory.py, client.py) when documents are stored to Qdrant.
+    This module only sets up watches and determines target collection names.
+
 Example:
     ```python
     from workspace_qdrant_mcp.core.auto_ingestion import AutoIngestionManager
@@ -25,7 +40,6 @@ Example:
 """
 
 import asyncio
-import hashlib
 from loguru import logger
 import os
 from datetime import datetime, timezone
@@ -34,7 +48,7 @@ from typing import Any, Dict, List, Optional, Set
 
 from ..core.client import QdrantWorkspaceClient
 from ..core.config import AutoIngestionConfig
-from ..utils.project_detection import ProjectDetector
+from ..utils.project_detection import ProjectDetector, calculate_tenant_id
 from ..utils.git_utils import get_current_branch
 from ..utils.file_type_classifier import determine_file_type
 
@@ -52,35 +66,15 @@ except ImportError:
 # logger imported from loguru
 
 
-def generate_project_id(project_root: Path) -> str:
-    """
-    Generate a 12-character hex project ID from the project root path.
-
-    This uses SHA256 hashing of the absolute project path to create a consistent,
-    unique identifier for the project. This ID is used as the collection name suffix
-    in the format _{project_id}.
-
-    Args:
-        project_root: Path to the project root directory
-
-    Returns:
-        12-character hexadecimal project ID
-
-    Examples:
-        >>> generate_project_id(Path("/path/to/project"))
-        'a1b2c3d4e5f6'
-    """
-    abs_path = str(project_root.resolve())
-    hash_obj = hashlib.sha256(abs_path.encode('utf-8'))
-    hash_hex = hash_obj.hexdigest()
-    return hash_hex[:12]
-
-
 def build_project_collection_name(project_root: Path) -> str:
     """
-    Build project collection name using new single-collection-per-project format.
+    Build project collection name using single-collection-per-project format.
 
-    Format: _{project_id} where project_id is 12-char hex hash of project path.
+    This implements Task 374.6 requirements:
+    - Uses calculate_tenant_id() from project_detection module
+    - Format: _{project_id} where project_id comes from calculate_tenant_id()
+    - calculate_tenant_id() uses git remote URL if available, else path hash
+    - Examples: _github_com_user_repo OR _path_abc123def456789a
 
     Args:
         project_root: Path to the project root directory
@@ -89,10 +83,13 @@ def build_project_collection_name(project_root: Path) -> str:
         Collection name in format _{project_id}
 
     Examples:
-        >>> build_project_collection_name(Path("/path/to/project"))
-        '_a1b2c3d4e5f6'
+        >>> build_project_collection_name(Path("/path/to/repo"))
+        '_github_com_user_repo'  # if git remote exists
+
+        >>> build_project_collection_name(Path("/path/to/local"))
+        '_path_abc123def456789a'  # if no git remote
     """
-    project_id = generate_project_id(project_root)
+    project_id = calculate_tenant_id(project_root)
     return f"_{project_id}"
 
 
@@ -339,9 +336,14 @@ class AutoIngestionManager:
     when the MCP server starts. It integrates with the existing WatchToolsManager
     to provide seamless project-wide file indexing.
 
-    Uses single-collection-per-project architecture with metadata-based differentiation.
-    All files from a project go to _{project_id} collection with file_type, branch,
-    and project_id in metadata.
+    Uses single-collection-per-project architecture (Task 374.6):
+    - All files from a project go to single _{project_id} collection
+    - Collection name generated using calculate_tenant_id()
+    - Files differentiated by metadata:
+        * file_type: Determined by determine_file_type()
+        * branch: Determined by get_current_branch()
+        * project_id: Determined by calculate_tenant_id()
+    - Metadata enrichment happens at ingestion points (memory.py, client.py)
     """
 
     def __init__(
@@ -372,12 +374,20 @@ class AutoIngestionManager:
     async def setup_project_watches(self, project_path: Optional[str] = None) -> Dict[str, Any]:
         """Set up automatic file watches for the current or specified project.
 
-        This method:
+        This method implements Task 374.6 single-collection-per-project architecture:
         1. Detects the project structure (main project and subprojects)
-        2. Determines the target collection using _{project_id} format
+        2. Determines the target collection using _{project_id} format (calculate_tenant_id())
         3. Creates or ensures the collection exists
         4. Sets up file watches with appropriate patterns
         5. Optionally performs initial bulk ingestion
+
+        Collection Routing (Task 374.6):
+        - ALL file types go to SAME _{project_id} collection
+        - No separate collections for docs, code, tests, etc.
+        - Files differentiated by metadata fields (added at ingestion time):
+            * file_type: "code", "test", "docs", "config", "data", "build", "other"
+            * branch: Current git branch name
+            * project_id: Unique project identifier
 
         Args:
             project_path: Path to the project root (uses current directory if not specified)
@@ -418,9 +428,14 @@ class AutoIngestionManager:
             }
 
         project_root_path = Path(git_root)
+
+        # Task 374.6: Use calculate_tenant_id() for collection name
         target_collection = build_project_collection_name(project_root_path)
 
-        logger.info(f"Using single project collection: {target_collection}")
+        logger.info(
+            f"Using single project collection: {target_collection} "
+            f"(all file types will use this collection with metadata-based routing)"
+        )
 
         # Get list of existing collections
         try:
@@ -460,7 +475,7 @@ class AutoIngestionManager:
         if project_info.get("subprojects"):
             for subproject in project_info["subprojects"]:
                 # Subprojects use the same collection as main project
-                # Differentiated by metadata fields
+                # Differentiated by metadata fields (project_id, branch, file_type)
                 try:
                     subproject_result = await self._create_subproject_watch(
                         project_info, subproject, target_collection, git_root
@@ -477,12 +492,18 @@ class AutoIngestionManager:
             "main_watch": watch_result,
             "subproject_watches": subproject_watches,
             "watches_created": 1 + len(subproject_watches),
+            "routing_strategy": "metadata-based",  # Task 374.6
+            "metadata_fields": ["file_type", "branch", "project_id"],  # Task 374.6
         }
 
     async def _create_project_watch(
         self, project_info: Dict[str, Any], collection: str, project_path: str
     ) -> Dict[str, Any]:
-        """Create a watch for the main project."""
+        """Create a watch for the main project.
+
+        Note: Metadata enrichment (file_type, branch, project_id) happens at actual
+        ingestion points (memory.py, client.py) when files are stored to Qdrant.
+        """
         patterns = ProjectPatterns.get_patterns_for_project(project_info, self.config)
 
         watch_id = (
@@ -493,6 +514,10 @@ class AutoIngestionManager:
             f"Creating automatic watch for project: {project_info['main_project']}"
         )
         logger.debug(f"Watch patterns: {patterns}")
+        logger.debug(
+            f"Files will be stored to single collection '{collection}' "
+            f"with metadata-based differentiation (file_type, branch, project_id)"
+        )
 
         result = await self.watch_manager.add_watch_folder(
             path=str(Path(project_path).resolve()),
@@ -522,8 +547,9 @@ class AutoIngestionManager:
     ) -> Dict[str, Any]:
         """Create a watch for a subproject.
 
-        Subprojects share the same collection as the main project.
+        Subprojects share the same collection as the main project (Task 374.6).
         They are differentiated by metadata fields (project_id, branch, file_type).
+        Metadata enrichment happens at ingestion points (memory.py, client.py).
         """
         patterns = ProjectPatterns.get_patterns_for_project(project_info, self.config)
 
@@ -533,6 +559,10 @@ class AutoIngestionManager:
         watch_id = f"auto-{project_info['main_project']}-{subproject}-{int(datetime.now().timestamp())}"
 
         logger.info(f"Creating watch for subproject: {subproject}")
+        logger.debug(
+            f"Subproject will use same collection '{collection}' as main project "
+            f"with metadata-based differentiation"
+        )
 
         result = await self.watch_manager.add_watch_folder(
             path=subproject_path,
