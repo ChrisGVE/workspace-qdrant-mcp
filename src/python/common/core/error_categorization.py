@@ -13,12 +13,28 @@ Example usage:
     ... )
     >>> print(f"{category.value}: {severity.value} (confidence: {confidence})")
     file_corrupt: error (confidence: 1.0)
+
+    >>> # Message-based categorization
+    >>> cat, sev, conf = categorizer.categorize(
+    ...     message="Connection timeout after 30 seconds"
+    ... )
+    >>> print(f"{cat.value}: {sev.value}")
+    timeout: error
+
+    >>> # Context-based categorization
+    >>> cat, sev, conf = categorizer.categorize(
+    ...     message="LSP server not available",
+    ...     context={'tool_name': 'rust-analyzer'}
+    ... )
+    >>> print(f"{cat.value}: {sev.value}")
+    tool_missing: error
 """
 
 from enum import Enum
-from typing import Optional, Tuple, Dict, Any, Type
+from typing import Optional, Tuple, Dict, Any, Type, List
 import socket
 import asyncio
+import re
 
 
 class ErrorSeverity(Enum):
@@ -167,6 +183,52 @@ class ErrorCategorizer:
         ImportError: (ErrorCategory.TOOL_MISSING, ErrorSeverity.ERROR),
     }
 
+    # Keyword patterns for message-based categorization
+    # Order matters - more specific patterns should come first
+    # Each pattern maps to (category, severity, confidence_multiplier)
+    MESSAGE_PATTERNS: List[Tuple[re.Pattern, ErrorCategory, ErrorSeverity, float]] = [
+        # Timeout patterns (check before network patterns)
+        (re.compile(r'\btimeout\b', re.IGNORECASE), ErrorCategory.TIMEOUT, ErrorSeverity.ERROR, 0.9),
+        (re.compile(r'\btimed out\b', re.IGNORECASE), ErrorCategory.TIMEOUT, ErrorSeverity.ERROR, 0.9),
+
+        # Network patterns
+        (re.compile(r'\b(network|connection|socket)\b', re.IGNORECASE), ErrorCategory.NETWORK, ErrorSeverity.ERROR, 0.8),
+        (re.compile(r'\bconnect(ed|ing)?\b', re.IGNORECASE), ErrorCategory.NETWORK, ErrorSeverity.ERROR, 0.7),
+        (re.compile(r'\bdisconnect(ed)?\b', re.IGNORECASE), ErrorCategory.NETWORK, ErrorSeverity.ERROR, 0.7),
+
+        # File and IO patterns
+        (re.compile(r'\bfile (not found|missing|does not exist)\b', re.IGNORECASE), ErrorCategory.FILE_CORRUPT, ErrorSeverity.ERROR, 0.9),
+        (re.compile(r'\b(file|directory) corrupt(ed)?\b', re.IGNORECASE), ErrorCategory.FILE_CORRUPT, ErrorSeverity.ERROR, 0.9),
+        (re.compile(r'\b(read|write|open) (file|failed)\b', re.IGNORECASE), ErrorCategory.FILE_CORRUPT, ErrorSeverity.ERROR, 0.7),
+
+        # Permission patterns
+        (re.compile(r'\b(permission|access) (denied|forbidden)\b', re.IGNORECASE), ErrorCategory.PERMISSION_DENIED, ErrorSeverity.ERROR, 0.9),
+        (re.compile(r'\bunauthorized\b', re.IGNORECASE), ErrorCategory.PERMISSION_DENIED, ErrorSeverity.ERROR, 0.8),
+
+        # Parsing patterns
+        (re.compile(r'\b(parse|syntax) error\b', re.IGNORECASE), ErrorCategory.PARSE_ERROR, ErrorSeverity.ERROR, 0.9),
+        (re.compile(r'\binvalid (json|yaml|xml|format)\b', re.IGNORECASE), ErrorCategory.PARSE_ERROR, ErrorSeverity.ERROR, 0.8),
+        (re.compile(r'\bmalformed\b', re.IGNORECASE), ErrorCategory.PARSE_ERROR, ErrorSeverity.ERROR, 0.7),
+
+        # Tool/dependency patterns
+        (re.compile(r'\b(module|package|library) not found\b', re.IGNORECASE), ErrorCategory.TOOL_MISSING, ErrorSeverity.ERROR, 0.9),
+        (re.compile(r'\b(missing|unavailable) (tool|command|lsp|binary)\b', re.IGNORECASE), ErrorCategory.TOOL_MISSING, ErrorSeverity.ERROR, 0.9),
+        (re.compile(r'\blsp (server )?(not available|failed|missing)\b', re.IGNORECASE), ErrorCategory.TOOL_MISSING, ErrorSeverity.ERROR, 0.9),
+
+        # Resource exhaustion patterns
+        (re.compile(r'\bout of (memory|disk space)\b', re.IGNORECASE), ErrorCategory.RESOURCE_EXHAUSTED, ErrorSeverity.ERROR, 0.9),
+        (re.compile(r'\b(memory|resource) (exhausted|exceeded)\b', re.IGNORECASE), ErrorCategory.RESOURCE_EXHAUSTED, ErrorSeverity.ERROR, 0.9),
+        (re.compile(r'\btoo many (files|connections|requests)\b', re.IGNORECASE), ErrorCategory.RESOURCE_EXHAUSTED, ErrorSeverity.ERROR, 0.8),
+
+        # Metadata patterns
+        (re.compile(r'\b(invalid|missing) metadata\b', re.IGNORECASE), ErrorCategory.METADATA_INVALID, ErrorSeverity.ERROR, 0.9),
+        (re.compile(r'\bmetadata (validation|error)\b', re.IGNORECASE), ErrorCategory.METADATA_INVALID, ErrorSeverity.ERROR, 0.8),
+
+        # Processing patterns
+        (re.compile(r'\bprocessing (failed|error)\b', re.IGNORECASE), ErrorCategory.PROCESSING_FAILED, ErrorSeverity.ERROR, 0.8),
+        (re.compile(r'\bfailed to process\b', re.IGNORECASE), ErrorCategory.PROCESSING_FAILED, ErrorSeverity.ERROR, 0.7),
+    ]
+
     def __init__(self):
         """Initialize the error categorizer."""
         pass
@@ -185,7 +247,7 @@ class ErrorCategorizer:
         Args:
             exception: The exception object (if available)
             message: Error message string
-            context: Additional context (e.g., {'file_path': '/path/to/file'})
+            context: Additional context (e.g., {'file_path': '/path/to/file', 'tool_name': 'rust-analyzer'})
             manual_category: Manual category override
             manual_severity: Manual severity override
 
@@ -206,17 +268,39 @@ class ErrorCategorizer:
         if manual_category and manual_severity:
             return manual_category, manual_severity, 1.0
 
-        # Try exception type categorization
+        # Collect all signals and their confidences
+        signals: List[Tuple[ErrorCategory, ErrorSeverity, float]] = []
+
+        # 1. Try exception type categorization
         if exception is not None:
             result = self._categorize_by_exception_type(exception)
             if result:
-                category, severity, confidence = result
-                # Apply manual overrides if provided
-                if manual_category:
-                    category = manual_category
-                if manual_severity:
-                    severity = manual_severity
-                return category, severity, confidence
+                signals.append(result)
+
+        # 2. Try message-based categorization
+        if message:
+            result = self._categorize_by_message(message)
+            if result:
+                signals.append(result)
+
+        # 3. Try context-based categorization
+        if context:
+            result = self._categorize_by_context(context, message)
+            if result:
+                signals.append(result)
+
+        # 4. Combine signals or use default
+        if signals:
+            # Use highest confidence signal
+            category, severity, confidence = max(signals, key=lambda x: x[2])
+
+            # Apply manual overrides if provided
+            if manual_category:
+                category = manual_category
+            if manual_severity:
+                severity = manual_severity
+
+            return category, severity, confidence
 
         # Fallback to defaults
         category = manual_category or ErrorCategory.UNKNOWN
@@ -250,5 +334,64 @@ class ErrorCategorizer:
             if isinstance(exception, mapped_type):
                 # Lower confidence for inherited matches
                 return category, severity, 0.8
+
+        return None
+
+    def _categorize_by_message(
+        self,
+        message: str
+    ) -> Optional[Tuple[ErrorCategory, ErrorSeverity, float]]:
+        """
+        Categorize error based on message content.
+
+        Args:
+            message: Error message string
+
+        Returns:
+            Tuple of (category, severity, confidence) or None if no match
+        """
+        if not message:
+            return None
+
+        # Try all patterns and return the first match
+        for pattern, category, severity, confidence in self.MESSAGE_PATTERNS:
+            if pattern.search(message):
+                return category, severity, confidence
+
+        return None
+
+    def _categorize_by_context(
+        self,
+        context: Dict[str, Any],
+        message: Optional[str] = None
+    ) -> Optional[Tuple[ErrorCategory, ErrorSeverity, float]]:
+        """
+        Categorize error based on contextual information.
+
+        Args:
+            context: Context dictionary with keys like 'tool_name', 'file_path', etc.
+            message: Optional message for additional hints
+
+        Returns:
+            Tuple of (category, severity, confidence) or None if cannot categorize
+        """
+        if not context:
+            return None
+
+        # Check for tool-related context
+        if 'tool_name' in context or 'lsp_server' in context:
+            return ErrorCategory.TOOL_MISSING, ErrorSeverity.ERROR, 0.7
+
+        # Check for file-related context with certain keywords
+        if 'file_path' in context and message:
+            message_lower = message.lower()
+            if 'not found' in message_lower or 'missing' in message_lower:
+                return ErrorCategory.FILE_CORRUPT, ErrorSeverity.ERROR, 0.7
+            elif 'permission' in message_lower or 'access' in message_lower:
+                return ErrorCategory.PERMISSION_DENIED, ErrorSeverity.ERROR, 0.7
+
+        # Check for metadata-related context
+        if 'metadata' in context or 'tenant_id' in context:
+            return ErrorCategory.METADATA_INVALID, ErrorSeverity.ERROR, 0.6
 
         return None

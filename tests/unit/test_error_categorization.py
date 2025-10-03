@@ -342,3 +342,306 @@ class TestExceptionTypeCategorization:
             category, severity, confidence = self.categorizer.categorize(exception=exception)
             assert category == expected_category
             assert confidence >= 0.8  # Should be high confidence for mapped types
+
+
+class TestMessageBasedCategorization:
+    """Test cases for message-based categorization."""
+
+    def setup_method(self):
+        """Set up test fixtures."""
+        self.categorizer = ErrorCategorizer()
+
+    def test_timeout_message(self):
+        """Test timeout message categorization."""
+        category, severity, conf = self.categorizer.categorize(
+            message="Operation timeout after 30 seconds"
+        )
+
+        assert category == ErrorCategory.TIMEOUT
+        assert severity == ErrorSeverity.ERROR
+        assert conf >= 0.8
+
+    def test_network_message(self):
+        """Test network message categorization."""
+        category, severity, conf = self.categorizer.categorize(
+            message="Network connection failed"
+        )
+
+        assert category == ErrorCategory.NETWORK
+        assert severity == ErrorSeverity.ERROR
+        assert conf >= 0.7
+
+    def test_file_not_found_message(self):
+        """Test file not found message categorization."""
+        category, severity, conf = self.categorizer.categorize(
+            message="File not found: /path/to/file.txt"
+        )
+
+        assert category == ErrorCategory.FILE_CORRUPT
+        assert severity == ErrorSeverity.ERROR
+        assert conf >= 0.8
+
+    def test_permission_denied_message(self):
+        """Test permission denied message categorization."""
+        category, severity, conf = self.categorizer.categorize(
+            message="Permission denied: cannot write to /etc/config"
+        )
+
+        assert category == ErrorCategory.PERMISSION_DENIED
+        assert severity == ErrorSeverity.ERROR
+        assert conf >= 0.8
+
+    def test_parse_error_message(self):
+        """Test parse error message categorization."""
+        category, severity, conf = self.categorizer.categorize(
+            message="Syntax error in line 42"
+        )
+
+        assert category == ErrorCategory.PARSE_ERROR
+        assert severity == ErrorSeverity.ERROR
+        assert conf >= 0.8
+
+    def test_tool_missing_message(self):
+        """Test tool missing message categorization."""
+        category, severity, conf = self.categorizer.categorize(
+            message="LSP server not available for rust-analyzer"
+        )
+
+        assert category == ErrorCategory.TOOL_MISSING
+        assert severity == ErrorSeverity.ERROR
+        assert conf >= 0.8
+
+    def test_resource_exhausted_message(self):
+        """Test resource exhausted message categorization."""
+        category, severity, conf = self.categorizer.categorize(
+            message="Out of memory"
+        )
+
+        assert category == ErrorCategory.RESOURCE_EXHAUSTED
+        assert severity == ErrorSeverity.ERROR
+        assert conf >= 0.8
+
+    def test_metadata_invalid_message(self):
+        """Test metadata invalid message categorization."""
+        category, severity, conf = self.categorizer.categorize(
+            message="Invalid metadata format"
+        )
+
+        assert category == ErrorCategory.METADATA_INVALID
+        assert severity == ErrorSeverity.ERROR
+        assert conf >= 0.8
+
+    def test_processing_failed_message(self):
+        """Test processing failed message categorization."""
+        category, severity, conf = self.categorizer.categorize(
+            message="Processing failed for document"
+        )
+
+        assert category == ErrorCategory.PROCESSING_FAILED
+        assert severity == ErrorSeverity.ERROR
+        assert conf >= 0.7
+
+    def test_case_insensitive_matching(self):
+        """Test that message matching is case-insensitive."""
+        test_messages = [
+            "TIMEOUT occurred",
+            "Timeout Occurred",
+            "timeout occurred",
+        ]
+
+        for msg in test_messages:
+            category, _, _ = self.categorizer.categorize(message=msg)
+            assert category == ErrorCategory.TIMEOUT
+
+    def test_empty_message(self):
+        """Test empty message returns unknown category."""
+        category, severity, conf = self.categorizer.categorize(message="")
+
+        assert category == ErrorCategory.UNKNOWN
+        assert severity == ErrorSeverity.ERROR
+        assert conf == 0.0
+
+
+class TestContextBasedCategorization:
+    """Test cases for context-based categorization."""
+
+    def setup_method(self):
+        """Set up test fixtures."""
+        self.categorizer = ErrorCategorizer()
+
+    def test_tool_name_context(self):
+        """Test categorization with tool_name in context."""
+        category, severity, conf = self.categorizer.categorize(
+            message="Tool failed to start",
+            context={'tool_name': 'rust-analyzer'}
+        )
+
+        assert category == ErrorCategory.TOOL_MISSING
+        assert severity == ErrorSeverity.ERROR
+        assert conf >= 0.7
+
+    def test_lsp_server_context(self):
+        """Test categorization with lsp_server in context."""
+        category, severity, conf = self.categorizer.categorize(
+            message="LSP error",
+            context={'lsp_server': 'pyright'}
+        )
+
+        assert category == ErrorCategory.TOOL_MISSING
+        assert severity == ErrorSeverity.ERROR
+        assert conf >= 0.7
+
+    def test_file_path_with_not_found(self):
+        """Test file_path context with 'not found' message."""
+        category, severity, conf = self.categorizer.categorize(
+            message="File not found",
+            context={'file_path': '/path/to/file.txt'}
+        )
+
+        assert category == ErrorCategory.FILE_CORRUPT
+        assert severity == ErrorSeverity.ERROR
+        assert conf >= 0.7
+
+    def test_file_path_with_permission(self):
+        """Test file_path context with permission message."""
+        category, severity, conf = self.categorizer.categorize(
+            message="Access denied to file",
+            context={'file_path': '/etc/passwd'}
+        )
+
+        assert category == ErrorCategory.PERMISSION_DENIED
+        assert severity == ErrorSeverity.ERROR
+        assert conf >= 0.7
+
+    def test_metadata_context(self):
+        """Test categorization with metadata in context."""
+        category, severity, conf = self.categorizer.categorize(
+            message="Invalid data",
+            context={'metadata': {'key': 'value'}}
+        )
+
+        assert category == ErrorCategory.METADATA_INVALID
+        assert severity == ErrorSeverity.ERROR
+        assert conf >= 0.6
+
+    def test_tenant_id_context(self):
+        """Test categorization with tenant_id in context."""
+        category, severity, conf = self.categorizer.categorize(
+            message="Data error",
+            context={'tenant_id': 'user123'}
+        )
+
+        assert category == ErrorCategory.METADATA_INVALID
+        assert severity == ErrorSeverity.ERROR
+        assert conf >= 0.6
+
+
+class TestMultipleSignalsCombination:
+    """Test cases for combining multiple categorization signals."""
+
+    def setup_method(self):
+        """Set up test fixtures."""
+        self.categorizer = ErrorCategorizer()
+
+    def test_exception_and_message_agree(self):
+        """Test when exception and message agree on category."""
+        category, severity, conf = self.categorizer.categorize(
+            exception=TimeoutError("Timed out"),
+            message="Operation timeout after 30s"
+        )
+
+        assert category == ErrorCategory.TIMEOUT
+        assert severity == ErrorSeverity.ERROR
+        assert conf >= 0.9  # Should have high confidence
+
+    def test_exception_and_message_disagree(self):
+        """Test when exception and message disagree - should use highest confidence."""
+        category, severity, conf = self.categorizer.categorize(
+            exception=ValueError("Invalid value"),  # PARSE_ERROR, confidence 1.0
+            message="Network connection failed"  # NETWORK, confidence 0.8
+        )
+
+        # Should prefer exception (confidence 1.0) over message (confidence 0.8)
+        assert category == ErrorCategory.PARSE_ERROR
+        assert severity == ErrorSeverity.ERROR
+        assert conf == 1.0
+
+    def test_all_three_signals(self):
+        """Test when exception, message, and context all provide signals."""
+        category, severity, conf = self.categorizer.categorize(
+            exception=FileNotFoundError("file.txt not found"),  # FILE_CORRUPT, conf 1.0
+            message="File not found",  # FILE_CORRUPT, conf 0.9
+            context={'file_path': '/path/to/file.txt'}  # Could be FILE_CORRUPT
+        )
+
+        assert category == ErrorCategory.FILE_CORRUPT
+        assert severity == ErrorSeverity.ERROR
+        assert conf >= 0.9
+
+    def test_message_overrides_weak_context(self):
+        """Test that strong message signal overrides weaker context signal."""
+        category, severity, conf = self.categorizer.categorize(
+            message="Connection timeout",  # TIMEOUT, conf 0.9
+            context={'tenant_id': 'user123'}  # METADATA_INVALID, conf 0.6
+        )
+
+        # Should prefer timeout message over metadata context
+        assert category == ErrorCategory.TIMEOUT
+        assert severity == ErrorSeverity.ERROR
+        assert conf >= 0.85
+
+
+class TestEdgeCases:
+    """Test edge cases and error conditions."""
+
+    def setup_method(self):
+        """Set up test fixtures."""
+        self.categorizer = ErrorCategorizer()
+
+    def test_all_none_inputs(self):
+        """Test with all None inputs."""
+        category, severity, conf = self.categorizer.categorize(
+            exception=None,
+            message=None,
+            context=None
+        )
+
+        assert category == ErrorCategory.UNKNOWN
+        assert severity == ErrorSeverity.ERROR
+        assert conf == 0.0
+
+    def test_empty_context_dict(self):
+        """Test with empty context dictionary."""
+        category, severity, conf = self.categorizer.categorize(
+            context={}
+        )
+
+        assert category == ErrorCategory.UNKNOWN
+        assert conf == 0.0
+
+    def test_whitespace_only_message(self):
+        """Test with whitespace-only message."""
+        category, severity, conf = self.categorizer.categorize(
+            message="   "
+        )
+
+        # Whitespace message should not match any patterns
+        assert category == ErrorCategory.UNKNOWN
+        assert conf == 0.0
+
+    def test_complex_nested_context(self):
+        """Test with complex nested context."""
+        category, severity, conf = self.categorizer.categorize(
+            message="Tool error",
+            context={
+                'tool_name': 'rust-analyzer',
+                'nested': {
+                    'key': 'value'
+                },
+                'list': [1, 2, 3]
+            }
+        )
+
+        # Should still categorize based on tool_name
+        assert category == ErrorCategory.TOOL_MISSING
+        assert conf >= 0.7
