@@ -16,6 +16,7 @@ Usage:
     wqm tools status             # Check tool availability
     wqm collections list-types   # View collections by type
     wqm errors stats             # Error statistics
+    wqm branch list --project ID # List branches in project
 """
 
 import os
@@ -98,6 +99,7 @@ from .commands.tools import tools_app
 from .commands.watch import watch_app
 from .commands.error_reporting import errors_app
 from .commands.project import project_app
+from .commands.branch import branch_app
 # SECURITY: Web UI temporarily disabled due to critical vulnerabilities
 # from .commands.web import web_app
 from .observability import observability_app
@@ -172,6 +174,10 @@ app.add_typer(
 app.add_typer(
     project_app, name="project", help="Project collection alias management"
 )
+# Add branch management commands
+app.add_typer(
+    branch_app, name="branch", help="Git branch management for project collections"
+)
 
 
 @app.callback(invoke_without_command=True)
@@ -210,6 +216,7 @@ def main(
         wqm tools status                   # Check tool availability
         wqm collections list-types         # View collections by type
         wqm errors stats                   # Error statistics
+        wqm branch list --project abc123   # List branches in project
         wqm init                           # Enable shell completion
     """
     # Handle version flag first, before any configuration loading
