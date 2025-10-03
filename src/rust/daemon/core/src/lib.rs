@@ -14,6 +14,7 @@ pub mod config;
 pub mod deletion_strategy;
 pub mod embedding;
 pub mod error;
+pub mod file_classification;
 pub mod git_integration;
 pub mod ipc;
 pub mod logging;
@@ -85,10 +86,14 @@ pub use crate::type_aware_processor::{
     CollectionTypeSettings, ConcurrentOperationTracker, get_settings_for_type
 };
 pub use crate::watching_queue::{
-    FileWatcherQueue, WatchManager, WatchConfig, WatchingQueueStats, WatchingQueueError
+    FileWatcherQueue, WatchManager, WatchConfig, WatchingQueueStats, WatchingQueueError,
+    calculate_tenant_id, sanitize_remote_url, generate_path_hash_tenant_id, get_current_branch
 };
 pub use crate::tool_monitor::{
     ToolMonitor, MonitoringError, MonitoringResult, RequeueStats
+};
+pub use crate::file_classification::{
+    classify_file_type, is_test_directory, FileType
 };
 
 /// Core processing errors

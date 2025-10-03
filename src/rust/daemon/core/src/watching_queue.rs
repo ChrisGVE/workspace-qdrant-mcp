@@ -9,7 +9,9 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::{Duration, SystemTime};
 use chrono::{DateTime, Utc};
+use git2::Repository;
 use notify::{Event, EventKind, RecursiveMode, Watcher as NotifyWatcher};
+use sha2::{Sha256, Digest};
 use sqlx::SqlitePool;
 use tokio::sync::{mpsc, RwLock, Mutex};
 use tokio::time::interval;
@@ -18,6 +20,261 @@ use thiserror::Error;
 use glob::Pattern;
 
 use crate::queue_operations::{QueueManager, QueueOperation, QueueError};
+
+//
+// ========== PUBLIC UTILITY FUNCTIONS ==========
+//
+
+/// Calculate a unique tenant ID for a project root directory
+///
+/// This function implements the tenant ID calculation algorithm:
+/// 1. Try to get git remote URL (prefer origin, fallback to upstream)
+/// 2. If remote exists: Sanitize URL to create tenant ID
+///    - Remove protocol (https://, git@, ssh://)
+///    - Replace separators (/, ., :, @) with underscores
+///    - Example: github.com/user/repo → github_com_user_repo
+/// 3. If no remote: Use SHA256 hash of absolute path
+///    - Hash first 16 chars: abc123def456789a
+///    - Add prefix: path_abc123def456789a
+///
+/// # Arguments
+/// * `project_root` - Path to the project root directory
+///
+/// # Returns
+/// Unique tenant ID string
+///
+/// # Examples
+/// ```
+/// use std::path::Path;
+/// use workspace_qdrant_daemon_core::calculate_tenant_id;
+///
+/// let tenant_id = calculate_tenant_id(Path::new("/path/to/repo"));
+/// // Returns: "github_com_user_repo" (if git remote exists)
+/// // Or: "path_abc123def456789a" (if no git remote)
+/// ```
+pub fn calculate_tenant_id(project_root: &Path) -> String {
+    // Try to get git remote URL using git2
+    if let Ok(repo) = Repository::open(project_root) {
+        // Try origin first, then upstream, then any remote
+        let remote_url = repo
+            .find_remote("origin")
+            .or_else(|_| repo.find_remote("upstream"))
+            .ok()
+            .and_then(|remote| remote.url().map(|url| url.to_string()));
+
+        if let Some(url) = remote_url {
+            let sanitized = sanitize_remote_url(&url);
+            debug!(
+                "Generated tenant ID from git remote: {} -> {}",
+                url, sanitized
+            );
+            return sanitized;
+        }
+    }
+
+    // Fallback: SHA256 hash of absolute path
+    let tenant_id = generate_path_hash_tenant_id(project_root);
+    debug!(
+        "Generated tenant ID from path hash: {} -> {}",
+        project_root.display(),
+        tenant_id
+    );
+    tenant_id
+}
+
+/// Sanitize a git remote URL to create a tenant ID
+///
+/// Removes protocols and replaces separators with underscores.
+///
+/// # Arguments
+/// * `remote_url` - Git remote URL (HTTPS or SSH format)
+///
+/// # Returns
+/// Sanitized tenant ID string
+///
+/// # Examples
+/// ```
+/// use workspace_qdrant_daemon_core::sanitize_remote_url;
+///
+/// assert_eq!(
+///     sanitize_remote_url("https://github.com/user/repo.git"),
+///     "github_com_user_repo"
+/// );
+/// assert_eq!(
+///     sanitize_remote_url("git@github.com:user/repo.git"),
+///     "github_com_user_repo"
+/// );
+/// ```
+pub fn sanitize_remote_url(remote_url: &str) -> String {
+    let mut url = remote_url.to_string();
+
+    // Remove common protocols
+    for protocol in &["https://", "http://", "ssh://", "git://"] {
+        if url.starts_with(protocol) {
+            url = url[protocol.len()..].to_string();
+            break;
+        }
+    }
+
+    // Remove git@ prefix (SSH format)
+    if url.starts_with("git@") {
+        url = url[4..].to_string();
+    }
+
+    // Remove .git suffix if present
+    if url.ends_with(".git") {
+        url = url[..url.len() - 4].to_string();
+    }
+
+    // Replace all separators with underscores
+    url = url.replace([':', '/', '.', '@'], "_");
+
+    // Remove any duplicate underscores
+    while url.contains("__") {
+        url = url.replace("__", "_");
+    }
+
+    // Remove leading/trailing underscores
+    url.trim_matches('_').to_string()
+}
+
+/// Generate a tenant ID from an absolute path using SHA256 hash
+///
+/// Creates a hash-based tenant ID with the format: path_{16_char_hash}
+///
+/// # Arguments
+/// * `project_root` - Path to the project directory
+///
+/// # Returns
+/// Tenant ID with path_ prefix and 16-character hash
+///
+/// # Examples
+/// ```
+/// use std::path::Path;
+/// use workspace_qdrant_daemon_core::generate_path_hash_tenant_id;
+///
+/// let tenant_id = generate_path_hash_tenant_id(Path::new("/home/user/project"));
+/// assert!(tenant_id.starts_with("path_"));
+/// assert_eq!(tenant_id.len(), 21); // "path_" + 16 chars
+/// ```
+pub fn generate_path_hash_tenant_id(project_root: &Path) -> String {
+    // Normalize and canonicalize path
+    let abs_path = project_root
+        .canonicalize()
+        .unwrap_or_else(|_| project_root.to_path_buf());
+
+    // Generate SHA256 hash
+    let mut hasher = Sha256::new();
+    hasher.update(abs_path.to_string_lossy().as_bytes());
+    let hash = hasher.finalize();
+
+    // Take first 16 characters of hex hash
+    let hash_hex = format!("{:x}", hash);
+    let hash_prefix = &hash_hex[..16];
+
+    // Return with path_ prefix
+    format!("path_{}", hash_prefix)
+}
+
+/// Get the current Git branch name for a repository
+///
+/// This function detects the current Git branch for a directory within a Git repository.
+/// It handles various edge cases gracefully by returning "main" as the default branch name.
+///
+/// # Arguments
+/// * `project_root` - Path to a directory within a Git repository
+///
+/// # Returns
+/// Branch name (e.g., "main", "feature/auth") or "main" for edge cases
+///
+/// # Edge Cases
+/// - Non-Git directory: Returns "main"
+/// - Git repo with no commits: Returns "main"
+/// - Detached HEAD state: Returns "main"
+/// - Permission errors: Returns "main"
+/// - Any other Git error: Returns "main"
+///
+/// # Examples
+/// ```
+/// use std::path::Path;
+/// use workspace_qdrant_daemon_core::get_current_branch;
+///
+/// let branch = get_current_branch(Path::new("/path/to/repo"));
+/// // Returns: "feature/new-api" or "main"
+/// ```
+pub fn get_current_branch(repo_path: &Path) -> String {
+    const DEFAULT_BRANCH: &str = "main";
+
+    // Try to open the Git repository
+    let repo = match Repository::open(repo_path) {
+        Ok(r) => r,
+        Err(_) => {
+            warn!(
+                "Not a Git repository, defaulting to '{}': {}",
+                DEFAULT_BRANCH,
+                repo_path.display()
+            );
+            return DEFAULT_BRANCH.to_string();
+        }
+    };
+
+    // Check if repository has any commits
+    if repo.head().is_err() {
+        warn!(
+            "Git repository has no commits yet, defaulting to '{}': {}",
+            DEFAULT_BRANCH,
+            repo_path.display()
+        );
+        return DEFAULT_BRANCH.to_string();
+    }
+
+    // Get HEAD reference
+    let head = match repo.head() {
+        Ok(h) => h,
+        Err(_) => {
+            warn!(
+                "Failed to read HEAD, defaulting to '{}': {}",
+                DEFAULT_BRANCH,
+                repo_path.display()
+            );
+            return DEFAULT_BRANCH.to_string();
+        }
+    };
+
+    // Check if HEAD is detached
+    if !head.is_branch() {
+        warn!(
+            "Git repository in detached HEAD state, defaulting to '{}': {}",
+            DEFAULT_BRANCH,
+            repo_path.display()
+        );
+        return DEFAULT_BRANCH.to_string();
+    }
+
+    // Get branch name
+    match head.shorthand() {
+        Some(branch_name) => {
+            debug!(
+                "Detected Git branch '{}' for repository at {}",
+                branch_name,
+                repo_path.display()
+            );
+            branch_name.to_string()
+        }
+        None => {
+            warn!(
+                "Failed to get branch name from HEAD, defaulting to '{}': {}",
+                DEFAULT_BRANCH,
+                repo_path.display()
+            );
+            DEFAULT_BRANCH.to_string()
+        }
+    }
+}
+
+//
+// ========== ORIGINAL MODULE CONTENT ==========
+//
 
 /// File watching errors
 #[derive(Error, Debug)]
@@ -533,57 +790,6 @@ impl FileWatcherQueue {
         file_path.parent().unwrap_or(file_path).to_path_buf()
     }
 
-    /// Calculate tenant ID from project root
-    async fn calculate_tenant_id(project_root: &Path) -> String {
-        // Try to get git remote URL
-        if let Ok(output) = tokio::process::Command::new("git")
-            .args(&["remote", "get-url", "origin"])
-            .current_dir(project_root)
-            .output()
-            .await
-        {
-            if output.status.success() {
-                if let Ok(remote_url) = String::from_utf8(output.stdout) {
-                    let remote_url = remote_url.trim();
-                    // Sanitize the URL
-                    let sanitized = remote_url
-                        .trim_start_matches("https://")
-                        .trim_start_matches("http://")
-                        .trim_start_matches("git@")
-                        .trim_start_matches("ssh://")
-                        .replace([':', '/', '.'], "_")
-                        .trim_end_matches("_git")
-                        .to_lowercase();
-
-                    return sanitized;
-                }
-            }
-        }
-
-        // Fallback: hash of project path
-        let path_str = project_root.to_string_lossy();
-        let hash = format!("{:x}", md5::compute(path_str.as_bytes()));
-        format!("path_{}", &hash[..16])
-    }
-
-    /// Get current git branch
-    async fn get_current_branch(project_root: &Path) -> String {
-        if let Ok(output) = tokio::process::Command::new("git")
-            .args(&["rev-parse", "--abbrev-ref", "HEAD"])
-            .current_dir(project_root)
-            .output()
-            .await
-        {
-            if output.status.success() {
-                if let Ok(branch) = String::from_utf8(output.stdout) {
-                    return branch.trim().to_string();
-                }
-            }
-        }
-
-        "main".to_string()
-    }
-
     /// Enqueue file operation with retry logic
     async fn enqueue_file_operation(
         event: FileEvent,
@@ -603,10 +809,10 @@ impl FileWatcherQueue {
         // Calculate priority
         let priority = Self::calculate_priority(operation);
 
-        // Find project root and calculate tenant ID
+        // Find project root and calculate tenant ID and branch
         let project_root = Self::find_project_root(&event.path);
-        let tenant_id = Self::calculate_tenant_id(&project_root).await;
-        let branch = Self::get_current_branch(&project_root).await;
+        let tenant_id = calculate_tenant_id(&project_root);
+        let branch = get_current_branch(&project_root);
 
         // Get collection from config
         let collection = {
@@ -788,5 +994,46 @@ impl WatchManager {
         }
 
         stats
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::fs;
+    use tempfile::tempdir;
+
+    #[test]
+    fn test_sanitize_remote_url() {
+        assert_eq!(
+            sanitize_remote_url("https://github.com/user/repo.git"),
+            "github_com_user_repo"
+        );
+
+        assert_eq!(
+            sanitize_remote_url("git@github.com:user/repo.git"),
+            "github_com_user_repo"
+        );
+
+        assert_eq!(
+            sanitize_remote_url("ssh://git@gitlab.com:2222/user/project.git"),
+            "gitlab_com_2222_user_project"
+        );
+    }
+
+    #[test]
+    fn test_generate_path_hash_tenant_id() {
+        let path = Path::new("/home/user/project");
+        let tenant_id = generate_path_hash_tenant_id(path);
+
+        assert!(tenant_id.starts_with("path_"));
+        assert_eq!(tenant_id.len(), 21); // "path_" + 16 chars
+    }
+
+    #[test]
+    fn test_get_current_branch_non_git() {
+        let temp_dir = tempdir().unwrap();
+        let branch = get_current_branch(temp_dir.path());
+        assert_eq!(branch, "main");
     }
 }
