@@ -6,12 +6,15 @@ enabling automatic ingestion of files into library collections.
 
 import asyncio
 import json
+import uuid
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 import typer
 
-from common.core.daemon_client import get_daemon_client, with_daemon_client
+from common.core.daemon_client import get_daemon_client
+from common.core.sqlite_state_manager import SQLiteStateManager, WatchFolderConfig
 from loguru import logger
 
 # Import PatternManager for default patterns
@@ -74,7 +77,7 @@ from ..utils import (
 watch_app = create_command_app(
     name="watch",
     help_text="""Folder watching configuration with configurable depth control.
-    
+
 Configure automatic folder watching for library collections with precise depth control
 for optimal performance and resource usage.
 
@@ -83,23 +86,23 @@ Depth Configuration:
     --depth=3     Shallow watching (2-3 levels, good performance)
     --depth=10    Deep watching (10+ levels, moderate performance)
     --depth=-1    Unlimited depth (may impact performance on large structures)
-    
+
 Examples:
     # Basic watching with default depth
     wqm watch add ~/docs --collection=docs
-    
+
     # Shallow watching for performance (recommended for large directories)
     wqm watch add ~/projects --collection=code --depth=3
-    
+
     # Deep watching for nested structures
     wqm watch add ~/research --collection=papers --depth=15
-    
+
     # Unlimited depth (use with caution on large file systems)
     wqm watch add ~/archive --collection=backup --depth=-1
-    
+
     # Configure existing watch depth
     wqm watch configure watch_abc123 --depth=5
-    
+
     # List and manage watches
     wqm watch list                      # Show all watch configurations
     wqm watch status --detailed         # Show detailed watch statistics
@@ -108,8 +111,15 @@ Examples:
 )
 
 
+async def _get_state_manager() -> SQLiteStateManager:
+    """Get initialized state manager for watch operations."""
+    state_manager = SQLiteStateManager()
+    await state_manager.initialize()
+    return state_manager
+
+
 async def _get_daemon_client():
-    """Get connected daemon client for watch operations."""
+    """Get connected daemon client for daemon lifecycle operations only."""
     client = get_daemon_client()
     await client.connect()
     return client
@@ -140,8 +150,8 @@ def add_watch(
         True, "--recursive/--no-recursive", help="Watch subdirectories"
     ),
     depth: int = typer.Option(
-        -1, 
-        "--depth", 
+        -1,
+        "--depth",
         help="Maximum directory depth to watch. Examples: 0=current only, 3=shallow (recommended), 10=deep, -1=unlimited (use with caution)"
     ),
     debounce: int = typer.Option(5, "--debounce", help="Debounce time in seconds"),
@@ -224,8 +234,8 @@ def resume_watches(
 def configure_watch(
     watch_id: str = typer.Argument(..., help="Watch ID or path to configure"),
     depth: int | None = typer.Option(
-        None, 
-        "--depth", 
+        None,
+        "--depth",
         help="Change maximum directory depth. Examples: 0=current only, 3=shallow, 10=deep, -1=unlimited"
     ),
     patterns: list[str] | None = typer.Option(None, "--pattern", "-p", help="File patterns to watch"),
@@ -258,80 +268,76 @@ async def _configure_watch(
     recursive: bool | None,
     debounce: int | None,
 ):
-    """Configure an existing watch."""
+    """Configure an existing watch using SQLiteStateManager."""
     try:
-        client = await _get_daemon_client()
-        
+        state_manager = await _get_state_manager()
+
         try:
-            # First, validate that the watch exists
-            watches_response = await client.list_watches(active_only=False)
-            watches = watches_response.watches
-            
+            # First, validate that the watch exists by trying to find it
+            all_watches = await state_manager.get_all_watch_folder_configs(enabled_only=False)
+
             # Find the watch by ID or path
             target_watch = None
-            for watch in watches:
+            for watch in all_watches:
                 if watch.watch_id == watch_id or Path(watch.path) == Path(watch_id).resolve():
                     target_watch = watch
                     break
-            
+
             if not target_watch:
                 error_panel(f"No watch found with ID or path: {watch_id}")
                 raise typer.Exit(1)
-            
+
             # Validate depth parameter if provided using comprehensive validation
             if depth is not None:
                 from common.core.depth_validation import validate_recursive_depth, format_depth_display
                 depth_result = validate_recursive_depth(depth)
-                
+
                 if not depth_result.is_valid:
                     error_panel(depth_result.error_message)
                     raise typer.Exit(1)
-                
+
                 # Show warnings for depth selection
                 if depth_result.warnings:
                     for warning in depth_result.warnings:
                         simple_warning(warning)
-                
+
                 # Show recommendations
                 if depth_result.recommendations:
                     rec_text = "Depth Recommendations:\n"
                     rec_text += "\n".join(f"  • {rec}" for rec in depth_result.recommendations)
                     info_panel(rec_text, "Recommendations")
-            
-            # Build configuration parameters
-            config_params = {}
-            if depth is not None:
-                config_params['recursive_depth'] = depth
-            if patterns is not None:
-                config_params['patterns'] = patterns
-            if ignore is not None:
-                config_params['ignore_patterns'] = ignore
-            if auto_ingest is not None:
-                config_params['auto_ingest'] = auto_ingest
-            if recursive is not None:
-                config_params['recursive'] = recursive
-            if debounce is not None:
-                config_params['debounce_seconds'] = debounce
-            
-            if not config_params:
-                error_panel("No configuration parameters provided\nUse --help to see available options")
-                raise typer.Exit(1)
-            
+
+            # Build updated configuration
+            updated_config = WatchFolderConfig(
+                watch_id=target_watch.watch_id,
+                path=target_watch.path,
+                collection=target_watch.collection,
+                patterns=patterns if patterns is not None else target_watch.patterns,
+                ignore_patterns=ignore if ignore is not None else target_watch.ignore_patterns,
+                auto_ingest=auto_ingest if auto_ingest is not None else target_watch.auto_ingest,
+                recursive=recursive if recursive is not None else target_watch.recursive,
+                recursive_depth=depth if depth is not None else target_watch.recursive_depth,
+                debounce_seconds=float(debounce) if debounce is not None else target_watch.debounce_seconds,
+                enabled=target_watch.enabled,
+                created_at=target_watch.created_at,
+                updated_at=datetime.now(timezone.utc),
+                last_scan=target_watch.last_scan,
+                metadata=target_watch.metadata,
+            )
+
             config_info = f"Configuring watch: {target_watch.watch_id}\n"
             config_info += f"Path: {target_watch.path}\n"
             config_info += f"Collection: {target_watch.collection}"
             info_panel(config_info, "Watch Configuration")
-            
-            # Apply configuration
-            response = await client.configure_watch(
-                watch_id=target_watch.watch_id,
-                **config_params
-            )
-            
-            if response.success:
+
+            # Save configuration to database
+            success = await state_manager.save_watch_folder_config(updated_config)
+
+            if success:
                 # Show what was changed
                 settings_text = "Updated Settings:\n"
                 if depth is not None:
+                    from common.core.depth_validation import format_depth_display
                     settings_text += f"  Depth: {format_depth_display(depth)}\n"
                 if patterns is not None:
                     settings_text += f"  Patterns: {', '.join(patterns)}\n"
@@ -343,21 +349,21 @@ async def _configure_watch(
                     settings_text += f"  Recursive: {'Yes' if recursive else 'No'}\n"
                 if debounce is not None:
                     settings_text += f"  Debounce: {debounce} seconds\n"
-                
+
                 success_panel(settings_text.strip(), "Configuration Updated")
-                
+
                 # Show performance warning for unlimited depth
                 if depth == -1:
                     simple_warning("Unlimited depth may impact performance on large directory structures")
                     simple_info("Consider using a specific depth limit for better performance")
-                
+
             else:
-                error_panel(f"Failed to configure watch: {response.message}")
+                error_panel("Failed to save watch configuration")
                 raise typer.Exit(1)
-            
+
         finally:
-            await client.disconnect()
-    
+            await state_manager.close()
+
     except Exception as e:
         error_panel(f"Failed to configure watch: {e}")
         raise typer.Exit(1)
@@ -373,16 +379,15 @@ async def _add_watch(
     depth: int,
     debounce: int,
 ):
-    """Add a folder watch configuration."""
+    """Add a folder watch configuration using SQLiteStateManager."""
     try:
         watch_path = Path(path).resolve()
 
         watch_info = f"Path: {watch_path}\nCollection: {collection}"
         info_panel(watch_info, "Adding Watch Configuration")
 
-        # Get daemon client
-        client = await _get_daemon_client()
-        
+        state_manager = await _get_state_manager()
+
         try:
             # Validate path
             if not watch_path.exists():
@@ -395,16 +400,16 @@ async def _add_watch(
             # Validate depth parameter using comprehensive validation
             from common.core.depth_validation import validate_recursive_depth, format_depth_display
             depth_result = validate_recursive_depth(depth)
-            
+
             if not depth_result.is_valid:
                 error_panel(depth_result.error_message)
                 raise typer.Exit(1)
-            
+
             # Show warnings for depth selection
             if depth_result.warnings:
                 for warning in depth_result.warnings:
                     simple_warning(warning)
-            
+
             # Show recommendations
             if depth_result.recommendations:
                 rec_text = "Recommendations:\n"
@@ -422,16 +427,24 @@ async def _add_watch(
             if ignore is None:
                 ignore = _get_cli_default_ignore_patterns()
 
-            # Validate collection exists
-            collections_response = await client.list_collections()
-            collection_names = [c.name for c in collections_response.collections]
-            
-            if collection not in collection_names:
-                error_panel(f"Collection '{collection}' not found. Create it first with: wqm library create {collection[1:]}")
-                raise typer.Exit(1)
+            # Validate collection exists using daemon client
+            client = await _get_daemon_client()
+            try:
+                collections_response = await client.list_collections()
+                collection_names = [c.name for c in collections_response.collections]
 
-            # Start watching using daemon client
-            watch_updates = client.start_watching(
+                if collection not in collection_names:
+                    error_panel(f"Collection '{collection}' not found. Create it first with: wqm library create {collection[1:]}")
+                    raise typer.Exit(1)
+            finally:
+                await client.disconnect()
+
+            # Generate unique watch ID
+            watch_id = f"watch_{uuid.uuid4().hex[:8]}"
+
+            # Create watch configuration
+            watch_config = WatchFolderConfig(
+                watch_id=watch_id,
                 path=str(watch_path),
                 collection=collection,
                 patterns=patterns,
@@ -439,48 +452,52 @@ async def _add_watch(
                 auto_ingest=auto_ingest,
                 recursive=recursive,
                 recursive_depth=depth,
-                debounce_seconds=debounce,
-                update_frequency_ms=1000,
+                debounce_seconds=float(debounce),
+                enabled=True,
+                created_at=datetime.now(timezone.utc),
+                updated_at=datetime.now(timezone.utc),
+                last_scan=None,
+                metadata=None,
             )
 
-            # Process first update to get watch ID
-            watch_id = None
-            async for update in watch_updates:
-                if update.watch_id:
-                    watch_id = update.watch_id
-                    simple_success(f"Watch started with ID: {watch_id}")
-                    break
+            # Save to database
+            success = await state_manager.save_watch_folder_config(watch_config)
 
-            # Show configuration
-            from common.core.depth_validation import format_depth_display
-            config_text = f"Path: {watch_path}\n"
-            config_text += f"Collection: {collection}\n"
-            config_text += f"Watch ID: {watch_id}\n"
-            config_text += f"Auto-ingest: {'Enabled' if auto_ingest else 'Disabled'}\n"
-            config_text += f"Recursive: {'Yes' if recursive else 'No'}\n"
-            config_text += f"Depth: {format_depth_display(depth)}\n"
-            config_text += f"Debounce: {debounce} seconds\n\n"
-            
-            config_text += "File Patterns:\n"
-            for pattern in patterns:
-                config_text += f"  • {pattern}\n"
-            
-            config_text += "\nIgnore Patterns:\n"
-            for ignore_pattern in ignore:
-                config_text += f"  • {ignore_pattern}"
+            if success:
+                simple_success(f"Watch started with ID: {watch_id}")
 
-            success_panel(config_text, "Watch Configuration Added")
+                # Show configuration
+                config_text = f"Path: {watch_path}\n"
+                config_text += f"Collection: {collection}\n"
+                config_text += f"Watch ID: {watch_id}\n"
+                config_text += f"Auto-ingest: {'Enabled' if auto_ingest else 'Disabled'}\n"
+                config_text += f"Recursive: {'Yes' if recursive else 'No'}\n"
+                config_text += f"Depth: {format_depth_display(depth)}\n"
+                config_text += f"Debounce: {debounce} seconds\n\n"
 
-            if auto_ingest:
-                simple_info(f"File monitoring started for {watch_path}")
-                simple_info("New files will be automatically ingested into the collection")
+                config_text += "File Patterns:\n"
+                for pattern in patterns:
+                    config_text += f"  • {pattern}\n"
+
+                config_text += "\nIgnore Patterns:\n"
+                for ignore_pattern in ignore:
+                    config_text += f"  • {ignore_pattern}"
+
+                success_panel(config_text, "Watch Configuration Added")
+
+                if auto_ingest:
+                    simple_info(f"File monitoring active - daemon will poll database for changes")
+                    simple_info("New files will be automatically ingested into the collection")
+                else:
+                    simple_warning("Auto-ingest is disabled")
+                    simple_info("Files will be detected but not automatically processed")
+                    simple_info("Enable with: wqm watch resume")
             else:
-                simple_warning("Auto-ingest is disabled")
-                simple_info("Files will be detected but not automatically processed")
-                simple_info("Enable with: wqm watch resume")
+                error_panel("Failed to save watch configuration")
+                raise typer.Exit(1)
 
         finally:
-            await client.disconnect()
+            await state_manager.close()
 
     except Exception as e:
         error_panel(f"Failed to add watch: {e}")
@@ -488,39 +505,44 @@ async def _add_watch(
 
 
 async def _list_watches(active_only: bool, collection: str | None, format: str):
-    """List all watch configurations."""
+    """List all watch configurations using SQLiteStateManager."""
     try:
-        client = await _get_daemon_client()
-        
+        state_manager = await _get_state_manager()
+
         try:
-            watches_response = await client.list_watches(active_only)
-            watches = watches_response.watches
+            # Get all watches from database
+            all_watches = await state_manager.get_all_watch_folder_configs(enabled_only=False)
 
             if format == "json":
                 # JSON output
                 output = []
-                for watch in watches:
+                for watch in all_watches:
                     watch_dict = {
                         "watch_id": watch.watch_id,
                         "path": watch.path,
                         "collection": watch.collection,
-                        "status": watch.status,
-                        "patterns": list(watch.patterns),
-                        "ignore_patterns": list(watch.ignore_patterns),
+                        "enabled": watch.enabled,
+                        "patterns": watch.patterns,
+                        "ignore_patterns": watch.ignore_patterns,
                         "auto_ingest": watch.auto_ingest,
                         "recursive": watch.recursive,
+                        "recursive_depth": watch.recursive_depth,
                         "debounce_seconds": watch.debounce_seconds,
                     }
                     output.append(watch_dict)
                 print(json.dumps(output, indent=2))
                 return
 
+            # Filter by enabled status if active_only
+            if active_only:
+                all_watches = [w for w in all_watches if w.enabled]
+
             # Filter by collection if specified
             if collection:
-                watches = [w for w in watches if w.collection == collection]
+                all_watches = [w for w in all_watches if w.collection == collection]
 
             # Table output
-            if not watches:
+            if not all_watches:
                 simple_info("No watches found")
                 if not active_only:
                     simple_info("Add a watch with: wqm watch add <path> --collection=<library>")
@@ -528,27 +550,27 @@ async def _list_watches(active_only: bool, collection: str | None, format: str):
 
             # Create Rich table
             table = create_data_table(
-                f"Watch Configurations ({len(watches)} found)",
+                f"Watch Configurations ({len(all_watches)} found)",
                 ["ID", "Path", "Collection", "Status", "Auto-Ingest"]
             )
 
-            for watch in watches:
-                status_str = "Active" if watch.status == 1 else "Stopped"  # Assuming enum values
+            for watch in all_watches:
+                status_str = "Active" if watch.enabled else "Paused"
                 auto_ingest_str = "Yes" if watch.auto_ingest else "No"
-                
+
                 # Truncate fields if too long
                 watch_id = str(watch.watch_id)
                 if len(watch_id) > 8:
                     watch_id = watch_id[:8] + "..."
-                
+
                 path = str(watch.path)
                 if len(path) > 28:
                     path = path[:28] + "..."
-                
+
                 collection_name = str(watch.collection)
                 if len(collection_name) > 18:
                     collection_name = collection_name[:18] + "..."
-                
+
                 table.add_row(
                     watch_id,
                     path,
@@ -564,7 +586,7 @@ async def _list_watches(active_only: bool, collection: str | None, format: str):
             simple_info("Use 'wqm watch sync' to manually process watched directories")
 
         finally:
-            await client.disconnect()
+            await state_manager.close()
 
     except Exception as e:
         error_panel(f"Failed to list watches: {e}")
@@ -574,10 +596,10 @@ async def _list_watches(active_only: bool, collection: str | None, format: str):
 async def _remove_watch(
     path: str | None, collection: str | None, all: bool, force: bool
 ):
-    """Remove watch configurations using daemon client."""
+    """Remove watch configurations using SQLiteStateManager."""
     try:
-        client = await _get_daemon_client()
-        
+        state_manager = await _get_state_manager()
+
         try:
             if all:
                 print(" Remove All Watches")
@@ -589,10 +611,9 @@ async def _remove_watch(
                 print("Error: Must specify --all, --collection, or a path/watch ID")
                 raise typer.Exit(1)
 
-            # Get all watches first
-            watches_response = await client.list_watches(active_only=False)
-            all_watches = watches_response.watches
-            
+            # Get all watches from database
+            all_watches = await state_manager.get_all_watch_folder_configs(enabled_only=False)
+
             # Find watches to remove
             watches_to_remove = []
 
@@ -635,23 +656,23 @@ async def _remove_watch(
                     print("Operation cancelled")
                     return
 
-            # Remove watches
+            # Remove watches from database
             removed_count = 0
             for watch in watches_to_remove:
                 try:
-                    response = await client.stop_watching(watch.watch_id)
-                    if response.success:
+                    success = await state_manager.remove_watch_folder_config(watch.watch_id)
+                    if success:
                         removed_count += 1
                         print(f"Removed watch: {watch.path}")
                     else:
-                        print(f"Error: Failed to remove watch: {watch.path} - {response.message}")
+                        print(f"Error: Failed to remove watch: {watch.path}")
                 except Exception as e:
                     print(f"Error: Failed to remove watch: {watch.path} - {e}")
 
             print(f"\nSuccessfully removed {removed_count} watch(es)")
 
         finally:
-            await client.disconnect()
+            await state_manager.close()
 
     except Exception as e:
         print(f"Error: Failed to remove watches: {e}")
@@ -659,54 +680,60 @@ async def _remove_watch(
 
 
 async def _watch_status(detailed: bool, recent: bool):
-    """Show watch activity and statistics using daemon client."""
+    """Show watch activity and statistics using SQLiteStateManager and daemon client."""
     try:
-        client = await _get_daemon_client()
-        
+        state_manager = await _get_state_manager()
+
         try:
-            # Get watch statistics
-            stats_response = await client.get_stats(include_watch_stats=True)
-            watch_stats = stats_response.watch_stats
-            
-            # Get watches for detailed info
-            watches_response = await client.list_watches(active_only=False)
-            watches = watches_response.watches
+            # Get watches from database
+            all_watches = await state_manager.get_all_watch_folder_configs(enabled_only=False)
 
             print("Watch System Status\n")
 
             # System status overview in plain text format
-            total_watches = len(watches)
-            active_watches = sum(1 for w in watches if w.status == 1)  # Assuming 1 = active
+            total_watches = len(all_watches)
+            active_watches = sum(1 for w in all_watches if w.enabled)
             stopped_watches = total_watches - active_watches
-            
+
             print(f"Total Watches: {total_watches}")
             print(f"Active: {active_watches}")
             print(f"Stopped: {stopped_watches}")
-            
-            if watch_stats:
-                print(f"Total Files Monitored: {watch_stats.total_files_monitored}")
-                print(f"Files Processed: {watch_stats.total_files_processed}")
-                print(f"Processing Errors: {watch_stats.processing_errors}")
 
-            if detailed and watches:
+            # Try to get stats from daemon (optional, may not be available)
+            try:
+                client = await _get_daemon_client()
+                try:
+                    stats_response = await client.get_stats(include_watch_stats=True)
+                    watch_stats = stats_response.watch_stats
+
+                    if watch_stats:
+                        print(f"Total Files Monitored: {watch_stats.total_files_monitored}")
+                        print(f"Files Processed: {watch_stats.total_files_processed}")
+                        print(f"Processing Errors: {watch_stats.processing_errors}")
+                finally:
+                    await client.disconnect()
+            except Exception as e:
+                logger.debug(f"Could not get daemon stats: {e}")
+
+            if detailed and all_watches:
                 print("\nDetailed Watch Information")
                 print("-" * 50)
-                for watch in watches:
-                    status_str = "Active" if watch.status == 1 else "Stopped"
+                for watch in all_watches:
+                    status_str = "Active" if watch.enabled else "Paused"
                     print(f"Watch {watch.watch_id}:")
                     print(f"  Path: {watch.path}")
                     print(f"  Collection: {watch.collection}")
                     print(f"  Status: {status_str}")
                     print(f"  Auto-ingest: {'Yes' if watch.auto_ingest else 'No'}")
                     print(f"  Recursive: {'Yes' if watch.recursive else 'No'}")
+                    print(f"  Depth: {watch.recursive_depth}")
                     print(f"  Patterns: {', '.join(watch.patterns)}")
                     print()
 
-            if recent and watch_stats:
+            if recent:
                 print("\nRecent Activity")
                 print("-" * 50)
-                # Note: Recent activity details would need to be added to the gRPC response
-                print("Recent activity tracking not yet implemented via daemon")
+                print("Recent activity tracking available through daemon stats")
 
             # Show tips
             if total_watches == 0:
@@ -717,7 +744,7 @@ async def _watch_status(detailed: bool, recent: bool):
                 print("Resume them with: wqm watch resume --all")
 
         finally:
-            await client.disconnect()
+            await state_manager.close()
 
     except Exception as e:
         print(f"Error: Failed to get watch status: {e}")
@@ -725,26 +752,38 @@ async def _watch_status(detailed: bool, recent: bool):
 
 
 async def _pause_watches(path: str | None, collection: str | None, all: bool):
-    """Pause watch configurations using daemon client."""
+    """Pause watch configurations using SQLiteStateManager."""
     try:
-        client = await _get_daemon_client()
-        
+        state_manager = await _get_state_manager()
+
         try:
-            # Get all watches first
-            watches_response = await client.list_watches(active_only=False)
-            watches = watches_response.watches
+            # Get all watches from database
+            all_watches = await state_manager.get_all_watch_folder_configs(enabled_only=False)
 
             if all:
                 print("Pausing all watches")
                 paused_count = 0
-                for watch in watches:
+                for watch in all_watches:
                     try:
-                        from common.grpc.ingestion_pb2 import WatchStatus
-                        response = await client.configure_watch(
+                        # Update watch to paused state
+                        updated_watch = WatchFolderConfig(
                             watch_id=watch.watch_id,
-                            status=WatchStatus.WATCH_STATUS_PAUSED
+                            path=watch.path,
+                            collection=watch.collection,
+                            patterns=watch.patterns,
+                            ignore_patterns=watch.ignore_patterns,
+                            auto_ingest=watch.auto_ingest,
+                            recursive=watch.recursive,
+                            recursive_depth=watch.recursive_depth,
+                            debounce_seconds=watch.debounce_seconds,
+                            enabled=False,  # Pause the watch
+                            created_at=watch.created_at,
+                            updated_at=datetime.now(timezone.utc),
+                            last_scan=watch.last_scan,
+                            metadata=watch.metadata,
                         )
-                        if response.success:
+                        success = await state_manager.save_watch_folder_config(updated_watch)
+                        if success:
                             paused_count += 1
                     except Exception as e:
                         print(f"Failed to pause watch {watch.watch_id}: {e}")
@@ -752,16 +791,28 @@ async def _pause_watches(path: str | None, collection: str | None, all: bool):
 
             elif collection:
                 print(f"Pausing watches for collection: {collection}")
-                matching_watches = [w for w in watches if w.collection == collection]
+                matching_watches = [w for w in all_watches if w.collection == collection]
                 paused_count = 0
                 for watch in matching_watches:
                     try:
-                        from common.grpc.ingestion_pb2 import WatchStatus
-                        response = await client.configure_watch(
+                        updated_watch = WatchFolderConfig(
                             watch_id=watch.watch_id,
-                            status=WatchStatus.WATCH_STATUS_PAUSED
+                            path=watch.path,
+                            collection=watch.collection,
+                            patterns=watch.patterns,
+                            ignore_patterns=watch.ignore_patterns,
+                            auto_ingest=watch.auto_ingest,
+                            recursive=watch.recursive,
+                            recursive_depth=watch.recursive_depth,
+                            debounce_seconds=watch.debounce_seconds,
+                            enabled=False,
+                            created_at=watch.created_at,
+                            updated_at=datetime.now(timezone.utc),
+                            last_scan=watch.last_scan,
+                            metadata=watch.metadata,
                         )
-                        if response.success:
+                        success = await state_manager.save_watch_folder_config(updated_watch)
+                        if success:
                             paused_count += 1
                     except Exception as e:
                         print(f"Failed to pause watch {watch.watch_id}: {e}")
@@ -772,7 +823,7 @@ async def _pause_watches(path: str | None, collection: str | None, all: bool):
                 # Find watch by path or ID
                 matches = [
                     w
-                    for w in watches
+                    for w in all_watches
                     if w.watch_id == path or Path(w.path) == Path(path).resolve()
                 ]
 
@@ -782,15 +833,27 @@ async def _pause_watches(path: str | None, collection: str | None, all: bool):
 
                 for watch in matches:
                     try:
-                        from common.grpc.ingestion_pb2 import WatchStatus
-                        response = await client.configure_watch(
+                        updated_watch = WatchFolderConfig(
                             watch_id=watch.watch_id,
-                            status=WatchStatus.WATCH_STATUS_PAUSED
+                            path=watch.path,
+                            collection=watch.collection,
+                            patterns=watch.patterns,
+                            ignore_patterns=watch.ignore_patterns,
+                            auto_ingest=watch.auto_ingest,
+                            recursive=watch.recursive,
+                            recursive_depth=watch.recursive_depth,
+                            debounce_seconds=watch.debounce_seconds,
+                            enabled=False,
+                            created_at=watch.created_at,
+                            updated_at=datetime.now(timezone.utc),
+                            last_scan=watch.last_scan,
+                            metadata=watch.metadata,
                         )
-                        if response.success:
+                        success = await state_manager.save_watch_folder_config(updated_watch)
+                        if success:
                             print(f"Paused watch: {watch.path}")
                         else:
-                            print(f"Error: Failed to pause watch: {watch.path} - {response.message}")
+                            print(f"Error: Failed to pause watch: {watch.path}")
                     except Exception as e:
                         print(f"Error: Failed to pause watch: {watch.path} - {e}")
             else:
@@ -801,7 +864,7 @@ async def _pause_watches(path: str | None, collection: str | None, all: bool):
             print("Resume with: wqm watch resume")
 
         finally:
-            await client.disconnect()
+            await state_manager.close()
 
     except Exception as e:
         print(f"Error: Failed to pause watches: {e}")
@@ -809,26 +872,37 @@ async def _pause_watches(path: str | None, collection: str | None, all: bool):
 
 
 async def _resume_watches(path: str | None, collection: str | None, all: bool):
-    """Resume watch configurations using daemon client."""
+    """Resume watch configurations using SQLiteStateManager."""
     try:
-        client = await _get_daemon_client()
-        
+        state_manager = await _get_state_manager()
+
         try:
-            # Get all watches first
-            watches_response = await client.list_watches(active_only=False)
-            watches = watches_response.watches
+            # Get all watches from database
+            all_watches = await state_manager.get_all_watch_folder_configs(enabled_only=False)
 
             if all:
                 print("Resuming all watches")
                 resumed_count = 0
-                for watch in watches:
+                for watch in all_watches:
                     try:
-                        from common.grpc.ingestion_pb2 import WatchStatus
-                        response = await client.configure_watch(
+                        updated_watch = WatchFolderConfig(
                             watch_id=watch.watch_id,
-                            status=WatchStatus.WATCH_STATUS_ACTIVE
+                            path=watch.path,
+                            collection=watch.collection,
+                            patterns=watch.patterns,
+                            ignore_patterns=watch.ignore_patterns,
+                            auto_ingest=watch.auto_ingest,
+                            recursive=watch.recursive,
+                            recursive_depth=watch.recursive_depth,
+                            debounce_seconds=watch.debounce_seconds,
+                            enabled=True,  # Resume the watch
+                            created_at=watch.created_at,
+                            updated_at=datetime.now(timezone.utc),
+                            last_scan=watch.last_scan,
+                            metadata=watch.metadata,
                         )
-                        if response.success:
+                        success = await state_manager.save_watch_folder_config(updated_watch)
+                        if success:
                             resumed_count += 1
                     except Exception as e:
                         print(f"Failed to resume watch {watch.watch_id}: {e}")
@@ -836,16 +910,28 @@ async def _resume_watches(path: str | None, collection: str | None, all: bool):
 
             elif collection:
                 print(f"Resuming watches for collection: {collection}")
-                matching_watches = [w for w in watches if w.collection == collection]
+                matching_watches = [w for w in all_watches if w.collection == collection]
                 resumed_count = 0
                 for watch in matching_watches:
                     try:
-                        from common.grpc.ingestion_pb2 import WatchStatus
-                        response = await client.configure_watch(
+                        updated_watch = WatchFolderConfig(
                             watch_id=watch.watch_id,
-                            status=WatchStatus.WATCH_STATUS_ACTIVE
+                            path=watch.path,
+                            collection=watch.collection,
+                            patterns=watch.patterns,
+                            ignore_patterns=watch.ignore_patterns,
+                            auto_ingest=watch.auto_ingest,
+                            recursive=watch.recursive,
+                            recursive_depth=watch.recursive_depth,
+                            debounce_seconds=watch.debounce_seconds,
+                            enabled=True,
+                            created_at=watch.created_at,
+                            updated_at=datetime.now(timezone.utc),
+                            last_scan=watch.last_scan,
+                            metadata=watch.metadata,
                         )
-                        if response.success:
+                        success = await state_manager.save_watch_folder_config(updated_watch)
+                        if success:
                             resumed_count += 1
                     except Exception as e:
                         print(f"Failed to resume watch {watch.watch_id}: {e}")
@@ -856,7 +942,7 @@ async def _resume_watches(path: str | None, collection: str | None, all: bool):
                 # Find watch by path or ID
                 matches = [
                     w
-                    for w in watches
+                    for w in all_watches
                     if w.watch_id == path or Path(w.path) == Path(path).resolve()
                 ]
 
@@ -866,25 +952,37 @@ async def _resume_watches(path: str | None, collection: str | None, all: bool):
 
                 for watch in matches:
                     try:
-                        from common.grpc.ingestion_pb2 import WatchStatus
-                        response = await client.configure_watch(
+                        updated_watch = WatchFolderConfig(
                             watch_id=watch.watch_id,
-                            status=WatchStatus.WATCH_STATUS_ACTIVE
+                            path=watch.path,
+                            collection=watch.collection,
+                            patterns=watch.patterns,
+                            ignore_patterns=watch.ignore_patterns,
+                            auto_ingest=watch.auto_ingest,
+                            recursive=watch.recursive,
+                            recursive_depth=watch.recursive_depth,
+                            debounce_seconds=watch.debounce_seconds,
+                            enabled=True,
+                            created_at=watch.created_at,
+                            updated_at=datetime.now(timezone.utc),
+                            last_scan=watch.last_scan,
+                            metadata=watch.metadata,
                         )
-                        if response.success:
+                        success = await state_manager.save_watch_folder_config(updated_watch)
+                        if success:
                             print(f"Resumed watch: {watch.path}")
                         else:
-                            print(f"Error: Failed to resume watch: {watch.path} - {response.message}")
+                            print(f"Error: Failed to resume watch: {watch.path}")
                     except Exception as e:
                         print(f"Error: Failed to resume watch: {watch.path} - {e}")
             else:
                 print("Error: Must specify --all, --collection, or a path/watch ID")
                 raise typer.Exit(1)
 
-            print("\nFile monitoring resumed - new files will be automatically ingested")
+            print("\nFile monitoring resumed - daemon will poll database for active watches")
 
         finally:
-            await client.disconnect()
+            await state_manager.close()
 
     except Exception as e:
         print(f"Error: Failed to resume watches: {e}")
@@ -895,23 +993,26 @@ async def _sync_watched_folders(path: str | None, dry_run: bool, force: bool):
     """Manually sync watched folders using daemon client."""
     try:
         client = await _get_daemon_client()
-        
+
         try:
-            # Get all watches
-            watches_response = await client.list_watches(active_only=False)
-            watches = watches_response.watches
+            # Get all watches from state manager
+            state_manager = await _get_state_manager()
+            try:
+                all_watches = await state_manager.get_all_watch_folder_configs(enabled_only=False)
+            finally:
+                await state_manager.close()
 
             if path:
                 print(f"Syncing watch: {path}")
                 # Filter to specific path
                 matches = [
-                    w for w in watches 
+                    w for w in all_watches
                     if w.watch_id == path or Path(w.path) == Path(path).resolve()
                 ]
                 if not matches:
                     print(f"Error: No watch found for path: {path}")
                     raise typer.Exit(1)
-                watches = matches
+                all_watches = matches
             else:
                 print("Syncing all watched folders")
 
@@ -922,23 +1023,23 @@ async def _sync_watched_folders(path: str | None, dry_run: bool, force: bool):
             total_processed = 0
             total_errors = 0
 
-            for watch in watches:
+            for watch in all_watches:
                 print(f"\nProcessing watch: {watch.path} -> {watch.collection}")
-                
+
                 try:
                     # Use process_folder to sync the watched directory
                     folder_progress = client.process_folder(
                         folder_path=watch.path,
                         collection=watch.collection,
-                        include_patterns=list(watch.patterns) if watch.patterns else None,
-                        ignore_patterns=list(watch.ignore_patterns) if watch.ignore_patterns else None,
+                        include_patterns=watch.patterns if watch.patterns else None,
+                        ignore_patterns=watch.ignore_patterns if watch.ignore_patterns else None,
                         recursive=watch.recursive,
                         dry_run=dry_run,
                     )
-                    
+
                     files_processed = 0
                     files_failed = 0
-                    
+
                     async for progress in folder_progress:
                         if progress.file_processed:
                             files_processed += 1
@@ -947,14 +1048,14 @@ async def _sync_watched_folders(path: str | None, dry_run: bool, force: bool):
                             else:
                                 files_failed += 1
                                 print(f"  ✗ {progress.file_path}: {progress.error_message}")
-                    
+
                     total_processed += files_processed
                     total_errors += files_failed
-                    
+
                     print(f"Watch {watch.watch_id}: Processed {files_processed} files")
                     if files_failed > 0:
                         print(f"  {files_failed} files failed")
-                        
+
                 except Exception as e:
                     print(f"Error processing watch {watch.watch_id}: {e}")
                     total_errors += 1
@@ -970,7 +1071,7 @@ async def _sync_watched_folders(path: str | None, dry_run: bool, force: bool):
             if total_errors > 0:
                 print(f"Errors: {total_errors}")
 
-            if not watches:
+            if not all_watches:
                 print("\nNo watched folders found to sync")
                 print("Add watches with: wqm watch add <path> --collection=<library>")
 
