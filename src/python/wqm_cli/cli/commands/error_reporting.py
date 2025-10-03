@@ -11,6 +11,8 @@ Usage:
     wqm errors top --limit=20               # Top 20 errors
     wqm errors report --format=json         # Generate full JSON report
     wqm errors report --format=markdown     # Generate Markdown report
+    wqm errors export --format=csv --output=errors.csv  # Export to CSV
+    wqm errors debug-bundle --error-id=123 --output=debug.tar.gz  # Debug bundle
 """
 
 import asyncio
@@ -56,7 +58,9 @@ Examples:
     wqm errors trends --granularity=hourly  # Hourly breakdown
     wqm errors top --limit=20               # Top 20 errors
     wqm errors report --format=json         # JSON report
-    wqm errors resolution                   # Acknowledgment metrics""",
+    wqm errors resolution                   # Acknowledgment metrics
+    wqm errors export --format=csv --output=errors.csv  # Export to CSV
+    wqm errors debug-bundle --error-id=123 --output=debug.tar.gz  # Debug bundle""",
     no_args_is_help=True,
 )
 
@@ -606,3 +610,11 @@ async def _generate_full_report(days: int, format: str, output: Optional[str]) -
         error_message(f"Failed to generate report: {e}")
         logger.error("Error generating report", error=str(e), exc_info=True)
         raise typer.Exit(1)
+
+
+# Import and register export commands
+from .error_export_cli import export_errors, create_debug_bundle
+
+# Register export commands
+errors_app.command("export")(export_errors)
+errors_app.command("debug-bundle")(create_debug_bundle)
