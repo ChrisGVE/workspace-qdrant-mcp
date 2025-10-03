@@ -14,6 +14,7 @@ Usage:
     wqm messages list            # View error messages
     wqm queue status             # Monitor queue status
     wqm tools status             # Check tool availability
+    wqm collections list-types   # View collections by type
 """
 
 import os
@@ -80,6 +81,7 @@ import typer
 from common.logging.loguru_config import setup_logging
 from loguru import logger
 from .commands.admin import admin_app
+from .commands.collection_types import collection_types_app
 from .commands.ingest import ingest_app
 from .commands.init import init_app
 from .commands.library import library_app
@@ -155,6 +157,10 @@ app.add_typer(
 app.add_typer(
     tools_app, name="tools", help="Check tool availability status"
 )
+# Add collection type management commands
+app.add_typer(
+    collection_types_app, name="collections", help="Manage collection types and type-specific behaviors"
+)
 
 
 @app.callback(invoke_without_command=True)
@@ -191,6 +197,7 @@ def main(
         wqm messages list                  # View error messages
         wqm queue status                   # Monitor queue status
         wqm tools status                   # Check tool availability
+        wqm collections list-types         # View collections by type
         wqm init                           # Enable shell completion
     """
     # Handle version flag first, before any configuration loading
