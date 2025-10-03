@@ -1214,3 +1214,89 @@ rust:
 [38;2;127;132;156m 145[0m [38;2;205;214;244m  # Format: Duration with unit (s/m)[0m
 [38;2;127;132;156m 146[0m [38;2;205;214;244m  monitoring_interval: 60s[0m
 [38;2;127;132;156m 147[0m 
+[38;2;127;132;156m   1[0m [38;2;205;214;244m# =============================================================================[0m
+[38;2;127;132;156m   2[0m [38;2;205;214;244m# QUEUE RESOURCE MONITORING CONFIGURATION[0m
+[38;2;127;132;156m   3[0m [38;2;205;214;244m# =============================================================================[0m
+[38;2;127;132;156m   4[0m [38;2;205;214;244m# Purpose: Controls resource utilization tracking and correlation with queue[0m
+[38;2;127;132;156m   5[0m [38;2;205;214;244m# performance. Monitors CPU, memory, database connections, and thread usage to[0m
+[38;2;127;132;156m   6[0m [38;2;205;214;244m# detect bottlenecks and optimize queue processing.[0m
+[38;2;127;132;156m   7[0m [38;2;205;214;244mqueue_resource_monitoring:[0m
+[38;2;127;132;156m   8[0m [38;2;205;214;244m  # enabled: Master control for resource monitoring[0m
+[38;2;127;132;156m   9[0m [38;2;205;214;244m  # Purpose: Enables or disables resource utilization tracking[0m
+[38;2;127;132;156m  10[0m [38;2;205;214;244m  # Benefit: Identifies resource bottlenecks affecting queue performance[0m
+[38;2;127;132;156m  11[0m [38;2;205;214;244m  # Overhead: Minimal CPU/memory overhead for metric collection[0m
+[38;2;127;132;156m  12[0m [38;2;205;214;244m  # Requires: psutil library for system metrics[0m
+[38;2;127;132;156m  13[0m [38;2;205;214;244m  # Format: Boolean[0m
+[38;2;127;132;156m  14[0m [38;2;205;214;244m  enabled: true[0m
+[38;2;127;132;156m  15[0m 
+[38;2;127;132;156m  16[0m [38;2;205;214;244m  # snapshot_retention: Number of resource snapshots to retain[0m
+[38;2;127;132;156m  17[0m [38;2;205;214;244m  # Purpose: Controls how much historical data is kept in memory[0m
+[38;2;127;132;156m  18[0m [38;2;205;214;244m  # Memory usage: ~1KB per snapshot (depends on metric count)[0m
+[38;2;127;132;156m  19[0m [38;2;205;214;244m  # Correlation: More snapshots provide better correlation analysis[0m
+[38;2;127;132;156m  20[0m [38;2;205;214;244m  # Trade-off: Memory usage vs. historical depth[0m
+[38;2;127;132;156m  21[0m [38;2;205;214;244m  # Format: Integer count[0m
+[38;2;127;132;156m  22[0m [38;2;205;214;244m  # Default reasoning: 200 snapshots at 30s interval = 100 minutes of history[0m
+[38;2;127;132;156m  23[0m [38;2;205;214;244m  snapshot_retention: 200[0m
+[38;2;127;132;156m  24[0m 
+[38;2;127;132;156m  25[0m [38;2;205;214;244m  # monitoring_interval: Resource collection frequency[0m
+[38;2;127;132;156m  26[0m [38;2;205;214;244m  # Purpose: How often to collect resource and queue metrics[0m
+[38;2;127;132;156m  27[0m [38;2;205;214;244m  # Balance: Frequent collection detects issues faster but uses more CPU[0m
+[38;2;127;132;156m  28[0m [38;2;205;214;244m  # Correlation: More frequent samples improve correlation accuracy[0m
+[38;2;127;132;156m  29[0m [38;2;205;214;244m  # Bottleneck detection: Affects how quickly bottlenecks are detected[0m
+[38;2;127;132;156m  30[0m [38;2;205;214;244m  # Format: Integer seconds[0m
+[38;2;127;132;156m  31[0m [38;2;205;214;244m  # Default reasoning: 30s provides good balance between accuracy and overhead[0m
+[38;2;127;132;156m  32[0m [38;2;205;214;244m  monitoring_interval: 30[0m
+[38;2;127;132;156m  33[0m 
+[38;2;127;132;156m  34[0m [38;2;205;214;244m  # Bottleneck detection thresholds[0m
+[38;2;127;132;156m  35[0m [38;2;205;214;244m  thresholds:[0m
+[38;2;127;132;156m  36[0m [38;2;205;214;244m    # cpu_warning_percent: CPU usage warning threshold[0m
+[38;2;127;132;156m  37[0m [38;2;205;214;244m    # Purpose: CPU utilization that triggers bottleneck warning[0m
+[38;2;127;132;156m  38[0m [38;2;205;214;244m    # Detection: Combined with queue backlog to identify CPU constraints[0m
+[38;2;127;132;156m  39[0m [38;2;205;214;244m    # Format: Float percentage (0-100)[0m
+[38;2;127;132;156m  40[0m [38;2;205;214;244m    # Default reasoning: 70% allows headroom before critical threshold[0m
+[38;2;127;132;156m  41[0m [38;2;205;214;244m    cpu_warning_percent: 70.0[0m
+[38;2;127;132;156m  42[0m 
+[38;2;127;132;156m  43[0m [38;2;205;214;244m    # cpu_critical_percent: CPU usage critical threshold[0m
+[38;2;127;132;156m  44[0m [38;2;205;214;244m    # Purpose: CPU utilization that triggers critical bottleneck alert[0m
+[38;2;127;132;156m  45[0m [38;2;205;214;244m    # Detection: Combined with low processing rate to confirm CPU bottleneck[0m
+[38;2;127;132;156m  46[0m [38;2;205;214;244m    # Format: Float percentage (0-100)[0m
+[38;2;127;132;156m  47[0m [38;2;205;214;244m    # Default reasoning: 90% indicates near-saturation[0m
+[38;2;127;132;156m  48[0m [38;2;205;214;244m    cpu_critical_percent: 90.0[0m
+[38;2;127;132;156m  49[0m 
+[38;2;127;132;156m  50[0m [38;2;205;214;244m    # memory_warning_mb: Memory usage warning threshold[0m
+[38;2;127;132;156m  51[0m [38;2;205;214;244m    # Purpose: Memory consumption that triggers bottleneck warning[0m
+[38;2;127;132;156m  52[0m [38;2;205;214;244m    # Detection: Combined with queue metrics to identify memory constraints[0m
+[38;2;127;132;156m  53[0m [38;2;205;214;244m    # Format: Float megabytes[0m
+[38;2;127;132;156m  54[0m [38;2;205;214;244m    # Default reasoning: 1GB is reasonable for typical workloads[0m
+[38;2;127;132;156m  55[0m [38;2;205;214;244m    memory_warning_mb: 1000.0[0m
+[38;2;127;132;156m  56[0m 
+[38;2;127;132;156m  57[0m [38;2;205;214;244m    # memory_critical_mb: Memory usage critical threshold[0m
+[38;2;127;132;156m  58[0m [38;2;205;214;244m    # Purpose: Memory consumption that triggers critical bottleneck alert[0m
+[38;2;127;132;156m  59[0m [38;2;205;214;244m    # Detection: Combined with queue backlog to confirm memory bottleneck[0m
+[38;2;127;132;156m  60[0m [38;2;205;214;244m    # Format: Float megabytes[0m
+[38;2;127;132;156m  61[0m [38;2;205;214;244m    # Default reasoning: 2GB indicates potential memory pressure[0m
+[38;2;127;132;156m  62[0m [38;2;205;214;244m    memory_critical_mb: 2000.0[0m
+[38;2;127;132;156m  63[0m 
+[38;2;127;132;156m  64[0m [38;2;205;214;244m    # low_processing_rate_threshold: Minimum acceptable processing rate[0m
+[38;2;127;132;156m  65[0m [38;2;205;214;244m    # Purpose: Processing rate below which indicates performance issues[0m
+[38;2;127;132;156m  66[0m [38;2;205;214;244m    # Detection: Used to identify if resource usage is causing low throughput[0m
+[38;2;127;132;156m  67[0m [38;2;205;214;244m    # Format: Float items per minute[0m
+[38;2;127;132;156m  68[0m [38;2;205;214;244m    # Default reasoning: Matches queue_health.thresholds.processing_rate_min[0m
+[38;2;127;132;156m  69[0m [38;2;205;214;244m    low_processing_rate_threshold: 10.0[0m
+[38;2;127;132;156m  70[0m 
+[38;2;127;132;156m  71[0m [38;2;205;214;244m  # Correlation analysis configuration[0m
+[38;2;127;132;156m  72[0m [38;2;205;214;244m  correlation:[0m
+[38;2;127;132;156m  73[0m [38;2;205;214;244m    # min_samples: Minimum snapshots required for correlation analysis[0m
+[38;2;127;132;156m  74[0m [38;2;205;214;244m    # Purpose: Ensures statistical validity of correlation coefficients[0m
+[38;2;127;132;156m  75[0m [38;2;205;214;244m    # Statistics: Pearson correlation needs sufficient sample size[0m
+[38;2;127;132;156m  76[0m [38;2;205;214;244m    # Format: Integer count[0m
+[38;2;127;132;156m  77[0m [38;2;205;214;244m    # Default reasoning: 2 samples minimum for any correlation[0m
+[38;2;127;132;156m  78[0m [38;2;205;214;244m    min_samples: 2[0m
+[38;2;127;132;156m  79[0m 
+[38;2;127;132;156m  80[0m [38;2;205;214;244m    # history_window_minutes: Time window for correlation analysis[0m
+[38;2;127;132;156m  81[0m [38;2;205;214;244m    # Purpose: How far back to look when calculating correlations[0m
+[38;2;127;132;156m  82[0m [38;2;205;214;244m    # Trade-off: Longer window captures trends, shorter window more current[0m
+[38;2;127;132;156m  83[0m [38;2;205;214;244m    # Format: Integer minutes[0m
+[38;2;127;132;156m  84[0m [38;2;205;214;244m    # Default reasoning: 60 minutes captures recent patterns[0m
+[38;2;127;132;156m  85[0m [38;2;205;214;244m    history_window_minutes: 60[0m
+[38;2;127;132;156m  86[0m 
