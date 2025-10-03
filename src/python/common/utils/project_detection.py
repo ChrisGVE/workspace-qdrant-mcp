@@ -50,6 +50,7 @@ import hashlib
 import logging
 import os
 import re
+from pathlib import Path
 from typing import Any, Dict, Optional, Set
 from urllib.parse import urlparse
 
@@ -64,33 +65,33 @@ logger = logging.getLogger(__name__)
 class DaemonIdentifier:
     """
     Project-specific daemon identifier with collision detection and validation.
-    
+
     This class generates unique, consistent identifiers for daemon instances based on
     project information, with built-in collision detection and validation to ensure
     proper isolation between multiple daemon instances.
-    
+
     Key Features:
         - Consistent identifier generation from project path and name
         - Hash-based collision detection with configurable length
         - Validation for duplicate identifiers across projects
         - Configurable naming strategies with user-defined suffixes
         - Registry tracking for active daemon identifiers
-    
+
     Identifier Format:
         {project_name}_{path_hash}[_{suffix}]
-        
+
     Example:
         workspace-qdrant-mcp_a1b2c3d4
         my-project_x9y8z7w6_dev
     """
-    
+
     # Class-level registry to track active identifiers
     _active_identifiers: Set[str] = set()
     _identifier_registry: Dict[str, Dict[str, Any]] = {}
-    
+
     def __init__(self, project_name: str, project_path: str, suffix: Optional[str] = None):
         """Initialize daemon identifier with project information.
-        
+
         Args:
             project_name: Base project name for the identifier
             project_path: Full path to the project directory
@@ -101,33 +102,33 @@ class DaemonIdentifier:
         self.suffix = suffix
         self._identifier = None
         self._path_hash = None
-        
+
     def generate_identifier(self, hash_length: int = 8) -> str:
         """Generate a unique daemon identifier for this project.
-        
+
         Args:
             hash_length: Length of the path hash component (default: 8)
-            
+
         Returns:
             Unique daemon identifier string
-            
+
         Raises:
             ValueError: If identifier collision is detected
         """
         if self._identifier:
             return self._identifier
-            
+
         # Generate path hash from absolute path
         self._path_hash = self._generate_path_hash(self.project_path, hash_length)
-        
+
         # Build identifier components
         base_identifier = f"{self.project_name}_{self._path_hash}"
-        
+
         if self.suffix:
             full_identifier = f"{base_identifier}_{self.suffix}"
         else:
             full_identifier = base_identifier
-            
+
         # Validate uniqueness
         if self._check_collision(full_identifier):
             # Try with longer hash if collision detected
@@ -142,10 +143,10 @@ class DaemonIdentifier:
                     f"Cannot generate unique identifier for project {self.project_name} "
                     f"at path {self.project_path}. Consider using a suffix."
                 )
-        
+
         self._identifier = full_identifier
         self._register_identifier()
-        
+
         logger.debug(
             "Generated daemon identifier",
             identifier=self._identifier,
@@ -153,92 +154,92 @@ class DaemonIdentifier:
             path=self.project_path,
             hash=self._path_hash
         )
-        
+
         return self._identifier
-    
+
     def get_identifier(self) -> Optional[str]:
         """Get the current identifier without generating a new one.
-        
+
         Returns:
             Current identifier or None if not yet generated
         """
         return self._identifier
-    
+
     def get_path_hash(self) -> Optional[str]:
         """Get the path hash component of the identifier.
-        
+
         Returns:
             Path hash string or None if not yet generated
         """
         return self._path_hash
-    
+
     def validate_identifier(self, identifier: str) -> bool:
         """Validate that an identifier follows the expected format.
-        
+
         Args:
             identifier: Identifier string to validate
-            
+
         Returns:
             True if identifier is valid, False otherwise
         """
         # Basic format validation: name_hash or name_hash_suffix
         pattern = r'^[a-zA-Z0-9_-]+_[a-f0-9]{4,16}(?:_[a-zA-Z0-9_-]+)?$'
-        
+
         if not re.match(pattern, identifier):
             return False
-            
+
         # Additional validation: check if it matches our project
         if self._identifier and identifier == self._identifier:
             return True
-            
+
         # Check if it's a valid identifier for this project path
         parts = identifier.split('_')
         if len(parts) >= 2:
             name_part = parts[0]
             hash_part = parts[1]
-            
+
             # Verify the hash matches our project path
             expected_hash = self._generate_path_hash(self.project_path, len(hash_part))
             return hash_part == expected_hash
-            
+
         return False
-    
+
     def release_identifier(self) -> None:
         """Release the current identifier from the active registry."""
         if self._identifier and self._identifier in self._active_identifiers:
             self._active_identifiers.remove(self._identifier)
             if self._identifier in self._identifier_registry:
                 del self._identifier_registry[self._identifier]
-                
+
             logger.debug(
                 "Released daemon identifier",
                 identifier=self._identifier,
                 project=self.project_name
             )
-    
+
     def _generate_path_hash(self, path: str, length: int = 8) -> str:
         """Generate a consistent hash from the project path.
-        
+
         Args:
             path: Project path to hash
             length: Desired hash length
-            
+
         Returns:
             Hexadecimal hash string
         """
         # Normalize path for consistent hashing
         normalized_path = os.path.normpath(os.path.abspath(path))
-        
+
         # Use SHA-256 for consistent, collision-resistant hashing
         hash_obj = hashlib.sha256(normalized_path.encode('utf-8'))
         return hash_obj.hexdigest()[:length]
-    
+
     def _check_collision(self, identifier: str) -> bool:
         """Check if an identifier collides with existing ones.
-        
+
         Args:
             identifier: Identifier to check
-            
+
         Returns:
             True if collision detected, False otherwise
         """
@@ -249,7 +250,7 @@ class DaemonIdentifier:
                 return False  # Same project, not a collision
             return True  # Different project, collision detected
         return False
-    
+
     def _register_identifier(self) -> None:
         """Register the current identifier in the active registry."""
         if self._identifier:
@@ -261,40 +262,40 @@ class DaemonIdentifier:
                 'path_hash': self._path_hash,
                 'registered_at': os.getcwd(),  # Current working directory when registered
             }
-    
+
     @classmethod
     def get_active_identifiers(cls) -> Set[str]:
         """Get all currently active daemon identifiers.
-        
+
         Returns:
             Set of active identifier strings
         """
         return cls._active_identifiers.copy()
-    
+
     @classmethod
     def get_identifier_info(cls, identifier: str) -> Optional[Dict[str, Any]]:
         """Get information about a registered identifier.
-        
+
         Args:
             identifier: Identifier to look up
-            
+
         Returns:
             Dictionary with identifier information or None if not found
         """
         return cls._identifier_registry.get(identifier)
-    
+
     @classmethod
     def clear_registry(cls) -> None:
         """Clear all registered identifiers (for testing/cleanup)."""
         cls._active_identifiers.clear()
         cls._identifier_registry.clear()
-    
+
     def __str__(self) -> str:
         """String representation of the daemon identifier."""
         if self._identifier:
             return self._identifier
         return f"DaemonIdentifier(project={self.project_name}, ungenerated)"
-    
+
     def __repr__(self) -> str:
         """Detailed representation of the daemon identifier."""
         return (f"DaemonIdentifier(project_name='{self.project_name}', "
@@ -630,9 +631,9 @@ class ProjectDetector:
             is_github = url_info.get("is_github", False)
             username = url_info.get("username")
             return bool(
-                is_github 
-                and username 
-                and self.github_user 
+                is_github
+                and username
+                and self.github_user
                 and username.lower() == self.github_user.lower()
             )
 
@@ -721,17 +722,17 @@ class ProjectDetector:
 
     def create_daemon_identifier(self, path: str = ".", suffix: Optional[str] = None) -> DaemonIdentifier:
         """Create a DaemonIdentifier for the project at the specified path.
-        
+
         Args:
             path: Path to analyze (defaults to current directory)
             suffix: Optional suffix for the identifier
-            
+
         Returns:
             DaemonIdentifier instance for the project
         """
         project_name = self.get_project_name(path)
         project_path = os.path.abspath(path)
-        
+
         return DaemonIdentifier(
             project_name=project_name,
             project_path=project_path,
@@ -753,3 +754,168 @@ class ProjectDetector:
         except Exception as e:
             logger.warning("Failed to detect ecosystems for %s: %s", path, e)
             return []
+
+
+def calculate_tenant_id(project_root: Path) -> str:
+    """
+    Calculate a unique tenant ID for a project root directory.
+
+    This function implements the tenant ID calculation algorithm:
+    1. Try to get git remote URL (prefer origin, fallback to upstream)
+    2. If remote exists: Sanitize URL to create tenant ID
+       - Remove protocol (https://, git@, ssh://)
+       - Replace separators (/, ., :, @) with underscores
+       - Example: github.com/user/repo → github_com_user_repo
+    3. If no remote: Use SHA256 hash of absolute path
+       - Hash first 16 chars: abc123def456789a
+       - Add prefix: path_abc123def456789a
+
+    Args:
+        project_root: Path object pointing to the project root directory
+
+    Returns:
+        Unique tenant ID string
+
+    Examples:
+        >>> calculate_tenant_id(Path("/path/to/repo"))  # with git remote
+        'github_com_user_repo'
+
+        >>> calculate_tenant_id(Path("/path/to/local"))  # without git remote
+        'path_abc123def456789a'
+    """
+    try:
+        # Convert to absolute path string
+        abs_path = str(project_root.resolve())
+
+        # Try to find git repository and get remote URL
+        try:
+            repo = git.Repo(abs_path, search_parent_directories=True)
+
+            # Try origin first, then upstream, then any remote
+            remote_url = None
+            for remote_name in ["origin", "upstream"]:
+                if hasattr(repo.remotes, remote_name):
+                    remote = getattr(repo.remotes, remote_name)
+                    remote_url = str(remote.url)
+                    break
+
+            # Fall back to first available remote if origin/upstream not found
+            if not remote_url and repo.remotes:
+                remote_url = str(repo.remotes[0].url)
+
+            # If we have a remote URL, sanitize it
+            if remote_url:
+                tenant_id = _sanitize_remote_url(remote_url)
+                logger.debug(
+                    "Generated tenant ID from git remote",
+                    project_root=abs_path,
+                    remote_url=remote_url,
+                    tenant_id=tenant_id
+                )
+                return tenant_id
+
+        except (InvalidGitRepositoryError, GitError):
+            # Not a git repository or no remotes, fall through to path hash
+            pass
+
+        # No git remote available, use path hash
+        tenant_id = _generate_path_hash_tenant_id(abs_path)
+        logger.debug(
+            "Generated tenant ID from path hash",
+            project_root=abs_path,
+            tenant_id=tenant_id
+        )
+        return tenant_id
+
+    except Exception as e:
+        # On any error, fall back to path hash
+        logger.warning(
+            "Error calculating tenant ID for %s: %s. Falling back to path hash.",
+            project_root, e
+        )
+        abs_path = str(project_root.resolve())
+        return _generate_path_hash_tenant_id(abs_path)
+
+
+def _sanitize_remote_url(remote_url: str) -> str:
+    """
+    Sanitize a git remote URL to create a tenant ID.
+
+    Removes protocols and replaces separators with underscores.
+
+    Args:
+        remote_url: Git remote URL (HTTPS or SSH format)
+
+    Returns:
+        Sanitized tenant ID string
+
+    Examples:
+        >>> _sanitize_remote_url("https://github.com/user/repo.git")
+        'github_com_user_repo'
+
+        >>> _sanitize_remote_url("git@github.com:user/repo.git")
+        'github_com_user_repo'
+
+        >>> _sanitize_remote_url("ssh://git@gitlab.com:2222/user/project.git")
+        'gitlab_com_2222_user_project'
+    """
+    # Remove common protocols
+    url = remote_url
+    for protocol in ["https://", "http://", "ssh://", "git://"]:
+        if url.startswith(protocol):
+            url = url[len(protocol):]
+            break
+
+    # Remove git@ prefix (SSH format)
+    if url.startswith("git@"):
+        url = url[4:]  # Remove "git@"
+
+    # Remove .git suffix if present
+    if url.endswith(".git"):
+        url = url[:-4]
+
+    # Replace all separators with underscores
+    # Handle separators: / . : @
+    url = url.replace("/", "_")
+    url = url.replace(".", "_")
+    url = url.replace(":", "_")
+    url = url.replace("@", "_")
+
+    # Remove any duplicate underscores
+    while "__" in url:
+        url = url.replace("__", "_")
+
+    # Remove leading/trailing underscores
+    url = url.strip("_")
+
+    return url
+
+
+def _generate_path_hash_tenant_id(abs_path: str) -> str:
+    """
+    Generate a tenant ID from an absolute path using SHA256 hash.
+
+    Creates a hash-based tenant ID with the format: path_{16_char_hash}
+
+    Args:
+        abs_path: Absolute path to the project directory
+
+    Returns:
+        Tenant ID with path_ prefix and 16-character hash
+
+    Examples:
+        >>> _generate_path_hash_tenant_id("/home/user/project")
+        'path_a1b2c3d4e5f67890'
+    """
+    # Normalize path for consistent hashing
+    normalized_path = os.path.normpath(abs_path)
+
+    # Generate SHA256 hash
+    hash_obj = hashlib.sha256(normalized_path.encode('utf-8'))
+    hash_hex = hash_obj.hexdigest()
+
+    # Take first 16 characters of the hash
+    hash_prefix = hash_hex[:16]
+
+    # Return with path_ prefix
+    return f"path_{hash_prefix}"
