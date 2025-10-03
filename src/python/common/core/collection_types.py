@@ -51,7 +51,7 @@ GLOBAL_COLLECTIONS = [
 ]
 
 # Pattern formats for different collection types
-PROJECT_PATTERN = r"^_[a-f0-9]{12}$"  # _{project_id} where project_id is 12-char hex
+PROJECT_PATTERN = r"^_(?:path_[a-f0-9]{16}|[a-z]+_[a-z]+_[a-z0-9_]+)$"  # _{project_id}: path hash OR git remote (requires 2+ underscores)
 SYSTEM_MEMORY_PATTERN = r"^__[a-zA-Z0-9_-]+$"      # __{memory_name}
 PROJECT_MEMORY_PATTERN = r"^[a-zA-Z0-9_-]+-memory$" # {project}-memory (DEPRECATED)
 

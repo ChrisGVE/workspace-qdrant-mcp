@@ -107,9 +107,10 @@ class TestCollectionValidation:
         """Test validation of valid project collection."""
         mock_qdrant_client.get_collection.return_value = create_mock_collection_info()
 
-        result = await migrator.validate_collection("myproject-docs")
+        # New architecture: PROJECT collections use _{project_id} format
+        result = await migrator.validate_collection("_github_com_user_myproject")
 
-        assert result.collection_name == "myproject-docs"
+        assert result.collection_name == "_github_com_user_myproject"
         assert result.detected_type == CollectionType.PROJECT
         assert len(result.errors) == 0
 
@@ -193,11 +194,12 @@ class TestCollectionTypeDetection:
     @pytest.mark.asyncio
     async def test_detect_project_collection_high_confidence(self, migrator):
         """Test detection of properly formatted project collection."""
-        result = await migrator.detect_collection_type("myproject-documents")
+        # New architecture: PROJECT collections use _{project_id} format
+        result = await migrator.detect_collection_type("_github_com_user_myproject")
 
         assert result.detected_type == CollectionType.PROJECT
-        assert result.confidence == 0.9
-        assert "Strong match" in result.detection_reason
+        assert result.confidence == 1.0
+        assert "Exact match" in result.detection_reason
         assert not result.requires_manual_intervention
 
     @pytest.mark.asyncio
@@ -426,8 +428,8 @@ class TestMigrationReporting:
             "__system_cache",
             "_library_docs",
             "_library_utils",
-            "project1-docs",
-            "project2-notes",
+            "_github_com_user_project1",
+            "_path_abc123def456789a",
             "algorithms",
         ]
 
