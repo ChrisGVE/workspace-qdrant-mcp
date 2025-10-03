@@ -1,0 +1,815 @@
+COMPREHENSIVE TEST PLAN FOR TASK 374 ARCHITECTURAL CHANGES
+=================================================================
+
+Project: workspace-qdrant-mcp
+Date: 2025-10-03 18:00
+Task: 374 - Collection Naming Architecture Refactoring
+Status: Test Suite Created (1/10 files implemented, 9 documented)
+
+## OVERVIEW
+
+Task 374 refactored the collection naming architecture from:
+- OLD: `{project}-{suffix}` (e.g., workspace-qdrant-mcp-code, workspace-qdrant-mcp-docs)
+- NEW: `_{project_id}` (single collection per project with metadata-based routing)
+
+This test plan provides comprehensive coverage for all architectural changes.
+
+## ARCHITECTURAL CHANGES TESTED
+
+### 1. Tenant ID Calculation (Task 374.1)
+**File:** `tests/unit/utils/test_tenant_id.py` ✅ IMPLEMENTED
+**Status:** 36/37 tests passing (97%)
+**Coverage:**
+- Git remote URL sanitization (GitHub, GitLab, Bitbucket)
+- SSH and HTTPS protocol handling
+- Custom ports and nested paths
+- Path hash fallback for non-git directories
+- Edge cases (detached HEAD, empty repo, permission errors)
+- Consistency validation
+
+**Test Classes:**
+- `TestCalculateTenantId`: Core tenant ID generation (15 tests)
+- `TestSanitizeRemoteUrl`: URL sanitization logic (10 tests)
+- `TestGeneratePathHashTenantId`: Path hashing fallback (6 tests)
+- `TestTenantIdEdgeCases`: Edge cases and integration (6 tests)
+
+**Key Test Scenarios:**
+✅ GitHub HTTPS URL → `github_com_user_my-repo`
+✅ GitHub SSH URL → `github_com_user_my-repo`
+✅ GitLab HTTPS/SSH → `gitlab_com_user_project`
+✅ Bitbucket HTTPS/SSH → `bitbucket_org_team_repo`
+✅ Custom SSH port → Includes port in ID
+✅ Upstream fallback → Uses upstream when no origin
+✅ No git repo → `path_abc123def456789a`
+✅ Consistency → Same input always produces same output
+
+### 2. Collection Naming Architecture (Task 374.2)
+**File:** `tests/unit/core/test_collection_naming_architecture.py` 📋 DOCUMENTED
+**Expected Coverage:**
+- Project collection pattern: `_{project_id}` validation
+- Library collection pattern: `_{library_name}` validation
+- User collection pattern: `{basename}-{type}` validation
+- Pattern conflict detection
+- Single collection per project enforcement
+- Display name mapping (show without underscore)
+- Reserved name validation
+
+**Required Test Classes:**
+```python
+class TestProjectCollectionNaming:
+    """Test _{project_id} pattern validation"""
+    def test_valid_project_id_format()
+    def test_invalid_project_id_format()
+    def test_project_id_length_validation()
+    def test_project_id_hex_characters_only()
+
+class TestLibraryCollectionNaming:
+    """Test _{library_name} pattern validation"""
+    def test_valid_library_name()
+    def test_invalid_library_name_characters()
+    def test_library_name_length_limits()
+
+class TestUserCollectionNaming:
+    """Test {basename}-{type} pattern validation"""
+    def test_valid_user_collection()
+    def test_invalid_suffix()
+    def test_basename_validation()
+
+class TestPatternConflictDetection:
+    """Test naming conflict prevention"""
+    def test_library_project_conflict()
+    def test_user_reserved_conflict()
+    def test_duplicate_collection_names()
+
+class TestDisplayNameMapping:
+    """Test user-facing display names"""
+    def test_project_display_name()
+    def test_library_display_name()
+    def test_user_collection_unchanged()
+```
+
+**Test Data:**
+```python
+VALID_PROJECT_IDS = ["0f72d776622e", "abc123def456", "000000000000"]
+INVALID_PROJECT_IDS = ["0F72D776622E", "xyz", "0f72d776622", "0f72d776622e0"]
+VALID_LIBRARY_NAMES = ["fastapi", "qdrant-client", "a"]
+INVALID_LIBRARY_NAMES = ["FastAPI", "_fastapi", "fastapi_", "-fastapi"]
+```
+
+### 3. Metadata Schema Extensions (Task 374.3)
+**File:** `tests/unit/core/test_metadata_schema_extended.py` 📋 DOCUMENTED
+**Expected Coverage:**
+- Required fields: `project_id`, `branch`, `file_type`
+- Default values: `branch="main"`
+- Backwards compatibility with existing data
+- Field validation (format, length, type)
+- Symbol fields: `symbols_defined`, `symbols_used`, `imports`, `exports`
+- Collection category classification
+- Workspace scope validation
+
+**Required Test Classes:**
+```python
+class TestMetadataRequiredFields:
+    """Test required metadata fields"""
+    def test_project_id_required()
+    def test_branch_required()
+    def test_file_type_required()
+    def test_missing_field_raises_error()
+
+class TestMetadataDefaultValues:
+    """Test default value assignment"""
+    def test_branch_defaults_to_main()
+    def test_empty_branch_becomes_main()
+    def test_whitespace_branch_becomes_main()
+
+class TestMetadataValidation:
+    """Test field validation rules"""
+    def test_project_id_format_validation()
+    def test_project_id_length_12_chars()
+    def test_branch_length_limit()
+    def test_file_type_enum_values()
+
+class TestSymbolFields:
+    """Test symbol tracking fields"""
+    def test_symbols_defined_list()
+    def test_symbols_used_list()
+    def test_imports_list()
+    def test_exports_list()
+    def test_empty_lists_default()
+
+class TestBackwardsCompatibility:
+    """Test compatibility with old metadata"""
+    def test_load_legacy_metadata_without_branch()
+    def test_load_legacy_metadata_without_file_type()
+    def test_migrate_legacy_to_new_schema()
+```
+
+**Test Data:**
+```python
+VALID_METADATA = {
+    "project_id": "0f72d776622e",
+    "branch": "feature/auth",
+    "file_type": "code",
+    "symbols_defined": ["MyClass", "my_function"],
+    "symbols_used": ["import os", "from pathlib import Path"],
+}
+INVALID_METADATA = [
+    {"project_id": "invalid"},  # Wrong format
+    {"project_id": "0f72d776622e", "branch": ""},  # Empty branch
+    {"project_id": "0f72d776622e", "file_type": "invalid"},  # Invalid file type
+]
+```
+
+### 4. Branch Support (Task 374.4)
+**File:** `tests/unit/utils/test_git_branch_integration.py` 📋 DOCUMENTED
+**Expected Coverage:**
+- Branch detection in various git states
+- Branch filtering in queries
+- Multi-branch isolation
+- Branch metadata attachment to documents
+- Default branch handling ("main")
+
+**Required Test Classes:**
+```python
+class TestBranchDetection:
+    """Test Git branch detection"""
+    def test_detect_current_branch()
+    def test_detect_branch_from_subdirectory()
+    def test_detached_head_returns_main()
+    def test_no_commits_returns_main()
+    def test_non_git_directory_returns_main()
+
+class TestBranchFiltering:
+    """Test branch-based query filtering"""
+    def test_filter_by_single_branch()
+    def test_filter_by_multiple_branches()
+    def test_exclude_other_branches()
+    def test_branch_isolation_between_queries()
+
+class TestMultiBranchSupport:
+    """Test multi-branch isolation"""
+    def test_same_file_different_branches()
+    def test_branch_switching_updates_metadata()
+    def test_concurrent_branch_writes()
+
+class TestBranchMetadata:
+    """Test branch metadata attachment"""
+    def test_attach_branch_to_document()
+    def test_branch_in_qdrant_payload()
+    def test_query_by_branch_filter()
+```
+
+**Test Scenarios:**
+```python
+# Branch detection scenarios
+test_scenarios = [
+    ("main", "main"),
+    ("feature/new-api", "feature/new-api"),
+    ("hotfix/bug-123", "hotfix/bug-123"),
+    ("<detached>", "main"),  # Detached HEAD
+    (None, "main"),  # No commits
+]
+
+# Query filtering scenarios
+query_tests = [
+    ("main", should_include=["main_doc1", "main_doc2"], should_exclude=["dev_doc1"]),
+    ("dev", should_include=["dev_doc1"], should_exclude=["main_doc1"]),
+]
+```
+
+### 5. File Type Classification (Task 374.5)
+**File:** `tests/unit/core/test_file_type_classification.py` 📋 DOCUMENTED
+**Expected Coverage:**
+- Code file detection (Python, Rust, JS, TS, Go, Java, C++)
+- Test file detection (test_*, *_test.*, *.spec.*, *.test.*)
+- Docs file detection (Markdown, RST, PDF)
+- Config file detection (YAML, JSON, TOML, INI, env)
+- Data file detection (CSV, Parquet, JSON, SQLite)
+- Build artifact detection (wheels, jars, libraries)
+- Edge cases (JSON as config vs data, XML context-aware)
+
+**Required Test Classes:**
+```python
+class TestCodeFileDetection:
+    """Test code file classification"""
+    def test_python_files()
+    def test_rust_files()
+    def test_javascript_files()
+    def test_typescript_files()
+    def test_go_files()
+    def test_java_kotlin_scala()
+    def test_cpp_files()
+    def test_shell_scripts()
+
+class TestTestFileDetection:
+    """Test test file classification"""
+    def test_prefix_test_files()  # test_*.py
+    def test_suffix_test_files()  # *_test.rs
+    def test_spec_files()  # *.spec.ts
+    def test_dot_test_files()  # *.test.js
+    def test_conftest_files()
+    def test_test_directory_files()
+
+class TestDocsFileDetection:
+    """Test documentation classification"""
+    def test_markdown_files()
+    def test_rst_files()
+    def test_txt_files()
+    def test_pdf_files()
+    def test_asciidoc_files()
+
+class TestConfigFileDetection:
+    """Test configuration file classification"""
+    def test_yaml_files()
+    def test_json_config_files()
+    def test_toml_files()
+    def test_ini_files()
+    def test_env_files()
+
+class TestDataFileDetection:
+    """Test data file classification"""
+    def test_csv_files()
+    def test_parquet_files()
+    def test_json_data_files()
+    def test_sqlite_files()
+    def test_pickle_files()
+
+class TestBuildArtifactDetection:
+    """Test build artifact classification"""
+    def test_wheel_files()
+    def test_jar_files()
+    def test_shared_libraries()
+    def test_executables()
+
+class TestEdgeCases:
+    """Test classification edge cases"""
+    def test_json_in_config_directory()
+    def test_json_in_data_directory()
+    def test_xml_context_aware()
+    def test_unknown_extension_returns_other()
+```
+
+**Test Data:**
+```python
+CODE_FILES = {
+    "main.py": "code",
+    "lib.rs": "code",
+    "app.ts": "code",
+    "server.go": "code",
+}
+TEST_FILES = {
+    "test_auth.py": "test",
+    "auth_test.rs": "test",
+    "login.spec.ts": "test",
+    "api.test.js": "test",
+}
+DOCS_FILES = {
+    "README.md": "docs",
+    "guide.rst": "docs",
+    "manual.pdf": "docs",
+}
+CONFIG_FILES = {
+    "config.yaml": "config",
+    "settings.json": "config",
+    "pyproject.toml": "config",
+}
+```
+
+### 6. Auto-Ingestion Routing (Task 374.6)
+**File:** `tests/integration/test_auto_ingestion_routing.py` 📋 DOCUMENTED
+**Expected Coverage:**
+- All files route to single `_{project_id}` collection
+- Metadata enrichment (project_id, branch, file_type)
+- No collection proliferation
+- Cross-file-type queries with filtering
+
+**Required Test Classes:**
+```python
+@pytest.mark.requires_qdrant
+class TestSingleCollectionRouting:
+    """Test all files go to single collection"""
+    async def test_code_to_project_collection()
+    async def test_docs_to_project_collection()
+    async def test_tests_to_project_collection()
+    async def test_config_to_project_collection()
+
+@pytest.mark.requires_qdrant
+class TestMetadataEnrichment:
+    """Test metadata is added during ingestion"""
+    async def test_project_id_in_metadata()
+    async def test_branch_in_metadata()
+    async def test_file_type_in_metadata()
+    async def test_all_metadata_fields_present()
+
+@pytest.mark.requires_qdrant
+class TestNoCollectionProliferation:
+    """Test collection count stays minimal"""
+    async def test_single_collection_created()
+    async def test_no_suffix_collections_created()
+    async def test_collection_count_unchanged()
+
+@pytest.mark.requires_qdrant
+class TestCrossFileTypeQueries:
+    """Test querying across file types"""
+    async def test_query_all_file_types()
+    async def test_filter_by_file_type()
+    async def test_filter_by_branch()
+    async def test_combined_filters()
+```
+
+**Test Scenarios:**
+```python
+# Ingestion routing scenarios
+ingestion_tests = [
+    ("src/main.py", "_{project_id}", "code"),
+    ("docs/README.md", "_{project_id}", "docs"),
+    ("tests/test_auth.py", "_{project_id}", "test"),
+    ("config.yaml", "_{project_id}", "config"),
+]
+
+# Query scenarios
+query_tests = [
+    ({"file_type": "code"}, expected_count=10),
+    ({"file_type": "test"}, expected_count=5),
+    ({"branch": "main"}, expected_count=15),
+    ({"file_type": "code", "branch": "dev"}, expected_count=3),
+]
+```
+
+### 7. Collection Alias System (Task 374.7)
+**File:** `tests/unit/core/test_collection_aliases.py` 📋 DOCUMENTED
+**Expected Coverage:**
+- Alias creation (old → new collection)
+- Alias removal
+- Alias listing
+- Zero-downtime migration support
+- Alias resolution in queries
+
+**Required Test Classes:**
+```python
+class TestAliasCreation:
+    """Test creating collection aliases"""
+    def test_create_simple_alias()
+    def test_create_multiple_aliases()
+    def test_overwrite_existing_alias()
+    def test_invalid_alias_name()
+
+class TestAliasRemoval:
+    """Test removing collection aliases"""
+    def test_remove_alias()
+    def test_remove_nonexistent_alias()
+    def test_remove_all_aliases()
+
+class TestAliasListing:
+    """Test listing aliases"""
+    def test_list_all_aliases()
+    def test_list_aliases_for_collection()
+    def test_empty_alias_list()
+
+class TestAliasResolution:
+    """Test alias resolution in queries"""
+    def test_query_via_alias()
+    def test_query_via_actual_name()
+    def test_alias_points_to_new_collection()
+
+class TestMigrationSupport:
+    """Test zero-downtime migration"""
+    def test_old_name_still_works()
+    def test_new_name_works()
+    def test_both_names_point_to_same_data()
+```
+
+**Test Data:**
+```python
+# Alias scenarios
+alias_tests = [
+    ("workspace-qdrant-mcp-code", "_0f72d776622e"),
+    ("workspace-qdrant-mcp-docs", "_0f72d776622e"),
+    ("workspace-qdrant-mcp-tests", "_0f72d776622e"),
+]
+```
+
+### 8. Migration Tooling (Task 374.8)
+**File:** `tests/integration/test_collection_migration.py` 📋 DOCUMENTED
+**Expected Coverage:**
+- Detection of old `{project}-{suffix}` collections
+- Migration planning
+- Data preservation during migration
+- Metadata enrichment (adding project_id, branch, file_type)
+- Rollback capability
+- Backup verification
+
+**Required Test Classes:**
+```python
+@pytest.mark.requires_qdrant
+class TestMigrationDetection:
+    """Test detecting old collections"""
+    async def test_detect_old_suffix_collections()
+    async def test_detect_migration_candidates()
+    async def test_skip_already_migrated()
+
+@pytest.mark.requires_qdrant
+class TestMigrationPlanning:
+    """Test migration plan generation"""
+    async def test_create_migration_plan()
+    async def test_estimate_migration_time()
+    async def test_identify_metadata_gaps()
+
+@pytest.mark.requires_qdrant
+class TestDataPreservation:
+    """Test data integrity during migration"""
+    async def test_all_documents_migrated()
+    async def test_vectors_preserved()
+    async def test_metadata_preserved()
+    async def test_no_data_loss()
+
+@pytest.mark.requires_qdrant
+class TestMetadataEnrichment:
+    """Test metadata addition during migration"""
+    async def test_add_project_id()
+    async def test_add_branch_metadata()
+    async def test_add_file_type_metadata()
+    async def test_preserve_existing_metadata()
+
+@pytest.mark.requires_qdrant
+class TestRollback:
+    """Test migration rollback"""
+    async def test_rollback_preserves_original()
+    async def test_rollback_removes_new_collection()
+    async def test_rollback_restores_aliases()
+
+@pytest.mark.requires_qdrant
+class TestBackupVerification:
+    """Test backup creation and verification"""
+    async def test_backup_created()
+    async def test_backup_complete()
+    async def test_restore_from_backup()
+```
+
+**Test Scenarios:**
+```python
+# Migration scenarios
+migration_tests = [
+    # (old_collections, expected_new_collection, metadata_additions)
+    (
+        ["workspace-qdrant-mcp-code", "workspace-qdrant-mcp-docs"],
+        "_0f72d776622e",
+        {"project_id": "0f72d776622e", "branch": "main", "file_type": "code"}
+    ),
+]
+```
+
+### 9. Integration Tests (Task 374.9)
+**File:** `tests/integration/test_collection_architecture_integration.py` 📋 DOCUMENTED
+**Expected Coverage:**
+- End-to-end ingestion pipeline
+- Query with branch filtering
+- Query with file_type filtering
+- Symbol search across single collection
+- Cross-component workflow
+
+**Required Test Classes:**
+```python
+@pytest.mark.requires_qdrant
+class TestEndToEndIngestion:
+    """Test complete ingestion workflow"""
+    async def test_project_setup_and_ingestion()
+    async def test_multi_file_type_ingestion()
+    async def test_multi_branch_ingestion()
+
+@pytest.mark.requires_qdrant
+class TestQueryWorkflows:
+    """Test query patterns"""
+    async def test_query_by_file_type()
+    async def test_query_by_branch()
+    async def test_query_by_symbols()
+    async def test_combined_filters()
+
+@pytest.mark.requires_qdrant
+class TestSymbolSearch:
+    """Test symbol-based search"""
+    async def test_find_symbol_definitions()
+    async def test_find_symbol_uses()
+    async def test_cross_file_symbol_search()
+
+@pytest.mark.requires_qdrant
+class TestCrossComponentWorkflow:
+    """Test integration across components"""
+    async def test_mcp_server_to_qdrant()
+    async def test_cli_to_daemon_to_qdrant()
+    async def test_watch_to_ingestion_to_search()
+```
+
+**Test Scenarios:**
+```python
+# Integration test scenarios
+integration_tests = [
+    {
+        "name": "Full project ingestion",
+        "setup": create_test_project_structure,
+        "ingest": ingest_all_files,
+        "verify": verify_single_collection_created,
+        "query": search_across_file_types,
+    },
+]
+```
+
+### 10. Configuration Tests (Task 374.10)
+**File:** `tests/unit/core/test_configuration_architecture.py` 📋 DOCUMENTED
+**Expected Coverage:**
+- `auto_create_project_collections` setting
+- Deprecation warning for old `project_collection` setting
+- Default values
+- Configuration validation
+
+**Required Test Classes:**
+```python
+class TestNewConfiguration:
+    """Test new configuration settings"""
+    def test_auto_create_project_collections_default()
+    def test_auto_create_project_collections_true()
+    def test_auto_create_project_collections_false()
+
+class TestDeprecatedConfiguration:
+    """Test deprecation warnings"""
+    def test_project_collection_deprecated_warning()
+    def test_migration_guidance_provided()
+    def test_old_config_still_works()
+
+class TestDefaultValues:
+    """Test configuration defaults"""
+    def test_default_auto_create_true()
+    def test_fallback_configuration()
+
+class TestConfigurationValidation:
+    """Test configuration validation"""
+    def test_validate_boolean_type()
+    def test_invalid_config_raises_error()
+```
+
+**Test Data:**
+```python
+# Configuration scenarios
+config_tests = [
+    ({"auto_create_project_collections": True}, expected_behavior="auto_create"),
+    ({"auto_create_project_collections": False}, expected_behavior="manual_only"),
+    ({"project_collection": "old_value"}, expected_warning="deprecated"),
+]
+```
+
+## TEST EXECUTION STRATEGY
+
+### Phase 1: Unit Tests (Local, Fast)
+```bash
+# Run all unit tests
+uv run pytest tests/unit/ -v
+
+# Run specific component tests
+uv run pytest tests/unit/utils/test_tenant_id.py -v
+uv run pytest tests/unit/core/test_collection_naming_architecture.py -v
+uv run pytest tests/unit/core/test_metadata_schema_extended.py -v
+```
+
+### Phase 2: Integration Tests (Requires Qdrant)
+```bash
+# Run all integration tests
+uv run pytest tests/integration/ -v --requires-qdrant
+
+# Run specific integration tests
+uv run pytest tests/integration/test_auto_ingestion_routing.py -v
+uv run pytest tests/integration/test_collection_migration.py -v
+```
+
+### Phase 3: End-to-End Tests
+```bash
+# Full system test
+uv run pytest tests/integration/test_collection_architecture_integration.py -v
+```
+
+## COVERAGE GOALS
+
+Target: >90% code coverage for architectural changes
+
+**Coverage by Component:**
+- `project_detection.py`: 100% (calculate_tenant_id, sanitize_remote_url)
+- `collection_naming.py`: 100% (all naming patterns, validation)
+- `metadata_schema.py`: 100% (schema validation, defaults, compatibility)
+- `git_utils.py`: 100% (branch detection, all edge cases)
+- `file_type_classifier.py`: 100% (all file type detection logic)
+- `auto_ingestion.py`: 95% (routing logic, metadata enrichment)
+- `collection_aliases.py`: 100% (alias CRUD operations)
+- Migration tooling: 90% (migration workflows, rollback)
+
+**Coverage Verification:**
+```bash
+uv run pytest tests/unit/ tests/integration/ --cov=src/python/common --cov-report=html
+open htmlcov/index.html
+```
+
+## PYTEST MARKS AND FIXTURES
+
+### Custom Marks
+```python
+@pytest.mark.requires_qdrant  # Tests needing live Qdrant server
+@pytest.mark.requires_git     # Tests needing git repository setup
+@pytest.mark.slow             # Tests that take >1 second
+@pytest.mark.integration      # Integration tests
+```
+
+### Common Fixtures
+```python
+@pytest.fixture
+def temp_git_repo():
+    """Create temporary git repository for testing"""
+
+@pytest.fixture
+async def qdrant_client():
+    """Provide Qdrant client for integration tests"""
+
+@pytest.fixture
+def sample_metadata():
+    """Provide sample metadata for testing"""
+
+@pytest.fixture
+def collection_names():
+    """Provide test collection names"""
+```
+
+## TEST DATA MANAGEMENT
+
+### Test Collections
+```python
+# Project collections
+TEST_PROJECT_COLLECTIONS = [
+    "_0f72d776622e",  # workspace-qdrant-mcp
+    "_abc123def456",  # test-project-1
+    "_fedcba987654",  # test-project-2
+]
+
+# Library collections
+TEST_LIBRARY_COLLECTIONS = [
+    "_fastapi",
+    "_qdrant-client",
+    "_pytest",
+]
+
+# User collections
+TEST_USER_COLLECTIONS = [
+    "myapp-notes",
+    "project-bookmarks",
+    "team-snippets",
+]
+```
+
+### Test Documents
+```python
+# Sample documents for ingestion tests
+TEST_DOCUMENTS = {
+    "code": {
+        "content": "def my_function():\n    pass",
+        "metadata": {
+            "file_type": "code",
+            "symbols_defined": ["my_function"],
+        }
+    },
+    "test": {
+        "content": "def test_my_function():\n    assert True",
+        "metadata": {
+            "file_type": "test",
+            "symbols_used": ["my_function"],
+        }
+    },
+}
+```
+
+## CONTINUOUS INTEGRATION
+
+### GitHub Actions Workflow
+```yaml
+name: Task 374 Tests
+
+on: [push, pull_request]
+
+jobs:
+  unit-tests:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+      - name: Run unit tests
+        run: uv run pytest tests/unit/ -v
+
+  integration-tests:
+    runs-on: ubuntu-latest
+    services:
+      qdrant:
+        image: qdrant/qdrant:latest
+        ports:
+          - 6333:6333
+    steps:
+      - uses: actions/checkout@v3
+      - name: Run integration tests
+        run: uv run pytest tests/integration/ -v --requires-qdrant
+```
+
+## TESTING BEST PRACTICES
+
+1. **Isolation**: Each test should be independent and not rely on test execution order
+2. **Cleanup**: Use fixtures with teardown to clean up test data
+3. **Mocking**: Mock external dependencies (git, Qdrant) for unit tests
+4. **Real Data**: Use real Qdrant for integration tests
+5. **Assertions**: Use descriptive assertion messages
+6. **Documentation**: Each test has clear docstring explaining what it validates
+7. **Edge Cases**: Test boundary conditions and error scenarios
+8. **Performance**: Mark slow tests appropriately
+
+## IMPLEMENTATION STATUS
+
+### Completed ✅
+1. `tests/unit/utils/test_tenant_id.py` - 36/37 tests passing (97%)
+
+### Documented 📋
+2. `tests/unit/core/test_collection_naming_architecture.py`
+3. `tests/unit/core/test_metadata_schema_extended.py`
+4. `tests/unit/utils/test_git_branch_integration.py`
+5. `tests/unit/core/test_file_type_classification.py`
+6. `tests/integration/test_auto_ingestion_routing.py`
+7. `tests/unit/core/test_collection_aliases.py`
+8. `tests/integration/test_collection_migration.py`
+9. `tests/integration/test_collection_architecture_integration.py`
+10. `tests/unit/core/test_configuration_architecture.py`
+
+### Next Steps
+- Implement remaining test files following documented patterns
+- Run full test suite and verify >90% coverage
+- Add any missing edge cases discovered during implementation
+- Update CI/CD to include Task 374 test suite
+
+## ESTIMATED EFFORT
+
+- Test file creation: 8-10 hours (1-1.5 hours per file)
+- Fixture development: 2-3 hours
+- CI/CD integration: 1-2 hours
+- Coverage verification and gap filling: 2-3 hours
+- **Total: 13-18 hours**
+
+## SUCCESS CRITERIA
+
+✅ All 10 test files implemented
+✅ >90% code coverage for architectural changes
+✅ All tests passing in CI/CD
+✅ Integration tests pass with live Qdrant
+✅ Documentation complete for all test scenarios
+✅ Test execution time <5 minutes for unit tests
+✅ Test execution time <10 minutes for integration tests
+
+## REFERENCES
+
+- Task 374 PRD: See `.taskmaster/docs/` for architecture specification
+- Implementation files: See file paths in each section above
+- Existing test patterns: `tests/unit/test_project_detection_comprehensive.py`
+- Testing framework: pytest with async support
+
+---
+Generated: 2025-10-03 18:00
+Author: Claude Code (test-automator agent)
+Status: Living document - update as tests are implemented
