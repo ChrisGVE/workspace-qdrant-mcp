@@ -97,6 +97,7 @@ from .commands.service import service_app
 from .commands.tools import tools_app
 from .commands.watch import watch_app
 from .commands.error_reporting import errors_app
+from .commands.project import project_app
 # SECURITY: Web UI temporarily disabled due to critical vulnerabilities
 # from .commands.web import web_app
 from .observability import observability_app
@@ -166,6 +167,10 @@ app.add_typer(
 # Add error reporting and statistics commands
 app.add_typer(
     errors_app, name="errors", help="Error statistics, trends, and comprehensive reporting"
+)
+# Add project alias management commands
+app.add_typer(
+    project_app, name="project", help="Project collection alias management"
 )
 
 
