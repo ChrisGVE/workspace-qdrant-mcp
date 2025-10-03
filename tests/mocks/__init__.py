@@ -53,11 +53,9 @@ from .qdrant_mocks import (
 
 from .filesystem_mocks import (
     FileSystemMock,
-    FileWatcherMock,
     DirectoryOperationMock,
     FileSystemErrorInjector,
     create_filesystem_mock,
-    create_file_watcher_mock,
     create_directory_operation_mock,
 )
 
@@ -125,7 +123,6 @@ __all__ = [
 
     # Filesystem mocks
     "FileSystemMock",
-    "FileWatcherMock",
     "DirectoryOperationMock",
     "create_filesystem_mock",
 

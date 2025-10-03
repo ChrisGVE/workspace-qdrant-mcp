@@ -2,7 +2,7 @@
 File system operation mocking for comprehensive testing.
 
 Provides sophisticated mocking for file system operations including
-reading, writing, directory operations, file watching, and failure scenarios.
+reading, writing, directory operations, and failure scenarios.
 """
 
 import asyncio
@@ -57,7 +57,6 @@ class FileSystemMock:
         self.virtual_filesystem: Dict[str, Any] = {}
         self.operation_history: List[Dict[str, Any]] = []
         self.open_files: Set[str] = set()
-        self.watched_paths: Dict[str, List[Any]] = {}
 
         # Setup method mocks
         self._setup_file_operations()
@@ -372,101 +371,6 @@ class FileSystemMock:
         self.virtual_filesystem.clear()
         self.operation_history.clear()
         self.open_files.clear()
-        self.watched_paths.clear()
-        self.error_injector.reset()
-
-
-class FileWatcherMock:
-    """Mock for file watching functionality."""
-
-    def __init__(self, error_injector: Optional[FileSystemErrorInjector] = None):
-        self.error_injector = error_injector or FileSystemErrorInjector()
-        self.watched_paths: Dict[str, Dict[str, Any]] = {}
-        self.event_handlers: Dict[str, List[Any]] = {}
-        self.operation_history: List[Dict[str, Any]] = []
-        self.running = False
-
-        # Setup method mocks
-        self.start_watching = AsyncMock(side_effect=self._mock_start_watching)
-        self.stop_watching = AsyncMock(side_effect=self._mock_stop_watching)
-        self.add_watch = Mock(side_effect=self._mock_add_watch)
-        self.remove_watch = Mock(side_effect=self._mock_remove_watch)
-
-    async def _mock_start_watching(self) -> None:
-        """Mock starting file watching."""
-        if self.error_injector.should_inject_error():
-            raise OSError("Failed to start file watcher")
-
-        self.running = True
-        self.operation_history.append({
-            "operation": "start_watching",
-            "timestamp": asyncio.get_event_loop().time()
-        })
-
-    async def _mock_stop_watching(self) -> None:
-        """Mock stopping file watching."""
-        self.running = False
-        self.operation_history.append({
-            "operation": "stop_watching",
-            "timestamp": asyncio.get_event_loop().time()
-        })
-
-    def _mock_add_watch(self, path: str, event_types: List[str]) -> str:
-        """Mock adding a watch for a path."""
-        if self.error_injector.should_inject_error():
-            raise OSError(f"Failed to watch path: {path}")
-
-        watch_id = f"watch_{len(self.watched_paths)}"
-        self.watched_paths[watch_id] = {
-            "path": path,
-            "event_types": event_types,
-            "active": True
-        }
-
-        self.operation_history.append({
-            "operation": "add_watch",
-            "path": path,
-            "event_types": event_types,
-            "watch_id": watch_id
-        })
-
-        return watch_id
-
-    def _mock_remove_watch(self, watch_id: str) -> None:
-        """Mock removing a watch."""
-        if watch_id in self.watched_paths:
-            self.watched_paths[watch_id]["active"] = False
-
-            self.operation_history.append({
-                "operation": "remove_watch",
-                "watch_id": watch_id
-            })
-
-    def simulate_file_event(self, path: str, event_type: str) -> None:
-        """Simulate a file system event."""
-        for watch_id, watch_info in self.watched_paths.items():
-            if (watch_info["active"] and
-                path.startswith(watch_info["path"]) and
-                event_type in watch_info["event_types"]):
-
-                # Trigger event handlers if any
-                if path in self.event_handlers:
-                    for handler in self.event_handlers[path]:
-                        try:
-                            handler(path, event_type)
-                        except Exception:
-                            pass  # Ignore handler errors in mock
-
-    def get_watched_paths(self) -> Dict[str, Dict[str, Any]]:
-        """Get currently watched paths."""
-        return {k: v for k, v in self.watched_paths.items() if v["active"]}
-
-    def reset_state(self) -> None:
-        """Reset watcher state."""
-        self.watched_paths.clear()
-        self.event_handlers.clear()
-        self.operation_history.clear()
-        self.running = False
         self.error_injector.reset()
 
 
@@ -560,19 +464,6 @@ def create_filesystem_mock(
         error_injector.configure_io_issues(error_probability)
 
     return FileSystemMock(error_injector)
-
-
-def create_file_watcher_mock(
-    with_error_injection: bool = False,
-    error_probability: float = 0.1
-) -> FileWatcherMock:
-    """Create a file watcher mock with optional error injection."""
-    error_injector = None
-    if with_error_injection:
-        error_injector = FileSystemErrorInjector()
-        error_injector.configure_resource_issues(error_probability)
-
-    return FileWatcherMock(error_injector)
 
 
 def create_directory_operation_mock(

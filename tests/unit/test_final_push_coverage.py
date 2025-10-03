@@ -39,7 +39,6 @@ class TestFinalPushCoverage:
             'smart_ingestion_router',
             'collection_manager_integration',
             'collision_detection',
-            'persistent_file_watcher',
             'metadata_optimization',
             'resource_manager',
             'priority_queue_manager',
