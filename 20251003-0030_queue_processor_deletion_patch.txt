@@ -1,0 +1,15 @@
+[38;2;127;132;156m   1[0m [38;2;205;214;244mThis file contains the changes needed to integrate deletion strategies into queue_processor.rs:[0m
+[38;2;127;132;156m   2[0m 
+[38;2;127;132;156m   3[0m [38;2;205;214;244m1. Import deletion strategy modules at top of file[0m
+[38;2;127;132;156m   4[0m [38;2;205;214;244m2. Add deletion metrics to ProcessingMetrics[0m
+[38;2;127;132;156m   5[0m [38;2;205;214;244m3. Update execute_operation to pass pool to execute_delete[0m
+[38;2;127;132;156m   6[0m [38;2;205;214;244m4. Replace execute_delete implementation to use deletion strategies[0m
+[38;2;127;132;156m   7[0m [38;2;205;214;244m5. Add batch cleanup scheduler to QueueProcessor struct and start() method[0m
+[38;2;127;132;156m   8[0m [38;2;205;214;244m6. Update metrics tracking for deletion modes[0m
+[38;2;127;132;156m   9[0m 
+[38;2;127;132;156m  10[0m [38;2;205;214;244mKey changes:[0m
+[38;2;127;132;156m  11[0m [38;2;205;214;244m- execute_delete now detects collection type and uses appropriate strategy[0m
+[38;2;127;132;156m  12[0m [38;2;205;214;244m- Dynamic deletions: immediate Qdrant point deletion[0m
+[38;2;127;132;156m  13[0m [38;2;205;214;244m- Cumulative deletions: mark in database for batch cleanup[0m
+[38;2;127;132;156m  14[0m [38;2;205;214;244m- New batch cleanup task runs periodically[0m
+[38;2;127;132;156m  15[0m [38;2;205;214;244m- Metrics track both deletion types separately[0m
