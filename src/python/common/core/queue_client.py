@@ -48,6 +48,8 @@ from loguru import logger
 
 from .queue_connection import QueueConnectionPool, ConnectionConfig
 from .collection_types import CollectionTypeClassifier
+from .error_message_manager import ErrorMessageManager
+from .error_categorization import ErrorCategorizer, ErrorCategory, ErrorSeverity
 
 
 class QueueOperation(Enum):
@@ -100,7 +102,7 @@ class QueueItem:
             retry_count=row["retry_count"],
             retry_from=row["retry_from"],
             error_message_id=row["error_message_id"],
-            collection_type=row.get("collection_type"),  # May be None for legacy items
+            collection_type=row["collection_type"] if "collection_type" in row.keys() else None,  # May be None for legacy items
         )
 
     def to_dict(self) -> Dict[str, Any]:
@@ -145,6 +147,7 @@ class SQLiteQueueClient:
             config=connection_config or ConnectionConfig()
         )
         self._initialized = False
+        self.error_manager: Optional[ErrorMessageManager] = None
 
     def _get_default_db_path(self) -> str:
         """Get default database path from OS directories."""
@@ -159,6 +162,14 @@ class SQLiteQueueClient:
             return
 
         await self.connection_pool.initialize()
+
+        # Initialize error message manager
+        self.error_manager = ErrorMessageManager(
+            db_path=self.connection_pool.db_path,
+            connection_config=ConnectionConfig()
+        )
+        await self.error_manager.initialize()
+
         self._initialized = True
         logger.info("SQLite queue client initialized")
 
@@ -166,6 +177,9 @@ class SQLiteQueueClient:
         """Close the queue client."""
         if not self._initialized:
             return
+
+        if self.error_manager:
+            await self.error_manager.close()
 
         await self.connection_pool.close()
         self._initialized = False
@@ -375,67 +389,92 @@ class SQLiteQueueClient:
     async def mark_error(
         self,
         file_path: str,
-        error_type: str,
-        error_message: str,
-        error_details: Optional[Dict[str, Any]] = None,
+        exception: Optional[Exception] = None,
+        error_message: Optional[str] = None,
+        error_context: Optional[Dict[str, Any]] = None,
         max_retries: int = 3
     ) -> Tuple[bool, Optional[int]]:
         """
         Mark a file as having an error and update retry count.
 
+        Uses ErrorMessageManager for automatic categorization and error tracking.
         If retry count exceeds max_retries, removes from queue.
         Otherwise, increments retry_count and links error message.
 
         Args:
             file_path: File path (queue ID)
-            error_type: Error type classification
-            error_message: Error message
-            error_details: Optional error details (JSON)
+            exception: The exception object (if available)
+            error_message: Error message override (defaults to exception message)
+            error_context: Additional error context (merged with queue item context)
             max_retries: Maximum retry attempts
 
         Returns:
             Tuple of (should_retry, error_message_id)
+
+        Raises:
+            ValueError: If neither exception nor error_message provided
+            RuntimeError: If ErrorMessageManager not initialized
         """
+        if not exception and not error_message:
+            raise ValueError("Either exception or error_message must be provided")
+
+        if not self.error_manager:
+            raise RuntimeError("ErrorMessageManager not initialized. Call initialize() first.")
+
         file_absolute_path = str(Path(file_path).resolve())
 
         async with self.connection_pool.get_connection_async() as conn:
-            # First, insert error message
-            error_query = """
-                INSERT INTO messages (
-                    error_type, error_message, error_details,
-                    file_path, collection_name
-                ) VALUES (?, ?, ?, ?, (
-                    SELECT collection_name FROM ingestion_queue
-                    WHERE file_absolute_path = ?
-                ))
-            """
-
-            error_details_json = json.dumps(error_details) if error_details else None
-
-            cursor = conn.execute(error_query, (
-                error_type,
-                error_message,
-                error_details_json,
-                file_absolute_path,
-                file_absolute_path
-            ))
-
-            error_message_id = cursor.lastrowid
-
-            # Get current retry count
+            # Get current queue item context
             cursor = conn.execute(
-                "SELECT retry_count FROM ingestion_queue WHERE file_absolute_path = ?",
+                """
+                SELECT retry_count, collection_name, tenant_id, branch
+                FROM ingestion_queue
+                WHERE file_absolute_path = ?
+                """,
                 (file_absolute_path,)
             )
             row = cursor.fetchone()
 
             if not row:
                 logger.warning(f"File not found in queue: {file_absolute_path}")
-                conn.commit()
-                return False, error_message_id
+                # Still record the error even if queue item not found
+                context = error_context or {}
+                context.update({
+                    "file_path": file_absolute_path,
+                    "queue_type": "ingestion_queue",
+                    "queue_item_not_found": True
+                })
 
-            current_retry_count = row[0]
+                error_id = await self.error_manager.record_error(
+                    exception=exception,
+                    context=context,
+                    message_override=error_message
+                )
+                return False, error_id
+
+            current_retry_count = row["retry_count"]
+            collection_name = row["collection_name"]
+            tenant_id = row["tenant_id"]
+            branch = row["branch"]
             new_retry_count = current_retry_count + 1
+
+            # Build complete error context
+            context = error_context or {}
+            context.update({
+                "file_path": file_absolute_path,
+                "collection": collection_name,
+                "tenant_id": tenant_id,
+                "branch": branch,
+                "retry_count": new_retry_count,
+                "queue_type": "ingestion_queue"
+            })
+
+            # Record error using ErrorMessageManager
+            error_id = await self.error_manager.record_error(
+                exception=exception,
+                context=context,
+                message_override=error_message
+            )
 
             if new_retry_count >= max_retries:
                 # Max retries reached, remove from queue
@@ -445,10 +484,10 @@ class SQLiteQueueClient:
                 )
                 logger.warning(
                     f"Max retries ({max_retries}) reached for {file_absolute_path}, "
-                    f"removing from queue"
+                    f"removing from queue (error_id={error_id})"
                 )
                 conn.commit()
-                return False, error_message_id
+                return False, error_id
 
             else:
                 # Update retry count and link error
@@ -460,17 +499,17 @@ class SQLiteQueueClient:
 
                 conn.execute(update_query, (
                     new_retry_count,
-                    error_message_id,
+                    error_id,
                     file_absolute_path
                 ))
 
                 logger.debug(
                     f"Updated error for {file_absolute_path}: "
-                    f"retry {new_retry_count}/{max_retries}"
+                    f"retry {new_retry_count}/{max_retries} (error_id={error_id})"
                 )
 
                 conn.commit()
-                return True, error_message_id
+                return True, error_id
 
     async def get_queue_stats(
         self,
@@ -804,7 +843,7 @@ class SQLiteQueueClient:
         """
         query = """
             DELETE FROM messages
-            WHERE created_timestamp < datetime('now', ? || ' hours')
+            WHERE timestamp < datetime('now', ? || ' hours')
         """
 
         params = [f"-{retention_hours}"]
