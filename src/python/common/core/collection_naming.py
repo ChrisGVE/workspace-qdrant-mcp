@@ -4,18 +4,19 @@ Collection naming system for workspace-qdrant-mcp.
 This module implements the reserved collection naming architecture including:
 - Memory collection for user preferences and LLM behavioral rules
 - Underscore-prefixed library collections (_name pattern)
-- Project collections with automatic creation
+- Underscore-prefixed project collections (_{project_id} pattern)
 - Collection name validation and conflict prevention
 - Display name mapping for user-facing interfaces
 
 The naming system enforces these patterns:
 1. Memory Collection: 'memory' (reserved)
 2. Library Collections: '_{name}' (readonly from MCP, user-defined via CLI)
-3. Project Collections: '{project-name}-{type}' (auto-created based on detection)
+3. Project Collections: '_{project_id}' (12-char hex hash, auto-created, read/write via MCP)
+4. User Collections: '{name}-{suffix}' (user-created collections)
 
 Key features:
 - Hard error prevention for naming conflicts
-- Display name mapping (library collections show as 'name' not '_name')
+- Display name mapping (library/project collections show without underscore)
 - MCP readonly enforcement for library collections
 - Comprehensive validation with detailed error messages
 """
@@ -36,7 +37,8 @@ class CollectionType(Enum):
     MEMORY = "memory"
     SYSTEM_MEMORY = "system_memory"  # System memory collections with '__' prefix
     LIBRARY = "library"
-    PROJECT = "project"
+    PROJECT = "project"  # Project collections with '_{project_id}' pattern
+    USER = "user"  # User collections with '{name}-{suffix}' pattern
     LEGACY = "legacy"  # For existing collections that don't match patterns
 
 
@@ -45,13 +47,11 @@ class CollectionNameInfo:
     """Information about a collection name and its classification."""
 
     name: str  # Actual collection name in Qdrant
-    display_name: str  # Name shown to users (libraries without underscore)
+    display_name: str  # Name shown to users (without underscore prefix)
     collection_type: CollectionType
     is_readonly_from_mcp: bool  # Whether MCP server can modify this collection
-    project_name: str | None = None  # For project collections
-    collection_suffix: str | None = (
-        None  # For project collections (docs, scratchbook, etc.)
-    )
+    project_id: str | None = None  # For project collections (12-char hex)
+    user_collection_suffix: str | None = None  # For user collections (suffix part)
     library_name: str | None = None  # For library collections (without underscore)
     system_memory_name: str | None = None  # For system memory collections (without __ prefix)
 
@@ -79,8 +79,9 @@ class CollectionNamingManager:
     The naming system supports:
     1. Memory collection: 'memory' (global, read/write via MCP and CLI)
     2. Library collections: '_{name}' (user libraries, readonly from MCP)
-    3. Project collections: '{project}-{type}' (auto-created, read/write via MCP)
-    4. Legacy collections: Existing collections that don't match new patterns
+    3. Project collections: '_{project_id}' (auto-created, read/write via MCP, single collection per project)
+    4. User collections: '{name}-{suffix}' (user-created, multi-purpose)
+    5. Legacy collections: Existing collections that don't match new patterns
     """
 
     # Reserved collection names that cannot be used for user collections (excluding 'memory')
@@ -95,28 +96,33 @@ class CollectionNamingManager:
         "__admin",  # Reserved for future admin use
     }
 
-    # Default project collection suffixes - can be overridden by configuration
-    DEFAULT_PROJECT_SUFFIXES = {
-        "scratchbook",  # Interactive notes and context
-        "docs",  # Documentation (not code - reserved for memexd)
+    # Valid suffixes for user collections - can be overridden by configuration
+    DEFAULT_USER_SUFFIXES = {
+        "notes",  # User notes
+        "bookmarks",  # User bookmarks
+        "snippets",  # Code snippets
+        "resources",  # General resources
     }
 
     # Pattern for valid library names (after underscore) - must be at least 2 chars
     LIBRARY_NAME_PATTERN = re.compile(r"^[a-z][a-z0-9_-]*[a-z0-9]$|^[a-z]$")
 
-    # Pattern for valid project names - must be at least 2 chars
-    PROJECT_NAME_PATTERN = re.compile(r"^[a-z][a-z0-9_-]*[a-z0-9]$|^[a-z]$")
+    # Pattern for valid project IDs (12-char hex hash)
+    PROJECT_ID_PATTERN = re.compile(r"^[a-f0-9]{12}$")
 
-    def __init__(self, global_collections: list[str] = None, valid_project_suffixes: list[str] = None):
+    # Pattern for user collection names
+    USER_COLLECTION_PATTERN = re.compile(r"^[a-z][a-z0-9_-]*[a-z0-9]$|^[a-z]$")
+
+    def __init__(self, global_collections: list[str] = None, valid_user_suffixes: list[str] = None):
         """
         Initialize the collection naming manager.
 
         Args:
             global_collections: Legacy global collection names to preserve compatibility
-            valid_project_suffixes: Configured project collection suffixes (overrides defaults)
+            valid_user_suffixes: Configured user collection suffixes (overrides defaults)
         """
         self.global_collections = set(global_collections or [])
-        self.valid_project_suffixes = set(valid_project_suffixes) if valid_project_suffixes else self.DEFAULT_PROJECT_SUFFIXES
+        self.valid_user_suffixes = set(valid_user_suffixes) if valid_user_suffixes else self.DEFAULT_USER_SUFFIXES
 
     def validate_collection_name(
         self, name: str, intended_type: CollectionType | None = None
@@ -190,24 +196,31 @@ class CollectionNamingManager:
 
         elif collection_info.collection_type == CollectionType.PROJECT:
             # Project classification handles validation internally
-            if (
-                not collection_info.project_name
-                or not collection_info.collection_suffix
-            ):
-                # Check if it's a project pattern but invalid suffix
+            if not collection_info.project_id:  # Invalid project ID
+                project_id_part = name[1:]  # Remove underscore prefix
+                return NamingValidationResult(
+                    is_valid=False,
+                    error_message=f"Project ID '{project_id_part}' must be exactly 12 hexadecimal characters "
+                    f"(a-f, 0-9)",
+                )
+
+        elif collection_info.collection_type == CollectionType.USER:
+            # User collection validation
+            if not collection_info.user_collection_suffix:
+                # Check if it's a user pattern but invalid suffix
                 parts = name.split("-")
                 if len(parts) >= 2:
                     potential_suffix = parts[-1]
                     return NamingValidationResult(
                         is_valid=False,
-                        error_message=f"Invalid project collection suffix '{potential_suffix}'. "
-                        f"Valid suffixes: {', '.join(self.valid_project_suffixes)}",
+                        error_message=f"Invalid user collection suffix '{potential_suffix}'. "
+                        f"Valid suffixes: {', '.join(self.valid_user_suffixes)}",
                     )
                 else:
                     return NamingValidationResult(
                         is_valid=False,
-                        error_message=f"Invalid project collection format: '{name}'. "
-                        f"Expected: 'project-name-suffix'",
+                        error_message=f"Invalid user collection format: '{name}'. "
+                        f"Expected: 'name-suffix'",
                     )
 
         elif collection_info.collection_type == CollectionType.LEGACY:
@@ -227,19 +240,19 @@ class CollectionNamingManager:
                     f"and end with a letter or number (or be a single letter)",
                 )
             elif name.startswith("_"):
-                # This is an invalid library name (single underscore)
-                library_name = name[1:]  # Remove single underscore prefix
-                if not library_name:  # Just underscore
+                # Check if it's a project ID pattern or invalid library name
+                name_without_underscore = name[1:]
+                if self.PROJECT_ID_PATTERN.match(name_without_underscore):
+                    # Valid project ID pattern but not classified - this is actually valid
+                    return NamingValidationResult(is_valid=True, collection_info=collection_info)
+                else:
+                    # Invalid library name
                     return NamingValidationResult(
                         is_valid=False,
-                        error_message="Library name cannot be empty after underscore",
+                        error_message=f"Library name '{name_without_underscore}' must start with a letter, "
+                        f"contain only lowercase letters, numbers, hyphens, and underscores, "
+                        f"and end with a letter or number (or be a single letter)",
                     )
-                return NamingValidationResult(
-                    is_valid=False,
-                    error_message=f"Library name '{library_name}' must start with a letter, "
-                    f"contain only lowercase letters, numbers, hyphens, and underscores, "
-                    f"and end with a letter or number (or be a single letter)",
-                )
 
             # Check for malformed patterns
             if name.endswith("-"):
@@ -254,12 +267,12 @@ class CollectionNamingManager:
                     error_message="Collection names cannot start with a hyphen",
                 )
 
-            # Check if it looks like invalid project collection
+            # Check if it looks like invalid user collection
             parts = name.split("-")
             if len(parts) >= 2:
                 potential_suffix = parts[-1]
-                if potential_suffix not in self.valid_project_suffixes:
-                    # Only flag as error if it looks like it's trying to be a project collection
+                if potential_suffix not in self.valid_user_suffixes:
+                    # Only flag as error if it looks like it's trying to be a user collection
                     suspicious_suffixes = {
                         "code",
                         "test",
@@ -274,12 +287,14 @@ class CollectionNamingManager:
                         "cache",
                         "config",
                         "data",
+                        "docs",  # Removed from project suffixes
+                        "scratchbook",  # Removed from project suffixes
                     }
                     if potential_suffix in suspicious_suffixes:
                         return NamingValidationResult(
                             is_valid=False,
-                            error_message=f"Invalid project collection suffix '{potential_suffix}'. "
-                            f"Valid suffixes: {', '.join(self.valid_project_suffixes)}",
+                            error_message=f"Invalid user collection suffix '{potential_suffix}'. "
+                            f"Valid suffixes: {', '.join(self.valid_user_suffixes)}",
                         )
 
         # Check type consistency if intended type was provided
@@ -325,24 +340,24 @@ class CollectionNamingManager:
             )
 
         # Check library/display name conflicts
-        if proposed_name.startswith("_"):
-            # Proposing a library collection, check if display name exists
+        if proposed_name.startswith("_") and not proposed_name.startswith("__"):
+            # Proposing a library or project collection, check if display name exists
             display_name = proposed_name[1:]
             if display_name in existing_set:
                 return NamingValidationResult(
                     is_valid=False,
-                    error_message=f"Cannot create library collection '{proposed_name}' because "
+                    error_message=f"Cannot create collection '{proposed_name}' because "
                     f"collection '{display_name}' already exists. This would create "
                     f"a naming conflict.",
                 )
         else:
-            # Proposing a non-library collection, check if library version exists
-            library_name = f"_{proposed_name}"
-            if library_name in existing_set:
+            # Proposing a non-library/non-project collection, check if library/project version exists
+            prefixed_name = f"_{proposed_name}"
+            if prefixed_name in existing_set:
                 return NamingValidationResult(
                     is_valid=False,
                     error_message=f"Cannot create collection '{proposed_name}' because "
-                    f"library collection '{library_name}' already exists. This would "
+                    f"collection '{prefixed_name}' already exists. This would "
                     f"create a naming conflict.",
                 )
 
@@ -366,7 +381,7 @@ class CollectionNamingManager:
         """
         Get the user-facing display name for a collection.
 
-        For library collections, this removes the underscore prefix.
+        For library and project collections, this removes the underscore prefix.
         For other collections, this returns the name unchanged.
 
         Args:
@@ -384,7 +399,7 @@ class CollectionNamingManager:
         """
         Get the actual collection name in Qdrant from a display name.
 
-        For library collections, this adds the underscore prefix.
+        For library and project collections, this adds the underscore prefix.
         For system memory collections, this adds the double underscore prefix.
         For other collections, this returns the name unchanged.
 
@@ -396,6 +411,8 @@ class CollectionNamingManager:
             The actual collection name to use in Qdrant
         """
         if collection_type == CollectionType.LIBRARY:
+            return f"_{display_name}"
+        elif collection_type == CollectionType.PROJECT:
             return f"_{display_name}"
         elif collection_type == CollectionType.SYSTEM_MEMORY:
             return f"__{display_name}"
@@ -458,6 +475,7 @@ class CollectionNamingManager:
                 CollectionType.SYSTEM_MEMORY,
                 CollectionType.LIBRARY,
                 CollectionType.PROJECT,
+                CollectionType.USER,
             ]:
                 workspace_collections.append(collection)
             elif info.collection_type == CollectionType.LEGACY:
@@ -467,20 +485,21 @@ class CollectionNamingManager:
 
         return sorted(workspace_collections)
 
-    def generate_project_collection_names(self, project_name: str) -> list[str]:
+    def generate_project_collection_name(self, project_id: str) -> str:
         """
-        Generate collection names for a project based on configured suffixes.
+        Generate collection name for a project based on project ID.
 
         Args:
-            project_name: The project name
+            project_id: The 12-character hex project ID
 
         Returns:
-            List of collection names that should be created for the project
+            Single collection name for the project (_{project_id})
         """
-        collections = []
-        for suffix in self.valid_project_suffixes:
-            collections.append(f"{project_name}-{suffix}")
-        return collections
+        # Validate project ID format
+        if not self.PROJECT_ID_PATTERN.match(project_id):
+            raise ValueError(f"Invalid project ID format: '{project_id}'. Must be 12 hexadecimal characters.")
+
+        return f"_{project_id}"
 
     def _classify_collection_name(self, name: str) -> CollectionNameInfo:
         """
@@ -514,11 +533,23 @@ class CollectionNamingManager:
                     system_memory_name=system_memory_name,
                 )
 
-        # Library collections (single underscore-prefixed, not double)
+        # Project collections (_{project_id} where project_id is 12-char hex)
+        if name.startswith("_") and not name.startswith("__") and len(name) == 13:  # _ + 12 chars
+            potential_project_id = name[1:]
+            if self.PROJECT_ID_PATTERN.match(potential_project_id):
+                return CollectionNameInfo(
+                    name=name,
+                    display_name=potential_project_id,
+                    collection_type=CollectionType.PROJECT,
+                    is_readonly_from_mcp=False,
+                    project_id=potential_project_id,
+                )
+
+        # Library collections (single underscore-prefixed, not double, not project ID)
         if name.startswith("_") and not name.startswith("__") and len(name) > 1:
             library_name = name[1:]
-            # Validate library name format
-            if self.LIBRARY_NAME_PATTERN.match(library_name):
+            # Validate library name format (not a project ID)
+            if self.LIBRARY_NAME_PATTERN.match(library_name) and not self.PROJECT_ID_PATTERN.match(library_name):
                 return CollectionNameInfo(
                     name=name,
                     display_name=library_name,
@@ -527,21 +558,20 @@ class CollectionNamingManager:
                     library_name=library_name,
                 )
 
-        # Project collections (project-name-suffix)
+        # User collections (name-suffix)
         parts = name.split("-")
         if len(parts) >= 2:
             potential_suffix = parts[-1]
-            if potential_suffix in self.valid_project_suffixes:
-                project_name = "-".join(parts[:-1])
-                # Validate project name format
-                if self.PROJECT_NAME_PATTERN.match(project_name):
+            if potential_suffix in self.valid_user_suffixes:
+                user_name = "-".join(parts[:-1])
+                # Validate user name format
+                if self.USER_COLLECTION_PATTERN.match(user_name):
                     return CollectionNameInfo(
                         name=name,
                         display_name=name,
-                        collection_type=CollectionType.PROJECT,
+                        collection_type=CollectionType.USER,
                         is_readonly_from_mcp=False,
-                        project_name=project_name,
-                        collection_suffix=potential_suffix,
+                        user_collection_suffix=potential_suffix,
                     )
 
         # Legacy/unknown collections
@@ -585,14 +615,25 @@ def validate_collection_name(name: str, allow_library: bool = False) -> None:
     intended_type = None
     if name == "memory":
         intended_type = CollectionType.MEMORY
+    elif name.startswith("__"):
+        intended_type = CollectionType.SYSTEM_MEMORY
     elif name.startswith("_"):
         if not allow_library:
             raise CollectionNameError(
-                f"Library collection names (starting with '_') not allowed here: {name}"
+                f"Library/project collection names (starting with '_') not allowed here: {name}"
             )
-        intended_type = CollectionType.LIBRARY
+        # Could be library or project - let validation determine
+        name_without_prefix = name[1:]
+        if len(name_without_prefix) == 12 and re.match(r"^[a-f0-9]{12}$", name_without_prefix):
+            intended_type = CollectionType.PROJECT
+        else:
+            intended_type = CollectionType.LIBRARY
     else:
-        intended_type = CollectionType.PROJECT
+        # Could be user collection or legacy
+        if "-" in name:
+            intended_type = CollectionType.USER
+        else:
+            intended_type = CollectionType.LEGACY
 
     result = manager.validate_collection_name(name, intended_type)
 
@@ -603,10 +644,10 @@ def validate_collection_name(name: str, allow_library: bool = False) -> None:
 def normalize_collection_name_component(name: str) -> str:
     """
     Normalize a collection name component to be valid in Qdrant.
-    
+
     Args:
         name: The name component to normalize
-        
+
     Returns:
         Normalized name component (lowercase, alphanumeric with hyphens)
     """
@@ -618,30 +659,47 @@ def normalize_collection_name_component(name: str) -> str:
     return normalized.strip('-')
 
 
-def build_project_collection_name(project_name: str, suffix: str) -> str:
+def build_project_collection_name(project_id: str) -> str:
     """
-    Build a project collection name from project name and suffix.
-    
+    Build a project collection name from project ID.
+
     Args:
-        project_name: The project name
+        project_id: The 12-character hex project ID
+
+    Returns:
+        Formatted collection name (_{project_id})
+    """
+    # Validate project ID format
+    if not re.match(r"^[a-f0-9]{12}$", project_id):
+        raise ValueError(f"Invalid project ID format: '{project_id}'. Must be 12 hexadecimal characters.")
+
+    return f"_{project_id}"
+
+
+def build_user_collection_name(name: str, suffix: str) -> str:
+    """
+    Build a user collection name from name and suffix.
+
+    Args:
+        name: The collection name
         suffix: The collection type suffix
-        
+
     Returns:
         Formatted collection name
     """
     # Use the normalize function for consistency
-    project_clean = normalize_collection_name_component(project_name)
+    name_clean = normalize_collection_name_component(name)
     suffix_clean = normalize_collection_name_component(suffix)
-    return f"{project_clean}-{suffix_clean}"
+    return f"{name_clean}-{suffix_clean}"
 
 
 def build_system_memory_collection_name(memory_name: str) -> str:
     """
     Build a system memory collection name with proper prefix.
-    
+
     Args:
         memory_name: The memory collection name
-        
+
     Returns:
         System memory collection name with __ prefix
     """
@@ -690,11 +748,11 @@ class ValidationResult:
     warning_message: Optional[str] = None
     suggested_alternatives: Optional[List[str]] = None
     violation_type: Optional[str] = None
-    
+
 
 class CollectionRulesEnforcementError(Exception):
     """Exception raised when collection rules enforcement is violated."""
-    
+
     def __init__(self, validation_result: ValidationResult):
         self.validation_result = validation_result
         super().__init__(validation_result.error_message)
@@ -703,11 +761,11 @@ class CollectionRulesEnforcementError(Exception):
 class CollectionRulesEnforcer:
     """
     Comprehensive collection management rules enforcer for Task 181.
-    
+
     This class provides unified validation for all collection operations across
     MCP tools, preventing rule bypass and ensuring security boundaries are maintained.
     It integrates with existing LLM access control and collection type systems.
-    
+
     Key Features:
     - Source-aware validation (LLM vs CLI vs MCP internal)
     - Integration with LLM access control from Task 173
@@ -715,29 +773,29 @@ class CollectionRulesEnforcer:
     - System collection protection enforcement
     - Clear error messages with suggested alternatives
     - Comprehensive logging and audit trail
-    
+
     Security Boundaries:
     - LLM cannot create/delete system collections (__*)
-    - LLM cannot create/delete library collections (_*)  
+    - LLM cannot create/delete library collections (_*)
     - LLM cannot delete memory collections (*-memory, __*memory*)
     - System memory collections are read-only from MCP
     - All operations go through validation - no bypass paths
     """
-    
+
     def __init__(self, config=None):
         """
         Initialize the collection rules enforcer.
-        
+
         Args:
             config: Optional configuration object for context
         """
         self.config = config
-        
+
         # Initialize subsystems
         try:
             from .llm_access_control import LLMAccessController, LLMAccessControlError
             from .collection_types import CollectionTypeClassifier, CollectionType as TypesCollectionType
-            
+
             self.llm_access_controller = LLMAccessController(config)
             self.type_classifier = CollectionTypeClassifier()
         except ImportError:
@@ -745,18 +803,18 @@ class CollectionRulesEnforcer:
             logger.warning("Some enforcement dependencies not available - using basic validation only")
             self.llm_access_controller = None
             self.type_classifier = None
-        
+
         self.naming_manager = CollectionNamingManager()
-        
+
         # Track existing collections for validation
         self._existing_collections: Set[str] = set()
-        
+
         logger.info("CollectionRulesEnforcer initialized")
-    
+
     def set_existing_collections(self, collections: List[str]) -> None:
         """
         Update the set of existing collections for validation.
-        
+
         Args:
             collections: List of currently existing collection names
         """
@@ -764,20 +822,20 @@ class CollectionRulesEnforcer:
         if self.llm_access_controller:
             self.llm_access_controller.set_existing_collections(collections)
         logger.debug(f"Updated existing collections: {len(collections)}")
-    
+
     def validate_collection_creation(self, name: str, source: ValidationSource) -> ValidationResult:
         """
         Validate collection creation request with comprehensive rules enforcement.
-        
+
         Args:
             name: The collection name to create
             source: Source of the creation request
-            
+
         Returns:
             ValidationResult with validation status and details
         """
         logger.debug(f"Validating collection creation: {name} from {source.value}")
-        
+
         # Basic parameter validation
         if not isinstance(name, str) or not name.strip():
             return ValidationResult(
@@ -785,9 +843,9 @@ class CollectionRulesEnforcer:
                 error_message="Collection name must be a non-empty string",
                 violation_type="invalid_collection_name"
             )
-        
+
         name = name.strip()
-        
+
         # Check for existing collection
         if name in self._existing_collections:
             return ValidationResult(
@@ -795,7 +853,7 @@ class CollectionRulesEnforcer:
                 error_message=f"Collection '{name}' already exists",
                 violation_type="collection_already_exists"
             )
-        
+
         # Validate collection name format
         # Skip naming manager validation for system collections as it doesn't handle __ prefix correctly
         if not name.startswith("__"):
@@ -814,7 +872,7 @@ class CollectionRulesEnforcer:
                     error_message=f"System collection name '{name}' must have content after '__' prefix",
                     violation_type="invalid_collection_name"
                 )
-        
+
         # Source-specific validation
         if source == ValidationSource.LLM and self.llm_access_controller:
             # LLM operations must go through LLM access control
@@ -826,23 +884,23 @@ class CollectionRulesEnforcer:
                     error_message=str(e),
                     violation_type="llm_access_denied"
                 )
-        
+
         logger.debug(f"Collection creation validation passed: {name} from {source.value}")
         return ValidationResult(is_valid=True)
-    
+
     def validate_collection_deletion(self, name: str, source: ValidationSource) -> ValidationResult:
         """
         Validate collection deletion request with comprehensive rules enforcement.
-        
+
         Args:
             name: The collection name to delete
             source: Source of the deletion request
-            
+
         Returns:
             ValidationResult with validation status and details
         """
         logger.debug(f"Validating collection deletion: {name} from {source.value}")
-        
+
         # Basic parameter validation
         if not isinstance(name, str) or not name.strip():
             return ValidationResult(
@@ -850,9 +908,9 @@ class CollectionRulesEnforcer:
                 error_message="Collection name must be a non-empty string",
                 violation_type="invalid_collection_name"
             )
-        
+
         name = name.strip()
-        
+
         # Check if collection exists
         if name not in self._existing_collections:
             return ValidationResult(
@@ -860,7 +918,7 @@ class CollectionRulesEnforcer:
                 error_message=f"Collection '{name}' does not exist",
                 violation_type="collection_not_found"
             )
-        
+
         # Source-specific validation
         if source == ValidationSource.LLM and self.llm_access_controller:
             # LLM operations must go through LLM access control
@@ -872,7 +930,7 @@ class CollectionRulesEnforcer:
                     error_message=str(e),
                     violation_type="llm_access_denied"
                 )
-        
+
         elif source == ValidationSource.CLI:
             # CLI can delete most collections but protect critical system ones
             if self.type_classifier:
@@ -885,7 +943,7 @@ class CollectionRulesEnforcer:
                             warning_message="Use --force flag if you're certain",
                             violation_type="forbidden_system_deletion"
                         )
-        
+
         elif source == ValidationSource.MCP_INTERNAL:
             # MCP internal operations cannot delete system collections for safety
             if name.startswith("__"):
@@ -894,23 +952,23 @@ class CollectionRulesEnforcer:
                     error_message=f"MCP cannot delete system collection '{name}' - use CLI with admin privileges",
                     violation_type="forbidden_system_deletion"
                 )
-        
+
         logger.debug(f"Collection deletion validation passed: {name} from {source.value}")
         return ValidationResult(is_valid=True)
-    
+
     def validate_collection_write(self, name: str, source: ValidationSource) -> ValidationResult:
         """
         Validate collection write access with comprehensive rules enforcement.
-        
+
         Args:
             name: The collection name to write to
             source: Source of the write request
-            
+
         Returns:
             ValidationResult with validation status and details
         """
         logger.debug(f"Validating collection write access: {name} from {source.value}")
-        
+
         # Basic parameter validation
         if not isinstance(name, str) or not name.strip():
             return ValidationResult(
@@ -918,9 +976,9 @@ class CollectionRulesEnforcer:
                 error_message="Collection name must be a non-empty string",
                 violation_type="invalid_collection_name"
             )
-        
+
         name = name.strip()
-        
+
         # Check if collection exists (for write operations)
         if name not in self._existing_collections:
             return ValidationResult(
@@ -928,7 +986,7 @@ class CollectionRulesEnforcer:
                 error_message=f"Collection '{name}' does not exist",
                 violation_type="collection_not_found"
             )
-        
+
         # Source-specific validation
         if source == ValidationSource.LLM and self.llm_access_controller:
             # LLM operations must go through LLM access control
@@ -940,7 +998,7 @@ class CollectionRulesEnforcer:
                     error_message=str(e),
                     violation_type="llm_access_denied"
                 )
-        
+
         elif source == ValidationSource.MCP_INTERNAL:
             # MCP internal operations respect read-only boundaries
             # System memory collections are read-only from MCP
@@ -950,32 +1008,36 @@ class CollectionRulesEnforcer:
                     error_message=f"System memory collection '{name}' is read-only from MCP",
                     violation_type="forbidden_system_write"
                 )
-            
+
             # Library collections are read-only from MCP
             if name.startswith("_") and not name.startswith("__"):
-                return ValidationResult(
-                    is_valid=False,
-                    error_message=f"Library collection '{name}' is read-only from MCP - use CLI to modify",
-                    violation_type="forbidden_library_write"
-                )
-        
+                # Check if it's a project collection (_{project_id}) or library collection
+                name_without_prefix = name[1:]
+                if not re.match(r"^[a-f0-9]{12}$", name_without_prefix):
+                    # It's a library collection, not a project collection
+                    return ValidationResult(
+                        is_valid=False,
+                        error_message=f"Library collection '{name}' is read-only from MCP - use CLI to modify",
+                        violation_type="forbidden_library_write"
+                    )
+
         logger.debug(f"Collection write validation passed: {name} from {source.value}")
         return ValidationResult(is_valid=True)
-    
+
     def validate_operation(self, operation: OperationType, name: str, source: ValidationSource) -> ValidationResult:
         """
         Unified validation method for any collection operation.
-        
+
         Args:
             operation: The type of operation being performed
             name: The collection name
             source: Source of the operation request
-            
+
         Returns:
             ValidationResult with validation status and details
         """
         logger.debug(f"Validating collection operation: {operation.value} {name} from {source.value}")
-        
+
         if operation == OperationType.CREATE:
             return self.validate_collection_creation(name, source)
         elif operation == OperationType.DELETE:
@@ -1000,16 +1062,16 @@ class CollectionRulesEnforcer:
                 error_message=f"Unknown operation type: {operation}",
                 violation_type="invalid_operation"
             )
-    
+
     def enforce_operation(self, operation: OperationType, name: str, source: ValidationSource) -> None:
         """
         Enforce collection operation rules by validating and raising exception on failure.
-        
+
         Args:
             operation: The type of operation being performed
             name: The collection name
             source: Source of the operation request
-            
+
         Raises:
             CollectionRulesEnforcementError: If the operation violates rules
         """
@@ -1017,17 +1079,17 @@ class CollectionRulesEnforcer:
         if not result.is_valid:
             logger.warning(f"Collection operation blocked: {operation.value} {name} from {source.value} - {result.error_message}")
             raise CollectionRulesEnforcementError(result)
-        
+
         logger.debug(f"Collection operation allowed: {operation.value} {name} from {source.value}")
 
 
 def create_rules_enforcer(config=None) -> CollectionRulesEnforcer:
     """
     Create a collection rules enforcer instance.
-    
+
     Args:
         config: Optional configuration object
-        
+
     Returns:
         Configured CollectionRulesEnforcer instance
     """
