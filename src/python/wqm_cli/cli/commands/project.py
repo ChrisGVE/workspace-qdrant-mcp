@@ -33,10 +33,10 @@ import typer
 from loguru import logger
 from tabulate import tabulate
 
-from ....common.core.client import QdrantWorkspaceClient
-from ....common.core.collection_aliases import AliasManager
-from ....common.core.collection_naming import build_project_collection_name
-from ....common.core.config import get_config
+from common.core.client import QdrantWorkspaceClient
+from common.core.collection_aliases import AliasManager
+from common.core.collection_naming import build_project_collection_name
+from common.core.config import get_config
 
 # Create Typer app for project commands
 project_app = typer.Typer(
