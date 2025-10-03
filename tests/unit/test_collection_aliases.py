@@ -76,7 +76,8 @@ class TestAliasManager:
         """Create a mock SQLite state manager."""
         state_manager = Mock(spec=SQLiteStateManager)
         state_manager.connection = Mock()
-        state_manager._lock = Mock()
+        # Use MagicMock for _lock to support context manager protocol (with statement)
+        state_manager._lock = MagicMock()
         state_manager._serialize_json = Mock(side_effect=lambda x: str(x) if x else None)
         state_manager._deserialize_json = Mock(side_effect=lambda x: eval(x) if x else None)
         return state_manager
