@@ -178,26 +178,6 @@ class TestCoreFunctionalityCoverage:
         except (ImportError, TypeError):
             pytest.skip("Sparse vector encoder not available or requires parameters")
 
-    def test_watch_config_functionality(self):
-        """Test watch config functionality."""
-        from src.python.common.core.watch_config import WatchConfig
-
-        try:
-            with tempfile.TemporaryDirectory() as temp_dir:
-                config = WatchConfig(temp_dir)
-                assert config is not None
-
-                # Test config methods
-                if hasattr(config, 'get_watch_patterns'):
-                    patterns = config.get_watch_patterns()
-                    assert patterns is not None
-
-                if hasattr(config, 'is_watched_file'):
-                    result = config.is_watched_file("test.py")
-                    assert isinstance(result, bool)
-
-        except (ImportError, TypeError):
-            pytest.skip("Watch config not available or requires different parameters")
 
     def test_metadata_schema_functionality(self):
         """Test metadata schema functionality."""

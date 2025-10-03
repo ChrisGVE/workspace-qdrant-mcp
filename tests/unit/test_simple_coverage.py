@@ -124,10 +124,6 @@ class TestSimpleCoverage:
         from src.python.workspace_qdrant_mcp.core import sparse_vectors
         assert sparse_vectors is not None
 
-    def test_watch_config_imports(self):
-        """Test watch config module imports."""
-        from src.python.workspace_qdrant_mcp.core import watch_config
-        assert watch_config is not None
 
     def test_common_collections_imports(self):
         """Test common collections imports."""

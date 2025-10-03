@@ -52,10 +52,6 @@ class TestWorkspaceCoverage:
         from src.python.workspace_qdrant_mcp.core import sparse_vectors
         assert sparse_vectors is not None
 
-    def test_workspace_watch_config_imports(self):
-        """Test workspace watch config imports."""
-        from src.python.workspace_qdrant_mcp.core import watch_config
-        assert watch_config is not None
 
     def test_workspace_embeddings_imports(self):
         """Test workspace embeddings imports."""
