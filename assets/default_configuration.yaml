@@ -812,6 +812,104 @@ error_retention:
     error: 180
 
 # =============================================================================
+# BACKPRESSURE DETECTION CONFIGURATION
+# =============================================================================
+# Purpose: Controls backpressure detection and alerting for the queue system.
+# Monitors queue growth rates and processing capacity to detect when the system
+# is unable to keep up with incoming workload, enabling proactive intervention.
+backpressure:
+  # enabled: Master control for backpressure detection
+  # Purpose: Enables or disables backpressure monitoring and alerting
+  # Proactive monitoring: Detects capacity issues before they become critical
+  # Resource planning: Provides data for capacity planning decisions
+  # Alert fatigue: Can be disabled if causing too many false positives
+  # Format: Boolean
+  enabled: true
+
+  # monitoring_interval: Frequency of backpressure checks
+  # Purpose: How often to check for backpressure conditions
+  # Early detection: More frequent checks detect issues faster
+  # Resource overhead: Frequent checks consume more CPU/database resources
+  # Alert timing: Affects how quickly alerts are generated
+  # Recommendation: Balance between responsiveness and overhead
+  # Format: Duration with unit (s/m)
+  monitoring_interval: 60s
+
+  # max_processing_capacity: Maximum expected processing rate
+  # Purpose: Baseline for calculating processing capacity utilization
+  # System-specific: Adjust based on observed maximum processing rate
+  # Measurement: Items per minute the system can process at peak performance
+  # Capacity planning: Use for calculating when to scale processing workers
+  # Format: Float items/min
+  max_processing_capacity: 1000.0
+
+  # Thresholds for LOW severity backpressure
+  thresholds_low:
+    # growth_rate: Queue growth rate threshold (items/min)
+    # Purpose: Minimum growth rate to trigger LOW severity alert
+    # Early warning: Catches gradual queue buildup
+    # Format: Float items/min
+    growth_rate: 10.0
+
+    # drain_time_minutes: Maximum drain time for LOW severity
+    # Purpose: If drain time exceeds this, trigger LOW alert
+    # Interpretation: Queue can be drained in under 30 minutes
+    # Format: Float minutes
+    drain_time_minutes: 30.0
+
+  # Thresholds for MEDIUM severity backpressure
+  thresholds_medium:
+    # growth_rate: Queue growth rate threshold (items/min)
+    # Purpose: Growth rate threshold for MEDIUM severity alert
+    # Moderate concern: Queue growing at concerning rate
+    # Format: Float items/min
+    growth_rate: 50.0
+
+    # drain_time_min_minutes: Minimum drain time for MEDIUM severity
+    # Purpose: Lower bound of drain time range for MEDIUM alert
+    # Format: Float minutes
+    drain_time_min_minutes: 30.0
+
+    # drain_time_max_minutes: Maximum drain time for MEDIUM severity
+    # Purpose: Upper bound of drain time range for MEDIUM alert
+    # Interpretation: Queue will take 30-60 minutes to drain
+    # Format: Float minutes
+    drain_time_max_minutes: 60.0
+
+  # Thresholds for HIGH severity backpressure
+  thresholds_high:
+    # growth_rate: Queue growth rate threshold (items/min)
+    # Purpose: Growth rate threshold for HIGH severity alert
+    # Serious concern: Queue growing rapidly
+    # Format: Float items/min
+    growth_rate: 100.0
+
+    # drain_time_min_minutes: Minimum drain time for HIGH severity
+    # Purpose: Lower bound of drain time range for HIGH alert
+    # Format: Float minutes
+    drain_time_min_minutes: 60.0
+
+    # drain_time_max_minutes: Maximum drain time for HIGH severity
+    # Purpose: Upper bound of drain time range for HIGH alert
+    # Interpretation: Queue will take 1-2 hours to drain
+    # Format: Float minutes
+    drain_time_max_minutes: 120.0
+
+  # Thresholds for CRITICAL severity backpressure
+  thresholds_critical:
+    # growth_rate: Queue growth rate threshold (items/min)
+    # Purpose: Growth rate threshold for CRITICAL severity alert
+    # Emergency: Queue growing at unsustainable rate
+    # Format: Float items/min
+    growth_rate: 200.0
+
+    # drain_time_minutes: Minimum drain time for CRITICAL severity
+    # Purpose: If drain time exceeds this, trigger CRITICAL alert
+    # Interpretation: Queue will take over 2 hours to drain
+    # Format: Float minutes
+    drain_time_minutes: 120.0
+
+# =============================================================================
 # LOGGING CONFIGURATION
 # =============================================================================
 # Purpose: Controls system logging, metrics collection, and diagnostic output.
