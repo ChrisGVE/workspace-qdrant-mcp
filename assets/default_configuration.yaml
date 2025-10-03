@@ -1447,3 +1447,147 @@ queue_bottleneck_detection:
 [38;2;127;132;156m  80[0m [38;2;205;214;244m    - success_rate[0m
 [38;2;127;132;156m  81[0m [38;2;205;214;244m    - resource_usage_cpu[0m
 [38;2;127;132;156m  82[0m [38;2;205;214;244m    - resource_usage_memory[0m
+[38;2;127;132;156m   1[0m 
+[38;2;127;132;156m   2[0m [38;2;205;214;244m# =============================================================================[0m
+[38;2;127;132;156m   3[0m [38;2;205;214;244m# DASHBOARD DATA CONFIGURATION[0m
+[38;2;127;132;156m   4[0m [38;2;205;214;244m# =============================================================================[0m
+[38;2;127;132;156m   5[0m [38;2;205;214;244m# Purpose: Controls dashboard widget data preparation, caching, and layout[0m
+[38;2;127;132;156m   6[0m [38;2;205;214;244m# configuration. Provides formatted data for monitoring dashboards with support[0m
+[38;2;127;132;156m   7[0m [38;2;205;214;244m# for multiple widget types and layout presets.[0m
+[38;2;127;132;156m   8[0m [38;2;205;214;244mdashboard:[0m
+[38;2;127;132;156m   9[0m [38;2;205;214;244m  # enabled: Master control for dashboard data preparation[0m
+[38;2;127;132;156m  10[0m [38;2;205;214;244m  # Purpose: Enables or disables dashboard widget data generation[0m
+[38;2;127;132;156m  11[0m [38;2;205;214;244m  # Monitoring benefit: Provides formatted data for visualization dashboards[0m
+[38;2;127;132;156m  12[0m [38;2;205;214;244m  # Resource overhead: Minimal CPU overhead for data formatting and caching[0m
+[38;2;127;132;156m  13[0m [38;2;205;214;244m  # Production value: Essential for operational visibility through dashboards[0m
+[38;2;127;132;156m  14[0m [38;2;205;214;244m  # Format: Boolean[0m
+[38;2;127;132;156m  15[0m [38;2;205;214;244m  # Default reasoning: Enabled for dashboard monitoring capabilities[0m
+[38;2;127;132;156m  16[0m [38;2;205;214;244m  enabled: true[0m
+[38;2;127;132;156m  17[0m 
+[38;2;127;132;156m  18[0m [38;2;205;214;244m  # cache_ttl_seconds: Widget data cache time-to-live[0m
+[38;2;127;132;156m  19[0m [38;2;205;214;244m  # Purpose: How long to cache prepared widget data before refreshing[0m
+[38;2;127;132;156m  20[0m [38;2;205;214;244m  # Performance benefit: Reduces load on monitoring modules by caching results[0m
+[38;2;127;132;156m  21[0m [38;2;205;214;244m  # Freshness trade-off: Longer TTL reduces load but shows less current data[0m
+[38;2;127;132;156m  22[0m [38;2;205;214;244m  # Real-time updates: Shorter TTL provides more current dashboard data[0m
+[38;2;127;132;156m  23[0m [38;2;205;214;244m  # Format: Integer seconds[0m
+[38;2;127;132;156m  24[0m [38;2;205;214;244m  # Default reasoning: 30 seconds balances freshness with performance[0m
+[38;2;127;132;156m  25[0m [38;2;205;214;244m  cache_ttl_seconds: 30[0m
+[38;2;127;132;156m  26[0m 
+[38;2;127;132;156m  27[0m [38;2;205;214;244m  # default_refresh_interval: Global dashboard refresh interval[0m
+[38;2;127;132;156m  28[0m [38;2;205;214;244m  # Purpose: Default interval for dashboard to request fresh data[0m
+[38;2;127;132;156m  29[0m [38;2;205;214;244m  # Dashboard responsiveness: How often dashboard UI updates[0m
+[38;2;127;132;156m  30[0m [38;2;205;214;244m  # Network efficiency: Longer intervals reduce request frequency[0m
+[38;2;127;132;156m  31[0m [38;2;205;214;244m  # Alignment: Should be >= cache_ttl_seconds to benefit from caching[0m
+[38;2;127;132;156m  32[0m [38;2;205;214;244m  # Format: Integer seconds[0m
+[38;2;127;132;156m  33[0m [38;2;205;214;244m  # Default reasoning: 30 seconds matches cache TTL for efficient updates[0m
+[38;2;127;132;156m  34[0m [38;2;205;214;244m  default_refresh_interval: 30[0m
+[38;2;127;132;156m  35[0m 
+[38;2;127;132;156m  36[0m [38;2;205;214;244m  # enable_trend_analysis: Trend data for sparklines and charts[0m
+[38;2;127;132;156m  37[0m [38;2;205;214;244m  # Purpose: Enables historical trend data for sparklines and time-series charts[0m
+[38;2;127;132;156m  38[0m [38;2;205;214;244m  # Data requirement: Requires trend_analysis.enabled = true[0m
+[38;2;127;132;156m  39[0m [38;2;205;214;244m  # Visualization benefit: Provides trend indicators and historical charts[0m
+[38;2;127;132;156m  40[0m [38;2;205;214;244m  # Resource overhead: Minimal as trend analysis is already enabled separately[0m
+[38;2;127;132;156m  41[0m [38;2;205;214;244m  # Format: Boolean[0m
+[38;2;127;132;156m  42[0m [38;2;205;214;244m  # Default reasoning: Enabled to provide rich dashboard visualizations[0m
+[38;2;127;132;156m  43[0m [38;2;205;214;244m  enable_trend_analysis: true[0m
+[38;2;127;132;156m  44[0m 
+[38;2;127;132;156m  45[0m [38;2;205;214;244m  # enable_bottleneck_detection: Bottleneck data for dashboard[0m
+[38;2;127;132;156m  46[0m [38;2;205;214;244m  # Purpose: Enables bottleneck detection data for performance widgets[0m
+[38;2;127;132;156m  47[0m [38;2;205;214;244m  # Data requirement: Requires queue_bottleneck_detection.enabled = true[0m
+[38;2;127;132;156m  48[0m [38;2;205;214;244m  # Visualization benefit: Shows slow collections, operations, parsers[0m
+[38;2;127;132;156m  49[0m [38;2;205;214;244m  # Resource overhead: Minimal as bottleneck detection is already enabled separately[0m
+[38;2;127;132;156m  50[0m [38;2;205;214;244m  # Format: Boolean[0m
+[38;2;127;132;156m  51[0m [38;2;205;214;244m  # Default reasoning: Enabled to provide performance optimization insights[0m
+[38;2;127;132;156m  52[0m [38;2;205;214;244m  enable_bottleneck_detection: true[0m
+[38;2;127;132;156m  53[0m 
+[38;2;127;132;156m  54[0m [38;2;205;214;244m  # Grid layout configuration[0m
+[38;2;127;132;156m  55[0m [38;2;205;214;244m  layout:[0m
+[38;2;127;132;156m  56[0m [38;2;205;214;244m    # columns: Grid column count for widget positioning[0m
+[38;2;127;132;156m  57[0m [38;2;205;214;244m    # Purpose: Number of columns in dashboard grid layout[0m
+[38;2;127;132;156m  58[0m [38;2;205;214;244m    # Layout flexibility: 12 columns allows flexible widget sizing[0m
+[38;2;127;132;156m  59[0m [38;2;205;214;244m    # Responsive design: Commonly used grid system (Bootstrap-compatible)[0m
+[38;2;127;132;156m  60[0m [38;2;205;214;244m    # Format: Integer > 0[0m
+[38;2;127;132;156m  61[0m [38;2;205;214;244m    # Default reasoning: 12-column grid is industry standard[0m
+[38;2;127;132;156m  62[0m [38;2;205;214;244m    columns: 12[0m
+[38;2;127;132;156m  63[0m 
+[38;2;127;132;156m  64[0m [38;2;205;214;244m    # row_height: Grid row height in pixels[0m
+[38;2;127;132;156m  65[0m [38;2;205;214;244m    # Purpose: Height of each grid row for consistent widget sizing[0m
+[38;2;127;132;156m  66[0m [38;2;205;214;244m    # Visual consistency: Fixed row height provides predictable layouts[0m
+[38;2;127;132;156m  67[0m [38;2;205;214;244m    # Responsive scaling: Combine with responsive breakpoints[0m
+[38;2;127;132;156m  68[0m [38;2;205;214;244m    # Format: Integer pixels[0m
+[38;2;127;132;156m  69[0m [38;2;205;214;244m    # Default reasoning: 60px provides reasonable default row height[0m
+[38;2;127;132;156m  70[0m [38;2;205;214;244m    row_height: 60[0m
+[38;2;127;132;156m  71[0m 
+[38;2;127;132;156m  72[0m [38;2;205;214;244m    # Responsive breakpoints for different screen sizes[0m
+[38;2;127;132;156m  73[0m [38;2;205;214;244m    # Purpose: Defines screen width breakpoints for responsive layouts[0m
+[38;2;127;132;156m  74[0m [38;2;205;214;244m    # Mobile support: Smaller breakpoints optimize for mobile devices[0m
+[38;2;127;132;156m  75[0m [38;2;205;214;244m    # Desktop optimization: Larger breakpoints use available screen space[0m
+[38;2;127;132;156m  76[0m [38;2;205;214;244m    # Format: Object with pixel width values[0m
+[38;2;127;132;156m  77[0m [38;2;205;214;244m    breakpoints:[0m
+[38;2;127;132;156m  78[0m [38;2;205;214;244m      # lg: Large desktop screens[0m
+[38;2;127;132;156m  79[0m [38;2;205;214;244m      lg: 1200[0m
+[38;2;127;132;156m  80[0m [38;2;205;214;244m      # md: Medium desktop/tablet landscape[0m
+[38;2;127;132;156m  81[0m [38;2;205;214;244m      md: 996[0m
+[38;2;127;132;156m  82[0m [38;2;205;214;244m      # sm: Tablet portrait[0m
+[38;2;127;132;156m  83[0m [38;2;205;214;244m      sm: 768[0m
+[38;2;127;132;156m  84[0m [38;2;205;214;244m      # xs: Mobile devices[0m
+[38;2;127;132;156m  85[0m [38;2;205;214;244m      xs: 480[0m
+[38;2;127;132;156m  86[0m 
+[38;2;127;132;156m  87[0m [38;2;205;214;244m  # Widget configuration defaults[0m
+[38;2;127;132;156m  88[0m [38;2;205;214;244m  widgets:[0m
+[38;2;127;132;156m  89[0m [38;2;205;214;244m    # sparkline_points: Number of data points for sparkline indicators[0m
+[38;2;127;132;156m  90[0m [38;2;205;214;244m    # Purpose: How many historical points to show in trend sparklines[0m
+[38;2;127;132;156m  91[0m [38;2;205;214;244m    # Trend visibility: More points show longer trends[0m
+[38;2;127;132;156m  92[0m [38;2;205;214;244m    # Performance: More points require more data retrieval[0m
+[38;2;127;132;156m  93[0m [38;2;205;214;244m    # Format: Integer > 0[0m
+[38;2;127;132;156m  94[0m [38;2;205;214;244m    # Default reasoning: 20 points provides good trend visibility[0m
+[38;2;127;132;156m  95[0m [38;2;205;214;244m    sparkline_points: 20[0m
+[38;2;127;132;156m  96[0m 
+[38;2;127;132;156m  97[0m [38;2;205;214;244m    # chart_time_window_hours: Default time window for time-series charts[0m
+[38;2;127;132;156m  98[0m [38;2;205;214;244m    # Purpose: How many hours of history to show in line charts[0m
+[38;2;127;132;156m  99[0m [38;2;205;214;244m    # Historical context: Longer window shows more historical context[0m
+[38;2;127;132;156m 100[0m [38;2;205;214;244m    # Data volume: Longer window requires more data points[0m
+[38;2;127;132;156m 101[0m [38;2;205;214;244m    # Format: Integer hours[0m
+[38;2;127;132;156m 102[0m [38;2;205;214;244m    # Default reasoning: 24 hours shows daily patterns[0m
+[38;2;127;132;156m 103[0m [38;2;205;214;244m    chart_time_window_hours: 24[0m
+[38;2;127;132;156m 104[0m 
+[38;2;127;132;156m 105[0m [38;2;205;214;244m    # table_limit_default: Default row limit for table widgets[0m
+[38;2;127;132;156m 106[0m [38;2;205;214;244m    # Purpose: Maximum number of rows to show in table widgets[0m
+[38;2;127;132;156m 107[0m [38;2;205;214;244m    # Page size: Balance between showing enough data and performance[0m
+[38;2;127;132;156m 108[0m [38;2;205;214;244m    # User experience: Avoid overwhelming users with too many rows[0m
+[38;2;127;132;156m 109[0m [38;2;205;214;244m    # Format: Integer > 0[0m
+[38;2;127;132;156m 110[0m [38;2;205;214;244m    # Default reasoning: 20 rows is reasonable default page size[0m
+[38;2;127;132;156m 111[0m [38;2;205;214;244m    table_limit_default: 20[0m
+[38;2;127;132;156m 112[0m 
+[38;2;127;132;156m 113[0m [38;2;205;214;244m  # Color coding thresholds for status indicators[0m
+[38;2;127;132;156m 114[0m [38;2;205;214;244m  # Purpose: Defines color codes for different metric value ranges[0m
+[38;2;127;132;156m 115[0m [38;2;205;214;244m  # Visual communication: Colors provide quick status assessment[0m
+[38;2;127;132;156m 116[0m [38;2;205;214;244m  # Customization: Adjust thresholds based on operational requirements[0m
+[38;2;127;132;156m 117[0m [38;2;205;214;244m  color_thresholds:[0m
+[38;2;127;132;156m 118[0m [38;2;205;214;244m    # Queue size color coding[0m
+[38;2;127;132;156m 119[0m [38;2;205;214;244m    queue_size:[0m
+[38;2;127;132;156m 120[0m [38;2;205;214;244m      green_max: 1000      # Queue size below this is green (healthy)[0m
+[38;2;127;132;156m 121[0m [38;2;205;214;244m      yellow_max: 5000     # Queue size below this is yellow (warning)[0m
+[38;2;127;132;156m 122[0m [38;2;205;214;244m      orange_max: 10000    # Queue size below this is orange (degraded)[0m
+[38;2;127;132;156m 123[0m [38;2;205;214;244m      # Above orange_max is red (critical)[0m
+[38;2;127;132;156m 124[0m 
+[38;2;127;132;156m 125[0m [38;2;205;214;244m    # Error rate color coding (percentage)[0m
+[38;2;127;132;156m 126[0m [38;2;205;214;244m    error_rate:[0m
+[38;2;127;132;156m 127[0m [38;2;205;214;244m      green_max: 1.0       # Error rate below this is green (healthy)[0m
+[38;2;127;132;156m 128[0m [38;2;205;214;244m      yellow_max: 5.0      # Error rate below this is yellow (warning)[0m
+[38;2;127;132;156m 129[0m [38;2;205;214;244m      orange_max: 10.0     # Error rate below this is orange (degraded)[0m
+[38;2;127;132;156m 130[0m [38;2;205;214;244m      # Above orange_max is red (critical)[0m
+[38;2;127;132;156m 131[0m 
+[38;2;127;132;156m 132[0m [38;2;205;214;244m    # Success rate color coding (percentage)[0m
+[38;2;127;132;156m 133[0m [38;2;205;214;244m    success_rate:[0m
+[38;2;127;132;156m 134[0m [38;2;205;214;244m      green_min: 95.0      # Success rate above this is green (healthy)[0m
+[38;2;127;132;156m 135[0m [38;2;205;214;244m      yellow_min: 90.0     # Success rate above this is yellow (warning)[0m
+[38;2;127;132;156m 136[0m [38;2;205;214;244m      orange_min: 80.0     # Success rate above this is orange (degraded)[0m
+[38;2;127;132;156m 137[0m [38;2;205;214;244m      # Below orange_min is red (critical)[0m
+[38;2;127;132;156m 138[0m 
+[38;2;127;132;156m 139[0m [38;2;205;214;244m    # Health score color coding (0-100)[0m
+[38;2;127;132;156m 140[0m [38;2;205;214;244m    health_score:[0m
+[38;2;127;132;156m 141[0m [38;2;205;214;244m      green_min: 80.0      # Health score above this is green (healthy)[0m
+[38;2;127;132;156m 142[0m [38;2;205;214;244m      yellow_min: 60.0     # Health score above this is yellow (degraded)[0m
+[38;2;127;132;156m 143[0m [38;2;205;214;244m      orange_min: 40.0     # Health score above this is orange (unhealthy)[0m
+[38;2;127;132;156m 144[0m [38;2;205;214;244m      # Below orange_min is red (critical)[0m
