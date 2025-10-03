@@ -724,6 +724,94 @@ auto_ingestion:
   debounce: 10s
 
 # =============================================================================
+# ERROR MESSAGE RETENTION CONFIGURATION
+# =============================================================================
+# Purpose: Controls retention policies and cleanup operations for error messages
+# in the message queue system. Prevents unbounded growth of error logs while
+# preserving important error information for debugging and monitoring.
+error_retention:
+  # enabled: Master control for automatic error message cleanup
+  # Purpose: Enables or disables automatic cleanup of old error messages
+  # Database growth: Prevents unbounded growth of error message database
+  # Performance impact: Large error tables can slow down queries
+  # Debugging: Retains recent errors for troubleshooting
+  # Compliance: May need to retain errors for audit or compliance requirements
+  # Format: Boolean
+  enabled: true
+
+  # cleanup_interval: Frequency of automatic cleanup operations
+  # Purpose: Defines how often the cleanup process runs
+  # Resource usage: More frequent cleanup reduces peak database size
+  # Performance overhead: Cleanup operations consume CPU and I/O resources
+  # Timing strategy: Run during low-activity periods if possible
+  # Database maintenance: Coordinate with database vacuum/optimize operations
+  # Format: Duration with unit (h/d)
+  # Default reasoning: 24h provides daily cleanup without excessive overhead
+  cleanup_interval: 24h
+
+  # max_age_days: Default retention period for all error messages
+  # Purpose: Default maximum age for error messages before cleanup
+  # Fallback value: Used when severity-specific retention not defined
+  # Debugging window: Should cover typical debugging/troubleshooting period
+  # Storage balance: Trade-off between retention and database size
+  # Override: Severity-specific settings take precedence
+  # Format: Integer days
+  max_age_days: 30
+
+  # max_count: Maximum total error messages to retain
+  # Purpose: Hard limit on total error message count (keeps most recent)
+  # Database size: Prevents database from growing beyond manageable size
+  # Memory constraint: Limits memory usage when loading error statistics
+  # Performance: Keeps query performance predictable
+  # null value: No count-based limit, only age-based retention applies
+  # Format: Integer > 0 or null
+  max_count: 100000
+
+  # acknowledged_multiplier: Retention extension for acknowledged errors
+  # Purpose: Multiplier for retention period of acknowledged error messages
+  # Acknowledgment value: Acknowledged errors are considered more important
+  # Extended retention: Provides longer history for acknowledged issues
+  # Typical values: 2.0 doubles retention, 3.0 triples it
+  # Use case: Track resolution of known issues over longer period
+  # Format: Float >= 1.0
+  acknowledged_multiplier: 2.0
+
+  # preserve_active_retries: Protection for messages being retried
+  # Purpose: Never delete error messages with retry_count > 0
+  # Data integrity: Prevents deletion of messages in retry queue
+  # Queue consistency: Maintains referential integrity for retry system
+  # Safety mechanism: Ensures no active processing is lost
+  # Recommended: Keep enabled unless you have specific reasons to disable
+  # Format: Boolean
+  preserve_active_retries: true
+
+  # Severity-specific retention periods
+  # Purpose: Define different retention periods based on error severity
+  # Rationale: More severe errors warrant longer retention for analysis
+  severity_retention:
+    # info: Retention period for informational messages
+    # Purpose: Info-level messages are least critical, shortest retention
+    # Use case: General operational information, status updates
+    # Volume consideration: Info messages are typically most numerous
+    # Format: Integer days
+    info: 30
+
+    # warning: Retention period for warning messages
+    # Purpose: Warnings indicate potential issues, medium retention
+    # Use case: Non-critical issues that may need investigation
+    # Debugging value: Useful for identifying recurring problems
+    # Format: Integer days
+    warning: 90
+
+    # error: Retention period for error messages
+    # Purpose: Errors are critical issues, longest retention
+    # Use case: Failed operations requiring investigation and resolution
+    # Compliance: May be required for audit trails
+    # Root cause analysis: Long retention supports pattern identification
+    # Format: Integer days
+    error: 180
+
+# =============================================================================
 # LOGGING CONFIGURATION
 # =============================================================================
 # Purpose: Controls system logging, metrics collection, and diagnostic output.
