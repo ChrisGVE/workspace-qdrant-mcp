@@ -19,6 +19,7 @@ from src.python.common.core.error_retention import (
     CleanupStatistics,
 )
 from src.python.common.core.error_message_manager import ErrorMessageManager
+from src.python.common.core.error_categorization import ErrorSeverity
 
 
 @pytest.fixture
@@ -214,7 +215,7 @@ class TestErrorRetentionManager:
             await error_manager.record_error(
                 message_override=f"Recent error {i}",
                 context={'test': i},
-                severity_override='info'
+                severity_override=ErrorSeverity.INFO
             )
 
         result = await retention_manager.cleanup_old_errors(dry_run=False)
@@ -355,7 +356,7 @@ class TestErrorRetentionManager:
         for i in range(20):
             await error_manager.record_error(
                 message_override=f"Message {i}",
-                severity_override='info'
+                severity_override=ErrorSeverity.INFO
             )
 
         # Apply policy with max_count=10
