@@ -12,6 +12,7 @@ Features:
     - Retry logic with exponential backoff
     - Collection metadata management
     - Queue statistics and monitoring
+    - Real-time statistics hooks
 
 Example:
     ```python
@@ -39,6 +40,7 @@ Example:
 import asyncio
 import json
 import sqlite3
+import time
 from datetime import datetime, timezone
 from enum import Enum
 from pathlib import Path
@@ -128,12 +130,15 @@ class SQLiteQueueClient:
 
     Provides methods for enqueueing files, dequeuing batches, updating priorities,
     and managing queue state with proper error handling and retry logic.
+
+    Integrates with QueueStatisticsCollector for real-time metrics tracking.
     """
 
     def __init__(
         self,
         db_path: Optional[str] = None,
-        connection_config: Optional[ConnectionConfig] = None
+        connection_config: Optional[ConnectionConfig] = None,
+        enable_statistics: bool = True
     ):
         """
         Initialize queue client.
@@ -141,6 +146,7 @@ class SQLiteQueueClient:
         Args:
             db_path: Optional custom database path
             connection_config: Optional connection configuration
+            enable_statistics: Whether to enable statistics collection
         """
         self.connection_pool = QueueConnectionPool(
             db_path=db_path or self._get_default_db_path(),
@@ -148,6 +154,17 @@ class SQLiteQueueClient:
         )
         self._initialized = False
         self.error_manager: Optional[ErrorMessageManager] = None
+
+        # Statistics collection
+        self.enable_statistics = enable_statistics
+        self.statistics_collector = None
+        if enable_statistics:
+            # Import here to avoid circular dependency
+            from .queue_statistics import QueueStatisticsCollector
+            self.statistics_collector = QueueStatisticsCollector(
+                db_path=db_path or self._get_default_db_path(),
+                connection_config=connection_config or ConnectionConfig()
+            )
 
     def _get_default_db_path(self) -> str:
         """Get default database path from OS directories."""
@@ -170,6 +187,10 @@ class SQLiteQueueClient:
         )
         await self.error_manager.initialize()
 
+        # Initialize statistics collector
+        if self.statistics_collector:
+            await self.statistics_collector.initialize()
+
         self._initialized = True
         logger.info("SQLite queue client initialized")
 
@@ -181,9 +202,42 @@ class SQLiteQueueClient:
         if self.error_manager:
             await self.error_manager.close()
 
+        if self.statistics_collector:
+            await self.statistics_collector.close()
+
         await self.connection_pool.close()
         self._initialized = False
         logger.info("SQLite queue client closed")
+
+    async def _record_stat_event(
+        self,
+        event_type: str,
+        processing_time: Optional[float] = None,
+        queue_type: str = "ingestion_queue",
+        collection: Optional[str] = None,
+        tenant_id: Optional[str] = None
+    ):
+        """
+        Record a statistics event.
+
+        Args:
+            event_type: Event type ('added', 'removed', 'success', 'failure')
+            processing_time: Processing time in milliseconds
+            queue_type: Queue type
+            collection: Collection name
+            tenant_id: Tenant identifier
+        """
+        if self.statistics_collector:
+            try:
+                await self.statistics_collector.record_event(
+                    event_type=event_type,
+                    processing_time=processing_time,
+                    queue_type=queue_type,
+                    collection=collection,
+                    tenant_id=tenant_id
+                )
+            except Exception as e:
+                logger.warning(f"Failed to record statistics event: {e}")
 
     async def enqueue_file(
         self,
@@ -249,6 +303,13 @@ class SQLiteQueueClient:
                 logger.debug(
                     f"Enqueued file: {file_absolute_path} "
                     f"(collection={collection}, priority={priority}, type={collection_type})"
+                )
+
+                # Record statistics event
+                await self._record_stat_event(
+                    event_type="added",
+                    collection=collection,
+                    tenant_id=tenant_id
                 )
 
                 return file_absolute_path
@@ -358,18 +419,35 @@ class SQLiteQueueClient:
 
     async def mark_complete(
         self,
-        file_path: str
+        file_path: str,
+        processing_time_ms: Optional[float] = None
     ) -> bool:
         """
         Mark a file as completed and remove from queue.
 
         Args:
             file_path: File path (queue ID)
+            processing_time_ms: Optional processing time in milliseconds
 
         Returns:
             True if removed, False if not found
         """
         file_absolute_path = str(Path(file_path).resolve())
+
+        # Get collection and tenant info before deletion
+        collection = None
+        tenant_id = None
+
+        async with self.connection_pool.get_connection_async() as conn:
+            # Get metadata for statistics
+            cursor = conn.execute(
+                "SELECT collection_name, tenant_id FROM ingestion_queue WHERE file_absolute_path = ?",
+                (file_absolute_path,)
+            )
+            row = cursor.fetchone()
+            if row:
+                collection = row["collection_name"]
+                tenant_id = row["tenant_id"]
 
         query = "DELETE FROM ingestion_queue WHERE file_absolute_path = ?"
 
@@ -381,6 +459,19 @@ class SQLiteQueueClient:
 
             if deleted:
                 logger.debug(f"Marked complete and removed from queue: {file_absolute_path}")
+
+                # Record statistics events
+                await self._record_stat_event(
+                    event_type="removed",
+                    collection=collection,
+                    tenant_id=tenant_id
+                )
+                await self._record_stat_event(
+                    event_type="success",
+                    processing_time=processing_time_ms,
+                    collection=collection,
+                    tenant_id=tenant_id
+                )
             else:
                 logger.warning(f"File not found in queue: {file_absolute_path}")
 
@@ -450,6 +541,10 @@ class SQLiteQueueClient:
                     context=context,
                     message_override=error_message
                 )
+
+                # Record failure event
+                await self._record_stat_event(event_type="failure")
+
                 return False, error_id
 
             current_retry_count = row["retry_count"]
@@ -476,6 +571,13 @@ class SQLiteQueueClient:
                 message_override=error_message
             )
 
+            # Record failure event
+            await self._record_stat_event(
+                event_type="failure",
+                collection=collection_name,
+                tenant_id=tenant_id
+            )
+
             if new_retry_count >= max_retries:
                 # Max retries reached, remove from queue
                 conn.execute(
@@ -487,6 +589,14 @@ class SQLiteQueueClient:
                     f"removing from queue (error_id={error_id})"
                 )
                 conn.commit()
+
+                # Record removal event
+                await self._record_stat_event(
+                    event_type="removed",
+                    collection=collection_name,
+                    tenant_id=tenant_id
+                )
+
                 return False, error_id
 
             else:
@@ -808,6 +918,14 @@ class SQLiteQueueClient:
                         collection_type
                     ))
                     successful += 1
+
+                    # Record statistics event
+                    await self._record_stat_event(
+                        event_type="added",
+                        collection=item["collection"],
+                        tenant_id=item.get("tenant_id", "default")
+                    )
+
                 except Exception as e:
                     logger.error(f"Failed to enqueue {item['file_path']}: {e}")
                     failed.append(item["file_path"])
