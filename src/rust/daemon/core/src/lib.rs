@@ -11,6 +11,7 @@ use thiserror::Error;
 use tokio::sync::Mutex;
 
 pub mod config;
+pub mod deletion_strategy;
 pub mod embedding;
 pub mod error;
 pub mod git_integration;
@@ -36,6 +37,11 @@ use crate::ipc::{IpcServer, IpcClient};
 use crate::storage::StorageClient;
 use crate::config::{Config, DaemonConfig};
 use crate::unified_config::{UnifiedConfigManager, UnifiedConfigError, ConfigFormat};
+pub use crate::deletion_strategy::{
+    DeletionMode, DeletionCollectionType, DeletionStrategy, DeletionStrategyFactory,
+    DynamicDeletionStrategy, CumulativeDeletionStrategy, BatchCleanupManager,
+    DeletionError, DeletionResult, CleanupStats
+};
 pub use crate::embedding::{
     EmbeddingGenerator, EmbeddingConfig, EmbeddingResult,
     DenseEmbedding, SparseEmbedding, EmbeddingError
