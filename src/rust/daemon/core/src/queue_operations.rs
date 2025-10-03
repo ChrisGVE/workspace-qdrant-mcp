@@ -35,6 +35,49 @@ pub enum QueueError {
 /// Result type for queue operations
 pub type QueueResult<T> = Result<T, QueueError>;
 
+/// Classify collection type based on naming patterns
+/// Matches Python CollectionTypeClassifier logic
+fn classify_collection_type(collection_name: &str) -> Option<String> {
+    // Global collections
+    const GLOBAL_COLLECTIONS: &[&str] = &[
+        "algorithms",
+        "codebase",
+        "context",
+        "documents",
+        "knowledge",
+        "memory",
+        "projects",
+        "workspace",
+    ];
+
+    if collection_name.is_empty() {
+        return Some("unknown".to_string());
+    }
+
+    // System collections: __ prefix
+    if collection_name.starts_with("__") {
+        return Some("system".to_string());
+    }
+
+    // Library collections: _ prefix (but not __)
+    if collection_name.starts_with('_') && !collection_name.starts_with("__") {
+        return Some("library".to_string());
+    }
+
+    // Global collections: predefined names
+    if GLOBAL_COLLECTIONS.contains(&collection_name) {
+        return Some("global".to_string());
+    }
+
+    // Project collections: {project}-{suffix} pattern
+    if collection_name.contains('-') {
+        // Simple pattern match: contains dash
+        return Some("project".to_string());
+    }
+
+    Some("unknown".to_string())
+}
+
 /// Queue operation type
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
@@ -76,6 +119,7 @@ pub struct QueueItem {
     pub retry_count: i32,
     pub retry_from: Option<String>,
     pub error_message_id: Option<i64>,
+    pub collection_type: Option<String>,  // Collection type: system, library, project, global
 }
 
 impl QueueItem {
@@ -207,11 +251,14 @@ impl QueueManager {
             return Err(QueueError::InvalidPriority(priority));
         }
 
+        // Detect collection type from collection name pattern
+        let collection_type = classify_collection_type(collection);
+
         let query = r#"
             INSERT INTO ingestion_queue (
                 file_absolute_path, collection_name, tenant_id, branch,
-                operation, priority, retry_from
-            ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)
+                operation, priority, retry_from, collection_type
+            ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)
         "#;
 
         sqlx::query(query)
@@ -222,12 +269,13 @@ impl QueueManager {
             .bind(operation.as_str())
             .bind(priority)
             .bind(retry_from)
+            .bind(collection_type.as_deref())
             .execute(&self.pool)
             .await?;
 
         debug!(
-            "Enqueued file: {} (collection={}, priority={})",
-            file_path, collection, priority
+            "Enqueued file: {} (collection={}, priority={}, type={:?})",
+            file_path, collection, priority, collection_type
         );
 
         Ok(file_path.to_string())
@@ -249,7 +297,7 @@ impl QueueManager {
             SELECT
                 file_absolute_path, collection_name, tenant_id, branch,
                 operation, priority, queued_timestamp, retry_count,
-                retry_from, error_message_id
+                retry_from, error_message_id, collection_type
             FROM ingestion_queue
             "#,
         );
@@ -308,6 +356,7 @@ impl QueueManager {
                 retry_count: row.try_get("retry_count")?,
                 retry_from: row.try_get("retry_from")?,
                 error_message_id: row.try_get("error_message_id")?,
+                collection_type: row.try_get("collection_type").ok(),  // May be None for legacy items
             });
         }
 
@@ -1029,12 +1078,16 @@ impl QueueManager {
         let mut failed = Vec::new();
 
         for item in items {
+            // Use existing collection_type or detect it
+            let collection_type = item.collection_type.clone()
+                .or_else(|| classify_collection_type(&item.collection_name));
+
             let result = sqlx::query(
                 r#"
                 INSERT OR REPLACE INTO ingestion_queue (
                     file_absolute_path, collection_name, tenant_id, branch,
-                    operation, priority, queued_timestamp
-                ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, CURRENT_TIMESTAMP)
+                    operation, priority, queued_timestamp, collection_type
+                ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, CURRENT_TIMESTAMP, ?7)
                 "#,
             )
             .bind(&item.file_absolute_path)
@@ -1043,6 +1096,7 @@ impl QueueManager {
             .bind(&item.branch)
             .bind(item.operation.as_str())
             .bind(item.priority)
+            .bind(collection_type.as_deref())
             .execute(&self.pool)
             .await;
 
