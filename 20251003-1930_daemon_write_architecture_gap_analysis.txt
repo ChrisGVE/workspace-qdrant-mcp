@@ -1,0 +1,533 @@
+# Daemon-Only Write Architecture - Gap Analysis
+**Date:** October 3, 2025 19:30 CET
+**Context:** First Principle 10 - Daemon-Only Writes Implementation
+**Related Tasks:** Task 375, Task 371, Task 374
+
+---
+
+## Executive Summary
+
+After comprehensive review of recent PRDs, implementation plans, and completed Task 374 work, this analysis clarifies **what's already defined vs what needs implementation** for daemon-only write architecture.
+
+**Key Finding:** The architecture is **extensively documented** in recent PRDs. The gap is primarily in **implementation**, not specification.
+
+---
+
+## What's Already Defined (From PRDs)
+
+### 1. Tenant ID Calculation (From queue-metadata PRD, Section 1.5)
+
+**COMPLETE SPECIFICATION:**
+```python
+def compute_tenant_id(path: str, collection_type: str) -> str:
+    if collection_type == "library":
+        return path  # Top folder of watch
+
+    if collection_type == "project":
+        project_root = find_project_root(path)  # Walk up for .git
+
+        if is_local_only(project_root):
+            return project_root  # /Users/chris/dev/myproject
+
+        if has_remote(project_root):
+            remote_url = get_git_remote_url(project_root)
+            return remote_url  # github.com/user/repo
+
+    # Non-project folder
+    return path
+```
+
+**Status:** Task 374.1 implemented Python version with sanitization
+**Location:** `src/python/common/utils/project_detection.py`
+
+### 2. Branch Detection (From queue-metadata PRD, Section 2.9)
+
+**COMPLETE SPECIFICATION:**
+```python
+def get_current_branch(project_root: Path) -> Result<String>:
+    # Uses git CLI with absolute path from tools table
+    git_path = db.get_tool_path("git")
+    output = Command::new(git_path)
+        .args(&["-C", project_root, "rev-parse", "--abbrev-ref", "HEAD"])
+        .output()
+    return output.trim()
+```
+
+**Status:** Task 374.5 implemented
+**Location:** `src/python/common/utils/git_utils.py`
+
+### 3. File Type Classification (From Task 374.6)
+
+**Status:** Task 374.6 implemented
+**Location:** `src/python/common/core/file_type_classifier.py`
+**Categories:** code, test, docs, config, data, build, other
+
+### 4. Metadata Schema (From multitenancy plan, Task 374.3)
+
+**COMPLETE SPECIFICATION:**
+Required fields in ALL documents:
+- `project_id`: 12-char hex tenant identifier
+- `branch`: Git branch name (default "main")
+- `file_type`: "code", "test", "docs", "config", "data", "build", "other"
+- `symbols_defined`: List of symbols defined (for code files)
+- `symbols_used`: List of symbols used (for code files)
+- `imports`: Import statements
+- `exports`: Export statements
+
+**Status:** Task 374.3 implemented schema extension
+**Location:** `src/python/common/core/metadata_schema.py`
+
+### 5. Collection Architecture (From multitenancy plan)
+
+**THREE COLLECTION TYPES:**
+
+1. **PROJECT (`_{project_id}`):**
+   - Single collection per project
+   - Contains ALL file types (code, docs, tests, config)
+   - Differentiated by `file_type` metadata
+   - Auto-created by daemon
+   - Branch-aware (metadata: `branch`)
+
+2. **LIBRARY (`_{library_name}`):**
+   - User-managed library documentation
+   - CLI-created via `wqm library import`
+   - No `project_id` or `branch`
+
+3. **USER (`{basename}-{type}`):**
+   - Heterogeneous data (files, strings, webpages)
+   - Project-relevant (has `project_id` metadata)
+   - NO branch metadata (branch is optional, user-specified)
+   - Examples: `myapp-notes`, `ideas-bookmarks`
+
+### 6. Write Path Architecture (From queue-metadata PRD, Section 1.6-1.9)
+
+**COMPLETE SPECIFICATION:**
+
+```
+Component → SQLite Queue → Daemon → Qdrant
+```
+
+**Queue-based ingestion:**
+1. Server/CLI enqueues file with metadata context
+2. Daemon dequeues by priority
+3. Daemon computes metadata (project_id, branch, file_type)
+4. Daemon writes to Qdrant
+
+**From PRD Section 1.8:**
+```python
+def on_file_changed(file_path: str, project_root: str):
+    # Determine operation based on collection state
+    exists_in_collection = qdrant.exists(file_path, collection)
+    operation = 'UPDATE' if exists_in_collection else 'CREATE'
+
+    # Determine priority based on context
+    priority = 1 if server_running_in_project(project_root) else 3
+
+    # Get current branch for project files
+    branch = get_current_branch(project_root) if is_project(project_root) else None
+
+    # Enqueue (daemon will process)
+    enqueue(file_path, collection, tenant_id, branch, operation, priority)
+```
+
+---
+
+## Critical Unanswered Question
+
+### Who Computes Metadata Values?
+
+**The PRD shows TWO patterns:**
+
+**Pattern 1 (Watcher → Queue):** Caller computes
+```python
+# Server/CLI computes BEFORE enqueuing
+branch = get_current_branch(project_root)
+tenant_id = compute_tenant_id(project_root)
+enqueue(file_path, collection, tenant_id, branch, 'CREATE', priority)
+```
+
+**Pattern 2 (Daemon Processing):** Daemon computes
+```python
+# Daemon computes DURING processing
+def process_item(item: QueueItem):
+    language = detect_language(item.file_path)
+    project_id = calculate_tenant_id(item.file_path)  # Daemon computes!
+    branch = get_current_branch(project_root)          # Daemon computes!
+```
+
+### Analysis:
+
+**From PRD Section 2.4: "Tool Discovery (CLI/Server Only)"**
+> "Daemon uses absolute paths but CLI/Server discovers tools"
+
+**This suggests HYBRID:**
+1. **CLI/Server** discovers tool paths (full PATH environment)
+2. **CLI/Server** computes metadata values (has access to utilities)
+3. **Daemon** uses pre-computed values + absolute paths
+
+**Rationale:**
+- Daemon runs with minimal PATH (systemd/launchd)
+- Daemon can't discover tools reliably
+- Daemon CAN compute if given project_root context
+- But **simpler** if caller pre-computes
+
+---
+
+## Architectural Decision Needed
+
+### Option A: Caller Computes Metadata (SIMPLER)
+
+**Flow:**
+```python
+# Server/CLI
+project_id = calculate_tenant_id(project_root)
+branch = get_current_branch(project_root)
+file_type = classify_file_type(file_path)
+
+# Enqueue with computed values
+enqueue(
+    file_path=file_path,
+    collection=f"_{project_id}",
+    tenant_id=project_id,
+    branch=branch,
+    operation='CREATE',
+    priority=1,
+    metadata={"file_type": file_type, "source": "user"}
+)
+
+# Daemon processes without computing
+def process_item(item):
+    # Use item.tenant_id, item.branch directly
+    # Just extract symbols/LSP metadata
+    metadata = item.metadata.copy()
+    metadata['symbols_defined'] = extract_symbols(item.file_path)
+    qdrant.upsert(item.collection, vector, metadata)
+```
+
+**Pros:**
+- Simpler daemon logic
+- Matches PRD watcher pattern
+- Caller has full PATH for tool discovery
+
+**Cons:**
+- Metadata logic in multiple places (server + CLI)
+- Risk of divergence if implementations differ
+- Violates "single source of truth" principle
+
+### Option B: Daemon Computes Metadata (CONSISTENT)
+
+**Flow:**
+```python
+# Server/CLI passes minimal context
+enqueue(
+    file_path=file_path,
+    project_root=project_root,  # ← Just the path!
+    collection_basename="myapp-notes",
+    operation='CREATE',
+    priority=1,
+    metadata={"source": "user"}  # ← Only non-computable metadata
+)
+
+# Daemon computes everything
+def process_item(item):
+    # Compute project_id
+    project_id = calculate_tenant_id(item.project_root)
+
+    # Compute branch
+    git_path = db.get_tool_path("git")  # From discovery
+    branch = get_current_branch(item.project_root, git_path)
+
+    # Compute file_type
+    file_type = classify_file_type(item.file_path)
+
+    # Build metadata
+    metadata = {
+        "project_id": project_id,
+        "branch": branch,
+        "file_type": file_type,
+        "symbols_defined": extract_symbols(item.file_path),
+        **item.metadata  # Merge caller-provided
+    }
+
+    collection = f"_{project_id}" if is_project else item.collection_basename
+    qdrant.upsert(collection, vector, metadata)
+```
+
+**Pros:**
+- Single source of truth for metadata computation
+- Guaranteed consistency (server/CLI can't diverge)
+- Matches First Principle 10
+
+**Cons:**
+- Daemon needs Rust implementations of all utilities
+- Or daemon needs Python bindings (complexity)
+
+### Option C: HYBRID (RECOMMENDED from PRD analysis)
+
+**CLI/Server:** Discovers tool PATHS, writes to SQLite tools table
+**Daemon:** Uses discovered paths to compute metadata
+
+**Flow:**
+```python
+# Server startup (full PATH available)
+def discover_tools():
+    git_path = which('git')
+    db.update_tool('git', absolute_path=git_path)
+    # ... discover all tools
+
+# Server/CLI enqueuing
+enqueue(
+    file_path=file_path,
+    project_root=project_root,  # ← Daemon uses this
+    collection_type="project",   # ← Daemon uses this
+    priority=1,
+    metadata={"source": "user"}
+)
+
+# Daemon processing (uses discovered paths from DB)
+def process_item(item):
+    # Get tools from DB (discovered by server/CLI)
+    git_path = db.get_tool_path("git")
+
+    # Compute metadata using discovered tools
+    project_id = calculate_tenant_id(item.project_root, git_path)
+    branch = get_current_branch(item.project_root, git_path)
+    file_type = classify_file_type(item.file_path)
+
+    metadata = build_metadata(project_id, branch, file_type, ...)
+    qdrant.upsert(collection, vector, metadata)
+```
+
+**Pros:**
+- Daemon is single source of truth for computation
+- CLI/Server only discovers tool PATHS (once)
+- Matches PRD "daemon has minimal PATH" constraint
+- Clean separation: discovery vs computation
+
+**Cons:**
+- Requires Rust reimplementation of utilities
+- OR Python bindings from Rust to Python
+
+---
+
+## Implementation Status by Collection Type
+
+### PROJECT Collections (`_{project_id}`)
+
+**Defined:**
+✅ Single collection per project
+✅ All files go to same collection
+✅ Metadata: project_id, branch, file_type, symbols
+✅ Daemon auto-creates on first file
+
+**Missing:**
+❌ Daemon metadata enrichment implementation
+❌ Server routes writes through daemon (still direct Qdrant writes)
+❌ CLI routes writes through daemon
+
+### USER Collections (`{basename}-{type}`)
+
+**Defined:**
+✅ Heterogeneous content (files, strings, webpages)
+✅ Project-relevant (has project_id)
+✅ NO branch metadata (optional, user-specified)
+
+**Missing:**
+❌ Clarification: Does daemon enrich project_id for USER collections?
+❌ Server routes writes through daemon
+❌ CLI routes writes through daemon
+
+**Question:** For USER collections, should daemon auto-add project_id?
+- **If YES:** Enables multi-tenant filtering (e.g., notes from Project A vs Project B)
+- **If NO:** USER collections are truly global (no project isolation)
+
+**My interpretation from PRD:** YES, daemon should enrich project_id for USER collections
+- PRD says "project-relevant" and "multi-tenant by project"
+- Enables `search(query="notes", project=current_project)` filtering
+
+### LIBRARY Collections (`_{library_name}`)
+
+**Defined:**
+✅ User-managed via CLI
+✅ No project_id or branch
+✅ Documentation/resources only
+
+**Missing:**
+❌ Does daemon process library imports or CLI direct-writes?
+❌ If daemon processes: what metadata enrichment?
+
+### MEMORY Collection
+
+**Defined:**
+✅ Global scope (no project_id)
+✅ Writable from both server and CLI
+✅ Conversational memory updates
+
+**Missing:**
+❌ Does daemon process or server/CLI direct-write?
+❌ What metadata enrichment?
+
+---
+
+## Gap Summary
+
+### What We Have (From Task 374):
+
+1. ✅ `calculate_tenant_id()` - Python implementation
+2. ✅ `get_current_branch()` - Python implementation
+3. ✅ `classify_file_type()` - Python implementation
+4. ✅ Metadata schema with all required fields
+5. ✅ Collection naming patterns (`_{project_id}`)
+6. ✅ SQLite queue schema (from queue-metadata PRD)
+7. ✅ Configuration updates (auto_create_project_collections)
+
+### What We Need:
+
+1. ❌ **Rust implementations** of metadata utilities:
+   - `calculate_tenant_id()` in Rust
+   - `get_current_branch()` in Rust
+   - `classify_file_type()` in Rust
+   - OR Python bindings from Rust
+
+2. ❌ **DaemonClient** (Task 371):
+   - gRPC client for server/CLI → daemon communication
+   - `ingest_text()` RPC with project_root parameter
+
+3. ❌ **Server refactor** (Task 375):
+   - Replace direct Qdrant writes with `daemon_client.ingest_text()`
+   - Pass project_root context to daemon
+   - Remove server-side metadata enrichment
+
+4. ❌ **CLI refactor** (Task 375):
+   - Replace direct Qdrant writes with `daemon_client.ingest_text()`
+   - Pass project_root context to daemon
+   - Remove CLI-side metadata enrichment
+
+5. ❌ **Daemon enrichment implementation:**
+   - Implement metadata computation in Rust processing.rs
+   - Use discovered tool paths from SQLite
+   - Build complete metadata payload
+   - Single source of truth for enrichment
+
+---
+
+## Recommended Implementation Plan
+
+### Phase 1: Daemon Infrastructure (PREREQUISITE)
+
+**Task 371 (in progress):**
+- Implement DaemonClient gRPC interface
+- Define `ingest_text()` RPC signature
+- Specify parameters: file_path, project_root, collection_basename, metadata
+
+**New subtask for Task 375:**
+- Implement Rust metadata enrichment in daemon
+- Option A: Reimplement utilities in Rust
+- Option B: Python bindings via PyO3
+- Recommend: **Option A** (cleaner, no Python runtime in daemon)
+
+### Phase 2: Server/CLI Refactor (Task 375)
+
+**Server changes:**
+1. Replace all `qdrant_client.upsert()` with `daemon_client.ingest_text()`
+2. Pass `project_root` instead of computing `project_id`
+3. Remove `calculate_tenant_id()`, `get_current_branch()`, `classify_file_type()` calls
+4. Daemon computes everything
+
+**CLI changes:**
+1. Same as server changes
+2. Ensure consistency with server implementation
+
+### Phase 3: Validation & Testing
+
+1. Verify daemon is only Qdrant writer
+2. Test metadata consistency across server/CLI ingestion
+3. Verify multi-tenancy for USER collections
+4. Test branch filtering for PROJECT collections
+
+---
+
+## Decision Points for User
+
+### Decision 1: Metadata Computation Location
+
+**Question:** Who computes project_id, branch, file_type?
+
+**Options:**
+- A) Caller (server/CLI) computes, passes to daemon
+- B) Daemon computes from project_root context
+- C) Hybrid (caller discovers paths, daemon computes)
+
+**Recommendation:** **Option B** (daemon computes)
+- Matches First Principle 10
+- Single source of truth
+- Prevents divergence
+
+### Decision 2: Rust vs Python for Daemon Utilities
+
+**Question:** How does Rust daemon compute metadata?
+
+**Options:**
+- A) Reimplement utilities in Rust (pure Rust)
+- B) Python bindings via PyO3 (call Python from Rust)
+
+**Recommendation:** **Option A** (pure Rust)
+- Simpler deployment (no Python runtime in daemon)
+- Better performance
+- Cleaner architecture
+
+### Decision 3: USER Collection project_id Enrichment
+
+**Question:** Do USER collections (`{basename}-{type}`) get automatic `project_id` metadata?
+
+**Options:**
+- YES: Daemon auto-enriches project_id for multi-tenant filtering
+- NO: USER collections are truly global (no project isolation)
+
+**Recommendation:** **YES** (auto-enrich)
+- Enables "show me MY notes" filtering
+- Consistent with "project-relevant" from PRD
+- Matches user expectations
+
+### Decision 4: LIBRARY/MEMORY Write Path
+
+**Question:** Do LIBRARY and MEMORY collections go through daemon?
+
+**Options:**
+- YES: All writes through daemon (First Principle 10)
+- NO: Special cases for library imports, memory updates
+
+**Recommendation:** **YES** (all through daemon)
+- Consistency
+- Single code path
+- Simpler to reason about
+
+---
+
+## Next Steps
+
+1. **Confirm decisions** (above 4 decision points)
+2. **Complete Task 371** (DaemonClient implementation)
+3. **Create Task 375 subtasks**:
+   - 375.1: Rust metadata utilities
+   - 375.2: Server refactor (remove direct writes)
+   - 375.3: CLI refactor (remove direct writes)
+   - 375.4: Validation & testing
+4. **Execute Task 375** sequentially
+
+---
+
+## Conclusion
+
+**The architecture is well-defined.** The PRD extensively documents:
+- Tenant ID calculation
+- Branch detection
+- Queue-based ingestion
+- Metadata enrichment
+
+**The gap is implementation:**
+- Rust utilities need implementation
+- Server/CLI need refactoring to use DaemonClient
+- Daemon needs enrichment logic
+
+**No new design needed.** Just execution of existing specifications.
