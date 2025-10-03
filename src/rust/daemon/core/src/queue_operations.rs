@@ -178,6 +178,11 @@ impl QueueManager {
         Self { pool }
     }
 
+    /// Get reference to the connection pool
+    pub fn pool(&self) -> &SqlitePool {
+        &self.pool
+    }
+
     /// Initialize the missing_metadata_queue table
     pub async fn init_missing_metadata_queue(&self) -> QueueResult<()> {
         let schema = include_str!("../../../../python/common/core/missing_metadata_queue_schema.sql");
