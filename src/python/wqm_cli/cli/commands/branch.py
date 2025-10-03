@@ -467,7 +467,9 @@ async def _list_branches(project: str, format: str, show_current: bool):
     """
     try:
         collection = get_project_collection(project)
-        typer.echo(f"Listing branches in collection '{collection}'")
+        # Only show progress for non-JSON formats
+        if format != "json":
+            typer.echo(f"Listing branches in collection '{collection}'")
 
         # Initialize client
         config = get_config()
@@ -484,7 +486,8 @@ async def _list_branches(project: str, format: str, show_current: bool):
             raise typer.Exit(1)
 
         # Get all branches with counts
-        typer.echo("Analyzing branch metadata...")
+        if format != "json":
+            typer.echo("Analyzing branch metadata...")
         branch_counts = await get_all_branches(client, collection)
 
         if not branch_counts:

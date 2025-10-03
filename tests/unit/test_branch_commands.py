@@ -192,7 +192,8 @@ class TestBranchDeleteCommand:
 
         # Verify
         assert result.exit_code == 1
-        assert "does not exist" in result.stdout
+        # Error message is written to stderr, check output (combines stdout and stderr)
+        assert "does not exist" in (result.stdout + (result.stderr or ""))
 
 
 class TestBranchRenameCommand:
