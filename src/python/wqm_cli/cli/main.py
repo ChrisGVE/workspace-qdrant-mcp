@@ -15,6 +15,7 @@ Usage:
     wqm queue status             # Monitor queue status
     wqm tools status             # Check tool availability
     wqm collections list-types   # View collections by type
+    wqm errors stats             # Error statistics
 """
 
 import os
@@ -95,6 +96,7 @@ from .commands.search import search_app
 from .commands.service import service_app
 from .commands.tools import tools_app
 from .commands.watch import watch_app
+from .commands.error_reporting import errors_app
 # SECURITY: Web UI temporarily disabled due to critical vulnerabilities
 # from .commands.web import web_app
 from .observability import observability_app
@@ -161,6 +163,10 @@ app.add_typer(
 app.add_typer(
     collection_types_app, name="collections", help="Manage collection types and type-specific behaviors"
 )
+# Add error reporting and statistics commands
+app.add_typer(
+    errors_app, name="errors", help="Error statistics, trends, and comprehensive reporting"
+)
 
 
 @app.callback(invoke_without_command=True)
@@ -198,6 +204,7 @@ def main(
         wqm queue status                   # Monitor queue status
         wqm tools status                   # Check tool availability
         wqm collections list-types         # View collections by type
+        wqm errors stats                   # Error statistics
         wqm init                           # Enable shell completion
     """
     # Handle version flag first, before any configuration loading
