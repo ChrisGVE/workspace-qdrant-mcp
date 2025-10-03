@@ -175,6 +175,7 @@ class ProjectRecord:
     name: str
     root_path: str
     collection_name: str
+    project_id: Optional[str] = None  # 12-char hex hash from root_path
     lsp_enabled: bool = False
     last_scan: Optional[datetime] = None
     created_at: datetime = None
@@ -237,7 +238,7 @@ class DatabaseTransaction:
 class SQLiteStateManager:
     """SQLite-based state persistence manager with crash recovery."""
 
-    SCHEMA_VERSION = 5  # Updated for ingestion_queue table addition
+    SCHEMA_VERSION = 6  # Updated for project_id column addition to projects table
     WAL_CHECKPOINT_INTERVAL = 300  # 5 minutes
     MAINTENANCE_INTERVAL = 3600  # 1 hour
 
@@ -511,6 +512,7 @@ class SQLiteStateManager:
             # Indexes for ingestion_queue
             "CREATE INDEX IF NOT EXISTS idx_ingestion_queue_priority_time ON ingestion_queue(priority DESC, queued_timestamp ASC)",
             "CREATE INDEX IF NOT EXISTS idx_ingestion_queue_collection ON ingestion_queue(collection_name, tenant_id, branch)",
+            "CREATE INDEX IF NOT EXISTS idx_ingestion_queue_branch ON ingestion_queue(branch)",
             # System state table for tracking overall system status
             """
             CREATE TABLE system_state (
@@ -624,6 +626,7 @@ class SQLiteStateManager:
                 name TEXT NOT NULL UNIQUE,
                 root_path TEXT NOT NULL UNIQUE,
                 collection_name TEXT NOT NULL,
+                project_id TEXT,
                 lsp_enabled BOOLEAN NOT NULL DEFAULT 0,
                 last_scan TIMESTAMP,
                 created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
@@ -635,6 +638,7 @@ class SQLiteStateManager:
             "CREATE INDEX idx_projects_name ON projects(name)",
             "CREATE INDEX idx_projects_root_path ON projects(root_path)",
             "CREATE INDEX idx_projects_collection_name ON projects(collection_name)",
+            "CREATE INDEX idx_projects_project_id ON projects(project_id)",
             "CREATE INDEX idx_projects_lsp_enabled ON projects(lsp_enabled)",
             "CREATE INDEX idx_projects_last_scan ON projects(last_scan)",
             # LSP Servers table
@@ -922,6 +926,36 @@ class SQLiteStateManager:
                     conn.execute(sql)
 
                 logger.info("Successfully migrated to schema version 5 (added ingestion_queue table)")
+
+            # Migrate from version 5 to version 6 - Add project_id column to projects table
+            if from_version <= 5 and to_version >= 6:
+                logger.info("Applying migration: v5 -> v6 (add project_id to projects table)")
+                project_id_sql = [
+                    # Add project_id column to projects table
+                    "ALTER TABLE projects ADD COLUMN project_id TEXT",
+                    # Add index for project_id
+                    "CREATE INDEX IF NOT EXISTS idx_projects_project_id ON projects(project_id)",
+                    # Add branch index to ingestion_queue if not exists
+                    "CREATE INDEX IF NOT EXISTS idx_ingestion_queue_branch ON ingestion_queue(branch)",
+                ]
+
+                for sql in project_id_sql:
+                    conn.execute(sql)
+
+                # Update existing projects to populate project_id from root_path hash
+                cursor = conn.execute("SELECT id, root_path FROM projects WHERE project_id IS NULL")
+                rows = cursor.fetchall()
+                for row in rows:
+                    project_id = row["id"]
+                    root_path = row["root_path"]
+                    # Calculate project_id as 12-char hex hash from root_path
+                    path_hash = hashlib.sha256(root_path.encode('utf-8')).hexdigest()[:12]
+                    conn.execute(
+                        "UPDATE projects SET project_id = ? WHERE id = ?",
+                        (path_hash, project_id)
+                    )
+
+                logger.info("Successfully migrated to schema version 6 (added project_id column to projects table)")
 
             # Record the migration
             conn.execute(
@@ -2506,4 +2540,10 @@ class SQLiteStateManager:
         except Exception as e:
             logger.error(f"Failed to add file to processing queue {file_path}: {e}")
             return ""
+
+    async def list_watch_folders(
+        self, enabled_only: bool = True
+    ) -> List[WatchFolderConfig]:
+        """List all watch folder configs (alias for get_all_watch_folder_configs)."""
+        return await self.get_all_watch_folder_configs(enabled_only=enabled_only)
 
