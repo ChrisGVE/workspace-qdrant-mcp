@@ -34,7 +34,7 @@ def mock_collections():
     # Simple mock object with collections attribute
     mock_response = MagicMock()
     mock_coll1 = MagicMock()
-    mock_coll1.name = "_abc123def456"
+    mock_coll1.name = "_path_abc123def456789a"
     mock_coll2 = MagicMock()
     mock_coll2.name = "_test123"
     mock_response.collections = [mock_coll1, mock_coll2]
@@ -95,7 +95,7 @@ class TestBranchDeleteCommand:
         # Execute dry-run
         result = runner.invoke(
             branch_app,
-            ["delete", "--project", "abc123def456", "--branch", "main", "--dry-run"],
+            ["delete", "--project", "path_abc123def456789a", "--branch", "main", "--dry-run"],
         )
 
         # Verify
@@ -126,7 +126,7 @@ class TestBranchDeleteCommand:
         # Execute with force
         result = runner.invoke(
             branch_app,
-            ["delete", "--project", "abc123def456", "--branch", "main", "--force"],
+            ["delete", "--project", "path_abc123def456789a", "--branch", "main", "--force"],
         )
 
         # Verify
@@ -136,7 +136,7 @@ class TestBranchDeleteCommand:
         # Verify delete was called with FilterSelector
         mock_qdrant_client.delete.assert_called_once()
         call_args = mock_qdrant_client.delete.call_args
-        assert call_args.kwargs["collection_name"] == "_abc123def456"
+        assert call_args.kwargs["collection_name"] == "_path_abc123def456789a"
         assert isinstance(call_args.kwargs["points_selector"], FilterSelector)
 
     @patch("wqm_cli.cli.commands.branch.QdrantWorkspaceClient")
@@ -160,7 +160,7 @@ class TestBranchDeleteCommand:
         # Execute
         result = runner.invoke(
             branch_app,
-            ["delete", "--project", "abc123def456", "--branch", "nonexistent"],
+            ["delete", "--project", "path_abc123def456789a", "--branch", "nonexistent"],
         )
 
         # Verify
@@ -187,7 +187,7 @@ class TestBranchDeleteCommand:
         # Execute
         result = runner.invoke(
             branch_app,
-            ["delete", "--project", "abc123def456", "--branch", "main"],
+            ["delete", "--project", "path_abc123def456789a", "--branch", "main"],
         )
 
         # Verify
@@ -223,7 +223,7 @@ class TestBranchRenameCommand:
             [
                 "rename",
                 "--project",
-                "abc123def456",
+                "path_abc123def456789a",
                 "--from",
                 "main",
                 "--to",
@@ -263,7 +263,7 @@ class TestBranchRenameCommand:
             [
                 "rename",
                 "--project",
-                "abc123def456",
+                "path_abc123def456789a",
                 "--from",
                 "old-name",
                 "--to",
@@ -310,7 +310,7 @@ class TestBranchListCommand:
         # Execute
         result = runner.invoke(
             branch_app,
-            ["list", "--project", "abc123def456", "--format", "table"],
+            ["list", "--project", "path_abc123def456789a", "--format", "table"],
         )
 
         # Verify
@@ -349,14 +349,14 @@ class TestBranchListCommand:
         # Execute
         result = runner.invoke(
             branch_app,
-            ["list", "--project", "abc123def456", "--format", "json"],
+            ["list", "--project", "path_abc123def456789a", "--format", "json"],
         )
 
         # Verify
         assert result.exit_code == 0
         data = json.loads(result.stdout)
-        assert data["collection"] == "_abc123def456"
-        assert data["project_id"] == "abc123def456"
+        assert data["collection"] == "_path_abc123def456789a"
+        assert data["project_id"] == "path_abc123def456789a"
         assert data["total_branches"] == 3
         assert len(data["branches"]) == 3
 
@@ -386,7 +386,7 @@ class TestBranchListCommand:
         # Execute
         result = runner.invoke(
             branch_app,
-            ["list", "--project", "abc123def456", "--format", "simple"],
+            ["list", "--project", "path_abc123def456789a", "--format", "simple"],
         )
 
         # Verify
@@ -427,7 +427,7 @@ class TestBranchListCommand:
             [
                 "list",
                 "--project",
-                "abc123def456",
+                "path_abc123def456789a",
                 "--format",
                 "table",
                 "--show-current",
@@ -460,7 +460,7 @@ class TestBranchListCommand:
         # Execute
         result = runner.invoke(
             branch_app,
-            ["list", "--project", "abc123def456"],
+            ["list", "--project", "path_abc123def456789a"],
         )
 
         # Verify
