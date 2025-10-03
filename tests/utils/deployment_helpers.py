@@ -529,9 +529,9 @@ def generate_test_health_status():
                 "message": "Model loaded successfully",
                 "response_time": 0.234
             },
-            "file_watchers": {
+            "daemon": {
                 "status": "healthy",
-                "message": "5 active watches",
+                "message": "Rust daemon running",
                 "response_time": 0.001
             }
         }
