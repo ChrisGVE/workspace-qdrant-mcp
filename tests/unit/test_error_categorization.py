@@ -6,6 +6,8 @@ class for automatic error classification.
 """
 
 import pytest
+import socket
+import asyncio
 from src.python.common.core.error_categorization import (
     ErrorSeverity,
     ErrorCategory,
@@ -153,3 +155,190 @@ class TestErrorCategorizer:
         assert isinstance(category, ErrorCategory)
         assert isinstance(severity, ErrorSeverity)
         assert isinstance(confidence, float)
+
+
+class TestExceptionTypeCategorization:
+    """Test cases for exception type-based categorization."""
+
+    def setup_method(self):
+        """Set up test fixtures."""
+        self.categorizer = ErrorCategorizer()
+
+    def test_file_not_found_error(self):
+        """Test FileNotFoundError categorization."""
+        category, severity, confidence = self.categorizer.categorize(
+            exception=FileNotFoundError("file.txt not found")
+        )
+
+        assert category == ErrorCategory.FILE_CORRUPT
+        assert severity == ErrorSeverity.ERROR
+        assert confidence == 1.0
+
+    def test_permission_error(self):
+        """Test PermissionError categorization."""
+        category, severity, confidence = self.categorizer.categorize(
+            exception=PermissionError("Access denied")
+        )
+
+        assert category == ErrorCategory.PERMISSION_DENIED
+        assert severity == ErrorSeverity.ERROR
+        assert confidence == 1.0
+
+    def test_connection_error(self):
+        """Test ConnectionError categorization."""
+        category, severity, confidence = self.categorizer.categorize(
+            exception=ConnectionRefusedError("Connection refused")
+        )
+
+        assert category == ErrorCategory.NETWORK
+        assert severity == ErrorSeverity.ERROR
+        assert confidence == 1.0
+
+    def test_timeout_error(self):
+        """Test TimeoutError categorization."""
+        category, severity, confidence = self.categorizer.categorize(
+            exception=TimeoutError("Operation timed out")
+        )
+
+        assert category == ErrorCategory.TIMEOUT
+        assert severity == ErrorSeverity.ERROR
+        assert confidence == 1.0
+
+    def test_asyncio_timeout_error(self):
+        """Test asyncio.TimeoutError categorization."""
+        category, severity, confidence = self.categorizer.categorize(
+            exception=asyncio.TimeoutError("Async operation timed out")
+        )
+
+        assert category == ErrorCategory.TIMEOUT
+        assert severity == ErrorSeverity.ERROR
+        assert confidence == 1.0
+
+    def test_module_not_found_error(self):
+        """Test ModuleNotFoundError categorization."""
+        category, severity, confidence = self.categorizer.categorize(
+            exception=ModuleNotFoundError("No module named 'foo'")
+        )
+
+        assert category == ErrorCategory.TOOL_MISSING
+        assert severity == ErrorSeverity.ERROR
+        assert confidence == 1.0
+
+    def test_value_error(self):
+        """Test ValueError categorization."""
+        category, severity, confidence = self.categorizer.categorize(
+            exception=ValueError("Invalid value")
+        )
+
+        assert category == ErrorCategory.PARSE_ERROR
+        assert severity == ErrorSeverity.ERROR
+        assert confidence == 1.0
+
+    def test_memory_error(self):
+        """Test MemoryError categorization."""
+        category, severity, confidence = self.categorizer.categorize(
+            exception=MemoryError("Out of memory")
+        )
+
+        assert category == ErrorCategory.RESOURCE_EXHAUSTED
+        assert severity == ErrorSeverity.ERROR
+        assert confidence == 1.0
+
+    def test_io_error(self):
+        """Test IOError categorization."""
+        category, severity, confidence = self.categorizer.categorize(
+            exception=IOError("I/O operation failed")
+        )
+
+        assert category == ErrorCategory.FILE_CORRUPT
+        assert severity == ErrorSeverity.ERROR
+        assert confidence == 1.0
+
+    def test_socket_timeout(self):
+        """Test socket.timeout categorization."""
+        category, severity, confidence = self.categorizer.categorize(
+            exception=socket.timeout("Socket timeout")
+        )
+
+        assert category == ErrorCategory.TIMEOUT
+        assert severity == ErrorSeverity.ERROR
+        assert confidence == 1.0
+
+    def test_unknown_exception_type(self):
+        """Test unknown exception type returns UNKNOWN."""
+        category, severity, confidence = self.categorizer.categorize(
+            exception=RuntimeError("Unknown error")
+        )
+
+        assert category == ErrorCategory.UNKNOWN
+        assert severity == ErrorSeverity.ERROR
+        assert confidence == 0.0
+
+    def test_inherited_exception_type(self):
+        """Test inherited exception has lower confidence."""
+        # ConnectionRefusedError inherits from ConnectionError
+        # If we map only ConnectionError, subclass should still match
+        category, severity, confidence = self.categorizer.categorize(
+            exception=BrokenPipeError("Broken pipe")
+        )
+
+        assert category == ErrorCategory.NETWORK
+        assert severity == ErrorSeverity.ERROR
+        # Direct match should be 1.0
+        assert confidence == 1.0
+
+    def test_manual_override_with_exception(self):
+        """Test manual override takes precedence over exception type."""
+        category, severity, confidence = self.categorizer.categorize(
+            exception=FileNotFoundError("file.txt not found"),
+            manual_category=ErrorCategory.NETWORK,
+            manual_severity=ErrorSeverity.WARNING,
+        )
+
+        assert category == ErrorCategory.NETWORK
+        assert severity == ErrorSeverity.WARNING
+        assert confidence == 1.0
+
+    def test_partial_manual_override_category(self):
+        """Test partial override (category only) with exception."""
+        category, severity, confidence = self.categorizer.categorize(
+            exception=FileNotFoundError("file.txt not found"),
+            manual_category=ErrorCategory.NETWORK,
+        )
+
+        # Category overridden, severity from exception
+        assert category == ErrorCategory.NETWORK
+        assert severity == ErrorSeverity.ERROR
+        assert confidence == 1.0
+
+    def test_partial_manual_override_severity(self):
+        """Test partial override (severity only) with exception."""
+        category, severity, confidence = self.categorizer.categorize(
+            exception=FileNotFoundError("file.txt not found"),
+            manual_severity=ErrorSeverity.WARNING,
+        )
+
+        # Severity overridden, category from exception
+        assert category == ErrorCategory.FILE_CORRUPT
+        assert severity == ErrorSeverity.WARNING
+        assert confidence == 1.0
+
+    def test_all_mapped_exceptions(self):
+        """Test that all mapped exception types are categorized correctly."""
+        test_cases = [
+            (FileNotFoundError(), ErrorCategory.FILE_CORRUPT),
+            (FileExistsError(), ErrorCategory.FILE_CORRUPT),
+            (IsADirectoryError(), ErrorCategory.FILE_CORRUPT),
+            (NotADirectoryError(), ErrorCategory.FILE_CORRUPT),
+            (PermissionError(), ErrorCategory.PERMISSION_DENIED),
+            (ConnectionRefusedError(), ErrorCategory.NETWORK),
+            (TimeoutError(), ErrorCategory.TIMEOUT),
+            (MemoryError(), ErrorCategory.RESOURCE_EXHAUSTED),
+            (ValueError(), ErrorCategory.PARSE_ERROR),
+            (ModuleNotFoundError(), ErrorCategory.TOOL_MISSING),
+        ]
+
+        for exception, expected_category in test_cases:
+            category, severity, confidence = self.categorizer.categorize(exception=exception)
+            assert category == expected_category
+            assert confidence >= 0.8  # Should be high confidence for mapped types

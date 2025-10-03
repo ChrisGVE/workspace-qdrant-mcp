@@ -16,7 +16,9 @@ Example usage:
 """
 
 from enum import Enum
-from typing import Optional, Tuple, Dict, Any
+from typing import Optional, Tuple, Dict, Any, Type
+import socket
+import asyncio
 
 
 class ErrorSeverity(Enum):
@@ -124,6 +126,47 @@ class ErrorCategorizer:
     Returns category, severity, and confidence score.
     """
 
+    # Exception type to (category, severity) mapping
+    # Confidence is 1.0 for direct exception type matches
+    EXCEPTION_TYPE_MAP: Dict[Type[Exception], Tuple[ErrorCategory, ErrorSeverity]] = {
+        # File and IO errors
+        FileNotFoundError: (ErrorCategory.FILE_CORRUPT, ErrorSeverity.ERROR),
+        FileExistsError: (ErrorCategory.FILE_CORRUPT, ErrorSeverity.ERROR),
+        IsADirectoryError: (ErrorCategory.FILE_CORRUPT, ErrorSeverity.ERROR),
+        NotADirectoryError: (ErrorCategory.FILE_CORRUPT, ErrorSeverity.ERROR),
+        IOError: (ErrorCategory.FILE_CORRUPT, ErrorSeverity.ERROR),
+        OSError: (ErrorCategory.FILE_CORRUPT, ErrorSeverity.ERROR),
+
+        # Permission errors
+        PermissionError: (ErrorCategory.PERMISSION_DENIED, ErrorSeverity.ERROR),
+
+        # Network errors
+        ConnectionError: (ErrorCategory.NETWORK, ErrorSeverity.ERROR),
+        ConnectionRefusedError: (ErrorCategory.NETWORK, ErrorSeverity.ERROR),
+        ConnectionAbortedError: (ErrorCategory.NETWORK, ErrorSeverity.ERROR),
+        ConnectionResetError: (ErrorCategory.NETWORK, ErrorSeverity.ERROR),
+        BrokenPipeError: (ErrorCategory.NETWORK, ErrorSeverity.ERROR),
+        socket.gaierror: (ErrorCategory.NETWORK, ErrorSeverity.ERROR),
+        socket.timeout: (ErrorCategory.TIMEOUT, ErrorSeverity.ERROR),
+
+        # Timeout errors
+        TimeoutError: (ErrorCategory.TIMEOUT, ErrorSeverity.ERROR),
+        asyncio.TimeoutError: (ErrorCategory.TIMEOUT, ErrorSeverity.ERROR),
+
+        # Resource exhaustion
+        MemoryError: (ErrorCategory.RESOURCE_EXHAUSTED, ErrorSeverity.ERROR),
+        BlockingIOError: (ErrorCategory.RESOURCE_EXHAUSTED, ErrorSeverity.WARNING),
+
+        # Parsing errors
+        ValueError: (ErrorCategory.PARSE_ERROR, ErrorSeverity.ERROR),
+        SyntaxError: (ErrorCategory.PARSE_ERROR, ErrorSeverity.ERROR),
+        TypeError: (ErrorCategory.PARSE_ERROR, ErrorSeverity.ERROR),
+
+        # Module/tool errors
+        ModuleNotFoundError: (ErrorCategory.TOOL_MISSING, ErrorSeverity.ERROR),
+        ImportError: (ErrorCategory.TOOL_MISSING, ErrorSeverity.ERROR),
+    }
+
     def __init__(self):
         """Initialize the error categorizer."""
         pass
@@ -163,9 +206,49 @@ class ErrorCategorizer:
         if manual_category and manual_severity:
             return manual_category, manual_severity, 1.0
 
-        # Placeholder implementation - will be expanded in next steps
+        # Try exception type categorization
+        if exception is not None:
+            result = self._categorize_by_exception_type(exception)
+            if result:
+                category, severity, confidence = result
+                # Apply manual overrides if provided
+                if manual_category:
+                    category = manual_category
+                if manual_severity:
+                    severity = manual_severity
+                return category, severity, confidence
+
+        # Fallback to defaults
         category = manual_category or ErrorCategory.UNKNOWN
         severity = manual_severity or ErrorSeverity.ERROR
         confidence = 1.0 if manual_category else 0.0
 
         return category, severity, confidence
+
+    def _categorize_by_exception_type(
+        self,
+        exception: Exception
+    ) -> Optional[Tuple[ErrorCategory, ErrorSeverity, float]]:
+        """
+        Categorize error based on exception type.
+
+        Args:
+            exception: The exception to categorize
+
+        Returns:
+            Tuple of (category, severity, confidence) or None if not found
+        """
+        exc_type = type(exception)
+
+        # Direct match
+        if exc_type in self.EXCEPTION_TYPE_MAP:
+            category, severity = self.EXCEPTION_TYPE_MAP[exc_type]
+            return category, severity, 1.0
+
+        # Check inheritance chain (less confident for base classes)
+        for mapped_type, (category, severity) in self.EXCEPTION_TYPE_MAP.items():
+            if isinstance(exception, mapped_type):
+                # Lower confidence for inherited matches
+                return category, severity, 0.8
+
+        return None
