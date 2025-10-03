@@ -115,6 +115,7 @@ if _detect_stdio_mode():
 from common.utils.project_detection import calculate_tenant_id
 from common.utils.git_utils import get_current_branch
 from common.core.collection_naming import build_project_collection_name
+from common.core.daemon_client import DaemonClient, DaemonConnectionError
 
 # Initialize the FastMCP app
 app = FastMCP("Workspace Qdrant MCP")
@@ -122,6 +123,7 @@ app = FastMCP("Workspace Qdrant MCP")
 # Global components
 qdrant_client: Optional[QdrantClient] = None
 embedding_model = None
+daemon_client: Optional[DaemonClient] = None
 project_cache = {}
 
 # Configuration
@@ -176,8 +178,8 @@ def get_project_collection(project_path: Optional[Path] = None) -> str:
     return build_project_collection_name(project_id)
 
 async def initialize_components():
-    """Initialize Qdrant client and embedding model."""
-    global qdrant_client, embedding_model
+    """Initialize Qdrant client, daemon client, and embedding model."""
+    global qdrant_client, embedding_model, daemon_client
 
     if qdrant_client is None:
         # Connect to Qdrant
@@ -195,6 +197,15 @@ async def initialize_components():
         from fastembed import TextEmbedding
         model_name = os.getenv("FASTEMBED_MODEL", DEFAULT_EMBEDDING_MODEL)
         embedding_model = TextEmbedding(model_name)
+
+    if daemon_client is None:
+        # Initialize daemon client for write operations
+        daemon_client = DaemonClient()
+        try:
+            await daemon_client.connect()
+        except DaemonConnectionError:
+            # Daemon connection is optional - fall back to direct writes if unavailable
+            daemon_client = None
 
 async def ensure_collection_exists(collection_name: str) -> bool:
     """Ensure a collection exists, create if it doesn't."""
@@ -309,6 +320,9 @@ async def store(
     - Files differentiated by metadata: file_type, branch, project_id
     - Legacy collection parameter supported for backwards compatibility
 
+    REFACTORED (Task 375.3): Now uses DaemonClient.ingest_text() for all writes.
+    The daemon handles embedding generation, collection creation, and metadata enrichment.
+
     Args:
         content: The text content to store
         title: Optional title for the document
@@ -335,20 +349,9 @@ async def store(
         project_name=project_name
     )
 
-    # Ensure collection exists
-    if not await ensure_collection_exists(target_collection):
-        return {
-            "success": False,
-            "error": f"Failed to create/access collection: {target_collection}"
-        }
-
-    # Generate document ID and embeddings
-    document_id = str(uuid.uuid4())
-    embeddings = await generate_embeddings(content)
-
     # Prepare metadata
     doc_metadata = {
-        "title": title or f"Document {document_id[:8]}",
+        "title": title or f"Document {uuid.uuid4().hex[:8]}",
         "source": source,
         "document_type": document_type,
         "created_at": datetime.now(timezone.utc).isoformat(),
@@ -365,35 +368,88 @@ async def store(
     if metadata:
         doc_metadata.update(metadata)
 
-    # Store in Qdrant
-    try:
-        point = PointStruct(
-            id=document_id,
-            vector=embeddings,
-            payload={
-                "content": content,
-                **doc_metadata
+    # Extract collection_basename and tenant_id for daemon
+    # For project collections (_{project_id}), extract the project_id
+    # For custom collections, use the full name as basename
+    if target_collection.startswith('_'):
+        # Project collection format: _{project_id}
+        tenant_id = target_collection[1:]  # Remove leading underscore
+        collection_basename = ""  # Empty basename for project collections
+    else:
+        # Custom/legacy collection - use collection name as-is
+        # Generate tenant_id from current project path
+        tenant_id = calculate_tenant_id(str(Path.cwd()))
+        collection_basename = target_collection
+
+    # Use DaemonClient for ingestion if available
+    if daemon_client:
+        try:
+            response = await daemon_client.ingest_text(
+                content=content,
+                collection_basename=collection_basename,
+                tenant_id=tenant_id,
+                metadata=doc_metadata,
+                chunk_text=True
+            )
+
+            return {
+                "success": True,
+                "document_id": response.document_id,
+                "collection": target_collection,
+                "title": doc_metadata["title"],
+                "content_length": len(content),
+                "chunks_created": response.chunks_created,
+                "metadata": doc_metadata
             }
-        )
+        except DaemonConnectionError as e:
+            return {
+                "success": False,
+                "error": f"Failed to store document via daemon: {str(e)}"
+            }
+    else:
+        # Fallback to direct Qdrant write if daemon unavailable
+        # This maintains backwards compatibility but violates First Principle 10
+        try:
+            # Ensure collection exists
+            if not await ensure_collection_exists(target_collection):
+                return {
+                    "success": False,
+                    "error": f"Failed to create/access collection: {target_collection}"
+                }
 
-        qdrant_client.upsert(
-            collection_name=target_collection,
-            points=[point]
-        )
+            # Generate document ID and embeddings
+            document_id = str(uuid.uuid4())
+            embeddings = await generate_embeddings(content)
 
-        return {
-            "success": True,
-            "document_id": document_id,
-            "collection": target_collection,
-            "title": doc_metadata["title"],
-            "content_length": len(content),
-            "metadata": doc_metadata
-        }
-    except Exception as e:
-        return {
-            "success": False,
-            "error": f"Failed to store document: {str(e)}"
-        }
+            # Store in Qdrant
+            point = PointStruct(
+                id=document_id,
+                vector=embeddings,
+                payload={
+                    "content": content,
+                    **doc_metadata
+                }
+            )
+
+            qdrant_client.upsert(
+                collection_name=target_collection,
+                points=[point]
+            )
+
+            return {
+                "success": True,
+                "document_id": document_id,
+                "collection": target_collection,
+                "title": doc_metadata["title"],
+                "content_length": len(content),
+                "metadata": doc_metadata,
+                "fallback_mode": "direct_qdrant_write"
+            }
+        except Exception as e:
+            return {
+                "success": False,
+                "error": f"Failed to store document: {str(e)}"
+            }
 
 @app.tool()
 async def search(
