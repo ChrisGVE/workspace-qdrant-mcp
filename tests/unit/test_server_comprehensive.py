@@ -912,14 +912,14 @@ class TestUtilityFunctions:
     # ORPHAN:         changes = server._detect_config_changes(old_config, new_config)
 
     # ORPHAN:         assert isinstance(changes, list)
-        assert len(changes) >= 0
+    # ORPHAN:                 assert len(changes) >= 0
 
 
 class TestLifecycleOperations:
     """Test server lifecycle operations."""
 
-            result = await server.cleanup_workspace()
-            assert result is None
+    # ORPHAN:                     result = await server.cleanup_workspace()
+    # ORPHAN:                     assert result is None
 
     def test_setup_signal_handlers(self):
         """Test signal handlers setup."""
