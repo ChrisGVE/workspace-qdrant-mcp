@@ -51,6 +51,28 @@ Example Usage:
     # Direct retrieval with branch filtering
     retrieve(document_id="uuid-123")                              # Current branch
     retrieve(metadata={"file_type": "test"}, branch="develop")    # develop branch, tests
+
+Write Path Architecture (First Principle 10):
+    DAEMON-ONLY WRITES: All Qdrant write operations MUST route through the daemon
+
+    Collection Types:
+        - PROJECT: _{project_id} - Auto-created by daemon for file watching
+        - USER: {basename}-{type} - User collections, created via daemon
+        - LIBRARY: _{library_name} - External libraries, managed via daemon
+        - MEMORY: _memory, _agent_memory - EXCEPTION: Direct writes allowed (meta-level data)
+
+    Write Priority:
+        1. PRIMARY: DaemonClient.ingest_text() / create_collection_v2() / delete_collection_v2()
+        2. FALLBACK: Direct qdrant_client writes (when daemon unavailable)
+        3. EXCEPTION: MEMORY collections use direct writes (architectural decision)
+
+    All fallback paths:
+        - Are clearly documented with NOTE comments
+        - Log warnings when used
+        - Include "fallback_mode" in return values
+        - Maintain backwards compatibility during daemon rollout
+
+    See: FIRST-PRINCIPLES.md (Principle 10), Task 375.6 validation report
 """
 
 import asyncio
@@ -423,6 +445,14 @@ async def store(
         tenant_id = calculate_tenant_id(str(Path.cwd()))
         collection_basename = target_collection
 
+    # ============================================================================
+    # DAEMON WRITE BOUNDARY (First Principle 10)
+    # ============================================================================
+    # All Qdrant writes MUST go through daemon. Fallback to direct writes only
+    # when daemon is unavailable (logged as warning with fallback_mode flag).
+    # See module docstring "Write Path Architecture" for complete documentation.
+    # ============================================================================
+
     # Use DaemonClient for ingestion if available
     if daemon_client:
         try:
@@ -745,6 +775,12 @@ async def manage(
             elif distance == Distance.DOT:
                 distance_str = "Dot"
 
+            # ============================================================================
+            # DAEMON WRITE BOUNDARY (First Principle 10)
+            # ============================================================================
+            # Collection creation must go through daemon. Direct write is fallback only.
+            # ============================================================================
+
             # Try to create via daemon first
             if daemon_client:
                 try:
@@ -794,6 +830,12 @@ async def manage(
                 return {"success": False, "error": "Collection name required for delete action"}
 
             target_collection = name or collection
+
+            # ============================================================================
+            # DAEMON WRITE BOUNDARY (First Principle 10)
+            # ============================================================================
+            # Collection deletion must go through daemon. Direct write is fallback only.
+            # ============================================================================
 
             # Try to delete via daemon first
             if daemon_client:
