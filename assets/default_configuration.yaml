@@ -1067,236 +1067,301 @@ rust:
     # Rust async: Integrates with Rust's async runtime for efficient delay handling
     # Format: Duration with unit (s/m)
     max_retry_delay: 30s
-[38;2;127;132;156m   1[0m 
-[38;2;127;132;156m   2[0m [38;2;205;214;244m# =============================================================================[0m
-[38;2;127;132;156m   3[0m [38;2;205;214;244m# QUEUE HEALTH MONITORING CONFIGURATION[0m
-[38;2;127;132;156m   4[0m [38;2;205;214;244m# =============================================================================[0m
-[38;2;127;132;156m   5[0m [38;2;205;214;244m# Purpose: Controls health assessment and monitoring for the queue system.[0m
-[38;2;127;132;156m   6[0m [38;2;205;214;244m# Provides thresholds and weights for calculating overall queue health status[0m
-[38;2;127;132;156m   7[0m [38;2;205;214;244m# based on multiple indicators including backlog, processing rate, errors,[0m
-[38;2;127;132;156m   8[0m [38;2;205;214;244m# latency, and resource usage.[0m
-[38;2;127;132;156m   9[0m [38;2;205;214;244mqueue_health:[0m
-[38;2;127;132;156m  10[0m [38;2;205;214;244m  # enabled: Master control for queue health monitoring[0m
-[38;2;127;132;156m  11[0m [38;2;205;214;244m  # Purpose: Enables or disables health status calculation and monitoring[0m
-[38;2;127;132;156m  12[0m [38;2;205;214;244m  # Monitoring benefit: Provides proactive health alerts and recommendations[0m
-[38;2;127;132;156m  13[0m [38;2;205;214;244m  # Resource overhead: Minimal CPU overhead for health calculations[0m
-[38;2;127;132;156m  14[0m [38;2;205;214;244m  # Production value: Essential for operational visibility and alerting[0m
-[38;2;127;132;156m  15[0m [38;2;205;214;244m  # Format: Boolean[0m
-[38;2;127;132;156m  16[0m [38;2;205;214;244m  enabled: true[0m
-[38;2;127;132;156m  17[0m 
-[38;2;127;132;156m  18[0m [38;2;205;214;244m  # Health check thresholds for queue backlog monitoring[0m
-[38;2;127;132;156m  19[0m [38;2;205;214;244m  thresholds:[0m
-[38;2;127;132;156m  20[0m [38;2;205;214;244m    # backlog_normal: Normal queue size baseline[0m
-[38;2;127;132;156m  21[0m [38;2;205;214;244m    # Purpose: Expected queue size under normal operation[0m
-[38;2;127;132;156m  22[0m [38;2;205;214;244m    # Healthy operation: Queue size below this threshold is considered healthy[0m
-[38;2;127;132;156m  23[0m [38;2;205;214;244m    # Format: Integer items[0m
-[38;2;127;132;156m  24[0m [38;2;205;214;244m    backlog_normal: 1000[0m
-[38;2;127;132;156m  25[0m 
-[38;2;127;132;156m  26[0m [38;2;205;214;244m    # backlog_warning: Queue size warning threshold[0m
-[38;2;127;132;156m  27[0m [38;2;205;214;244m    # Purpose: Queue size that triggers degraded health status[0m
-[38;2;127;132;156m  28[0m [38;2;205;214;244m    # Action threshold: Monitor closely when above this level[0m
-[38;2;127;132;156m  29[0m [38;2;205;214;244m    # Format: Integer items[0m
-[38;2;127;132;156m  30[0m [38;2;205;214;244m    backlog_warning: 5000[0m
-[38;2;127;132;156m  31[0m 
-[38;2;127;132;156m  32[0m [38;2;205;214;244m    # backlog_critical: Queue size critical threshold[0m
-[38;2;127;132;156m  33[0m [38;2;205;214;244m    # Purpose: Queue size that triggers critical health status[0m
-[38;2;127;132;156m  34[0m [38;2;205;214;244m    # Emergency threshold: Immediate action required above this level[0m
-[38;2;127;132;156m  35[0m [38;2;205;214;244m    # Format: Integer items[0m
-[38;2;127;132;156m  36[0m [38;2;205;214;244m    backlog_critical: 10000[0m
-[38;2;127;132;156m  37[0m 
-[38;2;127;132;156m  38[0m [38;2;205;214;244m    # processing_rate_min: Minimum acceptable processing rate[0m
-[38;2;127;132;156m  39[0m [38;2;205;214;244m    # Purpose: Minimum items/minute that indicates healthy processing[0m
-[38;2;127;132;156m  40[0m [38;2;205;214;244m    # Performance baseline: System should process at least this rate[0m
-[38;2;127;132;156m  41[0m [38;2;205;214;244m    # Tuning: Adjust based on expected workload and capacity[0m
-[38;2;127;132;156m  42[0m [38;2;205;214;244m    # Format: Float items/minute[0m
-[38;2;127;132;156m  43[0m [38;2;205;214;244m    processing_rate_min: 10.0[0m
-[38;2;127;132;156m  44[0m 
-[38;2;127;132;156m  45[0m [38;2;205;214;244m    # error_rate_max: Maximum acceptable error rate[0m
-[38;2;127;132;156m  46[0m [38;2;205;214;244m    # Purpose: Maximum percentage of failures considered acceptable[0m
-[38;2;127;132;156m  47[0m [38;2;205;214;244m    # Quality threshold: Higher error rates indicate processing issues[0m
-[38;2;127;132;156m  48[0m [38;2;205;214;244m    # Format: Float percentage (0-100)[0m
-[38;2;127;132;156m  49[0m [38;2;205;214;244m    error_rate_max: 5.0[0m
-[38;2;127;132;156m  50[0m 
-[38;2;127;132;156m  51[0m [38;2;205;214;244m    # latency_warning_ms: Warning threshold for queue latency[0m
-[38;2;127;132;156m  52[0m [38;2;205;214;244m    # Purpose: Queue wait time that triggers degraded status[0m
-[38;2;127;132;156m  53[0m [38;2;205;214;244m    # Response time target: Items should be processed within this time[0m
-[38;2;127;132;156m  54[0m [38;2;205;214;244m    # Format: Float milliseconds[0m
-[38;2;127;132;156m  55[0m [38;2;205;214;244m    latency_warning_ms: 1000.0[0m
-[38;2;127;132;156m  56[0m 
-[38;2;127;132;156m  57[0m [38;2;205;214;244m    # latency_critical_ms: Critical threshold for queue latency[0m
-[38;2;127;132;156m  58[0m [38;2;205;214;244m    # Purpose: Queue wait time that triggers critical status[0m
-[38;2;127;132;156m  59[0m [38;2;205;214;244m    # Emergency threshold: Indicates severe processing delays[0m
-[38;2;127;132;156m  60[0m [38;2;205;214;244m    # Format: Float milliseconds[0m
-[38;2;127;132;156m  61[0m [38;2;205;214;244m    latency_critical_ms: 5000.0[0m
-[38;2;127;132;156m  62[0m 
-[38;2;127;132;156m  63[0m [38;2;205;214;244m    # success_rate_min: Minimum acceptable success rate[0m
-[38;2;127;132;156m  64[0m [38;2;205;214;244m    # Purpose: Minimum percentage of successful processing[0m
-[38;2;127;132;156m  65[0m [38;2;205;214;244m    # Quality baseline: Below this indicates significant processing issues[0m
-[38;2;127;132;156m  66[0m [38;2;205;214;244m    # Format: Float percentage (0-100)[0m
-[38;2;127;132;156m  67[0m [38;2;205;214;244m    success_rate_min: 95.0[0m
-[38;2;127;132;156m  68[0m 
-[38;2;127;132;156m  69[0m [38;2;205;214;244m    # cpu_warning_percent: CPU usage warning threshold[0m
-[38;2;127;132;156m  70[0m [38;2;205;214;244m    # Purpose: CPU utilization that triggers degraded status[0m
-[38;2;127;132;156m  71[0m [38;2;205;214;244m    # Resource monitoring: Indicates approaching resource limits[0m
-[38;2;127;132;156m  72[0m [38;2;205;214;244m    # Format: Float percentage (0-100)[0m
-[38;2;127;132;156m  73[0m [38;2;205;214;244m    cpu_warning_percent: 70.0[0m
-[38;2;127;132;156m  74[0m 
-[38;2;127;132;156m  75[0m [38;2;205;214;244m    # cpu_critical_percent: CPU usage critical threshold[0m
-[38;2;127;132;156m  76[0m [38;2;205;214;244m    # Purpose: CPU utilization that triggers critical status[0m
-[38;2;127;132;156m  77[0m [38;2;205;214;244m    # Resource emergency: Indicates resource exhaustion[0m
-[38;2;127;132;156m  78[0m [38;2;205;214;244m    # Format: Float percentage (0-100)[0m
-[38;2;127;132;156m  79[0m [38;2;205;214;244m    cpu_critical_percent: 90.0[0m
-[38;2;127;132;156m  80[0m 
-[38;2;127;132;156m  81[0m [38;2;205;214;244m    # memory_warning_mb: Memory usage warning threshold[0m
-[38;2;127;132;156m  82[0m [38;2;205;214;244m    # Purpose: Memory consumption that triggers degraded status[0m
-[38;2;127;132;156m  83[0m [38;2;205;214;244m    # Memory monitoring: Indicates approaching memory limits[0m
-[38;2;127;132;156m  84[0m [38;2;205;214;244m    # Format: Float megabytes[0m
-[38;2;127;132;156m  85[0m [38;2;205;214;244m    memory_warning_mb: 1000.0[0m
-[38;2;127;132;156m  86[0m 
-[38;2;127;132;156m  87[0m [38;2;205;214;244m    # memory_critical_mb: Memory usage critical threshold[0m
-[38;2;127;132;156m  88[0m [38;2;205;214;244m    # Purpose: Memory consumption that triggers critical status[0m
-[38;2;127;132;156m  89[0m [38;2;205;214;244m    # Memory emergency: Indicates potential out-of-memory risk[0m
-[38;2;127;132;156m  90[0m [38;2;205;214;244m    # Format: Float megabytes[0m
-[38;2;127;132;156m  91[0m [38;2;205;214;244m    memory_critical_mb: 2000.0[0m
-[38;2;127;132;156m  92[0m 
-[38;2;127;132;156m  93[0m [38;2;205;214;244m  # Weights for health indicator contribution to overall score[0m
-[38;2;127;132;156m  94[0m [38;2;205;214;244m  # Purpose: Controls how much each indicator contributes to overall health[0m
-[38;2;127;132;156m  95[0m [38;2;205;214;244m  # Calculation: Weighted average of all indicator scores[0m
-[38;2;127;132;156m  96[0m [38;2;205;214;244m  # Sum requirement: Total active weights should sum to 100 for balanced scoring[0m
-[38;2;127;132;156m  97[0m [38;2;205;214;244m  # Customization: Adjust weights based on operational priorities[0m
-[38;2;127;132;156m  98[0m [38;2;205;214;244m  weights:[0m
-[38;2;127;132;156m  99[0m [38;2;205;214;244m    # backlog: Weight for queue backlog health indicator[0m
-[38;2;127;132;156m 100[0m [38;2;205;214;244m    # Purpose: How much queue size affects overall health[0m
-[38;2;127;132;156m 101[0m [38;2;205;214;244m    # Importance: High backlog indicates capacity issues[0m
-[38;2;127;132;156m 102[0m [38;2;205;214;244m    # Format: Float weight (recommend 0-100)[0m
-[38;2;127;132;156m 103[0m [38;2;205;214;244m    backlog: 20.0[0m
-[38;2;127;132;156m 104[0m 
-[38;2;127;132;156m 105[0m [38;2;205;214;244m    # processing_rate: Weight for processing rate health indicator[0m
-[38;2;127;132;156m 106[0m [38;2;205;214;244m    # Purpose: How much processing throughput affects overall health[0m
-[38;2;127;132;156m 107[0m [38;2;205;214;244m    # Importance: Low processing rate indicates performance issues[0m
-[38;2;127;132;156m 108[0m [38;2;205;214;244m    # Format: Float weight (recommend 0-100)[0m
-[38;2;127;132;156m 109[0m [38;2;205;214;244m    processing_rate: 20.0[0m
-[38;2;127;132;156m 110[0m 
-[38;2;127;132;156m 111[0m [38;2;205;214;244m    # error_rate: Weight for error rate health indicator[0m
-[38;2;127;132;156m 112[0m [38;2;205;214;244m    # Purpose: How much error frequency affects overall health[0m
-[38;2;127;132;156m 113[0m [38;2;205;214;244m    # Importance: High priority as errors indicate quality issues[0m
-[38;2;127;132;156m 114[0m [38;2;205;214;244m    # Format: Float weight (recommend 0-100)[0m
-[38;2;127;132;156m 115[0m [38;2;205;214;244m    error_rate: 25.0[0m
-[38;2;127;132;156m 116[0m 
-[38;2;127;132;156m 117[0m [38;2;205;214;244m    # latency: Weight for latency health indicator[0m
-[38;2;127;132;156m 118[0m [38;2;205;214;244m    # Purpose: How much queue wait time affects overall health[0m
-[38;2;127;132;156m 119[0m [38;2;205;214;244m    # Importance: High latency impacts user experience[0m
-[38;2;127;132;156m 120[0m [38;2;205;214;244m    # Format: Float weight (recommend 0-100)[0m
-[38;2;127;132;156m 121[0m [38;2;205;214;244m    latency: 15.0[0m
-[38;2;127;132;156m 122[0m 
-[38;2;127;132;156m 123[0m [38;2;205;214;244m    # success_rate: Weight for success rate health indicator[0m
-[38;2;127;132;156m 124[0m [38;2;205;214;244m    # Purpose: How much processing success rate affects overall health[0m
-[38;2;127;132;156m 125[0m [38;2;205;214;244m    # Importance: Directly measures processing quality[0m
-[38;2;127;132;156m 126[0m [38;2;205;214;244m    # Format: Float weight (recommend 0-100)[0m
-[38;2;127;132;156m 127[0m [38;2;205;214;244m    success_rate: 20.0[0m
-[38;2;127;132;156m 128[0m 
-[38;2;127;132;156m 129[0m [38;2;205;214;244m    # backpressure: Weight for backpressure health indicator[0m
-[38;2;127;132;156m 130[0m [38;2;205;214;244m    # Purpose: How much backpressure state affects overall health[0m
-[38;2;127;132;156m 131[0m [38;2;205;214;244m    # Optional: Set to 0 if backpressure monitoring not used[0m
-[38;2;127;132;156m 132[0m [38;2;205;214;244m    # Format: Float weight (recommend 0-100)[0m
-[38;2;127;132;156m 133[0m [38;2;205;214;244m    backpressure: 0.0[0m
-[38;2;127;132;156m 134[0m 
-[38;2;127;132;156m 135[0m [38;2;205;214;244m    # resource_usage: Weight for resource usage health indicator[0m
-[38;2;127;132;156m 136[0m [38;2;205;214;244m    # Purpose: How much CPU/memory usage affects overall health[0m
-[38;2;127;132;156m 137[0m [38;2;205;214;244m    # Optional: Set to 0 if resource monitoring not available[0m
-[38;2;127;132;156m 138[0m [38;2;205;214;244m    # Format: Float weight (recommend 0-100)[0m
-[38;2;127;132;156m 139[0m [38;2;205;214;244m    resource_usage: 0.0[0m
-[38;2;127;132;156m 140[0m 
-[38;2;127;132;156m 141[0m [38;2;205;214;244m  # monitoring_interval: Health check frequency[0m
-[38;2;127;132;156m 142[0m [38;2;205;214;244m  # Purpose: How often to calculate and update health status[0m
-[38;2;127;132;156m 143[0m [38;2;205;214;244m  # Balance: Frequent checks provide faster detection but use more resources[0m
-[38;2;127;132;156m 144[0m [38;2;205;214;244m  # Alerting: Affects how quickly health changes are detected[0m
-[38;2;127;132;156m 145[0m [38;2;205;214;244m  # Format: Duration with unit (s/m)[0m
-[38;2;127;132;156m 146[0m [38;2;205;214;244m  monitoring_interval: 60s[0m
-[38;2;127;132;156m 147[0m 
-[38;2;127;132;156m   1[0m [38;2;205;214;244m# =============================================================================[0m
-[38;2;127;132;156m   2[0m [38;2;205;214;244m# QUEUE RESOURCE MONITORING CONFIGURATION[0m
-[38;2;127;132;156m   3[0m [38;2;205;214;244m# =============================================================================[0m
-[38;2;127;132;156m   4[0m [38;2;205;214;244m# Purpose: Controls resource utilization tracking and correlation with queue[0m
-[38;2;127;132;156m   5[0m [38;2;205;214;244m# performance. Monitors CPU, memory, database connections, and thread usage to[0m
-[38;2;127;132;156m   6[0m [38;2;205;214;244m# detect bottlenecks and optimize queue processing.[0m
-[38;2;127;132;156m   7[0m [38;2;205;214;244mqueue_resource_monitoring:[0m
-[38;2;127;132;156m   8[0m [38;2;205;214;244m  # enabled: Master control for resource monitoring[0m
-[38;2;127;132;156m   9[0m [38;2;205;214;244m  # Purpose: Enables or disables resource utilization tracking[0m
-[38;2;127;132;156m  10[0m [38;2;205;214;244m  # Benefit: Identifies resource bottlenecks affecting queue performance[0m
-[38;2;127;132;156m  11[0m [38;2;205;214;244m  # Overhead: Minimal CPU/memory overhead for metric collection[0m
-[38;2;127;132;156m  12[0m [38;2;205;214;244m  # Requires: psutil library for system metrics[0m
-[38;2;127;132;156m  13[0m [38;2;205;214;244m  # Format: Boolean[0m
-[38;2;127;132;156m  14[0m [38;2;205;214;244m  enabled: true[0m
-[38;2;127;132;156m  15[0m 
-[38;2;127;132;156m  16[0m [38;2;205;214;244m  # snapshot_retention: Number of resource snapshots to retain[0m
-[38;2;127;132;156m  17[0m [38;2;205;214;244m  # Purpose: Controls how much historical data is kept in memory[0m
-[38;2;127;132;156m  18[0m [38;2;205;214;244m  # Memory usage: ~1KB per snapshot (depends on metric count)[0m
-[38;2;127;132;156m  19[0m [38;2;205;214;244m  # Correlation: More snapshots provide better correlation analysis[0m
-[38;2;127;132;156m  20[0m [38;2;205;214;244m  # Trade-off: Memory usage vs. historical depth[0m
-[38;2;127;132;156m  21[0m [38;2;205;214;244m  # Format: Integer count[0m
-[38;2;127;132;156m  22[0m [38;2;205;214;244m  # Default reasoning: 200 snapshots at 30s interval = 100 minutes of history[0m
-[38;2;127;132;156m  23[0m [38;2;205;214;244m  snapshot_retention: 200[0m
-[38;2;127;132;156m  24[0m 
-[38;2;127;132;156m  25[0m [38;2;205;214;244m  # monitoring_interval: Resource collection frequency[0m
-[38;2;127;132;156m  26[0m [38;2;205;214;244m  # Purpose: How often to collect resource and queue metrics[0m
-[38;2;127;132;156m  27[0m [38;2;205;214;244m  # Balance: Frequent collection detects issues faster but uses more CPU[0m
-[38;2;127;132;156m  28[0m [38;2;205;214;244m  # Correlation: More frequent samples improve correlation accuracy[0m
-[38;2;127;132;156m  29[0m [38;2;205;214;244m  # Bottleneck detection: Affects how quickly bottlenecks are detected[0m
-[38;2;127;132;156m  30[0m [38;2;205;214;244m  # Format: Integer seconds[0m
-[38;2;127;132;156m  31[0m [38;2;205;214;244m  # Default reasoning: 30s provides good balance between accuracy and overhead[0m
-[38;2;127;132;156m  32[0m [38;2;205;214;244m  monitoring_interval: 30[0m
-[38;2;127;132;156m  33[0m 
-[38;2;127;132;156m  34[0m [38;2;205;214;244m  # Bottleneck detection thresholds[0m
-[38;2;127;132;156m  35[0m [38;2;205;214;244m  thresholds:[0m
-[38;2;127;132;156m  36[0m [38;2;205;214;244m    # cpu_warning_percent: CPU usage warning threshold[0m
-[38;2;127;132;156m  37[0m [38;2;205;214;244m    # Purpose: CPU utilization that triggers bottleneck warning[0m
-[38;2;127;132;156m  38[0m [38;2;205;214;244m    # Detection: Combined with queue backlog to identify CPU constraints[0m
-[38;2;127;132;156m  39[0m [38;2;205;214;244m    # Format: Float percentage (0-100)[0m
-[38;2;127;132;156m  40[0m [38;2;205;214;244m    # Default reasoning: 70% allows headroom before critical threshold[0m
-[38;2;127;132;156m  41[0m [38;2;205;214;244m    cpu_warning_percent: 70.0[0m
-[38;2;127;132;156m  42[0m 
-[38;2;127;132;156m  43[0m [38;2;205;214;244m    # cpu_critical_percent: CPU usage critical threshold[0m
-[38;2;127;132;156m  44[0m [38;2;205;214;244m    # Purpose: CPU utilization that triggers critical bottleneck alert[0m
-[38;2;127;132;156m  45[0m [38;2;205;214;244m    # Detection: Combined with low processing rate to confirm CPU bottleneck[0m
-[38;2;127;132;156m  46[0m [38;2;205;214;244m    # Format: Float percentage (0-100)[0m
-[38;2;127;132;156m  47[0m [38;2;205;214;244m    # Default reasoning: 90% indicates near-saturation[0m
-[38;2;127;132;156m  48[0m [38;2;205;214;244m    cpu_critical_percent: 90.0[0m
-[38;2;127;132;156m  49[0m 
-[38;2;127;132;156m  50[0m [38;2;205;214;244m    # memory_warning_mb: Memory usage warning threshold[0m
-[38;2;127;132;156m  51[0m [38;2;205;214;244m    # Purpose: Memory consumption that triggers bottleneck warning[0m
-[38;2;127;132;156m  52[0m [38;2;205;214;244m    # Detection: Combined with queue metrics to identify memory constraints[0m
-[38;2;127;132;156m  53[0m [38;2;205;214;244m    # Format: Float megabytes[0m
-[38;2;127;132;156m  54[0m [38;2;205;214;244m    # Default reasoning: 1GB is reasonable for typical workloads[0m
-[38;2;127;132;156m  55[0m [38;2;205;214;244m    memory_warning_mb: 1000.0[0m
-[38;2;127;132;156m  56[0m 
-[38;2;127;132;156m  57[0m [38;2;205;214;244m    # memory_critical_mb: Memory usage critical threshold[0m
-[38;2;127;132;156m  58[0m [38;2;205;214;244m    # Purpose: Memory consumption that triggers critical bottleneck alert[0m
-[38;2;127;132;156m  59[0m [38;2;205;214;244m    # Detection: Combined with queue backlog to confirm memory bottleneck[0m
-[38;2;127;132;156m  60[0m [38;2;205;214;244m    # Format: Float megabytes[0m
-[38;2;127;132;156m  61[0m [38;2;205;214;244m    # Default reasoning: 2GB indicates potential memory pressure[0m
-[38;2;127;132;156m  62[0m [38;2;205;214;244m    memory_critical_mb: 2000.0[0m
-[38;2;127;132;156m  63[0m 
-[38;2;127;132;156m  64[0m [38;2;205;214;244m    # low_processing_rate_threshold: Minimum acceptable processing rate[0m
-[38;2;127;132;156m  65[0m [38;2;205;214;244m    # Purpose: Processing rate below which indicates performance issues[0m
-[38;2;127;132;156m  66[0m [38;2;205;214;244m    # Detection: Used to identify if resource usage is causing low throughput[0m
-[38;2;127;132;156m  67[0m [38;2;205;214;244m    # Format: Float items per minute[0m
-[38;2;127;132;156m  68[0m [38;2;205;214;244m    # Default reasoning: Matches queue_health.thresholds.processing_rate_min[0m
-[38;2;127;132;156m  69[0m [38;2;205;214;244m    low_processing_rate_threshold: 10.0[0m
-[38;2;127;132;156m  70[0m 
-[38;2;127;132;156m  71[0m [38;2;205;214;244m  # Correlation analysis configuration[0m
-[38;2;127;132;156m  72[0m [38;2;205;214;244m  correlation:[0m
-[38;2;127;132;156m  73[0m [38;2;205;214;244m    # min_samples: Minimum snapshots required for correlation analysis[0m
-[38;2;127;132;156m  74[0m [38;2;205;214;244m    # Purpose: Ensures statistical validity of correlation coefficients[0m
-[38;2;127;132;156m  75[0m [38;2;205;214;244m    # Statistics: Pearson correlation needs sufficient sample size[0m
-[38;2;127;132;156m  76[0m [38;2;205;214;244m    # Format: Integer count[0m
-[38;2;127;132;156m  77[0m [38;2;205;214;244m    # Default reasoning: 2 samples minimum for any correlation[0m
-[38;2;127;132;156m  78[0m [38;2;205;214;244m    min_samples: 2[0m
-[38;2;127;132;156m  79[0m 
-[38;2;127;132;156m  80[0m [38;2;205;214;244m    # history_window_minutes: Time window for correlation analysis[0m
-[38;2;127;132;156m  81[0m [38;2;205;214;244m    # Purpose: How far back to look when calculating correlations[0m
-[38;2;127;132;156m  82[0m [38;2;205;214;244m    # Trade-off: Longer window captures trends, shorter window more current[0m
-[38;2;127;132;156m  83[0m [38;2;205;214;244m    # Format: Integer minutes[0m
-[38;2;127;132;156m  84[0m [38;2;205;214;244m    # Default reasoning: 60 minutes captures recent patterns[0m
-[38;2;127;132;156m  85[0m [38;2;205;214;244m    history_window_minutes: 60[0m
-[38;2;127;132;156m  86[0m 
+
+# =============================================================================
+# QUEUE HEALTH MONITORING CONFIGURATION
+# =============================================================================
+# Purpose: Controls health assessment and monitoring for the queue system.
+# Provides thresholds and weights for calculating overall queue health status
+# based on multiple indicators including backlog, processing rate, errors,
+# latency, and resource usage.
+queue_health:
+  # enabled: Master control for queue health monitoring
+  # Purpose: Enables or disables health status calculation and monitoring
+  # Monitoring benefit: Provides proactive health alerts and recommendations
+  # Resource overhead: Minimal CPU overhead for health calculations
+  # Production value: Essential for operational visibility and alerting
+  # Format: Boolean
+  enabled: true
+
+  # Health check thresholds for queue backlog monitoring
+  thresholds:
+    # backlog_normal: Normal queue size baseline
+    # Purpose: Expected queue size under normal operation
+    # Healthy operation: Queue size below this threshold is considered healthy
+    # Format: Integer items
+    backlog_normal: 1000
+
+    # backlog_warning: Queue size warning threshold
+    # Purpose: Queue size that triggers degraded health status
+    # Action threshold: Monitor closely when above this level
+    # Format: Integer items
+    backlog_warning: 5000
+
+    # backlog_critical: Queue size critical threshold
+    # Purpose: Queue size that triggers critical health status
+    # Emergency threshold: Immediate action required above this level
+    # Format: Integer items
+    backlog_critical: 10000
+
+    # processing_rate_min: Minimum acceptable processing rate
+    # Purpose: Minimum items/minute that indicates healthy processing
+    # Performance baseline: System should process at least this rate
+    # Tuning: Adjust based on expected workload and capacity
+    # Format: Float items/minute
+    processing_rate_min: 10.0
+
+    # error_rate_max: Maximum acceptable error rate
+    # Purpose: Maximum percentage of failures considered acceptable
+    # Quality threshold: Higher error rates indicate processing issues
+    # Format: Float percentage (0-100)
+    error_rate_max: 5.0
+
+    # latency_warning_ms: Warning threshold for queue latency
+    # Purpose: Queue wait time that triggers degraded status
+    # Response time target: Items should be processed within this time
+    # Format: Float milliseconds
+    latency_warning_ms: 1000.0
+
+    # latency_critical_ms: Critical threshold for queue latency
+    # Purpose: Queue wait time that triggers critical status
+    # Emergency threshold: Indicates severe processing delays
+    # Format: Float milliseconds
+    latency_critical_ms: 5000.0
+
+    # success_rate_min: Minimum acceptable success rate
+    # Purpose: Minimum percentage of successful processing
+    # Quality baseline: Below this indicates significant processing issues
+    # Format: Float percentage (0-100)
+    success_rate_min: 95.0
+
+    # cpu_warning_percent: CPU usage warning threshold
+    # Purpose: CPU utilization that triggers degraded status
+    # Resource monitoring: Indicates approaching resource limits
+    # Format: Float percentage (0-100)
+    cpu_warning_percent: 70.0
+
+    # cpu_critical_percent: CPU usage critical threshold
+    # Purpose: CPU utilization that triggers critical status
+    # Resource emergency: Indicates resource exhaustion
+    # Format: Float percentage (0-100)
+    cpu_critical_percent: 90.0
+
+    # memory_warning_mb: Memory usage warning threshold
+    # Purpose: Memory consumption that triggers degraded status
+    # Memory monitoring: Indicates approaching memory limits
+    # Format: Float megabytes
+    memory_warning_mb: 1000.0
+
+    # memory_critical_mb: Memory usage critical threshold
+    # Purpose: Memory consumption that triggers critical status
+    # Memory emergency: Indicates potential out-of-memory risk
+    # Format: Float megabytes
+    memory_critical_mb: 2000.0
+
+  # Weights for health indicator contribution to overall score
+  # Purpose: Controls how much each indicator contributes to overall health
+  # Calculation: Weighted average of all indicator scores
+  # Sum requirement: Total active weights should sum to 100 for balanced scoring
+  # Customization: Adjust weights based on operational priorities
+  weights:
+    # backlog: Weight for queue backlog health indicator
+    # Purpose: How much queue size affects overall health
+    # Importance: High backlog indicates capacity issues
+    # Format: Float weight (recommend 0-100)
+    backlog: 20.0
+
+    # processing_rate: Weight for processing rate health indicator
+    # Purpose: How much processing throughput affects overall health
+    # Importance: Low processing rate indicates performance issues
+    # Format: Float weight (recommend 0-100)
+    processing_rate: 20.0
+
+    # error_rate: Weight for error rate health indicator
+    # Purpose: How much error frequency affects overall health
+    # Importance: High priority as errors indicate quality issues
+    # Format: Float weight (recommend 0-100)
+    error_rate: 25.0
+
+    # latency: Weight for latency health indicator
+    # Purpose: How much queue wait time affects overall health
+    # Importance: High latency impacts user experience
+    # Format: Float weight (recommend 0-100)
+    latency: 15.0
+
+    # success_rate: Weight for success rate health indicator
+    # Purpose: How much processing success rate affects overall health
+    # Importance: Directly measures processing quality
+    # Format: Float weight (recommend 0-100)
+    success_rate: 20.0
+
+    # backpressure: Weight for backpressure health indicator
+    # Purpose: How much backpressure state affects overall health
+    # Optional: Set to 0 if backpressure monitoring not used
+    # Format: Float weight (recommend 0-100)
+    backpressure: 0.0
+
+    # resource_usage: Weight for resource usage health indicator
+    # Purpose: How much CPU/memory usage affects overall health
+    # Optional: Set to 0 if resource monitoring not available
+    # Format: Float weight (recommend 0-100)
+    resource_usage: 0.0
+
+  # monitoring_interval: Health check frequency
+  # Purpose: How often to calculate and update health status
+  # Balance: Frequent checks provide faster detection but use more resources
+  # Alerting: Affects how quickly health changes are detected
+  # Format: Duration with unit (s/m)
+  monitoring_interval: 60s
+
+# =============================================================================
+# QUEUE RESOURCE MONITORING CONFIGURATION
+# =============================================================================
+# Purpose: Controls resource utilization tracking and correlation with queue
+# performance. Monitors CPU, memory, database connections, and thread usage to
+# detect bottlenecks and optimize queue processing.
+queue_resource_monitoring:
+  # enabled: Master control for resource monitoring
+  # Purpose: Enables or disables resource utilization tracking
+  # Benefit: Identifies resource bottlenecks affecting queue performance
+  # Overhead: Minimal CPU/memory overhead for metric collection
+  # Requires: psutil library for system metrics
+  # Format: Boolean
+  enabled: true
+
+  # snapshot_retention: Number of resource snapshots to retain
+  # Purpose: Controls how much historical data is kept in memory
+  # Memory usage: ~1KB per snapshot (depends on metric count)
+  # Correlation: More snapshots provide better correlation analysis
+  # Trade-off: Memory usage vs. historical depth
+  # Format: Integer count
+  # Default reasoning: 200 snapshots at 30s interval = 100 minutes of history
+  snapshot_retention: 200
+
+  # monitoring_interval: Resource collection frequency
+  # Purpose: How often to collect resource and queue metrics
+  # Balance: Frequent collection detects issues faster but uses more CPU
+  # Correlation: More frequent samples improve correlation accuracy
+  # Bottleneck detection: Affects how quickly bottlenecks are detected
+  # Format: Integer seconds
+  # Default reasoning: 30s provides good balance between accuracy and overhead
+  monitoring_interval: 30
+
+  # Bottleneck detection thresholds
+  thresholds:
+    # cpu_warning_percent: CPU usage warning threshold
+    # Purpose: CPU utilization that triggers bottleneck warning
+    # Detection: Combined with queue backlog to identify CPU constraints
+    # Format: Float percentage (0-100)
+    # Default reasoning: 70% allows headroom before critical threshold
+    cpu_warning_percent: 70.0
+
+    # cpu_critical_percent: CPU usage critical threshold
+    # Purpose: CPU utilization that triggers critical bottleneck alert
+    # Detection: Combined with low processing rate to confirm CPU bottleneck
+    # Format: Float percentage (0-100)
+    # Default reasoning: 90% indicates near-saturation
+    cpu_critical_percent: 90.0
+
+    # memory_warning_mb: Memory usage warning threshold
+    # Purpose: Memory consumption that triggers bottleneck warning
+    # Detection: Combined with queue metrics to identify memory constraints
+    # Format: Float megabytes
+    # Default reasoning: 1GB is reasonable for typical workloads
+    memory_warning_mb: 1000.0
+
+    # memory_critical_mb: Memory usage critical threshold
+    # Purpose: Memory consumption that triggers critical bottleneck alert
+    # Detection: Combined with queue backlog to confirm memory bottleneck
+    # Format: Float megabytes
+    # Default reasoning: 2GB indicates potential memory pressure
+    memory_critical_mb: 2000.0
+
+    # low_processing_rate_threshold: Minimum acceptable processing rate
+    # Purpose: Processing rate below which indicates performance issues
+    # Detection: Used to identify if resource usage is causing low throughput
+    # Format: Float items per minute
+    # Default reasoning: Matches queue_health.thresholds.processing_rate_min
+    low_processing_rate_threshold: 10.0
+
+  # Correlation analysis configuration
+  correlation:
+    # min_samples: Minimum snapshots required for correlation analysis
+    # Purpose: Ensures statistical validity of correlation coefficients
+    # Statistics: Pearson correlation needs sufficient sample size
+    # Format: Integer count
+    # Default reasoning: 2 samples minimum for any correlation
+    min_samples: 2
+
+    # history_window_minutes: Time window for correlation analysis
+    # Purpose: How far back to look when calculating correlations
+    # Trade-off: Longer window captures trends, shorter window more current
+    # Format: Integer minutes
+    # Default reasoning: 60 minutes captures recent patterns
+    history_window_minutes: 60
+
+# =============================================================================
+# QUEUE BOTTLENECK DETECTION CONFIGURATION
+# =============================================================================
+# Purpose: Controls operation-level bottleneck detection and tracking for queue
+# processing. Identifies slow operations, collections, parsers, and tenants that
+# are causing performance degradation.
+queue_bottleneck_detection:
+  # enabled: Master control for bottleneck detection
+  # Purpose: Enables or disables bottleneck detection and analysis
+  # Performance benefit: Identifies specific bottlenecks for optimization
+  # Resource overhead: Minimal CPU/memory overhead for tracking
+  # Production value: Essential for performance optimization and troubleshooting
+  # Format: Boolean
+  enabled: true
+
+  # slow_operation_threshold_ms: Threshold for slow operation tracking
+  # Purpose: Operations exceeding this duration are tracked as slow
+  # Detection: Only operations above threshold are recorded for analysis
+  # Tuning: Adjust based on expected operation times
+  # Memory impact: Lower threshold increases memory usage for tracking
+  # Format: Float milliseconds
+  # Default reasoning: 5000ms (5s) is reasonable threshold for slow operations
+  slow_operation_threshold_ms: 5000.0
+
+  # slow_collection_multiplier: Multiplier for slow collection detection
+  # Purpose: Collections with avg time >multiplier × overall avg are considered slow
+  # Detection: Identifies collections that are significantly slower than average
+  # Tuning: 2.0 means 2x slower, adjust based on tolerance
+  # Format: Float multiplier
+  # Default reasoning: 2.0 identifies collections taking twice as long as average
+  slow_collection_multiplier: 2.0
+
+  # slow_parser_multiplier: Multiplier for slow parser detection
+  # Purpose: File types with avg parsing time >multiplier × overall avg are flagged
+  # Detection: Identifies parsers that need optimization
+  # Tuning: 2.0 means 2x slower, adjust based on parser complexity tolerance
+  # Format: Float multiplier
+  # Default reasoning: 2.0 identifies parsers taking twice as long as average
+  slow_parser_multiplier: 2.0
+
+  # slow_tenant_rate_threshold: Threshold for slow tenant detection
+  # Purpose: Tenants with processing rate <threshold × avg rate are flagged
+  # Detection: Identifies tenants with significantly lower processing rates
+  # Tuning: 0.5 means 50% of average, adjust based on tenant SLA requirements
+  # Format: Float multiplier (0-1)
+  # Default reasoning: 0.5 identifies tenants processing at half the average rate
+  slow_tenant_rate_threshold: 0.5
+
+  # max_slow_items: Maximum slow operations to retain in memory
+  # Purpose: Limits memory usage for slow operation tracking
+  # Memory usage: Each operation ~500 bytes, max_slow_items × 500B total
+  # History depth: More items provide better historical analysis
+  # Trade-off: Memory usage vs. historical depth
+  # Format: Integer count
+  # Default reasoning: 1000 items = ~500KB memory, provides good history
+  max_slow_items: 1000
+
+  # pipeline_stage_tracking: Enable pipeline stage timing
+  # Purpose: Track time spent in each processing stage (parse, embed, store)
+  # Performance benefit: Identifies which pipeline stage is the bottleneck
+  # Overhead: Adds timing instrumentation to each stage
+  # Production value: Essential for pipeline optimization
+  # Format: Boolean
+  # Default reasoning: Enabled by default for comprehensive performance analysis
+  pipeline_stage_tracking: true
