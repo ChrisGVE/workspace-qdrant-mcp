@@ -127,6 +127,32 @@ class TestSQLiteQueueClient:
             async with client.connection_pool.get_connection_async() as conn:
                 conn.executescript(schema_sql)
                 conn.commit()
+            
+            # Create error messages schema
+            error_schema_path = Path(__file__).parent.parent.parent / "src" / "python" / "common" / "core" / "error_messages_schema.sql"
+            with open(error_schema_path) as f:
+                error_schema_sql = f.read()
+            conn.executescript(error_schema_sql)
+            
+            # Rename messages_enhanced to messages for compatibility
+            # Drop views that reference the messages table
+            conn.execute("DROP VIEW IF EXISTS error_summary")
+            conn.execute("DROP TABLE IF EXISTS messages")
+            conn.execute("ALTER TABLE messages_enhanced RENAME TO messages")
+            # Recreate view
+            conn.execute("""
+                CREATE VIEW IF NOT EXISTS error_summary AS
+                SELECT
+                    category as error_type,
+                    COUNT(*) AS occurrence_count,
+                    MAX(timestamp) AS last_occurrence,
+                    AVG(retry_count) AS avg_retry_count,
+                    COUNT(DISTINCT json_extract(context, '$.file_path')) AS affected_files
+                FROM messages
+                WHERE timestamp >= datetime('now', '-7 days')
+                GROUP BY category
+                ORDER BY occurrence_count DESC
+            """)
             yield client
             await client.close()
 
@@ -403,9 +429,9 @@ class TestSQLiteQueueClient:
 
         should_retry, error_id = await queue_client.mark_error(
             file_path="/test/file.py",
-            error_type="ProcessingError",
+            
             error_message="Test error",
-            error_details={"detail": "test"},
+            
             max_retries=3,
         )
 
@@ -429,7 +455,7 @@ class TestSQLiteQueueClient:
         for i in range(3):
             should_retry, _ = await queue_client.mark_error(
                 file_path="/test/file.py",
-                error_type="ProcessingError",
+                
                 error_message=f"Error {i}",
                 max_retries=3,
             )
@@ -446,7 +472,7 @@ class TestSQLiteQueueClient:
         """Test mark error returns False for non-existent file."""
         should_retry, error_id = await queue_client.mark_error(
             file_path="/test/nonexistent.py",
-            error_type="ProcessingError",
+            
             error_message="Test error",
         )
 
@@ -504,7 +530,7 @@ class TestSQLiteQueueClient:
         # Mark one with error
         await queue_client.mark_error(
             file_path="/test/file1.py",
-            error_type="TestError",
+            
             error_message="Test",
         )
 
@@ -657,7 +683,7 @@ class TestSQLiteQueueClient:
 
         await queue_client.mark_error(
             file_path="/test/file1.py",
-            error_type="TestError",
+            
             error_message="Test error",
         )
 
