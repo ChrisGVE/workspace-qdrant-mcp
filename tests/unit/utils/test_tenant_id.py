@@ -157,33 +157,29 @@ class TestCalculateTenantId:
             mock_upstream = Mock()
             mock_upstream.url = "https://github.com/upstream/repo.git"
 
-            mock_remotes = Mock()
-            # hasattr() will be called by the code, so we need to return False for origin, True for upstream
-            def mock_has_remote(name):
-                return name == "upstream"
+            # Create a custom class that implements __getattr__
+            class CustomRemotes:
+                def __getattr__(self, name):
+                    if name == "upstream":
+                        return mock_upstream
+                    raise AttributeError(f"No attribute {name}")
 
-            # getattr() will be called if hasattr returns True
-            def mock_get_remote(name):
-                if name == "upstream":
-                    return mock_upstream
-                raise AttributeError(f"No attribute {name}")
+            mock_remotes = CustomRemotes()
+            mock_repo = Mock()
+            mock_repo.remotes = mock_remotes
 
-            with patch.object(mock_remotes, '__getattr__', side_effect=mock_get_remote):
-                mock_repo = Mock()
-                mock_repo.remotes = mock_remotes
+            # Patch hasattr to control what remotes exist
+            original_hasattr = hasattr
+            def custom_hasattr(obj, name):
+                if isinstance(obj, CustomRemotes):
+                    return name == "upstream"
+                return original_hasattr(obj, name)
 
-                # Patch hasattr to control what remotes exist
-                original_hasattr = hasattr
-                def custom_hasattr(obj, name):
-                    if obj is mock_remotes:
-                        return mock_has_remote(name)
-                    return original_hasattr(obj, name)
+            with patch("common.utils.project_detection.git.Repo", return_value=mock_repo):
+                with patch("builtins.hasattr", side_effect=custom_hasattr):
+                    tenant_id = calculate_tenant_id(repo_path)
 
-                with patch("common.utils.project_detection.git.Repo", return_value=mock_repo):
-                    with patch("builtins.hasattr", side_effect=custom_hasattr):
-                        tenant_id = calculate_tenant_id(repo_path)
-
-                        assert tenant_id == "github_com_upstream_repo"
+                    assert tenant_id == "github_com_upstream_repo"
 
     def test_first_remote_fallback(self):
         """Test fallback to first remote when origin/upstream don't exist."""
