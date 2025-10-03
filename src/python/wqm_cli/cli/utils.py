@@ -440,7 +440,21 @@ def get_configured_client(config=None) -> QdrantClient:
             
             from common.core.ssl_config import suppress_qdrant_ssl_warnings
             with suppress_qdrant_ssl_warnings():
-                client = QdrantClient(**config.qdrant_client_config)
+                # Build client parameters from config
+                url = config.get("qdrant.url", "http://localhost:6333")
+                api_key = config.get("qdrant.api_key")
+                timeout_val = config.get("qdrant.timeout", 30)
+                # Convert timeout string to number if needed
+                if isinstance(timeout_val, str) and timeout_val.endswith("s"):
+                    timeout = int(timeout_val[:-1])
+                else:
+                    timeout = timeout_val if isinstance(timeout_val, (int, float)) else 30
+                
+                client_params = {"url": url, "timeout": timeout}
+                if api_key:
+                    client_params["api_key"] = api_key
+                
+                client = QdrantClient(**client_params)
             
         # Test connection to ensure client is working
         try:
@@ -451,7 +465,7 @@ def get_configured_client(config=None) -> QdrantClient:
                 warnings.filterwarnings("ignore", message=".*unverified HTTPS request.*", category=urllib3.exceptions.InsecureRequestWarning)
                 warnings.filterwarnings("ignore", message=".*SSL.*", category=UserWarning)
                 
-                if ssl_manager.is_localhost_url(config.qdrant.url):
+                if ssl_manager.is_localhost_url(url):
                     with ssl_manager.for_localhost():
                         client.get_collections()
                 else:
@@ -459,7 +473,7 @@ def get_configured_client(config=None) -> QdrantClient:
                     client.get_collections()
         except Exception as e:
             raise CLIError(
-                f"Failed to connect to Qdrant server at {config.qdrant.url}: {str(e)}"
+                f"Failed to connect to Qdrant server at {url}: {str(e)}"
             )
             
         return client
