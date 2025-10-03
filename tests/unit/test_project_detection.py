@@ -517,3 +517,317 @@ class TestProjectDetector:
 
         for key, expected_value in expected_components.items():
             assert url_info[key] == expected_value, f"Failed for {key} in URL {url}"
+
+
+# Import additional functions for testing
+from common.utils.project_detection import (
+    calculate_tenant_id,
+    _sanitize_remote_url,
+    _generate_path_hash_tenant_id,
+)
+
+
+class TestCalculateTenantId:
+    """Test calculate_tenant_id function and helper functions."""
+
+    def test_sanitize_remote_url_https(self):
+        """Test URL sanitization for HTTPS URLs."""
+        url = "https://github.com/user/repo.git"
+        result = _sanitize_remote_url(url)
+        assert result == "github_com_user_repo"
+
+    def test_sanitize_remote_url_ssh(self):
+        """Test URL sanitization for SSH URLs."""
+        url = "git@github.com:user/repo.git"
+        result = _sanitize_remote_url(url)
+        assert result == "github_com_user_repo"
+
+    def test_sanitize_remote_url_ssh_with_port(self):
+        """Test URL sanitization for SSH URLs with custom port."""
+        url = "ssh://git@gitlab.com:2222/user/project.git"
+        result = _sanitize_remote_url(url)
+        assert result == "gitlab_com_2222_user_project"
+
+    def test_sanitize_remote_url_http(self):
+        """Test URL sanitization for HTTP URLs."""
+        url = "http://github.com/user/repo.git"
+        result = _sanitize_remote_url(url)
+        assert result == "github_com_user_repo"
+
+    def test_sanitize_remote_url_no_git_suffix(self):
+        """Test URL sanitization without .git suffix."""
+        url = "https://github.com/user/repo"
+        result = _sanitize_remote_url(url)
+        assert result == "github_com_user_repo"
+
+    def test_sanitize_remote_url_complex(self):
+        """Test URL sanitization with complex URL."""
+        url = "https://bitbucket.org/user/my-project.git"
+        result = _sanitize_remote_url(url)
+        assert result == "bitbucket_org_user_my-project"
+
+    def test_sanitize_remote_url_git_protocol(self):
+        """Test URL sanitization with git:// protocol."""
+        url = "git://github.com/user/repo.git"
+        result = _sanitize_remote_url(url)
+        assert result == "github_com_user_repo"
+
+    def test_generate_path_hash_tenant_id(self):
+        """Test path hash generation for tenant ID."""
+        path = "/home/user/project"
+        result = _generate_path_hash_tenant_id(path)
+
+        # Should start with path_ prefix
+        assert result.startswith("path_")
+
+        # Should have exactly 16 hex characters after prefix
+        hash_part = result[5:]  # Skip "path_" prefix
+        assert len(hash_part) == 16
+        assert all(c in "0123456789abcdef" for c in hash_part)
+
+    def test_generate_path_hash_tenant_id_consistent(self):
+        """Test that path hash generation is consistent."""
+        path = "/home/user/project"
+        result1 = _generate_path_hash_tenant_id(path)
+        result2 = _generate_path_hash_tenant_id(path)
+
+        assert result1 == result2
+
+    def test_generate_path_hash_tenant_id_different_paths(self):
+        """Test that different paths produce different hashes."""
+        path1 = "/home/user/project1"
+        path2 = "/home/user/project2"
+
+        result1 = _generate_path_hash_tenant_id(path1)
+        result2 = _generate_path_hash_tenant_id(path2)
+
+        assert result1 != result2
+
+    def test_calculate_tenant_id_with_git_remote(self, temp_git_repo):
+        """Test tenant ID calculation for repo with git remote."""
+        project_path = Path(temp_git_repo)
+        result = calculate_tenant_id(project_path)
+
+        # Should be sanitized remote URL
+        assert result == "github_com_testuser_test-project"
+
+    def test_calculate_tenant_id_without_git_remote(self):
+        """Test tenant ID calculation for repo without git remote."""
+        with tempfile.TemporaryDirectory() as temp_dir:
+            # Create git repo without remote
+            repo = git.Repo.init(temp_dir)
+            test_file = Path(temp_dir) / "test.txt"
+            test_file.write_text("test")
+            repo.index.add([str(test_file)])
+            repo.index.commit("Initial commit")
+
+            project_path = Path(temp_dir)
+            result = calculate_tenant_id(project_path)
+
+            # Should be path hash
+            assert result.startswith("path_")
+            assert len(result) == 21  # "path_" + 16 chars
+
+    def test_calculate_tenant_id_non_git_directory(self):
+        """Test tenant ID calculation for non-git directory."""
+        with tempfile.TemporaryDirectory() as temp_dir:
+            project_path = Path(temp_dir)
+            result = calculate_tenant_id(project_path)
+
+            # Should be path hash
+            assert result.startswith("path_")
+            assert len(result) == 21
+
+    def test_calculate_tenant_id_with_upstream_remote(self):
+        """Test tenant ID calculation with upstream remote."""
+        with tempfile.TemporaryDirectory() as temp_dir:
+            # Create git repo with only upstream remote
+            repo = git.Repo.init(temp_dir)
+            repo.create_remote("upstream", "https://github.com/upstream/repo.git")
+
+            test_file = Path(temp_dir) / "test.txt"
+            test_file.write_text("test")
+            repo.index.add([str(test_file)])
+            repo.index.commit("Initial commit")
+
+            project_path = Path(temp_dir)
+            result = calculate_tenant_id(project_path)
+
+            # Should use upstream remote
+            assert result == "github_com_upstream_repo"
+
+    def test_calculate_tenant_id_prefers_origin_over_upstream(self):
+        """Test that calculate_tenant_id prefers origin over upstream."""
+        with tempfile.TemporaryDirectory() as temp_dir:
+            # Create git repo with both origin and upstream remotes
+            repo = git.Repo.init(temp_dir)
+            repo.create_remote("origin", "https://github.com/user/repo.git")
+            repo.create_remote("upstream", "https://github.com/upstream/repo.git")
+
+            test_file = Path(temp_dir) / "test.txt"
+            test_file.write_text("test")
+            repo.index.add([str(test_file)])
+            repo.index.commit("Initial commit")
+
+            project_path = Path(temp_dir)
+            result = calculate_tenant_id(project_path)
+
+            # Should prefer origin
+            assert result == "github_com_user_repo"
+
+    def test_calculate_tenant_id_ssh_url(self):
+        """Test tenant ID calculation with SSH URL."""
+        with tempfile.TemporaryDirectory() as temp_dir:
+            repo = git.Repo.init(temp_dir)
+            repo.create_remote("origin", "git@github.com:user/repo.git")
+
+            test_file = Path(temp_dir) / "test.txt"
+            test_file.write_text("test")
+            repo.index.add([str(test_file)])
+            repo.index.commit("Initial commit")
+
+            project_path = Path(temp_dir)
+            result = calculate_tenant_id(project_path)
+
+            assert result == "github_com_user_repo"
+
+    def test_calculate_tenant_id_special_characters_in_url(self):
+        """Test tenant ID calculation with special characters in URL."""
+        with tempfile.TemporaryDirectory() as temp_dir:
+            repo = git.Repo.init(temp_dir)
+            repo.create_remote(
+                "origin", "https://github.com/user/my-special.project.git"
+            )
+
+            test_file = Path(temp_dir) / "test.txt"
+            test_file.write_text("test")
+            repo.index.add([str(test_file)])
+            repo.index.commit("Initial commit")
+
+            project_path = Path(temp_dir)
+            result = calculate_tenant_id(project_path)
+
+            # Special characters should be replaced with underscores
+            assert result == "github_com_user_my-special_project"
+
+    def test_calculate_tenant_id_consistency(self):
+        """Test that tenant ID calculation is consistent."""
+        with tempfile.TemporaryDirectory() as temp_dir:
+            repo = git.Repo.init(temp_dir)
+            repo.create_remote("origin", "https://github.com/user/repo.git")
+
+            test_file = Path(temp_dir) / "test.txt"
+            test_file.write_text("test")
+            repo.index.add([str(test_file)])
+            repo.index.commit("Initial commit")
+
+            project_path = Path(temp_dir)
+            result1 = calculate_tenant_id(project_path)
+            result2 = calculate_tenant_id(project_path)
+
+            assert result1 == result2
+
+    @patch("common.utils.project_detection.git.Repo")
+    def test_calculate_tenant_id_git_error_fallback(self, mock_repo_class):
+        """Test tenant ID calculation falls back to path hash on Git error."""
+        mock_repo_class.side_effect = Exception("Git error")
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            project_path = Path(temp_dir)
+            result = calculate_tenant_id(project_path)
+
+            # Should fall back to path hash
+            assert result.startswith("path_")
+
+    def test_calculate_tenant_id_detached_head(self):
+        """Test tenant ID calculation with detached HEAD state."""
+        with tempfile.TemporaryDirectory() as temp_dir:
+            repo = git.Repo.init(temp_dir)
+            repo.create_remote("origin", "https://github.com/user/repo.git")
+
+            test_file = Path(temp_dir) / "test.txt"
+            test_file.write_text("test")
+            repo.index.add([str(test_file)])
+            commit = repo.index.commit("Initial commit")
+
+            # Detach HEAD
+            repo.git.checkout(commit.hexsha)
+
+            project_path = Path(temp_dir)
+            result = calculate_tenant_id(project_path)
+
+            # Should still work with detached HEAD
+            assert result == "github_com_user_repo"
+
+    def test_calculate_tenant_id_gitlab_url(self):
+        """Test tenant ID calculation with GitLab URL."""
+        with tempfile.TemporaryDirectory() as temp_dir:
+            repo = git.Repo.init(temp_dir)
+            repo.create_remote("origin", "https://gitlab.com/user/repo.git")
+
+            test_file = Path(temp_dir) / "test.txt"
+            test_file.write_text("test")
+            repo.index.add([str(test_file)])
+            repo.index.commit("Initial commit")
+
+            project_path = Path(temp_dir)
+            result = calculate_tenant_id(project_path)
+
+            assert result == "gitlab_com_user_repo"
+
+    def test_calculate_tenant_id_bitbucket_url(self):
+        """Test tenant ID calculation with Bitbucket URL."""
+        with tempfile.TemporaryDirectory() as temp_dir:
+            repo = git.Repo.init(temp_dir)
+            repo.create_remote("origin", "https://bitbucket.org/user/repo.git")
+
+            test_file = Path(temp_dir) / "test.txt"
+            test_file.write_text("test")
+            repo.index.add([str(test_file)])
+            repo.index.commit("Initial commit")
+
+            project_path = Path(temp_dir)
+            result = calculate_tenant_id(project_path)
+
+            assert result == "bitbucket_org_user_repo"
+
+
+# Fixtures
+@pytest.fixture
+def temp_git_repo():
+    """Create a temporary Git repository for testing."""
+    with tempfile.TemporaryDirectory() as temp_dir:
+        # Initialize Git repo
+        repo = git.Repo.init(temp_dir)
+
+        # Add a remote
+        repo.create_remote("origin", "https://github.com/testuser/test-project.git")
+
+        # Create a test file and commit
+        test_file = Path(temp_dir) / "test.txt"
+        test_file.write_text("test content")
+
+        repo.index.add([str(test_file)])
+        repo.index.commit("Initial commit")
+
+        yield temp_dir
+
+
+@pytest.fixture
+def temp_git_repo_with_submodules():
+    """Create a temporary Git repository with submodules for testing."""
+    with tempfile.TemporaryDirectory() as temp_dir:
+        # Initialize Git repo
+        repo = git.Repo.init(temp_dir)
+
+        # Add a remote
+        repo.create_remote("origin", "https://github.com/testuser/main-project.git")
+
+        # Create a test file and commit
+        test_file = Path(temp_dir) / "test.txt"
+        test_file.write_text("test content")
+
+        repo.index.add([str(test_file)])
+        repo.index.commit("Initial commit")
+
+        yield temp_dir
