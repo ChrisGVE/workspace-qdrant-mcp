@@ -13,6 +13,9 @@ Usage:
     wqm errors report --format=markdown     # Generate Markdown report
     wqm errors export --format=csv --output=errors.csv  # Export to CSV
     wqm errors debug-bundle --error-id=123 --output=debug.tar.gz  # Debug bundle
+    wqm errors health                       # Show health status
+    wqm errors metrics                      # Show current metrics
+    wqm errors monitor --webhook=URL        # Start monitoring
 """
 
 import asyncio
@@ -60,7 +63,10 @@ Examples:
     wqm errors report --format=json         # JSON report
     wqm errors resolution                   # Acknowledgment metrics
     wqm errors export --format=csv --output=errors.csv  # Export to CSV
-    wqm errors debug-bundle --error-id=123 --output=debug.tar.gz  # Debug bundle""",
+    wqm errors debug-bundle --error-id=123 --output=debug.tar.gz  # Debug bundle
+    wqm errors health                       # Health status
+    wqm errors metrics                      # Current metrics
+    wqm errors monitor --webhook=URL        # Start monitoring""",
     no_args_is_help=True,
 )
 
@@ -618,3 +624,11 @@ from .error_export_cli import export_errors, create_debug_bundle
 # Register export commands
 errors_app.command("export")(export_errors)
 errors_app.command("debug-bundle")(create_debug_bundle)
+
+# Import and register monitoring commands
+from .error_monitoring_cli import show_health_status, show_metrics, start_monitoring
+
+# Register monitoring commands
+errors_app.command("health")(show_health_status)
+errors_app.command("metrics")(show_metrics)
+errors_app.command("monitor")(start_monitoring)
