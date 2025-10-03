@@ -360,7 +360,7 @@ class TestHealthCheckEndpoints:
             "system_resources",
             "qdrant_connectivity", 
             "embedding_service",
-            "file_watchers",
+            "daemon",
             "configuration"
         ]
         
