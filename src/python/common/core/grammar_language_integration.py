@@ -11,6 +11,7 @@ Key Features:
 - Grammar availability tracking in language support database
 - Integration with LSP and document processing pipelines
 - Fallback handling for missing grammars
+- Progress tracking for long-running operations
 
 Architecture:
     GrammarLanguageIntegrator coordinates between:
@@ -53,7 +54,7 @@ from __future__ import annotations
 
 import logging
 from pathlib import Path
-from typing import Dict, List, Optional, Tuple
+from typing import Dict, List, Optional, Tuple, TYPE_CHECKING
 
 from loguru import logger
 
@@ -62,6 +63,9 @@ from .grammar_compiler import GrammarCompiler, CompilerDetector
 from .grammar_config import ConfigManager
 from .language_support_manager import LanguageSupportManager
 from .sqlite_state_manager import SQLiteStateManager
+
+if TYPE_CHECKING:
+    from rich.progress import Progress, TaskID
 
 
 class GrammarLanguageIntegrator:
@@ -105,7 +109,12 @@ class GrammarLanguageIntegrator:
 
         logger.debug("Initialized GrammarLanguageIntegrator")
 
-    async def sync_grammar_availability(self, force_refresh: bool = False) -> Dict[str, any]:
+    async def sync_grammar_availability(
+        self,
+        force_refresh: bool = False,
+        progress: Optional["Progress"] = None,
+        progress_task: Optional["TaskID"] = None
+    ) -> Dict[str, any]:
         """
         Synchronize grammar availability with language support database.
 
@@ -117,6 +126,8 @@ class GrammarLanguageIntegrator:
 
         Args:
             force_refresh: Force re-discovery of grammars
+            progress: Optional Rich Progress instance for progress tracking
+            progress_task: Optional progress task ID to update
 
         Returns:
             Dictionary containing:
@@ -128,9 +139,17 @@ class GrammarLanguageIntegrator:
         try:
             logger.info("Synchronizing grammar availability with language support...")
 
+            # Update progress
+            if progress and progress_task is not None:
+                progress.update(progress_task, description="Discovering grammars...")
+
             # Discover installed grammars
             grammars = self.grammar_discovery.discover_grammars(force_refresh)
             logger.debug(f"Found {len(grammars)} installed grammars")
+
+            # Update progress
+            if progress and progress_task is not None:
+                progress.update(progress_task, description="Loading languages...")
 
             # Get all languages from database
             languages = await self.language_support.get_supported_languages()
@@ -139,10 +158,27 @@ class GrammarLanguageIntegrator:
             still_missing = []
             grammars_synced = 0
 
+            # Update progress with total count
+            if progress and progress_task is not None:
+                progress.update(
+                    progress_task,
+                    description=f"Syncing {len(languages)} languages...",
+                    total=len(languages),
+                    completed=0
+                )
+
             # Update each language's grammar availability
             async with self.state_manager.transaction() as conn:
-                for lang in languages:
+                for idx, lang in enumerate(languages):
                     lang_name = lang["language_name"]
+
+                    # Update progress
+                    if progress and progress_task is not None:
+                        progress.update(
+                            progress_task,
+                            description=f"Syncing {lang_name}...",
+                            completed=idx
+                        )
 
                     # Check if we have a grammar for this language
                     grammar = grammars.get(lang_name)
@@ -182,6 +218,14 @@ class GrammarLanguageIntegrator:
                             )
 
                         still_missing.append(lang_name)
+
+            # Update progress with completion
+            if progress and progress_task is not None:
+                progress.update(
+                    progress_task,
+                    description=f"✓ Synced {grammars_synced} languages",
+                    completed=len(languages)
+                )
 
             result = {
                 "grammars_found": len(grammars),
