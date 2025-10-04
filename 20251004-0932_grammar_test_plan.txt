@@ -1,0 +1,94 @@
+[38;2;127;132;156m   1[0m [38;2;205;214;244mGrammar Management Integration & E2E Test Plan[0m
+[38;2;127;132;156m   2[0m [38;2;205;214;244m==============================================[0m
+[38;2;127;132;156m   3[0m 
+[38;2;127;132;156m   4[0m [38;2;205;214;244m## Context[0m
+[38;2;127;132;156m   5[0m [38;2;205;214;244m- All unit tests passing (23/23 in test_grammar_language_integration.py)[0m
+[38;2;127;132;156m   6[0m [38;2;205;214;244m- Need integration tests covering full workflows[0m
+[38;2;127;132;156m   7[0m [38;2;205;214;244m- Need e2e tests simulating real user scenarios[0m
+[38;2;127;132;156m   8[0m 
+[38;2;127;132;156m   9[0m [38;2;205;214;244m## Integration Tests (test_grammar_workflows.py)[0m
+[38;2;127;132;156m  10[0m 
+[38;2;127;132;156m  11[0m [38;2;205;214;244m### Workflow 1: Full Installation Workflow[0m
+[38;2;127;132;156m  12[0m [38;2;205;214;244m- Install grammar from Git URL[0m
+[38;2;127;132;156m  13[0m [38;2;205;214;244m- Verify grammar directory created[0m
+[38;2;127;132;156m  14[0m [38;2;205;214;244m- Compile grammar[0m
+[38;2;127;132;156m  15[0m [38;2;205;214;244m- Verify .so/.dylib library created[0m
+[38;2;127;132;156m  16[0m [38;2;205;214;244m- Check grammar discoverable[0m
+[38;2;127;132;156m  17[0m [38;2;205;214;244m- Clean up[0m
+[38;2;127;132;156m  18[0m 
+[38;2;127;132;156m  19[0m [38;2;205;214;244m### Workflow 2: CLI Integration[0m
+[38;2;127;132;156m  20[0m [38;2;205;214;244m- Test list command with real grammars[0m
+[38;2;127;132;156m  21[0m [38;2;205;214;244m- Test install command[0m
+[38;2;127;132;156m  22[0m [38;2;205;214;244m- Test compile command[0m
+[38;2;127;132;156m  23[0m [38;2;205;214;244m- Test update command[0m
+[38;2;127;132;156m  24[0m [38;2;205;214;244m- Test remove command with cleanup verification[0m
+[38;2;127;132;156m  25[0m 
+[38;2;127;132;156m  26[0m [38;2;205;214;244m### Workflow 3: Config Management[0m
+[38;2;127;132;156m  27[0m [38;2;205;214;244m- Create test config[0m
+[38;2;127;132;156m  28[0m [38;2;205;214;244m- Set C compiler preference[0m
+[38;2;127;132;156m  29[0m [38;2;205;214;244m- Set C++ compiler preference[0m
+[38;2;127;132;156m  30[0m [38;2;205;214;244m- Enable/disable auto-compile[0m
+[38;2;127;132;156m  31[0m [38;2;205;214;244m- Verify config persists[0m
+[38;2;127;132;156m  32[0m 
+[38;2;127;132;156m  33[0m [38;2;205;214;244m### Workflow 4: Grammar Discovery & Listing[0m
+[38;2;127;132;156m  34[0m [38;2;205;214;244m- Install multiple grammars[0m
+[38;2;127;132;156m  35[0m [38;2;205;214;244m- List all grammars[0m
+[38;2;127;132;156m  36[0m [38;2;205;214;244m- Verify metadata accurate[0m
+[38;2;127;132;156m  37[0m [38;2;205;214;244m- Check compilation status flags[0m
+[38;2;127;132;156m  38[0m 
+[38;2;127;132;156m  39[0m [38;2;205;214;244m### Workflow 5: Update Workflow[0m
+[38;2;127;132;156m  40[0m [38;2;205;214;244m- Install grammar at specific version[0m
+[38;2;127;132;156m  41[0m [38;2;205;214;244m- Update to newer version[0m
+[38;2;127;132;156m  42[0m [38;2;205;214;244m- Verify version changed[0m
+[38;2;127;132;156m  43[0m [38;2;205;214;244m- Verify library re-compiled[0m
+[38;2;127;132;156m  44[0m 
+[38;2;127;132;156m  45[0m [38;2;205;214;244m### Workflow 6: Remove with Cleanup[0m
+[38;2;127;132;156m  46[0m [38;2;205;214;244m- Install grammar[0m
+[38;2;127;132;156m  47[0m [38;2;205;214;244m- Remove grammar[0m
+[38;2;127;132;156m  48[0m [38;2;205;214;244m- Verify directory deleted[0m
+[38;2;127;132;156m  49[0m [38;2;205;214;244m- Verify no orphan files[0m
+[38;2;127;132;156m  50[0m 
+[38;2;127;132;156m  51[0m [38;2;205;214;244m## E2E Tests (test_grammar_management_e2e.py)[0m
+[38;2;127;132;156m  52[0m 
+[38;2;127;132;156m  53[0m [38;2;205;214;244m### Scenario 1: First-Time User[0m
+[38;2;127;132;156m  54[0m [38;2;205;214;244m- Empty grammar directory[0m
+[38;2;127;132;156m  55[0m [38;2;205;214;244m- Install tree-sitter-json (small grammar ~50KB)[0m
+[38;2;127;132;156m  56[0m [38;2;205;214;244m- Auto-compile on install[0m
+[38;2;127;132;156m  57[0m [38;2;205;214;244m- Verify grammar usable[0m
+[38;2;127;132;156m  58[0m [38;2;205;214;244m- Clean up[0m
+[38;2;127;132;156m  59[0m 
+[38;2;127;132;156m  60[0m [38;2;205;214;244m### Scenario 2: Developer Workflow[0m
+[38;2;127;132;156m  61[0m [38;2;205;214;244m- Install python grammar[0m
+[38;2;127;132;156m  62[0m [38;2;205;214;244m- Use for parsing[0m
+[38;2;127;132;156m  63[0m [38;2;205;214;244m- Update to new version[0m
+[38;2;127;132;156m  64[0m [38;2;205;214;244m- Remove when done[0m
+[38;2;127;132;156m  65[0m [38;2;205;214;244m- Verify no traces left[0m
+[38;2;127;132;156m  66[0m 
+[38;2;127;132;156m  67[0m [38;2;205;214;244m### Scenario 3: Multi-Grammar Batch[0m
+[38;2;127;132;156m  68[0m [38;2;205;214;244m- Install multiple small grammars (json, yaml, toml)[0m
+[38;2;127;132;156m  69[0m [38;2;205;214;244m- Compile all[0m
+[38;2;127;132;156m  70[0m [38;2;205;214;244m- List to verify[0m
+[38;2;127;132;156m  71[0m [38;2;205;214;244m- Remove all[0m
+[38;2;127;132;156m  72[0m [38;2;205;214;244m- Verify cleanup[0m
+[38;2;127;132;156m  73[0m 
+[38;2;127;132;156m  74[0m [38;2;205;214;244m### Scenario 4: Error Recovery[0m
+[38;2;127;132;156m  75[0m [38;2;205;214;244m- Simulate missing compiler[0m
+[38;2;127;132;156m  76[0m [38;2;205;214;244m- Attempt compilation[0m
+[38;2;127;132;156m  77[0m [38;2;205;214;244m- Verify graceful error[0m
+[38;2;127;132;156m  78[0m [38;2;205;214;244m- Simulate corrupted grammar[0m
+[38;2;127;132;156m  79[0m [38;2;205;214;244m- Verify error handling[0m
+[38;2;127;132;156m  80[0m 
+[38;2;127;132;156m  81[0m [38;2;205;214;244m## Implementation Approach[0m
+[38;2;127;132;156m  82[0m 
+[38;2;127;132;156m  83[0m [38;2;205;214;244m1. Use tmp_path fixture for isolation[0m
+[38;2;127;132;156m  84[0m [38;2;205;214;244m2. Mock git clone for speed (use local test grammar)[0m
+[38;2;127;132;156m  85[0m [38;2;205;214;244m3. Real compilation for e2e (use tree-sitter-json)[0m
+[38;2;127;132;156m  86[0m [38;2;205;214;244m4. Comprehensive cleanup after each test[0m
+[38;2;127;132;156m  87[0m [38;2;205;214;244m5. Clear error messages in assertions[0m
+[38;2;127;132;156m  88[0m 
+[38;2;127;132;156m  89[0m [38;2;205;214;244m## Test Utilities Needed[0m
+[38;2;127;132;156m  90[0m 
+[38;2;127;132;156m  91[0m [38;2;205;214;244m- create_test_grammar(): Create minimal grammar for testing[0m
+[38;2;127;132;156m  92[0m [38;2;205;214;244m- cleanup_grammar(name): Remove grammar and verify[0m
+[38;2;127;132;156m  93[0m [38;2;205;214;244m- assert_grammar_compiled(name): Check .so/.dylib exists[0m
+[38;2;127;132;156m  94[0m [38;2;205;214;244m- assert_grammar_in_list(name, list_output): Verify in CLI output[0m
