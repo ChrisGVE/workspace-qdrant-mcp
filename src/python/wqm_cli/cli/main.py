@@ -10,6 +10,8 @@ Usage:
     wqm search project "query"   # Search workspace
     wqm ingest file document.pdf # Process document
     wqm library create books     # Create library
+    wqm grammar list             # List tree-sitter grammars
+    wqm grammar install python   # Install grammar
     wqm watch add ~/docs         # Watch folder
     wqm messages list            # View error messages
     wqm queue status             # Monitor queue status
@@ -102,6 +104,7 @@ from .commands.watch import watch_app
 from .commands.error_reporting import errors_app
 from .commands.project import project_app
 from .commands.branch import branch_app
+from .commands.grammar import grammar_app
 # SECURITY: Web UI temporarily disabled due to critical vulnerabilities
 # from .commands.web import web_app
 from .observability import observability_app
@@ -132,6 +135,7 @@ app.add_typer(ingest_app, name="ingest", help="Manual document processing")
 app.add_typer(search_app, name="search", help="Command-line search interface")
 app.add_typer(library_app, name="library", help="Library collection management")
 app.add_typer(lsp_app, name="lsp", help="LSP server management and monitoring")
+app.add_typer(grammar_app, name="grammar", help="Tree-sitter grammar management")
 app.add_typer(
     service_app, name="service", help="User service management for memexd daemon"
 )
