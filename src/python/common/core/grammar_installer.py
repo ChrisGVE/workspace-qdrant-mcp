@@ -10,16 +10,20 @@ Key features:
 - Manage installation location (~/.config/tree-sitter/grammars/)
 - Integrate with grammar discovery system
 - Handle installation conflicts and updates
+- Progress tracking for long-running operations
 """
 
 import logging
 import shutil
 import subprocess
 from pathlib import Path
-from typing import Optional, Tuple, Dict, List
+from typing import Optional, Tuple, Dict, List, TYPE_CHECKING
 from dataclasses import dataclass
 import tempfile
 import os
+
+if TYPE_CHECKING:
+    from rich.progress import Progress, TaskID
 
 logger = logging.getLogger(__name__)
 
@@ -52,7 +56,7 @@ class GrammarInstaller:
     Manages installation of tree-sitter grammars from Git repositories.
 
     Handles cloning, version management, and integration with the grammar
-    discovery system.
+    discovery system. Supports progress tracking for long-running operations.
     """
 
     def __init__(self, installation_dir: Optional[Path] = None):
@@ -78,7 +82,9 @@ class GrammarInstaller:
         grammar_url: str,
         grammar_name: Optional[str] = None,
         version: Optional[str] = None,
-        force: bool = False
+        force: bool = False,
+        progress: Optional["Progress"] = None,
+        progress_task: Optional["TaskID"] = None
     ) -> InstallationResult:
         """
         Install a tree-sitter grammar from a Git repository.
@@ -88,6 +94,8 @@ class GrammarInstaller:
             grammar_name: Override grammar name (auto-detected from URL if None)
             version: Version to install (tag, branch, or commit hash). Uses default branch if None.
             force: If True, overwrite existing installation
+            progress: Optional Rich Progress instance for progress tracking
+            progress_task: Optional progress task ID to update
 
         Returns:
             InstallationResult with status and details
@@ -107,6 +115,10 @@ class GrammarInstaller:
 
         logger.info(f"Installing grammar '{grammar_name}' from {grammar_url}")
 
+        # Update progress
+        if progress and progress_task is not None:
+            progress.update(progress_task, description=f"Checking existing installation...")
+
         # Check if already installed
         install_path = self.installation_dir / f"tree-sitter-{grammar_name}"
         if install_path.exists() and not force:
@@ -122,8 +134,18 @@ class GrammarInstaller:
             with tempfile.TemporaryDirectory() as temp_dir:
                 temp_path = Path(temp_dir) / f"tree-sitter-{grammar_name}"
 
-                # Clone repository
-                clone_result = self._clone_repository(grammar_url, temp_path, version)
+                # Clone repository with progress
+                if progress and progress_task is not None:
+                    progress.update(progress_task, description=f"Cloning {grammar_name} repository...")
+
+                clone_result = self._clone_repository(
+                    grammar_url,
+                    temp_path,
+                    version,
+                    progress=progress,
+                    progress_task=progress_task
+                )
+
                 if not clone_result[0]:
                     return InstallationResult(
                         success=False,
@@ -133,6 +155,9 @@ class GrammarInstaller:
                     )
 
                 # Verify it's a valid tree-sitter grammar
+                if progress and progress_task is not None:
+                    progress.update(progress_task, description=f"Verifying grammar structure...")
+
                 if not self._verify_grammar(temp_path):
                     return InstallationResult(
                         success=False,
@@ -143,14 +168,26 @@ class GrammarInstaller:
 
                 # Remove existing installation if force=True
                 if install_path.exists():
+                    if progress and progress_task is not None:
+                        progress.update(progress_task, description=f"Removing existing installation...")
+
                     logger.info(f"Removing existing installation at {install_path}")
                     shutil.rmtree(install_path)
 
                 # Move from temp to final location
+                if progress and progress_task is not None:
+                    progress.update(progress_task, description=f"Installing to {install_path.name}...")
+
                 shutil.move(str(temp_path), str(install_path))
 
                 # Get installed version
+                if progress and progress_task is not None:
+                    progress.update(progress_task, description=f"Detecting version...")
+
                 installed_version = self._get_installed_version(install_path)
+
+                if progress and progress_task is not None:
+                    progress.update(progress_task, description=f"✓ Installed {grammar_name}")
 
                 return InstallationResult(
                     success=True,
@@ -275,7 +312,9 @@ class GrammarInstaller:
         self,
         url: str,
         destination: Path,
-        version: Optional[str] = None
+        version: Optional[str] = None,
+        progress: Optional["Progress"] = None,
+        progress_task: Optional["TaskID"] = None
     ) -> Tuple[bool, str]:
         """
         Clone a Git repository.
@@ -284,6 +323,8 @@ class GrammarInstaller:
             url: Repository URL
             destination: Where to clone
             version: Version to checkout (tag, branch, or commit)
+            progress: Optional Rich Progress instance for progress tracking
+            progress_task: Optional progress task ID to update
 
         Returns:
             Tuple of (success, message)
@@ -291,6 +332,9 @@ class GrammarInstaller:
         try:
             # Clone repository
             logger.info(f"Cloning {url} to {destination}")
+
+            if progress and progress_task is not None:
+                progress.update(progress_task, description=f"Cloning repository from {url[:50]}...")
 
             # Use --depth 1 for faster cloning if no specific version
             clone_cmd = ["git", "clone"]
@@ -311,6 +355,10 @@ class GrammarInstaller:
             # Checkout specific version if requested
             if version is not None:
                 logger.info(f"Checking out version: {version}")
+
+                if progress and progress_task is not None:
+                    progress.update(progress_task, description=f"Checking out version {version}...")
+
                 checkout_result = subprocess.run(
                     ["git", "checkout", version],
                     cwd=destination,
