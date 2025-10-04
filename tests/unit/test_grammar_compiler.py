@@ -331,7 +331,7 @@ class TestGrammarCompiler:
         result = compiler.compile(temp_grammar_dir)
 
         assert result.success is False
-        assert "No C compiler found" in result.error
+        assert "C compiler required" in result.error
 
     @patch.object(CompilerDetector, 'detect_cpp_compiler', return_value=None)
     def test_compile_cpp_scanner_no_cpp_compiler(self, mock_detect, temp_grammar_dir, mock_compiler):
