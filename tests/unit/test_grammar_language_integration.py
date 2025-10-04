@@ -26,24 +26,6 @@ async def state_manager():
     manager = SQLiteStateManager(db_path)
     await manager.initialize()
 
-    # Create languages table
-    with manager._lock:
-        manager.connection.execute("""
-            CREATE TABLE IF NOT EXISTS languages (
-                language_name TEXT PRIMARY KEY,
-                file_extensions TEXT,
-                lsp_name TEXT,
-                lsp_executable TEXT,
-                lsp_absolute_path TEXT,
-                lsp_missing INTEGER DEFAULT 1,
-                ts_grammar TEXT,
-                ts_cli_absolute_path TEXT,
-                ts_missing INTEGER DEFAULT 1,
-                created_at TEXT DEFAULT CURRENT_TIMESTAMP,
-                updated_at TEXT DEFAULT CURRENT_TIMESTAMP
-            )
-        """)
-
     yield manager
 
     # Cleanup
@@ -58,7 +40,7 @@ async def integrator(state_manager):
 
 
 @pytest.fixture
-def sample_languages(state_manager):
+async def sample_languages(state_manager):
     """Insert sample languages into database."""
     languages = [
         ("python", json.dumps([".py", ".pyi"]), "pyright", 0, "tree-sitter-python", 1),
@@ -66,14 +48,13 @@ def sample_languages(state_manager):
         ("javascript", json.dumps([".js", ".jsx"]), "typescript-language-server", 0, "tree-sitter-javascript", 1),
     ]
 
-    with state_manager._lock:
+    async with state_manager.transaction() as conn:
         for lang_name, exts, lsp, lsp_missing, ts_grammar, ts_missing in languages:
-            state_manager.connection.execute("""
+            conn.execute("""
                 INSERT INTO languages
                 (language_name, file_extensions, lsp_name, lsp_missing, ts_grammar, ts_missing)
                 VALUES (?, ?, ?, ?, ?, ?)
             """, (lang_name, exts, lsp, lsp_missing, ts_grammar, ts_missing))
-        state_manager.connection.commit()
 
 
 class TestGrammarLanguageIntegrator:

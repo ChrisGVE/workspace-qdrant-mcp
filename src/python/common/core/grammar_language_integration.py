@@ -319,7 +319,7 @@ class GrammarLanguageIntegrator:
             if not lang_info:
                 return False
 
-            return not lang_info.get("ts_missing", True)
+            return lang_info.get("ts_available", False)
 
         except Exception as e:
             logger.error(f"Error checking grammar availability for {language_name}: {e}")
