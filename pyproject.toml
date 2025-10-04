@@ -166,4 +166,10 @@ markers = [
   "integration: marks tests as integration tests",
   "requires_qdrant: marks tests that require a running Qdrant server",
   "requires_git: marks tests that require git repository",
+  "edge: marks edge case tests",
+  "nominal: marks nominal/happy path tests",
+  "stress: marks stress/load tests",
+  "memory_rules: marks tests for memory rules functionality",
+  "conflict_detection: marks tests for memory conflict detection",
+  "rule_validation: marks tests for memory rule validation",
 ]
