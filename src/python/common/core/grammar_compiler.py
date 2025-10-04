@@ -10,6 +10,7 @@ Key features:
 - Cross-platform compilation (Windows, macOS, Linux)
 - Build artifact management
 - Comprehensive error reporting
+- Dependency resolution for build prerequisites
 """
 
 import logging
@@ -20,6 +21,8 @@ from pathlib import Path
 from typing import Optional, Tuple, List, Dict
 from dataclasses import dataclass
 import os
+
+from .grammar_dependencies import DependencyResolver, CompilerRequirement
 
 logger = logging.getLogger(__name__)
 
@@ -240,6 +243,7 @@ class GrammarCompiler:
             cpp_compiler: C++ compiler to use (auto-detected if None)
         """
         self.detector = CompilerDetector()
+        self.dependency_resolver = DependencyResolver()
 
         # Use provided or detect compilers
         self.c_compiler = c_compiler or self.detector.detect_c_compiler()
@@ -254,6 +258,9 @@ class GrammarCompiler:
         """
         Compile a tree-sitter grammar.
 
+        Uses dependency resolution to analyze build requirements and validate
+        all prerequisites before compilation.
+
         Args:
             grammar_path: Path to grammar directory
             output_dir: Output directory for compiled library (defaults to grammar_path/build)
@@ -267,36 +274,34 @@ class GrammarCompiler:
             >>> if result.success:
             ...     print(f"Compiled to {result.output_path}")
         """
-        grammar_name = grammar_path.name
-        if grammar_name.startswith("tree-sitter-"):
-            grammar_name = grammar_name[len("tree-sitter-"):]
+        # Analyze dependencies
+        analysis = self.dependency_resolver.analyze_grammar(grammar_path)
 
-        logger.info(f"Compiling grammar '{grammar_name}' at {grammar_path}")
+        logger.info(f"Compiling grammar '{analysis.grammar_name}' at {grammar_path}")
+        logger.debug(f"Dependency analysis:\n{self.dependency_resolver.get_compilation_summary(analysis)}")
 
-        # Check for required files
-        src_dir = grammar_path / "src"
-        parser_c = src_dir / "parser.c"
-
-        if not src_dir.exists():
+        # Validate grammar structure
+        if not analysis.is_valid:
+            error_msg = "; ".join(analysis.validation_errors)
             return CompilationResult(
                 success=False,
-                grammar_name=grammar_name,
-                error=f"Source directory not found: {src_dir}"
+                grammar_name=analysis.grammar_name,
+                error=error_msg
             )
 
-        if not parser_c.exists():
-            return CompilationResult(
-                success=False,
-                grammar_name=grammar_name,
-                error=f"parser.c not found. Run 'tree-sitter generate' first."
-            )
+        # Validate dependencies with available compilers
+        valid, errors = self.dependency_resolver.validate_dependencies(
+            analysis,
+            available_c_compiler=self.c_compiler is not None,
+            available_cpp_compiler=self.cpp_compiler is not None
+        )
 
-        # Check compiler availability
-        if not self.c_compiler:
+        if not valid:
+            error_msg = "; ".join(errors)
             return CompilationResult(
                 success=False,
-                grammar_name=grammar_name,
-                error="No C compiler found. Please install gcc, clang, or MSVC."
+                grammar_name=analysis.grammar_name,
+                error=error_msg
             )
 
         # Set up output directory
@@ -304,32 +309,22 @@ class GrammarCompiler:
             output_dir = grammar_path / "build"
         output_dir.mkdir(parents=True, exist_ok=True)
 
-        # Detect external scanner
-        has_scanner, scanner_path, needs_cpp = self._detect_scanner(src_dir)
-
-        # Check for C++ compiler if needed
-        if needs_cpp and not self.cpp_compiler:
-            return CompilationResult(
-                success=False,
-                grammar_name=grammar_name,
-                error=f"Grammar has C++ scanner ({scanner_path.name}) but no C++ compiler found"
-            )
-
-        # Compile
+        # Compile with resolved dependencies
         try:
+            source_files = analysis.get_source_files()
+
             output_path = self._compile_grammar(
-                grammar_name=grammar_name,
-                parser_c=parser_c,
-                scanner_path=scanner_path if has_scanner else None,
+                grammar_name=analysis.grammar_name,
+                source_files=source_files,
                 output_dir=output_dir,
-                needs_cpp=needs_cpp
+                needs_cpp=analysis.needs_cpp
             )
 
             return CompilationResult(
                 success=True,
-                grammar_name=grammar_name,
+                grammar_name=analysis.grammar_name,
                 output_path=output_path,
-                message=f"Successfully compiled grammar '{grammar_name}'"
+                message=f"Successfully compiled grammar '{analysis.grammar_name}'"
             )
 
         except subprocess.CalledProcessError as e:
@@ -337,7 +332,7 @@ class GrammarCompiler:
             logger.error(error_msg)
             return CompilationResult(
                 success=False,
-                grammar_name=grammar_name,
+                grammar_name=analysis.grammar_name,
                 error=error_msg
             )
         except Exception as e:
@@ -345,7 +340,7 @@ class GrammarCompiler:
             logger.error(error_msg)
             return CompilationResult(
                 success=False,
-                grammar_name=grammar_name,
+                grammar_name=analysis.grammar_name,
                 error=error_msg
             )
 
@@ -376,8 +371,7 @@ class GrammarCompiler:
     def _compile_grammar(
         self,
         grammar_name: str,
-        parser_c: Path,
-        scanner_path: Optional[Path],
+        source_files: List[Path],
         output_dir: Path,
         needs_cpp: bool
     ) -> Path:
@@ -386,8 +380,7 @@ class GrammarCompiler:
 
         Args:
             grammar_name: Name of grammar
-            parser_c: Path to parser.c
-            scanner_path: Path to scanner file (if exists)
+            source_files: List of source files to compile (in order)
             output_dir: Output directory
             needs_cpp: Whether C++ compiler is needed
 
@@ -410,10 +403,11 @@ class GrammarCompiler:
 
         output_path = output_dir / f"{grammar_name}{lib_ext}"
 
-        # Build compilation command
-        sources = [str(parser_c)]
-        if scanner_path:
-            sources.append(str(scanner_path))
+        # Build compilation command from source files
+        sources = [str(source) for source in source_files]
+
+        # Get include directory from first source file
+        include_dir = source_files[0].parent
 
         if compiler.name in ["gcc", "g++", "clang", "clang++", "cc", "c++"]:
             # GCC/Clang style
@@ -424,7 +418,7 @@ class GrammarCompiler:
                 "-O2",
                 "-o", str(output_path),
                 *sources,
-                "-I", str(parser_c.parent)
+                "-I", str(include_dir)
             ]
 
             # Add platform-specific flags
@@ -439,7 +433,7 @@ class GrammarCompiler:
                 "/O2",  # Optimization
                 f"/Fe{output_path}",  # Output file
                 *sources,
-                f"/I{parser_c.parent}"  # Include directory
+                f"/I{include_dir}"  # Include directory
             ]
         else:
             raise ValueError(f"Unsupported compiler: {compiler.name}")
