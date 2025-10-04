@@ -48,14 +48,26 @@ import pytest
 from fastmcp import FastMCP
 
 # Import FastMCP test infrastructure
-from tests.utils.fastmcp_test_infrastructure import (
-    FastMCPTestServer,
-    FastMCPTestClient,
-    MCPProtocolTester,
-    MCPTestResult,
-    MCPToolTestCase,
-    fastmcp_test_environment,
-)
+try:
+    # Try pytest import path first
+    from tests.utils.fastmcp_test_infrastructure import (
+        FastMCPTestServer,
+        FastMCPTestClient,
+        MCPProtocolTester,
+        MCPTestResult,
+        MCPToolTestCase,
+        fastmcp_test_environment,
+    )
+except ImportError:
+    # Fallback to direct import path
+    from utils.fastmcp_test_infrastructure import (
+        FastMCPTestServer,
+        FastMCPTestClient,
+        MCPProtocolTester,
+        MCPTestResult,
+        MCPToolTestCase,
+        fastmcp_test_environment,
+    )
 
 # Import server app
 from workspace_qdrant_mcp.server import app
