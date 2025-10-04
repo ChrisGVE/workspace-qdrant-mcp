@@ -328,7 +328,38 @@ class GrammarCompiler:
             )
 
         except subprocess.CalledProcessError as e:
-            error_msg = f"Compilation failed: {e.stderr if e.stderr else e}"
+            # Enhanced error message with specific guidance
+            error_msg = self._format_compilation_error(e, analysis)
+            logger.error(error_msg)
+
+            # Extract compiler warnings from stderr
+            warnings = self._extract_warnings(e.stderr) if e.stderr else []
+
+            return CompilationResult(
+                success=False,
+                grammar_name=analysis.grammar_name,
+                error=error_msg,
+                warnings=warnings
+            )
+        except subprocess.TimeoutExpired as e:
+            error_msg = (
+                f"Compilation timed out after {e.timeout} seconds. "
+                f"This may indicate a very large grammar or system resource constraints. "
+                f"Consider: (1) checking system resources, (2) closing other applications, "
+                f"(3) trying again with fewer parallel builds."
+            )
+            logger.error(error_msg)
+            return CompilationResult(
+                success=False,
+                grammar_name=analysis.grammar_name,
+                error=error_msg
+            )
+        except PermissionError as e:
+            error_msg = (
+                f"Permission denied during compilation: {e}. "
+                f"Ensure you have write permissions for: (1) output directory, "
+                f"(2) source files. Try running with appropriate permissions."
+            )
             logger.error(error_msg)
             return CompilationResult(
                 success=False,
@@ -336,13 +367,111 @@ class GrammarCompiler:
                 error=error_msg
             )
         except Exception as e:
-            error_msg = f"Compilation failed: {str(e)}"
+            error_msg = f"Unexpected compilation error: {str(e)}"
             logger.error(error_msg)
+            logger.exception("Full error traceback:")
             return CompilationResult(
                 success=False,
                 grammar_name=analysis.grammar_name,
                 error=error_msg
             )
+
+    def _format_compilation_error(self, error: subprocess.CalledProcessError, analysis) -> str:
+        """
+        Format compilation error with helpful guidance.
+
+        Args:
+            error: Compilation process error
+            analysis: Dependency analysis for context
+
+        Returns:
+            Formatted error message with suggestions
+        """
+        from .grammar_dependencies import DependencyAnalysis
+
+        base_msg = f"Compilation failed for grammar '{analysis.grammar_name}'"
+
+        # Extract stderr for analysis
+        stderr = error.stderr or ""
+
+        # Common error patterns and suggestions
+        suggestions = []
+
+        if "undefined reference" in stderr.lower() or "unresolved external" in stderr.lower():
+            suggestions.append(
+                "Linker error detected. This may indicate: "
+                "(1) missing scanner implementation, (2) incompatible compiler flags, "
+                "(3) missing system libraries"
+            )
+
+        if "no such file or directory" in stderr.lower():
+            suggestions.append(
+                "Missing include file. Ensure: (1) grammar was generated properly "
+                "('tree-sitter generate'), (2) all source files are present"
+            )
+
+        if "permission denied" in stderr.lower():
+            suggestions.append(
+                "Permission error. Check: (1) file permissions, (2) directory permissions, "
+                "(3) antivirus software blocking compilation"
+            )
+
+        if "syntax error" in stderr.lower() or "parse error" in stderr.lower() or "error: expected" in stderr.lower():
+            suggestions.append(
+                "Syntax error in generated code. Try: (1) regenerating grammar "
+                "('tree-sitter generate'), (2) checking grammar.js for issues"
+            )
+
+        if analysis.needs_cpp and "g++" not in str(error.cmd) and "clang++" not in str(error.cmd):
+            suggestions.append(
+                "Grammar requires C++ compiler but may have been compiled with C compiler. "
+                "Ensure C++ compiler is available and properly detected"
+            )
+
+        # Build final message
+        parts = [base_msg]
+
+        if stderr.strip():
+            # Truncate very long error messages
+            if len(stderr) > 1000:
+                stderr_display = stderr[:1000] + "\n... (truncated)"
+            else:
+                stderr_display = stderr
+            parts.append(f"\nCompiler output:\n{stderr_display}")
+
+        if suggestions:
+            parts.append(f"\nPossible solutions:\n" + "\n".join(f"  • {s}" for s in suggestions))
+        else:
+            parts.append(
+                f"\nSuggestions:\n"
+                f"  • Regenerate grammar: tree-sitter generate\n"
+                f"  • Check compiler installation and version\n"
+                f"  • Verify all source files are present"
+            )
+
+        return "\n".join(parts)
+
+    def _extract_warnings(self, stderr: Optional[str]) -> List[str]:
+        """
+        Extract compiler warnings from stderr.
+
+        Args:
+            stderr: Compiler stderr output
+
+        Returns:
+            List of warning messages
+        """
+        if not stderr:
+            return []
+
+        warnings = []
+        for line in stderr.split("\n"):
+            line_lower = line.lower()
+            if "warning" in line_lower and line.strip():
+                # Clean up the warning message
+                warnings.append(line.strip())
+
+        return warnings
 
     def _detect_scanner(self, src_dir: Path) -> Tuple[bool, Optional[Path], bool]:
         """
