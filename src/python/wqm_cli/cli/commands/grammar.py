@@ -156,7 +156,9 @@ def install_grammar(
                 grammar_url=url,
                 grammar_name=name,
                 version=version,
-                force=force
+                force=force,
+                progress=progress,
+                progress_task=task
             )
 
         if not result.success:
@@ -258,7 +260,12 @@ def _compile_grammar(grammar_name: str, grammar_path: Path, output_dir: Optional
         console=console,
     ) as progress:
         task = progress.add_task("Compiling grammar...", total=None)
-        result = compiler.compile(grammar_path, output_dir=output_dir)
+        result = compiler.compile(
+            grammar_path,
+            output_dir=output_dir,
+            progress=progress,
+            progress_task=task
+        )
 
     if not result.success:
         error_message(f"Compilation failed: {result.error}")
@@ -513,7 +520,9 @@ def update_grammar(
                 grammar_url=url,
                 grammar_name=grammar_name,
                 version=version,
-                force=True  # Force reinstall
+                force=True,  # Force reinstall
+                progress=progress,
+                progress_task=task
             )
 
         if not result.success:
