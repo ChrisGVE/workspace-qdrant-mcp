@@ -5,15 +5,9 @@ use crate::grpc::middleware::{ConnectionManager, ConnectionInterceptor};
 #[cfg(any(test, feature = "test-utils"))]
 use crate::grpc::message_validation::MessageValidator;
 use crate::grpc::services::{
-    DocumentProcessorImpl,
-    SearchServiceImpl,
-    MemoryServiceImpl,
     SystemServiceImpl,
 };
 use crate::proto::{
-    document_processor_server::DocumentProcessorServer,
-    search_service_server::SearchServiceServer,
-    memory_service_server::MemoryServiceServer,
     system_service_server::SystemServiceServer,
 };
 
@@ -134,9 +128,6 @@ impl GrpcServer {
         let _interceptor = ConnectionInterceptor::new(Arc::clone(&self.connection_manager));
 
         // Create service implementations
-        let document_processor = DocumentProcessorImpl::new(Arc::clone(&self.daemon));
-        let search_service = SearchServiceImpl::new(Arc::clone(&self.daemon));
-        let memory_service = MemoryServiceImpl::new(Arc::clone(&self.daemon));
         let system_service = SystemServiceImpl::new(Arc::clone(&self.daemon));
 
         let config = self.daemon.config();
@@ -155,22 +146,7 @@ impl GrpcServer {
             .tcp_keepalive(Some(Duration::from_secs(60)))
             // Request timeout for streaming operations
             .tcp_nodelay(true)
-            // Register all services with message size limits
-            .add_service(
-                DocumentProcessorServer::new(document_processor)
-                    .max_decoding_message_size(config.server().message.service_limits.document_processor.max_incoming)
-                    .max_encoding_message_size(config.server().message.service_limits.document_processor.max_outgoing)
-            )
-            .add_service(
-                SearchServiceServer::new(search_service)
-                    .max_decoding_message_size(config.server().message.service_limits.search_service.max_incoming)
-                    .max_encoding_message_size(config.server().message.service_limits.search_service.max_outgoing)
-            )
-            .add_service(
-                MemoryServiceServer::new(memory_service)
-                    .max_decoding_message_size(config.server().message.service_limits.memory_service.max_incoming)
-                    .max_encoding_message_size(config.server().message.service_limits.memory_service.max_outgoing)
-            )
+            // Register system service
             .add_service(
                 SystemServiceServer::new(system_service)
                     .max_decoding_message_size(config.server().message.service_limits.system_service.max_incoming)
