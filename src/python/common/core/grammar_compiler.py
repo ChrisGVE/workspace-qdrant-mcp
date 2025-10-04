@@ -11,6 +11,7 @@ Key features:
 - Build artifact management
 - Comprehensive error reporting
 - Dependency resolution for build prerequisites
+- Progress tracking for long-running operations
 """
 
 import logging
@@ -18,11 +19,14 @@ import platform
 import subprocess
 import shutil
 from pathlib import Path
-from typing import Optional, Tuple, List, Dict
+from typing import Optional, Tuple, List, Dict, TYPE_CHECKING
 from dataclasses import dataclass
 import os
 
 from .grammar_dependencies import DependencyResolver, CompilerRequirement
+
+if TYPE_CHECKING:
+    from rich.progress import Progress, TaskID
 
 logger = logging.getLogger(__name__)
 
@@ -228,6 +232,7 @@ class GrammarCompiler:
 
     Handles compilation of parser.c and optional external scanners
     (scanner.c or scanner.cc) into platform-specific shared libraries.
+    Supports progress tracking for long-running operations.
     """
 
     def __init__(
@@ -254,7 +259,13 @@ class GrammarCompiler:
 
         self.system = platform.system()
 
-    def compile(self, grammar_path: Path, output_dir: Optional[Path] = None) -> CompilationResult:
+    def compile(
+        self,
+        grammar_path: Path,
+        output_dir: Optional[Path] = None,
+        progress: Optional["Progress"] = None,
+        progress_task: Optional["TaskID"] = None
+    ) -> CompilationResult:
         """
         Compile a tree-sitter grammar.
 
@@ -264,6 +275,8 @@ class GrammarCompiler:
         Args:
             grammar_path: Path to grammar directory
             output_dir: Output directory for compiled library (defaults to grammar_path/build)
+            progress: Optional Rich Progress instance for progress tracking
+            progress_task: Optional progress task ID to update
 
         Returns:
             CompilationResult with status and details
@@ -274,6 +287,10 @@ class GrammarCompiler:
             >>> if result.success:
             ...     print(f"Compiled to {result.output_path}")
         """
+        # Update progress
+        if progress and progress_task is not None:
+            progress.update(progress_task, description=f"Analyzing dependencies...")
+
         # Analyze dependencies
         analysis = self.dependency_resolver.analyze_grammar(grammar_path)
 
@@ -288,6 +305,10 @@ class GrammarCompiler:
                 grammar_name=analysis.grammar_name,
                 error=error_msg
             )
+
+        # Update progress
+        if progress and progress_task is not None:
+            progress.update(progress_task, description=f"Validating compilers...")
 
         # Validate dependencies with available compilers
         valid, errors = self.dependency_resolver.validate_dependencies(
@@ -309,6 +330,10 @@ class GrammarCompiler:
             output_dir = grammar_path / "build"
         output_dir.mkdir(parents=True, exist_ok=True)
 
+        # Update progress
+        if progress and progress_task is not None:
+            progress.update(progress_task, description=f"Compiling {analysis.grammar_name}...")
+
         # Compile with resolved dependencies
         try:
             source_files = analysis.get_source_files()
@@ -317,8 +342,14 @@ class GrammarCompiler:
                 grammar_name=analysis.grammar_name,
                 source_files=source_files,
                 output_dir=output_dir,
-                needs_cpp=analysis.needs_cpp
+                needs_cpp=analysis.needs_cpp,
+                progress=progress,
+                progress_task=progress_task
             )
+
+            # Update progress with success
+            if progress and progress_task is not None:
+                progress.update(progress_task, description=f"✓ Compiled {analysis.grammar_name}")
 
             return CompilationResult(
                 success=True,
@@ -502,7 +533,9 @@ class GrammarCompiler:
         grammar_name: str,
         source_files: List[Path],
         output_dir: Path,
-        needs_cpp: bool
+        needs_cpp: bool,
+        progress: Optional["Progress"] = None,
+        progress_task: Optional["TaskID"] = None
     ) -> Path:
         """
         Compile grammar to shared library.
@@ -512,6 +545,8 @@ class GrammarCompiler:
             source_files: List of source files to compile (in order)
             output_dir: Output directory
             needs_cpp: Whether C++ compiler is needed
+            progress: Optional Rich Progress instance for progress tracking
+            progress_task: Optional progress task ID to update
 
         Returns:
             Path to compiled library
@@ -568,6 +603,10 @@ class GrammarCompiler:
             raise ValueError(f"Unsupported compiler: {compiler.name}")
 
         logger.info(f"Running: {' '.join(cmd)}")
+
+        # Update progress before running compilation
+        if progress and progress_task is not None:
+            progress.update(progress_task, description=f"Running compiler...")
 
         # Run compilation
         result = subprocess.run(
