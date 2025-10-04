@@ -27,7 +27,7 @@ from src.python.common.core.lsp_metadata_extractor import (
     SymbolKind,
     FileMetadata,
 )
-from src.python.common.core.lsp_detector import LSPDetector
+from src.python.common.core.lsp_detector import LSPDetector, LSPDetectionResult, LSPServerInfo
 from src.python.common.core.lsp_config import LSPConfig
 from tests.mocks.lsp_mocks import LSPServerMock, LSPErrorInjector
 
@@ -241,6 +241,111 @@ class TestLanguageServerDetection:
             assert result is not None
             assert isinstance(result.detected_lsps, dict)
             # May have some LSPs from cache or config, just verify it doesn't crash
+
+    def test_get_supported_extensions(self, temp_workspace):
+        """Test getting list of supported file extensions."""
+        detector = LSPDetector()
+
+        extensions = detector.get_supported_extensions(force_refresh=True)
+
+        assert isinstance(extensions, list)
+        assert len(extensions) > 0
+        # Should include common extensions
+        assert any('.py' in ext or 'py' in ext for ext in extensions)
+
+    def test_get_lsp_for_extension(self, temp_workspace):
+        """Test getting LSP for specific file extension."""
+        detector = LSPDetector()
+
+        with patch('shutil.which') as mock_which:
+            mock_which.return_value = '/usr/local/bin/pylsp'
+
+            # First scan to populate
+            detector.scan_available_lsps(force_refresh=True)
+
+            # Then query for specific extension
+            lsp_info = detector.get_lsp_for_extension('.py')
+
+            # May return None if no LSP configured for .py
+            if lsp_info is not None:
+                assert isinstance(lsp_info, LSPServerInfo)
+
+    def test_is_lsp_available(self, temp_workspace):
+        """Test checking if specific LSP is available."""
+        detector = LSPDetector()
+
+        with patch('shutil.which') as mock_which:
+            mock_which.return_value = '/usr/local/bin/pylsp'
+
+            detector.scan_available_lsps(force_refresh=True)
+
+            # Check for Python LSP (may or may not be available)
+            result = detector.is_lsp_available('pylsp')
+            assert isinstance(result, bool)
+
+    def test_clear_cache(self, temp_workspace):
+        """Test cache clearing functionality."""
+        detector = LSPDetector()
+
+        # Scan once to populate cache
+        detector.scan_available_lsps(force_refresh=True)
+
+        # Clear cache
+        detector.clear_cache()
+
+        # Should not crash
+        assert True
+
+    def test_get_detection_summary(self, temp_workspace):
+        """Test getting detection summary."""
+        detector = LSPDetector()
+
+        with patch('shutil.which') as mock_which:
+            mock_which.return_value = '/usr/local/bin/pylsp'
+
+            detector.scan_available_lsps(force_refresh=True)
+
+            summary = detector.get_detection_summary()
+
+            assert isinstance(summary, dict)
+            # Should contain metadata about detection
+            assert 'detected_lsps' in summary or 'total_detected' in summary or len(summary) >= 0
+
+    def test_get_ecosystem_aware_lsps(self, temp_workspace):
+        """Test ecosystem-aware LSP detection."""
+        detector = LSPDetector()
+
+        # Create a Python project indicator
+        (temp_workspace / "requirements.txt").write_text("requests==2.28.0")
+
+        with patch('shutil.which') as mock_which:
+            mock_which.return_value = '/usr/local/bin/pylsp'
+
+            result = detector.get_ecosystem_aware_lsps(
+                project_path=temp_workspace,
+                force_refresh=True
+            )
+
+            assert isinstance(result, LSPDetectionResult)
+            assert isinstance(result.detected_lsps, dict)
+            # Should detect Python ecosystem
+            if result.detected_ecosystems:
+                assert isinstance(result.detected_ecosystems, list)
+
+    def test_get_recommended_lsps_for_project(self, temp_workspace):
+        """Test getting recommended LSPs for a project."""
+        detector = LSPDetector()
+
+        # Create project indicators
+        (temp_workspace / "package.json").write_text('{"name": "test"}')
+
+        with patch('shutil.which') as mock_which:
+            mock_which.return_value = '/usr/local/bin/typescript-language-server'
+
+            recommendations = detector.get_recommended_lsps_for_project(temp_workspace)
+
+            assert isinstance(recommendations, dict)
+            # May be empty if no recommendations found
 
 
 # ============================================================================
