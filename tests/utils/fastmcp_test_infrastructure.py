@@ -135,27 +135,32 @@ class FastMCPTestServer:
 
     def _setup_test_environment(self) -> None:
         """Set up isolated test environment."""
-        # Mock workspace client to prevent initialization issues
-        mock_workspace_client = AsyncMock()
-        mock_workspace_client.initialized = True
-        mock_workspace_client.get_status.return_value = {
-            "connected": True,
-            "qdrant_url": "http://localhost:6333",
-            "collections_count": 2,
-            "current_project": "test-project"
-        }
-        mock_workspace_client.list_collections.return_value = [
-            "test-project_docs",
-            "test-project_scratchbook"
+        # Mock qdrant_client to prevent initialization issues
+        mock_qdrant_client = Mock()
+        mock_qdrant_client.get_collections.return_value.collections = [
+            Mock(name="_test_project_id"),
+            Mock(name="_memory"),
         ]
 
-        # Apply workspace client patch
-        workspace_patch = patch(
-            "workspace_qdrant_mcp.server.workspace_client",
-            mock_workspace_client
+        # Apply qdrant_client patch
+        qdrant_patch = patch(
+            "workspace_qdrant_mcp.server.qdrant_client",
+            mock_qdrant_client
         )
-        workspace_patch.start()
-        self._setup_patches.append(workspace_patch)
+        qdrant_patch.start()
+        self._setup_patches.append(qdrant_patch)
+
+        # Mock daemon_client to prevent initialization issues
+        mock_daemon_client = AsyncMock()
+        mock_daemon_client.ping.return_value = {"status": "ok"}
+
+        # Apply daemon_client patch
+        daemon_patch = patch(
+            "workspace_qdrant_mcp.server.daemon_client",
+            mock_daemon_client
+        )
+        daemon_patch.start()
+        self._setup_patches.append(daemon_patch)
 
     async def _verify_app_structure(self) -> None:
         """Verify FastMCP app has expected structure."""
