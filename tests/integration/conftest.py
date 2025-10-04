@@ -299,11 +299,14 @@ def pytest_collection_modifyitems(config, items):
             item.add_marker(pytest.mark.requires_docker)
 
 
-@pytest.fixture(autouse=True, scope="session") 
+@pytest.fixture(autouse=True, scope="session")
 def integration_test_setup():
     """Automatic setup for integration test suite."""
+    print("\n" + "=" * 70)
+    print("Starting workspace-qdrant-mcp test session")
+    print("=" * 70)
     print("Setting up integration test environment...")
-    
+
     # Verify Docker availability
     try:
         import docker
@@ -313,14 +316,21 @@ def integration_test_setup():
     except:
         docker_available = False
         print("WARNING: Docker not available - some tests will be skipped")
-    
+
     # Set environment variables for integration tests
     os.environ["INTEGRATION_TESTING"] = "1"
     os.environ["DOCKER_AVAILABLE"] = str(docker_available).lower()
-    
+
+    # Ensure PYTEST_CURRENT_TEST exists to prevent teardown errors
+    if "PYTEST_CURRENT_TEST" not in os.environ:
+        os.environ["PYTEST_CURRENT_TEST"] = "session_setup"
+
     yield
-    
+
     print("Tearing down integration test environment...")
+    print("\n" + "=" * 70)
+    print("Cleaning up test session")
+    print("=" * 70)
     # Cleanup would happen here
 
 
