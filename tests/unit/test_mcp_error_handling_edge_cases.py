@@ -44,6 +44,18 @@ from workspace_qdrant_mcp.server import app
 from common.core.daemon_client import DaemonConnectionError
 
 
+
+
+@pytest.fixture(autouse=True)
+async def mock_server_dependencies():
+    """Auto-mock common server dependencies for all tests."""
+    with patch.object(server_module, 'initialize_components', new_callable=AsyncMock), \
+         patch.object(server_module, 'get_project_collection', return_value="_test_project"), \
+         patch.object(server_module, 'get_project_name', return_value="test-project"), \
+         patch.object(server_module, 'get_current_branch', return_value="main"), \
+         patch.object(server_module, 'calculate_tenant_id', return_value="test123456"):
+        yield
+
 class TestStoreErrorHandling:
     """Test error handling in store() tool."""
 
