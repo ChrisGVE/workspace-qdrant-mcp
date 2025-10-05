@@ -12,6 +12,11 @@ from .claude_code_detector import (
     get_claude_code_session,
     is_claude_code_session,
 )
+from .claude_md_injector import (
+    ClaudeMdInjector,
+    ClaudeMdLocation,
+    inject_claude_md_content,
+)
 from .formatters import (
     ClaudeCodeAdapter,
     FormatManager,
@@ -80,4 +85,8 @@ __all__ = [
     "ClaudeCodeSession",
     "is_claude_code_session",
     "get_claude_code_session",
+    # CLAUDE.md Injection
+    "ClaudeMdInjector",
+    "ClaudeMdLocation",
+    "inject_claude_md_content",
 ]
