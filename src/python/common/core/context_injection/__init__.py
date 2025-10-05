@@ -6,6 +6,16 @@ memory rules stored in Qdrant.
 """
 
 from .authority_filter import AuthorityFilter, FilteredRules, RuleHierarchy
+from .formatters import (
+    ClaudeCodeAdapter,
+    FormatManager,
+    FormatType,
+    FormattedContext,
+    GitHubCodexAdapter,
+    GoogleGeminiAdapter,
+    LLMToolAdapter,
+    ToolCapabilities,
+)
 from .project_context import (
     ProjectContext,
     ProjectContextDetector,
@@ -22,4 +32,13 @@ __all__ = [
     "ProjectContext",
     "ProjectContextDetector",
     "ProjectRuleApplicator",
+    # Formatters
+    "FormatManager",
+    "LLMToolAdapter",
+    "ToolCapabilities",
+    "FormattedContext",
+    "FormatType",
+    "ClaudeCodeAdapter",
+    "GitHubCodexAdapter",
+    "GoogleGeminiAdapter",
 ]
