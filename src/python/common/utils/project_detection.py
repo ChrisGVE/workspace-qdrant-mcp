@@ -784,6 +784,9 @@ def calculate_tenant_id(project_root: Path) -> str:
         'path_abc123def456789a'
     """
     try:
+        # Convert to Path object if string
+        if isinstance(project_root, str):
+            project_root = Path(project_root)
         # Convert to absolute path string
         abs_path = str(project_root.resolve())
 
