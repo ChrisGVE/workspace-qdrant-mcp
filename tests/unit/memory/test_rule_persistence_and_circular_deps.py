@@ -55,56 +55,83 @@ class DependencyGraph:
                 self.add_dependency(rule_id, replaced_id)
 
     def has_cycle(self) -> bool:
-        """Check if the dependency graph has any cycles."""
+        """Check if the dependency graph has any cycles (iterative version)."""
         visited = set()
-        rec_stack = set()
 
-        def has_cycle_util(node: str) -> bool:
-            visited.add(node)
-            rec_stack.add(node)
-
-            for neighbor in self.dependencies.get(node, []):
-                if neighbor not in visited:
-                    if has_cycle_util(neighbor):
-                        return True
-                elif neighbor in rec_stack:
-                    return True
-
-            rec_stack.remove(node)
-            return False
+        # Color-based DFS: WHITE (unvisited), GRAY (in-progress), BLACK (finished)
+        GRAY = 1
+        BLACK = 2
+        color = {}
 
         for node in self.dependencies:
             if node not in visited:
-                if has_cycle_util(node):
-                    return True
+                # Iterative DFS using explicit stack
+                stack = [(node, False)]  # (node, backtracking)
+
+                while stack:
+                    current, backtracking = stack.pop()
+
+                    if backtracking:
+                        # Mark as BLACK (finished processing)
+                        color[current] = BLACK
+                        continue
+
+                    if current in color:
+                        if color[current] == GRAY:
+                            # Back edge found - cycle detected
+                            return True
+                        # If BLACK, already processed
+                        continue
+
+                    # Mark as GRAY (in-progress)
+                    visited.add(current)
+                    color[current] = GRAY
+
+                    # Add backtracking marker
+                    stack.append((current, True))
+
+                    # Add neighbors to stack
+                    for neighbor in self.dependencies.get(current, []):
+                        if neighbor not in color or color[neighbor] == GRAY:
+                            stack.append((neighbor, False))
 
         return False
 
     def find_cycles(self) -> List[List[str]]:
-        """Find all cycles in the dependency graph."""
+        """Find all cycles in the dependency graph (iterative version)."""
         cycles = []
         visited = set()
-        rec_stack = []
 
-        def find_cycle_util(node: str):
-            visited.add(node)
-            rec_stack.append(node)
+        for start_node in self.dependencies:
+            if start_node in visited:
+                continue
 
-            for neighbor in self.dependencies.get(node, []):
-                if neighbor not in visited:
-                    find_cycle_util(neighbor)
-                elif neighbor in rec_stack:
-                    # Found a cycle
-                    cycle_start = rec_stack.index(neighbor)
-                    cycle = rec_stack[cycle_start:] + [neighbor]
-                    if cycle not in cycles:
-                        cycles.append(cycle)
+            # For each unvisited node, try to find cycles
+            # Use stack with path tracking
+            stack = [(start_node, [start_node])]
+            path_set = {start_node}
 
-            rec_stack.pop()
+            while stack:
+                node, path = stack.pop()
 
-        for node in self.dependencies:
-            if node not in visited:
-                find_cycle_util(node)
+                # Remove from path_set when backtracking
+                if node not in path:
+                    path_set.discard(node)
+                    continue
+
+                visited.add(node)
+
+                for neighbor in self.dependencies.get(node, []):
+                    if neighbor in path_set:
+                        # Found a cycle
+                        cycle_start = path.index(neighbor)
+                        cycle = path[cycle_start:] + [neighbor]
+                        if cycle not in cycles:
+                            cycles.append(cycle)
+                    elif neighbor not in visited:
+                        new_path = path + [neighbor]
+                        stack.append((neighbor, new_path))
+                        path_set.add(neighbor)
 
         return cycles
 
@@ -1024,7 +1051,7 @@ class TestDependencyValidation:
         # Should detect the 1->2->3->4->1 cycle
         assert graph.has_cycle() is True
 
-        cycles = dependency_graph.find_cycles()
+        cycles = graph.find_cycles()  # FIXED: was dependency_graph.find_cycles()
         assert len(cycles) > 0
 
 
