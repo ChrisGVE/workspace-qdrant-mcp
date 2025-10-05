@@ -22,6 +22,13 @@ from .project_context import (
     ProjectRuleApplicator,
 )
 from .rule_retrieval import RuleFilter, RuleRetrieval
+from .token_budget import (
+    AllocationStrategy,
+    BudgetAllocation,
+    CompressionStrategy,
+    TokenBudgetManager,
+    TokenCounter,
+)
 
 __all__ = [
     "RuleRetrieval",
@@ -41,4 +48,10 @@ __all__ = [
     "ClaudeCodeAdapter",
     "GitHubCodexAdapter",
     "GoogleGeminiAdapter",
+    # Token Budget
+    "TokenBudgetManager",
+    "BudgetAllocation",
+    "AllocationStrategy",
+    "CompressionStrategy",
+    "TokenCounter",
 ]
