@@ -75,6 +75,14 @@ from .claude_budget_manager import (
     ClaudeModel,
     SessionUsageStats,
 )
+from .token_usage_tracker import (
+    GlobalUsageTracker,
+    OperationType,
+    OperationUsage,
+    SessionUsageSnapshot,
+    TokenUsageTracker,
+    ToolUsageStats,
+)
 from .live_refresh import (
     LiveRefreshManager,
     RefreshMode,
@@ -124,6 +132,13 @@ __all__ = [
     "ClaudeBudgetAllocation",
     "ClaudeModel",
     "SessionUsageStats",
+    # Token Usage Tracker
+    "TokenUsageTracker",
+    "OperationType",
+    "OperationUsage",
+    "ToolUsageStats",
+    "SessionUsageSnapshot",
+    "GlobalUsageTracker",
     # Claude Code Detection
     "ClaudeCodeDetector",
     "ClaudeCodeSession",
