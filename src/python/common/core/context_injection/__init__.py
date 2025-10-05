@@ -104,6 +104,14 @@ from .rule_prioritizer import (
     RulePrioritizer,
     RulePriorityScore,
 )
+from .interactive_trimmer import (
+    BudgetVisualization,
+    InteractiveTrimmer,
+    RuleDisplay,
+    TrimDecision,
+    TrimDecisionType,
+    TrimSession,
+)
 
 __all__ = [
     # Rule Retrieval
@@ -163,6 +171,13 @@ __all__ = [
     "PrioritizationStrategy",
     "RulePriorityScore",
     "PrioritizationResult",
+    # Interactive Trimmer
+    "InteractiveTrimmer",
+    "TrimDecision",
+    "TrimDecisionType",
+    "TrimSession",
+    "BudgetVisualization",
+    "RuleDisplay",
     # Claude Code Detection
     "ClaudeCodeDetector",
     "ClaudeCodeSession",
