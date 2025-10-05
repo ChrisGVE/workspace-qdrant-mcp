@@ -43,6 +43,7 @@ dependencies = [
   "markdown>=3.5.0", # Enhanced markdown support
   "pygments>=2.16.0", # Code syntax highlighting
   "loguru>=0.7.0", # Simplified logging with better defaults
+  "cachetools>=5.3.0", # LRU and TTL caching for performance optimization
   # Web crawling and security
   "aiohttp>=3.9.0", # Async HTTP client for web crawling
   "aiofiles>=23.0.0", # Async file operations
