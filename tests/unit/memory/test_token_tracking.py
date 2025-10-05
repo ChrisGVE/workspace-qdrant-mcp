@@ -4,12 +4,13 @@ Token usage tracking validation tests for memory rules.
 Tests token counting accuracy, tracking across operations, behavior approaching
 token limits, and tiktoken integration.
 
-Task 283.6 - Token Usage Tracking Validation
+Task 324.5 - Token Usage Tracking Comprehensive Tests
 """
 
 import pytest
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 from unittest.mock import Mock, patch, MagicMock
+import sys
 
 from common.memory import (
     TokenCounter,
@@ -608,12 +609,33 @@ class TestTiktokenIntegration:
 
     def test_tiktoken_fallback_on_import_error(self):
         """Test fallback to SIMPLE when tiktoken unavailable."""
-        with patch("common.memory.token_counter.tiktoken", side_effect=ImportError):
-            counter = TokenCounter(method=TokenizationMethod.TIKTOKEN)
+        # Mock tiktoken import failure by temporarily removing it from sys.modules
+        tiktoken_backup = sys.modules.get('tiktoken')
+        try:
+            # Remove tiktoken from sys.modules to simulate import error
+            if 'tiktoken' in sys.modules:
+                del sys.modules['tiktoken']
 
-            # Should fall back to SIMPLE
-            assert counter.method == TokenizationMethod.SIMPLE
-            assert counter.tokenizer is None
+            # Patch the import to raise ImportError
+            with patch.dict('sys.modules', {'tiktoken': None}):
+                # Re-import the token_counter module to trigger the import error
+                import importlib
+                from common.memory import token_counter
+                importlib.reload(token_counter)
+
+                counter = token_counter.TokenCounter(method=token_counter.TokenizationMethod.TIKTOKEN)
+
+                # Should fall back to SIMPLE
+                assert counter.method == token_counter.TokenizationMethod.SIMPLE
+                assert counter.tokenizer is None
+        finally:
+            # Restore tiktoken if it was available
+            if tiktoken_backup is not None:
+                sys.modules['tiktoken'] = tiktoken_backup
+            # Reload token_counter to restore normal state
+            import importlib
+            from common.memory import token_counter
+            importlib.reload(token_counter)
 
     def test_tiktoken_encoding_consistency(self):
         """Test that tiktoken produces consistent token counts."""
@@ -705,17 +727,17 @@ class TestTiktokenIntegration:
             # But they should still be in the same ballpark
             assert tiktoken_count > 0
 
-    @patch("common.memory.token_counter.tiktoken.encoding_for_model")
-    def test_tiktoken_uses_correct_model(self, mock_encoding):
+    def test_tiktoken_uses_correct_model(self):
         """Test that tiktoken uses correct model for encoding."""
-        mock_encoder = Mock()
-        mock_encoder.encode = Mock(return_value=[1, 2, 3])
-        mock_encoding.return_value = mock_encoder
+        with patch("tiktoken.encoding_for_model") as mock_encoding:
+            mock_encoder = Mock()
+            mock_encoder.encode = Mock(return_value=[1, 2, 3])
+            mock_encoding.return_value = mock_encoder
 
-        counter = TokenCounter(method=TokenizationMethod.TIKTOKEN)
+            counter = TokenCounter(method=TokenizationMethod.TIKTOKEN)
 
-        # Should have called encoding_for_model with correct model
-        mock_encoding.assert_called_once_with("gpt-3.5-turbo")
+            # Should have called encoding_for_model with correct model
+            mock_encoding.assert_called_once_with("gpt-3.5-turbo")
 
     def test_tiktoken_with_large_rule_set(self):
         """Test tiktoken performance with large number of rules."""
@@ -865,6 +887,444 @@ class TestRuleTokenInfo:
         sorted_reverse = sorted(infos, reverse=True)
         assert sorted_reverse[0] == info_high
         assert sorted_reverse[1] == info_low
+
+
+class TestVariousRuleSizesAndFormats:
+    """Test token counting with various rule sizes and formats."""
+
+    @pytest.fixture
+    def counter(self):
+        """Create token counter for testing."""
+        return TokenCounter(method=TokenizationMethod.SIMPLE)
+
+    def test_json_format_rules(self, counter):
+        """Test token counting for JSON-formatted rules."""
+        rule = MemoryRule(
+            rule='{"pattern": "async def", "example": "async def fetch_data() -> dict"}',
+            category=MemoryCategory.BEHAVIOR,
+            authority=AuthorityLevel.DEFAULT,
+            id="test-json",
+            scope=["python"],
+            source="test",
+        )
+
+        tokens = counter.count_rule_tokens(rule)
+        assert tokens > 0
+        assert isinstance(tokens, int)
+
+    def test_markdown_format_rules(self, counter):
+        """Test token counting for markdown-formatted rules."""
+        rule = MemoryRule(
+            rule="""# Code Review Guidelines
+
+## Required Checks
+- [ ] Type hints present
+- [ ] Tests passing
+- [ ] Documentation updated
+
+**Priority**: High""",
+            category=MemoryCategory.BEHAVIOR,
+            authority=AuthorityLevel.ABSOLUTE,
+            id="test-markdown",
+            scope=["review"],
+            source="test",
+        )
+
+        tokens = counter.count_rule_tokens(rule)
+        assert tokens > 0
+        # Markdown formatting should add tokens
+        assert tokens > 20
+
+    def test_code_snippet_rules(self, counter):
+        """Test token counting for rules with code snippets."""
+        rule = MemoryRule(
+            rule="""Use this pattern for error handling:
+```python
+try:
+    result = risky_operation()
+except ValueError as e:
+    logger.error(f"Operation failed: {e}")
+    raise
+```""",
+            category=MemoryCategory.BEHAVIOR,
+            authority=AuthorityLevel.DEFAULT,
+            id="test-code-snippet",
+            scope=["python", "error-handling"],
+            source="test",
+        )
+
+        tokens = counter.count_rule_tokens(rule)
+        assert tokens > 0
+        # Code snippets should have substantial token count
+        assert tokens > 30
+
+    def test_multiline_rules(self, counter):
+        """Test token counting for multi-line rules."""
+        rule = MemoryRule(
+            rule="""When implementing new features:
+1. Write tests first
+2. Implement minimum viable code
+3. Refactor for clarity
+4. Document public APIs
+5. Update changelog""",
+            category=MemoryCategory.BEHAVIOR,
+            authority=AuthorityLevel.ABSOLUTE,
+            id="test-multiline",
+            scope=["development"],
+            source="test",
+        )
+
+        tokens = counter.count_rule_tokens(rule)
+        assert tokens > 0
+        assert tokens > 15
+
+    def test_rule_with_urls(self, counter):
+        """Test token counting for rules containing URLs."""
+        rule = MemoryRule(
+            rule="Follow PEP 8 style guide: https://peps.python.org/pep-0008/ and type hints guide: https://peps.python.org/pep-0484/",
+            category=MemoryCategory.PREFERENCE,
+            authority=AuthorityLevel.DEFAULT,
+            id="test-urls",
+            scope=["python"],
+            source="test",
+        )
+
+        tokens = counter.count_rule_tokens(rule)
+        assert tokens > 0
+        # URLs should contribute to token count
+        assert tokens > 20
+
+    def test_rule_with_emojis(self, counter):
+        """Test token counting for rules with emoji characters."""
+        rule = MemoryRule(
+            rule="Use emojis in commit messages: ✨ feat, 🐛 fix, 📝 docs, 🎨 style, ♻️ refactor",
+            category=MemoryCategory.PREFERENCE,
+            authority=AuthorityLevel.DEFAULT,
+            id="test-emojis",
+            scope=["git"],
+            source="test",
+        )
+
+        tokens = counter.count_rule_tokens(rule)
+        assert tokens > 0
+        assert isinstance(tokens, int)
+
+    def test_very_short_rules(self, counter):
+        """Test token counting for very short, terse rules."""
+        short_rules = [
+            "TDD",
+            "DRY",
+            "YAGNI",
+            "KISS",
+            "Use uv",
+        ]
+
+        for rule_text in short_rules:
+            rule = MemoryRule(
+                rule=rule_text,
+                category=MemoryCategory.PREFERENCE,
+                authority=AuthorityLevel.DEFAULT,
+                id=f"test-{rule_text}",
+                scope=["global"],
+                source="test",
+            )
+
+            tokens = counter.count_rule_tokens(rule)
+            assert tokens > 0
+            assert tokens < 10, f"Very short rule '{rule_text}' should have < 10 tokens, got {tokens}"
+
+    def test_extremely_long_rule(self, counter):
+        """Test token counting for extremely long rules."""
+        # Create a very long rule (1000+ words)
+        long_text = " ".join([f"word{i}" for i in range(1000)])
+        rule = MemoryRule(
+            rule=long_text,
+            category=MemoryCategory.KNOWLEDGE,
+            authority=AuthorityLevel.DEFAULT,
+            id="test-extremely-long",
+            scope=["global"],
+            source="test",
+        )
+
+        tokens = counter.count_rule_tokens(rule)
+        assert tokens > 0
+        # Should be substantial but not exact word count
+        assert tokens > 200
+
+
+class TestTokenLimitEnforcement:
+    """Test token limit enforcement and overflow handling."""
+
+    @pytest.fixture
+    def counter(self):
+        """Create counter with small context window."""
+        return TokenCounter(
+            method=TokenizationMethod.SIMPLE,
+            context_window_size=500
+        )
+
+    def test_overflow_detection(self, counter):
+        """Test detection of token limit overflow."""
+        # Create rules that will definitely overflow
+        rules = [
+            MemoryRule(
+                rule="x" * 300,
+                category=MemoryCategory.BEHAVIOR,
+                authority=AuthorityLevel.DEFAULT,
+                id=f"rule-{i}",
+                scope=["global"],
+                source="test",
+            )
+            for i in range(10)
+        ]
+
+        usage = counter.count_rules_tokens(rules)
+
+        # Should detect overflow
+        assert usage.total_tokens > usage.context_window_size
+        assert usage.percentage > 100
+        assert usage.remaining_tokens < 0
+
+    def test_enforcement_with_priority(self, counter):
+        """Test that enforcement respects priority when limiting."""
+        # Create mix of absolute and default rules
+        rules = [
+            MemoryRule(
+                rule="Critical absolute rule",
+                category=MemoryCategory.BEHAVIOR,
+                authority=AuthorityLevel.ABSOLUTE,
+                id="absolute-1",
+                scope=["global"],
+                source="test",
+            ),
+            *[
+                MemoryRule(
+                    rule=f"Default rule {i} with content",
+                    category=MemoryCategory.PREFERENCE,
+                    authority=AuthorityLevel.DEFAULT,
+                    id=f"default-{i}",
+                    scope=["global"],
+                    source="test",
+                )
+                for i in range(20)
+            ]
+        ]
+
+        # Optimize with very tight budget
+        max_tokens = 50
+        selected_rules, usage = counter.optimize_rules_for_context(
+            rules,
+            max_tokens=max_tokens,
+            preserve_absolute=True
+        )
+
+        # Should include the absolute rule
+        assert any(r.id == "absolute-1" for r in selected_rules)
+        # Should fit within budget
+        assert usage.total_tokens <= max_tokens
+
+    def test_hard_limit_enforcement(self, counter):
+        """Test strict enforcement of hard token limits."""
+        rules = [
+            MemoryRule(
+                rule=f"Rule {i} with moderate content for testing",
+                category=MemoryCategory.BEHAVIOR,
+                authority=AuthorityLevel.DEFAULT,
+                id=f"rule-{i}",
+                scope=["global"],
+                source="test",
+            )
+            for i in range(30)
+        ]
+
+        max_tokens = 200
+        selected_rules, usage = counter.optimize_rules_for_context(
+            rules,
+            max_tokens=max_tokens,
+            preserve_absolute=False
+        )
+
+        # Must not exceed limit
+        assert usage.total_tokens <= max_tokens, \
+            f"Token count {usage.total_tokens} exceeds limit {max_tokens}"
+
+
+class TestTokenUsageReporting:
+    """Test token usage reporting and statistics."""
+
+    @pytest.fixture
+    def counter(self):
+        """Create token counter for testing."""
+        return TokenCounter(method=TokenizationMethod.SIMPLE)
+
+    def test_usage_breakdown_by_category(self, counter):
+        """Test detailed breakdown of token usage by category."""
+        rules = [
+            MemoryRule(rule="Pref 1", category=MemoryCategory.PREFERENCE, authority=AuthorityLevel.DEFAULT,
+                      id="p1", scope=[], source="test"),
+            MemoryRule(rule="Behavior 1", category=MemoryCategory.BEHAVIOR, authority=AuthorityLevel.DEFAULT,
+                      id="b1", scope=[], source="test"),
+            MemoryRule(rule="Agent info", category=MemoryCategory.AGENT_LIBRARY, authority=AuthorityLevel.DEFAULT,
+                      id="a1", scope=[], source="test"),
+            MemoryRule(rule="Knowledge fact", category=MemoryCategory.KNOWLEDGE, authority=AuthorityLevel.DEFAULT,
+                      id="k1", scope=[], source="test"),
+            MemoryRule(rule="Context data", category=MemoryCategory.CONTEXT, authority=AuthorityLevel.DEFAULT,
+                      id="c1", scope=[], source="test"),
+        ]
+
+        usage = counter.count_rules_tokens(rules)
+
+        # All categories should have some tokens
+        assert usage.preference_tokens > 0
+        assert usage.behavior_tokens > 0
+        assert usage.agent_library_tokens > 0
+        assert usage.knowledge_tokens > 0
+        assert usage.context_tokens > 0
+
+        # Total should match sum
+        total = (usage.preference_tokens + usage.behavior_tokens +
+                usage.agent_library_tokens + usage.knowledge_tokens + usage.context_tokens)
+        assert total == usage.total_tokens
+
+    def test_usage_breakdown_by_authority(self, counter):
+        """Test detailed breakdown of token usage by authority level."""
+        rules = [
+            MemoryRule(rule="Absolute rule 1", category=MemoryCategory.BEHAVIOR,
+                      authority=AuthorityLevel.ABSOLUTE, id="abs1", scope=[], source="test"),
+            MemoryRule(rule="Absolute rule 2", category=MemoryCategory.BEHAVIOR,
+                      authority=AuthorityLevel.ABSOLUTE, id="abs2", scope=[], source="test"),
+            MemoryRule(rule="Default rule 1", category=MemoryCategory.PREFERENCE,
+                      authority=AuthorityLevel.DEFAULT, id="def1", scope=[], source="test"),
+            MemoryRule(rule="Default rule 2", category=MemoryCategory.PREFERENCE,
+                      authority=AuthorityLevel.DEFAULT, id="def2", scope=[], source="test"),
+        ]
+
+        usage = counter.count_rules_tokens(rules)
+
+        assert usage.absolute_tokens > 0
+        assert usage.default_tokens > 0
+        assert usage.absolute_tokens + usage.default_tokens == usage.total_tokens
+
+    def test_usage_to_dict_serialization(self, counter):
+        """Test that usage can be serialized to dictionary format."""
+        rules = [
+            MemoryRule(rule="Test rule", category=MemoryCategory.BEHAVIOR,
+                      authority=AuthorityLevel.DEFAULT, id="r1", scope=[], source="test"),
+        ]
+
+        usage = counter.count_rules_tokens(rules)
+        data = usage.to_dict()
+
+        # Verify structure
+        assert "total_tokens" in data
+        assert "rules_count" in data
+        assert "categories" in data
+        assert "authorities" in data
+        assert "context_window" in data
+
+        # Verify category breakdown
+        assert "preference" in data["categories"]
+        assert "behavior" in data["categories"]
+
+        # Verify authority breakdown
+        assert "absolute" in data["authorities"]
+        assert "default" in data["authorities"]
+
+        # Verify context window info
+        assert "size" in data["context_window"]
+        assert "percentage" in data["context_window"]
+        assert "remaining" in data["context_window"]
+
+
+class TestOptimizationStrategies:
+    """Test various token optimization strategies."""
+
+    @pytest.fixture
+    def counter(self):
+        """Create token counter for testing."""
+        return TokenCounter(method=TokenizationMethod.SIMPLE, context_window_size=1000)
+
+    def test_priority_based_optimization(self, counter):
+        """Test optimization based on rule priority scores."""
+        # Create rules with different priorities
+        rules = [
+            # High priority: absolute + behavior
+            MemoryRule(rule="Critical behavior", category=MemoryCategory.BEHAVIOR,
+                      authority=AuthorityLevel.ABSOLUTE, id="high1", scope=[], source="test"),
+            # Medium priority: absolute + preference
+            MemoryRule(rule="Important preference", category=MemoryCategory.PREFERENCE,
+                      authority=AuthorityLevel.ABSOLUTE, id="med1", scope=[], source="test"),
+            # Low priority: default + context
+            MemoryRule(rule="Optional context", category=MemoryCategory.CONTEXT,
+                      authority=AuthorityLevel.DEFAULT, id="low1", scope=[], source="test"),
+        ]
+
+        max_tokens = 50
+        selected_rules, usage = counter.optimize_rules_for_context(
+            rules, max_tokens=max_tokens, preserve_absolute=True
+        )
+
+        # High priority rules should be selected first
+        assert any(r.id == "high1" for r in selected_rules)
+
+    def test_greedy_optimization(self, counter):
+        """Test greedy optimization that maximizes rule count."""
+        # Create many small rules and few large rules
+        small_rules = [
+            MemoryRule(rule=f"R{i}", category=MemoryCategory.PREFERENCE,
+                      authority=AuthorityLevel.DEFAULT, id=f"small-{i}", scope=[], source="test")
+            for i in range(20)
+        ]
+        large_rules = [
+            MemoryRule(rule="x" * 200, category=MemoryCategory.BEHAVIOR,
+                      authority=AuthorityLevel.DEFAULT, id=f"large-{i}", scope=[], source="test")
+            for i in range(3)
+        ]
+
+        rules = small_rules + large_rules
+
+        max_tokens = 300
+        selected_rules, usage = counter.optimize_rules_for_context(
+            rules, max_tokens=max_tokens, preserve_absolute=False
+        )
+
+        # Should select rules within budget
+        assert usage.total_tokens <= max_tokens
+        assert len(selected_rules) > 0
+
+    def test_suggest_optimizations(self, counter):
+        """Test optimization suggestion generation."""
+        # Create rules that exceed target
+        rules = [
+            MemoryRule(rule="x" * 200, category=MemoryCategory.BEHAVIOR,
+                      authority=AuthorityLevel.DEFAULT, id=f"rule-{i}", scope=[], source="test")
+            for i in range(10)
+        ]
+
+        target_tokens = 300
+        suggestions = counter.suggest_memory_optimizations(rules, target_tokens)
+
+        assert "current_tokens" in suggestions
+        assert "target_tokens" in suggestions
+        assert "optimization_needed" in suggestions
+        assert "suggestions" in suggestions
+
+        # Should indicate optimization needed
+        assert suggestions["optimization_needed"] is True
+        assert suggestions["current_tokens"] > target_tokens
+
+    def test_no_optimization_needed(self, counter):
+        """Test when no optimization is needed."""
+        rules = [
+            MemoryRule(rule="Short", category=MemoryCategory.PREFERENCE,
+                      authority=AuthorityLevel.DEFAULT, id="r1", scope=[], source="test"),
+        ]
+
+        target_tokens = 1000
+        suggestions = counter.suggest_memory_optimizations(rules, target_tokens)
+
+        assert suggestions["optimization_needed"] is False
+        assert "already within target" in suggestions["suggestions"][0].lower()
 
 
 if __name__ == "__main__":
