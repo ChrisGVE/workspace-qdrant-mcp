@@ -24,6 +24,20 @@ from .system_prompt_injector import (
     generate_mcp_context,
     generate_api_system_prompt,
 )
+from .session_trigger import (
+    SessionTrigger,
+    TriggerPhase,
+    TriggerPriority,
+    TriggerResult,
+    TriggerContext,
+    TriggerManager,
+    ClaudeMdFileTrigger,
+    SystemPromptTrigger,
+    CleanupTrigger,
+    CustomCallbackTrigger,
+    prepare_claude_code_session,
+    cleanup_claude_code_session,
+)
 from .formatters import (
     ClaudeCodeAdapter,
     FormatManager,
@@ -102,4 +116,17 @@ __all__ = [
     "InjectionMode",
     "generate_mcp_context",
     "generate_api_system_prompt",
+    # Session Triggers
+    "SessionTrigger",
+    "TriggerPhase",
+    "TriggerPriority",
+    "TriggerResult",
+    "TriggerContext",
+    "TriggerManager",
+    "ClaudeMdFileTrigger",
+    "SystemPromptTrigger",
+    "CleanupTrigger",
+    "CustomCallbackTrigger",
+    "prepare_claude_code_session",
+    "cleanup_claude_code_session",
 ]
