@@ -73,6 +73,14 @@ from .claude_budget_manager import (
     ClaudeModel,
     SessionUsageStats,
 )
+from .live_refresh import (
+    LiveRefreshManager,
+    RefreshMode,
+    RefreshThrottleConfig,
+    RefreshState,
+    RefreshResult,
+    start_live_refresh,
+)
 
 __all__ = [
     # Rule Retrieval
@@ -140,4 +148,11 @@ __all__ = [
     "CustomCallbackTrigger",
     "prepare_claude_code_session",
     "cleanup_claude_code_session",
+    # Live Refresh
+    "LiveRefreshManager",
+    "RefreshMode",
+    "RefreshThrottleConfig",
+    "RefreshState",
+    "RefreshResult",
+    "start_live_refresh",
 ]
