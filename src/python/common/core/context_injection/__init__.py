@@ -63,8 +63,10 @@ from .rule_retrieval import RuleFilter, RuleRetrieval, RuleRetrievalResult
 from .token_budget import (
     AllocationStrategy,
     BudgetAllocation,
+    CacheStatistics,
     CompressionStrategy,
     TokenBudgetManager,
+    TokenCountCache,
     TokenCounter,
     TokenizerFactory,
     TokenizerType,
@@ -151,6 +153,8 @@ __all__ = [
     "AllocationStrategy",
     "CompressionStrategy",
     "TokenCounter",
+    "TokenCountCache",
+    "CacheStatistics",
     "TokenizerFactory",
     "TokenizerType",
     # Claude Budget Manager
