@@ -88,6 +88,10 @@ dev = [
   "types-psutil>=5.8.0",
 ]
 full = ["markdown>=3.4.0", "PyYAML>=6.0.0", "pypdf>=4.0.0"]
+tokenizers = [
+  "tiktoken>=0.5.0",  # OpenAI tokenizers (fast, native)
+  "transformers>=4.35.0",  # HuggingFace tokenizers (broad model support)
+]
 
 [project.scripts]
 workspace-qdrant-mcp = "workspace_qdrant_mcp.main:main"
