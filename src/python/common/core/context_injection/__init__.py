@@ -112,6 +112,11 @@ from .interactive_trimmer import (
     TrimDecisionType,
     TrimSession,
 )
+from .budget_config import (
+    BudgetConfig,
+    BudgetConfigManager,
+    BudgetScope,
+)
 
 __all__ = [
     # Rule Retrieval
@@ -166,6 +171,10 @@ __all__ = [
     "WarningEvent",
     "BudgetThreshold",
     "ThrottleConfig",
+    # Budget Config Manager
+    "BudgetConfig",
+    "BudgetConfigManager",
+    "BudgetScope",
     # Rule Prioritizer
     "RulePrioritizer",
     "PrioritizationStrategy",
