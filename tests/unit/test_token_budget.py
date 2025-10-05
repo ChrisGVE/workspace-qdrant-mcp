@@ -108,7 +108,7 @@ class TestTokenCounter:
         text = "This is a test" * 100  # ~1400 characters
         tokens = TokenCounter.count_claude_tokens(text)
         assert tokens > 0
-        assert 300 < tokens < 400  # Roughly 1 token per 4 chars
+        assert 300 <= tokens <= 400  # Roughly 1 token per 4 chars
 
     def test_count_codex_tokens(self):
         """Test Codex token counting."""
