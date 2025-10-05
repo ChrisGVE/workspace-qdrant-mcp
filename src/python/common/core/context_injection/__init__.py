@@ -67,6 +67,12 @@ from .token_budget import (
     TokenBudgetManager,
     TokenCounter,
 )
+from .claude_budget_manager import (
+    ClaudeBudgetManager,
+    ClaudeBudgetAllocation,
+    ClaudeModel,
+    SessionUsageStats,
+)
 
 __all__ = [
     # Rule Retrieval
@@ -101,6 +107,11 @@ __all__ = [
     "AllocationStrategy",
     "CompressionStrategy",
     "TokenCounter",
+    # Claude Budget Manager
+    "ClaudeBudgetManager",
+    "ClaudeBudgetAllocation",
+    "ClaudeModel",
+    "SessionUsageStats",
     # Claude Code Detection
     "ClaudeCodeDetector",
     "ClaudeCodeSession",
