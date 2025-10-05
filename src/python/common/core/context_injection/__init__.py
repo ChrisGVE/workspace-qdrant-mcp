@@ -6,6 +6,12 @@ memory rules stored in Qdrant.
 """
 
 from .authority_filter import AuthorityFilter, FilteredRules, RuleHierarchy
+from .claude_code_detector import (
+    ClaudeCodeDetector,
+    ClaudeCodeSession,
+    get_claude_code_session,
+    is_claude_code_session,
+)
 from .formatters import (
     ClaudeCodeAdapter,
     FormatManager,
@@ -69,4 +75,9 @@ __all__ = [
     "AllocationStrategy",
     "CompressionStrategy",
     "TokenCounter",
+    # Claude Code Detection
+    "ClaudeCodeDetector",
+    "ClaudeCodeSession",
+    "is_claude_code_session",
+    "get_claude_code_session",
 ]
