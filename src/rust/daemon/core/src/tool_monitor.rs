@@ -43,7 +43,7 @@ use tracing::{debug, error, info, warn};
 
 use crate::config::MonitoringConfig;
 use crate::queue_operations::{MissingMetadataItem, QueueManager, QueueOperation};
-use crate::queue_processor::MissingTool;
+use crate::queue_types::MissingTool;
 
 /// Tool monitoring errors
 #[derive(Error, Debug)]

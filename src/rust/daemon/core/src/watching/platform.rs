@@ -257,11 +257,13 @@ impl PlatformWatcherFactory {
 
 // Platform-specific implementations
 
-#[cfg(target_os = "macos")]
+// TODO: macOS platform-specific file watching implementation
+// Requires fsevents-sys and kqueue dependencies to be added to Cargo.toml
+#[cfg(all(target_os = "macos", feature = "macos-fsevents"))]
 mod macos {
     use super::*;
-    use fsevents_sys::*;
-    use kqueue::Watcher as KqueueWatcher;
+    // use fsevents_sys::*;
+    // use kqueue::Watcher as KqueueWatcher;
     
     pub struct MacOSWatcher {
         config: MacOSConfig,
@@ -353,6 +355,7 @@ mod macos {
 }
 
 #[cfg(target_os = "macos")]
+#[cfg(all(target_os = "macos", feature = "macos-fsevents"))]
 pub use macos::MacOSWatcher;
 
 #[cfg(target_os = "linux")]

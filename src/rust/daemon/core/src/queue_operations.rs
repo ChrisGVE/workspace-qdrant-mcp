@@ -11,7 +11,7 @@ use thiserror::Error;
 use tracing::{debug, error, info, warn};
 
 // Import MissingTool from queue_processor module
-use crate::queue_processor::MissingTool;
+use crate::queue_types::MissingTool;
 
 /// Queue operation errors
 #[derive(Error, Debug)]

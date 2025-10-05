@@ -25,7 +25,9 @@ pub mod priority_manager;
 pub mod processing;
 pub mod queue_config;
 pub mod queue_operations;
-pub mod queue_processor;
+pub mod queue_types;
+// TODO: queue_processor requires DocumentProcessor implementation
+// pub mod queue_processor;
 pub mod queue_error_handler;
 pub mod service_discovery;
 pub mod storage;
@@ -82,6 +84,9 @@ pub use crate::priority_manager::{
 };
 pub use crate::queue_operations::{
     QueueManager, QueueOperation, QueueItem, QueueError
+};
+pub use crate::queue_types::{
+    MissingTool, ProcessorConfig
 };
 pub use crate::type_aware_processor::{
     CollectionTypeSettings, ConcurrentOperationTracker, get_settings_for_type

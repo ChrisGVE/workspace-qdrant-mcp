@@ -1,0 +1,551 @@
+System Prompt Injection - Usage Examples
+=========================================
+
+Date: 2025-10-05
+Module: context_injection.system_prompt_injector
+
+## Basic Usage Examples
+
+### 1. Quick MCP Context Generation
+
+```python
+from src.python.common.core.context_injection import generate_mcp_context
+from src.python.common.core.memory import MemoryManager
+
+# Initialize memory manager
+memory_manager = MemoryManager(qdrant_client, sparse_encoder)
+
+# Generate MCP context
+context = await generate_mcp_context(memory_manager)
+
+# Result: Markdown-formatted context with metadata headers
+# Ready for MCP server context injection
+```
+
+### 2. Quick API System Prompt
+
+```python
+from src.python.common.core.context_injection import generate_api_system_prompt
+from src.python.common.core.memory import MemoryManager
+
+# Initialize memory manager
+memory_manager = MemoryManager(qdrant_client, sparse_encoder)
+
+# Generate API system prompt (compact, no metadata)
+system_prompt = await generate_api_system_prompt(
+    memory_manager,
+    token_budget=10000,
+    compact=True
+)
+
+# Use in Claude API call
+response = await anthropic.messages.create(
+    model="claude-3-5-sonnet-20241022",
+    system=system_prompt,  # <-- Memory rules as system prompt
+    messages=[{"role": "user", "content": "..."}],
+    max_tokens=1024
+)
+```
+
+### 3. Custom Configuration
+
+```python
+from src.python.common.core.context_injection import (
+    SystemPromptInjector,
+    SystemPromptConfig,
+    InjectionMode
+)
+
+# Create custom configuration
+config = SystemPromptConfig(
+    token_budget=20000,  # Large budget for custom use
+    injection_mode=InjectionMode.CUSTOM,
+    compact_format=False,  # Full formatting
+    include_metadata=True,  # Include debug info
+    overhead_percentage=0.05
+)
+
+# Initialize injector
+injector = SystemPromptInjector(memory_manager)
+
+# Generate prompt
+prompt = await injector.generate_system_prompt(config)
+```
+
+## Advanced Usage Examples
+
+### 4. With Rule Filtering
+
+```python
+from src.python.common.core.context_injection import (
+    generate_api_system_prompt,
+    RuleFilter
+)
+from src.python.common.core.memory import AuthorityLevel, MemoryCategory
+
+# Filter for only absolute authority behavior rules
+filter = RuleFilter(
+    authority=AuthorityLevel.ABSOLUTE,
+    category=MemoryCategory.BEHAVIOR,
+    scope=["python", "testing"],
+    limit=50
+)
+
+# Generate filtered prompt
+prompt = await generate_api_system_prompt(
+    memory_manager,
+    filter=filter,
+    compact=True
+)
+
+# Result: Only absolute behavior rules for Python/testing
+```
+
+### 5. Write to File for Integration Testing
+
+```python
+from pathlib import Path
+from src.python.common.core.context_injection import SystemPromptInjector
+
+injector = SystemPromptInjector(memory_manager)
+
+# Write to file
+output_path = Path("/tmp/system_prompt.md")
+success = await injector.inject_to_file(output_path)
+
+if success:
+    print(f"System prompt written to {output_path}")
+    content = output_path.read_text()
+    print(f"Content size: {len(content)} chars")
+```
+
+### 6. Compare Compact vs Normal Formatting
+
+```python
+from src.python.common.core.context_injection import (
+    SystemPromptInjector,
+    SystemPromptConfig
+)
+
+injector = SystemPromptInjector(memory_manager)
+
+# Normal formatting
+config_normal = SystemPromptConfig(
+    token_budget=15000,
+    compact_format=False,
+    include_metadata=False
+)
+prompt_normal = await injector.generate_system_prompt(config_normal)
+
+# Compact formatting
+config_compact = SystemPromptConfig(
+    token_budget=15000,
+    compact_format=True,
+    include_metadata=False
+)
+prompt_compact = await injector.generate_system_prompt(config_compact)
+
+# Compare
+print(f"Normal: {len(prompt_normal)} chars")
+print(f"Compact: {len(prompt_compact)} chars")
+print(f"Savings: {(1 - len(prompt_compact)/len(prompt_normal))*100:.1f}%")
+
+# Estimate tokens
+tokens_normal = injector.adapter.estimate_token_count(prompt_normal)
+tokens_compact = injector.adapter.estimate_token_count(prompt_compact)
+print(f"Normal: {tokens_normal} tokens")
+print(f"Compact: {tokens_compact} tokens")
+```
+
+### 7. Integration with MCP Server
+
+```python
+from fastmcp import FastMCP
+from src.python.common.core.context_injection import generate_mcp_context
+from src.python.common.core.memory import MemoryManager
+
+app = FastMCP("workspace-qdrant-mcp")
+
+@app.tool()
+async def search_with_context(
+    query: str,
+    memory_manager: MemoryManager
+) -> dict:
+    """Search with automatic context injection."""
+
+    # Generate context from memory rules
+    context = await generate_mcp_context(
+        memory_manager,
+        token_budget=15000
+    )
+
+    # Use context in response
+    return {
+        "results": await perform_search(query),
+        "context": context  # <-- Memory rules as context
+    }
+```
+
+### 8. Batch Processing with Different Budgets
+
+```python
+from src.python.common.core.context_injection import SystemPromptInjector
+
+injector = SystemPromptInjector(memory_manager)
+
+# Get recommended budgets
+budgets = {
+    "api": injector.get_recommended_budget(InjectionMode.API),      # 10000
+    "mcp": injector.get_recommended_budget(InjectionMode.MCP),      # 15000
+    "custom": injector.get_recommended_budget(InjectionMode.CUSTOM) # 20000
+}
+
+# Generate prompts for different modes
+prompts = {}
+for mode_name, budget in budgets.items():
+    config = SystemPromptConfig(
+        token_budget=budget,
+        injection_mode=InjectionMode[mode_name.upper()],
+        compact_format=(mode_name == "api")
+    )
+    prompts[mode_name] = await injector.generate_system_prompt(config)
+
+# Use appropriate prompt based on context
+if using_api:
+    prompt = prompts["api"]
+elif using_mcp:
+    prompt = prompts["mcp"]
+else:
+    prompt = prompts["custom"]
+```
+
+### 9. Error Handling
+
+```python
+from src.python.common.core.context_injection import SystemPromptInjector
+from loguru import logger
+
+injector = SystemPromptInjector(memory_manager)
+
+try:
+    prompt = await injector.generate_system_prompt()
+
+    if not prompt:
+        logger.warning("No memory rules available")
+        # Use default prompt or skip injection
+        prompt = "# Default System Prompt\n..."
+
+except Exception as e:
+    logger.error(f"Failed to generate system prompt: {e}")
+    # Fallback to safe default
+    prompt = None
+
+if prompt:
+    # Use prompt
+    pass
+```
+
+### 10. Dynamic Rule Filtering Based on Project
+
+```python
+from src.python.common.core.context_injection import (
+    generate_api_system_prompt,
+    RuleFilter,
+    ProjectContextDetector
+)
+
+# Detect current project
+detector = ProjectContextDetector()
+project_ctx = detector.detect_project(Path.cwd())
+
+# Filter rules for current project
+filter = RuleFilter(
+    project_id=project_ctx.project_id,
+    scope=project_ctx.detected_scopes,
+    limit=100
+)
+
+# Generate project-specific prompt
+prompt = await generate_api_system_prompt(
+    memory_manager,
+    filter=filter,
+    compact=True
+)
+
+# Result: Only rules relevant to current project
+```
+
+## Integration Patterns
+
+### Pattern 1: Lazy Loading with Caching
+
+```python
+from functools import lru_cache
+from src.python.common.core.context_injection import generate_mcp_context
+
+class ContextProvider:
+    def __init__(self, memory_manager):
+        self.memory_manager = memory_manager
+        self._cache = None
+        self._cache_time = None
+        self._ttl = 300  # 5 minutes
+
+    async def get_context(self, force_refresh=False):
+        """Get context with TTL caching."""
+        now = time.time()
+
+        if force_refresh or not self._cache or \
+           (self._cache_time and now - self._cache_time > self._ttl):
+            self._cache = await generate_mcp_context(self.memory_manager)
+            self._cache_time = now
+
+        return self._cache
+```
+
+### Pattern 2: Multi-Mode Provider
+
+```python
+from src.python.common.core.context_injection import (
+    SystemPromptInjector,
+    SystemPromptConfig,
+    InjectionMode
+)
+
+class MultiModeProvider:
+    def __init__(self, memory_manager):
+        self.injector = SystemPromptInjector(memory_manager)
+        self.configs = {
+            "api": SystemPromptConfig(
+                token_budget=10000,
+                injection_mode=InjectionMode.API,
+                compact_format=True,
+                include_metadata=False
+            ),
+            "mcp": SystemPromptConfig(
+                token_budget=15000,
+                injection_mode=InjectionMode.MCP,
+                compact_format=False,
+                include_metadata=True
+            )
+        }
+
+    async def get_prompt(self, mode="api", filter=None):
+        """Get prompt for specified mode."""
+        config = self.configs.get(mode)
+        if not config:
+            raise ValueError(f"Unknown mode: {mode}")
+
+        return await self.injector.generate_system_prompt(
+            config=config,
+            filter=filter
+        )
+```
+
+### Pattern 3: Streaming/Progressive Loading
+
+```python
+from src.python.common.core.context_injection import SystemPromptInjector
+
+class ProgressiveProvider:
+    def __init__(self, memory_manager):
+        self.injector = SystemPromptInjector(memory_manager)
+
+    async def get_prompt_progressive(self, max_tokens=10000, batch_size=25):
+        """Load prompt progressively to fit budget."""
+        offset = 0
+        accumulated_prompt = ""
+        accumulated_tokens = 0
+
+        while accumulated_tokens < max_tokens:
+            # Fetch batch of rules
+            filter = RuleFilter(limit=batch_size, offset=offset)
+            result = await self.injector.rule_retrieval.get_rules(filter)
+
+            if not result.rules:
+                break  # No more rules
+
+            # Format batch
+            formatted = self.injector.adapter.format_rules(
+                result.rules,
+                token_budget=max_tokens - accumulated_tokens
+            )
+
+            if formatted.rules_included == 0:
+                break  # Budget exhausted
+
+            accumulated_prompt += formatted.content
+            accumulated_tokens += formatted.token_count
+            offset += batch_size
+
+        return accumulated_prompt
+```
+
+## Performance Optimization Tips
+
+### Tip 1: Pre-generate for Static Content
+
+```python
+# Pre-generate prompts at startup
+startup_prompts = {
+    "api": await generate_api_system_prompt(memory_manager),
+    "mcp": await generate_mcp_context(memory_manager)
+}
+
+# Use pre-generated prompts
+def get_prompt(mode):
+    return startup_prompts[mode]
+```
+
+### Tip 2: Use Compact Format When Possible
+
+```python
+# Compact saves 20-30% tokens
+prompt_compact = await generate_api_system_prompt(
+    memory_manager,
+    compact=True  # Recommended for API usage
+)
+```
+
+### Tip 3: Filter Early
+
+```python
+# Filter rules before formatting to reduce processing
+filter = RuleFilter(
+    authority=AuthorityLevel.ABSOLUTE,  # Only critical rules
+    limit=50  # Limit results
+)
+
+prompt = await generate_api_system_prompt(
+    memory_manager,
+    filter=filter
+)
+```
+
+### Tip 4: Monitor Token Usage
+
+```python
+from src.python.common.core.context_injection import SystemPromptInjector
+
+injector = SystemPromptInjector(memory_manager)
+prompt = await injector.generate_system_prompt()
+
+# Check actual usage
+estimated_tokens = injector.adapter.estimate_token_count(prompt)
+print(f"Token usage: {estimated_tokens} / {config.token_budget}")
+
+if estimated_tokens > config.token_budget * 0.9:
+    logger.warning("Approaching token budget limit")
+```
+
+## Common Pitfalls and Solutions
+
+### Pitfall 1: Token Budget Too Small
+
+**Problem:** Rules get truncated, important rules missing
+
+**Solution:**
+```python
+# Check if rules were skipped
+formatted = injector.adapter.format_rules(rules, token_budget=5000)
+if formatted.rules_skipped > 0:
+    logger.warning(f"{formatted.rules_skipped} rules skipped due to budget")
+    # Increase budget or use compact formatting
+    config.token_budget = 10000
+    config.compact_format = True
+```
+
+### Pitfall 2: Forgetting to Use Compact for API
+
+**Problem:** API calls exceed token limits
+
+**Solution:**
+```python
+# Always use compact for API
+prompt = await generate_api_system_prompt(
+    memory_manager,
+    compact=True  # Default, but be explicit
+)
+```
+
+### Pitfall 3: Not Filtering Rules
+
+**Problem:** Too many irrelevant rules, wasted tokens
+
+**Solution:**
+```python
+# Filter by project and scope
+filter = RuleFilter(
+    project_id=current_project.id,
+    scope=current_project.scopes,
+    authority=AuthorityLevel.ABSOLUTE  # Only critical
+)
+
+prompt = await generate_api_system_prompt(
+    memory_manager,
+    filter=filter
+)
+```
+
+### Pitfall 4: Not Handling Empty Rules
+
+**Problem:** Empty prompts cause errors downstream
+
+**Solution:**
+```python
+prompt = await generate_api_system_prompt(memory_manager)
+
+if not prompt:
+    # Handle empty case
+    logger.info("No memory rules available")
+    prompt = "# System Instructions\n\nNo specific memory rules configured."
+    # Or skip injection entirely
+```
+
+## Testing Examples
+
+### Test Example 1: Verify Token Budget Compliance
+
+```python
+import pytest
+from src.python.common.core.context_injection import SystemPromptInjector
+
+@pytest.mark.asyncio
+async def test_token_budget_compliance(memory_manager, sample_rules):
+    injector = SystemPromptInjector(memory_manager)
+
+    # Test with small budget
+    config = SystemPromptConfig(token_budget=500)
+    prompt = await injector.generate_system_prompt(config)
+
+    # Verify compliance
+    tokens = injector.adapter.estimate_token_count(prompt)
+    assert tokens <= 500 * 1.2  # Allow 20% variance
+```
+
+### Test Example 2: Verify Compact Savings
+
+```python
+@pytest.mark.asyncio
+async def test_compact_savings(memory_manager, sample_rules):
+    injector = SystemPromptInjector(memory_manager)
+
+    # Normal
+    config_normal = SystemPromptConfig(compact_format=False)
+    prompt_normal = await injector.generate_system_prompt(config_normal)
+
+    # Compact
+    config_compact = SystemPromptConfig(compact_format=True)
+    prompt_compact = await injector.generate_system_prompt(config_compact)
+
+    # Verify savings
+    assert len(prompt_compact) < len(prompt_normal)
+    savings = (1 - len(prompt_compact) / len(prompt_normal)) * 100
+    assert savings >= 15  # At least 15% savings
+```
+
+## Conclusion
+
+The SystemPromptInjector provides flexible, token-efficient system prompt generation
+from memory rules. Use the convenience functions for common cases, or configure
+custom settings for specific needs. Always filter rules appropriately and use
+compact formatting for API calls to maximize token efficiency.

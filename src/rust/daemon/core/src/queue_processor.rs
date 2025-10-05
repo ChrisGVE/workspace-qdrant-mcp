@@ -17,7 +17,9 @@ use tokio_util::sync::CancellationToken;
 use tracing::{debug, error, info, warn};
 
 use crate::queue_operations::{QueueError, QueueItem, QueueManager, QueueOperation};
-use crate::{DocumentProcessor, EmbeddingGenerator, EmbeddingConfig};
+// TODO: DocumentProcessor not yet implemented in core - placeholder for future implementation
+// use crate::{DocumentProcessor, EmbeddingGenerator, EmbeddingConfig};
+use crate::{EmbeddingGenerator, EmbeddingConfig};
 use crate::storage::{StorageClient, StorageConfig, DocumentPoint};
 
 /// Enumeration of tools that might be missing during processing
