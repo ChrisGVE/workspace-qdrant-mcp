@@ -589,11 +589,20 @@ class MemoryManager:
                     vectors["sparse"] = self.sparse_generator.generate_sparse_vector(
                         existing_rule.rule
                     )
+            else:
+                # Retrieve existing vectors from Qdrant when not updating them
+                existing_points = self.client.retrieve(
+                    collection_name=self.memory_collection_name,
+                    ids=[rule_id],
+                    with_vectors=True,
+                )
+                if existing_points and existing_points[0].vector:
+                    vectors = existing_points[0].vector
 
             # Create updated point
             point = PointStruct(
                 id=rule_id,
-                vector=vectors if vectors else None,
+                vector=vectors,
                 payload={
                     "category": existing_rule.category.value,
                     "name": existing_rule.name,
