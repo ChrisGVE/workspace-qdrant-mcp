@@ -1,0 +1,88 @@
+# Internal configuration for comprehensive pattern system
+# Minimal configuration for compilation - full configuration to be populated later
+
+project_indicators:
+  version_control: [".git", ".hg", ".svn"]
+  language_ecosystems: ["package.json", "Cargo.toml", "pyproject.toml", "go.mod"]
+  build_systems: ["Makefile", "build.gradle", "pom.xml", "CMakeLists.txt"]
+  ci_cd: [".github", ".gitlab-ci.yml", ".travis.yml", "Jenkinsfile"]
+  containerization: ["Dockerfile", "docker-compose.yml", ".dockerignore"]
+  config_management: ["ansible.cfg", "terraform.tf", "Vagrantfile"]
+
+file_extensions:
+  rs: "rust"
+  py: "python"
+  js: "javascript"
+  ts: "typescript"
+  go: "go"
+  java: "java"
+  cpp: "cpp"
+  c: "c"
+  md: "markdown"
+  txt: "text"
+
+lsp_servers:
+  rust:
+    primary: "rust-analyzer"
+    features: ["completion", "diagnostics", "formatting"]
+    rationale: "Official Rust language server"
+    install_notes: "Install via rustup"
+    alternatives: []
+  python:
+    primary: "pyright"
+    features: ["type-checking", "completion", "diagnostics"]
+    rationale: "Fast and accurate Python language server"
+    install_notes: "Install via npm"
+    alternatives: []
+
+exclusion_patterns:
+  version_control: [".git", ".hg", ".svn"]
+  build_outputs: ["target", "build", "dist", "out"]
+  cache_directories: [".cache", "__pycache__", "node_modules"]
+  virtual_environments: ["venv", ".venv", "virtualenv"]
+  ide_files: [".idea", ".vscode", ".vs"]
+  temporary_files: ["*.tmp", "*.swp", "*.swo", "*~"]
+  binary_files: ["*.exe", "*.dll", "*.so", "*.dylib"]
+  media_files: ["*.jpg", "*.png", "*.gif", "*.mp4"]
+  archive_files: ["*.zip", "*.tar", "*.gz", "*.rar"]
+  package_files: ["*.jar", "*.war", "*.whl"]
+
+tree_sitter_grammars:
+  available: ["rust", "python", "javascript", "typescript", "go", "java", "c", "cpp"]
+  quality_tiers:
+    excellent: ["rust", "python", "javascript", "typescript"]
+    good: ["go", "java", "c", "cpp"]
+    basic: []
+
+content_signatures:
+  shebangs:
+    "#!/usr/bin/env python": "python"
+    "#!/usr/bin/env node": "javascript"
+    "#!/bin/bash": "bash"
+    "#!/bin/sh": "sh"
+  keyword_patterns:
+    python: ["def ", "class ", "import "]
+    javascript: ["function ", "const ", "let ", "var "]
+    rust: ["fn ", "struct ", "impl ", "trait "]
+
+build_systems:
+  cargo:
+    files: ["Cargo.toml", "Cargo.lock"]
+    language: "rust"
+    commands: ["cargo build", "cargo test"]
+  npm:
+    files: ["package.json", "package-lock.json"]
+    language: "javascript"
+    commands: ["npm install", "npm test"]
+  pip:
+    files: ["requirements.txt", "pyproject.toml", "setup.py"]
+    language: "python"
+    commands: ["pip install", "python -m pytest"]
+
+metadata_schemas:
+  document:
+    required: ["id", "content", "created_at"]
+    optional: ["author", "tags", "metadata"]
+  code:
+    required: ["language", "file_path", "symbols"]
+    optional: ["dependencies", "tests", "documentation"]
