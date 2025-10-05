@@ -83,6 +83,13 @@ from .token_usage_tracker import (
     TokenUsageTracker,
     ToolUsageStats,
 )
+from .budget_warning_system import (
+    BudgetWarningSystem,
+    WarningLevel,
+    WarningEvent,
+    BudgetThreshold,
+    ThrottleConfig,
+)
 from .live_refresh import (
     LiveRefreshManager,
     RefreshMode,
@@ -139,6 +146,12 @@ __all__ = [
     "ToolUsageStats",
     "SessionUsageSnapshot",
     "GlobalUsageTracker",
+    # Budget Warning System
+    "BudgetWarningSystem",
+    "WarningLevel",
+    "WarningEvent",
+    "BudgetThreshold",
+    "ThrottleConfig",
     # Claude Code Detection
     "ClaudeCodeDetector",
     "ClaudeCodeSession",
