@@ -66,6 +66,8 @@ from .token_budget import (
     CompressionStrategy,
     TokenBudgetManager,
     TokenCounter,
+    TokenizerFactory,
+    TokenizerType,
 )
 from .claude_budget_manager import (
     ClaudeBudgetManager,
@@ -115,6 +117,8 @@ __all__ = [
     "AllocationStrategy",
     "CompressionStrategy",
     "TokenCounter",
+    "TokenizerFactory",
+    "TokenizerType",
     # Claude Budget Manager
     "ClaudeBudgetManager",
     "ClaudeBudgetAllocation",

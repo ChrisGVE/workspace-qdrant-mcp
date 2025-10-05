@@ -2,13 +2,17 @@
 Token budget management for memory rule context injection.
 
 This module provides token budget allocation and optimization strategies
-to ensure memory rules fit within LLM context windows.
+to ensure memory rules fit within LLM context windows. Includes support
+for accurate tokenization using tiktoken and transformers libraries.
 """
 
 from collections import defaultdict
 from dataclasses import dataclass
 from enum import Enum
-from typing import Dict, List, Optional
+from functools import lru_cache
+from typing import Any, Dict, List, Optional
+
+from cachetools import LRUCache
 
 from ..memory import AuthorityLevel, MemoryRule
 
@@ -52,73 +56,330 @@ class BudgetAllocation:
     rules_included: List[MemoryRule]
     rules_skipped: List[MemoryRule]
     compression_applied: bool
-    allocation_stats: Dict[str, any]
+    allocation_stats: Dict[str, Any]
+
+
+class TokenizerType(Enum):
+    """Available tokenizer implementations."""
+
+    TIKTOKEN = "tiktoken"  # OpenAI's tiktoken (fast, accurate for GPT models)
+    TRANSFORMERS = "transformers"  # HuggingFace transformers (broad support)
+    ESTIMATION = "estimation"  # Character/word-based estimation (fallback)
+
+
+class TokenizerFactory:
+    """
+    Factory for creating and caching tokenizer instances.
+
+    Manages tokenizer creation with automatic library availability detection
+    and instance caching for performance.
+    """
+
+    # Tokenizer instance cache (expensive to create)
+    _cache: LRUCache = LRUCache(maxsize=10)
+
+    # Library availability flags (checked once)
+    _tiktoken_available: Optional[bool] = None
+    _transformers_available: Optional[bool] = None
+
+    @classmethod
+    def is_tiktoken_available(cls) -> bool:
+        """
+        Check if tiktoken library is available.
+
+        Returns:
+            True if tiktoken can be imported
+        """
+        if cls._tiktoken_available is None:
+            try:
+                import tiktoken  # noqa: F401
+
+                cls._tiktoken_available = True
+            except ImportError:
+                cls._tiktoken_available = False
+        return cls._tiktoken_available
+
+    @classmethod
+    def is_transformers_available(cls) -> bool:
+        """
+        Check if transformers library is available.
+
+        Returns:
+            True if transformers can be imported
+        """
+        if cls._transformers_available is None:
+            try:
+                import transformers  # noqa: F401
+
+                cls._transformers_available = True
+            except ImportError:
+                cls._transformers_available = False
+        return cls._transformers_available
+
+    @classmethod
+    def get_tiktoken_encoding(cls, encoding_name: str = "cl100k_base") -> Any:
+        """
+        Get tiktoken encoding instance with caching.
+
+        Args:
+            encoding_name: Tiktoken encoding name (default: cl100k_base for GPT-4)
+
+        Returns:
+            Tiktoken encoding instance
+
+        Raises:
+            ImportError: If tiktoken is not available
+        """
+        cache_key = ("tiktoken", encoding_name)
+        if cache_key in cls._cache:
+            return cls._cache[cache_key]
+
+        if not cls.is_tiktoken_available():
+            raise ImportError(
+                "tiktoken library not available. "
+                "Install with: pip install tiktoken or uv pip install 'workspace-qdrant-mcp[tokenizers]'"
+            )
+
+        import tiktoken
+
+        encoding = tiktoken.get_encoding(encoding_name)
+        cls._cache[cache_key] = encoding
+        return encoding
+
+    @classmethod
+    def get_transformers_tokenizer(cls, model_name: str) -> Any:
+        """
+        Get transformers tokenizer instance with caching.
+
+        Args:
+            model_name: HuggingFace model name or path
+
+        Returns:
+            Transformers tokenizer instance
+
+        Raises:
+            ImportError: If transformers is not available
+        """
+        cache_key = ("transformers", model_name)
+        if cache_key in cls._cache:
+            return cls._cache[cache_key]
+
+        if not cls.is_transformers_available():
+            raise ImportError(
+                "transformers library not available. "
+                "Install with: pip install transformers or uv pip install 'workspace-qdrant-mcp[tokenizers]'"
+            )
+
+        from transformers import AutoTokenizer
+
+        tokenizer = AutoTokenizer.from_pretrained(model_name)
+        cls._cache[cache_key] = tokenizer
+        return tokenizer
+
+    @classmethod
+    def clear_cache(cls) -> None:
+        """Clear tokenizer instance cache."""
+        cls._cache.clear()
+        # Reset availability flags to force re-check
+        cls._tiktoken_available = None
+        cls._transformers_available = None
+
+    @classmethod
+    def get_preferred_tokenizer_type(cls, tool_name: str) -> TokenizerType:
+        """
+        Get preferred tokenizer type for a tool.
+
+        Args:
+            tool_name: Tool name (claude, codex, gemini, etc.)
+
+        Returns:
+            Preferred tokenizer type based on availability
+        """
+        # Map tools to their preferred tokenizer libraries
+        if tool_name in ("codex", "gpt", "openai"):
+            if cls.is_tiktoken_available():
+                return TokenizerType.TIKTOKEN
+        elif tool_name in ("gemini", "palm"):
+            if cls.is_transformers_available():
+                return TokenizerType.TRANSFORMERS
+        elif tool_name == "claude":
+            # Claude uses a custom tokenizer, tiktoken cl100k_base is a good approximation
+            if cls.is_tiktoken_available():
+                return TokenizerType.TIKTOKEN
+
+        # Fallback to estimation if no suitable tokenizer available
+        return TokenizerType.ESTIMATION
 
 
 class TokenCounter:
-    """Tool-specific token counting utilities."""
+    """
+    Tool-specific token counting utilities with multi-tokenizer support.
+
+    Provides accurate token counting using tiktoken or transformers libraries
+    when available, with fallback to character/word-based estimation.
+    """
+
+    # Model name mappings for better accuracy
+    MODEL_MAPPINGS = {
+        "claude": "cl100k_base",  # Approximate Claude with GPT-4 encoding
+        "codex": "cl100k_base",  # GPT-4 encoding
+        "gpt": "cl100k_base",  # GPT-4 encoding
+        "openai": "cl100k_base",  # GPT-4 encoding
+        "gemini": "google/gemma-2b",  # Gemini approximation
+        "palm": "google/gemma-2b",  # PaLM approximation
+    }
 
     @staticmethod
-    def count_claude_tokens(text: str) -> int:
+    def count_claude_tokens(text: str, use_tokenizer: bool = True) -> int:
         """
-        Estimate tokens for Claude (approximation).
+        Count tokens for Claude.
 
-        Claude uses roughly 1 token per 4 characters.
+        Uses tiktoken cl100k_base encoding when available (good approximation),
+        falls back to character-based estimation (~1 token per 4 characters).
 
         Args:
             text: Text to count tokens for
+            use_tokenizer: If True, use actual tokenizer when available
 
         Returns:
-            Estimated token count
+            Token count (minimum 1)
         """
+        if use_tokenizer and TokenizerFactory.is_tiktoken_available():
+            try:
+                encoding = TokenizerFactory.get_tiktoken_encoding("cl100k_base")
+                return max(1, len(encoding.encode(text)))
+            except Exception:
+                pass  # Fall back to estimation
+
+        # Estimation fallback
         return max(1, len(text) // 4)
 
     @staticmethod
-    def count_codex_tokens(text: str) -> int:
+    def count_codex_tokens(text: str, use_tokenizer: bool = True) -> int:
         """
-        Estimate tokens for Codex (GPT-based approximation).
+        Count tokens for Codex (GPT-based).
+
+        Uses tiktoken cl100k_base encoding when available,
+        falls back to word-based estimation (~1.3 tokens per word).
 
         Args:
             text: Text to count tokens for
+            use_tokenizer: If True, use actual tokenizer when available
 
         Returns:
-            Estimated token count
+            Token count (minimum 1)
         """
+        if use_tokenizer and TokenizerFactory.is_tiktoken_available():
+            try:
+                encoding = TokenizerFactory.get_tiktoken_encoding("cl100k_base")
+                return max(1, len(encoding.encode(text)))
+            except Exception:
+                pass  # Fall back to estimation
+
+        # Estimation fallback
         words = len(text.split())
         return max(1, int(words * 1.3))
 
     @staticmethod
-    def count_gemini_tokens(text: str) -> int:
+    def count_gemini_tokens(text: str, use_tokenizer: bool = True) -> int:
         """
-        Estimate tokens for Gemini (similar to Claude).
+        Count tokens for Gemini.
+
+        Uses transformers tokenizer when available,
+        falls back to character-based estimation (~1 token per 4 characters).
 
         Args:
             text: Text to count tokens for
+            use_tokenizer: If True, use actual tokenizer when available
 
         Returns:
-            Estimated token count
+            Token count (minimum 1)
         """
+        if use_tokenizer and TokenizerFactory.is_transformers_available():
+            try:
+                tokenizer = TokenizerFactory.get_transformers_tokenizer(
+                    "google/gemma-2b"
+                )
+                return max(1, len(tokenizer.encode(text)))
+            except Exception:
+                pass  # Fall back to estimation
+
+        # Estimation fallback
         return max(1, len(text) // 4)
 
     @staticmethod
-    def count_tokens(text: str, tool_name: str) -> int:
+    def count_tokens(
+        text: str, tool_name: str, use_tokenizer: bool = True
+    ) -> int:
         """
         Count tokens using tool-specific counter.
 
         Args:
             text: Text to count tokens for
             tool_name: Target tool name ("claude", "codex", "gemini")
+            use_tokenizer: If True, use actual tokenizer when available
 
         Returns:
-            Estimated token count
+            Token count (minimum 1)
         """
         counters = {
             "claude": TokenCounter.count_claude_tokens,
             "codex": TokenCounter.count_codex_tokens,
             "gemini": TokenCounter.count_gemini_tokens,
+            "gpt": TokenCounter.count_codex_tokens,  # Alias for codex
+            "openai": TokenCounter.count_codex_tokens,  # Alias for codex
         }
         counter = counters.get(tool_name, TokenCounter.count_claude_tokens)
-        return counter(text)
+        return counter(text, use_tokenizer=use_tokenizer)
+
+    @staticmethod
+    def count_tokens_with_model(
+        text: str,
+        model_name: str,
+        tokenizer_type: Optional[TokenizerType] = None,
+    ) -> int:
+        """
+        Count tokens for a specific model using explicit tokenizer type.
+
+        Args:
+            text: Text to count tokens for
+            model_name: Model name or encoding name
+            tokenizer_type: Specific tokenizer type to use (auto-detect if None)
+
+        Returns:
+            Token count (minimum 1)
+        """
+        if tokenizer_type is None:
+            # Auto-detect based on model name
+            if "gpt" in model_name.lower() or "openai" in model_name.lower():
+                tokenizer_type = TokenizerType.TIKTOKEN
+            elif "gemini" in model_name.lower() or "palm" in model_name.lower():
+                tokenizer_type = TokenizerType.TRANSFORMERS
+            else:
+                tokenizer_type = TokenizerType.ESTIMATION
+
+        if tokenizer_type == TokenizerType.TIKTOKEN:
+            try:
+                # Try to use model_name as encoding name, fall back to cl100k_base
+                try:
+                    encoding = TokenizerFactory.get_tiktoken_encoding(model_name)
+                except Exception:
+                    encoding = TokenizerFactory.get_tiktoken_encoding(
+                        "cl100k_base"
+                    )
+                return max(1, len(encoding.encode(text)))
+            except ImportError:
+                pass  # Fall through to estimation
+
+        elif tokenizer_type == TokenizerType.TRANSFORMERS:
+            try:
+                tokenizer = TokenizerFactory.get_transformers_tokenizer(model_name)
+                return max(1, len(tokenizer.encode(text)))
+            except (ImportError, Exception):
+                pass  # Fall through to estimation
+
+        # Estimation fallback
+        return max(1, len(text) // 4)
 
 
 class TokenBudgetManager:
@@ -135,6 +396,7 @@ class TokenBudgetManager:
         compression_strategy: CompressionStrategy = CompressionStrategy.NONE,
         absolute_rules_protected: bool = True,
         overhead_percentage: float = 0.05,
+        use_accurate_counting: bool = True,
     ):
         """
         Initialize token budget manager.
@@ -144,11 +406,13 @@ class TokenBudgetManager:
             compression_strategy: Strategy for compressing rules if needed
             absolute_rules_protected: If True, absolute rules always included
             overhead_percentage: Percentage of budget reserved for formatting overhead
+            use_accurate_counting: If True, use tiktoken/transformers when available
         """
         self.allocation_strategy = allocation_strategy
         self.compression_strategy = compression_strategy
         self.absolute_rules_protected = absolute_rules_protected
         self.overhead_percentage = overhead_percentage
+        self.use_accurate_counting = use_accurate_counting
 
     def allocate_budget(
         self,
@@ -206,6 +470,7 @@ class TokenBudgetManager:
                         "absolute_count": len(absolute_rules),
                         "default_count": 0,
                         "strategy": self.allocation_strategy.value,
+                        "tokenizer_used": self._get_tokenizer_type(tool_name).value,
                     },
                 )
             else:
@@ -247,6 +512,7 @@ class TokenBudgetManager:
                 "utilization": (absolute_tokens + default_tokens) / total_budget
                 if total_budget > 0
                 else 0,
+                "tokenizer_used": self._get_tokenizer_type(tool_name).value,
             },
         )
 
@@ -417,7 +683,7 @@ class TokenBudgetManager:
             tool_name: Target tool name
 
         Returns:
-            Estimated token count
+            Token count
         """
         # Build complete rule text for estimation
         text = rule.rule
@@ -428,5 +694,22 @@ class TokenBudgetManager:
         if rule.source:
             text += f" source:{rule.source}"
 
-        # Use tool-specific counter
-        return TokenCounter.count_tokens(text, tool_name)
+        # Use tool-specific counter with accurate tokenization if enabled
+        return TokenCounter.count_tokens(
+            text, tool_name, use_tokenizer=self.use_accurate_counting
+        )
+
+    def _get_tokenizer_type(self, tool_name: str) -> TokenizerType:
+        """
+        Get tokenizer type being used for a tool.
+
+        Args:
+            tool_name: Tool name
+
+        Returns:
+            Tokenizer type (for reporting)
+        """
+        if not self.use_accurate_counting:
+            return TokenizerType.ESTIMATION
+
+        return TokenizerFactory.get_preferred_tokenizer_type(tool_name)
