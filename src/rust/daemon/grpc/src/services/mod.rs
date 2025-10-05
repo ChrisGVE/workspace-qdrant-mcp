@@ -5,7 +5,9 @@
 
 pub mod collection_service;
 pub mod document_service;
+pub mod system_service;
 
 // Re-export service implementations
 pub use collection_service::CollectionServiceImpl;
 pub use document_service::DocumentServiceImpl;
+pub use system_service::SystemServiceImpl;
