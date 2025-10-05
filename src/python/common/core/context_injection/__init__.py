@@ -21,7 +21,13 @@ from .project_context import (
     ProjectContextDetector,
     ProjectRuleApplicator,
 )
-from .rule_retrieval import RuleFilter, RuleRetrieval
+from .performance_optimization import (
+    BatchProcessor,
+    PerformanceMetrics,
+    RuleCache,
+    RuleIndex,
+)
+from .rule_retrieval import RuleFilter, RuleRetrieval, RuleRetrievalResult
 from .token_budget import (
     AllocationStrategy,
     BudgetAllocation,
@@ -31,14 +37,23 @@ from .token_budget import (
 )
 
 __all__ = [
+    # Rule Retrieval
     "RuleRetrieval",
     "RuleFilter",
+    "RuleRetrievalResult",
+    # Authority Filtering
     "AuthorityFilter",
     "FilteredRules",
     "RuleHierarchy",
+    # Project Context
     "ProjectContext",
     "ProjectContextDetector",
     "ProjectRuleApplicator",
+    # Performance Optimization
+    "PerformanceMetrics",
+    "RuleCache",
+    "RuleIndex",
+    "BatchProcessor",
     # Formatters
     "FormatManager",
     "LLMToolAdapter",
