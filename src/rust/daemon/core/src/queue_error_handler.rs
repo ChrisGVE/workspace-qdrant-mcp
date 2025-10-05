@@ -340,16 +340,18 @@ impl ErrorHandler {
 
     /// Check circuit breaker state
     pub fn check_circuit_breaker(&mut self, collection: &str) -> (bool, &str) {
-        let breaker = self.get_circuit_breaker(collection);
         let current_time = SystemTime::now()
             .duration_since(UNIX_EPOCH)
             .unwrap()
             .as_secs();
+        let recovery_timeout = self.circuit_breaker_config.recovery_timeout;
+
+        let breaker = self.get_circuit_breaker(collection);
 
         match breaker.state {
             CircuitState::Open => {
                 if let Some(opened_at) = breaker.opened_at {
-                    if (current_time - opened_at) > self.circuit_breaker_config.recovery_timeout {
+                    if (current_time - opened_at) > recovery_timeout {
                         // Try half-open state
                         breaker.state = CircuitState::HalfOpen;
                         breaker.success_count = 0;
@@ -370,26 +372,30 @@ impl ErrorHandler {
             .unwrap()
             .as_secs();
 
+        let failure_window = self.circuit_breaker_config.failure_window;
+        let failure_threshold = self.circuit_breaker_config.failure_threshold;
+
         let breaker = self.get_circuit_breaker(collection);
         breaker.failure_count += 1;
         breaker.last_failure_time = Some(current_time);
         breaker.failures.push(current_time);
 
         // Remove old failures outside time window
-        let window_start = current_time - self.circuit_breaker_config.failure_window;
+        let window_start = current_time - failure_window;
         breaker.failures.retain(|&f| f > window_start);
 
         // Check if should open circuit
+        let failure_count = breaker.failures.len();
         match breaker.state {
             CircuitState::Closed => {
-                if breaker.failures.len() >= self.circuit_breaker_config.failure_threshold {
+                if failure_count >= failure_threshold {
                     breaker.state = CircuitState::Open;
                     breaker.opened_at = Some(current_time);
                     self.metrics.circuit_breaker_opens += 1;
                     warn!(
                         "Circuit breaker opened for {} after {} failures",
                         collection,
-                        breaker.failures.len()
+                        failure_count
                     );
                 }
             }
@@ -406,12 +412,13 @@ impl ErrorHandler {
 
     /// Record success in circuit breaker
     pub fn record_circuit_breaker_success(&mut self, collection: &str) {
+        let success_threshold = self.circuit_breaker_config.success_threshold;
         let breaker = self.get_circuit_breaker(collection);
 
         if matches!(breaker.state, CircuitState::HalfOpen) {
             breaker.success_count += 1;
 
-            if breaker.success_count >= self.circuit_breaker_config.success_threshold {
+            if breaker.success_count >= success_threshold {
                 breaker.state = CircuitState::Closed;
                 breaker.failure_count = 0;
                 breaker.failures.clear();

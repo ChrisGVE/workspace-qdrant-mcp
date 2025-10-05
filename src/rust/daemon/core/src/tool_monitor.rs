@@ -479,8 +479,9 @@ impl ToolMonitor {
 
         // User-local tree-sitter parsers
         if let Ok(home) = std::env::var("HOME") {
-            paths.push(PathBuf::from(home).join(".tree-sitter/bin"));
-            paths.push(PathBuf::from(home).join(".local/lib"));
+            let home_path = PathBuf::from(&home);
+            paths.push(home_path.join(".tree-sitter/bin"));
+            paths.push(PathBuf::from(&home).join(".local/lib"));
         }
 
         // System-wide locations
