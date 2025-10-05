@@ -410,61 +410,6 @@ impl DaemonStateManager {
         Ok(())
     }
 
-    /// Get active daemon instances
-    pub async fn get_active_daemons(&self) -> DaemonStateResult<Vec<DaemonStateRecord>> {
-        let rows = sqlx::query(
-            r#"
-            SELECT id, pid, status, started_at, last_active_at,
-                   documents_processed, chunks_created, total_processing_time_ms,
-                   error_count, last_processed_at, configuration, metadata
-            FROM daemon_state
-            WHERE status IN ('starting', 'running')
-            ORDER BY last_active_at DESC
-            "#,
-        )
-        .fetch_all(&self.pool)
-        .await?;
-
-        let mut records = Vec::new();
-        for row in rows {
-            let status_str: String = row.try_get("status")?;
-            let status = match status_str.as_str() {
-                "starting" => DaemonStatus::Starting,
-                "running" => DaemonStatus::Running,
-                "stopping" => DaemonStatus::Stopping,
-                "stopped" => DaemonStatus::Stopped,
-                "error" => DaemonStatus::Error,
-                _ => DaemonStatus::Error,
-            };
-
-            let metrics = ProcessingMetrics {
-                documents_processed: row.try_get("documents_processed")?,
-                chunks_created: row.try_get("chunks_created")?,
-                total_processing_time_ms: row.try_get("total_processing_time_ms")?,
-                error_count: row.try_get("error_count")?,
-                last_processed_at: row.try_get("last_processed_at")?,
-            };
-
-            let configuration: String = row.try_get("configuration")?;
-            let metadata: String = row.try_get("metadata")?;
-
-            let record = DaemonStateRecord {
-                id: Uuid::parse_str(&row.try_get::<String, _>("id")?)
-                    .map_err(|e| DaemonStateError::State(format!("Invalid UUID: {}", e)))?,
-                pid: row.try_get::<Option<i64>, _>("pid")?.map(|p| p as u32),
-                status,
-                started_at: row.try_get("started_at")?,
-                last_active_at: row.try_get("last_active_at")?,
-                metrics,
-                configuration: serde_json::from_str(&configuration)?,
-                metadata: serde_json::from_str(&metadata)?,
-            };
-
-            records.push(record);
-        }
-
-        Ok(records)
-    }
 
     /// Clean up old log records
     pub async fn cleanup_old_logs(&self, days_to_keep: u32) -> DaemonStateResult<u64> {
@@ -714,6 +659,122 @@ impl DaemonStateManager {
 
         Ok(stats)
     }
+
+    /// Alias for store_watch_config for test compatibility
+    pub async fn store_watch_configuration(&self, config: &WatchConfigRecord) -> DaemonStateResult<()> {
+        self.store_watch_config(config).await
+    }
+
+    /// Alias for get_watch_config for test compatibility
+    pub async fn get_watch_configuration(&self, id: &str) -> DaemonStateResult<Option<WatchConfigRecord>> {
+        self.get_watch_config(id).await
+    }
+
+    /// Get processing logs for a daemon instance
+    pub async fn get_processing_logs(&self, daemon_id: &Uuid, limit: i64) -> DaemonStateResult<Vec<ProcessingLogEntry>> {
+        let rows = sqlx::query(
+            r#"
+            SELECT id, daemon_id, timestamp, level, message, document_path,
+                   processing_time_ms, error_details
+            FROM processing_logs
+            WHERE daemon_id = ?1
+            ORDER BY timestamp ASC
+            LIMIT ?2
+            "#,
+        )
+        .bind(daemon_id.to_string())
+        .bind(limit)
+        .fetch_all(&self.pool)
+        .await?;
+
+        let mut logs = Vec::new();
+        for row in rows {
+            logs.push(ProcessingLogEntry {
+                id: row.try_get("id")?,
+                daemon_id: Uuid::parse_str(&row.try_get::<String, _>("daemon_id")?)
+                    .map_err(|e| DaemonStateError::State(format!("Invalid UUID: {}", e)))?,
+                timestamp: row.try_get("timestamp")?,
+                level: row.try_get("level")?,
+                message: row.try_get("message")?,
+                document_path: row.try_get("document_path")?,
+                processing_time_ms: row.try_get("processing_time_ms")?,
+                error_details: row.try_get("error_details")?,
+            });
+        }
+
+        Ok(logs)
+    }
+
+    /// Get active daemons with optional limit
+    pub async fn get_active_daemons(&self, limit: usize) -> DaemonStateResult<Vec<DaemonStateRecord>> {
+        let rows = sqlx::query(
+            r#"
+            SELECT id, pid, status, started_at, last_active_at,
+                   documents_processed, chunks_created, total_processing_time_ms,
+                   error_count, last_processed_at, configuration, metadata
+            FROM daemon_state
+            WHERE status IN ('starting', 'running')
+            ORDER BY last_active_at DESC
+            LIMIT ?1
+            "#,
+        )
+        .bind(limit as i64)
+        .fetch_all(&self.pool)
+        .await?;
+
+        let mut records = Vec::new();
+        for row in rows {
+            let status_str: String = row.try_get("status")?;
+            let status = match status_str.as_str() {
+                "starting" => DaemonStatus::Starting,
+                "running" => DaemonStatus::Running,
+                "stopping" => DaemonStatus::Stopping,
+                "stopped" => DaemonStatus::Stopped,
+                "error" => DaemonStatus::Error,
+                _ => DaemonStatus::Error,
+            };
+
+            let metrics = ProcessingMetrics {
+                documents_processed: row.try_get("documents_processed")?,
+                chunks_created: row.try_get("chunks_created")?,
+                total_processing_time_ms: row.try_get("total_processing_time_ms")?,
+                error_count: row.try_get("error_count")?,
+                last_processed_at: row.try_get("last_processed_at")?,
+            };
+
+            let configuration: String = row.try_get("configuration")?;
+            let metadata: String = row.try_get("metadata")?;
+
+            let record = DaemonStateRecord {
+                id: Uuid::parse_str(&row.try_get::<String, _>("id")?)
+                    .map_err(|e| DaemonStateError::State(format!("Invalid UUID: {}", e)))?,
+                pid: row.try_get::<Option<i64>, _>("pid")?.map(|p| p as u32),
+                status,
+                started_at: row.try_get("started_at")?,
+                last_active_at: row.try_get("last_active_at")?,
+                metrics,
+                configuration: serde_json::from_str(&configuration)?,
+                metadata: serde_json::from_str(&metadata)?,
+            };
+
+            records.push(record);
+        }
+
+        Ok(records)
+    }
+}
+
+/// Processing log entry from database
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ProcessingLogEntry {
+    pub id: i64,
+    pub daemon_id: Uuid,
+    pub timestamp: DateTime<Utc>,
+    pub level: String,
+    pub message: String,
+    pub document_path: Option<String>,
+    pub processing_time_ms: Option<i64>,
+    pub error_details: Option<String>,
 }
 
 impl Clone for DaemonStateManager {
