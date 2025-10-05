@@ -98,6 +98,12 @@ from .live_refresh import (
     RefreshResult,
     start_live_refresh,
 )
+from .rule_prioritizer import (
+    PrioritizationResult,
+    PrioritizationStrategy,
+    RulePrioritizer,
+    RulePriorityScore,
+)
 
 __all__ = [
     # Rule Retrieval
@@ -152,6 +158,11 @@ __all__ = [
     "WarningEvent",
     "BudgetThreshold",
     "ThrottleConfig",
+    # Rule Prioritizer
+    "RulePrioritizer",
+    "PrioritizationStrategy",
+    "RulePriorityScore",
+    "PrioritizationResult",
     # Claude Code Detection
     "ClaudeCodeDetector",
     "ClaudeCodeSession",
