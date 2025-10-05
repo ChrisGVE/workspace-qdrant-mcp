@@ -17,6 +17,13 @@ from .claude_md_injector import (
     ClaudeMdLocation,
     inject_claude_md_content,
 )
+from .system_prompt_injector import (
+    SystemPromptInjector,
+    SystemPromptConfig,
+    InjectionMode,
+    generate_mcp_context,
+    generate_api_system_prompt,
+)
 from .formatters import (
     ClaudeCodeAdapter,
     FormatManager,
@@ -89,4 +96,10 @@ __all__ = [
     "ClaudeMdInjector",
     "ClaudeMdLocation",
     "inject_claude_md_content",
+    # System Prompt Injection
+    "SystemPromptInjector",
+    "SystemPromptConfig",
+    "InjectionMode",
+    "generate_mcp_context",
+    "generate_api_system_prompt",
 ]
