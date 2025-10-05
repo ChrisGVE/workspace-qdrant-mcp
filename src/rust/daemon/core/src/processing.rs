@@ -16,6 +16,19 @@ use thiserror::Error;
 use chrono;
 use std::path::PathBuf;
 
+/// Pipeline statistics for monitoring
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PipelineStats {
+    pub queued_tasks: usize,
+    pub running_tasks: usize,
+    pub total_capacity: usize,
+    pub tasks_completed: u64,
+    pub tasks_failed: u64,
+    pub tasks_cancelled: u64,
+    pub tasks_timed_out: u64,
+    pub uptime_seconds: u64,
+}
+
 /// Priority levels for different types of operations
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
 #[repr(u8)]
