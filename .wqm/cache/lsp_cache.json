@@ -1,15 +1,15 @@
 {
   "clangd": {
     "access_count": 0,
-    "binary_path": "/usr/bin/clangd",
+    "binary_path": "/usr/local/bin/pylsp",
     "capabilities": [
-      "semantic_tokens",
+      "completion",
       "hover",
       "diagnostics",
-      "completion"
+      "semantic_tokens"
     ],
-    "detection_time": 1758526748.819088,
-    "last_accessed": 1758526748.819089,
+    "detection_time": 1759577380.711563,
+    "last_accessed": 1759577380.711563,
     "lsp_name": "clangd",
     "priority": 10,
     "supported_extensions": [
@@ -23,20 +23,20 @@
       ".hxx",
       ".h++"
     ],
-    "version": "Apple clangd version 17.0.0 (clang-1700.0.13.5)"
+    "version": null
   },
   "gopls": {
     "access_count": 0,
-    "binary_path": "/usr/local/bin/gopls",
+    "binary_path": "/usr/local/bin/pylsp",
     "capabilities": [
-      "formatting",
       "hover",
-      "completion",
       "semantic_tokens",
-      "diagnostics"
+      "formatting",
+      "diagnostics",
+      "completion"
     ],
-    "detection_time": 1758526748.7366998,
-    "last_accessed": 1758526748.7366998,
+    "detection_time": 1759577380.6775029,
+    "last_accessed": 1759577380.6775029,
     "lsp_name": "gopls",
     "priority": 10,
     "supported_extensions": [
@@ -44,43 +44,196 @@
       ".mod",
       ".sum"
     ],
-    "version": "golang.org/x/tools/gopls v0.20.0"
+    "version": null
+  },
+  "haskell-language-server": {
+    "access_count": 0,
+    "binary_path": "/usr/local/bin/pylsp",
+    "capabilities": [
+      "completion",
+      "hover",
+      "diagnostics"
+    ],
+    "detection_time": 1759577380.914772,
+    "last_accessed": 1759577380.914773,
+    "lsp_name": "haskell-language-server",
+    "priority": 9,
+    "supported_extensions": [
+      ".hs",
+      ".lhs"
+    ],
+    "version": null
+  },
+  "java-language-server": {
+    "access_count": 0,
+    "binary_path": "/usr/local/bin/pylsp",
+    "capabilities": [
+      "completion",
+      "hover",
+      "diagnostics",
+      "semantic_tokens"
+    ],
+    "detection_time": 1759577380.747203,
+    "last_accessed": 1759577380.747203,
+    "lsp_name": "java-language-server",
+    "priority": 8,
+    "supported_extensions": [
+      ".java"
+    ],
+    "version": null
+  },
+  "lua-language-server": {
+    "access_count": 0,
+    "binary_path": "/usr/local/bin/pylsp",
+    "capabilities": [
+      "completion",
+      "hover",
+      "diagnostics"
+    ],
+    "detection_time": 1759577380.782162,
+    "last_accessed": 1759577380.782163,
+    "lsp_name": "lua-language-server",
+    "priority": 8,
+    "supported_extensions": [
+      ".lua"
+    ],
+    "version": null
+  },
+  "ocaml-lsp": {
+    "access_count": 0,
+    "binary_path": "/usr/local/bin/pylsp",
+    "capabilities": [
+      "completion",
+      "hover",
+      "diagnostics"
+    ],
+    "detection_time": 1759577380.8743129,
+    "last_accessed": 1759577380.874314,
+    "lsp_name": "ocaml-lsp",
+    "priority": 9,
+    "supported_extensions": [
+      ".ml",
+      ".mli",
+      ".mll",
+      ".mly"
+    ],
+    "version": null
+  },
+  "pylsp": {
+    "access_count": 0,
+    "binary_path": "/usr/local/bin/pylsp",
+    "capabilities": [
+      "formatting",
+      "completion",
+      "hover",
+      "diagnostics"
+    ],
+    "detection_time": 1759577380.639306,
+    "last_accessed": 1759577380.639306,
+    "lsp_name": "pylsp",
+    "priority": 7,
+    "supported_extensions": [
+      ".py",
+      ".pyi"
+    ],
+    "version": null
+  },
+  "pyright": {
+    "access_count": 0,
+    "binary_path": "/usr/local/bin/pylsp",
+    "capabilities": [
+      "completion",
+      "hover",
+      "diagnostics",
+      "semantic_tokens"
+    ],
+    "detection_time": 1759577380.592839,
+    "last_accessed": 1759577380.59284,
+    "lsp_name": "pyright",
+    "priority": 9,
+    "supported_extensions": [
+      ".py",
+      ".pyi"
+    ],
+    "version": null
   },
   "ruff": {
     "access_count": 0,
-    "binary_path": "/Users/chris/.local/bin/ruff",
+    "binary_path": "/usr/local/bin/pylsp",
     "capabilities": [
       "formatting",
-      "diagnostics",
-      "code_actions"
+      "code_actions",
+      "diagnostics"
     ],
-    "detection_time": 1758526748.165663,
-    "last_accessed": 1758526748.165663,
+    "detection_time": 1759577380.5187662,
+    "last_accessed": 1759577380.5187662,
     "lsp_name": "ruff",
     "priority": 8,
     "supported_extensions": [
       ".py",
       ".pyi"
     ],
-    "version": "ruff 0.12.11"
+    "version": null
   },
   "rust-analyzer": {
     "access_count": 0,
-    "binary_path": "/usr/local/opt/rustup/bin/rust-analyzer",
+    "binary_path": "/usr/local/bin/pylsp",
     "capabilities": [
-      "semantic_tokens",
+      "completion",
       "hover",
       "diagnostics",
-      "completion"
+      "semantic_tokens"
     ],
-    "detection_time": 1758526748.11796,
-    "last_accessed": 1758526748.117961,
+    "detection_time": 1759577380.483982,
+    "last_accessed": 1759577380.483983,
     "lsp_name": "rust-analyzer",
     "priority": 10,
     "supported_extensions": [
       ".rs",
       ".toml"
     ],
-    "version": "rust-analyzer 1.90.0 (1159e78c 2025-09-14)"
+    "version": null
+  },
+  "typescript-language-server": {
+    "access_count": 0,
+    "binary_path": "/usr/local/bin/pylsp",
+    "capabilities": [
+      "hover",
+      "semantic_tokens",
+      "formatting",
+      "diagnostics",
+      "completion"
+    ],
+    "detection_time": 1759577380.555359,
+    "last_accessed": 1759577380.55536,
+    "lsp_name": "typescript-language-server",
+    "priority": 10,
+    "supported_extensions": [
+      ".ts",
+      ".tsx",
+      ".js",
+      ".jsx",
+      ".mjs",
+      ".cjs"
+    ],
+    "version": null
+  },
+  "zls": {
+    "access_count": 0,
+    "binary_path": "/usr/local/bin/pylsp",
+    "capabilities": [
+      "completion",
+      "hover",
+      "diagnostics",
+      "semantic_tokens"
+    ],
+    "detection_time": 1759577380.832833,
+    "last_accessed": 1759577380.832834,
+    "lsp_name": "zls",
+    "priority": 9,
+    "supported_extensions": [
+      ".zig"
+    ],
+    "version": null
   }
 }

@@ -6,7 +6,7 @@ use serde::{Deserialize, Serialize};
 use std::time::Duration;
 use std::path::PathBuf;
 use crate::storage::StorageConfig;
-use crate::queue_processor::ProcessorConfig;
+use crate::queue_types::ProcessorConfig;
 use chrono::Duration as ChronoDuration;
 
 /// Auto-ingestion configuration
