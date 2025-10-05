@@ -12,7 +12,7 @@ use chrono::{DateTime, Utc};
 use git2::Repository;
 use notify::{Event, EventKind, RecursiveMode, Watcher as NotifyWatcher};
 use sha2::{Sha256, Digest};
-use sqlx::SqlitePool;
+use sqlx::{Row, SqlitePool};
 use tokio::sync::{mpsc, RwLock, Mutex};
 use tokio::time::interval;
 use tracing::{debug, error, info, warn};
